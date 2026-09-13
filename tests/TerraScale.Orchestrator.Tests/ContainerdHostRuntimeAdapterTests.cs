@@ -7,6 +7,13 @@ public sealed class ContainerdHostRuntimeAdapterTests
     private const string Digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
+    public async Task AdapterRequiresAContainerdClient()
+    {
+        await Assert.That(() => new ContainerdHostRuntimeAdapter(null!))
+            .Throws<ArgumentNullException>();
+    }
+
+    [Test]
     public async Task AbsentAllocationIsPulledByDigestCreatedWithSecurityAndStarted()
     {
         var client = new RecordingContainerdClient { PulledDigest = Digest };
@@ -153,4 +160,3 @@ public sealed class ContainerdHostRuntimeAdapterTests
         }
     }
 }
-

@@ -144,36 +144,38 @@ public sealed record HostRuntimePlan(
         var configurationProperty = descriptor.Role == AdmittedRole.Orchestrator
             ? $"Environment=TS_ORCH_CONFIG={stateDirectory}/config.json"
             : $"EnvironmentFile=-{stateDirectory}/environment";
+        var properties = new[]
+        {
+            "Type=exec",
+            "Restart=always",
+            "RestartSec=5s",
+            "NoNewPrivileges=yes",
+            "PrivateTmp=yes",
+            "ProtectSystem=strict",
+            "ProtectHome=yes",
+            "ProtectKernelTunables=yes",
+            "ProtectKernelModules=yes",
+            "ProtectControlGroups=yes",
+            "RestrictSUIDSGID=yes",
+            "LockPersonality=yes",
+            $"StateDirectory=terrascale-{allocation}",
+            $"RuntimeDirectory=terrascale-{allocation}",
+            configurationProperty,
+            $"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred",
+            $"MemoryMax={resources.MemoryMaxBytes}",
+            $"MemoryHigh={resources.MemoryHighBytes}",
+            $"MemorySwapMax={resources.MemorySwapMaxBytes}",
+            $"TasksMax={resources.TasksMax}",
+            $"CPUQuota={resources.CpuQuotaPercent}%",
+            $"CPUWeight={resources.CpuWeight}",
+            $"IOWeight={resources.IoWeight}",
+            $"Nice={resources.Nice}"
+        };
         return new(
             unit,
             executable,
-            arguments,
-            [
-                "Type=exec",
-                "Restart=always",
-                "RestartSec=5s",
-                "NoNewPrivileges=yes",
-                "PrivateTmp=yes",
-                "ProtectSystem=strict",
-                "ProtectHome=yes",
-                "ProtectKernelTunables=yes",
-                "ProtectKernelModules=yes",
-                "ProtectControlGroups=yes",
-                "RestrictSUIDSGID=yes",
-                "LockPersonality=yes",
-                $"StateDirectory=terrascale-{allocation}",
-                $"RuntimeDirectory=terrascale-{allocation}",
-                configurationProperty,
-                $"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred",
-                $"MemoryMax={resources.MemoryMaxBytes}",
-                $"MemoryHigh={resources.MemoryHighBytes}",
-                $"MemorySwapMax={resources.MemorySwapMaxBytes}",
-                $"TasksMax={resources.TasksMax}",
-                $"CPUQuota={resources.CpuQuotaPercent}%",
-                $"CPUWeight={resources.CpuWeight}",
-                $"IOWeight={resources.IoWeight}",
-                $"Nice={resources.Nice}"
-            ]);
+            Array.AsReadOnly(arguments),
+            Array.AsReadOnly(properties));
     }
 
     private static OciExecutionPlan CreateOci(
@@ -191,7 +193,7 @@ public sealed record HostRuntimePlan(
                 65532,
                 true,
                 true,
-                ["ALL"],
+                Array.AsReadOnly(new[] { "ALL" }),
                 "terrascale-default-v1",
                 $"terrascale/{allocation}"),
             resources);
@@ -256,4 +258,3 @@ internal static class RuntimeResourceLimitPolicy
         return requested;
     }
 }
-

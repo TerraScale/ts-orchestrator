@@ -6,6 +6,23 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class ProcessLifecycleTests
 {
     [Test]
+    public async Task CommandOutputCaptureDrainsAfterItsBound()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return;
+        }
+
+        var result = await new ProcessHostCommandRunner().RunAsync(
+            TestHostExecutables.Resolve("bash"),
+            ["-c", "printf '%0100000d' 0"],
+            CancellationToken.None);
+
+        await Assert.That(result.ExitCode).IsEqualTo(0);
+        await Assert.That(result.StandardOutput.Length).IsEqualTo(64 * 1024);
+    }
+
+    [Test]
     public async Task CancellationStopsDescendants()
     {
         if (!OperatingSystem.IsLinux())
@@ -93,4 +110,3 @@ public sealed class ProcessLifecycleTests
         }
     }
 }
-

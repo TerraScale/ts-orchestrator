@@ -152,13 +152,16 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
                 }
             };
         var client = new NatsClient(clientOptions);
-        // Bounded startup: the NATS client's TLS handshake path has no internal
-        // timeout, so a wedged handshake must surface as a fast failure here —
-        // observability startup may never hang, retry-storm, or block control.
-        await client.ConnectAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10));
-        var runtime = new NatsMonitoringRuntime(options, telemetry, directory, client);
+        NatsMonitoringRuntime? runtime = null;
         try
         {
+            // Bounded startup: the NATS client's TLS handshake path has no internal
+            // timeout, so a wedged handshake must surface as a fast failure here —
+            // observability startup may never hang, retry-storm, or block control.
+            // The caller's cancellation remains authoritative within that bound.
+            await client.ConnectAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            runtime = new NatsMonitoringRuntime(options, telemetry, directory, client);
             // The advisory subscriptions are bound to the runtime's own stopping
             // token, never to the startup-scoped cancellation: they must live and
             // die with the observer, not with whoever started it.
@@ -167,11 +170,26 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
             // The telemetry attachment makes the bounded NATS gauges live: without
             // it the instruments would exist but never observe anything.
             telemetry?.ObserveNats(() => runtime.Current);
+            cancellationToken.ThrowIfCancellationRequested();
             return runtime;
         }
         catch
         {
-            await runtime.DisposeAsync();
+            // Startup owns the client until the runtime has been fully composed.
+            // A canceled or failed handshake must release it even though no
+            // runtime instance is available to perform normal disposal.
+            try
+            {
+                if (runtime is not null)
+                    await runtime.DisposeAsync();
+                else
+                    await client.DisposeAsync();
+            }
+            catch
+            {
+                // Preserve the startup failure as the actionable error; cleanup
+                // is best effort at this boundary.
+            }
             throw;
         }
     }
@@ -236,15 +254,28 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
 
     private async Task ConsumeAdvisoriesAsync(string subject, CancellationToken cancellationToken)
     {
-        await foreach (var message in client.SubscribeAsync<byte[]>(
-                           subject,
-                           serializer: NatsMonitoringPayload.DiscardDeserializer,
-                           opts: AdvisorySubscriptionOptions(),
-                           cancellationToken: cancellationToken))
+        try
         {
-            // Advisory payloads can carry account or identity context; only the
-            // bounded kind classification and a count survive this boundary.
-            RecordAdvisory(NatsMonitoringClassifier.ClassifyAdvisory(message.Subject));
+            await foreach (var message in client.SubscribeAsync<byte[]>(
+                               subject,
+                               serializer: NatsMonitoringPayload.DiscardDeserializer,
+                               opts: AdvisorySubscriptionOptions(),
+                               cancellationToken: cancellationToken))
+            {
+                // Advisory payloads can carry account or identity context; only the
+                // bounded kind classification and a count survive this boundary.
+                RecordAdvisory(NatsMonitoringClassifier.ClassifyAdvisory(message.Subject));
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Normal observer shutdown.
+        }
+        catch
+        {
+            // Advisory loss affects only advisory counters. It cannot fault the
+            // observation loop or regional control. A future runtime instance can
+            // establish a fresh subscription without retaining this failed loop.
         }
     }
 
@@ -705,10 +736,16 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
         // Dispose the client first: connection teardown is what ends the advisory
         // subscriptions, so awaiting the loops before disposing them would wait on
         // enumerations that only the disposed connection can complete.
-        await client.DisposeAsync();
-        foreach (var loop in advisoryLoops) await IgnoreMonitoringFailureAsync(loop);
-        if (runLoop is not null) await IgnoreMonitoringFailureAsync(runLoop);
-        stopping.Dispose();
+        try
+        {
+            await client.DisposeAsync();
+        }
+        finally
+        {
+            foreach (var loop in advisoryLoops) await IgnoreMonitoringFailureAsync(loop);
+            if (runLoop is not null) await IgnoreMonitoringFailureAsync(runLoop);
+            stopping.Dispose();
+        }
     }
 
     private static async Task IgnoreMonitoringFailureAsync(Task loop)

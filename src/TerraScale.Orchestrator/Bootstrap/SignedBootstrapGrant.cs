@@ -13,12 +13,14 @@ namespace TerraScale.Orchestrator.Bootstrap;
 public sealed record SignedBootstrapGrant
 {
     public const string SigningAlgorithm = "ECDSA-P256-SHA256";
+    private const int MaximumSignatureTextLength = 1024;
 
     public SignedBootstrapGrant(string payloadText, string algorithm, string signature)
     {
         ArgumentException.ThrowIfNullOrEmpty(payloadText);
         ArgumentException.ThrowIfNullOrEmpty(signature);
-        if (algorithm != SigningAlgorithm || !IsBase64(signature))
+        if (payloadText.Length > BootstrapGrantCanonical.MaximumEncodedLength ||
+            algorithm != SigningAlgorithm || !IsBase64(signature))
             throw new ArgumentException("A signed grant requires the pinned algorithm and a base64 signature.");
         PayloadText = payloadText;
         Algorithm = algorithm;
@@ -35,10 +37,12 @@ public sealed record SignedBootstrapGrant
 
     private static bool IsBase64(string value)
     {
+        if (value.Length > MaximumSignatureTextLength)
+            return false;
         try
         {
-            _ = Convert.FromBase64String(value);
-            return true;
+            var bytes = Convert.FromBase64String(value);
+            return bytes.Length > 0 && Convert.ToBase64String(bytes) == value;
         }
         catch (FormatException)
         {
@@ -107,16 +111,27 @@ public static class BootstrapWorkloadIdentity
 
 public sealed class BootstrapWorkloadCertificate : IDisposable
 {
+    private readonly byte[] subjectPublicKeyInfo;
+
     public BootstrapWorkloadCertificate(X509Certificate2 certificate, ECDsa privateKey)
     {
         Certificate = certificate ?? throw new ArgumentNullException(nameof(certificate));
         this.privateKey = privateKey ?? throw new ArgumentNullException(nameof(privateKey));
+        BootstrapTrustBundleKey.RequireP256(this.privateKey);
+        using var publicKey = Certificate.GetECDsaPublicKey();
+        if (publicKey is null)
+            throw new ArgumentException("The workload certificate must carry an ECDSA public key.", nameof(certificate));
+        BootstrapTrustBundleKey.RequireP256(publicKey);
+        subjectPublicKeyInfo = publicKey.ExportSubjectPublicKeyInfo();
+        var privateSubjectPublicKeyInfo = this.privateKey.ExportSubjectPublicKeyInfo();
+        if (!CryptographicOperations.FixedTimeEquals(subjectPublicKeyInfo, privateSubjectPublicKeyInfo))
+            throw new ArgumentException("The workload certificate and private key must identify the same public key.", nameof(privateKey));
     }
 
     public X509Certificate2 Certificate { get; }
 
-    /// <summary>The exact SubjectPublicKeyInfo bytes the certificate wraps, taken from the key itself.</summary>
-    public byte[] ExportSubjectPublicKeyInfo() => privateKey.ExportSubjectPublicKeyInfo();
+    /// <summary>The exact SubjectPublicKeyInfo bytes carried by the certificate.</summary>
+    public byte[] ExportSubjectPublicKeyInfo() => subjectPublicKeyInfo.ToArray();
 
     public BootstrapCertificateFingerprint Fingerprint() =>
         BootstrapWorkloadIdentity.CertificateFingerprint(ExportSubjectPublicKeyInfo());
@@ -129,4 +144,3 @@ public sealed class BootstrapWorkloadCertificate : IDisposable
 
     private readonly ECDsa privateKey;
 }
-

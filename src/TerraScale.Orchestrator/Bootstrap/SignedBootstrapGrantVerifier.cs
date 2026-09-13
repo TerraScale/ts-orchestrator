@@ -134,7 +134,7 @@ public static class SignedBootstrapGrantVerifier
         {
             payload = grant.ParsePayload();
         }
-        catch (FormatException)
+        catch (Exception exception) when (exception is FormatException or ArgumentException or OverflowException)
         {
             return Deny(SignedBootstrapGrantDecision.NonCanonicalPayload, null, null);
         }
@@ -205,7 +205,7 @@ public static class SignedBootstrapGrantVerifier
         {
             payload = grant.ParsePayload();
         }
-        catch (FormatException)
+        catch (Exception exception) when (exception is FormatException or ArgumentException or OverflowException)
         {
             return (Deny(SignedBootstrapGrantDecision.NonCanonicalPayload, null, null), null);
         }
@@ -222,7 +222,9 @@ public static class SignedBootstrapGrantVerifier
             return (Deny(SignedBootstrapGrantDecision.InvalidSignature, payload.KeyId, payload.KeyVersion), payload);
         if (key.AcceptedUntil is { } pinned && payload.ExpiresAt > pinned)
             return (Deny(SignedBootstrapGrantDecision.RotationWindowExceeded, payload.KeyId, payload.KeyVersion), payload);
-        if (payload.ExpiresAt <= payload.IssuedAt || now < payload.IssuedAt || now >= payload.ExpiresAt)
+        if (payload.ExpiresAt <= payload.IssuedAt)
+            return (Deny(SignedBootstrapGrantDecision.InvalidValidityWindow, payload.KeyId, payload.KeyVersion), payload);
+        if (now < payload.IssuedAt || now >= payload.ExpiresAt)
             return (Deny(SignedBootstrapGrantDecision.Expired, payload.KeyId, payload.KeyVersion), payload);
 
         return (new SignedBootstrapGrantVerification(SignedBootstrapGrantDecision.Authorized, payload.KeyId, payload.KeyVersion, true), payload);
@@ -251,4 +253,3 @@ public static class SignedBootstrapGrantVerifier
     private static SignedBootstrapGrantVerification Deny(SignedBootstrapGrantDecision decision, string? keyId, ulong? keyVersion) =>
         new(decision, keyId, keyVersion, false);
 }
-

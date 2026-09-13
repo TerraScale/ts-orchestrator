@@ -13,6 +13,9 @@ namespace TerraScale.Orchestrator.Bootstrap;
 /// </summary>
 internal static class BootstrapGrantCanonical
 {
+    internal const int MaximumEncodedLength = 8 * 1024;
+    private const int MaximumFieldLength = 1024;
+
     public static string Encode(params object[] fields)
     {
         ArgumentNullException.ThrowIfNull(fields);
@@ -33,6 +36,8 @@ internal static class BootstrapGrantCanonical
     public static List<string> Parse(string text)
     {
         ArgumentException.ThrowIfNullOrEmpty(text);
+        if (text.Length > MaximumEncodedLength)
+            throw new FormatException("A bootstrap grant payload exceeds the canonical size limit.");
         var records = new List<string>();
         var position = 0;
         while (position < text.Length)
@@ -44,8 +49,11 @@ internal static class BootstrapGrantCanonical
                 throw new FormatException("A canonical record length must be a bounded decimal.");
             var length = int.Parse(lengthText, CultureInfo.InvariantCulture);
             var valueStart = separator + 1;
+            if (length > MaximumFieldLength || valueStart >= text.Length ||
+                length > text.Length - valueStart - 1)
+                throw new FormatException("A canonical record value exceeds its bounded length.");
             var valueEnd = valueStart + length;
-            if (valueEnd >= text.Length || text[valueEnd] != ';')
+            if (text[valueEnd] != ';')
                 throw new FormatException("A canonical record must end exactly after its declared length.");
             records.Add(text[valueStart..valueEnd]);
             position = valueEnd + 1;
@@ -78,4 +86,3 @@ internal static class BootstrapGrantCanonical
         builder.Append(';');
     }
 }
-

@@ -112,5 +112,26 @@ public sealed class HostRuntimePlanTests
         await Assert.That(() => new ArtifactDigest("latest")).Throws<ArgumentException>();
         await Assert.That(() => HostRuntimeCli.ParseRole("arbitrary-container")).Throws<ArgumentException>();
     }
-}
 
+    [Test]
+    public async Task GeneratedPlanCollectionsCannotBeMutatedThroughReadOnlyInterfaces()
+    {
+        var nativePlan = HostRuntimePlan.Create(
+            AdmittedRole.Orchestrator,
+            RuntimeDriver.NativeSystemd,
+            new RuntimeAllocationId("gru-orchestrator-1"),
+            new ArtifactDigest(Digest),
+            HostArchitecture.Arm64);
+        var ociPlan = HostRuntimePlan.Create(
+            AdmittedRole.CustomerDashboard,
+            RuntimeDriver.OciContainer,
+            new RuntimeAllocationId("gru-dashboard-1"),
+            new ArtifactDigest(Digest),
+            HostArchitecture.Arm64);
+
+        await Assert.That(() => ((IList<string>)nativePlan.Systemd!.Properties).Add("Environment=INJECTED=value"))
+            .Throws<NotSupportedException>();
+        await Assert.That(() => ((IList<string>)ociPlan.Oci!.Security.DroppedCapabilities).Add("SYS_ADMIN"))
+            .Throws<NotSupportedException>();
+    }
+}

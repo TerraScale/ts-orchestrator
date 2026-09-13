@@ -286,6 +286,38 @@ public sealed class SignedBootstrapGrantVerificationTests
     }
 
     [Test]
+    public async Task Malformed_typed_payload_is_rejected_without_escaping_the_verifier()
+    {
+        using var lab = new GrantLab();
+        var grant = lab.SignCurrent();
+        var malformedPayload = grant.PayloadText.Replace(
+            Audience,
+            Audience.ToUpperInvariant(),
+            StringComparison.Ordinal);
+        var malformed = new SignedBootstrapGrant(
+            malformedPayload,
+            grant.Algorithm,
+            grant.Signature);
+
+        var result = Verify(lab, malformed, lab.Request());
+
+        await Assert.That(result.Decision).IsEqualTo(SignedBootstrapGrantDecision.NonCanonicalPayload);
+        await Assert.That(result.Authorized).IsFalse();
+    }
+
+    [Test]
+    public async Task Workload_certificate_binding_rejects_a_different_private_key()
+    {
+        using var workload = TestWorkloadCertificateFactory.Issue(Now.AddMinutes(-5), Now.AddMinutes(30));
+        using var otherKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+
+        var error = Assert.Throws<ArgumentException>(() =>
+            new BootstrapWorkloadCertificate(workload.Certificate, otherKey));
+
+        await Assert.That(error).IsNotNull();
+    }
+
+    [Test]
     public async Task Canonical_payload_is_deterministic_and_round_trips()
     {
         using var lab = new GrantLab();
@@ -530,4 +562,3 @@ public sealed class SignedBootstrapGrantVerificationTests
         }
     }
 }
-

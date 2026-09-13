@@ -12,8 +12,8 @@
 | --- | --- |
 | Contract version | 1 |
 | Ratified by | `TerraScale.Orchestrator` contract review |
-| Machine-readable definitions | `src/orchestrator/protocol/durable_work_inventory.go` (typed inventory), `messaging_delivery_semantics.go` (bounded redelivery, duplicate windows, poisoning, queue-group ownership) |
-| Drift binding | Go protocol tests pin completeness and policy binding; Go control tests bind the table to the provisioning topologies (`NatsTopology`, `GlobalNatsTopology`) and every consumer name a runtime reconciles |
+| Machine-readable definitions | `src/TerraScale.Orchestrator/Protocol/Messaging/DurableWorkInventory.cs` (typed inventory), `MessagingDeliverySemantics.cs` (bounded redelivery, duplicate windows, poisoning, queue-group ownership) |
+| Drift binding | C# protocol tests pin completeness and policy binding; runtime tests bind the table to the provisioning topologies (`NatsTopology`, `GlobalNatsTopology`) and every consumer name a runtime reconciles |
 | Canonicality | `docs/contracts/nats-capability-matrix.md` remains the ONE canonical NATS capability contract; this document is the canonical per-stream, per-consumer inventory beneath it and defers to it on capability dispositions |
 
 Delivery claim: **effectively-once mutation through operation-level idempotency keys and fencing — never exactly-once delivery.** Message-id transport windows (2 min) suppress transport-level replays only; a duplicate outside the window is admitted and the idempotency key decides the effect.
@@ -21,7 +21,7 @@ Delivery claim: **effectively-once mutation through operation-level idempotency 
 ## 1. Durable streams
 
 The table records the ordinary profiles currently declared by
-`src/orchestrator/protocol/durable_work_inventory.go`. `Domain` is the existing
+`src/TerraScale.Orchestrator/Protocol/Messaging/DurableWorkInventory.cs`. `Domain` is the existing
 profile classification and `R` is its declared replica count; neither proves
 that a separate regional cluster is installed or required for every Region.
 

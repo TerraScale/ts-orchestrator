@@ -333,8 +333,30 @@ public static class DeliveryWireCodec
         if (string.IsNullOrWhiteSpace(json))
             throw new JsonException("The delivery request document is empty.");
 
-        return JsonSerializer.Deserialize<DeliveryRequest>(json, JsonOptions)
+        using var document = JsonDocument.Parse(json);
+        RejectDuplicateProperties(document.RootElement, "$");
+        return JsonSerializer.Deserialize<DeliveryRequest>(document.RootElement.GetRawText(), JsonOptions)
             ?? throw new JsonException("The delivery request document is null.");
+    }
+
+    private static void RejectDuplicateProperties(JsonElement element, string path)
+    {
+        if (element.ValueKind is JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
+            {
+                if (!names.Add(property.Name))
+                    throw new JsonException($"The delivery request repeats property '{path}.{property.Name}'.");
+                RejectDuplicateProperties(property.Value, $"{path}.{property.Name}");
+            }
+        }
+        else if (element.ValueKind is JsonValueKind.Array)
+        {
+            var index = 0;
+            foreach (var item in element.EnumerateArray())
+                RejectDuplicateProperties(item, $"{path}[{index++}]");
+        }
     }
 
     private static JsonSerializerOptions CreateOptions() => new(JsonSerializerDefaults.Web)
@@ -345,4 +367,3 @@ public static class DeliveryWireCodec
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 }
-

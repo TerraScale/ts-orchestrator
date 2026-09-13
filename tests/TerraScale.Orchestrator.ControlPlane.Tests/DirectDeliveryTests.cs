@@ -142,6 +142,20 @@ public sealed class DirectDeliveryTests
     }
 
     [Test]
+    public async Task Duplicate_json_properties_fail_before_authorization_or_mutation()
+    {
+        var target = new RecordingTarget();
+        var coordinator = Coordinator(target, new InMemoryDeliveryJournal(), authorized: false);
+        var duplicate = DeliveryWireCodec.SerializeRequest(Request())
+            .Replace("\"operationId\":\"operation-1\"", "\"operationId\":\"operation-1\",\"operationId\":\"operation-1\"", StringComparison.Ordinal);
+
+        var receipt = await coordinator.DeliverJsonAsync(duplicate);
+
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.InvalidInput);
+        await Assert.That(target.Calls).IsEmpty();
+    }
+
+    [Test]
     public async Task Failed_rollback_remains_failed_and_redacts_adapter_details()
     {
         var target = new RecordingTarget { FailHealthInRegion = "sfo", FailRollbackInRegion = "gru" };
@@ -1906,4 +1920,3 @@ public sealed class DirectDeliveryTests
         }
     }
 }
-

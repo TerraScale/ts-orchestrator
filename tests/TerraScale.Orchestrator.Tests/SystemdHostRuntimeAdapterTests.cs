@@ -7,6 +7,13 @@ public sealed class SystemdHostRuntimeAdapterTests
     private const string Digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
+    public async Task AdapterRequiresACommandRunner()
+    {
+        await Assert.That(() => new SystemdHostRuntimeAdapter(null!))
+            .Throws<ArgumentNullException>();
+    }
+
+    [Test]
     public async Task ConvergeUsesArgumentListsAndEveryCatalogSecurityProperty()
     {
         var runner = new RecordingRunner(
@@ -123,4 +130,3 @@ public sealed class SystemdHostRuntimeAdapterTests
         }
     }
 }
-

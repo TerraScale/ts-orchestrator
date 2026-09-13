@@ -126,13 +126,27 @@ public static class AdmittedRoleCatalog
         bool onePerHost,
         int minimumReplicas,
         params RoleCapability[] capabilities) =>
-        new(role, artifactKey, RuntimeDriver.NativeSystemd, [RuntimeDriver.NativeSystemd], capabilities, onePerHost, minimumReplicas);
+        new(
+            role,
+            artifactKey,
+            RuntimeDriver.NativeSystemd,
+            ReadOnly(RuntimeDriver.NativeSystemd),
+            ReadOnly(capabilities),
+            onePerHost,
+            minimumReplicas);
 
     private static AdmittedRoleDescriptor Oci(
         AdmittedRole role,
         string artifactKey,
         params RoleCapability[] capabilities) =>
-        new(role, artifactKey, RuntimeDriver.OciContainer, [RuntimeDriver.OciContainer], capabilities, false, 1);
+        new(
+            role,
+            artifactKey,
+            RuntimeDriver.OciContainer,
+            ReadOnly(RuntimeDriver.OciContainer),
+            ReadOnly(capabilities),
+            false,
+            1);
 
     private static AdmittedRoleDescriptor Both(
         AdmittedRole role,
@@ -145,9 +159,11 @@ public static class AdmittedRoleCatalog
             role,
             artifactKey,
             defaultDriver,
-            [RuntimeDriver.NativeSystemd, RuntimeDriver.OciContainer],
-            capabilities,
+            ReadOnly(RuntimeDriver.NativeSystemd, RuntimeDriver.OciContainer),
+            ReadOnly(capabilities),
             onePerHost,
             minimumReplicas);
-}
 
+    private static IReadOnlyList<T> ReadOnly<T>(params T[] values) =>
+        Array.AsReadOnly(values);
+}

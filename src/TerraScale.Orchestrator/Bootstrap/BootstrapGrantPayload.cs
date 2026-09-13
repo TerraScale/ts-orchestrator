@@ -11,10 +11,13 @@ public sealed record BootstrapUlid
 {
     private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-    public BootstrapUlid(string value) =>
+    public BootstrapUlid(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
         Value = value.Length == 26 && value.All(Alphabet.Contains)
             ? value
             : throw new ArgumentException("A bootstrap ULID must be 26 uppercase Crockford base 32 characters.", nameof(value));
+    }
 
     public string Value { get; }
 
@@ -174,14 +177,25 @@ public sealed record BootstrapGrantPayload
         var operations = records.Skip(FixedFieldCount + 1).ToArray();
         if (operations.Distinct(StringComparer.Ordinal).Count() != operations.Length)
             throw new FormatException("Allowed operations must be distinct.");
-        return new BootstrapGrantPayload(
-            records[1], records[2], records[3], keyVersion, records[5],
-            new BootstrapSystemProjectUlds(new BootstrapUlid(records[6]), new BootstrapUlid(records[7]), new BootstrapUlid(records[8])),
-            records[9],
-            new BootstrapCertificateFingerprint(records[10]),
-            new DateTimeOffset(issuedTicks, TimeSpan.Zero),
-            new DateTimeOffset(expiresTicks, TimeSpan.Zero),
-            operations);
+        try
+        {
+            return new BootstrapGrantPayload(
+                records[1], records[2], records[3], keyVersion, records[5],
+                new BootstrapSystemProjectUlds(new BootstrapUlid(records[6]), new BootstrapUlid(records[7]), new BootstrapUlid(records[8])),
+                records[9],
+                new BootstrapCertificateFingerprint(records[10]),
+                new DateTimeOffset(issuedTicks, TimeSpan.Zero),
+                new DateTimeOffset(expiresTicks, TimeSpan.Zero),
+                operations);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new FormatException("The bootstrap grant payload contains an invalid typed value.", exception);
+        }
+        catch (OverflowException exception)
+        {
+            throw new FormatException("The bootstrap grant payload contains an invalid numeric value.", exception);
+        }
     }
 
     private static IReadOnlyList<string> ValidateOperations(IReadOnlyList<string> allowedOperations)
@@ -190,10 +204,11 @@ public sealed record BootstrapGrantPayload
         var values = allowedOperations.ToArray();
         if (values.Length is < 1 or > MaximumOperations || values.Any(string.IsNullOrEmpty))
             throw new ArgumentException("A grant must allow between one and sixteen named operations.", nameof(allowedOperations));
+        foreach (var operation in values)
+            BootstrapGrantCanonical.ValidateToken(operation, nameof(allowedOperations));
         if (values.Distinct(StringComparer.Ordinal).Count() != values.Length)
             throw new ArgumentException("A grant cannot repeat an operation.", nameof(allowedOperations));
         Array.Sort(values, StringComparer.Ordinal);
         return values;
     }
 }
-

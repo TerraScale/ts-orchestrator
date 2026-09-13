@@ -15,6 +15,23 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsMonitoringRuntimeRoundTests
 {
     [Test]
+    public async Task Canceled_startup_honors_the_callers_token()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.That(async () => await NatsMonitoringRuntime.StartAsync(
+                new NatsMonitoringRuntimeOptions(
+                    "nats://127.0.0.1:1",
+                    "gru",
+                    NatsMonitoringPlane.Control,
+                    NatsClusterRole.Regional,
+                    ["gru"]),
+                cancellationToken: cancellation.Token))
+            .Throws<OperationCanceledException>();
+    }
+
+    [Test]
     public async Task A_throwing_round_degrades_and_is_retried_never_killing_the_loop()
     {
         var runtime = NewRuntime();
@@ -106,4 +123,3 @@ public sealed class NatsMonitoringRuntimeRoundTests
         [],
         []);
 }
-
