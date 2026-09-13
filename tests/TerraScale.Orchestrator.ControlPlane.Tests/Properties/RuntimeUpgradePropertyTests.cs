@@ -236,7 +236,7 @@ internal static class RuntimeUpgradeCorpus
 {
     internal const int MaximumIdLength = 64;
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.RuntimeUpgradeReplayCorpus.v1.json";
-    private const string Digest = "d869460ff66604d33babe48d443351ce3de201ab046789e55afe985b27279376";
+    private const string Digest = "4f183e30f54aee83674bdbba3c44cd3a59599c2c073ffb305f47e80397ccc55f";
     internal static IReadOnlyList<RuntimeUpgradeEntry> Load() { using var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream(Resource) ?? throw new InvalidDataException(); return Parse(ReadBounded(stream), true); }
     internal static byte[] ReadBounded(Stream stream) { using var output = new MemoryStream(); var buffer = new byte[1024]; var total = 0; while (true) { var read = stream.Read(buffer); if (read == 0) break; total = checked(total + read); if (total > 8192) throw new InvalidDataException(); output.Write(buffer, 0, read); } return output.ToArray(); }
     internal static IReadOnlyList<RuntimeUpgradeEntry> Parse(byte[] bytes, bool enforceDigest)
@@ -259,4 +259,3 @@ internal static class RuntimeUpgradeCorpus
     }
     private static void Exact(JsonElement element, params string[] names) { var actual = element.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal); if (!actual.SequenceEqual(names.Order(StringComparer.Ordinal), StringComparer.Ordinal)) throw new InvalidDataException(); }
 }
-

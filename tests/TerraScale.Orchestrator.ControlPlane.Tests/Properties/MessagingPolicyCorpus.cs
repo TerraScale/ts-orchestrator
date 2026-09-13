@@ -12,7 +12,7 @@ internal sealed record MessagingCorpusResult(MessagingCorpusCode Code, IReadOnly
 internal static class MessagingPolicyCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.MessagingPolicyReplayCorpus.v1.json";
-    private const string ResourceDigest = "2dbee32886e47ab9ee7a59f515a5183f9db764f10d788f34e2be592399f536af";
+    private const string ResourceDigest = "40b2cd69620a39441534200c04f37309d45ad3dbecd292274498a02bc128893c";
     private const int MaximumBytes = 32_768;
     private const int MaximumEntries = 64;
     private const int MaximumIdLength = 64;
@@ -101,4 +101,3 @@ internal static class MessagingPolicyCorpus
     private static MessagingCorpusResult Result(MessagingCorpusCode code, IEnumerable<MessagingCorpusEntry> entries) =>
         new(code, new ReadOnlyCollection<MessagingCorpusEntry>(entries.ToArray()));
 }
-

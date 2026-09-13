@@ -290,7 +290,7 @@ internal sealed record CiCorpusResult(CiCorpusCode Code, IReadOnlyList<CiCorpusE
 internal static class CiDecisionCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.CiDecisionReplayCorpus.v1.json";
-    private const string Digest = "36f8b90e91d94e3ae0c03d2c45dd2372aa3ad5df2226aa377131b2f8abf22431";
+    private const string Digest = "1f676fad95057fdc345e4444566736c1aded790c18f2602b7f56aa4e4c05daef";
     private const int MaximumBytes = 32_768;
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal) { "version", "entries" };
     private static readonly HashSet<string> EntryFields = new(StringComparer.Ordinal) { "id", "seed", "scenario", "expected" };
@@ -370,4 +370,3 @@ internal static class CiDecisionCorpus
             properties.Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() == properties.Length;
     }
 }
-

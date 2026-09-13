@@ -316,7 +316,7 @@ internal sealed record BudgetProviderReplayItem(string Id, string Domain, string
 internal static class BudgetProviderReplayCorpus
 {
     private const string ResourceName = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.BudgetProviderReplayCorpus.v1.json";
-    private const string Sha256 = "616710fb64287b2d947e1aa6f27f52101cf483d3a92948b754c4cec0936d9a98";
+    private const string Sha256 = "2b077ff507d694337065929aceae8da2c9a5259e620438021a11d1bfa3811ef6";
     private const int MaximumBytes = 16_384;
     private static readonly HashSet<string> PropertyNames = new(StringComparer.Ordinal)
         { "Id", "Domain", "Mode", "Current", "Delta", "Expected" };
@@ -413,4 +413,3 @@ internal static class BudgetProviderReplayCorpus
 
     private static InvalidDataException Invalid() => new("Replay corpus content is invalid.");
 }
-

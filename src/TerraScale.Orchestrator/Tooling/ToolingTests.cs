@@ -630,9 +630,9 @@ internal static class ToolingTests
                 OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet",
                 StringComparison.OrdinalIgnoreCase))
         {
-            var assemblyPath = typeof(ToolingTests).Assembly.Location;
-            if (string.IsNullOrWhiteSpace(assemblyPath))
-                throw new InvalidOperationException("The tooling assembly path is unavailable.");
+            var assemblyPath = Path.Combine(AppContext.BaseDirectory, "terrascale-orchestrator.dll");
+            if (!File.Exists(assemblyPath))
+                throw new InvalidOperationException("The orchestrator assembly path is unavailable.");
 
             holder.StartInfo.ArgumentList.Add(assemblyPath);
         }
@@ -809,4 +809,3 @@ internal static class ToolingTests
         throw new InvalidOperationException($"expected {typeof(TException).Name}");
     }
 }
-

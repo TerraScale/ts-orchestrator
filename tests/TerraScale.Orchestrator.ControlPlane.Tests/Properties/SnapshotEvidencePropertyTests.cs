@@ -319,7 +319,7 @@ internal sealed record SnapshotEvidenceReplayItem(string Id, string Domain, long
 internal static class SnapshotEvidenceReplayCorpus
 {
     private const string ResourceName = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SnapshotEvidenceReplayCorpus.v1.json";
-    private const string ExpectedSha256 = "96026ea966b421af73833a78590e8ef75ea154a28cf64b78eb7ad901ee1197c0";
+    private const string ExpectedSha256 = "c34bb68e77079c98a3bccc69b44e1d17aa5d385456c3261b88c7289e18b9bdb5";
     private const int MaximumBytes = 16_384;
     private static readonly string[] Names = ["Id", "Domain", "Current", "Candidate", "Baseline", "Position", "Expected"];
     internal static IReadOnlyList<SnapshotEvidenceReplayItem> Load()
@@ -382,4 +382,3 @@ internal static class SnapshotEvidenceReplayCorpus
     private static long Number(JsonElement value) => value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number) ? number : throw Invalid();
     private static InvalidDataException Invalid() => new("Snapshot/evidence replay corpus is invalid.");
 }
-

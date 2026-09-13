@@ -14,7 +14,7 @@ internal sealed record DeliveryTerraBaseCorpusResult(DeliveryTerraBaseCorpusCode
 internal static class DeliveryTerraBaseCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.DeliveryTerraBaseReplayCorpus.v1.json";
-    private const string ResourceDigest = "c54487a136d08abab940410d3c936bcbe8ca7d659435e41753c0039581013ed4";
+    private const string ResourceDigest = "9b17c6aeae477a8a7ac652a3c0bb22e8ef18b7b3770b21026d5bf20bb1396562";
     private const int MaximumBytes = 32_768;
     private const int MaximumEntries = 64;
     private const int MaximumText = 96;
@@ -128,4 +128,3 @@ internal static class DeliveryTerraBaseCorpus
         IEnumerable<DeliveryTerraBaseCorpusEntry> entries) => new(code,
         new ReadOnlyCollection<DeliveryTerraBaseCorpusEntry>(entries.ToArray()));
 }
-

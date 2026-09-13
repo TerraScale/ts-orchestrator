@@ -238,7 +238,7 @@ internal sealed record SecurityPolicyReplayEntry(string Id, ulong Seed, string K
 internal static class SecurityPolicyReplayCorpus
 {
     private const string Resource = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.SecurityPolicyReplayCorpus.v1.json";
-    private const string Digest = "c074e04206a4f260aaba2eef033e51fde9c9e03f67dc8b3e064beddc4c9833ef";
+    private const string Digest = "bed9281e47172b78d2a78c7d1b6134f5bdb8ebae96a0667804aeec6d65d6cb91";
     private const int MaximumBytes = 32768;
     private static readonly IReadOnlyDictionary<string, int> MaximumVariants = new Dictionary<string, int>(StringComparer.Ordinal)
     { ["enrollment"] = 18, ["certificate"] = 15, ["authorization"] = 9, ["lease"] = 11, ["survival"] = 11 };
@@ -290,4 +290,3 @@ internal static class SecurityPolicyReplayCorpus
         if (!actual.SequenceEqual(expected.Order(StringComparer.Ordinal), StringComparer.Ordinal)) throw new InvalidDataException("Replay shape mismatch.");
     }
 }
-
