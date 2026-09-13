@@ -85,7 +85,7 @@ func TestProductionCanaryProbeRequiresPrivateFixtureReferences(t *testing.T) {
 		CanaryForeignTokenFile:  write("foreign", "foreign-token"),
 		CanaryExpectedMarker:    "marker",
 		CanaryMinimumRevision:   1,
-		CanaryDownstreamService: "terrascale-dashboard",
+		CanaryDownstreamService: "ts-dashboard",
 	}
 	probe, err := productionCanaryProbe(config, client)
 	if err != nil || probe.RouteURL != config.CanaryRouteURL || probe.CanaryToken != "canary-token" || probe.ForeignToken != "foreign-token" {
