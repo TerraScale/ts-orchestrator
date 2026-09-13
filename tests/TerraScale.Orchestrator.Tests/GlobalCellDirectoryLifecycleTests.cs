@@ -220,8 +220,7 @@ public sealed class GlobalCellDirectoryLifecycleTests
             [entry]);
     }
 
-    private sealed class FakeDirectoryRuntime(GlobalCellDirectorySnapshot snapshot)
-        : IGlobalCellDirectoryRuntimeInstance
+    private sealed class FakeDirectoryRuntime : IGlobalCellDirectoryRuntimeInstance
     {
         private readonly TaskCompletionSource completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
