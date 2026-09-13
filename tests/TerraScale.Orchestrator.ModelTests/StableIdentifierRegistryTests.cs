@@ -405,22 +405,29 @@ public sealed class StableIdentifierRegistryTests
         return [.. rows];
     }
 
-    private static string FindRepositoryRoot()
+    private static string FindGoalPath()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var hops = 0; directory is not null && hops < MaximumParentHops; hops++)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "GOAL.md")))
+            var goalPath = Path.Combine(directory.FullName, "GOAL.md");
+            if (File.Exists(goalPath))
             {
-                return directory.FullName;
+                return goalPath;
             }
 
             directory = directory.Parent;
         }
 
+        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "GOAL.md");
+        if (File.Exists(fixturePath))
+        {
+            return fixturePath;
+        }
+
         throw new InvalidOperationException(
             $"The stable identifier tests could not locate GOAL.md within {MaximumParentHops} parent directories " +
-            "of the test output; run the test module from the TerraScale.Orchestrator checkout.");
+            "of the test output or its tracked Fixtures/GOAL.md fallback.");
     }
 
     private static bool Throws<TException>(Action action)
@@ -437,9 +444,9 @@ public sealed class StableIdentifierRegistryTests
         }
     }
 
-    private static string GoalPath => Path.Combine(RepositoryRoot.Value, "GOAL.md");
+    private static string GoalPath => GoalPathValue.Value;
 
-    private static readonly Lazy<string> RepositoryRoot = new(FindRepositoryRoot);
+    private static readonly Lazy<string> GoalPathValue = new(FindGoalPath);
 
     private static (string Id, string Text)[] ExpectedRequirements() =>
     [
@@ -567,4 +574,3 @@ public sealed class StableIdentifierRegistryTests
         ("ERR-ORCH-WATCH-EXPIRED", "The resume point is below retained journal history and the client must relist."),
     ];
 }
-

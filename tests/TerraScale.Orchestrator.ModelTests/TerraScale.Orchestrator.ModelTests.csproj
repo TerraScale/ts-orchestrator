@@ -12,6 +12,6 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="RegressionCorpus/entries/*.json" />
+    <None Include="Fixtures/GOAL.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
-
