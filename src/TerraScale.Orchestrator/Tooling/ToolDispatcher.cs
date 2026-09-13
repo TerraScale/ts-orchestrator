@@ -17,13 +17,16 @@ internal static class ToolDispatcher
             ["workspace-topology-lease-holder"] = WorkspaceTopologyLeaseHolderCommand.RunAsync,
         };
 
+    internal static bool IsToolingCommand(string? command) =>
+        command is not null && Commands.ContainsKey(command);
+
     public static async Task<int> RunAsync(string[] arguments)
     {
         CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
         CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
         if (arguments.Length == 0 || !Commands.TryGetValue(arguments[0], out var command))
         {
-            Console.Error.WriteLine($"Usage: terrascale-orchestrator-tooling <{string.Join('|', Commands.Keys)}> [options]");
+            Console.Error.WriteLine($"Usage: terrascale-orchestrator <{string.Join('|', Commands.Keys)}> [options]");
             return 2;
         }
 
@@ -60,4 +63,3 @@ internal static class JsonFormatCommand
         return 0;
     }
 }
-

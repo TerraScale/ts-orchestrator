@@ -50,9 +50,9 @@ The runtime exposes these top-level commands:
 - `journal-writer` starts the isolated authoritative journal writer.
 
 The `terrascale-orchestrator` executable provides the read-only `operator
-status` and `operator members` queries. The `TerraScale.Orchestrator.Tooling`
-executable provides repository validation and evidence commands. The runtime
-publishes as a self-contained single file for `linux-arm64` and `linux-x64`.
+status` and `operator members` queries alongside repository validation and
+evidence commands. The runtime publishes as a self-contained single file for
+`linux-arm64` and `linux-x64`.
 
 Admitted roles select either a native systemd plan or an OCI plan. Every plan
 contains a lowercase allocation identifier, a lowercase SHA-256 artifact

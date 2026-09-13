@@ -83,11 +83,12 @@ internal static class DevelopmentEvidenceCommand
         var toolingExecutable = Path.Combine(
             root,
             "src",
-            "TerraScale.Orchestrator.Tooling",
+            "TerraScale.Orchestrator",
             "bin",
             "Debug",
             TargetFramework,
-            "terrascale-orchestrator-tooling");
+            "linux-x64",
+            "terrascale-orchestrator");
         observations.Add(("orchestrator-policy-tooling-tests", RunRequired(
             toolingExecutable,
             ["test"],

@@ -10,7 +10,6 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
-    <Project Path="src/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TerraScale.Orchestrator.ControlPlane.JournalChild/TerraScale.Orchestrator.ControlPlane.JournalChild.csproj" />

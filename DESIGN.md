@@ -15,8 +15,7 @@ and locked package restore to every project.
 
 | Project | Role | Output |
 | --- | --- | --- |
-| `src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj` | Runtime, control plane, provider adapters, delivery, messaging, and host runtime planning | `terrascale-orchestrator`; self-contained single file for `linux-arm64` and `linux-x64` |
-| `src/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj` | Repository validation and evidence tooling | Standalone tooling executable |
+| `src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj` | Runtime, control plane, provider adapters, delivery, messaging, host runtime planning, and repository validation tooling | `terrascale-orchestrator`; self-contained single file for `linux-arm64` and `linux-x64` |
 | `tests/TerraScale.Orchestrator.ControlPlane.Tests` | Control-plane engines, providers, journals, runtime, security, and integration contracts | TUnit executable |
 | `tests/TerraScale.Orchestrator.ModelTests` | Model and simulation coverage | TUnit executable |
 | `tests/TerraScale.Orchestrator.Protocol.Tests` | Protocol, subject grammar, envelopes, and fuzz corpus | TUnit executable |
@@ -56,9 +55,10 @@ second compatibility layer.
 | `Observability` | OpenTelemetry runtime instrumentation |
 | `Operations` | Read-only operator status and membership queries |
 
-The project graph has one production runtime assembly. The CLI references the
-runtime project; tooling is standalone. Test projects reference the runtime
-project and keep their test-only fixtures in their own project directories.
+The project graph has one production runtime assembly. Test projects reference
+the runtime project and keep their test-only fixtures in their own project
+directories. Repository validation commands are feature-sliced under the
+runtime project and use the same executable entry point.
 
 ## Composition and state boundaries
 
@@ -95,11 +95,11 @@ starting or deleting an allocation.
 ## Commands and validation
 
 The main executable accepts `run` (the default), `check`, `catalog`,
-`provision-journal`, and `journal-writer`. The CLI executable accepts
-`operator status` and `operator members`. Tooling dispatches `adr-readiness`,
-`owner-decisions`, `ci-result-manifest`, `development-attest`,
-`phase0-evidence`, `json-format`, `test`, and
-`workspace-topology-lease-holder`.
+`provision-journal`, and `journal-writer`. It also dispatches repository
+validation commands: `adr-readiness`, `owner-decisions`, `ci-result-manifest`,
+`development-attest`, `phase0-evidence`, `json-format`, `test`, and
+`workspace-topology-lease-holder`. The CLI executable accepts `operator status`
+and `operator members`.
 
 Use the pinned SDK and solution for local verification:
 

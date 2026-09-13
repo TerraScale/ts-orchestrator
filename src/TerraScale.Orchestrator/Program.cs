@@ -7,12 +7,17 @@ using TerraScale.Orchestrator.Runtime;
 using TerraScale.Orchestrator.Operations;
 using TerraScale.Orchestrator.Observability;
 using TerraScale.Orchestrator.Security;
+using TerraScale.Orchestrator.Tooling;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 try
 {
+    if (ToolDispatcher.IsToolingCommand(args.FirstOrDefault()))
+    {
+        return await ToolDispatcher.RunAsync(args);
+    }
     if (args.FirstOrDefault() is "runtime")
     {
         return HostRuntimeCli.Execute(args.Skip(1).ToArray());
@@ -309,4 +314,3 @@ static IReadOnlyCollection<TerraScale.Orchestrator.Delivery.DeliverySigningRole>
         roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiJob);
     return roles.ToArray();
 }
-

@@ -120,7 +120,10 @@ public sealed class RuntimeLifecycleCoordinatorBoundaryTests
             CancellationToken cancellationToken)
         {
             Writes++;
-            if (expectedRevision is not null || _values.ContainsKey(operationKey.Value))
+            var conflict = _values.TryGetValue(operationKey.Value, out var current)
+                ? expectedRevision is null || current.JournalRevision != expectedRevision
+                : expectedRevision is not null;
+            if (conflict)
             {
                 return ValueTask.FromResult(new RuntimeLifecycleJournalWrite(RuntimeLifecycleJournalWriteStatus.Conflict, null));
             }
