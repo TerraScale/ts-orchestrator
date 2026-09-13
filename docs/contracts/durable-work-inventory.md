@@ -59,10 +59,11 @@ regional lease and receipt access through it. Update the typed inventory,
 provisioners, runtime readers and tests together when that mapping is admitted.
 Do not deploy independent R3 groups merely to satisfy the existing profiles.
 
-The signed pre-customer bootstrap is a separate, bounded R1 projection.
-`src/orchestrator/initialcontrol/profile.go` builds GRU regional and global
-account inventories on the seed broker, explicitly changes their replica
-counts to one, and retains the limits above. It does not change ordinary R3
+The signed pre-customer bootstrap is a separate, bounded R1 projection. The
+retired Go `initialcontrol` implementation is historical; the active C# source
+map is [DESIGN.md](../../DESIGN.md), and the current topology declarations are
+in `src/TerraScale.Orchestrator/Messaging/NatsTopology.cs` and
+`GlobalNatsTopology.cs`. The R1 projection does not change ordinary R3
 validation or implement the final multi-Region mapping. See
 [initial GRU R1](initial-gru-r1.md), [global storage](global-control-storage.md)
 and [snapshot transition](control-snapshot-transition.md) for retained inventory
@@ -96,7 +97,7 @@ All profiles are pull consumers bounded by `MaxAckPending`, `MaxBatch`, `MaxExpi
 
 ## 5. Evidence
 
-Real-NATS proofs belong in the Go control and delivery integration tests (the
+Real-NATS proofs belong in the C# control and delivery integration tests (the
 host-agent lane): message-id suppression including the silently-swallowed
 conflicting payload, durable replay after consumer recreation converging through
 idempotency, lost-acknowledgement redelivery inside the backoff bound, and

@@ -174,7 +174,15 @@ public static class SignedBootstrapGrantVerifier
 
         if (replayJournal is null)
             return Deny(SignedBootstrapGrantDecision.ReplayJournalUnavailable, payload.KeyId, payload.KeyVersion);
-        var consumed = replayJournal.TryConsume(payload.GrantId.Value, payload.Nonce, payload.ExpiresAt);
+        ReplayOutcome consumed;
+        try
+        {
+            consumed = replayJournal.TryConsume(payload.GrantId.Value, payload.Nonce, payload.ExpiresAt);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            consumed = ReplayOutcome.Unavailable;
+        }
         return consumed switch
         {
             ReplayOutcome.Consumed => new SignedBootstrapGrantVerification(SignedBootstrapGrantDecision.Authorized, payload.KeyId, payload.KeyVersion, true),

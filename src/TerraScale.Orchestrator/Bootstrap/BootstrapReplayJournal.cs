@@ -84,7 +84,14 @@ public sealed class FileBootstrapGrantReplayJournal : IBootstrapGrantReplayJourn
             if (consumed.Contains(InMemoryBootstrapReplayJournal.JournalKey(grantId, nonce)))
                 return BootstrapReplayConsumeResult.AlreadyConsumed;
             var line = JsonSerializer.Serialize(new Entry(grantId, nonce, expiresAt.ToUnixTimeSeconds()));
-            File.AppendAllText(filePath, line + Environment.NewLine);
+            try
+            {
+                File.AppendAllText(filePath, line + Environment.NewLine);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return BootstrapReplayConsumeResult.Unavailable;
+            }
             consumed.Add(InMemoryBootstrapReplayJournal.JournalKey(grantId, nonce));
             return BootstrapReplayConsumeResult.Consumed;
         }
@@ -99,4 +106,3 @@ public sealed class FileBootstrapGrantReplayJournal : IBootstrapGrantReplayJourn
 
     private sealed record Entry(string? GrantId, string? Nonce, long ExpiresAtUnixSeconds);
 }
-

@@ -172,7 +172,7 @@ peer, or remote-cell labels exist.
 
 ## Evidence lanes
 
-- Go control and protocol tests cover virtual-clock membership classification,
+- C# control and protocol tests cover virtual-clock membership classification,
   canonical signed identity material, compare-and-swap healing, authority
   eligibility, global-directory lifecycle, and endpoint configuration.
 - The real JetStream lane covers multi-instance discovery, one-member loss,

@@ -103,6 +103,30 @@ public sealed class SignedBootstrapGrantVerificationTests
     }
 
     [Test]
+    public async Task Replay_journal_write_failure_fails_closed()
+    {
+        using var lab = new GrantLab();
+        var directory = CreateTempDirectory();
+        var journalPath = Path.Combine(directory.FullName, "missing", "replay.jsonl");
+        try
+        {
+            using var journal = new FileBootstrapGrantReplayJournal(journalPath, Now);
+            var result = SignedBootstrapGrantVerifier.Verify(
+                lab.SignCurrent(),
+                lab.BundleWithRotation,
+                lab.Request(),
+                journal);
+
+            await Assert.That(result.Decision).IsEqualTo(SignedBootstrapGrantDecision.ReplayJournalUnavailable);
+            await Assert.That(result.Authorized).IsFalse();
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Test]
     public async Task File_replay_journal_survives_the_restart_shape()
     {
         using var lab = new GrantLab();

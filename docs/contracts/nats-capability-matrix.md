@@ -12,9 +12,9 @@
 | --- | --- |
 | Contract version | 1 (frozen) |
 | Ratified by | `TerraScale.Orchestrator` contract review |
-| Machine-readable definitions | `src/orchestrator/natspolicy` contains the capability matrix, subject taxonomy and embedded `protocol-manifest.json`; `src/orchestrator/protocol` contains message envelopes, semantic classes, delivery semantics and regional autonomy. |
-| Signed command envelope | `src/orchestrator/protocol/command_envelope.go` + `command_validation.go` (INV-005 fail-closed admission) |
-| Drift binding | Go protocol tests (`*_test.go`) read this contract and bind subjects to the landed topologies |
+| Machine-readable definitions | `src/TerraScale.Orchestrator/Protocol/Messaging` contains the capability matrix, subject taxonomy and embedded `protocol-manifest.json`; `src/TerraScale.Orchestrator/Protocol` contains message envelopes, semantic classes, delivery semantics and regional autonomy. |
+| Signed command envelope | `src/TerraScale.Orchestrator/Protocol/CommandEnvelope.cs` + `CommandValidation.cs` (INV-005 fail-closed admission) |
+| Drift binding | C# protocol tests bind subjects to the landed topologies |
 | Canonicality | Canonical for the checked-in `ts.orch.v1` implementation. The workspace `GOAL.md` remains the authority for architecture beyond this adapter. |
 
 Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must conform. **DEFER** — not adopted yet, no adapter may assume it, a revisit trigger is recorded. **REJECT** — excluded.
@@ -49,7 +49,7 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 
 ## 2. Closed subject taxonomy
 
-Canonical definitions: `src/orchestrator/natspolicy/nats_subject_taxonomy.go`. Production adapters compose subjects only through the taxonomy; the tests reject `ts.orch` and `ts.product` literals outside the canonical package.
+Canonical definitions: `src/TerraScale.Orchestrator/Protocol/Messaging/NatsSubjectTaxonomy.cs`. Production adapters compose subjects only through the taxonomy; the tests reject `ts.orch` and `ts.product` literals outside the canonical package.
 
 | Namespace | Root / pattern | Status | Notes |
 | --- | --- | --- | --- |
@@ -65,7 +65,7 @@ Platform-reserved NATS roots (`$JS`, `$KV`, `$O`, `$SRV`, `$SYS`, `_INBOX`, `_R_
 
 ## 3. Versioned envelope contract
 
-`src/orchestrator/protocol/messaging_envelope.go` extends — never duplicates — the signed `CommandEnvelope`:
+`src/TerraScale.Orchestrator/Protocol/Messaging/MessagingEnvelope.cs` extends — never duplicates — the signed `CommandEnvelope`:
 
 - From `CommandEnvelope` (signed): protocol version, cell, aggregate, desired generation, writer epoch (fencing), operation id, operation idempotency key, issued/expiry, delivery attempt, payload + digest, signature. Signed material and validation are owned by `CommandEnvelopeValidator` (INV-005).
 - Added by the messaging envelope: schema major/minor, message id, correlation id, causation id, source (instance, session, cell, cluster), target scope (namespace, subject, cell), payload type, trace context, observation time.
@@ -74,7 +74,7 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 
 ## 4. Semantic classes
 
-`src/orchestrator/protocol/messaging_semantic_classes.go`: `Lossy`, `Replayable`, `WorkQueue`, `Snapshot`, `AuthoritativeJournal`.
+`src/TerraScale.Orchestrator/Protocol/Messaging/MessagingSemanticClasses.cs`: `Lossy`, `Replayable`, `WorkQueue`, `Snapshot`, `AuthoritativeJournal`.
 
 | Subject pattern | Class | Loss meaning |
 | --- | --- | --- |
@@ -106,7 +106,7 @@ Queue groups distribute only equivalent-worker work; authoritative work requires
 
 ## 8. Control-network loss
 
-`src/orchestrator/protocol/messaging_regional_autonomy.go` (rules) + `MessagingPolicyEngine.DecidePartition` (executable epoch/generation core):
+`src/TerraScale.Orchestrator/Protocol/Messaging/MessagingRegionalAutonomy.cs` (rules) + `MessagingPolicyEngine.DecidePartition` (executable epoch/generation core):
 
 - Connected — everything permitted (subject to epoch/generation checks).
 - GRU or NATS unavailable — already admitted data-plane work and observations
