@@ -1,20 +1,26 @@
-# Firecracker local qualification
+# Firecracker local qualification (historical design)
 
-The [workspace goal](../../../GOAL.md#ts-orchestrator) requires the complete orchestrator to run locally on
-real Ubuntu LTS systemd guests under Firecracker. This is the qualification
-path for host lifecycle, delivery, repair, degraded mode, and fault handling;
-running `ts-node` directly on the developer host is not equivalent.
+This guide preserves the Firecracker qualification design and command output
+from the pre-C# implementation. It is historical evidence for the host,
+delivery, repair, degraded-mode, and fault-handling requirements; it is not a
+current command interface. The current C# runtime commands are documented in
+the repository [README](../../README.md) and [design map](../../DESIGN.md).
 
-The targets described here are the required interface. They are not all
-implemented in the current worktree yet. Until all of them pass, the local VM
+The [workspace goal](../../../GOAL.md#ts-orchestrator) still requires the complete orchestrator to run locally on
+real Ubuntu LTS systemd guests under Firecracker. Running `ts-node` directly
+on the developer host is not equivalent.
+
+The targets described here were the required interface for that earlier
+implementation. They are not implemented by the current C# solution. Until a
+C# qualification harness and its command contract are restored, local VM
 qualification remains incomplete.
 
 ## Boundary
 
 Firecracker is test infrastructure, never a production provider. The
-test-only Go `SandboxVMProvider` controls Firecracker through the pinned
-official Go SDK and uses a typed Unix-socket OpenAPI client for operations the
-SDK does not expose. Production packages cannot import either client.
+historical test-only Go `SandboxVMProvider` controlled Firecracker through the
+pinned official Go SDK and a typed Unix-socket OpenAPI client for operations
+the SDK did not expose. Production packages cannot import either client.
 
 Local provider-contract endpoints stand in for OCI, Cloudflare, object
 storage, and the edge. They reproduce authentication, pagination, etags, rate
@@ -37,7 +43,8 @@ The qualifying host is Linux with:
 - at least 4 GiB available for the bounded VM stack, outside the build and
   test-controller processes.
 
-`make vm-doctor` checks every prerequisite without changing host state. It
+The historical `make vm-doctor` command checked every prerequisite without
+changing host state. It
 prints the failed capability and repair action, verifies every pinned digest,
 and refuses to qualify macOS, Windows, software emulation, or a Linux host
 without KVM. An amd64 host runs amd64 guests and an arm64 host runs arm64
@@ -50,7 +57,8 @@ controller unrestricted persistent root access.
 
 ## Guest artifact
 
-`make vm-image` reproducibly builds or verifies a versioned Ubuntu LTS minimal
+The historical `make vm-image` command reproducibly built or verified a
+versioned Ubuntu LTS minimal
 raw disk, guest kernel, and cloud-init seed template. Every input and output is
 checksum-verified. The build uses no Docker, Podman, containerd, OCI image, or
 remote install script.
@@ -99,9 +107,10 @@ restart, fill, expansion, read-only and I/O-error transitions, detach and
 reattach, selected corruption, snapshots, and restore. A fault targets a data
 disk unless the test explicitly exercises root-disk or host loss.
 
-## Commands
+## Historical pre-C# commands
 
-From the repository root:
+The following invocation is retained to identify the commands used by the
+dated qualification records. It is not runnable in the current checkout:
 
 ```bash
 make vm-doctor

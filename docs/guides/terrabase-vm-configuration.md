@@ -1,4 +1,11 @@
-# TerraBase production configuration in qualification guests
+# TerraBase production configuration in qualification guests (historical)
+
+This guide describes the pre-C# Firecracker qualification runner and its
+TerraBase declaration contract. It remains useful for interpreting dated
+qualification evidence, but the current C# solution does not ship the
+`doctor`, `image`, `smoke`, `stack`, or `test` VM commands described here. Use
+the current .NET commands in the repository [README](../../README.md) for
+source validation.
 
 `TS_VM_TERRABASE_DECLARATION_FILE` selects an explicit JSON declaration for
 the VM runner. `vmengineconfig` validates it against the verified network plan
@@ -118,8 +125,8 @@ NoCloud user data contains ownership commands and references, never the TLS
 contents. Wrong-host material, changed configuration, and another service's
 file ownership are refused.
 
-To use an already prepared declaration, retain the ordinary artifact and
-privilege setup and add this environment variable:
+The historical runner accepted an already prepared declaration with this
+environment variable:
 
 ```sh
 TS_VM_TERRABASE_DECLARATION_FILE=/absolute/protected/member-declaration.json make vm-test

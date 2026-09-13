@@ -1,9 +1,14 @@
-# Production readiness and refactoring inputs
+# Production readiness and refactoring inputs (historical record)
 
 The [workspace goal](../../../GOAL.md#ts-orchestrator) defines the target. This guide records
-exploration findings and the inputs needed to implement it. Code presence is
-not qualification evidence. The [operation inventory](../contracts/production-operation-inventory.md)
-maps required entry points, authority, persistence, dependencies and remaining
+exploration findings and the inputs needed to implement it. Most source paths,
+package names, and command examples below describe the pre-C# Go
+implementation and are retained as historical evidence. They are not current
+source maps or operator instructions. Use the current C# map in
+[DESIGN.md](../../DESIGN.md) and the commands in the repository
+[README](../../README.md); code presence is not qualification evidence. The
+[operation inventory](../contracts/production-operation-inventory.md) maps
+required entry points, authority, persistence, dependencies and remaining
 proofs. Recheck these findings as implementation changes.
 
 ## Agreed architecture

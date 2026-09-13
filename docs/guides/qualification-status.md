@@ -1,7 +1,12 @@
-# Qualification status
+# Qualification status (historical record)
 
-This is an implementation and local verification record, not production
-acceptance. The requirements are in the workspace `GOAL.md`.
+This is a historical implementation and local verification record from the
+pre-C# Go runtime, not production acceptance or a current runbook. Its command
+lines and package paths are preserved so the dated evidence remains
+reproducible and auditable; they do not describe the current checkout. Use the
+repository [README](../../README.md) and [design map](../../DESIGN.md) for the
+current .NET restore, build, test, and runtime commands. The requirements are
+in the workspace `GOAL.md`.
 
 ## Verified integration
 

@@ -5,11 +5,11 @@ and release gates.
 
 ## Product role
 
-`ts-orchestrator` is TerraScale's product-specific Go control plane. It is the
-single automation authority for the declared OCI and Cloudflare estate. It
-manages Region and host lifecycle, identity, placement intent, signed release
-activation, repair coordination, infrastructure telemetry, and estate-state
-publication.
+`ts-orchestrator` is TerraScale's product-specific C# control plane targeting
+.NET 10. It is the single automation authority for the declared OCI and
+Cloudflare estate. It manages Region and host lifecycle, identity, placement
+intent, signed release activation, repair coordination, infrastructure
+telemetry, and estate-state publication.
 
 It is not Kubernetes-compatible, a general workload scheduler, a customer
 compute product, a query proxy, or part of the data path. It never owns
@@ -23,6 +23,13 @@ reactive sync, or authoritative usage.
 | `ts-node` | Only agent allowed to mutate a production host; verifies and installs signed binaries and manages hardened systemd units. |
 | Dashboard | Vinext Cloudflare Worker; owns identity, organizations, projects, billing, MCP, and the customer/admin UI. |
 | `ts-deploy` | Builds, checks, signs, publishes, and submits candidates; never owns rollout state. |
+
+The executable is `src/TerraScale.Orchestrator`. Its current command surface
+is `run` (the default), `check`, `catalog`, `provision-journal`, and
+`journal-writer`; `runtime plan` and the read-only `operator status` and
+`operator members` queries are handled by the same executable. Use the
+[repository README](../../README.md) and [design map](../../DESIGN.md) for
+the current .NET restore, build, test, and inspection commands.
 
 ## Control topology
 
@@ -58,7 +65,7 @@ mapping.
 
 ## Estate and providers
 
-The complete desired estate is typed Go configuration. The reconciler observes
+The complete desired estate is typed C# configuration. The reconciler observes
 OCI and Cloudflare, produces a deterministic dependency-ordered plan, applies
 it, re-observes, and records drift and audit events. Missing or ambiguous
 ownership fails closed; deletion requires proven TerraScale ownership and
@@ -97,11 +104,10 @@ apply the same lock and cannot widen it.
 
 ## Local qualification
 
-Firecracker on Linux/KVM is the mandatory local backend. Six real Ubuntu LTS
-systemd guests model the launch estate. A test-only Go `SandboxVMProvider`
-owns Firecracker lifecycle, TAP and Region networking, deterministic
-`nftables`/`tc netem` faults, persistent and faultable drives, snapshots,
-readiness, diagnostics, and crash-safe cleanup.
+Firecracker on Linux/KVM remains the planned local qualification backend. The
+earlier six-guest design and its test-only `SandboxVMProvider` are retained in
+the [historical qualification guide](running-locally.md) and dated evidence;
+they are not a command surface of the current C# solution.
 
 Bounded local OCI, Cloudflare, object-store, and edge endpoints exercise real
 provider contracts and failure semantics. They have no privileged path into
@@ -109,9 +115,10 @@ orchestration decisions. Production code cannot import Firecracker or register
 the local endpoints.
 
 Unit fakes remain useful but do not qualify host lifecycle, delivery, repair,
-networking, storage, or degraded mode. Those areas require the complete
-Firecracker-backed `make vm-test`. Real OCI and Cloudflare gates still qualify
-provider behavior and production performance.
+networking, storage, or degraded mode. A current C# Firecracker qualification
+harness and its command contract still need to be restored before those areas
+can be qualified locally. Real OCI and Cloudflare gates still qualify provider
+behavior and production performance.
 
 ## Trust and visibility
 

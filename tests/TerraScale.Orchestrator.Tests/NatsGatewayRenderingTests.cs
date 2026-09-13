@@ -106,20 +106,34 @@ public sealed class NatsGatewayRenderingTests
         // clustered JetStream (which a gateway listener always implies) may
         // start — and no sibling route.
         var plan = NatsGatewayPlaneTopology.CreateControlSupercluster();
+        var filteredClusters = plan.Clusters
+            .Select(cluster => (
+                Source: cluster,
+                Servers: cluster.Servers
+                    .Where(server => cluster.Cell != "sfo" || server.ServerName == "sfo-control-nats-1")
+                    .ToArray()))
+            .ToArray();
         var singleServer = new NatsGatewayPlan(
             plan.Plane,
             plan.OperatorName,
             plan.TrustGeneration,
             plan.ConfigurationGeneration,
-            [.. plan.Clusters.Select(cluster => cluster.Cell == "sfo"
-                ? new NatsGatewayCluster(
-                    cluster.Plane, cluster.Cell, cluster.ClusterName, cluster.JetStreamDomain,
-                    cluster.OperatorName,
-                    [cluster.Server("sfo-control-nats-1")],
-                    cluster.Accounts, cluster.JetStreamAssets,
-                    cluster.CgroupSlice, cluster.TrustGeneration,
-                    cluster.ConfigurationGeneration)
-                : cluster)],
+            [.. filteredClusters.Select(entry => new NatsGatewayCluster(
+                entry.Source.Plane,
+                entry.Source.Cell,
+                entry.Source.ClusterName,
+                entry.Source.JetStreamDomain,
+                entry.Source.OperatorName,
+                [.. entry.Servers.Select(server => RebindControlPeerIdentities(
+                    server,
+                    entry.Source,
+                    entry.Servers,
+                    filteredClusters))],
+                entry.Source.Accounts,
+                entry.Source.JetStreamAssets,
+                entry.Source.CgroupSlice,
+                entry.Source.TrustGeneration,
+                entry.Source.ConfigurationGeneration))],
             plan.GatewayRelationships,
             plan.Accounts,
             plan.Exports,
@@ -149,6 +163,52 @@ public sealed class NatsGatewayRenderingTests
                 "nats-route://seed-2.sfo.internal.terrascale.tech",
                 StringComparison.Ordinal))
             .IsFalse();
+    }
+
+    private static NatsGatewayServerIdentity RebindControlPeerIdentities(
+        NatsGatewayServerIdentity server,
+        NatsGatewayCluster sourceCluster,
+        IReadOnlyList<NatsGatewayServerIdentity> clusterServers,
+        IReadOnlyList<(NatsGatewayCluster Source, NatsGatewayServerIdentity[] Servers)> clusters)
+    {
+        var routePeers = clusterServers
+            .Where(peer => peer.ServerName != server.ServerName)
+            .Select(peer => NatsGatewayPlaneTopology.ControlServerSpiffeId(peer.ServerName))
+            .DefaultIfEmpty(NatsGatewayPlaneTopology.ControlServerSpiffeId(server.ServerName));
+        var gatewayPeers = clusters
+            .Where(entry => entry.Source.Cell != sourceCluster.Cell)
+            .SelectMany(static entry => entry.Servers)
+            .Select(peer => NatsGatewayPlaneTopology.ControlServerSpiffeId(peer.ServerName));
+        var profiles = new[]
+        {
+            new NatsGatewayCertificateProfile(
+                NatsGatewayTransport.Client,
+                server.Profile(NatsGatewayTransport.Client).CertificateFile,
+                server.Profile(NatsGatewayTransport.Client).KeyFile,
+                server.Profile(NatsGatewayTransport.Client).CaFile,
+                [NatsGatewayPlaneTopology.ControlClientSpiffePrefix]),
+            new NatsGatewayCertificateProfile(
+                NatsGatewayTransport.Route,
+                server.Profile(NatsGatewayTransport.Route).CertificateFile,
+                server.Profile(NatsGatewayTransport.Route).KeyFile,
+                server.Profile(NatsGatewayTransport.Route).CaFile,
+                routePeers),
+            new NatsGatewayCertificateProfile(
+                NatsGatewayTransport.Gateway,
+                server.Profile(NatsGatewayTransport.Gateway).CertificateFile,
+                server.Profile(NatsGatewayTransport.Gateway).KeyFile,
+                server.Profile(NatsGatewayTransport.Gateway).CaFile,
+                gatewayPeers),
+        };
+        return new NatsGatewayServerIdentity(
+            server.ServerName,
+            server.FailureDomain,
+            server.Client,
+            server.Route,
+            server.Gateway,
+            profiles,
+            server.Process,
+            server.StoreDirectory);
     }
 
     [Test]
@@ -374,4 +434,3 @@ public sealed class NatsGatewayRenderingTests
         await Assert.That(identity.Contains("resolver_preload", StringComparison.Ordinal)).IsFalse();
     }
 }
-

@@ -7,8 +7,12 @@ command from a trusted machine.
 
 The [workspace goal](../../../GOAL.md#ts-orchestrator) defines authority and
 production outcomes; this guide describes the bootstrap design.
-The complete Firecracker `make vm-test` qualification must pass before the same
-bootstrap path is used against OCI.
+The current C# solution exposes runtime composition and validation, but it
+does not yet ship a greenfield `bootstrap` or `add-region` command. The
+Firecracker qualification and bootstrap commands described by earlier Go
+implementation work are historical design evidence, not executable commands
+for this checkout. Run the current local validation from the repository
+[README](../../README.md) before integrating a future bootstrap command.
 
 ## Owner prerequisites
 
@@ -23,15 +27,20 @@ bootstrap path is used against OCI.
 These prerequisites authorize the command; they do not become desired estate
 and are not copied onto a host.
 
-## Command contract
+## Current runtime boundary
 
 ```bash
-terrascale-orchestrator bootstrap
+dotnet restore TerraScale.Orchestrator.slnx --locked-mode
+dotnet build TerraScale.Orchestrator.slnx --configuration Release --nologo
+dotnet test TerraScale.Orchestrator.slnx --configuration Release --no-build
 ```
 
-`--dry-run` performs discovery and prints the deterministic dependency-ordered
-plan without provider mutation. The real command repeatedly observes and
-reconciles until it has:
+The C# executable currently provides `run`, `check`, `catalog`,
+`provision-journal`, and `journal-writer`. `check` validates startup
+composition without opening a long-lived service; `run` starts the admitted
+control runtime after its TLS, NKey, cell, and authority checks. Neither
+command performs the greenfield OCI mutations listed below. The design
+requirements for a future bootstrap implementation are:
 
 1. created and verified compartments, IAM policy, and instance-principal
    authority;
@@ -69,12 +78,11 @@ targets, a local orchestrator on each member machine, the control replica,
 identities, edge routing, telemetry, and external probes are healthy. Partial completion remains declared state for automatic
 repair; it does not turn into a list of console steps.
 
-Every added Region uses `terrascale-orchestrator add-region <code>` and starts
-its own regional orchestrator under GRU authority, with the same reconcile,
-readiness, ownership, and rollback rules. SFO and FRA also synchronize global
-control replicas. Their fenced R3 promotion, quorum verification, and
-post-transition snapshot retire the remaining bootstrap authority. Customer
-admission stays closed until R3 and the production gates pass.
+Every added Region must eventually start its own regional orchestrator under
+GRU authority, with the same reconcile, readiness, ownership, and rollback
+rules. The current C# runtime has no `add-region` entry point, so SFO/FRA
+admission, fenced R3 promotion, quorum verification, and bootstrap-authority
+retirement remain design requirements rather than runnable procedures.
 
 Region removal is declarative and must fence placement and routing, drain
 safely, and prove all
