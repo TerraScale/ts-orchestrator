@@ -82,7 +82,7 @@ internal static class DevelopmentEvidenceCommand
         }
         var toolingExecutable = Path.Combine(
             root,
-            "tools",
+            "src",
             "TerraScale.Orchestrator.Tooling",
             "bin",
             "Debug",
@@ -240,4 +240,3 @@ internal static class DevelopmentEvidenceCommand
     internal sealed record Options(string Output, string? Binary, int ValidHours);
     internal sealed record TestModule(string Name, string RelativeDirectory, int TimeoutMinutes);
 }
-

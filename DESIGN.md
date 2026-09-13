@@ -10,9 +10,10 @@ describe code that exists today; they do not preserve a retired topology.
 - Module path: `terrascale.tech/orchestrator`, Go 1.27, single module.
 - Binary entry points: `cmd/orchestrator` (runtime and control commands),
   `cmd/ts-node` (host agent), `cmd/vm-artifacts`, `cmd/vm-guest-control`, and
-  `cmd/vm-qualify` (qualification tooling), plus `tools/orchestrator-tooling`
-  (repository validation) and `tests/journalchild` (the fixture executable
-  spawned by control journal tests).
+  `cmd/vm-qualify` (qualification tooling), plus
+  `src/TerraScale.Orchestrator.Tooling` (repository validation) and
+  `tests/journalchild` (the fixture executable spawned by control journal
+  tests).
 
 ## Package map
 

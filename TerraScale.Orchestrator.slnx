@@ -11,6 +11,7 @@
   <Folder Name="/src/">
     <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+    <Project Path="src/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TerraScale.Orchestrator.ControlPlane.JournalChild/TerraScale.Orchestrator.ControlPlane.JournalChild.csproj" />
@@ -19,8 +20,5 @@
     <Project Path="tests/TerraScale.Orchestrator.Protocol.Tests/TerraScale.Orchestrator.Protocol.Tests.csproj" />
     <Project Path="tests/TerraScale.Orchestrator.Scheduler.Tests/TerraScale.Orchestrator.Scheduler.Tests.csproj" />
     <Project Path="tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj" />
-  </Folder>
-  <Folder Name="/tools/">
-    <Project Path="tools/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj" />
   </Folder>
 </Solution>
