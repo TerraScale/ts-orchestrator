@@ -91,6 +91,32 @@ public sealed class NatsControlR3MembershipTests
             await Assert.That(discovered.Health.QuorumAvailable).IsTrue();
             await Assert.That(discovered.Health.Condition)
                 .IsEqualTo(RegionalRuntimeMembershipCondition.Degraded);
+
+            // A live record in an unconfigured slot must not fill the missing
+            // configured slot or satisfy the health projection. This uses the
+            // real KV watch and production Snapshot path, rather than calling
+            // the pure health evaluator directly.
+            using var unexpectedIdentity = RegionalRuntimeMembershipIdentity.Create();
+            var unexpectedRecord = MembershipRecord(
+                cell,
+                unexpectedIdentity,
+                DateTimeOffset.UtcNow,
+                "controller-9",
+                leader: false);
+            await runtimeStore.CreateAsync("controller.controller-9", SerializeRecord(unexpectedRecord));
+            var withUnexpected = await WaitForAsync(
+                () => membershipOne.Snapshot.Members.Count == 3
+                    ? membershipOne.Snapshot
+                    : null,
+                ConvergenceTimeout,
+                "the unexpected membership slot to reach the snapshot");
+            withUnexpected.Validate(cell);
+            await Assert.That(withUnexpected.Health.ActiveControllers).IsEqualTo(3);
+            await Assert.That(withUnexpected.Health.MissingControllers).IsEqualTo(1);
+            await Assert.That(withUnexpected.Health.UnexpectedControllers).IsEqualTo(1);
+            await Assert.That(withUnexpected.Health.QuorumAvailable).IsTrue();
+            await Assert.That(withUnexpected.Health.Condition)
+                .IsEqualTo(RegionalRuntimeMembershipCondition.Degraded);
             var sessionsBefore = discovered.Members
                 .ToDictionary(static member => member.Instance, static member => member.SessionId, StringComparer.Ordinal);
             var identitiesBefore = discovered.Members
@@ -314,21 +340,23 @@ public sealed class NatsControlR3MembershipTests
     private static RegionalRuntimeMember MembershipRecord(
         string cell,
         RegionalRuntimeMembershipIdentity identity,
-        DateTimeOffset observedAt)
+        DateTimeOffset observedAt,
+        string instance = "controller-1",
+        bool leader = true)
     {
         var member = new RegionalRuntimeMember(
             1,
             cell,
             $"orchestrator-control-{cell}",
-            "controller-1",
+            instance,
             Guid.NewGuid().ToString("N"),
             "test-build",
             ["authority", "regional-membership", "service-discovery"],
             observedAt.AddMinutes(-1),
             observedAt,
             observedAt.Add(RegionalRuntimeMembership.LeaseDuration),
-            "leader",
-            true,
+            leader ? "leader" : "follower",
+            leader,
             7,
             11,
             identity.KeyId,
@@ -420,4 +448,3 @@ public sealed class NatsControlR3MembershipTests
         throw new TimeoutException($"Timed out waiting for {description} within {timeout.TotalSeconds} seconds.");
     }
 }
-

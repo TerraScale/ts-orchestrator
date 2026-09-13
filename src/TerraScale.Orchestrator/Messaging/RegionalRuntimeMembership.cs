@@ -134,6 +134,7 @@ internal sealed record RegionalRuntimeMembershipHealth(
         if (conflictingControllers < 0)
             throw new ArgumentOutOfRangeException(nameof(conflictingControllers));
 
+        var expectedInstances = RegionalRuntimeMembershipReader.ExpectedInstances(expectedControllers);
         var valid = records
             .Where(member => member.IsValidFor(cell, observedAt))
             .ToArray();
@@ -141,18 +142,21 @@ internal sealed record RegionalRuntimeMembershipHealth(
             .Where(member => member.LeaseExpiresAt > observedAt)
             .ToArray();
         var stale = valid.Length - active.Length;
-        var missing = Math.Max(0, expectedControllers - active.Length);
-        var unexpected = Math.Max(0, active.Length - expectedControllers);
-        var leaders = active.Count(static member => member.IsAuthorityLeader);
-        var quorum = active.Length >= (expectedControllers / 2) + 1;
+        var activeExpected = active.Count(member => expectedInstances.Contains(member.Instance));
+        var missing = expectedInstances.Count(instance =>
+            !active.Any(member => member.Instance == instance));
+        var unexpected = valid.Count(member => !expectedInstances.Contains(member.Instance));
+        var leaders = active.Count(member =>
+            expectedInstances.Contains(member.Instance) && member.IsAuthorityLeader);
+        var quorum = activeExpected >= (expectedControllers / 2) + 1;
         var maximumAge = active.Length == 0
             ? 0
             : active.Max(member => Math.Max(
                 0,
                 checked((long)Math.Ceiling((observedAt - member.ObservedAt).TotalMilliseconds))));
-        var condition = active.Length == 0
+        var condition = activeExpected == 0
             ? RegionalRuntimeMembershipCondition.Unavailable
-            : active.Length == expectedControllers && stale == 0 && unexpected == 0 && leaders == 1
+            : activeExpected == expectedControllers && stale == 0 && unexpected == 0 && leaders == 1
                 ? RegionalRuntimeMembershipCondition.Healthy
                 : RegionalRuntimeMembershipCondition.Degraded;
         return new(
@@ -172,17 +176,18 @@ internal sealed record RegionalRuntimeMembershipHealth(
 
     internal void Validate()
     {
-        var expectedMissing = Math.Max(0, ExpectedControllers - ActiveControllers);
-        var expectedUnexpected = Math.Max(0, ActiveControllers - ExpectedControllers);
-        var expectedQuorum = ActiveControllers >= (ExpectedControllers / 2) + 1;
-        var expectedCondition = ActiveControllers == 0
+        var expectedActive = ExpectedControllers - MissingControllers;
+        var expectedQuorum = expectedActive >= (ExpectedControllers / 2) + 1;
+        var expectedCondition = expectedActive == 0
             ? RegionalRuntimeMembershipCondition.Unavailable
-            : ActiveControllers == ExpectedControllers && StaleControllers == 0 &&
+            : expectedActive == ExpectedControllers && StaleControllers == 0 &&
               UnexpectedControllers == 0 && AuthorityLeaders == 1
                 ? RegionalRuntimeMembershipCondition.Healthy
                 : RegionalRuntimeMembershipCondition.Degraded;
         if (ExpectedControllers is not (1 or 3 or 5) || ActiveControllers < 0 || StaleControllers < 0 ||
-            MissingControllers != expectedMissing || UnexpectedControllers != expectedUnexpected ||
+            MissingControllers < 0 || MissingControllers > ExpectedControllers ||
+            expectedActive > ActiveControllers || UnexpectedControllers < 0 ||
+            UnexpectedControllers > ActiveControllers + StaleControllers ||
             ConflictingControllers < 0 || ConflictingControllers > ActiveControllers + StaleControllers ||
             RejectedRecords < 0 || AuthorityLeaders < 0 || AuthorityLeaders > ActiveControllers ||
             QuorumAvailable != expectedQuorum || MaximumHeartbeatAgeMilliseconds < 0 ||
@@ -287,6 +292,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         {
             var now = DateTimeOffset.UtcNow;
             var records = members.Values.ToArray();
+            var expectedInstances = RegionalRuntimeMembershipReader.ExpectedInstances(topology.Replicas);
             var active = records
                 .Where(member => member.IsValidFor(topology.Cell, now) && member.LeaseExpiresAt > now)
                 .OrderBy(static member => member.Instance, StringComparer.Ordinal)
@@ -302,7 +308,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
                 if (RegionalRuntimeMembershipReader.Classify(
                         topology.Cell,
                         member.Instance,
-                        expectedInstances: null,
+                        expectedInstances,
                         previous: previous,
                         record: member,
                         now: now) == RegionalRuntimeMembershipRecordClass.ConflictingSession)

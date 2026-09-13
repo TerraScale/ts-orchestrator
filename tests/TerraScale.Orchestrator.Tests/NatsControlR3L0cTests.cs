@@ -653,6 +653,31 @@ public sealed class NatsControlR3L0cTests
     }
 
     [Test]
+    public async Task JournalWriterCannotObserveLiveAuthorityLeaseForMutationFencing()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionAsync();
+        await using var writer = await fixture.ConnectAsync(fixture.JournalWriter);
+
+        // The mutation service currently receives only the operation/proof KV stores
+        // and static authority verifier. Its dedicated identity must not gain a live
+        // ORCH_LEADERS read as an implicit authority provider: that would cross the
+        // journal writer's least-privilege boundary without carrying a protocol fence.
+        foreach (var subject in new[]
+                 {
+                     "$KV.ORCH_LEADERS.authority.regional",
+                     "$JS.API.STREAM.INFO.KV_ORCH_LEADERS",
+                     "$JS.API.DIRECT.GET.KV_ORCH_LEADERS",
+                 })
+        {
+            await Assert.That(async () => _ = await writer.RequestAsync<string, string>(subject, "{}"))
+                .Throws<NatsException>();
+        }
+    }
+
+    [Test]
     public async Task ProofLedgerAndJournalCasSurviveMemberLossRestartAndStaleWriterFence()
     {
         if (!OperatingSystem.IsLinux()) return;
@@ -925,4 +950,3 @@ public sealed class NatsControlR3L0cTests
         return Convert.FromBase64String(value.PadRight(value.Length + ((4 - value.Length % 4) % 4), '='));
     }
 }
-

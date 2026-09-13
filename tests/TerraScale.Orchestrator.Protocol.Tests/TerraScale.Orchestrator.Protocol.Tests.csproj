@@ -11,8 +11,7 @@
     <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="../../test-corpus/protocol/*.json"
+    <EmbeddedResource Include="../../src/orchestrator/protocol/testdata/minimal-fail-closed-seeds.json"
                       Link="Fuzz/Corpus/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
-
