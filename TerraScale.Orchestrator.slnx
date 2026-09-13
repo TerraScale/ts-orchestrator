@@ -5,7 +5,7 @@
     <File Path="Directory.Build.props" />
     <File Path="Directory.Packages.props" />
     <File Path="global.json" />
-    <File Path="docs/architecture/orchestrator.md" />
+    <File Path="docs/guides/architecture-boundaries.md" />
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
