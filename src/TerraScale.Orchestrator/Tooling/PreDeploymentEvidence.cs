@@ -140,7 +140,7 @@ internal sealed record PreDeploymentEvidence(
     /// <summary>
     /// Cancellation-aware exit wait that terminates the whole child tree before rethrowing, so a
     /// cancelled evidence check never leaves a git child process behind. Mirrors the production
-    /// ProcessLifecycle helper; the tooling project does not reference the production assembly.
+    /// ProcessLifecycle helper while keeping the evidence command within the runtime assembly.
     /// </summary>
     private static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
     {
@@ -181,4 +181,3 @@ internal sealed record PreDeploymentProcessObservation(
     long PeakMemoryBytes,
     int PeakProcessCount,
     long DurationMilliseconds);
-

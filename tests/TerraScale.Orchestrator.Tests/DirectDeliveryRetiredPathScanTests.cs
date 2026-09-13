@@ -94,8 +94,8 @@ public sealed class DirectDeliveryRetiredPathScanTests
     }
 
     /// <summary>
-    /// Every production source under <c>src/</c> — the Orchestrator runtime and the CLI — is
-    /// scanned, so a retired path cannot hide in a sibling project.
+    /// Every production source under <c>src/</c> is scanned, so a retired path cannot hide in a
+    /// sibling project.
     /// </summary>
     private static IEnumerable<(string RelativePath, string Text)> ReadProductionSources(string root)
     {
@@ -121,4 +121,3 @@ public sealed class DirectDeliveryRetiredPathScanTests
             "The repository root was not found; the retired-path scan must run from the repository.");
     }
 }
-

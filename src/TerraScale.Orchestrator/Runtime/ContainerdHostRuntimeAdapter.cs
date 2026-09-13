@@ -51,6 +51,9 @@ internal interface IContainerdClient
 
 internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
 {
+    private readonly IContainerdClient client =
+        client ?? throw new ArgumentNullException(nameof(client));
+
     internal const string Namespace = "terrascale";
 
     public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
@@ -241,4 +244,3 @@ internal static class CanonicalPlanFingerprint
         hash.AppendData(bytes);
     }
 }
-

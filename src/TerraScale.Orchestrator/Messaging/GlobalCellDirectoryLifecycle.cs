@@ -165,7 +165,19 @@ internal sealed class GlobalCellDirectoryLifecycle : IAsyncDisposable
 
             if (failure is null) continue;
             Volatile.Write(ref lastFailure, failure);
-            observeFailure?.Invoke(failure);
+            // Failure reporting is deliberately best-effort. The directory is an
+            // optional regional dependency, so a logger/metric callback must not
+            // terminate supervision and turn a transient WAN outage into a
+            // permanent loss of retries.
+            try
+            {
+                observeFailure?.Invoke(failure);
+            }
+            catch
+            {
+                // Keep the original runtime failure as LastFailure and continue
+                // through the bounded retry path.
+            }
             try
             {
                 await delay(retryDelay(attempt), cancellationToken);
@@ -189,7 +201,7 @@ internal sealed class GlobalCellDirectoryLifecycle : IAsyncDisposable
                 await service.DisposeAsync();
         }
         catch (Exception exception) when (exception is not OperationCanceledException ||
-                                          !cancellationToken.IsCancellationRequested)
+                                          cancellationToken.IsCancellationRequested)
         {
             cleanupFailure = exception;
         }
@@ -201,7 +213,7 @@ internal sealed class GlobalCellDirectoryLifecycle : IAsyncDisposable
                     await directory.DisposeAsync();
             }
             catch (Exception exception) when (exception is not OperationCanceledException ||
-                                              !cancellationToken.IsCancellationRequested)
+                                              cancellationToken.IsCancellationRequested)
             {
                 cleanupFailure ??= exception;
             }
@@ -234,4 +246,3 @@ internal sealed class GlobalCellDirectoryLifecycle : IAsyncDisposable
             Array.Empty<GlobalCellDirectoryEntry>());
     }
 }
-

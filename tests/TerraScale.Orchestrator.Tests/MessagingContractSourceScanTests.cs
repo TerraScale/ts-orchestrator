@@ -212,8 +212,8 @@ public sealed class MessagingContractSourceScanTests
         .Replace(">", "sample", StringComparison.Ordinal);
 
     /// <summary>
-    /// Every production source under <c>src/</c> — the Orchestrator runtime and the CLI — is
-    /// scanned, so a private subject copy cannot hide in a sibling project.
+    /// Every production source under <c>src/</c> is scanned, so a private subject copy cannot
+    /// hide in a sibling project.
     /// </summary>
     private static IEnumerable<(string RelativePath, string Text)> ReadProductionSources(string root)
     {
@@ -244,4 +244,3 @@ public sealed class MessagingContractSourceScanTests
             "The repository root was not found; the messaging-contract scan must run from the repository.");
     }
 }
-

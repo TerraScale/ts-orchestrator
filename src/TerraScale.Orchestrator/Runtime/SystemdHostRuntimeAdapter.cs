@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace TerraScale.Orchestrator.Runtime;
 
@@ -35,18 +36,40 @@ internal sealed class ProcessHostCommandRunner : IHostCommandRunner
             process.StartInfo.ArgumentList.Add(argument);
         }
         process.Start();
-        var standardOutput = process.StandardOutput.ReadToEndAsync(cancellationToken);
-        var standardError = process.StandardError.ReadToEndAsync(cancellationToken);
+        var standardOutput = ReadBoundedAsync(process.StandardOutput, cancellationToken);
+        var standardError = ReadBoundedAsync(process.StandardError, cancellationToken);
         await ProcessLifecycle.WaitForExitAsync(process, cancellationToken);
         return new(
             process.ExitCode,
-            Bound(await standardOutput),
-            Bound(await standardError));
+            await standardOutput,
+            await standardError);
     }
 
-    private static string Bound(string value) => value.Length <= MaximumCapturedCharacters
-        ? value
-        : value[..MaximumCapturedCharacters];
+    private static async Task<string> ReadBoundedAsync(
+        StreamReader reader,
+        CancellationToken cancellationToken)
+    {
+        var buffer = new char[4096];
+        var captured = new StringBuilder(Math.Min(MaximumCapturedCharacters, buffer.Length));
+        while (captured.Length < MaximumCapturedCharacters)
+        {
+            var read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken);
+            if (read == 0)
+            {
+                break;
+            }
+
+            captured.Append(buffer, 0, Math.Min(read, MaximumCapturedCharacters - captured.Length));
+        }
+
+        // Keep draining the stream after the capture bound is reached so the child
+        // cannot block on a full pipe while the other stream is being consumed.
+        while (await reader.ReadAsync(buffer.AsMemory(), cancellationToken) != 0)
+        {
+        }
+
+        return captured.ToString();
+    }
 }
 
 internal enum SystemdAllocationState
@@ -69,6 +92,9 @@ internal sealed class SystemdHostRuntimeAdapter(
     IHostCommandRunner commandRunner,
     bool userManager = false)
 {
+    private readonly IHostCommandRunner commandRunner =
+        commandRunner ?? throw new ArgumentNullException(nameof(commandRunner));
+
     public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         var systemd = RequireCanonicalSystemdPlan(plan);
@@ -228,4 +254,3 @@ internal sealed class SystemdHostRuntimeAdapter(
         return systemd;
     }
 }
-

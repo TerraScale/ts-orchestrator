@@ -1,4 +1,0 @@
-{{define "content"}}
-<section class="section-intro"><div><p class="eyebrow">AUDIT STREAM</p><h2>Control-plane activity</h2><p>Chronological observations emitted by the orchestrator. This view has no commands or mutation controls.</p></div><div class="summary-number"><b>{{len .Events}}</b><span>events observed</span></div></section>
-<section class="panel timeline-panel">{{if .Events}}<ol class="timeline">{{range .Events}}<li><time>{{time .Time}}</time><div><span class="event-level">{{.Level}}</span><h3>{{.Kind}}</h3><p>{{.Message}}</p><small>{{or .Region "region unavailable"}}{{if .Node}} · {{.Node}}{{end}}</small></div></li>{{end}}</ol>{{else}}<p class="empty">No events have been observed.</p>{{end}}</section>
-{{end}}

@@ -129,5 +129,5 @@ content never enter Git, logs, traces, metrics, fixtures, or receipts.
 
 The orchestrator publishes bounded `estate.*` documents into the control-plane
 database on change and at least every ten seconds. The dashboard reads them
-through the public SDK. Infrastructure actions remain in the orchestrator CLI;
-the dashboard does not gain a private control transport.
+through the public SDK. Infrastructure actions remain in the orchestrator
+runtime; the dashboard does not gain a private control transport.

@@ -110,6 +110,66 @@ public sealed class GlobalCellDirectoryLifecycleTests
         await Assert.That(attempts).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task FailureObserverCannotStopBoundedRetrySupervision()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var retryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStart = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var attempts = 0;
+        await using var lifecycle = GlobalCellDirectoryLifecycle.StartForTesting(
+            token =>
+            {
+                if (Interlocked.Increment(ref attempts) == 1)
+                    return Task.FromException<IGlobalCellDirectoryRuntimeInstance>(
+                        new InvalidOperationException("directory unavailable"));
+
+                secondStart.SetResult();
+                return Task.FromResult<IGlobalCellDirectoryRuntimeInstance>(
+                    new FakeDirectoryRuntime(HealthySnapshot()));
+            },
+            null,
+            static _ => TimeSpan.Zero,
+            async (_, token) =>
+            {
+                retryEntered.SetResult();
+                await Task.Yield();
+            },
+            cancellation.Token,
+            _ => throw new InvalidOperationException("observer failed"));
+
+        await retryEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await secondStart.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await EventuallyAsync(() => lifecycle.Health == GlobalCellDirectoryCondition.Healthy);
+        await Assert.That(attempts).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task CancellationSuppressesInstanceDisposeCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var directory = new FakeDirectoryRuntime(HealthySnapshot(),
+            new OperationCanceledException("directory shutdown"));
+        var service = new FakeServiceRuntime(new OperationCanceledException("service shutdown"));
+        await using var lifecycle = GlobalCellDirectoryLifecycle.StartForTesting(
+            token =>
+            {
+                started.SetResult();
+                return Task.FromResult<IGlobalCellDirectoryRuntimeInstance>(directory);
+            },
+            (runtime, token) => Task.FromResult<IGlobalCellDirectoryServiceRuntimeInstance?>(service),
+            static _ => TimeSpan.Zero,
+            static (_, _) => Task.CompletedTask,
+            cancellation.Token);
+
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await cancellation.CancelAsync();
+        await lifecycle.Completion.WaitAsync(TimeSpan.FromSeconds(1));
+        await Assert.That(directory.DisposalCount).IsEqualTo(1);
+        await Assert.That(service.DisposalCount).IsEqualTo(1);
+    }
+
     private static async Task EventuallyAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)
@@ -166,9 +226,17 @@ public sealed class GlobalCellDirectoryLifecycleTests
         private readonly TaskCompletionSource completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        private readonly Exception? disposalFailure;
+
+        internal FakeDirectoryRuntime(GlobalCellDirectorySnapshot snapshot, Exception? disposalFailure = null)
+        {
+            Snapshot = snapshot;
+            this.disposalFailure = disposalFailure;
+        }
+
         internal int DisposalCount { get; private set; }
 
-        public GlobalCellDirectorySnapshot Snapshot { get; } = snapshot;
+        public GlobalCellDirectorySnapshot Snapshot { get; }
 
         public Task Completion => completion.Task;
 
@@ -177,17 +245,25 @@ public sealed class GlobalCellDirectoryLifecycleTests
         public ValueTask DisposeAsync()
         {
             DisposalCount++;
+            if (disposalFailure is not null)
+                return ValueTask.FromException(disposalFailure);
             return ValueTask.CompletedTask;
         }
     }
 
     private sealed class FakeServiceRuntime : IGlobalCellDirectoryServiceRuntimeInstance
     {
+        private readonly Exception? disposalFailure;
+
+        internal FakeServiceRuntime(Exception? disposalFailure = null) => this.disposalFailure = disposalFailure;
+
         internal int DisposalCount { get; private set; }
 
         public ValueTask DisposeAsync()
         {
             DisposalCount++;
+            if (disposalFailure is not null)
+                return ValueTask.FromException(disposalFailure);
             return ValueTask.CompletedTask;
         }
     }
@@ -203,4 +279,3 @@ internal static class GlobalCellDirectorySnapshotAssertions
         await Assert.That(snapshot.Cells).IsEmpty();
     }
 }
-

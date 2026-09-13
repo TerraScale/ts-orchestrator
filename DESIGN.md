@@ -98,8 +98,8 @@ The main executable accepts `run` (the default), `check`, `catalog`,
 `provision-journal`, and `journal-writer`. It also dispatches repository
 validation commands: `adr-readiness`, `owner-decisions`, `ci-result-manifest`,
 `development-attest`, `phase0-evidence`, `json-format`, `test`, and
-`workspace-topology-lease-holder`. The CLI executable accepts `operator status`
-and `operator members`.
+`workspace-topology-lease-holder`. The same executable accepts `operator
+status` and `operator members`.
 
 Use the pinned SDK and solution for local verification:
 
