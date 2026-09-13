@@ -32,6 +32,7 @@ const ObserverCertificatePath = "/etc/terrascale/engine-observer/client.pem"
 const ObserverPrivateKeyPath = "/etc/terrascale/engine-observer/client.key"
 const ObserverCAPath = "/etc/terrascale/engine-observer/ca.pem"
 const dataRoot = "/var/lib/terrascale/terrabase"
+const proposalJournalRoot = dataRoot + "/control"
 
 var ulid = regexp.MustCompile(`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`)
 var environment = regexp.MustCompile(`^[A-Za-z0-9._-]{1,96}$`)
@@ -537,7 +538,7 @@ func render(d Declaration, h Host, nodes map[string]Binding) (string, error) {
 		slices.Sort(seats)
 		fmt.Fprintf(&b, "[[placement.regions]]\nregion = %q\nmembers = [%q, %q]\n", region, seats[0], seats[1])
 	}
-	fmt.Fprintf(&b, "\n[control]\nproposal_journal = %q\norchestrator_principals = [", dataRoot+"/proposals.sqlite")
+	fmt.Fprintf(&b, "\n[control]\nproposal_journal = %q\norchestrator_principals = [", proposalJournalRoot+"/proposals.sqlite")
 	principals := slices.Clone(h.OrchestratorPrincipals)
 	slices.Sort(principals)
 	for i, principal := range principals {

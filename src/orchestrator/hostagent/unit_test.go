@@ -37,6 +37,7 @@ Wants=network-online.target
 Type=exec
 User=terrascale-terrabase
 Group=terrascale-terrabase
+ExecStartPre=/usr/bin/install -d -m 0700 /var/lib/terrascale/terrabase/control
 SupplementaryGroups=terrascale-keylease
 RuntimeDirectory=terrascale-database
 RuntimeDirectoryMode=0700

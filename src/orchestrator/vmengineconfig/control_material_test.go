@@ -3,6 +3,7 @@ package vmengineconfig_test
 import (
 	"encoding/json/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,6 +12,41 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/placementpublisher"
 	"terrascale.tech/orchestrator/src/orchestrator/vmengineconfig"
 )
+
+func TestPublicAPIBootstrapDoesNotRequireHostControl(t *testing.T) {
+	declaration, path := testengineconfig.Declaration(t, bindings, strings.Repeat("a", 64), "1.0.0")
+	keyPath := filepath.Join(t.TempDir(), "bootstrap.key")
+	if err := os.WriteFile(keyPath, []byte(strings.Repeat("b", 64)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declaration.PublicAPI = &vmengineconfig.PublicAPI{Listen: "127.0.0.1:8443", DataRoot: "/var/lib/terrascale/terrabase/public-api", BootstrapKeyFile: keyPath}
+	raw, err := json.Marshal(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	materials, err := vmengineconfig.Load(path, declaration.ArtifactSHA256, declaration.Release, bindings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for _, material := range materials {
+			material.Clear()
+		}
+	})
+	for _, binding := range bindings {
+		material := materials[binding.NodeID]
+		files := material.ControlFiles()
+		if len(files["/etc/terrascale/public-api/bootstrap.key"]) != 64 || files[placementpublisher.HostFilePath] != nil || material.ControlAuthorization().PublicNKey != "" {
+			t.Fatal("public API bootstrap material acquired host control authority or was omitted")
+		}
+		if err := material.ValidateManifest(binding.NodeID, binding.Address, manifest(t, material)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 func TestExplicitControlCredentialsAndExactNATSGrant(t *testing.T) {
 	bindings := []vmengineconfig.Binding{{NodeID: "gru-one", Region: "GRU", Address: "10.77.0.10"}, {NodeID: "gru-two", Region: "GRU", Address: "10.77.0.11"}}

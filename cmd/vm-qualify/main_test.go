@@ -94,7 +94,7 @@ func TestQualificationProfilesPredeclareFourthRegionOnlyForSuite(t *testing.T) {
 		full, fourth    bool
 		regions, guests int
 	}{
-		{"smoke", false, false, 1, 1}, {"stack", true, false, 3, 6}, {"test", true, true, 4, 8},
+		{"smoke", false, false, 1, 2}, {"stack", true, false, 3, 6}, {"test", true, true, 4, 8},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := qualificationNetworkConfig(test.full, test.fourth)

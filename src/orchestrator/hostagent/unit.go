@@ -65,6 +65,12 @@ func RenderSystemdUnit(installRoot string, spec hostmanifest.ComponentSpec) (str
 	b.WriteString("Type=exec\n")
 	b.WriteString("User=" + spec.User + "\n")
 	b.WriteString("Group=" + spec.User + "\n")
+	if spec.Name == "terrabase" {
+		// TerraBase opens its placement journal only when this owner-private
+		// parent already exists with mode 0700. The service user can create it
+		// under its own volume without widening ts-node's write sandbox.
+		b.WriteString("ExecStartPre=/usr/bin/install -d -m 0700 " + spec.DataVolume + "/control\n")
+	}
 	for _, property := range serviceidentity.UnitProperties(spec.User) {
 		b.WriteString(property + "\n")
 	}

@@ -34,6 +34,26 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	declaration.PublicAPI = &vmengineconfig.PublicAPI{Listen: "0.0.0.0:8080", DataRoot: "/var/lib/terrascale/terrabase", Identity: &vmengineconfig.PublicIdentity{Endpoint: "https://app.terrascale.tech/api/internal/identity/introspect", Issuer: "https://app.terrascale.tech", Audience: "https://api.terrascale.tech", ServiceKeyFile: servicePath, AuthorizationLeaseKeysFile: leasePath}}
+	pinPath := filepath.Join(secretDir, "transition.pub")
+	receiptPath := filepath.Join(secretDir, "receipt.key")
+	cursorPath := filepath.Join(secretDir, "cursor.key")
+	for path, content := range map[string][]byte{
+		pinPath:     bytes.Repeat([]byte{1}, 32),
+		receiptPath: bytes.Repeat([]byte{2}, 32),
+		cursorPath:  bytes.Repeat([]byte{3}, 32),
+	} {
+		if err := os.WriteFile(path, content, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	declaration.TransitionTrust = &vmengineconfig.TransitionTrust{
+		Authority:             []vmengineconfig.TransitionPublicKey{{KeyID: "authority", PublicKeyFile: pinPath}},
+		Genesis:               []vmengineconfig.TransitionPublicKey{{KeyID: "genesis", PublicKeyFile: pinPath}},
+		Members:               []vmengineconfig.TransitionPublicKey{{KeyID: "receipt", PublicKeyFile: pinPath}},
+		ReceiptKeyID:          "receipt",
+		ReceiptPrivateKeyFile: receiptPath,
+		ExportCursorKeyFile:   cursorPath,
+	}
 	encoded, err := json.Marshal(declaration)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +159,11 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 			continue
 		}
 		controlCount++
-		if file.Owner != membershipServiceUser || file.Mode != 0400 || file.Validate() != nil || !bytes.Equal(file.Content, controlFiles[file.Path]) {
+		wantOwner := membershipServiceUser
+		if vmengineconfig.IsPublicAPIPath(file.Path) {
+			wantOwner = vmengineconfig.ServiceUser
+		}
+		if file.Owner != wantOwner || file.Mode != 0400 || file.Validate() != nil || !bytes.Equal(file.Content, controlFiles[file.Path]) {
 			t.Fatal("control material changed or owner access invalid")
 		}
 		if bytes.Contains(seed.UserData, file.Content) {
@@ -207,6 +231,44 @@ func TestNoCloudCarriesSignedEngineConfigurationAndPrivateTLS(t *testing.T) {
 	script := engineOwnershipBootstrap(seed.RootFiles)
 	if !strings.Contains(script, "chown terrascale-terrabase:terrascale-terrabase "+vmengineconfig.PrivateKeyPath) {
 		t.Fatal("credential ownership not installed")
+	}
+	transitionFiles := spec.TSNode.Engine.TransitionFiles()
+	transitionCount := 0
+	for _, file := range seed.RootFiles {
+		content, ok := transitionFiles[file.Path]
+		if !ok {
+			continue
+		}
+		transitionCount++
+		if file.Owner != vmengineconfig.ServiceUser || file.Mode != 0400 || file.Validate() != nil || !bytes.Equal(file.Content, content) {
+			t.Fatal("transition material owner, mode, or content changed")
+		}
+		if bytes.Contains(seed.UserData, content) {
+			t.Fatal("transition material leaked into user-data")
+		}
+		if !strings.Contains(script, "chown terrascale-terrabase:terrascale-terrabase "+file.Path+"\n") {
+			t.Fatal("transition material ownership not installed")
+		}
+		for _, owner := range []string{"", membershipServiceUser} {
+			wrong := file
+			wrong.Owner = owner
+			if wrong.Validate() == nil {
+				t.Fatal("wrong transition material owner accepted")
+			}
+		}
+		wrong := file
+		wrong.Mode = 0444
+		if wrong.Validate() == nil {
+			t.Fatal("publicly readable transition material accepted")
+		}
+		wrong = file
+		wrong.Path += ".extra"
+		if wrong.Validate() == nil {
+			t.Fatal("unbound transition material path accepted")
+		}
+	}
+	if transitionCount != 5 {
+		t.Fatal("transition material missing from real bootstrap")
 	}
 	spec.Address = "10.77.0.12"
 	if _, err := BuildNoCloudSeed(spec); err == nil {

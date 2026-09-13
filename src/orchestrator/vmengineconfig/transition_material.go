@@ -37,6 +37,9 @@ func transitionPinPath(role, id string) string {
 	return transitionTrustRoot + "/" + role + "-" + hex.EncodeToString(digest[:]) + ".pub"
 }
 func IsTransitionTrustPath(path string) bool {
+	if path == receiptSignerPath || path == exportCursorKeyPath {
+		return true
+	}
 	name, ok := strings.CutPrefix(path, transitionTrustRoot+"/")
 	if !ok {
 		return false
@@ -55,6 +58,9 @@ func IsTransitionTrustPath(path string) bool {
 	}
 	return false
 }
+
+// IsPublicAPIPath identifies the engine-owned public API credential paths.
+func IsPublicAPIPath(path string) bool { return path == publicAPIBootstrapKeyPath }
 func validateTransitionTrust(trust *TransitionTrust) error {
 	if trust == nil {
 		return nil

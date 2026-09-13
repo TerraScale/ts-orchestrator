@@ -93,6 +93,16 @@ func validateClientMaterial(certificate, privateKey, ca []byte, expected string)
 	return leaf, nil
 }
 func prepareControl(m *Material, d Declaration, h Host, binding Binding) error {
+	if d.PublicAPI != nil && d.PublicAPI.BootstrapKeyFile != "" {
+		raw, err := initialgrant.ReadMaterialFile(d.PublicAPI.BootstrapKeyFile, 16<<10, true)
+		if err != nil || len(raw) == 0 {
+			return errors.New("vmengineconfig: public API bootstrap key is unavailable")
+		}
+		if m.controlFiles == nil {
+			m.controlFiles = map[string][]byte{}
+		}
+		m.controlFiles[publicAPIBootstrapKeyPath] = raw
+	}
 	if h.EngineControl == nil {
 		return nil
 	}
@@ -100,14 +110,10 @@ func prepareControl(m *Material, d Declaration, h Host, binding Binding) error {
 	if !slices.Contains(h.OrchestratorPrincipals, control.Identity) {
 		return errors.New("vmengineconfig: control principal is not explicitly admitted")
 	}
-	m.controlFiles = map[string][]byte{controlCAPath: bytes.Clone(m.ca)}
-	if d.PublicAPI != nil && d.PublicAPI.BootstrapKeyFile != "" {
-		raw, err := initialgrant.ReadMaterialFile(d.PublicAPI.BootstrapKeyFile, 16<<10, true)
-		if err != nil || len(raw) == 0 {
-			return errors.New("vmengineconfig: public API bootstrap key is unavailable")
-		}
-		m.controlFiles[publicAPIBootstrapKeyPath] = raw
+	if m.controlFiles == nil {
+		m.controlFiles = map[string][]byte{}
 	}
+	m.controlFiles[controlCAPath] = bytes.Clone(m.ca)
 	for _, file := range []struct {
 		source, target string
 		private        bool
@@ -182,7 +188,7 @@ func prepareControl(m *Material, d Declaration, h Host, binding Binding) error {
 }
 
 func (m *Material) applyControlManifest(manifest hostmanifest.HostManifest) (hostmanifest.HostManifest, error) {
-	if len(m.controlFiles) == 0 {
+	if _, ok := m.controlFiles[placementpublisher.HostFilePath]; !ok {
 		return manifest, nil
 	}
 	config, err := placementpublisher.ParseHostFile(m.controlFiles[placementpublisher.HostFilePath], m.cell, m.nodeID)
@@ -225,7 +231,7 @@ func (m *Material) applyControlManifest(manifest hostmanifest.HostManifest) (hos
 	return manifest, nil
 }
 func (m *Material) validateControlManifest(manifest hostmanifest.HostManifest) error {
-	if len(m.controlFiles) == 0 {
+	if _, ok := m.controlFiles[placementpublisher.HostFilePath]; !ok {
 		return nil
 	}
 	found := 0
