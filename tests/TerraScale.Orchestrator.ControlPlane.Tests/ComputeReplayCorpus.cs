@@ -11,7 +11,7 @@ internal sealed record StorageComputeReplayEntry(string Domain, string Property,
 internal static class StorageComputeReplayCorpus
 {
     internal const string ResourceName = "TerraScale.Orchestrator.ControlPlane.Tests.Properties.StorageComputeReplayCorpus.v1.json";
-    internal const string ContentSha256 = "f0f97770a45ab50329b71b07e8b48921a0ee26d1c3ade443ac8f604b49f557ff";
+    internal const string ContentSha256 = "8b07a0c01fb4bf02e1a5e2ba7ce43d1a3d2082f761db179c1849ffdddba7479f";
     internal const int MaximumBytes = 8_192;
     internal const int MaximumEntries = 32;
     internal const int MaximumStringLength = 64;
@@ -270,4 +270,3 @@ public sealed class ComputeReplayCorpusTests
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
-
