@@ -16,7 +16,6 @@ and locked package restore to every project.
 | Project | Role | Output |
 | --- | --- | --- |
 | `src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj` | Runtime, control plane, provider adapters, delivery, messaging, and host runtime planning | `terrascale-orchestrator`; self-contained single file for `linux-arm64` and `linux-x64` |
-| `src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj` | Read-only operator queries | `terrascale-orchestrator-cli`; self-contained single file for `linux-arm64` and `linux-x64` |
 | `src/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj` | Repository validation and evidence tooling | Standalone tooling executable |
 | `tests/TerraScale.Orchestrator.ControlPlane.Tests` | Control-plane engines, providers, journals, runtime, security, and integration contracts | TUnit executable |
 | `tests/TerraScale.Orchestrator.ModelTests` | Model and simulation coverage | TUnit executable |

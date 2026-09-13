@@ -49,11 +49,10 @@ The runtime exposes these top-level commands:
 - `provision-journal` provisions regional durable journal topology; and
 - `journal-writer` starts the isolated authoritative journal writer.
 
-The separate `TerraScale.Orchestrator.CLI` executable provides the read-only
-`operator status` and `operator members` queries. The
-`TerraScale.Orchestrator.Tooling` executable provides repository validation and
-evidence commands. Both runtime executables publish as self-contained single
-files for `linux-arm64` and `linux-x64`.
+The `terrascale-orchestrator` executable provides the read-only `operator
+status` and `operator members` queries. The `TerraScale.Orchestrator.Tooling`
+executable provides repository validation and evidence commands. The runtime
+publishes as a self-contained single file for `linux-arm64` and `linux-x64`.
 
 Admitted roles select either a native systemd plan or an OCI plan. Every plan
 contains a lowercase allocation identifier, a lowercase SHA-256 artifact

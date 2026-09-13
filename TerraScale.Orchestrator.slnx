@@ -9,7 +9,6 @@
     <File Path="README.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />
     <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
     <Project Path="src/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj" />
   </Folder>
