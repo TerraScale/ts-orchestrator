@@ -1,138 +1,105 @@
 # TerraScale Orchestrator
 
-`ts-orchestrator` is TerraScale's Go control plane and our Kubernetes
-alternative. It declares and reconciles the complete OCI and Cloudflare estate,
-runs signed TerraScale binaries under systemd, places TerraBase members, and
-repairs drift and host failures. It is never on the customer data path.
+`ts-orchestrator` is TerraScale's C# control plane, targeting .NET 10. It
+reconciles the OCI estate, coordinates regional capacity and TerraBase
+placement, manages admitted service runtimes, and carries durable control
+state over NATS. It is an infrastructure control service; customer documents,
+replication, queries, and reactive delivery remain outside this process.
 
-The workspace [`GOAL.md`](../GOAL.md) defines product scope, repository responsibilities,
-and release gates.
+The current source is in `src/TerraScale.Orchestrator`. Product scope is set by
+the workspace-level `GOAL.md` when that file is present alongside this
+repository. This repository's implementation map is [DESIGN.md](DESIGN.md),
+and its terminology is [CONTEXT.md](CONTEXT.md).
 
-## Boundary
+## Ownership boundary
 
-The orchestrator owns:
+The control plane contains the following responsibilities:
 
-- OCI compartments, networking, compute, block and object storage, Vault,
-  certificates, identity, and lifecycle policy;
-- Cloudflare DNS, Cache Rules, Snippets, Worker promotion, KV, WAF, rate rules,
-  capability keys, and certificates;
-- Region and host bootstrap, capacity, drain, replacement, and safe removal;
-- `ts-node`, signed artifact installation, hardened systemd units, activation,
-  health gates, and rollback;
-- TerraBase placement intent, residency locks, peer lists, repair coordination,
-  and backup/restore orchestration through private TBEP gRPC;
-- the delivery API consumed by `ts-deploy`, canary and rolling rollout state,
-  and automatic rollback;
-- embedded NATS JetStream control state; and
-- infrastructure telemetry and `estate.*` publication for the admin console.
+- OCI provider models, ownership checks, compute, storage, networking,
+  snapshots, and reconciliation;
+- regional and global NATS topology, membership, directory publication,
+  monitoring, JetStream journals, and signed control messages;
+- TerraBase placement, lifecycle, recovery, and bounded control observations;
+- admitted runtime roles, canonical systemd and OCI execution plans, resource
+  limits, and allocation lifecycle;
+- signed delivery handoffs, direct delivery, Forgejo source and CI processing,
+  candidate evidence, artifact attestations, and native GitOps handoffs; and
+- bootstrap grants, command identities, credential separation, telemetry, and
+  operator status queries.
 
-For customer-managed encryption (BYOK), NATS persists only validated provider
-references and wrapped database-DEK ciphertext needed for restart and recovery.
-Provider credentials remain in workload-identity or secret-provider boundaries.
-Credentials, imported/raw keys, unwrapped DEKs, and customer data never enter NATS.
-AWS KMS references use canonical key ARNs whose region matches the admitted
-configuration; aliases and bare key IDs are rejected before journal admission.
-The current runtime binds one AWS KMS workload-identity tuple per process and
-fails closed when an admitted reference differs. A multi-authority process
-requires a separately qualified credential-source mapping; NATS persistence
-does not grant the orchestrator customer-provider credentials by itself.
+The process does not become a customer data proxy or a replacement for
+TerraBase's database and replication authorities. Provider and runtime actions
+are admitted from canonical plans and fail closed when identity, ownership,
+authority, or evidence does not match.
 
-It does not own database mutations, SQLite or CRDT behavior, replication
-correctness, reactive delivery, usage truth, billing, authentication, SDK
-behavior, arbitrary customer workloads, or a public query proxy.
+## Runtime shape
 
-## Launch shape
+The `TerraScale.Orchestrator` project is the main executable. Its composition
+root starts regional control first, then conditionally starts global authority,
+global directory, delivery, CI, native GitOps, and telemetry components when
+their configuration is complete. Global authority and directory service are
+GRU-only; regional control can remain available when optional global control is
+unavailable.
 
-GRU starts first and hosts the single active global master. Every Region runs
-its own dedicated worker pool to manage its OCI resources and TerraBase members
-under GRU authority. The GRU, SFO, and FRA processes also host the permanent
-global JetStream R3. Later Regions run regional workers without joining that
-global storage group. Each Region starts with two admitted TerraBase member
-hosts and two separate orchestrator worker hosts.
+The runtime exposes these top-level commands:
 
-Bootstrap uses a temporary pre-customer GRU R1, then admits synchronized SFO
-and FRA replicas and promotes to R3 before customer admission. Existing
-Regions keep serving when the orchestrator, GRU, or NATS is unavailable.
+- `run` (the default) starts the configured control runtime;
+- `check` validates startup composition without running the long-lived service;
+- `catalog` prints the closed admitted-role catalog;
+- `provision-journal` provisions regional durable journal topology; and
+- `journal-writer` starts the isolated authoritative journal writer.
 
-Production hosts are Ubuntu LTS minimal. Cloud-init installs only `ts-node`.
-It verifies signed binaries, writes hardened systemd units, and performs
-orchestrator-coordinated drain, activation, and rollback. Ampere A1 arm64 is
-the default host shape and E5 amd64 is the automatic capacity fallback. Member
-hosts remain 2 OCPU/12 GiB; dedicated worker hosts use 1 OCPU/1 GiB and scale
-independently, with two workers as the regional floor.
-The current durable autoscale target applies to TerraBase members only; the
-dedicated worker pool stays at its declared floor until a separate worker
-target and termination proof are implemented.
+The separate `TerraScale.Orchestrator.CLI` executable provides the read-only
+`operator status` and `operator members` queries. The
+`TerraScale.Orchestrator.Tooling` executable provides repository validation and
+evidence commands. Both runtime executables publish as self-contained single
+files for `linux-arm64` and `linux-x64`.
 
-`ts-deploy` builds, signs, publishes, and submits a binary candidate (D-68).
-The orchestrator mirrors it into every Region, deploys one GRU canary, then
-rolls one host at a time while preserving RF=2 (D-67). It owns Worker and
-Snippet promotion as well.
+Admitted roles select either a native systemd plan or an OCI plan. Every plan
+contains a lowercase allocation identifier, a lowercase SHA-256 artifact
+digest, architecture, bounded resources, and a canonical plan fingerprint.
+Systemd plans use hardened units and encrypted workload credentials. OCI plans
+use the fixed `terrascale` containerd namespace, digest-pinned images,
+unprivileged execution, dropped capabilities, read-only roots, seccomp, and
+cgroup-v2 limits.
 
-## Firecracker qualification
+## Development commands
 
-Every orchestrator behavior must pass locally without OCI or Cloudflare
-credentials on real Ubuntu LTS systemd guests under Firecracker on Linux/KVM.
-Another VMM, containers, host processes, and fakes alone do not qualify the
-host lifecycle.
-
-The test-only Go `SandboxVMProvider` uses the pinned official Firecracker Go
-SDK and the pinned Unix-socket OpenAPI for operations absent from the SDK. It
-owns TAPs, Region bridges or namespaces, `nftables` partitions, `tc netem`
-profiles, persistent and faultable drives, snapshots, guest readiness, bounded
-diagnostics, and crash-safe cleanup. Local OCI and Cloudflare endpoints model
-their real contracts and failures without entering production composition.
-
-The required workflow is:
+The repository uses the SDK pinned by [global.json](global.json) and the
+solution [TerraScale.Orchestrator.slnx](TerraScale.Orchestrator.slnx):
 
 ```bash
-make vm-doctor
-make vm-image
-make vm-smoke
-make vm-stack
-make vm-test
-make vm-clean
+dotnet restore TerraScale.Orchestrator.slnx --locked-mode
+dotnet build TerraScale.Orchestrator.slnx --configuration Release --nologo
+dotnet test TerraScale.Orchestrator.slnx --configuration Release --no-build
 ```
 
-The production GRU/SFO/FRA topology is twelve hosts (two members and two
-workers per Region). The current `make vm-test` qualification fixture remains
-the existing six-guest member topology while worker guest coverage is added.
-It covers bootstrap,
-`add-region`, R3 control, reconciliation, systemd delivery and rollback,
-placement locks, host and Region failure, partitions and latency, storage
-faults, certificate and key rotation, restore drills, degraded mode, and
-cleanup after interruption. See [running locally](docs/guides/running-locally.md).
-
-The Firecracker targets are part of the accepted design but are not all
-implemented in the current worktree yet. Until they land, passing the existing
-Go tests does not qualify production-facing orchestration behavior.
-
-## Current implementation
-
-The checked-in code is organized around the Go control plane and its native
-systemd host agent. New work deletes retired roles and topology in the same
-series and preserves durable control history and fail-closed behavior during
-cutover.
-
-Focused Go validation is:
+To inspect a runtime plan or the admitted catalog without external services:
 
 ```bash
-gofmt -l .
-go vet ./...
-go build ./...
-go test -race ./...
+dotnet run --project src/TerraScale.Orchestrator -- catalog
+dotnet run --project src/TerraScale.Orchestrator -- runtime plan \
+  --role orchestrator --allocation local --digest <64-lowercase-hex-digest>
 ```
 
-`make check` is the portable repository verification set. The separate
-Firecracker `make vm-test` gate runs on Linux/KVM before candidate submission
-on every `develop` push, including documentation changes.
+The long-lived `run` command requires a TLS NATS endpoint, private NKey seed,
+and complete mTLS material. Optional global, directory, delivery, and CI
+configuration is rejected when its authority or credential boundary is
+incomplete. See [the documentation index](docs/README.md) for operational and
+contract documents.
+
+## Historical records
+
+[Architecture decisions](docs/adr/README.md) and dated files under
+`docs/evidence/` preserve safety decisions and qualification evidence from
+earlier implementation stages. They remain available for traceability; the
+current C# project and namespace layout in [DESIGN.md](DESIGN.md) is the source
+map for this checkout.
 
 ## Documentation
 
-- [Workspace goal](../GOAL.md#ts-orchestrator)
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
-- [Firecracker local qualification](docs/guides/running-locally.md)
-- [Production readiness and refactoring inputs](docs/guides/production-readiness.md)
-- [Current package map](DESIGN.md)
+- [Production readiness](docs/guides/production-readiness.md)
+- [Current implementation map](DESIGN.md)
 - [Current terminology](CONTEXT.md)

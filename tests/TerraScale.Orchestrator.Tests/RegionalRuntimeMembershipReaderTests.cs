@@ -35,20 +35,7 @@ public sealed class RegionalRuntimeMembershipReaderTests
 
         // Membership identity is deliberately restricted to P-256. A valid
         // signature under another curve must not become a trusted member.
-        using var p384 = ECDsa.Create(ECCurve.NamedCurves.nistP384);
-        var p384PublicKey = p384.ExportSubjectPublicKeyInfo();
-        var p384Member = member with
-        {
-            IdentityKeyId = Convert.ToHexStringLower(SHA256.HashData(p384PublicKey))[..32],
-            IdentityPublicKey = Convert.ToBase64String(p384PublicKey),
-            IdentitySignature = ""
-        };
-        p384Member = p384Member with
-        {
-            IdentitySignature = Convert.ToBase64String(p384.SignData(
-                Encoding.UTF8.GetBytes(p384Member.CanonicalMaterial()),
-                HashAlgorithmName.SHA256))
-        };
+        var p384Member = P384Member(member);
         await Assert.That(p384Member.VerifySignedIdentity()).IsFalse();
     }
 
@@ -116,7 +103,7 @@ public sealed class RegionalRuntimeMembershipReaderTests
 
         await Assert.That(RegionalRuntimeMembershipReader.Classify(
             "gru", "controller-1", ThreeControllers, previous: null,
-            record: p384Member, now))
+            record: P384Member(healthy), now))
             .IsEqualTo(RegionalRuntimeMembershipRecordClass.InvalidSignature);
     }
 
@@ -286,5 +273,23 @@ public sealed class RegionalRuntimeMembershipReaderTests
             identity.PublicKey,
             string.Empty);
         return member with { IdentitySignature = identity.Sign(member) };
+    }
+
+    private static RegionalRuntimeMember P384Member(RegionalRuntimeMember member)
+    {
+        using var identity = ECDsa.Create(ECCurve.NamedCurves.nistP384);
+        var publicKey = identity.ExportSubjectPublicKeyInfo();
+        var unsigned = member with
+        {
+            IdentityKeyId = Convert.ToHexStringLower(SHA256.HashData(publicKey))[..32],
+            IdentityPublicKey = Convert.ToBase64String(publicKey),
+            IdentitySignature = ""
+        };
+        return unsigned with
+        {
+            IdentitySignature = Convert.ToBase64String(identity.SignData(
+                Encoding.UTF8.GetBytes(unsigned.CanonicalMaterial()),
+                HashAlgorithmName.SHA256))
+        };
     }
 }
