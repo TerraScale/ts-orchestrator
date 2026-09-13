@@ -17,7 +17,7 @@ public sealed class CandidateEvidenceHandoffV2ContractDriftTests
         var sibling = Path.GetFullPath(Path.Combine(
             CandidateEvidenceHandoffV2VerifierTests.RepositoryRoot(),
             "..",
-            "TerraScale.Deploy",
+            "ts-deploy",
             "tests",
             "TerraScale.Deploy.Cli.Tests",
             "SupplyChain",

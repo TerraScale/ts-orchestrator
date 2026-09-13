@@ -15,6 +15,7 @@ systemd, and never carries customer data or serves the customer request path.
 | [`guides/automated-bootstrap.md`](guides/automated-bootstrap.md) | Declarative OCI and Cloudflare bootstrap |
 | [`guides/running-locally.md`](guides/running-locally.md) | Historical D-81 Firecracker qualification design and retained command evidence |
 | [`guides/qualification-status.md`](guides/qualification-status.md) | Historical qualification record and dated blockers |
+| [`guides/terrabase-vm-configuration.md`](guides/terrabase-vm-configuration.md) | Historical TerraBase declaration and guest configuration contract |
 | [`adr/0020-provider-actuator-threat-model.md`](adr/0020-provider-actuator-threat-model.md) | Provider mutation fencing and same-operation recovery |
 | [`adr/0024-greenfield-bringup.md`](adr/0024-greenfield-bringup.md) | Greenfield bootstrap and residual-resource quarantine |
 | [`adr/0025-rollback-on-customer-gate-failure.md`](adr/0025-rollback-on-customer-gate-failure.md) | Release rollback safety boundary |
