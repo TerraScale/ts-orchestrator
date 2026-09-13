@@ -1,0 +1,165 @@
+{
+  "name": "terrascale-orchestrator-control-protocol",
+  "version": "v2",
+  "root": "ts.orch.v2",
+  "supersededRoots": ["ts.orch.v1"],
+  "regionToken": {
+    "subjectRule": "strict-lowercase-bijective",
+    "payloadRule": "canonical-uppercase-region-code",
+    "reservedTokens": ["global"]
+  },
+  "agentIdentity": {
+    "subjectRule": "fixed-sha256-hash-of-admitted-identity",
+    "hashTokenShape": "24-lowercase-hex-characters"
+  },
+  "subjectFamilies": [
+    {
+      "scope": "global",
+      "family": "desired",
+      "pattern": "ts.orch.v2.global.desired.>"
+    },
+    {
+      "scope": "global",
+      "family": "release",
+      "pattern": "ts.orch.v2.global.release.>"
+    },
+    {
+      "scope": "global",
+      "family": "query",
+      "pattern": "ts.orch.v2.global.query.>"
+    },
+    {
+      "scope": "regional",
+      "family": "desired",
+      "pattern": "ts.orch.v2.<region>.desired.>"
+    },
+    {
+      "scope": "regional",
+      "family": "command",
+      "pattern": "ts.orch.v2.<region>.command.>"
+    },
+    {
+      "scope": "regional",
+      "family": "observation",
+      "pattern": "ts.orch.v2.<region>.observation.>"
+    },
+    {
+      "scope": "regional",
+      "family": "operation",
+      "pattern": "ts.orch.v2.<region>.operation.>"
+    },
+    {
+      "scope": "regional",
+      "family": "query",
+      "pattern": "ts.orch.v2.<region>.query.>"
+    },
+    {
+      "scope": "regional",
+      "family": "audit",
+      "pattern": "ts.orch.v2.<region>.audit.>"
+    },
+    {
+      "scope": "regional",
+      "family": "agent",
+      "pattern": "ts.orch.v2.<region>.agent.<agent-hash>.>",
+      "agentHashToken": true
+    }
+  ],
+  "accountKinds": [
+    {
+      "kind": "infrastructure-administration",
+      "regionScoped": false,
+      "platformOnly": true,
+      "publish": ["$SYS.>"],
+      "subscribe": ["$SYS.>"]
+    },
+    {
+      "kind": "global-authority",
+      "regionScoped": false,
+      "publish": [
+        "ts.orch.v2.global.desired.>",
+        "ts.orch.v2.global.release.accepted.>",
+        "ts.orch.v2.global.release.ci.job.>"
+      ],
+      "subscribe": [
+        "ts.orch.v2.global.desired.>",
+        "ts.orch.v2.global.release.accepted.>",
+        "ts.orch.v2.global.release.ci.forgejo",
+        "ts.orch.v2.global.release.ci.runtime-proof.>"
+      ]
+    },
+    {
+      "kind": "global-directory-read-service",
+      "regionScoped": false,
+      "readOnly": true,
+      "publish": [],
+      "subscribe": ["ts.orch.v2.global.query.cells"]
+    },
+    {
+      "kind": "regional-controller",
+      "regionScoped": true,
+      "publish": [
+        "ts.orch.v2.global.query.cells",
+        "ts.orch.v2.<region>.desired.>",
+        "ts.orch.v2.<region>.command.>",
+        "ts.orch.v2.<region>.operation.>",
+        "ts.orch.v2.<region>.query.>",
+        "ts.orch.v2.<region>.audit.>",
+        "ts.orch.v2.<region>.observation.>",
+        "ts.orch.v2.<region>.agent.<agent-hash>.command.>"
+      ],
+      "subscribe": [
+        "ts.orch.v2.<region>.desired.>",
+        "ts.orch.v2.<region>.command.>",
+        "ts.orch.v2.<region>.operation.>",
+        "ts.orch.v2.<region>.query.>",
+        "ts.orch.v2.<region>.audit.>",
+        "ts.orch.v2.<region>.observation.>",
+        "ts.orch.v2.<region>.agent.<agent-hash>.observation.>",
+        "ts.orch.v2.<region>.agent.<agent-hash>.ack.>"
+      ]
+    },
+    {
+      "kind": "host-agent",
+      "regionScoped": true,
+      "agentHashScoped": true,
+      "publish": [
+        "ts.orch.v2.<region>.agent.<agent-hash>.observation.>",
+        "ts.orch.v2.<region>.agent.<agent-hash>.ack.>"
+      ],
+      "subscribe": [
+        "ts.orch.v2.<region>.agent.<agent-hash>.command.>"
+      ]
+    },
+    {
+      "kind": "ci-coordinator",
+      "regionScoped": false,
+      "publish": ["ts.orch.v2.global.release.ci.forgejo"],
+      "subscribe": []
+    },
+    {
+      "kind": "ci-isolated-runner",
+      "regionScoped": false,
+      "publish": ["ts.orch.v2.global.release.ci.runtime-proof.>"],
+      "subscribe": ["ts.orch.v2.global.release.ci.job.>"]
+    },
+    {
+      "kind": "read-only-monitoring",
+      "regionScoped": true,
+      "readOnly": true,
+      "publish": [],
+      "subscribe": [
+        "ts.orch.v2.<region>.observation.>",
+        "ts.orch.v2.<region>.audit.>"
+      ]
+    },
+    {
+      "kind": "break-glass-recovery",
+      "regionScoped": false,
+      "breakGlass": true,
+      "publish": [],
+      "subscribe": []
+    }
+  ]
+}
+

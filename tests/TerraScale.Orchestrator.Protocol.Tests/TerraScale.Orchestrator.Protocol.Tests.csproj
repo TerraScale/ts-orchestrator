@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="ZString" />
+    <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../test-corpus/protocol/*.json"
+                      Link="Fuzz/Corpus/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
+

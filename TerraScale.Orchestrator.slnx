@@ -1,0 +1,26 @@
+<Solution>
+  <Folder Name="/_SolutionItems/">
+    <File Path=".editorconfig" />
+    <File Path="AGENTS.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="docs/architecture/orchestrator.md" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/TerraScale.Orchestrator.CLI/TerraScale.Orchestrator.CLI.csproj" />
+    <Project Path="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchestrator.ModelTests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Protocol.Tests/TerraScale.Orchestrator.Protocol.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Scheduler.Tests/TerraScale.Orchestrator.Scheduler.Tests.csproj" />
+    <Project Path="tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/TerraScale.Orchestrator.Tooling/TerraScale.Orchestrator.Tooling.csproj" />
+  </Folder>
+</Solution>
+
