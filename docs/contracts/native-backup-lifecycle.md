@@ -2,7 +2,7 @@
 
 Workspace D-29 and TerraBase ADR 0046 assign backup capture, WAL/checkpoint
 coordination, shared scheduling, uploads, PITR, restore, and branching to
-TerraBase's native Rust subsystem. The orchestrator owns regional OCI buckets,
+TerraBase's engine subsystem behind its C# host boundary. The orchestrator owns regional OCI buckets,
 lifecycle policy and key authority, and requests engine lifecycle work through
 the admitted TBEP contract. It does not launch an external backup binary or
 supervise a process per database.

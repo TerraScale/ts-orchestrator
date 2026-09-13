@@ -18,7 +18,7 @@ reactive sync, or authoritative usage.
 
 | Component | Boundary |
 | --- | --- |
-| TerraBase | Private Rust engine and public API; owns documents, SQLite, replication, repair correctness, reactive sync, and usage truth. |
+| TerraBase | C# API host and private TBEP engine boundary; owns API mapping, protocol validation, stream lifecycle, and the admitted database boundary. Engine-backed storage and replication remain behind the configured engine process. |
 | Orchestrator | Declares and reconciles infrastructure, operates hosts, supplies placement intent, coordinates repair, and activates releases. |
 | `ts-node` | Only agent allowed to mutate a production host; verifies and installs signed binaries and manages hardened systemd units. |
 | Dashboard | Vinext Cloudflare Worker; owns identity, organizations, projects, billing, MCP, and the customer/admin UI. |

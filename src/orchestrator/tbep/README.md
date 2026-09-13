@@ -1,4 +1,10 @@
-# Same-host TBEP control and observation
+# Same-host TBEP control and observation (historical Go design)
+
+> **Historical design record.** This `src/orchestrator` package path and its
+> protobuf/Go generation commands belong to the retired Go implementation. The
+> active C# runtime is in `src/TerraScale.Orchestrator`; use the repository
+> README and `TerraScale.Orchestrator.slnx` for current verification. The
+> commands and hashes below remain only as provenance for the old contract.
 
 `Client` calls the actual `MaintenanceService.SupervisionHealth`,
 `TopologyRead`, and `AdminStatus` RPCs. Configuration must bind the local host's

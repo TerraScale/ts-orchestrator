@@ -1,4 +1,10 @@
-# Regional ts-node request/reply client
+# Regional ts-node request/reply client (historical Go design)
+
+> **Historical design record.** This `src/orchestrator` package path belongs
+> to the retired Go implementation and has no current C# source counterpart.
+> The active implementation is in `src/TerraScale.Orchestrator`; use the
+> repository README and `TerraScale.Orchestrator.slnx` for current commands.
+> The Go test command below is retained only as dated evidence.
 
 `Client` calls the existing `hostagent.Node*Subject` commands over NATS. Its
 constructor requires an explicit Region, a connected NKey/JWT-authenticated
