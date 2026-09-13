@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Text.Json;
+using NATS.Client.Core;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -875,3 +877,26 @@ internal static class NatsMonitoringParsers
             : null;
 }
 
+/// <summary>
+/// The raw NATS payload deserializer used by monitoring subscriptions. NATS invokes
+/// this deserializer before publishing a message to the subscription channel, so an
+/// oversized reply never becomes a second large managed buffer (or a JSON string).
+/// </summary>
+internal static class NatsMonitoringPayload
+{
+    internal const int MaximumChannelCapacity = 8;
+    internal const int MaximumAdvisoryChannelCapacity = 64;
+
+    internal static readonly INatsDeserialize<byte[]> Deserializer = new BoundedDeserializer();
+
+    internal static byte[] Deserialize(ReadOnlySequence<byte> payload) =>
+        payload.Length is 0 or > NatsMonitoringParsers.MaximumReplyBytes
+            ? []
+            : payload.ToArray();
+
+    private sealed class BoundedDeserializer : INatsDeserialize<byte[]>
+    {
+        public byte[] Deserialize(in ReadOnlySequence<byte> payload) =>
+            NatsMonitoringPayload.Deserialize(payload);
+    }
+}

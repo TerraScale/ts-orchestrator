@@ -107,6 +107,70 @@ internal sealed record NatsGatewayEndpoint
 }
 
 /// <summary>
+/// Shared validation for paths that are eventually handed to nats-server or
+/// systemd. These values are rendered inside quoted configuration strings, so
+/// the grammar deliberately permits only the portable path characters used by
+/// the topology and rejects traversal, quoting, escaping, whitespace, and
+/// control characters at the typed boundary.
+/// </summary>
+internal static class NatsGatewayPathRules
+{
+    internal static bool IsSafeAbsolutePath(string? path, string? requiredSuffix = null)
+    {
+        if (path is not { Length: >= 2 and <= 4096 } ||
+            !Path.IsPathRooted(path) ||
+            !path.StartsWith("/", StringComparison.Ordinal) ||
+            path.Contains('\\') ||
+            (requiredSuffix is not null && !path.EndsWith(requiredSuffix, StringComparison.Ordinal)))
+            return false;
+
+        foreach (var character in path)
+        {
+            if (character is not (>= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '/' or '.' or '_' or '-' or '@' or '%' or ':' or '+'))
+                return false;
+        }
+
+        var segments = path.Split('/');
+        return segments[0].Length == 0 &&
+               segments[1..].All(static segment => segment.Length > 0 && segment is not ("." or ".."));
+    }
+}
+
+/// <summary>Validation for certificate identities carried in URI or DNS SANs.</summary>
+internal static class NatsGatewayPeerIdentityRules
+{
+    internal static bool IsValid(string? identity)
+    {
+        if (identity is not { Length: >= 1 and <= 512 } ||
+            identity.Any(static character =>
+                character is '"' or '\'' or '\\' || char.IsWhiteSpace(character) || char.IsControl(character)))
+            return false;
+
+        if (!identity.StartsWith("spiffe://", StringComparison.Ordinal))
+            return NatsGatewayEndpoint.IsValidHost(identity);
+
+        if (!Uri.TryCreate(identity, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, "spiffe", StringComparison.Ordinal) ||
+            string.IsNullOrEmpty(uri.Host) ||
+            !NatsGatewayEndpoint.IsValidHost(uri.Host) ||
+            uri.Port != -1 ||
+            uri.Query.Length != 0 ||
+            uri.Fragment.Length != 0 ||
+            uri.UserInfo.Length != 0 ||
+            identity.Contains('%', StringComparison.Ordinal))
+            return false;
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments.Length > 0 &&
+               segments.All(static segment =>
+                   segment.Length > 0 &&
+                   segment is not ("." or "..") &&
+                   segment.All(static character =>
+                       character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '.'));
+    }
+}
+
+/// <summary>
 /// The transport a certificate profile protects. Client, route, and gateway
 /// transports always use separate certificate profiles with explicit expected
 /// peer identities; one certificate never spans two transports.
@@ -132,15 +196,18 @@ internal sealed record NatsGatewayCertificateProfile
         string caFile,
         IEnumerable<string> expectedPeerIdentities)
     {
-        if (!Path.IsPathRooted(certificateFile) || !certificateFile.EndsWith(".pem", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(certificateFile, ".pem"))
             throw new ArgumentException("The certificate profile requires an absolute .pem certificate path.", nameof(certificateFile));
-        if (!Path.IsPathRooted(keyFile) || !keyFile.EndsWith(".pem", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(keyFile, ".pem"))
             throw new ArgumentException("The certificate profile requires an absolute .pem key path.", nameof(keyFile));
-        if (!Path.IsPathRooted(caFile) || !caFile.EndsWith(".pem", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(caFile, ".pem"))
             throw new ArgumentException("The certificate profile requires an absolute .pem CA path.", nameof(caFile));
+        ArgumentNullException.ThrowIfNull(expectedPeerIdentities);
         var peers = expectedPeerIdentities.ToArray();
-        if (peers.Length == 0 || peers.Any(static identity => string.IsNullOrWhiteSpace(identity)))
+        if (peers.Length == 0 || peers.Any(static identity => !NatsGatewayPeerIdentityRules.IsValid(identity)))
             throw new ArgumentException("The certificate profile must name at least one expected peer identity.", nameof(expectedPeerIdentities));
+        if (peers.Distinct(StringComparer.Ordinal).Count() != peers.Length)
+            throw new ArgumentException("The certificate profile must not repeat an expected peer identity.", nameof(expectedPeerIdentities));
         Transport = transport;
         CertificateFile = certificateFile;
         KeyFile = keyFile;
@@ -191,7 +258,7 @@ internal sealed record NatsGatewayServerIdentity
             throw new ArgumentException(
                 "A gateway certificate profile exists exactly when the server opens a gateway listener.",
                 nameof(certificateProfiles));
-        if (!Path.IsPathRooted(storeDirectory) || storeDirectory.Contains("..", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(storeDirectory))
             throw new ArgumentException("The store directory must be an absolute path without traversal.", nameof(storeDirectory));
         ServerName = serverName;
         FailureDomain = failureDomain;
@@ -243,10 +310,12 @@ internal sealed record NatsGatewayProcessIdentity
 {
     internal NatsGatewayProcessIdentity(string unitName, string cgroup)
     {
-        if (!unitName.EndsWith(".service", StringComparison.Ordinal) || unitName.Length is < 1 or > 256)
+        if (unitName.Length is < 1 or > 256 ||
+            !unitName.EndsWith(".service", StringComparison.Ordinal) ||
+            unitName.Any(static character =>
+                character is not (>= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_' or '@' or '%' or '.' or ':')))
             throw new ArgumentException("The NATS process unit must be a bounded systemd unit name.", nameof(unitName));
-        if (!cgroup.StartsWith("/", StringComparison.Ordinal) || cgroup.Length is < 1 or > 256 ||
-            cgroup.Contains("..", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(cgroup))
             throw new ArgumentException("The NATS cgroup must be a bounded absolute cgroup path.", nameof(cgroup));
         UnitName = unitName;
         Cgroup = cgroup;
@@ -433,8 +502,7 @@ internal sealed record NatsGatewayCluster
             throw new ArgumentException("The cluster must declare a non-empty set of valid account names.", nameof(accounts));
         if (jetStreamAssets.Any(static asset => string.IsNullOrWhiteSpace(asset) || asset.Length > 256))
             throw new ArgumentException("The JetStream asset names must be bounded.", nameof(jetStreamAssets));
-        if (!cgroupSlice.StartsWith("/", StringComparison.Ordinal) || cgroupSlice.Length > 256 ||
-            cgroupSlice.Contains("..", StringComparison.Ordinal))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(cgroupSlice))
             throw new ArgumentException("The cgroup slice must be a bounded absolute cgroup path.", nameof(cgroupSlice));
         if (trustGeneration < 1 || configurationGeneration < 1)
             throw new ArgumentException("The trust and configuration generations must be positive.", nameof(trustGeneration));
@@ -536,4 +604,3 @@ internal sealed record NatsGatewayPlan
     internal NatsGatewayCluster? Cluster(string cell) =>
         Clusters.SingleOrDefault(cluster => cluster.Cell == cell);
 }
-

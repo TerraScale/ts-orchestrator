@@ -62,29 +62,11 @@ public sealed record NatsTlsFiles(string CaFile, string CertificateFile, string 
 
     private static string ResolvePublic(string value, string optionName)
     {
-        var path = Path.GetFullPath(value);
-        var file = new FileInfo(path);
-        if (!file.Exists || file.Length is < 1 or > 65_536)
-        {
-            throw new ArgumentException($"{optionName} must identify a bounded existing PEM file.");
-        }
-        return path;
+        return NatsFileResolver.Resolve(value, optionName, 65_536, ownerPrivate: false);
     }
 
     private static string ResolvePrivate(string value, string optionName)
     {
-        if (!OperatingSystem.IsLinux())
-        {
-            throw new PlatformNotSupportedException("NATS TLS credential files require Linux file permissions.");
-        }
-        var path = ResolvePublic(value, optionName);
-        var mode = File.GetUnixFileMode(path);
-        if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
-                     UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
-        {
-            throw new ArgumentException($"{optionName} must be private to the current user.");
-        }
-        return path;
+        return NatsFileResolver.Resolve(value, optionName, 65_536, ownerPrivate: true);
     }
 }
-

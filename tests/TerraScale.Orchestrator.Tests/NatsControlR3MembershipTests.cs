@@ -117,6 +117,13 @@ public sealed class NatsControlR3MembershipTests
             await Assert.That(withUnexpected.Health.QuorumAvailable).IsTrue();
             await Assert.That(withUnexpected.Health.Condition)
                 .IsEqualTo(RegionalRuntimeMembershipCondition.Degraded);
+            await runtimeStore.DeleteAsync("controller.controller-9");
+            await WaitForAsync(
+                () => membershipOne.Snapshot.Members.Count == 2
+                    ? membershipOne.Snapshot
+                    : null,
+                ConvergenceTimeout,
+                "the unexpected membership slot to leave the snapshot");
             var sessionsBefore = discovered.Members
                 .ToDictionary(static member => member.Instance, static member => member.SessionId, StringComparer.Ordinal);
             var identitiesBefore = discovered.Members

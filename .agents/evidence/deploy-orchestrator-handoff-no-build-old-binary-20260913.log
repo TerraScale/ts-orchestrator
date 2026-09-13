@@ -1,0 +1,19 @@
+
+████████╗██╗   ██╗███╗   ██╗██╗████████╗
+╚══██╔══╝██║   ██║████╗  ██║██║╚══██╔══╝
+   ██║   ██║   ██║██╔██╗ ██║██║   ██║
+   ██║   ██║   ██║██║╚██╗██║██║   ██║
+   ██║   ╚██████╔╝██║ ╚████║██║   ██║
+   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝╚═╝   ╚═╝
+
+   TUnit v1.56.18.0 | 64-bit | NixOS 26.05 (Yarara) | linux-x64 | .NET 10.0.11 | Microsoft Testing Platform v2.2.3
+
+   Engine Mode: SourceGenerated
+
+
+Test run summary: Zero tests ran - /home/mariogk/Projects/TerraScale/ts-orchestrator/tests/TerraScale.Orchestrator.Tests/bin/Debug/net10.0/linux-x64/TerraScale.Orchestrator.Tests.dll (net10.0|x64)
+  total: 0
+  failed: 0
+  succeeded: 0
+  skipped: 0
+  duration: 213ms

@@ -61,17 +61,7 @@ internal sealed record NatsAuthenticationFiles
 
     private static string ResolvePrivateFile(string value, string optionName)
     {
-        var path = Path.GetFullPath(value);
-        var file = new FileInfo(path);
-        if (!file.Exists || file.Length is < 1 or > 16_384)
-            throw new ArgumentException($"{optionName} must identify a bounded existing NATS credentials file.");
-        if (!OperatingSystem.IsLinux())
-            throw new PlatformNotSupportedException("NATS credentials files require Linux file permissions.");
-        var mode = File.GetUnixFileMode(path);
-        if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
-                     UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
-            throw new ArgumentException($"{optionName} must be private to the current user.");
-        return path;
+        return NatsFileResolver.Resolve(value, optionName, 16_384, ownerPrivate: true);
     }
 
     private static string ReadCredentialsSeed(string path, string optionPrefix)
@@ -88,4 +78,3 @@ internal sealed record NatsAuthenticationFiles
             ?? throw new ArgumentException($"{optionPrefix}_CREDENTIALS_FILE contains no user NKey seed.");
     }
 }
-

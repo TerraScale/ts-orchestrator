@@ -113,6 +113,21 @@ public sealed class NatsMonitoringObservationTests
     }
 
     [Test]
+    public async Task Raw_payload_deserializer_bounds_bytes_before_copying_or_decoding()
+    {
+        var oversized = new byte[NatsMonitoringParsers.MaximumReplyBytes + 1];
+        var oversizedSequence = new System.Buffers.ReadOnlySequence<byte>(oversized);
+        await Assert.That(NatsMonitoringPayload.Deserializer.Deserialize(in oversizedSequence).Length).IsEqualTo(0);
+
+        var valid = """{"total":1}"""u8.ToArray();
+        var validSequence = new System.Buffers.ReadOnlySequence<byte>(valid);
+        var decoded = NatsMonitoringPayload.Deserializer.Deserialize(in validSequence);
+        await Assert.That(decoded).IsEquivalentTo(valid);
+        await Assert.That(NatsMonitoringPayload.MaximumChannelCapacity).IsLessThanOrEqualTo(8);
+        await Assert.That(NatsMonitoringPayload.MaximumAdvisoryChannelCapacity).IsLessThanOrEqualTo(64);
+    }
+
+    [Test]
     public async Task Classifier_is_total_and_bounded()
     {
         foreach (var name in new[] { "CELL_SPEC", "CELL_OPERATIONS", "CELL_EVENTS", "GLOBAL_SPEC", "GLOBAL_CI", "KV_X", "OBJ_Y", "unexpected" })
@@ -318,4 +333,3 @@ public sealed class NatsMonitoringObservationTests
         [new NatsAdvisoryCount(NatsAdvisoryKind.SlowConsumer, 2)],
         []);
 }
-

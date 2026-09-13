@@ -184,28 +184,82 @@ internal static class NatsGatewayPlanValidation
             {
                 foreach (var server in cluster.Servers)
                 {
-                    var routePeers = server.Profile(NatsGatewayTransport.Route).ExpectedPeerIdentities;
-                    foreach (var missing in cluster.Servers
-                                 .Where(peer => peer.ServerName != server.ServerName)
-                                 .Select(peer => NatsGatewayPlaneTopology.ControlServerSpiffeId(peer.ServerName))
-                                 .Where(sibling => !routePeers.Contains(sibling)))
-                        errors.Add(
-                            $"The route certificate profile of '{server.ServerName}' does not expect the sibling peer identity '{missing}'.");
-                    if (server.Gateway is null)
-                        continue;
-                    var gatewayPeers = server.Profile(NatsGatewayTransport.Gateway).ExpectedPeerIdentities;
-                    foreach (var missing in plan.Clusters
-                                 .Where(other => other.Cell != cluster.Cell)
-                                 .SelectMany(static other => other.Servers)
-                                 .Select(peer => NatsGatewayPlaneTopology.ControlServerSpiffeId(peer.ServerName))
-                                 .Where(peer => !gatewayPeers.Contains(peer)))
-                        errors.Add(
-                            $"The gateway certificate profile of '{server.ServerName}' does not expect the remote peer identity '{missing}'.");
+                    ValidateExactPeerIdentities(
+                        errors,
+                        server,
+                        NatsGatewayTransport.Client,
+                        [NatsGatewayPlaneTopology.ControlClientSpiffePrefix]);
+                    ValidateExactPeerIdentities(
+                        errors,
+                        server,
+                        NatsGatewayTransport.Route,
+                        ExpectedRoutePeerIdentities(cluster, server, NatsGatewayPlaneTopology.ControlServerSpiffeId));
+                    if (server.Gateway is not null)
+                    {
+                        ValidateExactPeerIdentities(
+                            errors,
+                            server,
+                            NatsGatewayTransport.Gateway,
+                            plan.Clusters
+                                .Where(other => other.Cell != cluster.Cell)
+                                .SelectMany(static other => other.Servers)
+                                .Select(peer => NatsGatewayPlaneTopology.ControlServerSpiffeId(peer.ServerName)));
+                    }
+                }
+            }
+        }
+        else
+        {
+            foreach (var cluster in plan.Clusters)
+            {
+                foreach (var server in cluster.Servers)
+                {
+                    ValidateExactPeerIdentities(
+                        errors,
+                        server,
+                        NatsGatewayTransport.Client,
+                        [NatsGatewayPlaneTopology.ProductClientSpiffePrefix]);
+                    ValidateExactPeerIdentities(
+                        errors,
+                        server,
+                        NatsGatewayTransport.Route,
+                        ExpectedRoutePeerIdentities(cluster, server, NatsGatewayPlaneTopology.ProductServerSpiffeId));
                 }
             }
         }
 
         return errors;
+    }
+
+    private static IReadOnlyList<string> ExpectedRoutePeerIdentities(
+        NatsGatewayCluster cluster,
+        NatsGatewayServerIdentity server,
+        Func<string, string> identityForServer)
+    {
+        var peers = cluster.Servers
+            .Where(peer => peer.ServerName != server.ServerName)
+            .Select(peer => identityForServer(peer.ServerName))
+            .ToArray();
+        // The renderer emits a self-route for a single-server cluster so the
+        // NATS server enters its clustered JetStream path. Its TLS profile
+        // therefore must admit that exact self identity.
+        return peers.Length > 0 ? peers : [identityForServer(server.ServerName)];
+    }
+
+    private static void ValidateExactPeerIdentities(
+        List<string> errors,
+        NatsGatewayServerIdentity server,
+        NatsGatewayTransport transport,
+        IEnumerable<string> expected)
+    {
+        var expectedIdentities = expected.Order(StringComparer.Ordinal).ToArray();
+        var actual = server.Profile(transport).ExpectedPeerIdentities;
+        if (actual.SequenceEqual(expectedIdentities, StringComparer.Ordinal))
+            return;
+
+        errors.Add(
+            $"The {transport.ToString().ToLowerInvariant()} certificate profile of '{server.ServerName}' must expect exactly " +
+            $"'{string.Join(", ", expectedIdentities)}' but declares '{string.Join(", ", actual)}'.");
     }
 
     /// <summary>
@@ -254,4 +308,3 @@ internal static class NatsGatewayPlanValidation
                 string.Join(" ", errors));
     }
 }
-

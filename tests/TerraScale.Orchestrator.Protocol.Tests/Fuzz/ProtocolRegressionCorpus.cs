@@ -27,7 +27,7 @@ internal static class ProtocolRegressionCorpus
     private const int MaximumBytes = 32_768;
     private const int MaximumEntries = 64;
     private const int MaximumTextLength = 256;
-    private const string ContentSha256 = "4f08f00d68bb88e2a935dcef54f80f0048a93ca455afd8bdd97ceebd6d2f363d";
+    private const string ContentSha256 = "6229c67f13f29e8e8f6c8051f44e3a8cb1771bc901f0e280613bb1d4bf36cc1a";
     private static readonly HashSet<string> RootFields = new(StringComparer.Ordinal) { "version", "entries" };
     private static readonly HashSet<string> EntryFields = new(StringComparer.Ordinal)
         { "family", "seed", "input", "expected", "digest" };
@@ -167,4 +167,3 @@ internal static class ProtocolRegressionCorpus
     private static CorpusLoadResult Result(CorpusLoadCode code, IEnumerable<ProtocolCorpusEntry> entries) =>
         new(code, new ReadOnlyCollection<ProtocolCorpusEntry>(entries.ToArray()));
 }
-

@@ -1,4 +1,5 @@
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using System.Threading.Channels;
 using NATS.Client.Core;
 using NATS.Net;
@@ -215,7 +216,18 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
 
     private async Task ConsumeAdvisoriesAsync(string subject, CancellationToken cancellationToken)
     {
-        await foreach (var message in client.SubscribeAsync<string>(subject, cancellationToken: cancellationToken))
+        await foreach (var message in client.SubscribeAsync<byte[]>(
+                           subject,
+                           serializer: NatsMonitoringPayload.Deserializer,
+                           opts: new NatsSubOpts
+                           {
+                               ChannelOpts = new NatsSubChannelOpts
+                               {
+                                   Capacity = NatsMonitoringPayload.MaximumAdvisoryChannelCapacity,
+                                   FullMode = BoundedChannelFullMode.DropOldest
+                               }
+                           },
+                           cancellationToken: cancellationToken))
         {
             // Advisory payloads can carry account or identity context; only the
             // bounded kind classification and a count survive this boundary.
@@ -323,37 +335,48 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
             // gateway link census aggregates every responding cluster: a
             // severed cell stops answering GATEWAYZ entirely, and its peers
             // report the broken link from their side.
-            await foreach (var reply in client.Connection.RequestManyAsync<string, string>(
+            await foreach (var reply in client.Connection.RequestManyAsync<string, byte[]>(
                                subject,
                                subject == NatsMonitoringSubjects.JetStream ? """{"streams":true,"consumers":true}""" : string.Empty,
-                               replyOpts: new NatsSubOpts { Timeout = ReplyWindow },
+                               replySerializer: NatsMonitoringPayload.Deserializer,
+                               replyOpts: new NatsSubOpts
+                               {
+                                   MaxMsgs = Math.Min(options.ExpectedCells.Count, NatsMonitoringPayload.MaximumChannelCapacity),
+                                   Timeout = ReplyWindow,
+                                   ChannelOpts = new NatsSubChannelOpts
+                                   {
+                                       Capacity = NatsMonitoringPayload.MaximumChannelCapacity,
+                                       FullMode = BoundedChannelFullMode.DropOldest
+                                   }
+                               },
                                cancellationToken: cancellationToken))
             {
                 if (reply.Data is not { Length: > 0 }) continue;
+                var payload = Encoding.UTF8.GetString(reply.Data);
                 switch (subject)
                 {
                     case NatsMonitoringSubjects.Gateways:
-                        AccumulateGatewayReply(reply.Data, ownCluster, observedAt);
+                        AccumulateGatewayReply(payload, ownCluster, observedAt);
                         break;
                     default:
-                        if (!IsOwnClusterReply(reply.Data, ownCluster)) continue;
+                        if (!IsOwnClusterReply(payload, ownCluster)) continue;
                         switch (subject)
                         {
                             case NatsMonitoringSubjects.Connections:
-                                connections = NatsMonitoringParsers.Connections(reply.Data, options.Cell, options.Plane, observedAt);
+                                connections = NatsMonitoringParsers.Connections(payload, options.Cell, options.Plane, observedAt);
                                 break;
                             case NatsMonitoringSubjects.Routes:
-                                routes = NatsMonitoringParsers.Routes(reply.Data, options.Cell, observedAt);
+                                routes = NatsMonitoringParsers.Routes(payload, options.Cell, observedAt);
                                 break;
                             case NatsMonitoringSubjects.Server:
-                                resources = NatsMonitoringParsers.ServerResources(reply.Data, options.Cell, observedAt);
+                                resources = NatsMonitoringParsers.ServerResources(payload, options.Cell, observedAt);
                                 break;
                             case NatsMonitoringSubjects.JetStream:
-                                jetStream = NatsMonitoringParsers.JetStream(reply.Data, options.Cell, observedAt);
-                                detail = NatsMonitoringParsers.JetStreamDetail(reply.Data);
+                                jetStream = NatsMonitoringParsers.JetStream(payload, options.Cell, observedAt);
+                                detail = NatsMonitoringParsers.JetStreamDetail(payload);
                                 break;
                             case NatsMonitoringSubjects.Accounts:
-                                var account = NatsMonitoringParsers.Accounts(reply.Data, options.Cell, observedAt);
+                                var account = NatsMonitoringParsers.Accounts(payload, options.Cell, observedAt);
                                 if (account is not null) accounts = account;
                                 break;
                         }
@@ -702,4 +725,3 @@ internal sealed class NatsMonitoringRuntime : IAsyncDisposable
         }
     }
 }
-

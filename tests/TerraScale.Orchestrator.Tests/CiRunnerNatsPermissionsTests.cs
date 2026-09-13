@@ -22,7 +22,7 @@ public sealed class CiRunnerNatsPermissionsTests
             $"$JS.API.DIRECT.GET.KV_CI_RUNNER_JOBS.$KV.CI_RUNNER_JOBS.{prefix}.0123456789abcdef",
             "$JS.API.STREAM.INFO.KV_CI_RUNNER_JOBS",
             "$JS.API.STREAM.INFO.OBJ_CI_RUNNER_BUNDLES",
-            "$JS.API.DIRECT.GET.OBJ_CI_RUNNER_BUNDLES",
+            "$JS.API.STREAM.MSG.GET.OBJ_CI_RUNNER_BUNDLES",
             "$JS.API.CONSUMER.CREATE.OBJ_CI_RUNNER_BUNDLES.2w4hQG7S3B9dP1fK6mNxZa.$O.CI_RUNNER_BUNDLES.C.7xN3kLmP9qRsT2vW4yZaBc",
             "$JS.API.CONSUMER.DELETE.OBJ_CI_RUNNER_BUNDLES.2w4hQG7S3B9dP1fK6mNxZa",
             "$JS.FC.OBJ_CI_RUNNER_BUNDLES.7xN3kLmP9qRsT2vW4yZaBc",
@@ -39,6 +39,7 @@ public sealed class CiRunnerNatsPermissionsTests
             $"$JS.API.CONSUMER.MSG.NEXT.GLOBAL_CI.{other.Consumer}",
             $"$KV.CI_RUNNER_JOBS.{GlobalNatsTopology.CiRunnerJournalPrefix("runner-other")}.0123456789abcdef",
             "$O.GLOBAL_BUNDLES.M.Z2xvYmFsLXBsYW4",
+            "$JS.API.DIRECT.GET.OBJ_CI_RUNNER_BUNDLES",
             "$JS.API.STREAM.PURGE.OBJ_CI_RUNNER_BUNDLES",
             "$JS.API.CONSUMER.CREATE.GLOBAL_CI.injected.ts.orch.v1.global.ci.job.untrusted-product.bad",
         };
@@ -77,4 +78,3 @@ public sealed class CiRunnerNatsPermissionsTests
         return limits!;
     }
 }
-

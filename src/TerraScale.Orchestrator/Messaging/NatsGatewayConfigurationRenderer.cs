@@ -62,13 +62,9 @@ internal sealed record NatsGatewayRenderContext
         // The operator JWT file is emitted inside a double-quoted value, so it
         // must be an absolute .jwt path without quotes, control characters, or
         // path traversal; anything else fails here, before any rendering.
-        if (!Path.IsPathRooted(operatorJwtFile) ||
-            !operatorJwtFile.EndsWith(".jwt", StringComparison.Ordinal) ||
-            operatorJwtFile.Contains("..", StringComparison.Ordinal) ||
-            operatorJwtFile.Any(static character =>
-                character is '"' or '\'' || char.IsControl(character)))
+        if (!NatsGatewayPathRules.IsSafeAbsolutePath(operatorJwtFile, ".jwt"))
             throw new ArgumentException(
-                "The operator JWT file must be an absolute .jwt path without quotes or control characters.",
+                "The operator JWT file must be an absolute .jwt path without traversal or injection characters.",
                 nameof(operatorJwtFile));
         if (accounts.Count == 0)
             throw new ArgumentException("At least one account must be preloaded.", nameof(accounts));
@@ -318,4 +314,3 @@ internal static partial class NatsGatewayConfigurationRenderer
         builder.Append(key).Append(": \"").Append(value).Append('"').AppendLine();
     }
 }
-

@@ -51,9 +51,9 @@ internal static class CiRunnerNatsPermissions
                 $"$JS.API.CONSUMER.CREATE.{runnerObjects}.*.$O.{GlobalNatsTopology.RunnerBundlesBucket}.C.*",
                 $"$JS.API.CONSUMER.DELETE.{runnerObjects}.*",
                 $"$JS.API.DIRECT.GET.KV_{GlobalNatsTopology.RunnerJobsBucket}.$KV.{GlobalNatsTopology.RunnerJobsBucket}.{journalPrefix}.*",
-                $"$JS.API.DIRECT.GET.{runnerObjects}",
                 $"$JS.API.STREAM.INFO.KV_{GlobalNatsTopology.RunnerJobsBucket}",
                 $"$JS.API.STREAM.INFO.{runnerObjects}",
+                $"$JS.API.STREAM.MSG.GET.{runnerObjects}",
                 $"$JS.FC.{runnerObjects}.>",
                 $"$KV.{GlobalNatsTopology.RunnerJobsBucket}.{journalPrefix}.*",
                 $"$O.{GlobalNatsTopology.RunnerBundlesBucket}.C.*",
@@ -62,4 +62,3 @@ internal static class CiRunnerNatsPermissions
             ["_INBOX.>"]);
     }
 }
-
