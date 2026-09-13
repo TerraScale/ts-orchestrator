@@ -96,7 +96,7 @@ nice -n 19 tests/TerraScale.Orchestrator.Tests/bin/Release/net10.0/linux-x64/Ter
 nice -n 19 tests/TerraScale.Orchestrator.Tests/bin/Release/net10.0/linux-x64/TerraScale.Orchestrator.Tests --treenode-filter '/*/*/DirectDeliveryProductionAdapterTests/*' --no-ansi --no-progress --show-stderr Failed --show-stdout Failed --maximum-parallel-tests 1
 ```
 
-Results: `28/28`, `6/6`, `7/7`, `7/7`, and `30/30` passed respectively. These tests prove the Orchestrator's real contract mapper, canonical wire codec, signed envelope validation, and production adapter policy. They do not prove a producer-to-runtime transport call because no producer currently emits the signed NATS request.
+Results: `28/28`, `6/6`, `7/7`, `7/7`, and `30/30` passed respectively. These tests prove the Orchestrator's contract mapper, canonical wire codec, signed envelope validation, and adapter composition policy at their source boundaries. They do not prove a producer-to-runtime transport call because no producer currently emits the signed NATS request; no mocked boundary was used for the transport probe above.
 
 ## Outcome and handoff
 
