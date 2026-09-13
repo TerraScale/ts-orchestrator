@@ -340,6 +340,13 @@ public sealed class SecurityDecisionTests
         await Assert.That(Throws<ArgumentException>(() => new SecurityDigest("not-a-digest"))).IsTrue();
         await Assert.That(Throws<ArgumentOutOfRangeException>(() => new PrincipalAuthorizationEvidence(Principal(), RevocationGeneration, (RevocationStatus)0, EvidenceStatus.Valid))).IsTrue();
         await Assert.That(Throws<ArgumentException>(() => new CertificateLifecyclePolicy(new(1), new(900), new(300), new(100), [CertificateUsage.NodeTransport, CertificateUsage.NodeTransport], TrustScope.Cell))).IsTrue();
+        await Assert.That(Throws<ArgumentException>(() => new IssuerSigningCapability(
+            new("issuer-global"),
+            IssuerCapabilityKind.GlobalAdministrativeIntermediate,
+            Cell,
+            TrustScope.Cell,
+            new(1),
+            RevocationGeneration))).IsTrue();
     }
 
     private static SecurityCellId Cell { get; } = new("gru");
@@ -451,4 +458,3 @@ public sealed class SecurityDecisionTests
         $"{decision.Authorized}|{decision.Intent.GetType().Name}|{string.Join(';', decision.Trace.Select(reason => $"{reason.Code}:{reason.Outcome}:{reason.Observed}:{reason.Required}"))}";
     private static bool Throws<T>(Action action) where T : Exception { try { action(); return false; } catch (T) { return true; } }
 }
-

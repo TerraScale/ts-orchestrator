@@ -121,8 +121,14 @@ public sealed record IssuerSigningCapability
         Scope = SecurityEnums.Defined(scope, nameof(scope));
         Generation = generation ?? throw new ArgumentNullException(nameof(generation));
         RevocationGeneration = revocationGeneration ?? throw new ArgumentNullException(nameof(revocationGeneration));
-        if (kind == IssuerCapabilityKind.RegionalIntermediate && scope != TrustScope.Cell)
-            throw new ArgumentException("Regional issuers are cell scoped.", nameof(scope));
+        var expectedScope = kind switch
+        {
+            IssuerCapabilityKind.RegionalIntermediate => TrustScope.Cell,
+            IssuerCapabilityKind.GlobalAdministrativeIntermediate => TrustScope.GlobalAdministration,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+        if (scope != expectedScope)
+            throw new ArgumentException($"{kind} issuers require the {expectedScope} trust scope.", nameof(scope));
     }
     public SecurityIssuerId IssuerId { get; }
     public IssuerCapabilityKind Kind { get; }
@@ -634,4 +640,3 @@ public sealed record SecurityDecision
     public IReadOnlyList<SecurityDecisionReason> Trace { get; }
     public SecurityIntent Intent { get; }
 }
-
