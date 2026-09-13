@@ -1,0 +1,39 @@
+{
+  "apiVersion": "terrascale.ci/v3",
+  "repository": "TerraScale/TerraScale.Orchestrator",
+  "repositoryDependencies": [],
+  "nodes": [
+    {
+      "id": "static",
+      "kind": "Static",
+      "resourceWeight": "Light",
+      "profiles": ["Feature", "Build"],
+      "paths": [".editorconfig", ".terrascale/", "Directory.Build.props", "Directory.Packages.props", "src/", "tests/"]
+    },
+    {
+      "id": "build",
+      "kind": "Build",
+      "resourceWeight": "Heavy",
+      "profiles": ["Feature", "Build"],
+      "paths": [".terrascale/", "src/", "tests/"],
+      "dependsOn": ["static"]
+    },
+    {
+      "id": "test",
+      "kind": "Test",
+      "resourceWeight": "Heavy",
+      "profiles": ["Feature", "Build"],
+      "paths": ["src/", "tests/"],
+      "dependsOn": ["build"]
+    },
+    {
+      "id": "artifact",
+      "kind": "Artifact",
+      "resourceWeight": "Heavy",
+      "profiles": ["Build"],
+      "architectures": ["LinuxX64", "LinuxArm64"],
+      "paths": [".terrascale/", "src/"],
+      "dependsOn": ["test"]
+    }
+  ]
+}

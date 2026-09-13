@@ -56,11 +56,10 @@ public sealed class ForgejoWebhookServerTests
         var secretFile = await CreateSecretFileAsync();
         try
         {
-            var configuration = Configuration(secretFile);
             var ledger = new ForgejoWebhookJournalTests.TestLedger();
-            await using var server = ForgejoWebhookServer.Start(
-                configuration,
-                new ForgejoWebhookJournal(ledger));
+            var started = StartServer(secretFile, new ForgejoWebhookJournal(ledger));
+            await using var server = started.Server;
+            var configuration = started.Configuration;
             using var client = Client();
             var payload = PushPayload();
 
@@ -116,11 +115,10 @@ public sealed class ForgejoWebhookServerTests
         var secretFile = await CreateSecretFileAsync();
         try
         {
-            var configuration = Configuration(secretFile);
             var ledger = new ForgejoWebhookJournalTests.TestLedger(failOnMutation: 1);
-            await using var server = ForgejoWebhookServer.Start(
-                configuration,
-                new ForgejoWebhookJournal(ledger));
+            var started = StartServer(secretFile, new ForgejoWebhookJournal(ledger));
+            await using var server = started.Server;
+            var configuration = started.Configuration;
             using var client = Client();
             var payload = PushPayload();
 
@@ -143,11 +141,10 @@ public sealed class ForgejoWebhookServerTests
         var secretFile = await CreateSecretFileAsync();
         try
         {
-            var configuration = Configuration(secretFile);
             var ledger = new ForgejoWebhookJournalTests.TestLedger();
-            await using var server = ForgejoWebhookServer.Start(
-                configuration,
-                new ForgejoWebhookJournal(ledger));
+            var started = StartServer(secretFile, new ForgejoWebhookJournal(ledger));
+            await using var server = started.Server;
+            var configuration = started.Configuration;
             using var client = Client();
             using var get = await client.GetAsync(configuration.ListenPrefix);
             var oversizedStatus = await OversizedStatusAsync(configuration);
@@ -162,11 +159,35 @@ public sealed class ForgejoWebhookServerTests
         }
     }
 
+    private static (ForgejoWebhookConfiguration Configuration, ForgejoWebhookServer Server) StartServer(
+        string secretFile,
+        ForgejoWebhookJournal journal)
+    {
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var configuration = Configuration(secretFile);
+            try
+            {
+                return (configuration, ForgejoWebhookServer.Start(configuration, journal));
+            }
+            catch (HttpListenerException exception) when (IsAddressInUse(exception))
+            {
+                // FreePort() cannot reserve a port for HttpListener. Select a new one if another
+                // test process claims the probe result before the server binds it.
+            }
+        }
+
+        throw new InvalidOperationException("Unable to claim a loopback port for the Forgejo webhook test server.");
+    }
+
     private static ForgejoWebhookConfiguration Configuration(string secretFile) =>
         ForgejoWebhookConfiguration.Resolve(
             $"http://127.0.0.1:{FreePort()}/hooks/forgejo/",
             Repository,
             secretFile)!;
+
+    private static bool IsAddressInUse(HttpListenerException exception) =>
+        exception.ErrorCode == (int)SocketError.AddressAlreadyInUse;
 
     private static HttpClient Client() => new() { Timeout = TimeSpan.FromSeconds(5) };
 
@@ -228,4 +249,3 @@ public sealed class ForgejoWebhookServerTests
         return port;
     }
 }
-

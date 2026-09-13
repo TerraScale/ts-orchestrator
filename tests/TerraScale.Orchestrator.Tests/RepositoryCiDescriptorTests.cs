@@ -8,7 +8,7 @@ public sealed class RepositoryCiDescriptorTests
     [Test]
     public async Task CheckedInPolicyHasOneClosedPinnedRecipeTargetPerNode()
     {
-        var root = FindRepositoryRoot();
+        var root = FindPolicyFixtureRoot();
         var descriptor = RepositoryCiDescriptor.Parse(
             await File.ReadAllBytesAsync(Path.Combine(root, RepositoryCiImpactPlanner.DescriptorPath)));
         var recipe = await File.ReadAllTextAsync(Path.Combine(root, CiRunnerExecutionPlanner.RecipePath));
@@ -228,6 +228,14 @@ public sealed class RepositoryCiDescriptorTests
             directory = directory.Parent;
         return directory?.FullName ?? throw new InvalidOperationException("Could not locate the repository root.");
     }
+
+    private static string FindPolicyFixtureRoot() =>
+        Path.Combine(
+            FindRepositoryRoot(),
+            "tests",
+            "TerraScale.Orchestrator.Tests",
+            "fixtures",
+            "repository-ci");
 
     private static string ValidDescriptor() => """
         {
