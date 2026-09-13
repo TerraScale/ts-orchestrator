@@ -128,9 +128,13 @@ public sealed class RegionalRuntimeMembershipMutationTests
         var now = DateTimeOffset.UtcNow;
         var current = Member(identity, now, sessionId: OwnSession, epoch: 9, revision: 40);
 
-        await Assert.That(Decide(current with { AuthorityEpoch = 8 }, current, now))
+        var staleEpoch = current with { AuthorityEpoch = 8, IdentitySignature = "" };
+        staleEpoch = staleEpoch with { IdentitySignature = identity.Sign(staleEpoch) };
+        await Assert.That(Decide(staleEpoch, current, now))
             .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectStaleEpoch);
-        await Assert.That(Decide(current with { AuthorityRevision = 39 }, current, now))
+        var staleRevision = current with { AuthorityRevision = 39, IdentitySignature = "" };
+        staleRevision = staleRevision with { IdentitySignature = identity.Sign(staleRevision) };
+        await Assert.That(Decide(staleRevision, current, now))
             .IsEqualTo(RegionalRuntimeMembershipMutationClass.RejectStaleEpoch);
 
         // Duplicate delivery of the identical proposal is an idempotent renewal.

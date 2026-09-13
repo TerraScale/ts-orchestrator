@@ -1,126 +1,158 @@
-# TerraScale orchestration terminology
+# TerraScale orchestration terms
 
-The workspace [`GOAL.md`](../GOAL.md) is authoritative. These terms describe
-the current target and must not revive the repository's retired container,
-generic-scheduler, or regional-blue-green designs.
+Use these names in C# namespaces, code, tests, issues, and documentation. The
+workspace-level `GOAL.md`, when present alongside this repository, defines
+product scope; these terms describe the implementation in this checkout.
 
-## Control plane
+## Control and messaging
 
-**TerraScale Orchestrator**  
-The Go control plane that declares and reconciles OCI and Cloudflare, places
-TerraBase members, operates hosts through `ts-node`, and activates signed
-releases. It never carries customer data or serves a customer request.
-_Avoid_: container orchestrator, Kubernetes-compatible platform, data plane.
+**TerraScale Orchestrator**
 
-**Declared estate**  
-Typed Go configuration containing the complete desired OCI and Cloudflare
-estate, including Regions, hosts, storage, networking, identity, edge rules,
-telemetry, and health gates.
-_Avoid_: manual runbook, console state, best-effort inventory.
+The .NET 10 control service in `src/TerraScale.Orchestrator`. It validates
+configuration, starts regional NATS control, optionally joins global authority
+and directory services, evaluates control-plane decisions, and coordinates
+provider, runtime, TerraBase, delivery, and telemetry boundaries.
 
-**Observed estate**  
-Provider and host state re-read by the reconciler before and after a planned
-action. Unknown or conflicting authority fails closed.
-_Avoid_: assumed state, cached permission to delete.
+**Regional control**
 
-**Control replica**  
-One process participating in the launch JetStream R3 control group. At launch,
-one replica is co-hosted in each of GRU, SFO, and FRA; there is one group across
-the three Regions.
-_Avoid_: independent global master, dedicated control host.
+The NATS-backed control runtime for one cell. It owns regional membership,
+regional operation requests, runtime assignments, and regional observations.
+It requires a scoped controller identity and mTLS material when running.
 
-**Regional orchestrator**
+**Global authority**
 
-The coordinated Go orchestrator processes present in every Region from initial
-admission, with one local process on every TerraBase member machine. They
-manage local TerraBase instances and reconcile regional OCI resources under
-fenced authority issued by the GRU master. It need not host an independent regional JetStream R3.
-_Avoid_: remote-only Region, autonomous global master.
+The optional GRU-only control runtime for global state, directory publication,
+cross-region delivery, CI, and native GitOps. Its presence does not make a
+NATS storage leader a separate application authority.
 
-**GRU master**
+**Global directory**
 
-The single active global authority, bootstrapped first. It admits, configures,
-upgrades, replaces, and retires regional orchestrators. Global JetStream
-replication protects its control state; storage leadership grants no separate
-application authority.
-_Avoid_: sole durable copy, TerraBase database primary.
+The publisher and watcher runtime that exposes admitted cell membership and
+bounded health observations. The directory service is configured separately
+from the regional controller and is valid only with its publisher/watch
+runtime.
 
-**GRU authority**  
-The global mutation authority. Losing it may freeze new global control changes
-but cannot stop an already admitted data plane.
-_Avoid_: TerraBase leader, database primary.
+**Control state**
 
-**Control state**  
-Fenced, idempotent, restart-safe orchestration intent and receipts stored in
-embedded NATS JetStream. It excludes documents, WAL, replication, reactive
-frames, query results, and usage truth.
-_Avoid_: product database, customer event bus.
+Fenced, signed, idempotent orchestration intent, observations, and receipts
+stored through NATS and JetStream. It does not contain customer documents,
+database replication, query results, reactive frames, or usage truth.
 
-## Hosts and delivery
+**Operation journal**
 
-**Member host**  
-An admitted Ubuntu LTS machine that runs `ts-node`, TerraBase,
-`ts-orchestrator`, and the Grafana agent under systemd. Selected local
-orchestrators also host authoritative control-store replicas.
-_Avoid_: Kubernetes node, container host.
+A durable record of an operation's intent, authorization, dispatch, provider
+observation, and terminal outcome. Recovery resumes the recorded operation and
+does not create a replacement merely because a response was lost.
 
-**`ts-node`**  
-The static Go host agent installed by cloud-init and the only component allowed
-to mutate a production host. It verifies signatures and digests, installs
-versioned binaries, writes hardened units, drains, activates, and rolls back.
-_Avoid_: container runtime, package manager, local supervisor.
+**Fail-closed composition**
 
-**Release candidate**  
-The signed artifact contract built and submitted by `ts-deploy`. The
-orchestrator verifies and mirrors it before any activation.
-_Avoid_: mutable tag, latest image, rebuilt rollback.
+Startup behavior that rejects invalid cell placement, credential ownership,
+authority combinations, missing delivery executors, and incomplete TLS/NKey
+configuration before a component can mutate state.
 
-**GRU canary and rolling rollout**  
-Delivery begins on one GRU member, passes drain, process, external health,
-replication, and backup gates, then advances one host at a time while preserving
-RF=2. Any failed gate returns every touched host to its exact prior digest.
-_Avoid_: regional blue-green stack, all-at-once activation.
+## Runtime
 
-## Placement
+**Admitted role**
 
-**Launch Region**  
-One of GRU, SFO, or FRA. Each begins with two admitted member hosts in separate
-failure domains.
-_Avoid_: planned Region, edge PoP.
+A role in the closed `AdmittedRoleCatalog`. The catalog binds the role to an
+artifact key, allowed runtime drivers, capabilities, host placement rules,
+and minimum replicas. Examples include `orchestrator`, `terrabase-member`,
+`control-nats-server`, `product-nats-server`, `grafana`, and `ci-runner`.
 
-**Placement intent**  
-The Region set and peers requested by the orchestrator through private TBEP.
-TerraBase owns membership acceptance and replication correctness.
-_Avoid_: database leadership, replication implementation.
+**Allocation**
 
-**Placement lock**  
-An immutable residency constraint such as `eu-only`, `br-only`, or an explicit
-Region list. Placement, replication, backup, restore, export, branch, repair,
-and Region lifecycle must all obey it.
-_Avoid_: routing preference, widenable hint.
+One admitted role instance identified by a DNS-style allocation ID and bound
+to an artifact digest, architecture, driver, resources, and execution plan.
 
-## Local qualification
+**Host runtime plan**
 
-**Firecracker qualification stack**  
-The mandatory Linux/KVM test environment: six real Ubuntu LTS systemd guests,
-the production binaries, provider-contract endpoints, and controlled network,
-disk, clock, process, and control-plane faults.
-_Avoid_: emulator, container composition, production runtime.
+The versioned value produced by `HostRuntimePlan.Create`. It is the complete
+canonical input for starting, observing, stopping, or deleting an allocation.
+It contains exactly one systemd or OCI execution payload.
 
-**`SandboxVMProvider`**  
-The test-only Go boundary that owns Firecracker lifecycle, guest readiness,
-TAPs and Region networks, faultable drives, snapshots, metrics, diagnostics,
-and crash-safe cleanup. No production package imports it.
-_Avoid_: fake OCI provider, production infrastructure abstraction.
+**Native systemd plan**
 
-**Provider-contract endpoint**  
-A bounded local OCI, Cloudflare, object-storage, or edge endpoint that
-reproduces request, response, retry, work-request, timeout, and indeterminate
-outcome semantics. It has no backdoor into orchestration decisions.
-_Avoid_: unit-test shortcut, claim of real-provider qualification.
+An allocation executed through a hardened systemd unit. The plan pins the
+artifact path, arguments, encrypted workload credential, cgroup-v2 limits,
+and systemd isolation properties. The adapter rechecks the canonical plan
+before invoking fixed `systemctl` or `systemd-run` paths.
 
-**Ready guest**  
-A Firecracker guest whose systemd, network, data disk, time configuration,
-`ts-node`, and expected service health gate are ready. A running VMM process is
-not readiness.
-_Avoid_: process started, socket exists.
+**OCI plan**
+
+An allocation executed through containerd in the `terrascale` namespace. The
+plan pins the registry image digest and platform, runs as an unprivileged UID
+and GID, drops capabilities, uses a read-only root and seccomp profile, and
+binds cgroup-v2 limits.
+
+**Plan fingerprint**
+
+The lowercase SHA-256 digest over the complete plan identity and execution
+settings. An observed systemd or containerd allocation with a different
+fingerprint is not owned by the requested plan and is rejected.
+
+**MCP workload**
+
+A workload represented by the runtime MCP manifest and contract. Its
+reconciliation follows the same admitted role, allocation, identity, and
+artifact rules as other runtime assignments.
+
+## Provider, placement, and delivery
+
+**Provider ownership**
+
+The evidence that an OCI resource belongs to the declared operation, cell,
+and compartment. Discovery or a matching tag alone cannot authorize adoption,
+deletion, or compensation.
+
+**TerraBase placement intent**
+
+The orchestrator's bounded request for member allocation, region, capacity,
+or lifecycle action. TerraBase remains authoritative for membership,
+replication, and database correctness.
+
+**Candidate handoff**
+
+The signed delivery document consumed by the orchestrator. It binds source and
+tree identity, immutable artifacts, evidence, target, and rollback material.
+It grants no authority by itself; admission and durable control state are
+still required.
+
+**Direct delivery**
+
+The authenticated delivery mutation path composed from regional or global
+adapters. Run mode may serve it; check mode consumes configuration and
+validation without enabling the live mutation endpoint.
+
+**Native GitOps handoff**
+
+A signed, journaled handoff of an admitted source and cell specification to
+regional runtime state. Source identity, acceptance barriers, convergence, and
+live receipts are separate from provider observations.
+
+## Security and evidence
+
+**Command identity**
+
+The signing and verification material used for command envelopes and delivery
+handoffs. CI job dispatch, artifact attestations, and runtime observations can
+use independently configured role identities and are rejected when the
+required signer or trusted verifier is missing.
+
+**Controller identity**
+
+The regional NATS NKey and mTLS identity used by the process for control
+requests. Global, directory, infrastructure, and journal-writer identities
+are separate credentials with separate admission rules.
+
+**Evidence gate**
+
+A bounded, verifiable set of observations required before an operation can be
+authorized or promoted. Missing, stale, conflicting, or unverifiable evidence
+holds the operation and cannot be replaced with a warning or retry.
+
+**Historical record**
+
+An ADR or dated evidence file retained for traceability. The records linked by
+the [ADR index](docs/adr/README.md) preserve earlier safety decisions and
+qualification evidence; the current project and namespace map remains in
+[DESIGN.md](DESIGN.md).
