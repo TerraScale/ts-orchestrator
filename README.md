@@ -1,6 +1,6 @@
 # TerraScale Orchestrator
 
-`ts-orchestrator` is TerraScale's C# control plane, targeting .NET 10. It
+`ts-orchestrator` is TerraScale's C# control plane, targeting .NET 11. It
 reconciles the OCI estate, coordinates regional capacity and TerraBase
 placement, manages admitted service runtimes, and carries durable control
 state over NATS. It is an infrastructure control service; customer documents,

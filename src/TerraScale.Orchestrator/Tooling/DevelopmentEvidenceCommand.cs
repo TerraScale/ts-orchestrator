@@ -12,7 +12,7 @@ internal static class DevelopmentEvidenceCommand
     internal const int DefaultTestModuleTimeoutMinutes = 5;
     internal const int IntegrationTestModuleTimeoutMinutes = 15;
     internal const int MaximumValidationProcesses = 512;
-    internal const string TargetFramework = "net10.0";
+    internal const string TargetFramework = "net11.0";
     internal const long AggregateMemoryLimitBytes = 24L * 1024 * 1024 * 1024;
     internal const long ExecutionMemoryLimitBytes = 20L * 1024 * 1024 * 1024;
     internal const long ReservedHeadroomBytes = AggregateMemoryLimitBytes - ExecutionMemoryLimitBytes;

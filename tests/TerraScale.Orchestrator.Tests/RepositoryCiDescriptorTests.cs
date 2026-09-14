@@ -23,9 +23,9 @@ public sealed class RepositoryCiDescriptorTests
             .IsEquivalentTo([RepositoryCiArchitecture.LinuxX64, RepositoryCiArchitecture.LinuxArm64]);
         await Assert.That(recipe.Split('\n', StringSplitOptions.RemoveEmptyEntries)[0])
             .IsEqualTo("FROM mcr.microsoft.com/dotnet/sdk@sha256:e1ffd2a92ae84c1291bc1b6887501f8af98e6331e7af6d4c8d37168c5e87a64c AS source");
-        await Assert.That(recipe).DoesNotContain("net11.0");
-        await Assert.That(recipe).Contains("/net10.0/");
-        await Assert.That(recipe.Split("/net10.0/", StringSplitOptions.None).Length - 1)
+        await Assert.That(recipe).DoesNotContain("net10.0");
+        await Assert.That(recipe).Contains("/net11.0/");
+        await Assert.That(recipe.Split("/net11.0/", StringSplitOptions.None).Length - 1)
             .IsEqualTo(3);
         await Assert.That(recipe.Split("--results-directory /evidence/tests/", StringSplitOptions.None).Length - 1)
             .IsEqualTo(5);

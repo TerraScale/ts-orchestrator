@@ -9,7 +9,7 @@ FROM restore AS static-check
 RUN dotnet format TerraScale.Orchestrator.slnx --verify-no-changes --no-restore
 
 FROM restore AS build
-RUN dotnet build TerraScale.Orchestrator.slnx --configuration Release --no-restore --output /out/net10.0/
+RUN dotnet build TerraScale.Orchestrator.slnx --configuration Release --no-restore --output /out/net11.0/
 
 FROM build AS test
 RUN dotnet test tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj --configuration Release --no-build --results-directory /evidence/tests/
@@ -20,8 +20,8 @@ RUN dotnet test tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orch
 
 FROM build AS artifact
 RUN mkdir -p /candidate/linux-x64 /candidate/linux-arm64
-RUN cp -r /out/net10.0/ /candidate/linux-x64/
-RUN cp -r /out/net10.0/ /candidate/linux-arm64/
+RUN cp -r /out/net11.0/ /candidate/linux-x64/
+RUN cp -r /out/net11.0/ /candidate/linux-arm64/
 
 FROM scratch AS ci-static
 COPY --from=static-check /source/ /source/

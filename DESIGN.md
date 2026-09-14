@@ -8,7 +8,7 @@ preserve retired source layouts or command wrappers.
 ## Build and project layout
 
 The solution is `TerraScale.Orchestrator.slnx`. The SDK is pinned in
-`global.json` to .NET SDK 10.0.400. `Directory.Build.props` applies `net10.0`,
+`global.json` to .NET SDK 11.0.100-rc.1.26425.128. `Directory.Build.props` applies `net11.0`,
 nullable reference types, implicit usings, preview language features,
 warnings-as-errors, latest analysis and code-style checks, deterministic builds,
 and locked package restore to every project.

@@ -461,6 +461,7 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
         IReadOnlyList<string> siblings,
         string[] cells)
     {
+        var localCell = serverName.Split('-')[0];
         return
         [
             new NatsGatewayCertificateProfile(
@@ -481,11 +482,10 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
                 pki.ServerCertificates[(serverName, NatsGatewayTransport.Gateway)].CertificateFile,
                 pki.ServerCertificates[(serverName, NatsGatewayTransport.Gateway)].KeyFile,
                 pki.CaFile,
-                cells.SelectMany(other =>
+                cells.Where(other => other != localCell).SelectMany(other =>
                         Enumerable.Range(1, ServersPerRegion)
                             .Select(index => NatsGatewayPlaneTopology.ControlServerSpiffeId(
-                                NatsGatewayPlaneTopology.ControlServerName(other, index))))
-                    .Where(peer => !peer.EndsWith($"/{serverName}", StringComparison.Ordinal))),
+                                NatsGatewayPlaneTopology.ControlServerName(other, index))))),
         ];
     }
 
@@ -1124,4 +1124,3 @@ internal sealed record NatsGatewayConformanceIdentity(
     string CertificateFile,
     string KeyFile,
     string SpiffeId);
-

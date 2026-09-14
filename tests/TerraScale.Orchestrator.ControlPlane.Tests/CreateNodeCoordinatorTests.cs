@@ -196,7 +196,7 @@ public sealed class CreateNodeCoordinatorTests
         {
             var project = Path.Combine(RepositoryRoot(), "tests", "TerraScale.Orchestrator.ControlPlane.JournalChild", "TerraScale.Orchestrator.ControlPlane.JournalChild.csproj");
             await Run("dotnet", ["build", project], TimeSpan.FromSeconds(120));
-            var child = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net10.0", "linux-x64", "TerraScale.Orchestrator.ControlPlane.JournalChild.dll");
+            var child = Path.Combine(Path.GetDirectoryName(project)!, "bin", "Debug", "net11.0", "linux-x64", "TerraScale.Orchestrator.ControlPlane.JournalChild.dll");
             var key = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)); var barrier = Path.Combine(root, "go"); var one = Path.Combine(root, "one"); var two = Path.Combine(root, "two");
             using var first = StartChild(child, root, key, barrier, one, "one"); var firstOutput = CaptureOutputAsync(first);
             using var second = StartChild(child, root, key, barrier, two, "two"); var secondOutput = CaptureOutputAsync(second);

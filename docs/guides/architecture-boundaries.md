@@ -6,7 +6,7 @@ and release gates.
 ## Product role
 
 `ts-orchestrator` is TerraScale's product-specific C# control plane targeting
-.NET 10. It is the single automation authority for the declared OCI and
+.NET 11. It is the single automation authority for the declared OCI and
 Cloudflare estate. It manages Region and host lifecycle, identity, placement
 intent, signed release activation, repair coordination, infrastructure
 telemetry, and estate-state publication.

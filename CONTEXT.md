@@ -8,7 +8,7 @@ product scope; these terms describe the implementation in this checkout.
 
 **TerraScale Orchestrator**
 
-The .NET 10 control service in `src/TerraScale.Orchestrator`. It validates
+The .NET 11 control service in `src/TerraScale.Orchestrator`. It validates
 configuration, starts regional NATS control, optionally joins global authority
 and directory services, evaluates control-plane decisions, and coordinates
 provider, runtime, TerraBase, delivery, and telemetry boundaries.
