@@ -1,10 +1,11 @@
 # Firecracker local qualification (historical design)
 
-This guide preserves the Firecracker qualification design and command output
-from the pre-C# implementation. It is historical evidence for the host,
-delivery, repair, degraded-mode, and fault-handling requirements; it is not a
-current command interface. The current C# runtime commands are documented in
-the repository [README](../../README.md) and [design map](../../DESIGN.md).
+This guide composes the lane end to end on one development host: NATS, one or
+more `ts-node` host agents, and the local process provider driven by the real
+autoscaler engine. Everything runs under your own unprivileged account.
+`ts-node` starts each rootless Podman container inside a fenced transient
+systemd user unit. The agent rejects uid 0 and setuid execution before it
+parses the rest of its configuration.
 
 The [workspace goal](../../../GOAL.md#ts-orchestrator) still requires the complete orchestrator to run locally on
 real Ubuntu LTS systemd guests under Firecracker. Running `ts-node` directly
@@ -15,7 +16,12 @@ implementation. They are not implemented by the current C# solution. Until a
 C# qualification harness and its command contract are restored, local VM
 qualification remains incomplete.
 
-## Boundary
+- rootless Podman 5.x with cgroup v2 delegation (`podman info` must succeed as
+  your user), plus `systemctl` and `systemd-run` for a systemd **user** manager
+  with linger enabled (`loginctl enable-linger "$USER"`);
+- Go 1.27;
+- the regional NATS URL you will use everywhere below, written `nats://127.0.0.1:4222`
+  in the examples.
 
 Firecracker is test infrastructure, never a production provider. The
 historical test-only Go `SandboxVMProvider` controlled Firecracker through the
@@ -95,12 +101,8 @@ stay at or below 4 GiB aggregate idle host RSS and one aggregate idle host CPU
 core. Tests record configured memory, boot and ready time, peak and idle RSS,
 idle CPU, disk usage, and cleanup time and fail the declared limits.
 
-The provider creates a stable private endpoint for every guest, an isolated
-local network per Region, and explicit links between Regions. Traffic never
-uses production services. `nftables` partitions a Region or Region pair while
-preserving the selected local network. `tc netem` adds deterministic latency,
-jitter, loss, reordering, duplication, and bandwidth ceilings. Removing a
-profile restores the baseline and the test verifies recovery.
+For a single node, either run the orchestrator's embedded NATS role from an
+explicit configuration file:
 
 Firecracker file-backed drives and safe host block controls provide persistent
 restart, fill, expansion, read-only and I/O-error transitions, detach and
@@ -121,7 +123,10 @@ make vm-test
 make vm-clean
 ```
 
-The targets have these contracts:
+…or start any NATS server that listens on the URL the other roles use. The
+node transport only needs core NATS (no JetStream). A local `nats://` URL is
+accepted for this single-host lane. The production autoscaler command requires
+`tls://`, a scoped NKey, and mTLS files, as shown below.
 
 - `vm-doctor` is read-only and validates the host and all pinned artifacts.
 - `vm-image` produces or verifies the reproducible Ubuntu systemd artifacts.
@@ -136,10 +141,12 @@ The targets have these contracts:
   labelled TerraScale test resources. It never scans and deletes unrelated
   Firecracker processes, TAPs, namespaces, rules, disks, or directories.
 
-The provider writes its cleanup journal before creating each host resource.
-The next invocation can therefore recover after cancellation, a failed
-assertion, a controller crash, or a Firecracker/jailer crash without guessing
-ownership.
+`ts-node` is the per-node host agent binary. Every input is an explicit flag;
+the only ambient reads are the current uid (for the `--run-as-uid` default)
+and the CPU count (for `--logical-cpu-count`). It validates the rootless
+context at startup and exits non-zero before touching anything if either its
+real or effective uid is 0, or if those uids differ. `--run-as-uid` must equal
+that nonzero effective uid.
 
 ## What `vm-test` proves
 
@@ -170,8 +177,14 @@ The suite covers:
 | `--nats-url` | required | regional NATS URL the agent dials |
 | `--node-class` | `greenfield` | informational node class token (the provisioner passes it) |
 | `--podman-binary` | `/usr/bin/podman` | absolute rootless podman path |
+| `--systemctl-binary` | `/usr/bin/systemctl` | absolute systemctl path used with `--user` |
+| `--systemd-run-binary` | `/usr/bin/systemd-run` | absolute systemd-run path used to create transient user units |
 | `--xdg-runtime-dir` | `/run/user/<uid>` | absolute XDG runtime dir of this account |
 | `--seccomp-profile` | `/etc/terrascale/seccomp/terrascale-default-v1.json` | absolute path of the seccomp JSON every created container loads (podman fails the create when the file is absent) |
+| `--nats-nkey-file` | none | production NKey seed path; required with `tls://` |
+| `--nats-tls-ca-file` | none | production NATS CA path; required with `tls://` |
+| `--nats-tls-cert-file` | none | production NATS client certificate path; required with `tls://` |
+| `--nats-tls-key-file` | none | production NATS client key path; required with `tls://` |
 | `--run-as-uid` | current uid | must equal the current uid and be nonzero |
 | `--heartbeat-interval` | `10s` | heartbeat cadence |
 | `--connect-timeout` | `5s` | NATS dial timeout |
@@ -179,36 +192,83 @@ The suite covers:
 | `--tasks-max` | `512` | the node task ceiling reported in heartbeats |
 | `--logical-cpu-count` | host CPU count | scales the load average into a CPU percent |
 
+For an OCI allocation named `dashboard-a`, the supervisor unit is
+`terrascale-dashboard-a.service`. Its description contains the exact
+`terrascale.allocation`, `terrascale.fingerprint`, and immutable 64-hex Podman
+container ID. `ExecStart` and `ExecStop` address that immutable ID, not the
+reusable container name. An existing running container with an absent unit, a
+mismatched description, or a replacement container under the same name fails
+closed instead of being adopted. Inspect it with:
+
+```sh
+systemctl --user status terrascale-dashboard-a.service
+systemctl --user show terrascale-dashboard-a.service \
+  --property=Description --property=ActiveState
+podman inspect terrascale-dashboard-a \
+  --format '{{ index .Config.Labels "terrascale.allocation" }} {{ index .Config.Labels "terrascale.fingerprint" }}'
+```
+
 The heartbeat's running-task gauge comes from the agent's own tracked
 allocations (its executor), not from `/proc/loadavg`, so the autoscaler's
 retire gate observes the node's own allocations; the load average only feeds
 the CPU-used dimension.
 
-Before the first converge, place a seccomp profile document at the
-`--seccomp-profile` path (or point the flag at one) — for local bring-up a
-permissive profile is enough to prove the plumbing:
+Before the first converge, install the shipped profile or point
+`--seccomp-profile` at its repository copy:
 
 ```sh
-sudo install -D -m 0644 /dev/null /etc/terrascale/seccomp/terrascale-default-v1.json
-echo '{"defaultAction":"SCMP_ACT_ALLOW"}' | sudo tee /etc/terrascale/seccomp/terrascale-default-v1.json >/dev/null
+sudo install -D -o root -g root -m 0644 \
+  .terrascale/seccomp/terrascale-default-v1.json \
+  /etc/terrascale/seccomp/terrascale-default-v1.json
+sha256sum /etc/terrascale/seccomp/terrascale-default-v1.json
 ```
 
-NixOS note: podman lives at `/run/current-system/sw/bin/podman`, so pass
-`--podman-binary /run/current-system/sw/bin/podman`. Native systemd plans also
-need `/usr/bin/systemctl`; on hosts without it, run OCI plans only (the
-systemd adapter's binary paths are fixed in the runtime package).
+The expected SHA-256 is
+`52f89c2c6abbd08f091c1ec332b29f4d0ab28cf580e9d229bc516741f07025a1`.
+The runtime checks that digest before preflight and every create. It also
+rejects symbolic links in the path, non-regular or oversized files, files not
+owned by root or the node account, and files writable by group or other.
+
+NixOS note: pass all three store-profile paths:
+
+```sh
+--podman-binary /run/current-system/sw/bin/podman \
+--systemctl-binary /run/current-system/sw/bin/systemctl \
+--systemd-run-binary /run/current-system/sw/bin/systemd-run
+```
+
+The native-binary adapter still uses `/usr/bin/systemctl`; these two systemd
+path flags configure the OCI Podman supervisor added by this lane.
 
 ## Terminal 3 — the autoscaler
 
-The orchestrator's `autoscaler` role reads its explicit configuration from
-documented environment variables (run `./bin/orchestrator catalog` for the
-full list), ticks the deterministic engine, and executes the actions it
-emits: provision/retire through a local process provisioner that spawns
-`ts-node` as the configured unprivileged uid, and cordon through the node's
-NATS subject.
+The orchestrator's `autoscaler` role reads explicit configuration from the
+environment (run `./bin/orchestrator catalog` for the full list), ticks the
+deterministic engine, and executes the actions it emits. This stage accepts
+only `TS_ORCH_AUTOSCALER_PROVIDER=local-dev`. That provider provisions and
+retires real `ts-node` child processes; cordon and drain checks use the node's
+NATS subjects. It records ownership only in the autoscaler process. A restart
+loses that ownership, so this provider is for local lifecycle validation only.
+It is not a persistent or production provider.
+
+The command keeps the authenticated NATS boundary. Supply one scoped NKey and
+mTLS identity for the autoscaler, then a different scoped identity for child
+node agents. Configuration rejects the same NKey or TLS identity in both
+roles. Every locally spawned node receives the same child credential paths.
+The provider does not issue a distinct identity for each node, so this is
+shared development identity, not per-node isolation.
 
 ```sh
-TS_ORCH_NATS_URL=nats://127.0.0.1:4222 \
+TS_ORCH_NATS_URL=tls://127.0.0.1:4222 \
+TS_ORCH_NATS_NKEY_FILE=/run/credentials/autoscaler/nkey.seed \
+TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/autoscaler/ca.pem \
+TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/autoscaler/client.pem \
+TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/autoscaler/client.key \
+TS_ORCH_AUTOSCALER_PROVIDER=local-dev \
+TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE=/run/credentials/ts-node/nkey.seed \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE=/run/credentials/ts-node/ca.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE=/run/credentials/ts-node/client.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_KEY_FILE=/run/credentials/ts-node/client.key \
 TS_ORCH_AUTOSCALER_TICK_INTERVAL=10s \
 TS_ORCH_AUTOSCALER_MIN_NODES=1 \
 TS_ORCH_AUTOSCALER_MAX_NODES=3 \
@@ -319,23 +379,49 @@ allocation observations.
 
 ## The tests
 
-The deterministic proof (embedded NATS, real agent and engine, fake podman —
-no network, no containers):
+The ordinary deterministic proof uses embedded NATS, the real agent and
+engine, and fake Podman. It is simulated runtime/provider evidence, not a live
+host claim:
 
 ```sh
 go test ./tests/ -run TestPodmanAutoscaleLaneEndToEnd -v
 ```
 
-The live podman smoke is gated twice — by the `live_podman` build tag and by
-`TS_ORCH_LIVE=1` — so the ordinary sweep never touches a real runtime. It
-runs the real `ProcessPodmanClient` as your unprivileged user against the
-local image `localhost/benchmark-go:latest` (present on this host;
-it never pulls from the network) and asserts preflight, create (not
-started), start, Running, stop, delete, and Absent:
+The live Podman smoke is gated twice by the `live_podman` build tag and
+`TS_ORCH_LIVE=1`. It uses a digest-pinned dashboard image already present in
+the rootless store and never pulls. The image reference must match the
+canonical runtime plan. The smoke proves the effective Podman process reports
+rootless mode, cgroup v2, the systemd cgroup manager, and seccomp. A static
+probe first proves `getppid` works with seccomp disabled and returns `ENOSYS`
+under the shipped profile. The smoke then proves seccomp-backed create, exact
+canonical fencing, immutable-ID unit binding, joined Running observation,
+unit-mediated stop, recreation after systemd collects the transient unit,
+delete, and Absent:
 
 ```sh
-TS_ORCH_LIVE=1 go test -tags live_podman ./tests/live/ -run Podman -v
+TS_ORCH_LIVE=1 \
+TS_ORCH_LIVE_PODMAN_IMAGE=registry.terrascale.internal/terrascale/terrascale-dashboard@sha256:<digest> \
+go test -tags live_podman ./tests/live/ -run Podman -count=1 -v
 ```
 
 Set `TS_ORCH_LIVE_PODMAN_BINARY=/abs/path/to/podman` to point it at a
-non-default podman installation.
+non-default Podman installation. Set `TS_ORCH_LIVE_SECCOMP_PROFILE` to test an
+installed copy of the shipped profile. On NixOS also set
+`TS_ORCH_LIVE_SYSTEMCTL_BINARY` and `TS_ORCH_LIVE_SYSTEMD_RUN_BINARY`.
+
+The live autoscaler smoke is separately gated. It builds `ts-node`, then runs
+the real autoscaler engine against `LocalProcessNodeProvisioner` and
+`CommandProcessSpawner`. It observes the child heartbeat over real NATS,
+cordons it, checks its empty drain report, and retires the exact child. This is
+single-host provider-lifecycle evidence. The test calls the engine and
+`LocalProcessNodeProvisioner` directly against embedded unauthenticated NATS.
+It does not run the `orchestrator autoscaler` role, production TLS and NKey
+wiring, scheduler observation subscription, workload convergence, restart
+recovery, or OCI:
+
+```sh
+go build -o /tmp/ts-node-orch4 ./cmd/ts-node
+TS_ORCH_LIVE_AUTOSCALER=1 \
+TS_ORCH_LIVE_TS_NODE_BINARY=/tmp/ts-node-orch4 \
+go test -tags live_autoscaler ./tests/live/ -run Autoscaler -count=1 -v
+```

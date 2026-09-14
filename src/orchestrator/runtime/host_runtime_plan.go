@@ -279,7 +279,7 @@ func createOciExecutionPlan(
 			NoNewPrivileges:        true,
 			ReadOnlyRootFileSystem: true,
 			DroppedCapabilities:    []string{"ALL"},
-			SeccompProfile:         "terrascale-default-v1",
+			SeccompProfile:         PodmanSeccompProfileName,
 			CgroupParent:           "terrascale/" + allocation.Value,
 		},
 		Resources: resources,

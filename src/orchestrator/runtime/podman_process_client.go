@@ -7,14 +7,15 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
-
-	"terrascale.tech/orchestrator/src/orchestrator/errs"
+	"syscall"
 )
 
 // ProcessPodmanClient implements PodmanClient by exec-ing the podman binary
@@ -29,6 +30,7 @@ import (
 type ProcessPodmanClient struct {
 	rootless      RootlessPodmanContext
 	commandRunner HostCommandRunner
+	verifySeccomp func(string, uint32) error
 }
 
 // NewProcessPodmanClient validates the rootless context and composes the
@@ -44,20 +46,49 @@ func NewProcessPodmanClient(
 	if commandRunner == nil {
 		return nil, &errs.Argument{Param: "commandRunner", Message: "A host command runner is required."}
 	}
-	return &ProcessPodmanClient{rootless: rootless, commandRunner: commandRunner}, nil
+	return &ProcessPodmanClient{
+		rootless: rootless, commandRunner: commandRunner, verifySeccomp: verifyPodmanSeccompProfile,
+	}, nil
 }
 
-// Preflight proves the rootless podman environment is usable by running one
-// podman info command; a nonzero exit fails closed with the trimmed stderr.
+// Preflight proves the effective Podman process is rootless and uses the host
+// features this lane depends on. A configured nonzero UID is not enough: a
+// caller could otherwise run this client as root and point it at root Podman.
+// The reported runtime must be rootless, cgroup v2 with the systemd manager,
+// and seccomp-enabled before convergence may mutate anything.
 func (c *ProcessPodmanClient) Preflight(ctx context.Context) error {
-	result, err := c.podman(ctx, []string{"info"})
+	if err := c.seccompProfile(); err != nil {
+		return err
+	}
+	result, err := c.podman(ctx, []string{"info", "--format", "json"})
 	if err != nil {
 		return err
 	}
 	if result.ExitCode != 0 {
 		return podmanCommandError("info", result.ExitCode, result.StandardError)
 	}
+	var document podmanInfoDocument
+	if err := json.Unmarshal([]byte(result.StandardOutput), &document); err != nil {
+		return &InvalidDataError{Message: "Podman info returned malformed JSON."}
+	}
+	if !document.Host.Security.Rootless ||
+		document.Host.CgroupVersion != "v2" ||
+		document.Host.CgroupManager != "systemd" ||
+		!document.Host.Security.SeccompEnabled {
+		return &InvalidOperationError{Message: "Podman host admission requires rootless mode, cgroup v2, the systemd cgroup manager, and seccomp."}
+	}
 	return nil
+}
+
+type podmanInfoDocument struct {
+	Host struct {
+		CgroupManager string `json:"cgroupManager"`
+		CgroupVersion string `json:"cgroupVersion"`
+		Security      struct {
+			Rootless       bool `json:"rootless"`
+			SeccompEnabled bool `json:"seccompEnabled"`
+		} `json:"security"`
+	} `json:"host"`
 }
 
 // Pull resolves one image reference for one platform.
@@ -112,6 +143,9 @@ func (c *ProcessPodmanClient) Create(ctx context.Context, request PodmanRunReque
 	if err != nil {
 		return err
 	}
+	if err := c.seccompProfile(); err != nil {
+		return err
+	}
 	result, err := c.podman(ctx, podmanCreateArguments(normalized, c.rootless.SeccompProfilePath))
 	if err != nil {
 		return err
@@ -124,8 +158,7 @@ func (c *ProcessPodmanClient) Create(ctx context.Context, request PodmanRunReque
 
 // Start starts one created container.
 func (c *ProcessPodmanClient) Start(ctx context.Context, containerId string) error {
-	validated, err := requirePodmanToken(containerId, "containerId",
-		"Container ID must be a lowercase DNS-style token.")
+	validated, err := requirePodmanContainerReference(containerId, "containerId")
 	if err != nil {
 		return err
 	}
@@ -141,8 +174,7 @@ func (c *ProcessPodmanClient) Start(ctx context.Context, containerId string) err
 
 // Stop stops one running container.
 func (c *ProcessPodmanClient) Stop(ctx context.Context, containerId string) error {
-	validated, err := requirePodmanToken(containerId, "containerId",
-		"Container ID must be a lowercase DNS-style token.")
+	validated, err := requirePodmanContainerReference(containerId, "containerId")
 	if err != nil {
 		return err
 	}
@@ -159,8 +191,7 @@ func (c *ProcessPodmanClient) Stop(ctx context.Context, containerId string) erro
 // Delete removes one container with `podman rm -f`, which force-stops it
 // first when a process is still attached.
 func (c *ProcessPodmanClient) Delete(ctx context.Context, containerId string) error {
-	validated, err := requirePodmanToken(containerId, "containerId",
-		"Container ID must be a lowercase DNS-style token.")
+	validated, err := requirePodmanContainerReference(containerId, "containerId")
 	if err != nil {
 		return err
 	}
@@ -179,8 +210,7 @@ func (c *ProcessPodmanClient) Delete(ctx context.Context, containerId string) er
 // failure maps to the Absent state and stays distinguishable from every other
 // nonzero exit, which fails closed as an invalid operation.
 func (c *ProcessPodmanClient) Inspect(ctx context.Context, containerId string) (PodmanAllocationObservation, error) {
-	validated, err := requirePodmanToken(containerId, "containerId",
-		"Container ID must be a lowercase DNS-style token.")
+	validated, err := requirePodmanContainerReference(containerId, "containerId")
 	if err != nil {
 		return PodmanAllocationObservation{}, err
 	}
@@ -190,7 +220,7 @@ func (c *ProcessPodmanClient) Inspect(ctx context.Context, containerId string) (
 	}
 	if result.ExitCode != 0 {
 		if isPodmanNoSuchContainer(result.StandardError) {
-			return NewPodmanAllocationObservation(PodmanAllocationStateAbsent, "", nil, false)
+			return NewPodmanAllocationObservation(PodmanAllocationStateAbsent, "", "", nil, false)
 		}
 		return PodmanAllocationObservation{}, podmanCommandError(
 			"container inspect", result.ExitCode, result.StandardError)
@@ -213,10 +243,12 @@ func (c *ProcessPodmanClient) Inspect(ctx context.Context, containerId string) (
 	observedPlatform := podmanObservedPlatform(documents[0])
 	if observedPlatform == "" {
 		return NewPodmanAllocationObservation(
-			state, documents[0].Config.Image, documents[0].Config.Labels, documents[0].State.Running)
+			state, documents[0].Id, documents[0].Config.Image,
+			documents[0].Config.Labels, documents[0].State.Running)
 	}
 	return NewPodmanAllocationObservation(
-		state, documents[0].Config.Image, documents[0].Config.Labels, documents[0].State.Running,
+		state, documents[0].Id, documents[0].Config.Image,
+		documents[0].Config.Labels, documents[0].State.Running,
 		observedPlatform)
 }
 
@@ -266,6 +298,7 @@ func (c *ProcessPodmanClient) podman(ctx context.Context, arguments []string) (H
 // `podman container inspect --format json` document. Unknown fields are
 // ignored; only the state, the image, and the labels feed the observation.
 type podmanContainerInspectDocument struct {
+	Id           string `json:"Id"`
 	Platform     string `json:"Platform"`
 	Architecture string `json:"Architecture"`
 	State        struct {
@@ -277,6 +310,55 @@ type podmanContainerInspectDocument struct {
 		Platform string            `json:"Platform"`
 		Labels   map[string]string `json:"Labels"`
 	} `json:"Config"`
+}
+
+func (c *ProcessPodmanClient) seccompProfile() error {
+	if c == nil || c.verifySeccomp == nil {
+		return &InvalidOperationError{Message: "The Podman seccomp verifier is unavailable."}
+	}
+	return c.verifySeccomp(c.rootless.SeccompProfilePath, c.rootless.RunAsUid)
+}
+
+// verifyPodmanSeccompProfile binds the canonical profile name to the exact
+// shipped document. Every path component must be a real directory entry, the
+// file must be private from group/other writes and owned by root or the node
+// account, and the SHA-256 digest must match the compiled contract.
+func verifyPodmanSeccompProfile(path string, runAsUid uint32) error {
+	validated, err := requirePodmanAbsolutePath(path, "SeccompProfilePath")
+	if err != nil {
+		return err
+	}
+	current := ""
+	segments := strings.Split(validated[1:], "/")
+	var profileInfo os.FileInfo
+	for index, segment := range segments {
+		current += "/" + segment
+		info, statErr := os.Lstat(current)
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+			return &InvalidOperationError{Message: "The canonical Podman seccomp profile path is unavailable or contains a symbolic link."}
+		}
+		if index < len(segments)-1 && !info.IsDir() {
+			return &InvalidOperationError{Message: "The canonical Podman seccomp profile path contains a non-directory component."}
+		}
+		profileInfo = info
+	}
+	if profileInfo == nil || !profileInfo.Mode().IsRegular() || profileInfo.Size() < 1 || profileInfo.Size() > 64*1024 {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile must be a bounded regular file."}
+	}
+	stat, ok := profileInfo.Sys().(*syscall.Stat_t)
+	if !ok || (stat.Uid != 0 && stat.Uid != runAsUid) || profileInfo.Mode().Perm()&0o022 != 0 {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile must be owned by root or the node account and not group/other writable."}
+	}
+	document, err := os.ReadFile(validated)
+	if err != nil {
+		return &InvalidOperationError{Message: "The canonical Podman seccomp profile could not be read."}
+	}
+	digest := sha256.Sum256(document)
+	if fmt.Sprintf("%x", digest) != PodmanSeccompProfileSHA256 {
+		return &InvalidOperationError{Message: fmt.Sprintf(
+			"The Podman seccomp profile does not match %s.", PodmanSeccompProfileName)}
+	}
+	return nil
 }
 
 func podmanObservedPlatform(document podmanContainerInspectDocument) string {

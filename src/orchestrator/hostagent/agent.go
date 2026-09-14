@@ -24,6 +24,10 @@ type HostAgentConfig struct {
 	Connection NatsConnection
 	// NatsURL is the explicit nats:// URL the agent dials in Start.
 	NatsURL string
+	// NatsOptions carries the already validated authentication and TLS options
+	// for a dialed production connection. It must be empty with a pre-wired
+	// Connection; local plaintext test lanes leave it empty.
+	NatsOptions []nats.Option
 	// ConnectTimeout bounds the dial when NatsURL is used.
 	ConnectTimeout time.Duration
 	// Systemd executes native systemd plans; wire it in user-manager mode so
@@ -46,6 +50,7 @@ type HostAgent struct {
 	nodeId            NodeId
 	connection        NatsConnection
 	natsURL           string
+	natsOptions       []nats.Option
 	connectTimeout    time.Duration
 	ownsConnection    bool
 	heartbeatInterval time.Duration
@@ -72,6 +77,12 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		return nil, &errs.Argument{
 			Param:   "Connection",
 			Message: "Exactly one of a wired connection or a NATS URL is required.",
+		}
+	}
+	if config.Connection != nil && len(config.NatsOptions) != 0 {
+		return nil, &ArgumentError{
+			Param:   "NatsOptions",
+			Message: "NATS dial options cannot accompany a pre-wired connection.",
 		}
 	}
 	if config.Connection == nil && config.ConnectTimeout <= 0 {
@@ -122,6 +133,7 @@ func NewHostAgent(config HostAgentConfig) (*HostAgent, error) {
 		nodeId:            nodeId,
 		connection:        config.Connection,
 		natsURL:           config.NatsURL,
+		natsOptions:       append([]nats.Option(nil), config.NatsOptions...),
 		connectTimeout:    config.ConnectTimeout,
 		ownsConnection:    config.Connection == nil,
 		heartbeatInterval: config.HeartbeatInterval,
@@ -150,10 +162,13 @@ func (a *HostAgent) Start(ctx context.Context) error {
 	}
 	connection := a.connection
 	if connection == nil {
-		dialed, err := nats.Connect(a.natsURL,
+		options := []nats.Option{
 			nats.Timeout(a.connectTimeout),
 			nats.MaxReconnects(0),
-			nats.RetryOnFailedConnect(false))
+			nats.RetryOnFailedConnect(false),
+		}
+		options = append(options, a.natsOptions...)
+		dialed, err := nats.Connect(a.natsURL, options...)
 		if err != nil {
 			return err
 		}

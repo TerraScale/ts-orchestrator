@@ -153,14 +153,16 @@ func (c *fakeE2EPodmanClient) Inspect(ctx context.Context, containerId string) (
 	defer c.mutex.Unlock()
 	container, present := c.containers[containerId]
 	if !present {
-		return runtime.NewPodmanAllocationObservation(runtime.PodmanAllocationStateAbsent, "", nil, false)
+		return runtime.NewPodmanAllocationObservation(runtime.PodmanAllocationStateAbsent, "", "", nil, false)
 	}
 	if container.running {
 		return runtime.NewPodmanAllocationObservation(
-			runtime.PodmanAllocationStateRunning, container.image, container.labels, true, container.platform)
+			runtime.PodmanAllocationStateRunning, e2ePlanDigest.Value, container.image,
+			container.labels, true, container.platform)
 	}
 	return runtime.NewPodmanAllocationObservation(
-		runtime.PodmanAllocationStateStopped, container.image, container.labels, false, container.platform)
+		runtime.PodmanAllocationStateStopped, e2ePlanDigest.Value, container.image,
+		container.labels, false, container.platform)
 }
 
 // EnsureVolume records the named volume without creating anything.

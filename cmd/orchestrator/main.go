@@ -59,6 +59,11 @@ const (
 	autoscalerAgentBinaryEnvironment       = "TS_ORCH_AUTOSCALER_AGENT_BINARY"
 	autoscalerRunAsUidEnvironment          = "TS_ORCH_AUTOSCALER_RUN_AS_UID"
 	autoscalerDrainLagEnvironment          = "TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES"
+	autoscalerProviderEnvironment          = "TS_ORCH_AUTOSCALER_PROVIDER"
+	autoscalerNodeNkeyEnvironment          = "TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE"
+	autoscalerNodeTlsCaEnvironment         = "TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE"
+	autoscalerNodeTlsCertEnvironment       = "TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE"
+	autoscalerNodeTlsKeyEnvironment        = "TS_ORCH_AUTOSCALER_NODE_NATS_TLS_KEY_FILE"
 
 	autoscalerDefaultTickInterval = 10 * time.Second
 	autoscalerCordonTimeout       = 2 * time.Second
@@ -725,6 +730,9 @@ func writeCatalog(output io.Writer) error {
 		autoscalerScaleUpTicksEnvironment, autoscalerScaleDownTicksEnvironment,
 		autoscalerConcurrencyEnvironment, autoscalerFlapTicksEnvironment,
 		autoscalerAgentBinaryEnvironment, autoscalerRunAsUidEnvironment, autoscalerDrainLagEnvironment,
+		autoscalerProviderEnvironment,
+		autoscalerNodeNkeyEnvironment, autoscalerNodeTlsCaEnvironment,
+		autoscalerNodeTlsCertEnvironment, autoscalerNodeTlsKeyEnvironment,
 	}
 	sort.Strings(environment)
 	document := catalogDocument{SchemaVersion: 1, Commands: commands, Environment: environment}
@@ -739,6 +747,8 @@ type autoscalerRoleSettings struct {
 	NatsUrl          string
 	NatsNKeyFile     string
 	NatsTls          *control.NatsTlsFiles
+	NodeNatsNKeyFile string
+	NodeNatsTls      *control.NatsTlsFiles
 	TickInterval     time.Duration
 	Policy           autoscaling.AutoscalerConfig
 	AgentBinaryPath  string
@@ -812,6 +822,41 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 	tlsFiles, err := control.NatsTlsFilesResolve(tlsCA, tlsCert, tlsKey, "TS_ORCH_NATS_TLS")
 	if err != nil || tlsFiles == nil {
 		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_NATS_TLS credentials are invalid")
+	}
+	nodeNkeyValue, err := autoscalerRequiredEnvironment(lookup, autoscalerNodeNkeyEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	nodeNkeyPath, err := control.NatsCredentialFile.Resolve(nodeNkeyValue, autoscalerNodeNkeyEnvironment)
+	if err != nil || nodeNkeyPath == "" {
+		return autoscalerRoleSettings{}, fmt.Errorf("autoscaler: %s is invalid", autoscalerNodeNkeyEnvironment)
+	}
+	nodeTlsCA, err := autoscalerRequiredEnvironment(lookup, autoscalerNodeTlsCaEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	nodeTlsCert, err := autoscalerRequiredEnvironment(lookup, autoscalerNodeTlsCertEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	nodeTlsKey, err := autoscalerRequiredEnvironment(lookup, autoscalerNodeTlsKeyEnvironment)
+	if err != nil {
+		return autoscalerRoleSettings{}, err
+	}
+	nodeTlsFiles, err := control.NatsTlsFilesResolve(
+		nodeTlsCA, nodeTlsCert, nodeTlsKey, "TS_ORCH_AUTOSCALER_NODE_NATS_TLS")
+	if err != nil || nodeTlsFiles == nil {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: TS_ORCH_AUTOSCALER_NODE_NATS_TLS credentials are invalid")
+	}
+	sameNkey, err := control.NatsCredentialFile.SameIdentity(nkeyPath, nodeNkeyPath)
+	if err != nil {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: NATS identities could not be compared")
+	}
+	if sameNkey || tlsFiles.SameIdentity(nodeTlsFiles) {
+		return autoscalerRoleSettings{}, errors.New("autoscaler: node agents require NATS identities distinct from the autoscaler")
+	}
+	if err := autoscalerRequireLocalDevProvider(lookup); err != nil {
+		return autoscalerRoleSettings{}, err
 	}
 	tickInterval := autoscalerDefaultTickInterval
 	if value, present := lookup(autoscalerTickIntervalEnvironment); present {
@@ -890,12 +935,26 @@ func autoscalerRoleConfiguration(lookup envLookup) (autoscalerRoleSettings, erro
 		NatsUrl:          natsUrl,
 		NatsNKeyFile:     nkeyPath,
 		NatsTls:          tlsFiles,
+		NodeNatsNKeyFile: nodeNkeyPath,
+		NodeNatsTls:      nodeTlsFiles,
 		TickInterval:     tickInterval,
 		Policy:           policy,
 		AgentBinaryPath:  agentBinary,
 		RunAsUid:         uint32(runAsUidParsed),
 		DrainMaxLagBytes: drainLag,
 	}, nil
+}
+
+func autoscalerRequireLocalDevProvider(lookup envLookup) error {
+	provider, err := autoscalerRequiredEnvironment(lookup, autoscalerProviderEnvironment)
+	if err != nil {
+		return err
+	}
+	if provider != "local-dev" {
+		return fmt.Errorf("autoscaler: %s must be local-dev; no persistent provider is wired in this stage",
+			autoscalerProviderEnvironment)
+	}
+	return nil
 }
 
 // autoscalerNodeEntry is the autoscaler's tracked view of one node: its
@@ -1389,6 +1448,18 @@ func (r *autoscalerRole) tick(ctx context.Context, now time.Time) error {
 	return nil
 }
 
+func autoscalerNodeAgentArguments(settings autoscalerRoleSettings) ([]string, error) {
+	if settings.NodeNatsTls == nil || settings.NodeNatsNKeyFile == "" {
+		return nil, errors.New("autoscaler: node-agent NATS TLS credentials are unavailable")
+	}
+	return []string{
+		"--nats-nkey-file", settings.NodeNatsNKeyFile,
+		"--nats-tls-ca-file", settings.NodeNatsTls.CaFile,
+		"--nats-tls-cert-file", settings.NodeNatsTls.CertificateFile,
+		"--nats-tls-key-file", settings.NodeNatsTls.KeyFile,
+	}, nil
+}
+
 // startAutoscalerRole composes and runs the autoscaler against the regional
 // NATS until the context is cancelled: it subscribes to every node heartbeat,
 // builds the deterministic engine with the stateful drain gate and the local
@@ -1433,8 +1504,12 @@ func startAutoscalerRole(ctx context.Context, settings autoscalerRoleSettings) e
 	if err != nil {
 		return err
 	}
+	agentArguments, err := autoscalerNodeAgentArguments(settings)
+	if err != nil {
+		return err
+	}
 	provisionerConfig, err := autoscaling.NewLocalProcessProvisionerConfig(
-		settings.AgentBinaryPath, settings.NatsUrl, nil, settings.RunAsUid)
+		settings.AgentBinaryPath, settings.NatsUrl, agentArguments, settings.RunAsUid)
 	if err != nil {
 		return err
 	}
