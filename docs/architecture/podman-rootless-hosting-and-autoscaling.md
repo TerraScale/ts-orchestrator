@@ -225,12 +225,14 @@ operation, not a fast path.
   `LocalProcessNodeProvisioner` with `CommandProcessSpawner`, selected only by
   the exact provider value `local-dev`; the OCI estate plugs into the same
   seam. The local implementation keeps child ownership only in process memory
-  and gives every child the same node credential paths. It is not a
-  production, restart-reconciling, or per-node-identity provider. Its live
-  smoke covers the real provision, cordon, drain, and retire sequence through
-  embedded unauthenticated NATS. It does not exercise the autoscaler command's
-  TLS, NKey, or scheduler-feed wiring, and it claims neither workload
-  convergence nor OCI evidence. ADR 0033 gives the regional autonomy model.
+  and resolves separately issued NKey and mTLS credentials for each child from
+  the configured node credential directory. The NATS account must ACL each
+  identity to that node's subjects. The local provider still keeps ownership
+  only in process memory and is not restart-reconciling or an OCI provider.
+  Its direct live smoke covers the real provision, cordon, drain, and retire
+  sequence through embedded NATS. A separate role-level smoke starts the real
+  command with authenticated TLS/NKey NATS and scheduler-feed wiring. ADR 0033
+  gives the regional autonomy model.
 - **DrainSafetyEvaluator** — one implementation in the control plane that
   combines replica health from heartbeats with the placement state.
 

@@ -314,6 +314,63 @@ func (r *tsNodePendingRelay) PendingAllocations() int {
 	return r.counter.PendingAllocations()
 }
 
+// RunningAllocations reports the executor's running allocation count through
+// the same late-bound relay used for pending allocations.
+func (r *tsNodePendingRelay) RunningAllocations() int {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	if r.counter == nil {
+		return 0
+	}
+	return r.counter.RunningAllocations()
+}
+
+// newTsNodePodmanClient composes the supervised rootless Podman client from
+// one validated node configuration. Startup calls Preflight on this exact
+// composition before the host agent can accept workload requests.
+func newTsNodePodmanClient(configuration tsNodeConfiguration) (*hostruntime.SystemdUserPodmanClient, error) {
+	rootless, err := hostruntime.NewRootlessPodmanContext(
+		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir,
+		configuration.SeccompProfilePath, configuration.RunAsUid)
+	if err != nil {
+		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
+	}
+	// The runtime directory is part of the rootless identity boundary. An
+	// explicit path must match the UID running this process; otherwise a node
+	// could point at another user's Podman socket and containers.
+	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", configuration.RunAsUid)
+	if configuration.XdgRuntimeDir != expectedRuntimeDir {
+		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
+	}
+	commandRunner := hostruntime.ProcessHostCommandRunner{}
+	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, commandRunner)
+	if err != nil {
+		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())
+	}
+	supervisedPodmanClient, err := hostruntime.NewSystemdUserPodmanClient(
+		podmanClient,
+		rootless,
+		configuration.SystemctlBinaryPath,
+		configuration.SystemdRunBinaryPath,
+		commandRunner,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ts-node: the podman supervisor is unavailable: %s", err.Error())
+	}
+	return supervisedPodmanClient, nil
+}
+
+func preflightTsNode(ctx context.Context, configuration tsNodeConfiguration) error {
+	client, err := newTsNodePodmanClient(configuration)
+	if err != nil {
+		return err
+	}
+	if err := client.Preflight(ctx); err != nil {
+		return fmt.Errorf("ts-node: startup rootless podman preflight failed: %s", err.Error())
+	}
+	return nil
+}
+
 // composeTsNodeAgent composes the node agent from one validated
 // configuration: the rootless podman context is revalidated through
 // NewRootlessPodmanContext (fail-closed on uid 0 and relative paths), the
@@ -345,34 +402,11 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 		natsOptions = append(natsOptions, authentication.Options()...)
 		natsOptions = append(natsOptions, tlsFiles.Options()...)
 	}
-	rootless, err := hostruntime.NewRootlessPodmanContext(
-		configuration.PodmanBinaryPath, configuration.XdgRuntimeDir, configuration.RunAsUid)
+	supervisedPodmanClient, err := newTsNodePodmanClient(configuration)
 	if err != nil {
-		return nil, fmt.Errorf("ts-node: the rootless podman context is invalid: %s", err.Error())
-	}
-	// The runtime directory is part of the rootless identity boundary.  An
-	// explicit path must still belong to the UID running this process; merely
-	// requiring an absolute path would allow a node agent to use another
-	// user's Podman socket and containers.
-	expectedRuntimeDir := fmt.Sprintf("/run/user/%d", configuration.RunAsUid)
-	if configuration.XdgRuntimeDir != expectedRuntimeDir {
-		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
+		return nil, err
 	}
 	commandRunner := hostruntime.ProcessHostCommandRunner{}
-	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, commandRunner)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())
-	}
-	supervisedPodmanClient, err := hostruntime.NewSystemdUserPodmanClient(
-		podmanClient,
-		rootless,
-		configuration.SystemctlBinaryPath,
-		configuration.SystemdRunBinaryPath,
-		commandRunner,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("ts-node: the podman supervisor is unavailable: %s", err.Error())
-	}
 	containerAdapter, err := hostruntime.NewPodmanRootlessHostRuntimeAdapter(supervisedPodmanClient, nil)
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the rootless podman adapter is unavailable: %s", err.Error())
@@ -448,6 +482,13 @@ func main() {
 
 	configuration, err := parseTsNodeArguments(
 		os.Args[1:], uint32(os.Getuid()), uint32(os.Geteuid()), stdruntime.NumCPU())
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	preflightContext, cancelPreflight := context.WithTimeout(ctx, configuration.ConnectTimeout)
+	err = preflightTsNode(preflightContext, configuration)
+	cancelPreflight()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)

@@ -47,6 +47,53 @@ func TestVerifyPodmanSeccompProfileBindsTheShippedDocument(t *testing.T) {
 	}
 }
 
+func TestVerifyPodmanSeccompProfileRejectsUnsafeMode(t *testing.T) {
+	profile := filepath.Join(t.TempDir(), "profile.json")
+	if err := os.WriteFile(profile, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(profile, 0o622); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(profile, uint32(os.Getuid())); err == nil {
+		t.Fatal("group/other writable seccomp profile was accepted")
+	}
+}
+
+func TestVerifyPodmanSeccompProfileRejectsOversizedAndNonRegularFiles(t *testing.T) {
+	directory := t.TempDir()
+	oversized := filepath.Join(directory, "oversized.json")
+	if err := os.WriteFile(oversized, []byte(strings.Repeat("x", 64*1024+1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(oversized, uint32(os.Getuid())); err == nil {
+		t.Fatal("oversized seccomp profile was accepted")
+	}
+	nonRegular := filepath.Join(directory, "directory.json")
+	if err := os.Mkdir(nonRegular, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(nonRegular, uint32(os.Getuid())); err == nil {
+		t.Fatal("directory seccomp profile was accepted")
+	}
+}
+
+func TestVerifyPodmanSeccompProfileRejectsUnexpectedOwner(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("changing file ownership requires root")
+	}
+	profile := filepath.Join(t.TempDir(), "profile.json")
+	if err := os.WriteFile(profile, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(profile, 65534, -1); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPodmanSeccompProfile(profile, uint32(os.Getuid())); err == nil {
+		t.Fatal("unexpected-owner seccomp profile was accepted")
+	}
+}
+
 func podmanTestRootlessContext() RootlessPodmanContext {
 	return RootlessPodmanContext{
 		PodmanBinaryPath:   "/usr/bin/podman",
@@ -166,6 +213,22 @@ func TestProcessPodmanClientRefusesToRunWhenTheContextIsNotRootless(t *testing.T
 				t.Fatalf("no command may spawn before the context is valid: %v", runner.commands)
 			}
 		})
+	}
+}
+
+func TestProcessPodmanClientInjectsTheValidatedRuntimeDirectory(t *testing.T) {
+	runner := newRecordingHostRunner()
+	client := newPodmanProcessClient(t, runner)
+
+	if err := client.Start(context.Background(), "terrascale-gru-database-api-1"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("commands = %+v", runner.commands)
+	}
+	if got := runner.commands[0].Environment; len(got) != 1 ||
+		got["XDG_RUNTIME_DIR"] != podmanTestRootlessContext().XdgRuntimeDir {
+		t.Fatalf("podman environment = %#v", got)
 	}
 }
 

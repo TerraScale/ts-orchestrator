@@ -3,8 +3,13 @@ package autoscaling
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // fakeProcessSpawner is the deterministic ProcessSpawner of the tests: it
@@ -22,6 +27,23 @@ type blockingRetireSpawner struct {
 	started    chan struct{}
 	release    chan struct{}
 	spawnCalls int
+}
+
+type stuckTerminateSpawner struct {
+	started chan struct{}
+	release chan struct{}
+	done    chan struct{}
+}
+
+func (s *stuckTerminateSpawner) Spawn(context.Context, NodeProcessSpec) (int, error) {
+	return 4242, nil
+}
+
+func (s *stuckTerminateSpawner) Terminate(context.Context, int) error {
+	close(s.started)
+	<-s.release
+	close(s.done)
+	return errors.New("termination was released after shutdown deadline")
 }
 
 func (s *blockingRetireSpawner) Spawn(context.Context, NodeProcessSpec) (int, error) {
@@ -428,6 +450,308 @@ func TestLocalProcessNodeProvisionerSpawnsTheConfiguredAgent(t *testing.T) {
 	}
 }
 
+func TestLocalProcessNodeProvisionerResolvesNodeScopedArguments(t *testing.T) {
+	spawner := &fakeProcessSpawner{pids: []int{4242}}
+	config := validProvisionerConfig(t)
+	config.AgentArgumentsForNode = func(nodeId string) ([]string, error) {
+		return []string{"--nats-nkey-file", "/run/credentials/nodes/" + nodeId + ".seed"}, nil
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err != nil {
+		t.Fatalf("provision: %v", err)
+	}
+	if got := spawner.spawned[0].Args; len(got) < 2 || got[1] != "/run/credentials/nodes/gru-node-9.seed" {
+		t.Fatalf("node-scoped arguments = %v", got)
+	}
+}
+
+func TestLocalProcessNodeProvisionerCommitsNodeIdentityOnlyAfterSpawn(t *testing.T) {
+	spawner := &fakeProcessSpawner{spawnErr: errors.New("spawn failed")}
+	config := validProvisionerConfig(t)
+	resolveCalls := 0
+	commitCalls := 0
+	rollbackCalls := 0
+	releaseCalls := 0
+	config.AgentArgumentsForNode = func(nodeId string) ([]string, error) {
+		resolveCalls++
+		return []string{"--credential-file", "/run/credentials/nodes/" + nodeId}, nil
+	}
+	config.AgentArgumentsForNodeCommit = func(string, []string) error {
+		commitCalls++
+		return nil
+	}
+	config.AgentArgumentsForNodeRollback = func(string, []string) {
+		rollbackCalls++
+	}
+	config.AgentArgumentsForNodeRelease = func(string) {
+		releaseCalls++
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	request := validProvisionRequest(t)
+
+	if err := provisioner.Provision(context.Background(), request); err == nil {
+		t.Fatal("the spawn failure must surface")
+	}
+	if resolveCalls != 1 || commitCalls != 0 || rollbackCalls != 1 {
+		t.Fatalf("failed spawn callbacks = resolve %d, commit %d, rollback %d", resolveCalls, commitCalls, rollbackCalls)
+	}
+
+	spawner.spawnErr = nil
+	if err := provisioner.Provision(context.Background(), request); err != nil {
+		t.Fatalf("retry provision: %v", err)
+	}
+	if resolveCalls != 2 || commitCalls != 1 || rollbackCalls != 1 {
+		t.Fatalf("successful spawn callbacks = resolve %d, commit %d, rollback %d", resolveCalls, commitCalls, rollbackCalls)
+	}
+
+	// The duplicate check runs before the resolver, so a second call cannot
+	// trigger any identity side effect after the first child is live.
+	if err := provisioner.Provision(context.Background(), request); !isInvalidOperation(err) {
+		t.Fatalf("duplicate provision must be refused, got %v", err)
+	}
+	if resolveCalls != 2 || commitCalls != 1 || rollbackCalls != 1 || releaseCalls != 0 {
+		t.Fatalf("duplicate callbacks = resolve %d, commit %d, rollback %d, release %d", resolveCalls, commitCalls, rollbackCalls, releaseCalls)
+	}
+
+	// A retryable termination failure retains the child and its identity. Once
+	// termination succeeds, release makes the same identity available again.
+	spawner.terminateErr = errors.New("termination failed")
+	if err := provisioner.Retire(context.Background(), request.NodeId); err == nil {
+		t.Fatal("termination failure must surface")
+	}
+	if releaseCalls != 0 {
+		t.Fatalf("failed termination released %d identities", releaseCalls)
+	}
+	spawner.terminateErr = nil
+	if err := provisioner.Retire(context.Background(), request.NodeId); err != nil {
+		t.Fatalf("retire retry: %v", err)
+	}
+	if releaseCalls != 1 {
+		t.Fatalf("successful termination releases = %d, want 1", releaseCalls)
+	}
+	if err := provisioner.Provision(context.Background(), request); err != nil {
+		t.Fatalf("reprovision after release: %v", err)
+	}
+	if commitCalls != 2 {
+		t.Fatalf("reprovision commits = %d, want 2", commitCalls)
+	}
+}
+
+func TestLocalProcessNodeProvisionerCancellationDuringIdentityCommitCleansChild(t *testing.T) {
+	spawner := &fakeProcessSpawner{pids: []int{4242}}
+	config := validProvisionerConfig(t)
+	config.AgentArgumentsForNode = func(nodeId string) ([]string, error) {
+		return []string{"--credential-file", "/run/credentials/nodes/" + nodeId}, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	config.AgentArgumentsForNodeCommit = func(string, []string) error {
+		cancel()
+		return nil
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provisioner.Provision(ctx, validProvisionRequest(t)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation during identity commit error = %v", err)
+	}
+	if len(spawner.terminated) != 1 || spawner.terminated[0] != 4242 {
+		t.Fatalf("canceled commit terminations = %v", spawner.terminated)
+	}
+}
+
+func TestLocalProcessNodeProvisionerSerializesConcurrentDuplicateResolution(t *testing.T) {
+	spawner := &fakeProcessSpawner{}
+	config := validProvisionerConfig(t)
+	resolveCalls := 0
+	commitCalls := 0
+	config.AgentArgumentsForNode = func(string) ([]string, error) {
+		resolveCalls++
+		return []string{"--credential-file", "/run/credentials/nodes/node-seed"}, nil
+	}
+	config.AgentArgumentsForNodeCommit = func(string, []string) error {
+		commitCalls++
+		return nil
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	request := validProvisionRequest(t)
+	results := make(chan error, 16)
+	var group sync.WaitGroup
+	for index := 0; index < 16; index++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			results <- provisioner.Provision(context.Background(), request)
+		}()
+	}
+	group.Wait()
+	close(results)
+	successes := 0
+	duplicates := 0
+	for result := range results {
+		if result == nil {
+			successes++
+		} else if isInvalidOperation(result) {
+			duplicates++
+		} else {
+			t.Fatalf("concurrent provision error = %v", result)
+		}
+	}
+	if successes != 1 || duplicates != 15 || len(spawner.spawned) != 1 || resolveCalls != 1 || commitCalls != 1 {
+		t.Fatalf("concurrent duplicate state: successes=%d duplicates=%d spawns=%d resolves=%d commits=%d", successes, duplicates, len(spawner.spawned), resolveCalls, commitCalls)
+	}
+}
+
+func TestLocalProcessNodeProvisionerRollsBackResolverFailure(t *testing.T) {
+	spawner := &fakeProcessSpawner{}
+	config := validProvisionerConfig(t)
+	rollbackCalls := 0
+	config.AgentArgumentsForNode = func(string) ([]string, error) {
+		return []string{"--credential-file", "/run/credentials/nodes/node-seed"}, errors.New("identity unavailable")
+	}
+	config.AgentArgumentsForNodeRollback = func(_ string, arguments []string) {
+		rollbackCalls++
+		if len(arguments) != 2 || arguments[1] != "/run/credentials/nodes/node-seed" {
+			t.Errorf("rollback arguments = %v", arguments)
+		}
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err == nil {
+		t.Fatal("resolver failure must surface")
+	}
+	if rollbackCalls != 1 {
+		t.Fatalf("resolver rollback calls = %d, want 1", rollbackCalls)
+	}
+	if len(spawner.spawned) != 0 {
+		t.Fatalf("resolver failure spawned %d children", len(spawner.spawned))
+	}
+}
+
+func TestLocalProcessNodeProvisionerRollsBackCommitFailureAndCleansChild(t *testing.T) {
+	spawner := &fakeProcessSpawner{terminateErr: errors.New("cleanup failed")}
+	config := validProvisionerConfig(t)
+	rollbackCalls := 0
+	config.AgentArgumentsForNode = func(string) ([]string, error) {
+		return []string{"--credential-file", "/run/credentials/nodes/node-seed"}, nil
+	}
+	config.AgentArgumentsForNodeCommit = func(string, []string) error {
+		return errors.New("identity already committed")
+	}
+	config.AgentArgumentsForNodeRollback = func(string, []string) {
+		rollbackCalls++
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatalf("provisioner: %v", err)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err == nil {
+		t.Fatal("commit failure must surface")
+	}
+	if rollbackCalls != 0 {
+		t.Fatalf("commit rollback calls = %d, want 0 while cleanup is unconfirmed", rollbackCalls)
+	}
+	if len(spawner.terminated) != 1 || spawner.terminated[0] != 4242 {
+		t.Fatalf("commit failure terminations = %v, want [4242]", spawner.terminated)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); !isInvalidOperation(err) {
+		t.Fatalf("an unconfirmed cleanup must retain ownership, got %v", err)
+	}
+	spawner.terminateErr = nil
+	if err := provisioner.Retire(context.Background(), "gru-node-9"); err != nil {
+		t.Fatalf("cleanup retry: %v", err)
+	}
+	if rollbackCalls != 1 {
+		t.Fatalf("commit rollback calls after confirmed cleanup = %d, want 1", rollbackCalls)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err == nil {
+		t.Fatal("a commit callback that always fails should still fail reprovision")
+	}
+}
+
+func TestLocalProcessNodeProvisionerShutdownReconcilesChildrenAndCloses(t *testing.T) {
+	spawner := &fakeProcessSpawner{pids: []int{4242, 5151}}
+	config := validProvisionerConfig(t)
+	releases := 0
+	config.AgentArgumentsForNode = func(nodeID string) ([]string, error) {
+		return []string{"--credential-file", "/run/credentials/nodes/" + nodeID}, nil
+	}
+	config.AgentArgumentsForNodeCommit = func(string, []string) error { return nil }
+	config.AgentArgumentsForNodeRelease = func(string) { releases++ }
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := validProvisionRequest(t)
+	second := first
+	second.NodeId = "gru-node-8"
+	if err := provisioner.Provision(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	if err := provisioner.Provision(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := provisioner.Shutdown(cancelled); err != nil {
+		t.Fatalf("shutdown: %v", err)
+	}
+	if len(spawner.terminated) != 2 || spawner.terminated[0] != 5151 || spawner.terminated[1] != 4242 {
+		t.Fatalf("shutdown terminations = %v", spawner.terminated)
+	}
+	if releases != 2 {
+		t.Fatalf("shutdown releases = %d, want 2", releases)
+	}
+	if err := provisioner.Shutdown(context.Background()); err != nil {
+		t.Fatalf("idempotent shutdown: %v", err)
+	}
+	if len(spawner.terminated) != 2 {
+		t.Fatalf("idempotent shutdown signaled children again: %v", spawner.terminated)
+	}
+	if err := provisioner.Provision(context.Background(), first); !isInvalidOperation(err) {
+		t.Fatalf("provision after shutdown must fail closed, got %v", err)
+	}
+}
+
+func TestLocalProcessNodeProvisionerShutdownBoundsUncooperativeSpawner(t *testing.T) {
+	spawner := &stuckTerminateSpawner{started: make(chan struct{}), release: make(chan struct{})}
+	spawner.done = make(chan struct{})
+	defer func() {
+		close(spawner.release)
+		<-spawner.done
+	}()
+	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = provisioner.Shutdown(ctx)
+	if err == nil || time.Since(started) > time.Second {
+		t.Fatalf("uncooperative shutdown result=%v duration=%s", err, time.Since(started))
+	}
+	select {
+	case <-spawner.started:
+	default:
+		t.Fatal("shutdown did not attempt child termination")
+	}
+}
+
 func TestLocalProcessNodeProvisionerRefusesDuplicatesAndSpawnFailures(t *testing.T) {
 	spawner := &fakeProcessSpawner{spawnErr: errors.New("spawn failed")}
 	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)
@@ -463,12 +787,23 @@ func TestLocalProcessNodeProvisionerRefusesDuplicatesAndSpawnFailures(t *testing
 
 func TestLocalProcessNodeProvisionerRejectsInvalidPids(t *testing.T) {
 	spawner := &fakeProcessSpawner{pids: []int{0}}
-	provisioner, err := NewLocalProcessNodeProvisioner(validProvisionerConfig(t), spawner)
+	config := validProvisionerConfig(t)
+	rollbackCalls := 0
+	config.AgentArgumentsForNode = func(string) ([]string, error) {
+		return []string{"--credential-file", "/run/credentials/nodes/node-seed"}, nil
+	}
+	config.AgentArgumentsForNodeRollback = func(string, []string) {
+		rollbackCalls++
+	}
+	provisioner, err := NewLocalProcessNodeProvisioner(config, spawner)
 	if err != nil {
 		t.Fatalf("provisioner: %v", err)
 	}
 	if err := provisioner.Provision(context.Background(), validProvisionRequest(t)); !isInvalidData(err) {
 		t.Fatalf("a nonpositive pid is invalid data, got %v", err)
+	}
+	if rollbackCalls != 1 {
+		t.Fatalf("invalid pid rollback calls = %d, want 1", rollbackCalls)
 	}
 	if err := provisioner.Retire(context.Background(), "gru-node-9"); !isInvalidOperation(err) {
 		t.Fatalf("an unrecorded child must fail closed, got %v", err)
@@ -588,6 +923,111 @@ func TestCommandProcessSpawnerFailsClosedWithoutSpawning(t *testing.T) {
 	if err := spawner.Terminate(context.Background(), 4242); !isInvalidOperation(err) {
 		t.Fatalf("the failed spawn must leave no recorded child, got %v", err)
 	}
+}
+
+func TestCommandProcessSpawnerReapsNaturalExitWithoutPIDReuseSignal(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("the production spawner refuses uid 0")
+	}
+	spawner, err := NewCommandProcessSpawner(100 * time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := NewNodeProcessSpec(
+		"/run/current-system/sw/bin/sleep", "gru-node-9", "nats://127.0.0.1:4222", []string{"0"}, nil, uint32(os.Geteuid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := spawner.Spawn(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		spawner.mutex.Lock()
+		_, tracked := spawner.processes[pid]
+		_, reaped := spawner.reaped[pid]
+		spawner.mutex.Unlock()
+		if !tracked && reaped {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("natural child pid %d was not reaped", pid)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	var exited *processAlreadyExitedError
+	if err := spawner.Terminate(context.Background(), pid); !errors.As(err, &exited) {
+		t.Fatalf("reusing a naturally exited pid must fail closed without signaling, got %v", err)
+	}
+}
+
+func TestCommandProcessSpawnerWaitidFallbackDoesNotKillHealthyChild(t *testing.T) {
+	spawner, err := NewCommandProcessSpawner(20 * time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawner.waitid = func(int, *unix.Siginfo, int) error { return unix.EIO }
+	spawner.pidfdOpen = func(int) (int, error) { return -1, unix.ENOSYS }
+	script := filepath.Join(t.TempDir(), "healthy-child")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexec /run/current-system/sw/bin/sleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := NewNodeProcessSpec(
+		script, "gru-node-9", "nats://127.0.0.1:4222", nil, nil, uint32(os.Geteuid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := spawner.Spawn(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	spawner.mutex.Lock()
+	_, tracked := spawner.processes[pid]
+	spawner.mutex.Unlock()
+	if !tracked {
+		t.Fatal("waitid observation failure terminated a healthy child")
+	}
+	if err := spawner.Terminate(context.Background(), pid); err != nil {
+		t.Fatalf("explicit termination after waitid fallback: %v", err)
+	}
+}
+
+func TestCommandProcessSpawnerCancellationDuringPidfdInstallReapsChild(t *testing.T) {
+	spawner, err := NewCommandProcessSpawner(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	spawner.pidfdOpen = func(int) (int, error) {
+		close(started)
+		<-release
+		return -1, unix.ENOSYS
+	}
+	spec, err := NewNodeProcessSpec(
+		"/run/current-system/sw/bin/sleep", "gru-node-9", "nats://127.0.0.1:4222", []string{"30"}, nil, uint32(os.Geteuid()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, spawnErr := spawner.Spawn(ctx, spec)
+		result <- spawnErr
+	}()
+	<-started
+	cancel()
+	select {
+	case spawnErr := <-result:
+		if !errors.Is(spawnErr, context.Canceled) {
+			t.Fatalf("spawn cancellation error = %v", spawnErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("spawn did not return after cancellation during pidfd installation")
+	}
+	close(release)
 }
 
 func TestNodeProcessCredentialKeepsSameAccountAndFencesAccountChanges(t *testing.T) {

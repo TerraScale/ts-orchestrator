@@ -91,28 +91,41 @@ func TestAutoscalerProviderIsExplicitlyLocalDevOnly(t *testing.T) {
 	}
 }
 
-func TestAutoscalerNodeAgentArgumentsUseTheDistinctNodeIdentity(t *testing.T) {
-	settings := autoscalerRoleSettings{
-		NatsNKeyFile:     "/run/autoscaler/control.seed",
-		NatsTls:          &control.NatsTlsFiles{CaFile: "/run/autoscaler/ca.pem", CertificateFile: "/run/autoscaler/control.pem", KeyFile: "/run/autoscaler/control.key"},
-		NodeNatsNKeyFile: "/run/ts-node/node.seed",
-		NodeNatsTls:      &control.NatsTlsFiles{CaFile: "/run/ts-node/ca.pem", CertificateFile: "/run/ts-node/node.pem", KeyFile: "/run/ts-node/node.key"},
+func TestAutoscalerNodeAgentIdentityReleaseAllowsReprovision(t *testing.T) {
+	tls := &control.NatsTlsFiles{}
+	state := newAutoscalerNodeAgentArgumentsState(autoscalerRoleSettings{})
+	identity := autoscalerNodeAgentIdentity{publicKey: "NKEY", tls: tls}
+	state.usedNKeys[identity.publicKey] = struct{}{}
+	state.usedTLS = append(state.usedTLS, identity.tls)
+	state.usedNodes["node-a"] = identity
+
+	state.release("node-a")
+	if _, found := state.usedNodes["node-a"]; found {
+		t.Fatal("released node identity remained attached to the node")
 	}
-	arguments, err := autoscalerNodeAgentArguments(settings)
-	if err != nil {
-		t.Fatal(err)
+	if _, found := state.usedNKeys[identity.publicKey]; found {
+		t.Fatal("released NKey identity remained reserved")
 	}
-	joined := strings.Join(arguments, " ")
-	for _, value := range []string{settings.NodeNatsNKeyFile, settings.NodeNatsTls.CaFile,
-		settings.NodeNatsTls.CertificateFile, settings.NodeNatsTls.KeyFile} {
-		if !strings.Contains(joined, value) {
-			t.Fatalf("node arguments omitted %q: %v", value, arguments)
+	if len(state.usedTLS) != 0 {
+		t.Fatalf("released TLS identities = %d, want 0", len(state.usedTLS))
+	}
+
+	// A new role state starts with no process-local identity reservations;
+	// stale reservations must not survive an autoscaler restart.
+	restarted := newAutoscalerNodeAgentArgumentsState(autoscalerRoleSettings{})
+	if len(restarted.usedNodes) != 0 || len(restarted.usedNKeys) != 0 || len(restarted.usedTLS) != 0 {
+		t.Fatal("a restarted autoscaler inherited stale node identities")
+	}
+}
+
+func TestAutoscalerCredentialDirectoryIsBoundedAndAbsolute(t *testing.T) {
+	for _, value := range []string{"", "nodes", "/run/credentials/../nodes", "/run/credentials/node dir", "/run/credentials/nodes%1"} {
+		if err := autoscalerValidateCredentialDirectory(value); err == nil {
+			t.Fatalf("credential directory %q was accepted", value)
 		}
 	}
-	if strings.Contains(joined, settings.NatsNKeyFile) ||
-		strings.Contains(joined, settings.NatsTls.CertificateFile) ||
-		strings.Contains(joined, settings.NatsTls.KeyFile) {
-		t.Fatalf("autoscaler identity leaked into node arguments: %v", arguments)
+	if err := autoscalerValidateCredentialDirectory("/run/credentials/nodes"); err != nil {
+		t.Fatalf("valid credential directory: %v", err)
 	}
 }
 
