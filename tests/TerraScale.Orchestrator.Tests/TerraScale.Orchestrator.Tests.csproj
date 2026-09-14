@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+    <IsTestingPlatformApplication>true</IsTestingPlatformApplication>
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
   </PropertyGroup>
@@ -12,4 +14,3 @@
     <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </ItemGroup>
 </Project>
-
