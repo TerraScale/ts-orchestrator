@@ -280,7 +280,7 @@ func decodeOCIErrorCode(raw []byte) (string, bool) {
 	var body struct {
 		Code string `json:"code"`
 	}
-	if json.Unmarshal(raw, &body) != nil || body.Code == "" || len(body.Code) > 96 || strings.ContainsAny(body.Code, "\r\n") {
+	if rejectDuplicateJSONKeys(raw) != nil || json.Unmarshal(raw, &body) != nil || !validOCIErrorCode(body.Code) {
 		return "", false
 	}
 	return body.Code, true
