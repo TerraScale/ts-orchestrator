@@ -3,11 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"terrascale.tech/orchestrator/src/orchestrator/control"
+	"terrascale.tech/orchestrator/src/orchestrator/provider"
 )
 
 type fakeComponent struct {
@@ -184,6 +190,79 @@ func TestConfiguredEstateRequiresExplicitProviderSelection(t *testing.T) {
 	if err := verifyConfiguredOCIEstate(context.Background(), lookup(map[string]string{providerEnvironment: "oci"})); err == nil {
 		t.Fatal("OCI provider without estate settings was accepted")
 	}
+}
+
+func TestConfiguredEstateUsesMetadataCredentialsWhenExplicitCredentialsAreAbsent(t *testing.T) {
+	oldSource := newOCIInstancePrincipalCredentialSource
+	t.Cleanup(func() { newOCIInstancePrincipalCredentialSource = oldSource })
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	newOCIInstancePrincipalCredentialSource = func() (provider.InstancePrincipalCredentialSource, error) {
+		calls++
+		return testInstancePrincipalSource{credentials: provider.InstancePrincipalCredentials{KeyID: "metadata-key", Key: key}}, nil
+	}
+	reader, err := newConfiguredOCIEstateReader(context.Background(), testCommandOCIEstateSpec(), "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, ok := reader.Transports[provider.OCIServiceCore].Signer.(*provider.InstancePrincipalSigner)
+	if !ok || signer.KeyID != "metadata-key" || calls != 1 {
+		t.Fatalf("metadata credential composition signer=%T/%q factoryCalls=%d", reader.Transports[provider.OCIServiceCore].Signer, signerKeyID(signer), calls)
+	}
+}
+
+func TestConfiguredEstatePrefersExplicitKeyFileCredentials(t *testing.T) {
+	oldSource := newOCIInstancePrincipalCredentialSource
+	t.Cleanup(func() { newOCIInstancePrincipalCredentialSource = oldSource })
+	newOCIInstancePrincipalCredentialSource = func() (provider.InstancePrincipalCredentialSource, error) {
+		t.Fatal("metadata source was selected despite explicit credentials")
+		return nil, nil
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyFile := t.TempDir() + "/oci-key.pem"
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := newConfiguredOCIEstateReader(context.Background(), testCommandOCIEstateSpec(), "explicit-key", keyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, ok := reader.Transports[provider.OCIServiceCore].Signer.(*provider.InstancePrincipalSigner)
+	if !ok || signer.KeyID != "explicit-key" {
+		t.Fatalf("explicit credential composition signer=%T/%q", reader.Transports[provider.OCIServiceCore].Signer, signerKeyID(signer))
+	}
+}
+
+type testInstancePrincipalSource struct {
+	credentials provider.InstancePrincipalCredentials
+}
+
+func (s testInstancePrincipalSource) Retrieve(context.Context) (provider.InstancePrincipalCredentials, error) {
+	return s.credentials, nil
+}
+
+func testCommandOCIEstateSpec() provider.OCIEstateSpec {
+	return provider.OCIEstateSpec{
+		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1.x",
+		ControlCompartmentID: "ocid1.compartment.oc1.control", NetworkCompartmentID: "ocid1.compartment.oc1.network", WorkloadCompartmentID: "ocid1.compartment.oc1.workload",
+		VCNID: "ocid1.vcn.oc1.x", SubnetIDs: []string{"ocid1.subnet.oc1.x"}, NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.x"},
+		IAMPolicyCompartmentID: "ocid1.compartment.oc1.control", IAMPolicies: []provider.OCIEstatePolicy{{ID: "ocid1.policy.oc1.x", Statements: []string{"Allow dynamic-group terrascale-orchestrator to read compartments in tenancy"}}},
+		VaultID: "ocid1.vault.oc1.x", KeyID: "ocid1.key.oc1.x", KeyManagementEndpoint: "https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.sa-saopaulo-1.oci.oraclecloud.com",
+		ObjectNamespace: "namespace", LedgerBucket: "ledger", BackupBucket: "backups",
+	}
+}
+
+func signerKeyID(signer *provider.InstancePrincipalSigner) string {
+	if signer == nil {
+		return ""
+	}
+	return signer.KeyID
 }
 
 func TestExecuteRedactsFailureAndExitStatus(t *testing.T) {

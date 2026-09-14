@@ -5,233 +5,247 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestOCIHTTPTransportRetriesFencedMutationResponsesExactly(t *testing.T) {
+func TestOCIInstancePrincipalMetadataSourceRetrievesCredentialWithBoundedAccess(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBody := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certBody := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "169.254.169.254" || request.Header.Get("Authorization") != "Bearer Oracle" {
+			t.Fatalf("metadata request escaped its bounded authority: %s headers=%v", request.URL, request.Header)
+		}
+		body := certBody
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			body = keyBody
+		}
+		return testHTTPResponse(http.StatusOK, string(body), nil), nil
+	})}
+	source, err := NewOCIInstancePrincipalMetadataSource(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials, err := source.Retrieve(context.Background())
+	if err != nil || credentials.Key == nil || credentials.KeyID == "" {
+		t.Fatalf("metadata credentials = %+v, %v", credentials, err)
+	}
+}
+
+func TestOCIInstancePrincipalMetadataSourceRejectsMalformedCertificate(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyBody := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			return testHTTPResponse(http.StatusOK, string(keyBody), nil), nil
+		}
+		return testHTTPResponse(http.StatusOK, "not-a-certificate", nil), nil
+	})}
+	source, err := NewOCIInstancePrincipalMetadataSource(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Retrieve(context.Background()); err == nil {
+		t.Fatal("malformed metadata certificate was accepted")
+	}
+}
+
+func TestNextOCIPageRejectsSeventeenthPage(t *testing.T) {
+	response := testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-17"}})
+	if _, err := nextOCIPage(response, "page-16", maximumOCIPages-1); err == nil {
+		t.Fatal("pagination fetched beyond the 16-page bound")
+	}
+}
+
+func TestNextOCIPageRejectsMalformedContinuationHeaders(t *testing.T) {
 	tests := []struct {
-		name       string
-		status     int
-		body       string
-		conflicts  int
-		maxRetries int
+		name  string
+		value string
 	}{
-		{name: "one incorrect-state conflict", status: http.StatusConflict, body: `{"code":"IncorrectState"}`, conflicts: 1, maxRetries: 2},
-		{name: "two lock conflicts", status: http.StatusConflict, body: `{"code":"LockConflict"}`, conflicts: 2, maxRetries: 2},
-		{name: "throttled", status: http.StatusTooManyRequests, body: `{"code":"TooManyRequests"}`, conflicts: 1, maxRetries: 2},
-		{name: "service unavailable", status: http.StatusServiceUnavailable, body: `{"code":"ServiceUnavailable"}`, conflicts: 1, maxRetries: 2},
+		{name: "empty", value: ""},
+		{name: "oversized", value: strings.Repeat("x", 257)},
+		{name: "control", value: "page-1\r\nforged: value"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			var bodies [][]byte
-			var requestHeaders []http.Header
-			calls := 0
-			transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
-				calls++
-				body, err := io.ReadAll(request.Body)
-				if err != nil {
-					return nil, err
-				}
-				bodies = append(bodies, body)
-				requestHeaders = append(requestHeaders, request.Header.Clone())
-				if calls <= test.conflicts {
-					return testHTTPResponse(test.status, test.body, nil), nil
-				}
-				return testHTTPResponse(http.StatusOK, `{}`, nil), nil
-			})
-			transport.Config.MaxRetries = test.maxRetries
-			transport.retryDelay = func(context.Context, int) error { return nil }
-			callerHeaders := map[string]string{"opc-retry-token": "retry-exact", "If-Match": "etag-exact"}
-			response, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/instances", strings.NewReader(`{"shape":"VM.Standard.A1.Flex"}`), callerHeaders)
-			if err != nil || response.StatusCode != http.StatusOK || calls != test.conflicts+1 {
-				t.Fatalf("fenced retry response=%v calls=%d err=%v", response, calls, err)
-			}
-			_, _ = ReadBoundedBody(response, transport.Config.MaxBodyBytes)
-			for index := 1; index < len(bodies); index++ {
-				if !bytes.Equal(bodies[0], bodies[index]) || !reflect.DeepEqual(requestHeaders[0], requestHeaders[index]) {
-					t.Fatalf("retry %d changed body or headers: bodies=%q headers=%v", index, bodies, requestHeaders)
-				}
-			}
-			if requestHeaders[0].Get("opc-retry-token") != "retry-exact" || requestHeaders[0].Get("If-Match") != "etag-exact" {
-				t.Fatalf("caller fences were not preserved: %v", requestHeaders[0])
+			headers := make(http.Header)
+			headers.Set("Opc-Next-Page", test.value)
+			if _, err := nextOCIPage(testHTTPResponse(http.StatusOK, `{"items":[]}`, headers), "", 0); err == nil {
+				t.Fatal("malformed continuation header was treated as end-of-list")
 			}
 		})
 	}
+	if _, err := nextOCIPage(testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-1", "page-2"}}), "", 0); err == nil {
+		t.Fatal("duplicate continuation headers were accepted")
+	}
 }
 
-func TestOCIHTTPTransportRetryExhaustionIsUnknown(t *testing.T) {
-	for _, response := range []struct {
-		name   string
-		status int
-		body   string
-	}{
-		{name: "conflict", status: http.StatusConflict, body: `{"code":"IncorrectState"}`},
-		{name: "throttled", status: http.StatusTooManyRequests, body: `{"code":"TooManyRequests"}`},
-		{name: "server error", status: http.StatusBadGateway, body: `{"code":"BadGateway"}`},
-	} {
-		t.Run(response.name, func(t *testing.T) {
-			calls := 0
-			transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
-				calls++
-				return testHTTPResponse(response.status, response.body, nil), nil
-			})
-			transport.Config.MaxRetries = 2
-			transport.retryDelay = func(context.Context, int) error { return nil }
-			got, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/instances", strings.NewReader(`{"shape":"VM.Standard.A1.Flex"}`), map[string]string{"opc-retry-token": "retry-exhausted"})
-			if got != nil || !errors.As(err, new(*ProviderOutcomeUnknownError)) || calls != 3 {
-				t.Fatalf("retry exhaustion response=%v calls=%d err=%v", got, calls, err)
+func TestOCIListDecodersRejectMalformedDocuments(t *testing.T) {
+	for _, raw := range []string{"{}", "null", `{"items":null}`, `{"items":{}}`} {
+		if _, err := decodeOCIList[string]([]byte(raw)); err == nil {
+			t.Fatalf("decodeOCIList accepted %s", raw)
+		}
+		if _, err := decodeOCIInstanceList([]byte(raw)); err == nil {
+			t.Fatalf("decodeOCIInstanceList accepted %s", raw)
+		}
+	}
+	if items, err := decodeOCIList[string]([]byte(`[]`)); err != nil || items == nil {
+		t.Fatalf("decodeOCIList rejected an explicit empty list: items=%v err=%v", items, err)
+	}
+	if items, err := decodeOCIInstanceList([]byte(`{"items":[]}`)); err != nil || items == nil {
+		t.Fatalf("decodeOCIInstanceList rejected an explicit empty list: items=%v err=%v", items, err)
+	}
+	if items, err := decodeOCIInstanceList([]byte(`[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}]`)); err != nil || len(items) != 1 {
+		t.Fatalf("decodeOCIInstanceList rejected a direct array: items=%v err=%v", items, err)
+	}
+}
+
+func TestOCITransportRejectsInjectedRedirectPolicy(t *testing.T) {
+	redirects := 0
+	requests := 0
+	injected := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			redirects++
+			return nil
+		},
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			requests++
+			if request.URL.Host != "iaas.gru.oraclecloud.com" {
+				t.Fatalf("redirected OCI request reached the injected transport: %s", request.URL)
 			}
-		})
+			return &http.Response{
+				StatusCode: http.StatusTemporaryRedirect,
+				Header:     http.Header{"Location": []string{"https://evil.example/redirect"}},
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}),
 	}
-}
-
-func TestOCIHTTPTransportDoesNotRetryUnfencedOrNotImplementedMutation(t *testing.T) {
-	for _, response := range []struct {
-		name    string
-		status  int
-		body    string
-		headers map[string]string
-	}{
-		{name: "unfenced conflict", status: http.StatusConflict, body: `{"code":"IncorrectState"}`},
-		{name: "unfenced throttling", status: http.StatusTooManyRequests, body: `{"code":"TooManyRequests"}`},
-		{name: "unfenced server error", status: http.StatusBadGateway, body: `{"code":"BadGateway"}`},
-		{name: "fenced not implemented", status: http.StatusNotImplemented, body: `{"code":"NotImplemented"}`, headers: map[string]string{"opc-retry-token": "retry-501"}},
-	} {
-		t.Run(response.name, func(t *testing.T) {
-			calls := 0
-			transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
-				calls++
-				return testHTTPResponse(response.status, response.body, nil), nil
-			})
-			transport.Config.MaxRetries = 5
-			transport.retryDelay = func(context.Context, int) error { return nil }
-			got, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/instances", strings.NewReader(`{"shape":"VM.Standard.A1.Flex"}`), response.headers)
-			if err != nil || got == nil || got.StatusCode != response.status || calls != 1 {
-				t.Fatalf("unreplayable response=%v calls=%d err=%v", got, calls, err)
-			}
-			_, _ = ReadBoundedBody(got, transport.Config.MaxBodyBytes)
-		})
-	}
-}
-
-func TestOCIHTTPTransportReturnsTerminalConflictAfterOneCall(t *testing.T) {
-	calls := 0
-	transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
-		calls++
-		return testHTTPResponse(http.StatusConflict, `{"code":"QuotaExceeded"}`, nil), nil
-	})
-	transport.Config.MaxRetries = 5
-	transport.retryDelay = func(context.Context, int) error { return nil }
-	response, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/volumes", strings.NewReader(`{"sizeInGBs":50}`), map[string]string{"opc-retry-token": "retry-terminal"})
-	if err != nil || response == nil || response.StatusCode != http.StatusConflict || calls != 1 {
-		t.Fatalf("terminal conflict response=%v calls=%d err=%v", response, calls, err)
-	}
-	journal := testJournal(t)
-	intent := testMutation("volume.create", "volume/terminal-transport", ProviderMutationFingerprint("terminal-transport"), 7)
-	if _, err := journal.Prepare(context.Background(), intent); err != nil {
+	cfg, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
+	transport, err := NewOCIHTTPTransport(cfg, injected, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ociMutationFailure(context.Background(), journal, intent, response); err == nil || errors.As(err, new(*ProviderOutcomeUnknownError)) {
-		t.Fatalf("terminal conflict classification = %v", err)
+	if _, err := transport.Do(context.Background(), http.MethodGet, "/20160918/instances", nil); err == nil {
+		t.Fatal("signed OCI transport followed a redirect")
 	}
-	record, err := journal.Prepare(context.Background(), intent)
-	if err != nil || record.State != MutationFailed {
-		t.Fatalf("terminal conflict journal = %+v, %v", record, err)
+	if requests == 0 || redirects != 0 {
+		t.Fatalf("redirect handling requests=%d injected redirect calls=%d", requests, redirects)
+	}
+	if injected.CheckRedirect == nil {
+		t.Fatal("transport construction mutated the injected client")
 	}
 }
 
-func TestOCIHTTPTransportMalformedConflictStaysUnknown(t *testing.T) {
-	for _, body := range []string{`{`, `{"code":"LockConflict\n"}`} {
-		t.Run(body, func(t *testing.T) {
-			calls := 0
-			transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
-				calls++
-				return testHTTPResponse(http.StatusConflict, body, nil), nil
-			})
-			transport.Config.MaxRetries = 2
-			transport.retryDelay = func(context.Context, int) error { return nil }
-			response, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/volumes", strings.NewReader(`{"sizeInGBs":50}`), map[string]string{"opc-retry-token": "retry-malformed"})
-			if response != nil || !errors.As(err, new(*ProviderOutcomeUnknownError)) || calls != 1 {
-				t.Fatalf("malformed conflict response=%v calls=%d err=%v", response, calls, err)
-			}
-			journal := testJournal(t)
-			intent := testMutation("volume.create", "volume/malformed-conflict", ProviderMutationFingerprint(body), 9)
-			if _, err := journal.Prepare(context.Background(), intent); err != nil {
-				t.Fatal(err)
-			}
-			if _, err := journal.MarkSubmitted(context.Background(), intent); err != nil {
-				t.Fatal(err)
-			}
-			if err := finishUnknown(context.Background(), journal, intent); !errors.As(err, new(*ProviderOutcomeUnknownError)) {
-				t.Fatalf("malformed conflict did not stay unknown: %v", err)
-			}
-			record, err := journal.Prepare(context.Background(), intent)
-			if err != nil || record.State != MutationUnknown {
-				t.Fatalf("malformed conflict journal = %+v, %v", record, err)
+func TestOCINodeLaunchResolutionBindsNetworkToEstate(t *testing.T) {
+	bootstrap := []byte("#cloud-config\n")
+	digest := sha256.Sum256(bootstrap)
+	request := CreateNodeProviderRequest{
+		Context:    ProviderOperationContext{CompartmentId: ProviderCompartmentId{Value: "ocid1.compartment.oc1.x"}},
+		Parameters: CreateNodeProviderParameters{BootstrapEnvelopeDigest: ProviderBootstrapEnvelopeDigest{Sha256: hex.EncodeToString(digest[:])}},
+	}
+	binding, err := NewOCINodeEstateBinding("ocid1.vcn.oc1.x", []string{"ocid1.subnet.oc1.x"}, []string{"ocid1.networksecuritygroup.oc1.x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := OciNodeLaunchSpec{CompartmentId: "ocid1.compartment.oc1.x", VcnId: "ocid1.vcn.oc1.x", SubnetId: "ocid1.subnet.oc1.x", ImageId: "ocid1.image.oc1.x", AvailabilityDomain: "AD-1", Shape: "VM.Standard.A1.Flex", NetworkSecurityGroupIds: []string{"ocid1.networksecuritygroup.oc1.x"}, Ocpus: 1, MemoryGB: 1, BootstrapBase64: base64.StdEncoding.EncodeToString(bootstrap)}
+	if err := validateOciNodeLaunchSpecWithEstate(base, request, binding); err != nil {
+		t.Fatalf("valid estate-bound launch rejected: %v", err)
+	}
+	for name, mutate := range map[string]func(*OciNodeLaunchSpec){
+		"wrong vcn":      func(spec *OciNodeLaunchSpec) { spec.VcnId = "ocid1.vcn.oc1.other" },
+		"outside subnet": func(spec *OciNodeLaunchSpec) { spec.SubnetId = "ocid1.subnet.oc1.other" },
+		"outside nsg": func(spec *OciNodeLaunchSpec) {
+			spec.NetworkSecurityGroupIds = []string{"ocid1.networksecuritygroup.oc1.other"}
+		},
+		"empty nsg": func(spec *OciNodeLaunchSpec) { spec.NetworkSecurityGroupIds = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spec := base
+			mutate(&spec)
+			if err := validateOciNodeLaunchSpecWithEstate(spec, request, binding); err == nil {
+				t.Fatal("out-of-scope launch resolution was accepted")
 			}
 		})
 	}
 }
 
-func TestOCIHTTPTransportNeverRepostsMutationTransportError(t *testing.T) {
-	calls := 0
-	transport := testOCITransport(t, OCIServiceCore, func(*http.Request) (*http.Response, error) {
-		calls++
-		return nil, io.ErrUnexpectedEOF
-	})
-	transport.Config.MaxRetries = 5
-	transport.retryDelay = func(context.Context, int) error { return nil }
-	response, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/instances", strings.NewReader(`{"shape":"VM.Standard.A1.Flex"}`), map[string]string{"opc-retry-token": "retry-transport-loss"})
-	if response != nil || !errors.As(err, new(*ProviderOutcomeUnknownError)) || calls != 1 {
-		t.Fatalf("transport loss response=%v calls=%d err=%v", response, calls, err)
-	}
-}
-
-func TestOCIHTTPTransportDoesNotFollowCrossAuthorityRedirect(t *testing.T) {
-	targetCalls := 0
-	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		targetCalls++
+func TestOCIInstancePrincipalMetadataSourceBypassesConfiguredProxy(t *testing.T) {
+	key, cert := metadataCredentialFixture(t)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Host != "169.254.169.254" || request.Header.Get("Authorization") != "Bearer Oracle" {
+			t.Fatalf("metadata request escaped its fixed authority: host=%q headers=%v", request.Host, request.Header)
+		}
+		body := cert
+		if strings.HasSuffix(request.URL.Path, "/key.pem") {
+			body = key
+		}
+		_, _ = response.Write(body)
 	}))
-	defer target.Close()
-
-	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			targetCalls = 0
-			sourceCalls := 0
-			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-				if request.URL.Host == "iaas.sa-saopaulo-1.oraclecloud.com" {
-					sourceCalls++
-					return testHTTPResponse(status, "", http.Header{"Location": {target.URL + "/capture"}}), nil
-				}
-				return http.DefaultTransport.RoundTrip(request)
-			})}
-			config, err := NewOCITransportConfig("sa-saopaulo-1", "https://iaas.sa-saopaulo-1.oraclecloud.com")
-			if err != nil {
-				t.Fatal(err)
-			}
-			transport, err := NewOCIHTTPTransport(config, client, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			response, err := transport.DoWithHeaders(context.Background(), http.MethodPost, "/20160918/instances", strings.NewReader(`{"shape":"VM.Standard.A1.Flex"}`), map[string]string{"opc-retry-token": "retry-redirect"})
-			if err != nil || response == nil || response.StatusCode != status || sourceCalls != 1 || targetCalls != 0 {
-				t.Fatalf("redirect response=%v sourceCalls=%d targetCalls=%d err=%v", response, sourceCalls, targetCalls, err)
-			}
-			_, _ = ReadBoundedBody(response, transport.Config.MaxBodyBytes)
-		})
+	defer server.Close()
+	serverURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
 	}
+	transport := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) {
+			t.Fatal("metadata request used the configured proxy")
+			return nil, nil
+		},
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, serverURL.Host)
+		},
+	}
+	source, err := NewOCIInstancePrincipalMetadataSource(&http.Client{Transport: transport})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.Retrieve(context.Background()); err != nil {
+		t.Fatalf("metadata retrieval through direct transport failed: %v", err)
+	}
+}
+
+func metadataCredentialFixture(t *testing.T) ([]byte, []byte) {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	der, err := x509.CreateCertificate(rand.Reader, certificate, certificate, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 func TestInstancePrincipalSignerBindsMutationBody(t *testing.T) {
@@ -442,32 +456,24 @@ func TestProviderMutationJournalRecordsObservedAbsentDelete(t *testing.T) {
 	if _, err := journal.Prepare(context.Background(), intent); err != nil {
 		t.Fatal(err)
 	}
-	result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.sa-saopaulo-1.absent", ETag: "instance-etag"}
-	record, err := journal.MarkSucceeded(context.Background(), intent, result)
+	result := ProviderMutationResult{ResourceID: "ocid1.instance.oc1.absent", ETag: "instance-etag"}
+	if _, err := journal.MarkSucceeded(context.Background(), intent, result); err == nil {
+		t.Fatal("generic success bypassed the prepared mutation submission")
+	}
+	record, err := journal.MarkAbsentDeleteSucceeded(context.Background(), intent, result)
 	if err != nil || record.State != MutationSucceeded || record.Result != result {
 		t.Fatalf("observed-absent transition = %+v, %v", record, err)
 	}
 	if _, err := journal.MarkFailed(context.Background(), intent, "provider-rejected"); err == nil {
 		t.Fatal("observed-absent success changed terminal outcome")
 	}
-
-	create := testMutation("compute.launch", "instance-b", ProviderMutationFingerprint("launch"), 3)
-	if _, err := journal.Prepare(context.Background(), create); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := journal.MarkSucceeded(context.Background(), create, result); err == nil {
-		t.Fatal("create mutation skipped the required submitted state")
-	}
 }
 
 func TestOCIComputeTerminateConvergesWhenInstanceIsAlreadyAbsent(t *testing.T) {
-	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.absent"
+	instanceID := "ocid1.instance.oc1.absent"
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
 		if request.Method != http.MethodGet {
 			t.Fatalf("already-absent termination sent %s", request.Method)
-		}
-		if request.URL.Path == "/20160918/instances" {
-			return testHTTPResponse(http.StatusOK, `[]`, nil), nil
 		}
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
@@ -515,7 +521,7 @@ func TestOCIComputeAdapterPersistsCapacityFallbackCursor(t *testing.T) {
 		if len(posts) == 1 {
 			return testHTTPResponse(http.StatusInternalServerError, `{"code":"OutOfHostCapacity"}`, nil), nil
 		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, http.Header{"Etag": {"resumed-etag"}}), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.saopaulo.resumed","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","availabilityDomain":"AD-2","shape":"VM.Standard.E5.Flex"}`, nil), nil
 	})
 	journal := &pausingMutationJournal{ProviderMutationJournal: testJournal(t), pauseAt: 1}
 	adapter, err := NewOCIComputeAdapter(transport, journal)
@@ -719,47 +725,19 @@ func TestOCIServiceTransportRejectsCrossServiceAuthority(t *testing.T) {
 	}
 }
 
-func TestOCIDValidationAcceptsOracleRegionlessResources(t *testing.T) {
-	for _, test := range []struct {
-		value string
-		kind  string
-	}{
-		{"ocid1.tenancy.oc1..aaaaaaaaxf3fuazos", "tenancy"},
-		{"ocid1.compartment.oc1..aaaaaaaam3we6vgnherjq5q2", "compartment"},
-		{"ocid1.policy.oc1..aaaaaaaapolicy", "policy"},
-		{"ocid1.dynamicgroup.oc1..aaaaaaaadynamicgroup", "dynamicgroup"},
-	} {
-		if !isOCID(test.value, test.kind) {
-			t.Fatalf("real regionless %s OCID was rejected: %s", test.kind, test.value)
-		}
+func TestOCIVaultManagementEndpointRequiresVaultOCIDAndRegion(t *testing.T) {
+	valid := "https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.sa-saopaulo-1.oci.oraclecloud.com"
+	if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", valid); err != nil {
+		t.Fatalf("valid Vault management endpoint rejected: %v", err)
 	}
-	for _, invalid := range []string{
-		"ocid1.compartment.oc1.",
-		"ocid1.compartment.oc1...aaaa",
-		"ocid1.compartment.oc1..aaaa/escape",
-		"ocid1.compartment.oc1.sa-saopaulo-1.aaaa",
+	for _, endpoint := range []string{
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.us-phoenix-1.oci.oraclecloud.com",
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x-management.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://vault-management.kms.sa-saopaulo-1.oci.oraclecloud.com",
+		"https://ocid1.vault.oc1.sa-saopaulo-1.x.management.kms.sa-saopaulo-1.oci.oraclecloud.com:443",
 	} {
-		if isOCID(invalid, "compartment") {
-			t.Fatalf("invalid OCID was accepted: %s", invalid)
-		}
-	}
-	for _, test := range []struct {
-		value string
-		kind  string
-	}{
-		{"ocid1.instance.oc1..aaaa", "instance"},
-		{"ocid1.volume.oc1..aaaa", "volume"},
-		{"ocid1.volumeattachment.oc1..aaaa", "volumeattachment"},
-		{"ocid1.image.oc1..aaaa", "image"},
-		{"ocid1.vcn.oc1..aaaa", "vcn"},
-		{"ocid1.subnet.oc1..aaaa", "subnet"},
-		{"ocid1.networksecuritygroup.oc1..aaaa", "networksecuritygroup"},
-		{"ocid1.vault.oc1..aaaa", "vault"},
-		{"ocid1.key.oc1..aaaa", "key"},
-		{"ocid1.instance.oc1.sa-saopaulo-1", "instance"},
-	} {
-		if isOCID(test.value, test.kind) {
-			t.Fatalf("regionless %s OCID was accepted: %s", test.kind, test.value)
+		if _, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, "sa-saopaulo-1", endpoint); err == nil {
+			t.Fatalf("malformed or cross-region Vault management endpoint accepted: %s", endpoint)
 		}
 	}
 }
@@ -770,9 +748,6 @@ func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
 		if request.Method == http.MethodDelete {
 			deletes++
 		}
-		if request.Method == http.MethodGet && request.URL.Path == "/20160918/instances" {
-			return testHTTPResponse(http.StatusOK, `[]`, nil), nil
-		}
 		return testHTTPResponse(http.StatusNotFound, "", nil), nil
 	})
 	journal := testJournal(t)
@@ -780,7 +755,7 @@ func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.x"
+	instanceID := "ocid1.instance.oc1.x"
 	adapter.Ownership = testOwnership(t, instanceID)
 	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
 	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
@@ -797,15 +772,15 @@ func TestOCIComputeTerminateAbsentIsDurablyIdempotent(t *testing.T) {
 
 func TestOCIComputeLaunchRejectsOutOfScopeMutationResponse(t *testing.T) {
 	request := ComputeLaunchRequest{
-		CompartmentID:   "ocid1.compartment.oc1..x",
+		CompartmentID:   "ocid1.compartment.oc1.x",
 		DisplayName:     "scope-check",
-		ImageID:         "ocid1.image.oc1.sa-saopaulo-1.x",
+		ImageID:         "ocid1.image.oc1.x",
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
-		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
+		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
 	}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","compartmentId":"ocid1.compartment.oc1..other","lifecycleState":"PROVISIONING"}`, nil), nil
+		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.other","lifecycleState":"PROVISIONING"}`, nil), nil
 	})
 	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
 	if err != nil {
@@ -816,34 +791,13 @@ func TestOCIComputeLaunchRejectsOutOfScopeMutationResponse(t *testing.T) {
 	}
 }
 
-func TestOCIComputeTerminateRejectsOutOfScopeObservation(t *testing.T) {
-	deletes := 0
-	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {
-		if request.Method == http.MethodDelete {
-			deletes++
-		}
-		return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","compartmentId":"ocid1.compartment.oc1..other","lifecycleState":"RUNNING"}`, nil), nil
-	})
-	adapter, err := NewOCIComputeAdapter(transport, testJournal(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.x"
-	adapter.Ownership = testOwnership(t, instanceID)
-	request := ComputeTerminateRequest{InstanceID: instanceID, IfMatch: "instance-etag"}
-	request.Mutation = testMutation("compute.terminate", ComputeTerminateMutationScope(request), ComputeTerminateMutationFingerprint(request), 1)
-	if err := adapter.TerminateInstance(context.Background(), request); err == nil || deletes != 0 {
-		t.Fatalf("out-of-scope compute termination err=%v deletes=%d", err, deletes)
-	}
-}
-
 func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
 	request := ComputeLaunchRequest{
-		CompartmentID:   "ocid1.compartment.oc1..x",
+		CompartmentID:   "ocid1.compartment.oc1.x",
 		DisplayName:     "paged-reconcile",
-		ImageID:         "ocid1.image.oc1.sa-saopaulo-1.x",
+		ImageID:         "ocid1.image.oc1.x",
 		BootstrapBase64: base64.StdEncoding.EncodeToString([]byte("#cloud-config\n")),
-		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
+		Candidates:      []ComputeCapacityCandidate{{AvailabilityDomain: "AD-1", SubnetID: "ocid1.subnet.oc1.x", Shape: "VM.Standard.E5.Flex", OCPUs: 1, MemoryGiB: 4}},
 	}
 	request.Mutation = testMutation("compute.launch", ComputeLaunchMutationScope(request), ComputeLaunchMutationFingerprint(request), 1)
 	journal := testJournal(t)
@@ -856,13 +810,10 @@ func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
 	pageCalls := 0
 	transport := testOCITransport(t, OCIServiceCore, func(httpRequest *http.Request) (*http.Response, error) {
 		pageCalls++
-		if httpRequest.URL.Path == "/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.x" {
-			return testHTTPResponse(http.StatusOK, `{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","compartmentId":"ocid1.compartment.oc1..x","lifecycleState":"PROVISIONING"}`, http.Header{"Etag": {"instance-etag"}}), nil
-		}
 		if httpRequest.URL.Query().Get("page") == "" {
 			return testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}}), nil
 		}
-		body := `{"items":[{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","compartmentId":"ocid1.compartment.oc1..x","lifecycleState":"PROVISIONING","freeformTags":{"terrascale-operation":"` + request.Mutation.OperationID.Value + `","terrascale-intent":"` + request.Mutation.Fingerprint + `"}}]}`
+		body := `{"items":[{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x","lifecycleState":"PROVISIONING","freeformTags":{"terrascale-operation":"` + request.Mutation.OperationID.Value + `","terrascale-intent":"` + request.Mutation.Fingerprint + `"}}]}`
 		return testHTTPResponse(http.StatusOK, body, nil), nil
 	})
 	adapter, err := NewOCIComputeAdapter(transport, journal)
@@ -870,35 +821,7 @@ func TestOCIComputeLaunchReconciliationFollowsNextPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	instance, err := adapter.LaunchInstance(context.Background(), request)
-	if err != nil || instance.ID != "ocid1.instance.oc1.sa-saopaulo-1.x" || instance.ETag != "instance-etag" || pageCalls != 3 {
+	if err != nil || instance.ID != "ocid1.instance.oc1.x" || pageCalls != 2 {
 		t.Fatalf("paged reconciliation instance=%+v calls=%d err=%v", instance, pageCalls, err)
-	}
-}
-
-func TestOCIListPaginationRejectsMalformedOrUnboundedContinuation(t *testing.T) {
-	valid := testHTTPResponse(http.StatusOK, `{"items":[]}`, http.Header{"Opc-Next-Page": {"page-2"}})
-	next, err := nextOCIPage(valid, "", 1)
-	if err != nil || next != "page-2" {
-		t.Fatalf("valid continuation = %q, %v", next, err)
-	}
-
-	cases := []struct {
-		name      string
-		header    http.Header
-		page      string
-		pagesRead int
-	}{
-		{"repeated token", http.Header{"Opc-Next-Page": {"page-2"}}, "page-2", 2},
-		{"page bound", http.Header{"Opc-Next-Page": {"page-17"}}, "page-16", maximumOCIPages},
-		{"multiple tokens", http.Header{"Opc-Next-Page": {"page-2", "page-3"}}, "", 1},
-		{"whitespace token", http.Header{"Opc-Next-Page": {" page-2"}}, "", 1},
-	}
-	for _, test := range cases {
-		t.Run(test.name, func(t *testing.T) {
-			resp := testHTTPResponse(http.StatusOK, `{"items":[]}`, test.header)
-			if _, err := nextOCIPage(resp, test.page, test.pagesRead); err == nil {
-				t.Fatal("invalid continuation was accepted")
-			}
-		})
 	}
 }

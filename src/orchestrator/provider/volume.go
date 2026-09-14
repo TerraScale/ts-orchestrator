@@ -295,7 +295,7 @@ func validOCIServiceHost(service OCIService, region, host string) bool {
 	// so a caller cannot redirect this authority to another arbitrary host.
 	suffix := ".management.kms." + region + ".oci.oraclecloud.com"
 	prefix := strings.TrimSuffix(host, suffix)
-	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 || prefix[0] == '-' || prefix[len(prefix)-1] == '-' {
+	if prefix == "" || !strings.HasSuffix(host, suffix) || !isOCID(prefix, "vault") {
 		return false
 	}
 	return true
@@ -358,13 +358,18 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 	if client == nil {
 		client = &http.Client{Timeout: config.Timeout}
 	}
-	clientClone := *client
-	clientClone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	client = &clientClone
+	// Never inherit an injected redirect policy for signed OCI requests. A
+	// redirect can move credentials to another authority, and the request is
+	// already signed for the configured endpoint. Clone the client so callers
+	// retain ownership of their own policy and transport.
+	clientCopy := *client
+	clientCopy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return errors.New("OCI redirects are forbidden")
+	}
 	// Keep the endpoint immutable from callers that reuse their config value.
 	endpoint := *config.Endpoint
 	config.Endpoint = &endpoint
-	return &OCIHTTPTransport{Config: config, Client: client, Signer: signer, retryDelay: boundedOCIRetryDelay}, nil
+	return &OCIHTTPTransport{config, &clientCopy, signer}, nil
 }
 
 // NewOCIInstancePrincipalTransport composes a transport with an already
@@ -378,6 +383,26 @@ func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Cl
 	return NewOCIHTTPTransport(config, client, signer)
 }
 
+// NewOCIInstancePrincipalTransportFromSource obtains short-lived credentials
+// from an injected source before constructing the signed transport. The
+// source is deliberately an interface so tests never contact metadata.
+func NewOCIInstancePrincipalTransportFromSource(config OCITransportConfig, client *http.Client, ctx context.Context, source InstancePrincipalCredentialSource) (*OCIHTTPTransport, error) {
+	if source == nil {
+		return nil, &InvalidOperationError{Message: "instance-principal credential source is unavailable"}
+	}
+	if ctx == nil {
+		return nil, &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	credentials, err := source.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := NewInstancePrincipalSigner(credentials.KeyID, credentials.Key)
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIHTTPTransport(config, client, signer)
+}
 func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
 	return t.DoWithHeaders(ctx, method, path, body, nil)
 }

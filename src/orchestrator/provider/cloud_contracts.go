@@ -78,6 +78,7 @@ type ProviderMutationJournal interface {
 	MarkAttemptRejected(context.Context, ProviderMutationIntent, int) (ProviderMutationRecord, error)
 	MarkUnknown(context.Context, ProviderMutationIntent, ProviderMutationResult) (ProviderMutationRecord, error)
 	MarkSucceeded(context.Context, ProviderMutationIntent, ProviderMutationResult) (ProviderMutationRecord, error)
+	MarkAbsentDeleteSucceeded(context.Context, ProviderMutationIntent, ProviderMutationResult) (ProviderMutationRecord, error)
 	MarkFailed(context.Context, ProviderMutationIntent, string) (ProviderMutationRecord, error)
 	MarkProviderFailed(context.Context, ProviderMutationIntent, ProviderMutationResult, string) (ProviderMutationRecord, error)
 }
@@ -238,7 +239,11 @@ func isCASConflict(err error) bool {
 	return errors.As(err, &value) || errors.As(err, &pointer)
 }
 
-func (j *CASProviderMutationJournal) transition(ctx context.Context, intent ProviderMutationIntent, state ProviderMutationState, result ProviderMutationResult, failure string, providerFailure bool) (ProviderMutationRecord, error) {
+func (j *CASProviderMutationJournal) transition(ctx context.Context, intent ProviderMutationIntent, state ProviderMutationState, result ProviderMutationResult, failure string) (ProviderMutationRecord, error) {
+	return j.transitionWithAbsentDelete(ctx, intent, state, result, failure, false)
+}
+
+func (j *CASProviderMutationJournal) transitionWithAbsentDelete(ctx context.Context, intent ProviderMutationIntent, state ProviderMutationState, result ProviderMutationResult, failure string, allowAbsentDelete bool) (ProviderMutationRecord, error) {
 	if j == nil || j.store == nil {
 		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation journal is unavailable"}
 	}
@@ -277,9 +282,7 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 			}
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation terminal outcome cannot change"}
 		}
-		providerProvedUnknownFailure := prior.State == MutationUnknown && state == MutationFailed && providerFailure &&
-			prior.Result == result && validWorkRequestID(result.WorkRequestID)
-		if !validMutationTransition(intent.Action, prior.State, state) && !providerProvedUnknownFailure {
+		if !validMutationTransition(prior.State, state) && !(allowAbsentDelete && prior.State == MutationPrepared && state == MutationSucceeded) {
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation state transition is invalid"}
 		}
 		if prior.State == MutationUnknown && state == MutationUnknown {
@@ -392,6 +395,22 @@ func (j *CASProviderMutationJournal) MarkUnknown(ctx context.Context, intent Pro
 
 func (j *CASProviderMutationJournal) MarkSucceeded(ctx context.Context, intent ProviderMutationIntent, result ProviderMutationResult) (ProviderMutationRecord, error) {
 	return j.transition(ctx, intent, MutationSucceeded, result, "", false)
+}
+
+func (j *CASProviderMutationJournal) MarkAbsentDeleteSucceeded(ctx context.Context, intent ProviderMutationIntent, result ProviderMutationResult) (ProviderMutationRecord, error) {
+	if !isAbsentDeleteAction(intent.Action) {
+		return ProviderMutationRecord{}, &InvalidOperationError{Message: "only an absent delete may skip provider submission"}
+	}
+	return j.transitionWithAbsentDelete(ctx, intent, MutationSucceeded, result, "", true)
+}
+
+func isAbsentDeleteAction(action string) bool {
+	switch action {
+	case "compute.terminate", "volume.delete", "attachment.delete", "object.delete":
+		return true
+	default:
+		return false
+	}
 }
 
 func (j *CASProviderMutationJournal) MarkFailed(ctx context.Context, intent ProviderMutationIntent, code string) (ProviderMutationRecord, error) {
