@@ -384,7 +384,7 @@ func (a *OCIBlockStorageAdapter) DeleteVolume(ctx context.Context, request Volum
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI block storage adapter is unavailable"}
 	}
-	if !isOCID(request.VolumeID, "volume") || !validCanonicalETag(request.IfMatch) {
+	if !isOCID(request.VolumeID, "volume") || !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "volume delete fence is invalid"}
 	}
 	compartment, err := ownedResourceCompartment(ctx, a.Ownership, request.VolumeID, "")
@@ -828,7 +828,7 @@ func (a *OCIVolumeAttachmentAdapter) DetachVolume(ctx context.Context, request V
 	if a == nil || validateOCIAdapter(a.Core, OCIServiceCore, a.Journal) != nil {
 		return &InvalidOperationError{Message: "OCI volume attachment adapter is unavailable"}
 	}
-	if !isOCID(request.AttachmentID, "volumeattachment") || !validCanonicalETag(request.IfMatch) {
+	if !isOCID(request.AttachmentID, "volumeattachment") || !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "volume detach fence is invalid"}
 	}
 	compartment, err := ownedResourceCompartment(ctx, a.Ownership, request.AttachmentID, "")

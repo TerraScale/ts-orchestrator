@@ -255,12 +255,8 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation failure code is invalid"}
 	}
 	if len(result.ResourceID) > 2048 || len(result.WorkRequestID) > 256 || len(result.ETag) > 512 ||
-		strings.ContainsAny(result.ResourceID+result.WorkRequestID+result.ETag, "\r\n") ||
-		(result.WorkRequestID != "" && !validWorkRequestID(result.WorkRequestID)) {
+		strings.ContainsAny(result.ResourceID+result.WorkRequestID+result.ETag, "\r\n") {
 		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation result is invalid"}
-	}
-	if providerFailure && !validWorkRequestID(result.WorkRequestID) {
-		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider-proven mutation failure has no valid work-request identity"}
 	}
 	key := mutationJournalKey(intent.Scope)
 	for attempt := 0; attempt < 8; attempt++ {

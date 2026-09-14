@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -154,9 +153,7 @@ func validateOCIEstateSpec(spec OCIEstateSpec) error {
 		!validObjectPart(spec.ObjectNamespace, 128, false) || !validObjectPart(spec.LedgerBucket, 256, false) ||
 		!validObjectPart(spec.BackupBucket, 256, false) || spec.LedgerBucket == spec.BackupBucket ||
 		len(spec.SubnetIDs) < 1 || len(spec.SubnetIDs) > 16 || len(spec.NetworkSecurityGroupIDs) < 1 || len(spec.NetworkSecurityGroupIDs) > 16 ||
-		len(spec.IAMPolicies) == 0 || len(spec.IAMPolicies) > 16 || spec.KeyRotationIntervalDays < 60 || spec.KeyRotationIntervalDays > 365 ||
-		validateRetentionRuleSpecs(spec.LedgerRetentionRules) != nil || validateRetentionRuleSpecs(spec.BackupRetentionRules) != nil ||
-		validateLifecycleRuleSpecs(spec.LedgerLifecycleRules) != nil || validateLifecycleRuleSpecs(spec.BackupLifecycleRules) != nil {
+		len(spec.IAMPolicies) == 0 || len(spec.IAMPolicies) > 16 {
 		return &errs.Argument{Message: "OCI estate specification is incomplete"}
 	}
 	keyEndpoint, err := NewOCIServiceTransportConfig(OCIServiceVaultManagement, spec.Region, spec.KeyManagementEndpoint)
@@ -259,9 +256,9 @@ func (r *OCIEstateHTTPReader) Read(ctx context.Context, service OCIService, path
 	return body, status, err
 }
 
-func (r *OCIEstateHTTPReader) ReadPage(ctx context.Context, service OCIService, path, page string) ([]byte, int, string, error) {
-	if r == nil {
-		return nil, 0, "", &InvalidOperationError{Message: "OCI estate reader is unavailable"}
+func NewOCIEstateHTTPReader(spec OCIEstateSpec, keyID, keyPath string) (*OCIEstateHTTPReader, error) {
+	if validateOCIEstateSpec(spec) != nil || keyID == "" || !filepath.IsAbs(keyPath) {
+		return nil, &errs.Argument{Message: "OCI estate verification credentials are invalid"}
 	}
 	transport := r.Transports[service]
 	if transport == nil {

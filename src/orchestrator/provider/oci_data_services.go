@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
@@ -88,8 +87,9 @@ func validObjectStoragePart(value string, maximum int, allowSlash bool) bool {
 }
 
 func validateObjectRef(object ObjectRef) error {
-	if !validObjectStoragePart(object.Namespace, 128, false) || !validObjectStoragePart(object.Bucket, 256, false) ||
-		!validObjectStoragePart(object.Name, 1024, true) {
+	if len(object.Namespace) < 1 || len(object.Namespace) > 128 || len(object.Bucket) < 1 || len(object.Bucket) > 256 ||
+		len(object.Name) < 1 || len(object.Name) > 1024 || strings.ContainsAny(object.Namespace+object.Bucket+object.Name, "\r\n") ||
+		strings.Contains(object.Namespace, "/") || strings.Contains(object.Bucket, "/") {
 		return &errs.Argument{Message: "object storage identity is invalid"}
 	}
 	return nil
@@ -189,14 +189,7 @@ func (a *OCIObjectStorageAdapter) reconcileObjectPut(ctx context.Context, reques
 	if err := markSucceeded(ctx, a.journal, request.Mutation, result); err != nil {
 		return ObjectMetadata{}, err
 	}
-	return metadata, nil
-}
-
-func (a *OCIObjectStorageAdapter) PutObject(ctx context.Context, request ObjectPutRequest) (ObjectMetadata, error) {
-	if err := a.requireObjectAuthority(ctx, request.Object); err != nil {
-		return ObjectMetadata{}, err
-	}
-	if int64(len(request.Content)) > a.objectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
+	if len(request.Content) == 0 || int64(len(request.Content)) > a.ObjectStorage.Config.MaxBodyBytes || !validSHA256Hex(request.SHA256) || objectSHA256(request.Content) != request.SHA256 {
 		return ObjectMetadata{}, &errs.Argument{Message: "object storage content binding is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.put", ObjectPutMutationScope(request), objectPutBinding(request)); err != nil {
@@ -582,7 +575,7 @@ func (a *OCIObjectStorageAdapter) DeleteObject(ctx context.Context, request Obje
 	if err := a.requireObjectAuthority(ctx, request.Object); err != nil {
 		return err
 	}
-	if !validCanonicalETag(request.IfMatch) {
+	if !isSafeETag(request.IfMatch) {
 		return &errs.Argument{Message: "object delete ETag fence is invalid"}
 	}
 	if err := expectJSONMutation(request.Mutation, "object.delete", ObjectDeleteMutationScope(request), objectDeleteBinding(request)); err != nil {
@@ -686,10 +679,8 @@ func (s *OCIRegistryTokenSigner) String() string   { return "OCIRegistryTokenSig
 func (s *OCIRegistryTokenSigner) GoString() string { return "OCIRegistryTokenSigner{<redacted>}" }
 
 func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
-	namespace, principal, found := strings.Cut(username, "/")
-	if !found || !validRegistryNamespace(namespace) || !validRegistryPrincipal(principal) || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
-		strings.TrimSpace(username) != username || strings.TrimSpace(token) != token || strings.Contains(username, ":") ||
-		containsASCIIControl(username) || containsASCIIControl(token) {
+	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
+		strings.TrimSpace(username) != username || strings.ContainsAny(username+token, "\r\n") {
 		return nil, &errs.Argument{Message: "OCI registry credential is invalid"}
 	}
 	return &OCIRegistryTokenSigner{namespace: namespace, username: username, token: token}, nil
@@ -744,95 +735,13 @@ func NewOCIRegistryAdapter(transport *OCIHTTPTransport, scope OCIRegistryScope) 
 	return &OCIRegistryAdapter{registry: &registry, namespace: scope.Namespace, repositories: repositories}, nil
 }
 
-func containsASCIIControl(value string) bool {
-	for _, character := range value {
-		if character < 0x20 || character == 0x7f {
-			return true
-		}
-	}
-	return false
-}
-
-func validRegistryNamespace(namespace string) bool {
-	if len(namespace) < 1 || len(namespace) > 63 {
-		return false
-	}
-	for _, character := range namespace {
-		if (character < 'a' || character > 'z') && (character < '0' || character > '9') {
-			return false
-		}
-	}
-	return true
-}
-
-func validRegistryPrincipal(principal string) bool {
-	if len(principal) < 1 || strings.HasPrefix(principal, "/") || strings.HasSuffix(principal, "/") || strings.Contains(principal, "//") {
-		return false
-	}
-	for _, character := range principal {
-		if character < 0x21 || character == 0x7f {
-			return false
-		}
-	}
-	return true
-}
-
-func validRegistryRepositoryComponent(component string) bool {
-	if len(component) < 1 || len(component) > 128 {
-		return false
-	}
-	alphaNumeric := func(value byte) bool {
-		return (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')
-	}
-	index := 0
-	for index < len(component) && alphaNumeric(component[index]) {
-		index++
-	}
-	if index == 0 {
-		return false
-	}
-	for index < len(component) {
-		switch component[index] {
-		case '.':
-			index++
-		case '_':
-			index++
-			if index < len(component) && component[index] == '_' {
-				index++
-			}
-		case '-':
-			for index < len(component) && component[index] == '-' {
-				index++
-			}
-		default:
-			return false
-		}
-		start := index
-		for index < len(component) && alphaNumeric(component[index]) {
-			index++
-		}
-		if start == index {
-			return false
-		}
-	}
-	return true
-}
-
-func canonicalRegistryRepository(repository string, includeNamespace bool) (string, error) {
-	if len(repository) < 1 || len(repository) > 255 || strings.TrimSpace(repository) != repository || containsASCIIControl(repository) ||
-		strings.Contains(repository, "\\") {
+func registryRepositoryPath(repository string) (string, error) {
+	if len(repository) < 1 || len(repository) > 512 || strings.ContainsAny(repository, "\r\n\\") {
 		return "", &errs.Argument{Message: "registry repository is invalid"}
 	}
 	parts := strings.Split(repository, "/")
-	minimum := 1
-	if includeNamespace {
-		minimum = 2
-	}
-	if len(parts) < minimum || len(parts) > 8 {
-		return "", &errs.Argument{Message: "registry repository is invalid"}
-	}
-	for _, part := range parts {
-		if !validRegistryRepositoryComponent(part) {
+	for index, part := range parts {
+		if len(part) < 1 || len(part) > 128 || strings.Contains(part, "..") {
 			return "", &errs.Argument{Message: "registry repository is invalid"}
 		}
 	}
@@ -1023,7 +932,11 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 	if a == nil || a.registry == nil {
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := a.registryRepositoryPath(request.Repository)
+	repository, err := registryRepositoryPath(request.Repository)
+	if err != nil || !validRegistryReference(request.Reference) {
+		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
+	}
+	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{"Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json"})
 	if err != nil {
 		return RegistryManifest{}, err
 	}
@@ -1070,7 +983,11 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	if a == nil || a.registry == nil {
 		return nil, 0, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := a.registryRepositoryPath(request.Repository)
+	repository, err := registryRepositoryPath(request.Repository)
+	if err != nil || !strings.HasPrefix(request.Digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(request.Digest, "sha256:")) {
+		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
+	}
+	resp, err := a.Registry.Do(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil)
 	if err != nil {
 		return nil, 0, err
 	}

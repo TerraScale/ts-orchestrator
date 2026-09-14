@@ -95,7 +95,7 @@ func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (
 }
 
 func (a *OCIWorkRequestAdapter) WaitWorkRequest(ctx context.Context, id string, policy WorkRequestWaitPolicy) (WorkRequest, error) {
-	if a == nil || a.Wait == nil || !validWorkRequestID(id) || policy.PollInterval < 0 || policy.PollInterval > time.Minute || policy.MaxPolls < 1 || policy.MaxPolls > 10000 || policy.MaxNotFound < 0 || policy.MaxNotFound > policy.MaxPolls {
+	if a == nil || a.Wait == nil || policy.PollInterval < 0 || policy.PollInterval > time.Minute || policy.MaxPolls < 1 || policy.MaxPolls > 10000 || policy.MaxNotFound < 0 || policy.MaxNotFound > policy.MaxPolls {
 		return WorkRequest{}, &errs.Argument{Message: "OCI work request wait policy is invalid"}
 	}
 	notFound := 0
