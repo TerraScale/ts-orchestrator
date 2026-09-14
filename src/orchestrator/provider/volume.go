@@ -1,0 +1,494 @@
+package provider
+
+import (
+	"bytes"
+	"context"
+	"crypto/rsa"
+	"encoding/json"
+	"errors"
+	"io"
+	"math"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+	"time"
+)
+
+const BytesPerGiB uint64 = 1 << 30
+
+type VolumeObservation struct {
+	VolumeId      ProviderResourceId
+	CompartmentId ProviderCompartmentId
+	Size          ProviderByteCount
+	ETag          string
+}
+type VolumeReadRequest struct {
+	VolumeId      ProviderResourceId
+	CompartmentId ProviderCompartmentId
+}
+type VolumeUpdateRequest struct {
+	VolumeId      ProviderResourceId
+	CompartmentId ProviderCompartmentId
+	NewSize       ProviderByteCount
+	IfMatch       string
+}
+type VolumeTransport interface {
+	GetVolume(context.Context, VolumeReadRequest) (*VolumeObservation, error)
+	UpdateVolume(context.Context, VolumeUpdateRequest) (*VolumeObservation, error)
+}
+
+// HTTPVolumeTransport is the deliberately small OCI Block Volume SDK seam.
+// It sends only validated OCIDs and a bounded If-Match fence.
+type HTTPVolumeTransport struct{ OCI *OCIHTTPTransport }
+
+func (t HTTPVolumeTransport) GetVolume(ctx context.Context, r VolumeReadRequest) (*VolumeObservation, error) {
+	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") {
+		return nil, &ArgumentError{Message: "volume read identity is invalid"}
+	}
+	resp, err := t.OCI.Do(ctx, http.MethodGet, "/20160918/volumes/"+url.PathEscape(r.VolumeId.Value), nil)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeVolumeResponse(resp)
+}
+func (t HTTPVolumeTransport) UpdateVolume(ctx context.Context, r VolumeUpdateRequest) (*VolumeObservation, error) {
+	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") || !isSafeETag(r.IfMatch) || r.NewSize.Value == 0 || r.NewSize.Value%BytesPerGiB != 0 {
+		return nil, &ArgumentError{Message: "volume update request is invalid"}
+	}
+	payload := struct {
+		SizeInGBs uint64 `json:"sizeInGBs"`
+	}{r.NewSize.Value / BytesPerGiB}
+	resp, err := t.OCI.DoWithHeaders(ctx, http.MethodPut, "/20160918/volumes/"+url.PathEscape(r.VolumeId.Value), bytes.NewReader(mustJSON(payload)), map[string]string{"If-Match": r.IfMatch})
+	if err != nil {
+		return nil, err
+	}
+	return DecodeVolumeResponse(resp)
+}
+func mustJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+
+// Compatibility names for callers ported from the C# contracts.
+type OciBlockVolumeExpansionAdapter = BlockVolumeExpansionAdapter
+type OciBlockVolumeObservation = VolumeObservation
+type OciBlockVolumeReadRequest = VolumeReadRequest
+type OciBlockVolumeUpdateRequest = VolumeUpdateRequest
+type OciBlockVolumeExpansionResult = VolumeExpansionResult
+type OciBlockVolumeExpansionOutcome = VolumeExpansionOutcome
+
+const OciBlockVolumeConverged = VolumeConverged
+const OciBlockVolumeOutcomeUnknown = VolumeOutcomeUnknown
+
+type VolumeExpansionOutcome int
+
+const (
+	VolumeConverged VolumeExpansionOutcome = iota + 1
+	VolumeOutcomeUnknown
+)
+
+type VolumeExpansionResult struct {
+	Outcome        VolumeExpansionOutcome
+	IdempotencyKey ProviderIdempotencyKey
+	ObservedSize   ProviderByteCount
+	ObservedETag   string
+	CleanupNone    bool
+}
+type BlockVolumeExpansionAdapter struct {
+	CellId        ProviderCellId
+	CompartmentId ProviderCompartmentId
+	Transport     VolumeTransport
+}
+
+func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent ProviderIntent) (VolumeExpansionResult, error) {
+	if ctx == nil {
+		return VolumeExpansionResult{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return VolumeExpansionResult{}, err
+	}
+	x, ok := intent.(ExpandVolumeProviderIntent)
+	if !ok {
+		return VolumeExpansionResult{}, &InvalidOperationError{Message: "only an ExpandVolumeProviderIntent is accepted"}
+	}
+	c := x.Context
+	if c.ResourceKind != ResourceVolume || c.Action != ActionExpandVolume || c.DesiredTerminalState != TerminalExpanded || c.ExpectedObservedState != ObservedPresent || len(c.PermittedCompensations) != 0 || c.CellId != s.CellId || c.CompartmentId != s.CompartmentId {
+		return VolumeExpansionResult{}, &InvalidOperationError{Message: "volume expansion intent is not exact"}
+	}
+	t, ok := c.Target.(ExistingProviderResource)
+	if !ok || !isOCID(t.Id.Value, "volume") || !isOCID(c.CompartmentId.Value, "compartment") || s.Transport == nil {
+		return VolumeExpansionResult{}, &InvalidOperationError{Message: "volume expansion target or scope is invalid"}
+	}
+	req := VolumeReadRequest{t.Id, c.CompartmentId}
+	obs, err := s.Transport.GetVolume(ctx, req)
+	if err != nil {
+		return VolumeExpansionResult{}, err
+	}
+	if obs == nil {
+		return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, CleanupNone: true}, nil
+	}
+	if obs.VolumeId != t.Id || obs.CompartmentId != c.CompartmentId || obs.Size.Value == 0 || obs.ETag == "" {
+		return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, ObservedSize: obs.Size, ObservedETag: obs.ETag, CleanupNone: true}, nil
+	}
+	target := x.Parameters.NewSize
+	if obs.Size.Value == target.Value {
+		return converged(c.IdempotencyKey, *obs), nil
+	}
+	if obs.Size.Value > target.Value {
+		return VolumeExpansionResult{}, &InvalidOperationError{Message: "OCI Block Volume shrink requests are not permitted"}
+	}
+	if err := ctx.Err(); err != nil {
+		return VolumeExpansionResult{}, err
+	}
+	updated, err := s.Transport.UpdateVolume(ctx, VolumeUpdateRequest{t.Id, c.CompartmentId, target, obs.ETag})
+	if err == nil && updated != nil && updated.VolumeId == t.Id && updated.CompartmentId == c.CompartmentId && updated.Size.Value >= target.Value && updated.ETag != "" {
+		return converged(c.IdempotencyKey, *updated), nil
+	}
+	if err != nil && !indeterminate(err) {
+		return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, ObservedSize: obs.Size, ObservedETag: obs.ETag, CleanupNone: true}, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return VolumeExpansionResult{}, err
+	}
+	read, readErr := s.Transport.GetVolume(ctx, req)
+	if readErr == nil && read != nil && read.VolumeId == t.Id && read.CompartmentId == c.CompartmentId && read.Size.Value >= target.Value && read.ETag != "" {
+		return converged(c.IdempotencyKey, *read), nil
+	}
+	if readErr != nil && ctx.Err() != nil {
+		return VolumeExpansionResult{}, ctx.Err()
+	}
+	if read != nil && read.VolumeId == t.Id && read.CompartmentId == c.CompartmentId {
+		return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, ObservedSize: read.Size, ObservedETag: read.ETag, CleanupNone: true}, nil
+	}
+	return VolumeExpansionResult{Outcome: VolumeOutcomeUnknown, IdempotencyKey: c.IdempotencyKey, ObservedSize: obs.Size, ObservedETag: obs.ETag, CleanupNone: true}, nil
+}
+func converged(k ProviderIdempotencyKey, o VolumeObservation) VolumeExpansionResult {
+	return VolumeExpansionResult{VolumeConverged, k, o.Size, o.ETag, true}
+}
+
+var _ BlockVolumeExpansionProvider = BlockVolumeExpansionAdapter{}
+
+func isOCID(v, kind string) bool {
+	if len(v) < 12 || len(v) > 255 || !strings.HasPrefix(v, "ocid1."+kind+".") || strings.Count(v, ".") < 3 {
+		return false
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 4 || parts[0] != "ocid1" || parts[1] != kind || len(parts[2]) < 3 || !strings.HasPrefix(parts[2], "oc") {
+		return false
+	}
+	for _, r := range parts[2][2:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	for _, part := range parts[3:] {
+		if !ocidSegmentPattern.MatchString(part) {
+			return false
+		}
+	}
+	for _, r := range v {
+		if r < 0x21 || r == 0x7f || r == '/' || r == '\\' || r == '?' || r == '#' || r == '%' {
+			return false
+		}
+	}
+	return true
+}
+func indeterminate(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error)) || errors.As(err, new(*ProviderOutcomeUnknownError))
+}
+
+var regionPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var ocidSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]*$`)
+
+type OCITransportConfig struct {
+	Service      OCIService
+	Region       string
+	Endpoint     *url.URL
+	Timeout      time.Duration
+	MaxBodyBytes int64
+	MaxRetries   int
+}
+
+// OCIService identifies the small set of OCI HTTP authorities used by the
+// orchestrator. Keeping it explicit prevents a caller from redirecting signed
+// requests to an arbitrary host.
+type OCIService string
+
+const (
+	OCIServiceCore            OCIService = "core"
+	OCIServiceIdentity        OCIService = "identity"
+	OCIServiceObjectStorage   OCIService = "object-storage"
+	OCIServiceRegistry        OCIService = "registry"
+	OCIServiceVault           OCIService = "vault"
+	OCIServiceVaultManagement OCIService = "vault-management"
+)
+
+func ociServiceHost(service OCIService, region string) (string, bool) {
+	switch service {
+	case "", OCIServiceCore:
+		return "iaas." + region + ".oraclecloud.com", true
+	case OCIServiceIdentity:
+		return "identity." + region + ".oci.oraclecloud.com", true
+	case OCIServiceObjectStorage:
+		return "objectstorage." + region + ".oraclecloud.com", true
+	case OCIServiceRegistry:
+		key, ok := ociRegistryRegionKey(region)
+		if !ok {
+			return "", false
+		}
+		return key + ".ocir.io", true
+	case OCIServiceVault:
+		return "vaults." + region + ".oci.oraclecloud.com", true
+	case OCIServiceVaultManagement:
+		return "", true
+	default:
+		return "", false
+	}
+}
+
+func ociRegistryRegionKey(region string) (string, bool) {
+	switch region {
+	case "sa-saopaulo-1":
+		return "gru", true
+	case "us-sanjose-1":
+		return "sjc", true
+	case "eu-frankfurt-1":
+		return "fra", true
+	default:
+		return "", false
+	}
+}
+
+func validOCIServiceHost(service OCIService, region, host string) bool {
+	expected, ok := ociServiceHost(service, region)
+	if !ok {
+		return false
+	}
+	if service != OCIServiceVaultManagement {
+		return host == expected
+	}
+	suffix := "-management.kms." + region + ".oraclecloud.com"
+	prefix := strings.TrimSuffix(host, suffix)
+	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
+		return false
+	}
+	for _, ch := range prefix {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) {
+	return NewOCIServiceTransportConfig(OCIServiceCore, region, endpoint)
+}
+
+func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (OCITransportConfig, error) {
+	region = strings.TrimSpace(region)
+	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
+		return OCITransportConfig{}, &ArgumentError{Message: "configured OCI region is not canonical"}
+	}
+	_, ok := ociServiceHost(service, region)
+	if !ok {
+		return OCITransportConfig{}, &ArgumentError{Message: "OCI service is invalid"}
+	}
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || !validOCIServiceHost(service, region, u.Host) {
+		return OCITransportConfig{}, &ArgumentError{Message: "OCI endpoint is invalid"}
+	}
+	u.Path = "/"
+	if service == "" {
+		service = OCIServiceCore
+	}
+	return OCITransportConfig{Service: service, Region: region, Endpoint: u, Timeout: 30 * time.Second, MaxBodyBytes: 1 << 20, MaxRetries: 2}, nil
+}
+
+type RequestSigner interface{ Sign(*http.Request) error }
+type OCIHTTPTransport struct {
+	Config OCITransportConfig
+	Client *http.Client
+	Signer RequestSigner
+}
+
+func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer RequestSigner) (*OCIHTTPTransport, error) {
+	_, serviceOK := ociServiceHost(config.Service, config.Region)
+	if len(config.Region) < 1 || len(config.Region) > 63 || !regionPattern.MatchString(config.Region) ||
+		config.Endpoint == nil || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
+		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
+		config.Endpoint.Opaque != "" || config.Endpoint.RawPath != "" ||
+		(config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
+		!serviceOK || !validOCIServiceHost(config.Service, config.Region, config.Endpoint.Host) {
+		return nil, &ArgumentError{Message: "OCI endpoint is invalid"}
+	}
+	if config.Service == "" {
+		config.Service = OCIServiceCore
+	}
+	if config.Timeout <= 0 {
+		config.Timeout = 30 * time.Second
+	}
+	if config.MaxBodyBytes <= 0 || config.MaxBodyBytes > 16<<20 {
+		return nil, &ArgumentOutOfRangeError{Param: "maxBodyBytes"}
+	}
+	if config.MaxRetries < 0 || config.MaxRetries > 5 {
+		return nil, &ArgumentOutOfRangeError{Param: "maxRetries"}
+	}
+	if client == nil {
+		client = &http.Client{Timeout: config.Timeout}
+	}
+	// Keep the endpoint immutable from callers that reuse their config value.
+	endpoint := *config.Endpoint
+	config.Endpoint = &endpoint
+	return &OCIHTTPTransport{config, client, signer}, nil
+}
+
+// NewOCIInstancePrincipalTransport composes the standard OCI transport with
+// the host instance-principal RSA signer. Credential loading stays outside
+// this package, which keeps the HTTP client testable and avoids metadata
+// endpoint access from a control process.
+func NewOCIInstancePrincipalTransport(config OCITransportConfig, client *http.Client, keyID string, key *rsa.PrivateKey) (*OCIHTTPTransport, error) {
+	signer, err := NewInstancePrincipalSigner(keyID, key)
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIHTTPTransport(config, client, signer)
+}
+func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.Reader) (*http.Response, error) {
+	return t.DoWithHeaders(ctx, method, path, body, nil)
+}
+
+// DoWithHeaders is Do with a small caller-supplied set of validated headers.
+// Header names/values are rejected if they contain controls.
+func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	if t == nil || t.Client == nil || t.Config.Endpoint == nil {
+		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
+	}
+	if ctx == nil {
+		return nil, &ArgumentError{Message: "OCI context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\r\n") {
+		return nil, &ArgumentError{Message: "OCI path is invalid"}
+	}
+	var data []byte
+	hasBody := body != nil
+	if body != nil {
+		var err error
+		data, err = io.ReadAll(io.LimitReader(body, t.Config.MaxBodyBytes+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(data)) > t.Config.MaxBodyBytes {
+			return nil, &InvalidDataError{Message: "OCI request body exceeds limit"}
+		}
+	}
+	attempts := 1
+	if method == http.MethodGet || method == http.MethodHead {
+		attempts += t.Config.MaxRetries
+	}
+	for n := 0; n < attempts; n++ {
+		var requestBody io.Reader
+		if hasBody {
+			requestBody = bytes.NewReader(data)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, t.Config.Endpoint.String()+strings.TrimPrefix(path, "/"), requestBody)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/json")
+		if len(headers) > 16 {
+			return nil, &ArgumentError{Message: "OCI request headers exceed limit"}
+		}
+		for k, v := range headers {
+			if k == "" || strings.TrimSpace(k) != k || strings.ContainsAny(k+v, "\r\n") || strings.ContainsAny(k, ": \t") || len(v) > 4096 {
+				return nil, &ArgumentError{Message: "OCI request header is invalid"}
+			}
+			req.Header.Set(k, v)
+		}
+		if hasBody && req.Header.Get("Content-Type") == "" {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if t.Signer != nil {
+			if err := t.Signer.Sign(req); err != nil {
+				return nil, redactOCIError(err, "OCI request signing failed")
+			}
+		}
+		resp, err := t.Client.Do(req)
+		if err == nil {
+			if (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) && n+1 < attempts {
+				_, _ = ReadBoundedBody(resp, t.Config.MaxBodyBytes)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(time.Duration(1<<n) * 25 * time.Millisecond):
+				}
+				continue
+			}
+			return resp, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if n+1 == attempts {
+			return nil, redactOCIError(err, "OCI request transport failed")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(time.Duration(1<<n) * 25 * time.Millisecond):
+		}
+	}
+	return nil, context.DeadlineExceeded
+}
+
+func redactOCIError(err error, fallback string) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return &ProviderOutcomeUnknownError{Message: fallback}
+}
+
+func ReadBoundedBody(resp *http.Response, max int64) ([]byte, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, &InvalidDataError{Message: "OCI response body is empty"}
+	}
+	defer resp.Body.Close()
+	if max <= 0 {
+		max = 1 << 20
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, &InvalidDataError{Message: "OCI response body exceeds limit"}
+	}
+	return b, nil
+}
+
+type ociVolumeResponse struct {
+	Id            string `json:"id"`
+	CompartmentId string `json:"compartmentId"`
+	SizeInGBs     int64  `json:"sizeInGBs"`
+}
+
+func DecodeVolumeResponse(resp *http.Response) (*VolumeObservation, error) {
+	body, err := ReadBoundedBody(resp, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, &InvalidDataError{Message: "OCI volume request failed"}
+	}
+	var v ociVolumeResponse
+	if json.Unmarshal(body, &v) != nil || !isOCID(v.Id, "volume") || !isOCID(v.CompartmentId, "compartment") || v.SizeInGBs <= 0 || uint64(v.SizeInGBs) > math.MaxUint64/BytesPerGiB || !isSafeETag(resp.Header.Get("ETag")) {
+		return nil, nil
+	}
+	return &VolumeObservation{ProviderResourceId{v.Id}, ProviderCompartmentId{v.CompartmentId}, ProviderByteCount{uint64(v.SizeInGBs) * BytesPerGiB}, resp.Header.Get("ETag")}, nil
+}
+func isSafeETag(v string) bool {
+	return len(v) > 0 && len(v) <= 256 && !strings.ContainsAny(v, "\r\n") && strings.TrimSpace(v) != ""
+}
