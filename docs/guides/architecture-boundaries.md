@@ -11,7 +11,7 @@ short map for Orchestrator contributors.
 | Database API | Go gateway. Owns the public REST and reactive WebSocket API and is the only network TBEP client. |
 | TerraBase | Rust database engine. Owns storage, replication, repair, reactive views, backups, and authoritative usage facts. |
 | Orchestrator | Go control plane. Owns OCI infrastructure, scheduling, capacity, identity, routing, rollout, and TerraBase placement intent. |
-| Deploy | Go CLI used by Forgejo Actions. Builds, tests, publishes images, and submits candidate handoffs. |
+| Deploy | Go CLI used by Forgejo Actions. Builds, tests, and publishes images. DEP-3 owns its external candidate handoff. |
 
 Orchestrator never becomes a customer data proxy. Dashboard and customer
 applications use the public Database API through `@terrascale/sdk`.
@@ -79,14 +79,15 @@ defined by D-24.
 
 ## Delivery
 
-Forgejo Actions calls `ts-deploy` to build, test, publish, and submit the exact
-candidate digest. The handoff includes source and tree identity, Deploy CLI
-identity, image digests, and test results. It does not authorize rollout.
+Forgejo Actions calls `ts-deploy` to build, test, and publish images. The
+Orchestrator currently has no machine-readable external candidate handoff from
+`ts-deploy`; DEP-3 owns that contract. External candidate documents fail
+closed until DEP-3 adds and wires the contract.
 
-Orchestrator admits the candidate under current fenced authority and owns
-regional blue-green rollout, the durable routing generation, and rollback by
-the retained digest. CI success on `develop`, immutable image digests, and
-tests are the release record. No parallel approval ledger exists.
+Orchestrator owns admission, regional blue-green rollout, the durable routing
+generation, and rollback by retained digest. CI success on `develop`,
+immutable image digests, and tests are the release record. No parallel
+approval ledger exists.
 
 ## Scope limits
 
