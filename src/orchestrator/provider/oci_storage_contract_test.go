@@ -73,6 +73,41 @@ func testOwnership(t *testing.T, ids ...string) *DurableOwnershipJournal {
 	return journal
 }
 
+type nonDurableTestOwnership struct{}
+
+func (*nonDurableTestOwnership) AuthoritativeDurable() bool { return false }
+func (*nonDurableTestOwnership) Record(context.Context, ProviderOwnershipRecord) error {
+	return nil
+}
+func (*nonDurableTestOwnership) Lookup(context.Context, ProviderResourceId) (ProviderOwnershipRecord, bool, error) {
+	return ProviderOwnershipRecord{}, false, nil
+}
+
+func testRegistryAdapter(t *testing.T, transport *OCIHTTPTransport) *OCIRegistryAdapter {
+	t.Helper()
+	if transport.Signer == nil {
+		signer, err := NewOCIRegistryTokenSigner("tenancy/runner", "registry-token")
+		if err != nil {
+			t.Fatal(err)
+		}
+		transport.Signer = signer
+	}
+	adapter, err := NewOCIRegistryAdapter(transport, OCIRegistryScope{
+		Namespace:    "tenancy",
+		Repositories: []string{"member", "terrascale/member"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return adapter
+}
+
+func testVolumeIntentTags(request VolumeCreateRequest) string {
+	tags, _ := safeFreeformTags(request.Tags)
+	raw, _ := json.Marshal(bindMutationTags(tags, request.Mutation))
+	return string(raw)
+}
+
 func TestOCIBlockVolumeAdapterContract(t *testing.T) {
 	var requestBody map[string]any
 	transport := testOCITransport(t, OCIServiceCore, func(request *http.Request) (*http.Response, error) {

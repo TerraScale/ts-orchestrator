@@ -981,12 +981,11 @@ type OCIRegistryAdapter struct {
 // expected by OCIR. The token stays process-local and errors never include it.
 type OCIRegistryTokenSigner struct{ namespace, username, token string }
 
-func (s *OCIRegistryTokenSigner) String() string   { return "OCIRegistryTokenSigner{<redacted>}" }
-func (s *OCIRegistryTokenSigner) GoString() string { return "OCIRegistryTokenSigner{<redacted>}" }
-
 func NewOCIRegistryTokenSigner(username, token string) (*OCIRegistryTokenSigner, error) {
-	if len(username) < 1 || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
-		strings.TrimSpace(username) != username || strings.ContainsAny(username+token, "\r\n") {
+	namespace, principal, found := strings.Cut(username, "/")
+	if !found || !validRegistryNamespace(namespace) || !validRegistryPrincipal(principal) || len(username) > 256 || len(token) < 1 || len(token) > 4096 ||
+		strings.TrimSpace(username) != username || strings.TrimSpace(token) != token || strings.Contains(username, ":") ||
+		containsASCIIControl(username) || containsASCIIControl(token) {
 		return nil, &errs.Argument{Message: "OCI registry credential is invalid"}
 	}
 	return &OCIRegistryTokenSigner{namespace: namespace, username: username, token: token}, nil
@@ -1041,330 +1040,95 @@ func NewOCIRegistryAdapter(transport *OCIHTTPTransport, scope OCIRegistryScope) 
 	return &OCIRegistryAdapter{registry: &registry, namespace: scope.Namespace, repositories: repositories}, nil
 }
 
-// OCIRegistryPullAdapter adds a durable, compartment-scoped fence around the
-// immutable registry reads. The underlying OCIRegistryAdapter remains the
-// raw HTTP protocol implementation; this layer records the same request
-// intent while a controller retries or resumes a read.
-type OCIRegistryPullAdapter struct {
-	Registry  *OCIRegistryAdapter
-	Journal   ProviderMutationJournal
-	Ownership DurableOwnershipEvidence
-}
-
-func NewOCIRegistryPullAdapter(transport *OCIHTTPTransport, journal ProviderMutationJournal, ownership DurableOwnershipEvidence) (*OCIRegistryPullAdapter, error) {
-	if err := validateOCIAdapter(transport, OCIServiceRegistry, journal); err != nil {
-		return nil, err
-	}
-	registry, err := NewOCIRegistryAdapter(transport)
-	if err != nil {
-		return nil, err
-	}
-	return &OCIRegistryPullAdapter{Registry: registry, Journal: journal, Ownership: ownership}, nil
-}
-
-func registryPullBinding(compartment, repository, reference string) any {
-	return struct {
-		CompartmentID, Repository, Reference string
-	}{compartment, repository, reference}
-}
-
-func registryBlobPullBinding(compartment, repository, digest string) any {
-	return struct {
-		CompartmentID, Repository, Digest string
-	}{compartment, repository, digest}
-}
-
-func registryTagListBinding(compartment, repository string) any {
-	return struct {
-		CompartmentID, Repository string
-	}{compartment, repository}
-}
-
-// RegistryManifestPullMutationFingerprint binds the complete scoped manifest
-// read intent for callers constructing a durable mutation.
-func RegistryManifestPullMutationFingerprint(request RegistryPullRequest) string {
-	return fingerprintJSON("registry.manifest.pull", registryPullBinding(request.CompartmentID, request.Repository, request.Reference))
-}
-
-// RegistryManifestPullMutationScope returns the durable manifest resource
-// fence derived from the provider-visible request fields.
-func RegistryManifestPullMutationScope(request RegistryPullRequest) string {
-	return ProviderMutationScope("registry-manifest", request.CompartmentID, request.Repository, request.Reference)
-}
-
-// RegistryBlobPullMutationFingerprint binds the complete scoped blob read
-// intent for callers constructing a durable mutation.
-func RegistryBlobPullMutationFingerprint(request RegistryBlobPullRequest) string {
-	return fingerprintJSON("registry.blob.pull", registryBlobPullBinding(request.CompartmentID, request.Repository, request.Digest))
-}
-
-// RegistryBlobPullMutationScope returns the durable blob resource fence
-// derived from the provider-visible request fields.
-func RegistryBlobPullMutationScope(request RegistryBlobPullRequest) string {
-	return ProviderMutationScope("registry-blob", request.CompartmentID, request.Repository, request.Digest)
-}
-
-// RegistryTagListMutationFingerprint binds the complete scoped tag-list read
-// intent for callers constructing a durable mutation.
-func RegistryTagListMutationFingerprint(request RegistryTagListRequest) string {
-	return fingerprintJSON("registry.tags.list", registryTagListBinding(request.CompartmentID, request.Repository))
-}
-
-// RegistryTagListMutationScope returns the durable tag-list resource fence
-// derived from the provider-visible request fields.
-func RegistryTagListMutationScope(request RegistryTagListRequest) string {
-	return ProviderMutationScope("registry-tags", request.CompartmentID, request.Repository)
-}
-
-func registryPullResource(repository, value string) string {
-	return "registry/" + repository + "@" + value
-}
-
-func (a *OCIRegistryPullAdapter) prepare(ctx context.Context, intent ProviderMutationIntent, action, scope string, binding any, repository, compartment string) (ProviderMutationRecord, error) {
-	if a == nil || a.Registry == nil || a.Registry.Registry == nil || validateOCIAdapter(a.Registry.Registry, OCIServiceRegistry, a.Journal) != nil {
-		return ProviderMutationRecord{}, &InvalidOperationError{Message: "OCI registry pull adapter is unavailable"}
-	}
-	if err := requireOwnedResource(ctx, a.Ownership, repository, compartment); err != nil {
-		return ProviderMutationRecord{}, err
-	}
-	if err := expectJSONMutation(intent, action, scope, binding); err != nil {
-		return ProviderMutationRecord{}, err
-	}
-	return prepareMutation(ctx, a.Journal, intent)
-}
-
-func registryPullRequestIdentity(compartment, repository, reference string) (string, error) {
-	if !isOCID(compartment, "compartment") {
-		return "", &errs.Argument{Message: "registry pull compartment is invalid"}
-	}
-	if _, err := registryRepositoryPath(repository); err != nil || !validRegistryReference(reference) {
-		return "", &errs.Argument{Message: "registry pull request is invalid"}
-	}
-	return registryPullResource(repository, reference), nil
-}
-
-func registryBlobPullRequestIdentity(compartment, repository, digest string) (string, error) {
-	if !isOCID(compartment, "compartment") {
-		return "", &errs.Argument{Message: "registry pull compartment is invalid"}
-	}
-	if _, err := registryRepositoryPath(repository); err != nil || !strings.HasPrefix(digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(digest, "sha256:")) {
-		return "", &errs.Argument{Message: "registry blob pull request is invalid"}
-	}
-	return registryPullResource(repository, digest), nil
-}
-
-func registryTagListRequestIdentity(compartment, repository string) (string, error) {
-	if !isOCID(compartment, "compartment") {
-		return "", &errs.Argument{Message: "registry pull compartment is invalid"}
-	}
-	if _, err := registryRepositoryPath(repository); err != nil {
-		return "", &errs.Argument{Message: "registry tag list request is invalid"}
-	}
-	return registryPullResource(repository, "tags"), nil
-}
-
-func markRegistryPullUnknown(ctx context.Context, journal ProviderMutationJournal, intent ProviderMutationIntent, result ProviderMutationResult, cause error) error {
-	if _, err := journal.MarkUnknown(ctx, intent, result); err != nil {
-		return err
-	}
-	return cause
-}
-
-func (a *OCIRegistryPullAdapter) PullManifestScoped(ctx context.Context, request RegistryPullRequest) (RegistryManifest, error) {
-	resource, err := registryPullRequestIdentity(request.CompartmentID, request.Repository, request.Reference)
-	if err != nil {
-		return RegistryManifest{}, err
-	}
-	binding := registryPullBinding(request.CompartmentID, request.Repository, request.Reference)
-	record, err := a.prepare(ctx, request.Mutation, "registry.manifest.pull", RegistryManifestPullMutationScope(request), binding, request.Repository, request.CompartmentID)
-	if err != nil {
-		return RegistryManifest{}, err
-	}
-	if _, done, err := completedMutation(record); done {
-		if err != nil {
-			return RegistryManifest{}, err
+func containsASCIIControl(value string) bool {
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return true
 		}
 	}
-	if record.State == MutationPrepared {
-		if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
-			return RegistryManifest{}, err
-		}
-	}
-	manifest, err := a.Registry.PullManifest(ctx, RegistryManifestRequest{Repository: request.Repository, Reference: request.Reference})
-	if err != nil {
-		return RegistryManifest{}, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, err)
-	}
-	result := ProviderMutationResult{ResourceID: resource, ETag: manifest.Digest}
-	if err := markSucceeded(ctx, a.Journal, request.Mutation, result); err != nil {
-		return RegistryManifest{}, err
-	}
-	return manifest, nil
+	return false
 }
 
-func (a *OCIRegistryPullAdapter) PullBlobScoped(ctx context.Context, request RegistryBlobPullRequest) (io.ReadCloser, int64, error) {
-	resource, err := registryBlobPullRequestIdentity(request.CompartmentID, request.Repository, request.Digest)
-	if err != nil {
-		return nil, 0, err
+func validRegistryNamespace(namespace string) bool {
+	if len(namespace) < 1 || len(namespace) > 63 {
+		return false
 	}
-	binding := registryBlobPullBinding(request.CompartmentID, request.Repository, request.Digest)
-	record, err := a.prepare(ctx, request.Mutation, "registry.blob.pull", RegistryBlobPullMutationScope(request), binding, request.Repository, request.CompartmentID)
-	if err != nil {
-		return nil, 0, err
-	}
-	if _, done, err := completedMutation(record); done && err != nil {
-		return nil, 0, err
-	}
-	if record.State == MutationPrepared {
-		if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
-			return nil, 0, err
+	for _, character := range namespace {
+		if (character < 'a' || character > 'z') && (character < '0' || character > '9') {
+			return false
 		}
 	}
-	reader, size, err := a.Registry.PullBlob(ctx, RegistryBlobRequest{Repository: request.Repository, Digest: request.Digest})
-	if err != nil {
-		return nil, 0, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, err)
-	}
-	return &registryPullReadCloser{source: reader, ctx: ctx, journal: a.Journal, intent: request.Mutation, result: ProviderMutationResult{ResourceID: resource, ETag: request.Digest}}, size, nil
+	return true
 }
 
-type registryPullReadCloser struct {
-	source    io.ReadCloser
-	ctx       context.Context
-	journal   ProviderMutationJournal
-	intent    ProviderMutationIntent
-	result    ProviderMutationResult
-	completed bool
+func validRegistryPrincipal(principal string) bool {
+	if len(principal) < 1 || strings.HasPrefix(principal, "/") || strings.HasSuffix(principal, "/") || strings.Contains(principal, "//") {
+		return false
+	}
+	for _, character := range principal {
+		if character < 0x21 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
-func (r *registryPullReadCloser) finish(err error) error {
-	if r.completed {
-		return nil
+func validRegistryRepositoryComponent(component string) bool {
+	if len(component) < 1 || len(component) > 128 {
+		return false
 	}
-	r.completed = true
-	if err != nil {
-		return markRegistryPullUnknown(r.ctx, r.journal, r.intent, ProviderMutationResult{}, err)
+	alphaNumeric := func(value byte) bool {
+		return (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9')
 	}
-	if markErr := markSucceeded(r.ctx, r.journal, r.intent, r.result); markErr != nil {
-		return markErr
+	index := 0
+	for index < len(component) && alphaNumeric(component[index]) {
+		index++
 	}
-	return nil
-}
-
-func (r *registryPullReadCloser) Read(buffer []byte) (int, error) {
-	n, err := r.source.Read(buffer)
-	if err == io.EOF {
-		if finishErr := r.finish(nil); finishErr != nil {
-			return n, finishErr
-		}
-	} else if err != nil {
-		if finishErr := r.finish(err); finishErr != nil {
-			return n, finishErr
-		}
+	if index == 0 {
+		return false
 	}
-	return n, err
-}
-
-func (r *registryPullReadCloser) Close() error {
-	closeErr := r.source.Close()
-	finishErr := r.finish(&ProviderOutcomeUnknownError{Message: "OCI registry blob pull was closed before verification"})
-	if closeErr != nil {
-		return closeErr
-	}
-	if r.completed && finishErr != nil {
-		return finishErr
-	}
-	return nil
-}
-
-func (a *OCIRegistryPullAdapter) ListTagsScoped(ctx context.Context, request RegistryTagListRequest) ([]string, error) {
-	resource, err := registryTagListRequestIdentity(request.CompartmentID, request.Repository)
-	if err != nil {
-		return nil, err
-	}
-	binding := registryTagListBinding(request.CompartmentID, request.Repository)
-	record, err := a.prepare(ctx, request.Mutation, "registry.tags.list", RegistryTagListMutationScope(request), binding, request.Repository, request.CompartmentID)
-	if err != nil {
-		return nil, err
-	}
-	if _, done, err := completedMutation(record); done && err != nil {
-		return nil, err
-	}
-	if record.State == MutationPrepared {
-		if _, err := a.Journal.MarkSubmitted(ctx, request.Mutation); err != nil {
-			return nil, err
-		}
-	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil {
-		return nil, err
-	}
-	path := "/v2/" + repository + "/tags/list"
-	tags := make([]string, 0)
-	seen := make(map[string]struct{})
-	seenCursors := make(map[string]struct{})
-	last := ""
-	for page := 1; page <= maximumOCIPages; page++ {
-		query := url.Values{"n": {strconv.Itoa(maximumOCIListResults)}}
-		if last != "" {
-			query.Set("last", last)
-		}
-		resp, err := a.Registry.Registry.Do(ctx, http.MethodGet, path+"?"+query.Encode(), nil)
-		if err != nil {
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, err)
-		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			drainClose(resp.Body)
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidOperationError{Message: "OCI registry tag listing failed"})
-		}
-		body, err := ReadBoundedBody(resp, a.Registry.Registry.Config.MaxBodyBytes)
-		if err != nil {
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, err)
-		}
-		var payload struct {
-			Name string   `json:"name"`
-			Tags []string `json:"tags"`
-		}
-		if rejectDuplicateJSONKeys(body) != nil || json.Unmarshal(body, &payload) != nil || payload.Name != request.Repository || payload.Tags == nil || len(payload.Tags) > maximumOCIListResults {
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag listing response is invalid"})
-		}
-		for _, tag := range payload.Tags {
-			if !validRegistryTag(tag) {
-				return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag listing response is invalid"})
+	for index < len(component) {
+		switch component[index] {
+		case '.':
+			index++
+		case '_':
+			index++
+			if index < len(component) && component[index] == '_' {
+				index++
 			}
-			if _, duplicate := seen[tag]; duplicate {
-				return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag listing response is invalid"})
+		case '-':
+			for index < len(component) && component[index] == '-' {
+				index++
 			}
-			seen[tag] = struct{}{}
-			tags = append(tags, tag)
-			if len(tags) > maximumOCIListResults*maximumOCIPages {
-				return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag listing exceeds its bound"})
-			}
+		default:
+			return false
 		}
-		next, err := nextRegistryTagPage(resp, path)
-		if err != nil {
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, err)
+		start := index
+		for index < len(component) && alphaNumeric(component[index]) {
+			index++
 		}
-		if next == "" {
-			if err := markSucceeded(ctx, a.Journal, request.Mutation, ProviderMutationResult{ResourceID: resource}); err != nil {
-				return nil, err
-			}
-			return tags, nil
+		if start == index {
+			return false
 		}
-		if _, duplicate := seenCursors[next]; duplicate || next == last {
-			return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag pagination is invalid"})
-		}
-		seenCursors[next] = struct{}{}
-		last = next
 	}
-	return nil, markRegistryPullUnknown(ctx, a.Journal, request.Mutation, ProviderMutationResult{}, &InvalidDataError{Message: "OCI registry tag listing pagination exceeds its bound"})
+	return true
 }
 
-func registryRepositoryPath(repository string) (string, error) {
-	if len(repository) < 1 || len(repository) > 512 || strings.ContainsAny(repository, "\r\n\\") {
+func canonicalRegistryRepository(repository string, includeNamespace bool) (string, error) {
+	if len(repository) < 1 || len(repository) > 255 || strings.TrimSpace(repository) != repository || containsASCIIControl(repository) ||
+		strings.Contains(repository, "\\") {
 		return "", &errs.Argument{Message: "registry repository is invalid"}
 	}
 	parts := strings.Split(repository, "/")
-	for index, part := range parts {
-		if len(part) < 1 || len(part) > 128 || strings.Contains(part, "..") {
+	minimum := 1
+	if includeNamespace {
+		minimum = 2
+	}
+	if len(parts) < minimum || len(parts) > 8 {
+		return "", &errs.Argument{Message: "registry repository is invalid"}
+	}
+	for _, part := range parts {
+		if !validRegistryRepositoryComponent(part) {
 			return "", &errs.Argument{Message: "registry repository is invalid"}
 		}
 	}
@@ -1551,6 +1315,19 @@ func validRegistryDescriptorList(raw json.RawMessage, allowEmpty bool) bool {
 	return true
 }
 
+func validRegistryDescriptorList(raw json.RawMessage, allowEmpty bool) bool {
+	var descriptors []json.RawMessage
+	if json.Unmarshal(raw, &descriptors) != nil || descriptors == nil || len(descriptors) > 1024 || (!allowEmpty && len(descriptors) == 0) {
+		return false
+	}
+	for _, descriptor := range descriptors {
+		if !validRegistryDescriptor(descriptor) {
+			return false
+		}
+	}
+	return true
+}
+
 func validRegistryTag(tag string) bool {
 	if len(tag) < 1 || len(tag) > 128 {
 		return false
@@ -1689,11 +1466,7 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 	if a == nil || a.registry == nil {
 		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !validRegistryReference(request.Reference) {
-		return RegistryManifest{}, &errs.Argument{Message: "registry manifest request is invalid"}
-	}
-	resp, err := a.Registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/manifests/"+url.PathEscape(request.Reference), nil, map[string]string{"Accept": "application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json"})
+	repository, err := a.registryRepositoryPath(request.Repository)
 	if err != nil {
 		return RegistryManifest{}, err
 	}
@@ -1707,8 +1480,21 @@ func (a *OCIRegistryAdapter) PullManifest(ctx context.Context, request RegistryM
 	if err != nil {
 		return RegistryManifest{}, err
 	}
-	if !validRegistryManifestContent(body) {
-		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest response is invalid"}
+	if resp.StatusCode != http.StatusOK || !registryIdentityEncoding(resp) {
+		drainClose(resp.Body)
+		return RegistryManifest{}, &InvalidOperationError{Message: "OCI registry manifest pull failed"}
+	}
+	declaredLength, validLength := registryBlobContentLength(resp)
+	if !validLength || declaredLength > a.registry.Config.MaxBodyBytes {
+		drainClose(resp.Body)
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
+	}
+	body, err := ReadBoundedBody(resp, a.registry.Config.MaxBodyBytes)
+	if err != nil {
+		return RegistryManifest{}, err
+	}
+	if int64(len(body)) != declaredLength {
+		return RegistryManifest{}, &InvalidDataError{Message: "OCI registry manifest content length is invalid"}
 	}
 	sum := sha256.Sum256(body)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
@@ -1727,11 +1513,17 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	if a == nil || a.registry == nil {
 		return nil, 0, &InvalidOperationError{Message: "OCI registry adapter is unavailable"}
 	}
-	repository, err := registryRepositoryPath(request.Repository)
-	if err != nil || !strings.HasPrefix(request.Digest, "sha256:") || !validSHA256Hex(strings.TrimPrefix(request.Digest, "sha256:")) {
+	repository, err := a.registryRepositoryPath(request.Repository)
+	if err != nil {
+		return nil, 0, err
+	}
+	if !validRegistryDigest(request.Digest) {
 		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
 	}
-	resp, err := a.Registry.Do(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil)
+	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil, map[string]string{
+		"Accept":          "application/octet-stream",
+		"Accept-Encoding": "identity",
+	})
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1829,20 +1621,24 @@ func validRegistryBlobRedirectAuthority(target *url.URL, region, namespace strin
 		return false
 	}
 	parts := strings.Split(target.EscapedPath(), "/")
-	pathNamespacePresent := false
+	namespaceSegments := 0
 	pathNamespaceMatches := false
-	for _, index := range []int{1, 3} {
-		if index+4 >= len(parts) || parts[index] != "n" || parts[index+2] != "b" || parts[index+4] != "o" {
+	for index, part := range parts {
+		if part != "n" {
 			continue
+		}
+		namespaceSegments++
+		if index+1 < len(parts) && parts[index+1] == namespace {
+			pathNamespaceMatches = true
 		}
 		pathNamespacePresent = true
 		pathNamespaceMatches = parts[index+1] == namespace
 		break
 	}
-	if pathNamespacePresent && !pathNamespaceMatches {
+	if namespaceSegments > 1 || (namespaceSegments == 1 && !pathNamespaceMatches) {
 		return false
 	}
-	return host == namespacedHost || (genericHost && pathNamespacePresent && pathNamespaceMatches)
+	return host == namespacedHost || (genericHost && namespaceSegments == 1 && pathNamespaceMatches)
 }
 
 func registryBlobContentLength(resp *http.Response) (int64, bool) {
@@ -1865,19 +1661,32 @@ func registryBlobContentLength(resp *http.Response) (int64, bool) {
 	return int64(size), true
 }
 
-func registryBlobDigestHeader(resp *http.Response) (string, bool, bool) {
-	if resp == nil {
-		return "", false, false
-	}
-	values := resp.Header.Values("Docker-Content-Digest")
-	if len(values) == 0 {
-		return "", false, true
-	}
-	if len(values) != 1 || !strings.HasPrefix(values[0], "sha256:") || !validSHA256Hex(strings.TrimPrefix(values[0], "sha256:")) {
-		return "", true, false
-	}
-	return values[0], true, true
+type digestVerifyingReadCloser struct {
+	source   io.ReadCloser
+	digest   hash.Hash
+	expected string
+	done     bool
 }
+
+func newDigestVerifyingReadCloser(source io.ReadCloser, expected string) io.ReadCloser {
+	return &digestVerifyingReadCloser{source: source, digest: sha256.New(), expected: expected}
+}
+
+func (r *digestVerifyingReadCloser) Read(buffer []byte) (int, error) {
+	n, err := r.source.Read(buffer)
+	if n > 0 {
+		_, _ = r.digest.Write(buffer[:n])
+	}
+	if err == io.EOF && !r.done {
+		r.done = true
+		if hex.EncodeToString(r.digest.Sum(nil)) != r.expected {
+			return n, &InvalidDataError{Message: "provider content digest does not match"}
+		}
+	}
+	return n, err
+}
+
+func (r *digestVerifyingReadCloser) Close() error { return r.source.Close() }
 
 type lengthDigestVerifyingReadCloser struct {
 	source    io.ReadCloser

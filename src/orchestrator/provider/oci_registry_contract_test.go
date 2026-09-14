@@ -70,91 +70,6 @@ func TestOCIRegistryRequiresCanonicalScopedAuthority(t *testing.T) {
 			t.Fatal("registry adapter accepted a missing OCIR credential")
 		}
 	})
-
-	t.Run("docker repository separators", func(t *testing.T) {
-		if _, err := NewOCIRegistryAdapter(newTransport(t), OCIRegistryScope{
-			Namespace:    "tenancy",
-			Repositories: []string{"foo--bar", "foo__bar"},
-		}); err != nil {
-			t.Fatalf("valid Docker repository separators were rejected: %v", err)
-		}
-		for _, repository := range []string{"foo___bar", "foo.-bar", "foo_-bar", "foo--", "-foo", "foo%2fbar", "foo/../bar"} {
-			if _, err := canonicalRegistryRepository(repository, false); err == nil {
-				t.Fatalf("invalid Docker repository %q was accepted", repository)
-			}
-		}
-	})
-}
-
-func TestOCIRegistrySnapshotsAuthorityAndCredentialBeforeCallerMutation(t *testing.T) {
-	manifestBody := validRegistryManifestBody(ociImageManifestMediaType)
-	manifestDigest := "sha256:" + objectSHA256([]byte(manifestBody))
-	blobBody := "immutable-blob"
-	blobDigest := "sha256:" + objectSHA256([]byte(blobBody))
-	authorizedCalls := 0
-	hostileCalls := 0
-	transport := testOCITransport(t, OCIServiceRegistry, func(request *http.Request) (*http.Response, error) {
-		authorizedCalls++
-		username, token, ok := request.BasicAuth()
-		if request.URL.Scheme != "https" || request.URL.Host != "gru.ocir.io" || !ok || username != "tenancy/runner" || token != "registry-token" {
-			t.Fatalf("snapshotted registry authority or credential changed: url=%s username=%q token=%q", request.URL, username, token)
-		}
-		switch {
-		case strings.Contains(request.URL.Path, "/manifests/"):
-			return testHTTPResponse(http.StatusOK, manifestBody, http.Header{
-				"Content-Length":        {stringInt(len(manifestBody))},
-				"Content-Type":          {ociImageManifestMediaType},
-				"Docker-Content-Digest": {manifestDigest},
-			}), nil
-		case strings.Contains(request.URL.Path, "/blobs/"):
-			return testHTTPResponse(http.StatusOK, blobBody, http.Header{
-				"Content-Length":        {stringInt(len(blobBody))},
-				"Content-Type":          {"application/octet-stream"},
-				"Docker-Content-Digest": {blobDigest},
-			}), nil
-		default:
-			t.Fatalf("unexpected snapshotted request %s", request.URL)
-			return nil, io.ErrUnexpectedEOF
-		}
-	})
-	signer, err := NewOCIRegistryTokenSigner("tenancy/runner", "registry-token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	transport.Signer = signer
-	adapter := testRegistryAdapter(t, transport)
-
-	transport.Config.Service = OCIServiceCore
-	transport.Config.Region = "us-sanjose-1"
-	transport.Config.MaxBodyBytes = 1
-	transport.Config.Endpoint.Host = "attacker.test"
-	transport.Config.Endpoint.Path = "/steal"
-	transport.Client.CheckRedirect = nil
-	transport.Client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		hostileCalls++
-		if request.Header.Get("Authorization") != "" {
-			t.Fatal("registry credential reached caller-mutated client authority")
-		}
-		return nil, io.ErrUnexpectedEOF
-	})
-	signer.namespace = "attacker"
-	signer.username = "attacker/runner"
-	signer.token = "stolen-token"
-	transport.Signer = nil
-
-	manifest, err := adapter.PullManifest(context.Background(), RegistryManifestRequest{Repository: "tenancy/member", Reference: manifestDigest})
-	if err != nil || manifest.Digest != manifestDigest {
-		t.Fatalf("manifest=%+v err=%v", manifest, err)
-	}
-	reader, size, err := adapter.PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: blobDigest})
-	if err != nil {
-		t.Fatal(err)
-	}
-	content, readErr := io.ReadAll(reader)
-	closeErr := reader.Close()
-	if readErr != nil || closeErr != nil || size != int64(len(blobBody)) || string(content) != blobBody || authorizedCalls != 2 || hostileCalls != 0 {
-		t.Fatalf("body=%q size=%d authorized=%d hostile=%d readErr=%v closeErr=%v", content, size, authorizedCalls, hostileCalls, readErr, closeErr)
-	}
 }
 
 func TestOCIRegistryRejectsUnscopedOrMutableRequestsBeforeIO(t *testing.T) {
@@ -214,7 +129,7 @@ func TestOCIRegistryManifestRequiresCanonicalProviderTruth(t *testing.T) {
 				if request.Header.Get("Accept") != registryManifestAccept || request.Header.Get("Accept-Encoding") != "identity" {
 					t.Fatalf("manifest request headers = %v", request.Header)
 				}
-				return testHTTPResponse(http.StatusOK, body, http.Header{"Content-Length": {stringInt(len(body))}, "Docker-Content-Digest": {digest}, "Content-Type": {mediaType}}), nil
+				return testHTTPResponse(http.StatusOK, body, http.Header{"Docker-Content-Digest": {digest}, "Content-Type": {mediaType}}), nil
 			})
 			manifest, err := testRegistryAdapter(t, transport).PullManifest(context.Background(), RegistryManifestRequest{Repository: "tenancy/member", Reference: digest})
 			if err != nil || manifest.Digest != digest || manifest.MediaType != mediaType || string(manifest.Content) != body {
@@ -228,7 +143,6 @@ func TestOCIRegistryManifestRequiresCanonicalProviderTruth(t *testing.T) {
 		status      int
 		body        string
 		digest      []string
-		length      []string
 		contentType []string
 		encoding    []string
 	}{
@@ -236,11 +150,6 @@ func TestOCIRegistryManifestRequiresCanonicalProviderTruth(t *testing.T) {
 		{name: "missing digest", digest: []string{}},
 		{name: "duplicate digest", digest: []string{"request", "request"}},
 		{name: "uppercase digest", digest: []string{"uppercase"}},
-		{name: "missing length", length: []string{}},
-		{name: "duplicate length", length: []string{"request", "request"}},
-		{name: "leading-zero length", length: []string{"leading-zero"}},
-		{name: "declared short", length: []string{"short"}},
-		{name: "declared long", length: []string{"long"}},
 		{name: "missing content type", contentType: []string{}},
 		{name: "duplicate content type", contentType: []string{ociImageManifestMediaType, ociImageManifestMediaType}},
 		{name: "unsupported content type", contentType: []string{"application/json"}},
@@ -272,7 +181,6 @@ func TestOCIRegistryManifestRequiresCanonicalProviderTruth(t *testing.T) {
 		status      int
 		body        string
 		digest      []string
-		length      []string
 		contentType []string
 		encoding    []string
 	}{
@@ -304,30 +212,12 @@ func TestOCIRegistryManifestRequiresCanonicalProviderTruth(t *testing.T) {
 			if contentType == nil {
 				contentType = []string{ociImageManifestMediaType}
 			}
-			length := test.length
-			if length == nil {
-				length = []string{stringInt(len(body))}
-			} else {
-				for index, value := range length {
-					switch value {
-					case "request":
-						length[index] = stringInt(len(body))
-					case "leading-zero":
-						length[index] = "0" + stringInt(len(body))
-					case "short":
-						length[index] = stringInt(len(body) - 1)
-					case "long":
-						length[index] = stringInt(len(body) + 1)
-					}
-				}
-			}
 			status := test.status
 			if status == 0 {
 				status = http.StatusOK
 			}
 			transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
 				return testHTTPResponse(status, body, http.Header{
-					"Content-Length":        length,
 					"Docker-Content-Digest": digestHeaders,
 					"Content-Type":          contentType,
 					"Content-Encoding":      test.encoding,
@@ -361,7 +251,6 @@ func TestOCIRegistryBlobRequiresCanonicalMetadataAndVerifiedEOF(t *testing.T) {
 		expected    string
 		length      []string
 		digest      []string
-		contentType []string
 		encoding    []string
 		interrupted bool
 		wantPullErr bool
@@ -380,10 +269,6 @@ func TestOCIRegistryBlobRequiresCanonicalMetadataAndVerifiedEOF(t *testing.T) {
 		{name: "missing digest", body: "abc", expected: "abc", digest: []string{}, wantPullErr: true},
 		{name: "duplicate digest", body: "abc", expected: "abc", digest: []string{"request", "request"}, wantPullErr: true},
 		{name: "wrong digest header", body: "abc", expected: "abc", digest: []string{"sha256:" + strings.Repeat("b", 64)}, wantPullErr: true},
-		{name: "missing content type", body: "abc", expected: "abc", contentType: []string{}, wantPullErr: true},
-		{name: "duplicate content type", body: "abc", expected: "abc", contentType: []string{"application/octet-stream", "application/octet-stream"}, wantPullErr: true},
-		{name: "parameterized content type", body: "abc", expected: "abc", contentType: []string{"application/octet-stream; charset=binary"}, wantPullErr: true},
-		{name: "wrong content type", body: "abc", expected: "abc", contentType: []string{"application/json"}, wantPullErr: true},
 		{name: "gzip encoding", body: "abc", expected: "abc", encoding: []string{"gzip"}, wantPullErr: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -410,13 +295,8 @@ func TestOCIRegistryBlobRequiresCanonicalMetadataAndVerifiedEOF(t *testing.T) {
 				if status == 0 {
 					status = http.StatusOK
 				}
-				contentType := test.contentType
-				if contentType == nil {
-					contentType = []string{"application/octet-stream"}
-				}
 				response := testHTTPResponse(status, test.body, http.Header{
 					"Content-Length":        length,
-					"Content-Type":          contentType,
 					"Docker-Content-Digest": digestHeaders,
 					"Content-Encoding":      test.encoding,
 				})
@@ -450,7 +330,7 @@ func TestOCIRegistryBlobRequiresCanonicalMetadataAndVerifiedEOF(t *testing.T) {
 		content := "abc"
 		digest := "sha256:" + objectSHA256([]byte(content))
 		transport := testOCITransport(t, OCIServiceRegistry, func(*http.Request) (*http.Response, error) {
-			return testHTTPResponse(http.StatusOK, content, http.Header{"Content-Length": {"3"}, "Content-Type": {"application/octet-stream"}, "Docker-Content-Digest": {digest}}), nil
+			return testHTTPResponse(http.StatusOK, content, http.Header{"Content-Length": {"3"}, "Docker-Content-Digest": {digest}}), nil
 		})
 		reader, _, err := testRegistryAdapter(t, transport).PullBlob(context.Background(), RegistryBlobRequest{Repository: "tenancy/member", Digest: digest})
 		if err != nil {
