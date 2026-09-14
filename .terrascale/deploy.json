@@ -1,0 +1,68 @@
+{
+  "repository": "TerraScale.Orchestrator",
+  "prProfiles": [
+    {
+      "name": "static",
+      "resourceWeight": "light",
+      "commands": [
+        {
+          "description": "Fail on unformatted Go sources",
+          "command": "bash",
+          "arguments": ["-c", "test -z \"$(gofmt -l .)\""]
+        },
+        {
+          "description": "Vet the Go module",
+          "command": "go",
+          "arguments": ["vet", "./..."]
+        }
+      ]
+    },
+    {
+      "name": "build",
+      "resourceWeight": "medium",
+      "commands": [
+        {
+          "description": "Build the Go module",
+          "command": "go",
+          "arguments": ["build", "./..."]
+        }
+      ]
+    },
+    {
+      "name": "test",
+      "resourceWeight": "heavy",
+      "commands": [
+        {
+          "description": "Run Go tests",
+          "command": "go",
+          "arguments": ["test", "./..."]
+        },
+        {
+          "description": "Run Go tests with the race detector",
+          "command": "go",
+          "arguments": ["test", "-race", "./..."]
+        }
+      ]
+    },
+    {
+      "name": "artifact",
+      "resourceWeight": "heavy",
+      "commands": [
+        {
+          "description": "Build the linux-x64 and linux-arm64 artifacts",
+          "command": "podman",
+          "arguments": [
+            "build",
+            "--file",
+            ".terrascale/ci.Dockerfile",
+            "--target",
+            "ci-artifact",
+            "--output",
+            "type=local,dest=artifacts/orchestrator",
+            "."
+          ]
+        }
+      ]
+    }
+  ]
+}
