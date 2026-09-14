@@ -49,16 +49,17 @@ Dispositions: **ACCEPT** — adopted, all attributes frozen, adapters must confo
 
 ## 2. Closed subject taxonomy
 
-Canonical definitions: `src/TerraScale.Orchestrator/Protocol/Messaging/NatsSubjectTaxonomy.cs`. Production adapters compose subjects only through the taxonomy; the tests reject `ts.orch` and `ts.product` literals outside the canonical package.
+Canonical definitions: `src/orchestrator/protocol/nats_subject_taxonomy.go`. Production adapters compose subjects only through the taxonomy; the protocol tests reject `ts.orch` and `ts.product` literals outside the canonical package.
 
 | Namespace | Root / pattern | Status | Notes |
 | --- | --- | --- | --- |
-| Global authority | `ts.orch.v1.global.desired.>` and release subjects | landed | GRU-owned global journals: `desired.gitops.<cell>` (GLOBAL_SPEC), signed delivery ledger keys. |
-| Global directory | `ts.orch.v1.global.query.cells` | landed | Served by the GRU directory-service identity over the standalone snapshot. |
-| Regional control | `ts.orch.v1.<cell>.{query,command,observation,desired}.>` | landed | Controller services, journal mutation admission, startup observations, and accepted CellSpecs. |
-| Operations | `ts.orch.v1.<cell>.operation.>` | landed | Authoritative regional operation history. |
-| Agent | `ts.orch.v1.<cell>.agent.>` | reserved | Host-agent channels; work-queue semantics when landed. |
-| Audit | `ts.orch.v1.<cell>.audit.>` and `ts.orch.v1.global.audit.>` | reserved | Audit history is authoritative and export-only. |
+| Global authority | `ts.orch.v2.global.>` (minus `ci.>`, `query.cells`, `audit.>`) | landed | GRU-owned global journals: `desired.gitops.<cell>` (GLOBAL_SPEC), release/CI ledger keys. |
+| Global directory | `ts.orch.v2.global.query.cells` | landed | Served by the GRU directory-service identity over the standalone snapshot. |
+| Regional control | `ts.orch.v2.<cell>.{query,command,observation,desired}.>` | landed | Controller services, journal mutation admission, startup observations, and accepted CellSpecs. |
+| Operations | `ts.orch.v2.<cell>.operation.>` | landed | Authoritative regional operation history. |
+| Continuous integration | `ts.orch.v2.global.release.ci.>` | landed | `forgejo` triggers, `runtime-proof` observations, `job.<zone>.<hash>` runner inboxes. |
+| Agent | `ts.orch.v2.<cell>.agent.>` | reserved | Host-agent channels; work-queue semantics when landed. |
+| Audit | `ts.orch.v2.<cell>.audit.>` and `ts.orch.v2.global.audit.>` | reserved | Audit history is authoritative and export-only. |
 | Product plane | `ts.product.…` | rejected from control | Separate trust plane and clusters; no control subject is ever defined under it. |
 
 Platform-reserved NATS roots (`$JS`, `$KV`, `$O`, `$SRV`, `$SYS`, `_INBOX`, `_R_`, `#`) are not control subjects; classification returns `PlatformReserved`, and unknown subjects fail closed.
@@ -78,14 +79,17 @@ Fail-closed validation (`MessagingEnvelopeValidator`, typed rejections, all cove
 
 | Subject pattern | Class | Loss meaning |
 | --- | --- | --- |
-| `ts.orch.v1.global.query.cells` | Lossy | request/reply over the durable directory snapshot |
-| `ts.orch.v1.global.desired.gitops.>` | AuthoritativeJournal | GLOBAL_SPEC authority |
-| `ts.orch.v1.*.query.>`, `ts.orch.v1.*.command.>` | Lossy | caller-visible retry; effects journaled separately |
-| `ts.orch.v1.*.observation.>` | Replayable | CELL_EVENTS bounded history |
-| `ts.orch.v1.*.desired.>` | AuthoritativeJournal | accepted CellSpec history (CELL_SPEC) |
-| `ts.orch.v1.*.operation.>` | AuthoritativeJournal | authoritative regional journals |
-| `ts.orch.v1.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
-| `ts.orch.v1.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
+| `ts.orch.v2.global.query.cells` | Lossy | request/reply over the durable directory snapshot |
+| `ts.orch.v2.global.desired.gitops.>` | AuthoritativeJournal | GLOBAL_SPEC authority |
+| `ts.orch.v2.global.release.ci.forgejo` | WorkQueue | leader-only trigger decisions |
+| `ts.orch.v2.global.release.ci.job.>` | WorkQueue | fenced per-runner inbox (MaxAckPending 1) |
+| `ts.orch.v2.global.release.ci.runtime-proof` | Replayable | bounded durable observations |
+| `ts.orch.v2.*.query.>`, `ts.orch.v2.*.command.>` | Lossy | caller-visible retry; effects journaled separately |
+| `ts.orch.v2.*.observation.>` | Replayable | CELL_EVENTS bounded history |
+| `ts.orch.v2.*.desired.>` | AuthoritativeJournal | accepted CellSpec history (CELL_SPEC) |
+| `ts.orch.v2.*.operation.>` | AuthoritativeJournal | authoritative regional journals |
+| `ts.orch.v2.*.agent.>` (reserved) | WorkQueue | host-agent command/ack |
+| `ts.orch.v2.*.audit.>` (reserved) | AuthoritativeJournal | audit history, export-only |
 
 Store classes (`StoreRules`): authoritative journals — `ORCH_OPERATIONS`, `GLOBAL_DELIVERIES`; snapshots — `GLOBAL_CELLS`, `CELL_BUNDLES`, `ORCH_PROTOCOL_PACKAGE`; coordination (lossy in the contract sense — CAS plus epochs carry correctness) — `ORCH_LEADERS`, `ORCH_RUNTIME`, `ORCH_DELIVERY`, `ORCH_OPERATION_PROOFS`. A drift test pins every landed bucket to a declared class.
 

@@ -27,11 +27,11 @@ that a separate regional cluster is installed or required for every Region.
 
 | Stream | Domain | Subjects | Class | R | Retention | Max age | Max bytes | Discard | Duplicate window | Terminal evidence behavior |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `CELL_SPEC` | RegionalCell | `ts.orch.v1.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence; exhaustion warns on the final delivery. |
-| `CELL_OPERATIONS` | RegionalCell | `ts.orch.v1.{cell}.operation.>` | AuthoritativeJournal | 3 | Limits | 30 d | 1 GiB | Old | 2 min | KV CAS plus operation proofs fence every append. |
-| `CELL_EVENTS` | RegionalCell | `ts.orch.v1.{cell}.observation.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
-| `GLOBAL_SPEC` | GlobalControl | `ts.orch.v1.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence. |
-| `GLOBAL_CI` | GlobalControl | `ts.orch.v2.global.release.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts, runner identity conflicts, and exhausted deliveries produce terminal evidence. |
+| `CELL_SPEC` | RegionalCell | `ts.orch.v2.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence; exhaustion warns on the final delivery. |
+| `CELL_OPERATIONS` | RegionalCell | `ts.orch.v2.{cell}.operation.>` | AuthoritativeJournal | 3 | Limits | 30 d | 1 GiB | Old | 2 min | KV CAS plus operation proofs fence every append. |
+| `CELL_EVENTS` | RegionalCell | `ts.orch.v2.{cell}.observation.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
+| `GLOBAL_SPEC` | GlobalControl | `ts.orch.v2.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts terminate with terminal evidence. |
+| `GLOBAL_CI` | GlobalControl | `ts.orch.v2.global.release.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts and runner identity conflicts terminate loudly; exhaustion warns on the final delivery. |
 
 ### Required placement and current implementation
 
@@ -74,9 +74,9 @@ and promotion must never permit a subsequent downgrade.
 
 | Consumer | Stream | Filter subject | Ownership | Ack | Max deliver | Backoff | Max pending | Batch / expires / waiting |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `runtime_startup` | `CELL_EVENTS` | `ts.orch.v1.{cell}.observation.runtime.started.>` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
-| `gitops_cell_spec_{instance}` | `CELL_SPEC` | `ts.orch.v1.{cell}.desired.gitops` | RegionalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
-| `gitops_global_cell_spec_{cell}` | `GLOBAL_SPEC` | `ts.orch.v1.global.desired.gitops.{cell}` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
+| `runtime_startup` | `CELL_EVENTS` | `ts.orch.v2.{cell}.observation.runtime.started.>` | RegionalEquivalentWorkers | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
+| `gitops_cell_spec_{instance}` | `CELL_SPEC` | `ts.orch.v2.{cell}.desired.gitops` | RegionalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
+| `gitops_global_cell_spec_{cell}` | `GLOBAL_SPEC` | `ts.orch.v2.global.desired.gitops.{cell}` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 8 | 1 / 30 s / 8 |
 | `global_ci_trigger` | `GLOBAL_CI` | `ts.orch.v2.global.release.ci.forgejo` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | — / — / 16 |
 | `global_ci_runtime_proof` | `GLOBAL_CI` | `ts.orch.v2.global.release.ci.runtime-proof` | GlobalFencedAuthority | Explicit | 5 | 1/5/15/30 s | 32 | 1 / 30 s / 16 |
 | `ci_runner_{zone}_{runner}` | `GLOBAL_CI` | `ts.orch.v2.global.release.ci.job.{zone}.{runner}` | ReconciledRunnerIdentity | Explicit | 5 | 1/5/15/30 s | 1 | 1 / 30 s / 4 |

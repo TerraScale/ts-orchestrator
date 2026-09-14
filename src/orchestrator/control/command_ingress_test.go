@@ -59,7 +59,7 @@ func TestNatsCommandIngressAdmitsOnceAndRejectsHostileReplay(t *testing.T) {
 	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	var dispatches atomic.Int32
 	now := time.Now().UTC()
 	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
@@ -135,7 +135,7 @@ func TestNatsCommandIngressRejectsMemoryReplayForMultiInstance(t *testing.T) {
 	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	if _, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
 		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
 		Replay: replay, MultiInstance: true, ExpectedCell: cell, ExpectedAggregateId: aggregate,
@@ -147,6 +147,55 @@ func TestNatsCommandIngressRejectsMemoryReplayForMultiInstance(t *testing.T) {
 	}
 }
 
+func TestNatsCommandIngressStartsAndStopsExactSubscription(t *testing.T) {
+	connection := startIngressTestNATS(t)
+	replay, err := security.NewMemoryCommandReplayStore(4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := security.NewCommandSecurityBoundary(ingressAlwaysValidVerifier{}, replay, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell, _ := contracts.CellIdTryCreate("sfo")
+	aggregate, _ := contracts.AggregateIdTryCreate("runtime")
+	generation, _ := protocol.DesiredGenerationTryCreate(1)
+	epoch, _ := protocol.WriterEpochTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
+	started := make(chan struct{}, 1)
+	ingress, err := NewNatsCommandIngress(NatsCommandIngressConfiguration{
+		Connection: connection, Subject: "ts.orch.v2.sfo.command.runtime", Boundary: boundary,
+		ExpectedCell: cell, ExpectedAggregateID: aggregate, MinimumDesiredGeneration: generation,
+		MinimumWriterEpoch: epoch, AcceptedProtocolVersions: []protocol.ProtocolRevision{version},
+		PayloadDigestVerifier: ingressDigestVerifier{}, Dispatch: func(context.Context, protocol.CommandEnvelope) error {
+			started <- struct{}{}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := ingress.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ingress.Completion():
+	case <-time.After(time.Second):
+		t.Fatal("ingress completion did not close")
+	}
+	select {
+	case <-started:
+		t.Fatal("lifecycle test unexpectedly dispatched a command")
+	default:
+	}
+}
+
 type ingressAlwaysValidVerifier struct{}
 
 func (ingressAlwaysValidVerifier) Verify(protocol.CommandSignedMaterial, protocol.OpaqueSignature) protocol.VerificationOutcome {
@@ -155,7 +204,7 @@ func (ingressAlwaysValidVerifier) Verify(protocol.CommandSignedMaterial, protoco
 
 func ingressTestEnvelope(t *testing.T, signer *security.CommandSignatureSigner, cell contracts.CellId, aggregate contracts.AggregateId, now time.Time) protocol.CommandEnvelope {
 	t.Helper()
-	version, _ := protocol.ProtocolRevisionTryCreate(1)
+	version, _ := protocol.ProtocolRevisionTryCreate(int64(protocol.ProtocolVersion.Current()))
 	generation, _ := protocol.DesiredGenerationTryCreate(1)
 	epoch, _ := protocol.WriterEpochTryCreate(1)
 	operation, _ := contracts.OperationIdTryCreate("runtime")
