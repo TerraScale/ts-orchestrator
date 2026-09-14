@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const maxOCIInstanceResults = 1024
@@ -52,7 +54,7 @@ type OCIComputeClient struct {
 
 func NewOCIComputeClient(oci *OCIHTTPTransport) (*OCIComputeClient, error) {
 	if oci == nil {
-		return nil, &ArgumentError{Param: "oci", Message: "OCI transport is required"}
+		return nil, &errs.Argument{Param: "oci", Message: "OCI transport is required"}
 	}
 	return &OCIComputeClient{OCI: oci, MaxInstances: maxOCIInstanceResults}, nil
 }
@@ -62,7 +64,7 @@ func (c *OCIComputeClient) Observe(ctx context.Context, t OciCiRunnerLaunchTempl
 		return nil, &InvalidOperationError{Message: "OCI compute client is unavailable"}
 	}
 	if !validInstanceTemplate(t) {
-		return nil, &ArgumentError{Message: "OCI instance observation scope is invalid"}
+		return nil, &errs.Argument{Message: "OCI instance observation scope is invalid"}
 	}
 	limit := c.MaxInstances
 	if limit < 1 || limit > maxOCIInstanceResults {
@@ -151,13 +153,13 @@ func (c *OCIComputeClient) Execute(ctx context.Context, action OciCiRunnerCapaci
 	case TerminateOciCiRunnerAction:
 		return c.terminate(ctx, a)
 	default:
-		return OciCiRunnerMutationReceipt{}, &ArgumentError{Message: "unsupported CI runner action"}
+		return OciCiRunnerMutationReceipt{}, &errs.Argument{Message: "unsupported CI runner action"}
 	}
 }
 
 func (c *OCIComputeClient) launch(ctx context.Context, a LaunchOciCiRunnerAction) (OciCiRunnerMutationReceipt, error) {
 	if !validInstanceTemplate(a.Template) || a.Demand.IdempotencyToken == "" {
-		return OciCiRunnerMutationReceipt{}, &ArgumentError{Message: "OCI runner launch request is invalid"}
+		return OciCiRunnerMutationReceipt{}, &errs.Argument{Message: "OCI runner launch request is invalid"}
 	}
 	r := CompileRunnerLaunch(a)
 	payload := struct {
@@ -245,7 +247,7 @@ func (c *OCIComputeClient) reconcileLaunch(ctx context.Context, a LaunchOciCiRun
 
 func (c *OCIComputeClient) terminate(ctx context.Context, a TerminateOciCiRunnerAction) (OciCiRunnerMutationReceipt, error) {
 	if !isOCID(a.InstanceId, "instance") || !isSafeETag(a.ETag) {
-		return OciCiRunnerMutationReceipt{}, &ArgumentError{Message: "OCI runner termination request is invalid"}
+		return OciCiRunnerMutationReceipt{}, &errs.Argument{Message: "OCI runner termination request is invalid"}
 	}
 	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodDelete, "/20160918/instances/"+url.PathEscape(a.InstanceId), nil, map[string]string{"If-Match": a.ETag})
 	if err != nil {
@@ -303,6 +305,12 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 	if c == nil || c.OCI == nil {
 		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node client is unavailable"}
 	}
+	if ctx == nil {
+		return CreateNodeProviderResponse{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return CreateNodeProviderResponse{}, err
+	}
 	if err := validateCreateRequestShape(r); err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
@@ -355,11 +363,11 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 
 func validateCreateRequestShape(r CreateNodeProviderRequest) error {
 	if r.Context.Action != ActionCreateNode || r.Context.ResourceKind != ResourceNode || !isOCID(r.Context.CompartmentId.Value, "compartment") || r.Context.Target == nil {
-		return &ArgumentError{Message: "OCI node create request is invalid"}
+		return &errs.Argument{Message: "OCI node create request is invalid"}
 	}
 	target, ok := r.Context.Target.(IdempotentProviderCreate)
 	if !ok || target.Key.Value == "" || target.Key.Value != r.Binding.CreateKey || r.Context.OperationId.Value == "" || r.Context.IdempotencyKey.Value == "" || r.Context.CompartmentId.Value != r.Binding.CompartmentId {
-		return &ArgumentError{Message: "OCI node create request has no create key"}
+		return &errs.Argument{Message: "OCI node create request has no create key"}
 	}
 	if _, err := canonicalToken(target.Key.Value, "createKey"); err != nil {
 		return err

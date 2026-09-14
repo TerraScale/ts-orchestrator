@@ -1,9 +1,9 @@
-// Package protocol owns the signed command envelope, NATS subject grammar and
-// taxonomy, checked-in manifest, and messaging contract tables. It knows
-// subjects and policy, not NATS clients.
+// Package protocol defines the signed command envelope, NATS subject grammar,
+// checked-in manifest, and frozen messaging contracts. It knows policy and
+// subjects, not NATS clients.
 package protocol
 
-// ProtocolVersion exposes the one admitted control protocol version.
+// ProtocolVersion exposes the current wire version and compatibility check.
 var ProtocolVersion protocolVersionStatic
 
 type protocolVersionStatic struct{}

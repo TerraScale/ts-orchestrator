@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const BytesPerGiB uint64 = 1 << 30
@@ -44,7 +46,7 @@ type HTTPVolumeTransport struct{ OCI *OCIHTTPTransport }
 
 func (t HTTPVolumeTransport) GetVolume(ctx context.Context, r VolumeReadRequest) (*VolumeObservation, error) {
 	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") {
-		return nil, &ArgumentError{Message: "volume read identity is invalid"}
+		return nil, &errs.Argument{Message: "volume read identity is invalid"}
 	}
 	resp, err := t.OCI.Do(ctx, http.MethodGet, "/20160918/volumes/"+url.PathEscape(r.VolumeId.Value), nil)
 	if err != nil {
@@ -54,7 +56,7 @@ func (t HTTPVolumeTransport) GetVolume(ctx context.Context, r VolumeReadRequest)
 }
 func (t HTTPVolumeTransport) UpdateVolume(ctx context.Context, r VolumeUpdateRequest) (*VolumeObservation, error) {
 	if t.OCI == nil || !isOCID(r.VolumeId.Value, "volume") || !isOCID(r.CompartmentId.Value, "compartment") || !isSafeETag(r.IfMatch) || r.NewSize.Value == 0 || r.NewSize.Value%BytesPerGiB != 0 {
-		return nil, &ArgumentError{Message: "volume update request is invalid"}
+		return nil, &errs.Argument{Message: "volume update request is invalid"}
 	}
 	payload := struct {
 		SizeInGBs uint64 `json:"sizeInGBs"`
@@ -100,7 +102,7 @@ type BlockVolumeExpansionAdapter struct {
 
 func (s BlockVolumeExpansionAdapter) Expand(ctx context.Context, intent ProviderIntent) (VolumeExpansionResult, error) {
 	if ctx == nil {
-		return VolumeExpansionResult{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return VolumeExpansionResult{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return VolumeExpansionResult{}, err
@@ -285,15 +287,15 @@ func NewOCITransportConfig(region, endpoint string) (OCITransportConfig, error) 
 func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (OCITransportConfig, error) {
 	region = strings.TrimSpace(region)
 	if len(region) < 1 || len(region) > 63 || !regionPattern.MatchString(region) {
-		return OCITransportConfig{}, &ArgumentError{Message: "configured OCI region is not canonical"}
+		return OCITransportConfig{}, &errs.Argument{Message: "configured OCI region is not canonical"}
 	}
 	_, ok := ociServiceHost(service, region)
 	if !ok {
 		return OCITransportConfig{}, &ArgumentError{Message: "OCI service is invalid"}
 	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
-	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || !validOCIServiceHost(service, region, u.Host) {
-		return OCITransportConfig{}, &ArgumentError{Message: "OCI endpoint is invalid"}
+	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
+		return OCITransportConfig{}, &errs.Argument{Message: "OCI endpoint is invalid"}
 	}
 	u.Path = "/"
 	if service == "" {
@@ -316,8 +318,8 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" ||
 		config.Endpoint.Opaque != "" || config.Endpoint.RawPath != "" ||
 		(config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
-		!serviceOK || !validOCIServiceHost(config.Service, config.Region, config.Endpoint.Host) {
-		return nil, &ArgumentError{Message: "OCI endpoint is invalid"}
+		config.Endpoint.Host != "iaas."+config.Region+".oraclecloud.com" {
+		return nil, &errs.Argument{Message: "OCI endpoint is invalid"}
 	}
 	if config.Service == "" {
 		config.Service = OCIServiceCore
@@ -326,10 +328,10 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 		config.Timeout = 30 * time.Second
 	}
 	if config.MaxBodyBytes <= 0 || config.MaxBodyBytes > 16<<20 {
-		return nil, &ArgumentOutOfRangeError{Param: "maxBodyBytes"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "maxBodyBytes"}
 	}
 	if config.MaxRetries < 0 || config.MaxRetries > 5 {
-		return nil, &ArgumentOutOfRangeError{Param: "maxRetries"}
+		return nil, &errs.ArgumentOutOfRangeError{Param: "maxRetries"}
 	}
 	if client == nil {
 		client = &http.Client{Timeout: config.Timeout}
@@ -362,13 +364,13 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
 	}
 	if ctx == nil {
-		return nil, &ArgumentError{Message: "OCI context is required"}
+		return nil, &errs.Argument{Message: "OCI context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if !strings.HasPrefix(path, "/") || strings.ContainsAny(path, "\r\n") {
-		return nil, &ArgumentError{Message: "OCI path is invalid"}
+		return nil, &errs.Argument{Message: "OCI path is invalid"}
 	}
 	var data []byte
 	hasBody := body != nil
@@ -397,11 +399,11 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		}
 		req.Header.Set("Accept", "application/json")
 		if len(headers) > 16 {
-			return nil, &ArgumentError{Message: "OCI request headers exceed limit"}
+			return nil, &errs.Argument{Message: "OCI request headers exceed limit"}
 		}
 		for k, v := range headers {
 			if k == "" || strings.TrimSpace(k) != k || strings.ContainsAny(k+v, "\r\n") || strings.ContainsAny(k, ": \t") || len(v) > 4096 {
-				return nil, &ArgumentError{Message: "OCI request header is invalid"}
+				return nil, &errs.Argument{Message: "OCI request header is invalid"}
 			}
 			req.Header.Set(k, v)
 		}

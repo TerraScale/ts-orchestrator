@@ -1,0 +1,332 @@
+package control
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"time"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+)
+
+// NatsOperationJournalProvisioner mirrors the C# static class: it runs before
+// controllers start, using the separate infrastructure NATS identity.
+var NatsOperationJournalProvisioner natsOperationJournalProvisioner
+
+type natsOperationJournalProvisioner struct{}
+
+// ProvisionAsync mirrors the C# ProvisionAsync.
+func (natsOperationJournalProvisioner) ProvisionAsync(
+	ctx context.Context,
+	options *OrchestratorOptions,
+) error {
+	return NatsOperationJournalProvisioner.provision(ctx, options, true)
+}
+
+// ProvisionControllerAsync mirrors the C# ProvisionControllerAsync.
+func (natsOperationJournalProvisioner) ProvisionControllerAsync(
+	ctx context.Context,
+	options *OrchestratorOptions,
+) error {
+	return NatsOperationJournalProvisioner.provision(ctx, options, false)
+}
+
+func (natsOperationJournalProvisioner) provision(
+	ctx context.Context,
+	options *OrchestratorOptions,
+	includeAuthoritativeJournal bool,
+) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if options == nil {
+		return errors.New("Orchestrator options are required to provision ORCH_OPERATIONS.")
+	}
+	if options.InfrastructureNatsNKeyFile == nil || *options.InfrastructureNatsNKeyFile == "" {
+		return errors.New("The infrastructure NATS identity is required to provision ORCH_OPERATIONS.")
+	}
+
+	if options.InfrastructureNatsTls == nil {
+		return errors.New("Infrastructure mTLS is required to provision ORCH_OPERATIONS.")
+	}
+
+	connectionOptions := append([]nats.Option{
+		nats.Timeout(15 * time.Second),
+		nats.MaxReconnects(0),
+		natsNkeyOption(*options.InfrastructureNatsNKeyFile),
+	}, options.InfrastructureNatsTls.Options()...)
+	client, err := nats.Connect(options.NatsURL, connectionOptions...)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	js, err := jetstream.New(client)
+	if err != nil {
+		return err
+	}
+
+	topology := NewNatsTopology(options.Cell, options.Replicas, options.Instance)
+	if includeAuthoritativeJournal {
+		return NatsOperationJournalProvisioner.ProvisionTopologyAsync(ctx, client, js, topology)
+	}
+
+	return NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(ctx, client, js, topology)
+}
+
+// ProvisionTopologyAsync mirrors the C# ProvisionTopologyAsync.
+func (natsOperationJournalProvisioner) ProvisionTopologyAsync(
+	ctx context.Context,
+	client *nats.Conn,
+	js jetstream.JetStream,
+	topology *NatsTopology,
+) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if js == nil {
+		return errors.New("(Parameter 'js')")
+	}
+	if topology == nil {
+		return errors.New("(Parameter 'topology')")
+	}
+	if err := NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(ctx, client, js, topology); err != nil {
+		return err
+	}
+
+	if _, err := NatsOperationJournalStore.ProvisionAsync(ctx, client, js, js, topology.Operations()); err != nil {
+		return err
+	}
+
+	_, err := NatsOperationJournalStore.ProvisionAsync(
+		ctx, client, js, js, topology.OperationProofConsumptions())
+	return err
+}
+
+// ProvisionControllerTopologyAsync mirrors the C#
+// ProvisionControllerTopologyAsync.
+func (natsOperationJournalProvisioner) ProvisionControllerTopologyAsync(
+	ctx context.Context,
+	client *nats.Conn,
+	js jetstream.JetStream,
+	topology *NatsTopology,
+) error {
+	if ctx == nil {
+		return errors.New("(Parameter 'ctx')")
+	}
+	if client == nil {
+		return errors.New("(Parameter 'client')")
+	}
+	if js == nil {
+		return errors.New("(Parameter 'js')")
+	}
+	if topology == nil {
+		return errors.New("(Parameter 'topology')")
+	}
+	streams, err := topology.Streams()
+	if err != nil {
+		return err
+	}
+
+	for _, stream := range streams {
+		streamHandle, err := js.CreateOrUpdateStream(ctx, stream)
+		if err != nil {
+			return err
+		}
+		info, err := streamHandle.Info(ctx)
+		if err != nil {
+			return err
+		}
+		if err := NatsOperationJournalStore.ValidateExactStreamConfiguration(info.Config, stream); err != nil {
+			return err
+		}
+	}
+
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Leaders()); err != nil {
+		return err
+	}
+
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Runtime()); err != nil {
+		return err
+	}
+
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.Delivery()); err != nil {
+		return err
+	}
+
+	if _, err := natsOperationJournalOpenOrCreateTopologyKeyValue(ctx, js, topology.CommandReplay()); err != nil {
+		return err
+	}
+
+	bundles, err := natsOperationJournalOpenOrCreateObjectStore(ctx, js, topology.Bundles())
+	if err != nil {
+		return err
+	}
+
+	protocolPackage, err := natsOperationJournalOpenOrCreateObjectStore(
+		ctx, js, topology.ProtocolPackage())
+	if err != nil {
+		return err
+	}
+
+	_ = bundles
+
+	stored, err := protocolPackage.GetBytes(ctx, topology.ProtocolObject())
+	if err != nil {
+		if !errors.Is(err, jetstream.ErrObjectNotFound) {
+			return err
+		}
+
+		if _, err := protocolPackage.PutBytes(ctx, topology.ProtocolObject(), NatsProtocolPackageBytes); err != nil {
+			return err
+		}
+
+		stored, err = protocolPackage.GetBytes(ctx, topology.ProtocolObject())
+		if err != nil {
+			return err
+		}
+	}
+
+	if !bytes.Equal(stored, NatsProtocolPackageBytes) {
+		return errors.New("NATS protocol package failed its integrity check.")
+	}
+
+	startupConsumer, err := topology.StartupConsumer()
+	if err != nil {
+		return err
+	}
+
+	if err := natsOperationJournalCreateOrUpdateAndValidateConsumer(
+		ctx, js, "CELL_EVENTS", startupConsumer); err != nil {
+		return err
+	}
+
+	cellSpecConsumer, err := topology.CellSpecConsumer()
+	if err != nil {
+		return err
+	}
+
+	return natsOperationJournalCreateOrUpdateAndValidateConsumer(
+		ctx, js, "CELL_SPEC", cellSpecConsumer)
+}
+
+func natsOperationJournalOpenOrCreateTopologyKeyValue(
+	ctx context.Context,
+	js jetstream.JetStream,
+	configuration jetstream.KeyValueConfig,
+) (jetstream.KeyValue, error) {
+	store, err := js.KeyValue(ctx, configuration.Bucket)
+	if err != nil {
+		if !isJetStreamNotFound(err) {
+			return nil, err
+		}
+		store, err = js.CreateKeyValue(ctx, configuration)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	streamHandle, err := js.Stream(ctx, "KV_"+configuration.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	info, err := streamHandle.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := NatsOperationJournalStore.ValidatePlainTopologyKeyValueConfiguration(info.Config, configuration); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func natsOperationJournalCreateOrUpdateAndValidateConsumer(
+	ctx context.Context,
+	js jetstream.JetStream,
+	stream string,
+	configuration jetstream.ConsumerConfig,
+) error {
+	streamHandle, err := js.Stream(ctx, stream)
+	if err != nil {
+		return err
+	}
+
+	consumer, err := streamHandle.CreateOrUpdateConsumer(ctx, configuration)
+	if err != nil {
+		return err
+	}
+
+	info, err := consumer.Info(ctx)
+	if err != nil {
+		return err
+	}
+
+	if !CiRunnerConsumerReconcilerMatches(info, configuration, stream) {
+		return errors.New(
+			"An infrastructure-provisioned NATS consumer does not match its closed profile.")
+	}
+
+	return nil
+}
+
+func natsOperationJournalOpenOrCreateObjectStore(
+	ctx context.Context,
+	js jetstream.JetStream,
+	configuration jetstream.ObjectStoreConfig,
+) (jetstream.ObjectStore, error) {
+	store, err := js.ObjectStore(ctx, configuration.Bucket)
+	if err == nil {
+		if err := natsOperationJournalValidateObjectStore(ctx, js, store, configuration); err != nil {
+			return nil, err
+		}
+
+		return store, nil
+	}
+
+	if !isJetStreamNotFound(err) {
+		return nil, err
+	}
+
+	store, err = js.CreateObjectStore(ctx, configuration)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := natsOperationJournalValidateObjectStore(ctx, js, store, configuration); err != nil {
+		return nil, err
+	}
+
+	return store, nil
+}
+
+func natsOperationJournalValidateObjectStore(
+	ctx context.Context,
+	js jetstream.JetStream,
+	store jetstream.ObjectStore,
+	configuration jetstream.ObjectStoreConfig,
+) error {
+	streamHandle, err := js.Stream(ctx, "OBJ_"+configuration.Bucket)
+	if err != nil {
+		return err
+	}
+
+	info, err := streamHandle.Info(ctx)
+	if err != nil {
+		return err
+	}
+
+	return NatsOperationJournalStore.ValidateExactObjectConfiguration(info.Config, configuration)
+}
+
+func isJetStreamNotFound(err error) bool {
+	return errors.Is(err, jetstream.ErrBucketNotFound) ||
+		errors.Is(err, jetstream.ErrStreamNotFound) ||
+		errors.Is(err, jetstream.ErrObjectNotFound)
+}
