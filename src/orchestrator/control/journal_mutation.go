@@ -4,10 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -927,16 +924,6 @@ func natsRequestReplyOnce(
 	}
 }
 
-func sha256Sum(data []byte) []byte {
-	digest := sha256.Sum256(data)
-	return digest[:]
-}
-
-// NatsOperationJournalMutationReplySigner signs mutation replies.
-type NatsOperationJournalMutationReplySigner struct {
-	key *ecdsa.PrivateKey
-}
-
 // NatsOperationJournalMutationReplySignerLoad loads a reply signing key.
 func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJournalMutationReplySigner, error) {
 	_, data, err := natsJournalReadFile(path, 8192, true)
@@ -964,129 +951,7 @@ func NatsOperationJournalMutationReplySignerLoad(path string) (*NatsOperationJou
 		return nil, errors.New("The reply signing key is not an ECDSA key.")
 	}
 
-	return &NatsOperationJournalMutationReplySigner{key: privateKey}, nil
-}
-
-// Sign creates a signed operation-journal reply.
-func (s *NatsOperationJournalMutationReplySigner) Sign(
-	succeeded bool,
-	revision uint64,
-	requestDigest string,
-) NatsOperationJournalMutationReply {
-	reply := NatsOperationJournalMutationReply{
-		SchemaVersion: protocol.ProtocolVersion.Current(),
-		Succeeded:     succeeded,
-		Revision:      revision,
-		RequestDigest: requestDigest,
-		Signature:     "",
-	}
-
-	if s == nil || s.key == nil {
-		return reply
-	}
-	if signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum([]byte(reply.Payload()))); err == nil {
-		reply.Signature = base64.StdEncoding.EncodeToString(signature)
-	}
-
-	return reply
-}
-
-// SignRuntime creates a signed lifecycle-journal reply.
-func (s *NatsOperationJournalMutationReplySigner) SignRuntime(
-	status int,
-	revision uint64,
-	checkpoint *string,
-	requestDigest string,
-) NatsRuntimeLifecycleJournalReply {
-	reply := NatsRuntimeLifecycleJournalReply{
-		SchemaVersion: RuntimeLifecycleNatsProtocolSchemaVersion,
-		Status:        status,
-		Revision:      revision,
-		Checkpoint:    checkpoint,
-		RequestDigest: requestDigest,
-		Signature:     "",
-	}
-
-	if s == nil || s.key == nil {
-		return reply
-	}
-	if signature, err := ecdsa.SignASN1(rand.Reader, s.key, sha256Sum([]byte(reply.Payload()))); err == nil {
-		reply.Signature = base64.StdEncoding.EncodeToString(signature)
-	}
-
-	return reply
-}
-
-// ExportPublicKey returns the signer's PKIX public key.
-func (s *NatsOperationJournalMutationReplySigner) ExportPublicKey() ([]byte, error) {
-	if s == nil || s.key == nil {
-		return nil, errors.New("The reply signing key is unavailable.")
-	}
-	return x509.MarshalPKIXPublicKey(&s.key.PublicKey)
-}
-
-// Dispose releases signer resources.
-func (s *NatsOperationJournalMutationReplySigner) Dispose() {}
-
-// NatsOperationJournalMutationReplyVerifier verifies signed journal replies.
-type NatsOperationJournalMutationReplyVerifier struct {
-	publicKey []byte
-}
-
-// NewNatsOperationJournalMutationReplyVerifier creates a reply verifier.
-func NewNatsOperationJournalMutationReplyVerifier(publicKey []byte) *NatsOperationJournalMutationReplyVerifier {
-	copied := append([]byte(nil), publicKey...)
-	return &NatsOperationJournalMutationReplyVerifier{publicKey: copied}
-}
-
-// Verify checks an operation-journal reply and its request binding.
-func (v *NatsOperationJournalMutationReplyVerifier) Verify(
-	reply *NatsOperationJournalMutationReply,
-	requestDigest string,
-) bool {
-	if reply == nil || reply.SchemaVersion != protocol.ProtocolVersion.Current() ||
-		reply.RequestDigest != requestDigest ||
-		strings.TrimSpace(reply.Signature) == "" {
-		return false
-	}
-
-	return v.verifySignature(sha256Sum([]byte(reply.Payload())), reply.Signature)
-}
-
-// VerifyRuntime checks a lifecycle-journal reply and its request binding.
-func (v *NatsOperationJournalMutationReplyVerifier) VerifyRuntime(
-	reply *NatsRuntimeLifecycleJournalReply,
-	requestDigest string,
-) bool {
-	if reply == nil || reply.SchemaVersion != RuntimeLifecycleNatsProtocolSchemaVersion ||
-		reply.RequestDigest != requestDigest ||
-		strings.TrimSpace(reply.Signature) == "" {
-		return false
-	}
-
-	return v.verifySignature(sha256Sum([]byte(reply.Payload())), reply.Signature)
-}
-
-func (v *NatsOperationJournalMutationReplyVerifier) verifySignature(digest []byte, signature string) bool {
-	if v == nil {
-		return false
-	}
-	parsed, err := x509.ParsePKIXPublicKey(v.publicKey)
-	if err != nil {
-		return false
-	}
-
-	key, ok := parsed.(*ecdsa.PublicKey)
-	if !ok || !natsJournalIsP256(key) {
-		return false
-	}
-
-	signatureBytes, err := base64.StdEncoding.DecodeString(signature)
-	if err != nil {
-		return false
-	}
-
-	return ecdsa.VerifyASN1(key, digest, signatureBytes)
+	return NewNatsOperationJournalMutationReplySigner(privateKey), nil
 }
 
 func natsJournalIsP256(key *ecdsa.PublicKey) bool {

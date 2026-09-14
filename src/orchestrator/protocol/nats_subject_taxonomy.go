@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 )
 
 // NatsSubjectTaxonomy mirrors the C# static class: the closed NATS subject
@@ -817,27 +819,9 @@ func isPlatformReservedRoot(token string) bool {
 	return len(token) > 0 && (token[0] == '$' || token[0] == '_' || token[0] == '#')
 }
 
-// cellTokenRuleIsValid replicates the internal CellTokenRule.IsValid from the
-// C# root folder: a 1..63 character lowercase DNS-style token that neither
-// starts nor ends with a dash.
-func cellTokenRuleIsValid(cell string) bool {
-	if len(cell) < 1 || len(cell) > 63 {
-		return false
-	}
-
-	if cell[0] == '-' || cell[len(cell)-1] == '-' {
-		return false
-	}
-
-	for index := 0; index < len(cell); index++ {
-		character := cell[index]
-		if (character < 'a' || character > 'z') && (character < '0' || character > '9') && character != '-' {
-			return false
-		}
-	}
-
-	return true
-}
+// cellTokenRuleIsValid preserves the protocol-local helper while delegating to
+// the dependency-neutral shared cell-token contract.
+func cellTokenRuleIsValid(cell string) bool { return contracts.CellTokenIsValid(cell) }
 
 type declaredFamily struct {
 	scope   ProtocolSubjectFamilyScope

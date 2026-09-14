@@ -17,7 +17,6 @@ var RuntimeLifecycleNatsProtocol runtimeLifecycleNatsProtocol
 type runtimeLifecycleNatsProtocol struct{}
 
 const (
-	RuntimeLifecycleNatsProtocolSchemaVersion          = 2
 	RuntimeLifecycleNatsProtocolMaximumCheckpointBytes = 16 * 1024
 	RuntimeLifecycleNatsProtocolReadAction             = "runtime-lifecycle-read"
 	RuntimeLifecycleNatsProtocolCreateAction           = "runtime-lifecycle-create"
@@ -189,24 +188,6 @@ func NewNatsRuntimeLifecycleJournalWriteRequest(schemaVersion int, cell, key str
 	authority NatsOperationJournalMutationAuthorityProof) *NatsRuntimeLifecycleJournalWriteRequest {
 	return &NatsRuntimeLifecycleJournalWriteRequest{schemaVersion, cell, key, expectedRevision, writerEpoch,
 		checkpoint, requestId, authority}
-}
-
-type NatsRuntimeLifecycleJournalReply struct {
-	SchemaVersion int
-	Status        int
-	Revision      uint64
-	Checkpoint    *string
-	RequestDigest string
-	Signature     string
-}
-
-func (r NatsRuntimeLifecycleJournalReply) Payload() string {
-	checkpoint := ""
-	if r.Checkpoint != nil {
-		checkpoint = *r.Checkpoint
-	}
-	return strings.Join([]string{strconv.Itoa(r.SchemaVersion), strconv.Itoa(r.Status),
-		strconv.FormatUint(r.Revision, 10), checkpoint, r.RequestDigest}, "|")
 }
 
 // checkpointJSONValue mirrors the .NET source-generated JSON shape for

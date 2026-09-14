@@ -1,4 +1,4 @@
-package control
+package monitoring
 
 import (
 	"errors"
@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/contracts"
 )
 
 // NatsServiceEndpointName mirrors the C# enum: the closed endpoint-name domain
@@ -96,7 +98,7 @@ func (m NatsServiceEndpointMeasurement) Validate() error {
 		m.P50Milliseconds > m.P95Milliseconds || m.P95Milliseconds > m.P99Milliseconds ||
 		m.MinimumMilliseconds > m.MaximumMilliseconds ||
 		(m.Requests > 0 && (m.P50Milliseconds < m.MinimumMilliseconds ||
-			m.P99Milliseconds < m.MaximumMilliseconds)) {
+			m.P99Milliseconds > m.MaximumMilliseconds)) {
 		return errors.New("The NATS service endpoint measurement is invalid.")
 	}
 
@@ -257,7 +259,7 @@ func NatsServiceStatsDocumentCreate(
 	observedAt time.Time,
 	endpoints []NatsServiceEndpointMeasurement,
 ) (*NatsServiceStatsDocument, error) {
-	if !messagingCellTokenIsValid(cell) {
+	if !contracts.CellTokenIsValid(cell) {
 		return nil, errors.New("The cell is not a bounded token. (Parameter 'cell')")
 	}
 
@@ -285,7 +287,7 @@ func NatsServiceStatsDocumentCreate(
 // Validate mirrors the C# Validate.
 func (d *NatsServiceStatsDocument) Validate() error {
 	if d.SchemaVersion != NatsServiceStatsDocumentCurrentSchemaVersion ||
-		!messagingCellTokenIsValid(d.Cell) ||
+		!contracts.CellTokenIsValid(d.Cell) ||
 		d.Service != "terrascale_orchestrator_"+d.Cell ||
 		d.Version == "" || d.SchemaGeneration <= 0 || d.ObservedAt.IsZero() {
 		return errors.New("The NATS service stats document is invalid.")
