@@ -28,6 +28,22 @@ runtime, or routing mutation by itself.
 
 ## Required machine migration
 
-DEP-3 owns the external handoff contract. Until DEP-3 adds and wires that
-machine contract, external candidate documents and unsupported schema versions
-fail closed.
+DEP-3 must add the external handoff as code before this document can describe
+it as current behavior. The migration must include:
+
+- one bounded schema shared with `ts-deploy`;
+- strict parsing with duplicate-key and unknown-field rejection;
+- signature, audience, expiry, source, test, target, and immutable-digest
+  checks;
+- idempotent replay and conflict behavior backed by the durable journal;
+- a translation into the current internal `DeliveryPlan` without granting
+  mutation authority; and
+- cross-repository fixtures consumed by automated tests on both sides.
+
+The migration must preserve published image digests through promotion and
+rollback. It must keep credentials, provider responses, customer content,
+benchmark authorization, mutable tags, free-form commands, and rollout
+approval out of the handoff.
+
+No external candidate document is currently accepted. Any future parser must
+fail closed for unsupported schema versions and must preserve these checks.

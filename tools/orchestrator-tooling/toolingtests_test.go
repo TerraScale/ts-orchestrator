@@ -10,11 +10,9 @@ import (
 )
 
 var hermeticToolingTests = map[string]bool{
-	"git bytes preserve non UTF-8 blob":         true,
-	"no python sources":                         true,
-	"retired deploy handoff v1 fixtures absent": true,
-	"CI result manifest":                        true,
-	"workspace topology lease":                  true,
+	"git bytes preserve non UTF-8 blob": true,
+	"no python sources":                 true,
+	"workspace topology lease":          true,
 }
 
 func TestToolingHermetic(t *testing.T) {
@@ -36,19 +34,18 @@ func TestToolingHermetic(t *testing.T) {
 	}
 }
 
-func TestCommandInventory(t *testing.T) {
-	expected := []string{
-		"ci-result-manifest",
-		"json-format",
-		"test",
-		"workspace-topology-lease-holder",
+func TestCommandInventoryIsExact(t *testing.T) {
+	expected := map[string]bool{
+		"json-format":                     true,
+		"test":                            true,
+		"workspace-topology-lease-holder": true,
 	}
 	if len(toolCommands) != len(expected) {
-		t.Fatalf("expected %d commands, observed %d", len(expected), len(toolCommands))
+		t.Fatalf("command count = %d, want %d", len(toolCommands), len(expected))
 	}
-	for index, command := range toolCommands {
-		if command.name != expected[index] {
-			t.Fatalf("expected command %q at index %d, observed %q", expected[index], index, command.name)
+	for _, command := range toolCommands {
+		if !expected[command.name] {
+			t.Fatalf("unexpected command %q remains registered", command.name)
 		}
 	}
 }

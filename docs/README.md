@@ -15,7 +15,7 @@ These documents describe the current system:
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
 | [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Current monitoring instruments, alerts, and fail-closed observation behavior |
 | [`contracts/controller-membership.md`](contracts/controller-membership.md) | Regional controller membership and the global cell directory |
-| [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Current delivery boundary and DEP-3 handoff ownership |
+| [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Lean candidate handoff and authority separation |
 | [`runbooks/nats-gateway-operations.md`](runbooks/nats-gateway-operations.md) | Gateway rotation and failure handling |
 | [`runbooks/nats-monitoring.md`](runbooks/nats-monitoring.md) | NATS alert interpretation and remediation |
 

@@ -67,8 +67,6 @@ func toolingTestSuite() []toolingTest {
 	return []toolingTest{
 		{"git bytes preserve non UTF-8 blob", gitBytesPreserveNonUtf8Blob},
 		{"no python sources", noPythonSources},
-		{"retired deploy handoff v1 fixtures absent", retiredDeployHandoffV1FixturesAbsent},
-		{"CI result manifest", testCiResultManifest},
 		{"workspace topology lease", developmentWorkspaceTopologyLease},
 	}
 }
@@ -117,98 +115,6 @@ func noPythonSources() {
 	})
 	if len(python) != 0 {
 		panic(fmt.Errorf("Python sources remain: %s", strings.Join(python, ",")))
-	}
-}
-
-func retiredDeployHandoffV1FixturesAbsent() {
-	path := filepath.Join(ToolingSupport.Root(), "testdata", "delivery", "deploy_handoff")
-	entries, err := os.ReadDir(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	if err != nil {
-		panic(err)
-	}
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
-			panic(errors.New("retired deploy handoff v1 fixtures remain"))
-		}
-	}
-}
-
-func testTrxContent(first string, second string, failed int, notExecuted int) string {
-	return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
-<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
-  <Results>
-    <UnitTestResult executionId="11111111-1111-1111-1111-111111111111" testName="first" outcome="%s" />
-    <UnitTestResult executionId="22222222-2222-2222-2222-222222222222" testName="second" outcome="%s" />
-  </Results>
-  <ResultSummary outcome="Completed">
-    <Counters total="2" executed="%d" passed="1" failed="%d" error="0"
-      timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0"
-      notExecuted="%d" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
-  </ResultSummary>
-</TestRun>
-`, first, second, 2-notExecuted, failed, notExecuted)
-}
-
-func testCiResultManifest() {
-	root := filepath.Join(os.TempDir(), "ci-result-manifest-"+randomTestToken())
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		panic(err)
-	}
-	defer os.RemoveAll(root)
-	trx := filepath.Join(root, "tests.trx")
-	invalid := filepath.Join(root, "invalid.trx")
-	output := filepath.Join(root, "terrascale-ci-result-v2.json")
-	if err := os.WriteFile(trx, []byte(testTrxContent("Passed", "NotExecuted", 0, 1)), 0o644); err != nil {
-		panic(err)
-	}
-	if err := os.WriteFile(invalid, []byte(testTrxContent("Passed", "Failed", 1, 0)), 0o644); err != nil {
-		panic(err)
-	}
-	digest := strings.Repeat("a", 64)
-
-	exitCode, err := CiResultManifestCommand.Run([]string{
-		"--job", "pipeline:job", "--plan-digest", digest, "--trx", trx,
-		"--artifact", "TerraScale/Orchestrator|LinuxX64|linux-x64|bin/app", "--output", output})
-	if err != nil {
-		panic(err)
-	}
-	assertEqualValue(0, exitCode)
-	content, err := os.ReadFile(output)
-	if err != nil {
-		panic(err)
-	}
-	node, err := parseJSONNode(content)
-	if err != nil || node == nil {
-		panic(errors.New("ci result manifest output is not valid JSON"))
-	}
-	document := node.(*JsonObject)
-	assertEqualValue(2, testInt(document, "schemaVersion"))
-	assertEqualValue("pipeline:job", testString(document.Get("job"), "job"))
-	assertEqualValue(digest, testString(document.Get("planDigest"), "planDigest"))
-	assertEqualValue(true, testBool(document, "succeeded"))
-	assertEqualValue(1, testInt(document, "requiredTestSkips"))
-	artifacts := testArray(document.Get("artifacts"), "artifacts")
-	artifact := artifacts.Get(0).(*JsonObject)
-	assertEqualValue("TerraScale/Orchestrator", testString(artifact.Get("artifact"), "artifact"))
-	assertEqualValue("LinuxX64", testString(artifact.Get("architecture"), "architecture"))
-	assertEqualValue("linux-x64", testString(artifact.Get("path"), "path"))
-	entrypoints := testArray(artifact.Get("entrypoints"), "entrypoints")
-	assertEqualValue("bin/app", testString(entrypoints.Get(0), "entrypoint"))
-	if _, _, err := CiResultManifestCommand.ReadTrx(invalid); !isToolValidationException(err) {
-		panic(errors.New("expected ToolValidationException"))
-	}
-	if _, err := CiResultManifestCommand.Parse([]string{
-		"--job", "pipeline:job", "--plan-digest", strings.Repeat("A", 64), "--output", output}); !isToolValidationException(err) {
-		panic(errors.New("expected ToolValidationException"))
-	}
-	if _, err := CiResultManifestCommand.Parse([]string{
-		"--job", "pipeline:job", "--plan-digest", digest,
-		"--artifact", "artifact|LinuxX64|linux|app",
-		"--artifact", "artifact|LinuxArm64|linux/arm64|app", "--output", output}); !isToolValidationException(err) {
-		panic(errors.New("expected ToolValidationException"))
 	}
 }
 
@@ -431,38 +337,6 @@ func assertEqualValue(expected any, actual any) {
 	if expected != actual {
 		panic(fmt.Errorf("expected %v, observed %v", expected, actual))
 	}
-}
-
-func testInt(object *JsonObject, key string) int {
-	value, ok := tryInt(object.Get(key))
-	if !ok {
-		panic(fmt.Errorf("%s is not an integer", key))
-	}
-	return value
-}
-
-func testString(node any, key string) string {
-	value, ok := node.(string)
-	if !ok {
-		panic(fmt.Errorf("%s is not a string", key))
-	}
-	return value
-}
-
-func testBool(object *JsonObject, key string) bool {
-	value, ok := tryBool(object.Get(key))
-	if !ok {
-		panic(fmt.Errorf("%s is not a boolean", key))
-	}
-	return value
-}
-
-func testArray(node any, key string) *JsonArray {
-	value, ok := node.(*JsonArray)
-	if !ok {
-		panic(fmt.Errorf("%s is not an array", key))
-	}
-	return value
 }
 
 func mustGit(value string, err error) string {

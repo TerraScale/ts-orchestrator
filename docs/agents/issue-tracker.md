@@ -1,11 +1,11 @@
 # Issue tracker: Forgejo
 
 Issues and specs for this repository live in Forgejo at `git.terrascale.tech`.
-Use the `fj` CLI for every Forgejo operation.
+Use the `fj` CLI for all Forgejo issue operations from inside the repository.
 
 ## Conventions
 
-- Run `fj` inside this repository so it selects the matching Forgejo project.
+- Create, read, search, comment, label, assign, and close issues with `fj`.
 - Infer the Forgejo repository from the current repository's `origin` remote.
 - Before any write, confirm that the selected Forgejo repository matches the current Git repository.
 - Preserve existing issue content and labels unless the task calls for changing them.
@@ -33,8 +33,8 @@ Create a Forgejo issue in the repository inferred from `origin`.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read the issue body, comments, labels, state, and assignees with
-`fj issue view`.
+Read the issue body, comments, labels, state, and assignees with `fj issue
+view`.
 
 ## Wayfinding operations
 

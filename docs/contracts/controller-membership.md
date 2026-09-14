@@ -45,7 +45,6 @@ stale are observations, not deletion or failover authority.
 Membership health does not currently grant mutation eligibility. A heartbeat
 records the publisher's observed authority term and revision, but no production
 boundary consumes membership and authority as one eligibility decision.
-`ControllerEligibilityRules.Decide` is pure policy with no runtime caller.
 
 Until that integration lands:
 

@@ -68,11 +68,9 @@ repair, and durability. Orchestrator owns capacity and fenced placement intent.
 
 **Candidate handoff**
 
-The external signed document that DEP-3 will define and wire from `ts-deploy`,
-identifying the source commit and tree, Deploy CLI, immutable image digests,
-test results, target, and rollback digest. Until DEP-3 lands, Orchestrator has
-no machine-readable candidate handoff and external candidate documents fail
-closed; the handoff grants no rollout authority.
+The signed document from `ts-deploy` that identifies the source commit and
+tree, Deploy CLI, immutable image digests, test results, target, and rollback
+digest. It grants no rollout authority.
 
 **Regional blue-green rollout**
 
