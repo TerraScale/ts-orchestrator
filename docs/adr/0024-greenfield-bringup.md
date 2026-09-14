@@ -12,7 +12,8 @@ A tag, familiar name, or matching address does not prove ownership.
 
 Resources that change during normal operation are managed through the fenced
 OCI provider. This includes compute instances, block volumes, attachments,
-registry pulls, Object Storage objects, and work requests.
+Object Storage objects, and work requests. Registry access is part of the
+verified estate configuration, not a second state owner.
 
 Until the end-to-end bootstrap command lands, an operator creates the one-time
 compartments, VCNs, subnets, network security groups, IAM policies, and Vault

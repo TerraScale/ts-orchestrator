@@ -39,8 +39,8 @@ NATS gateways form a control supercluster. Gateways carry approved subjects
 between domains, but no Raft group spans a WAN link. Regional clients connect
 to local servers.
 
-The control subject root is `ts.orch.v2`. V1 streams, consumers, credentials,
-and leases cannot acquire v2 authority.
+The control subject root is `ts.orch.v2`. Only streams, consumers, credentials,
+and leases under this root can acquire authority.
 
 NATS stores Orchestrator control state only. It never stores customer
 documents, WAL records, CRDT deltas, replication frames, query results,
@@ -151,12 +151,6 @@ owner.
 - A compromised region cannot use its identity in another region.
 - NATS carries references to secrets, never secret bytes or private keys.
 - Break-glass and disaster bootstrap require explicit owner authority.
-
-## Migration
-
-The checked-in adapter still contains v1 subjects and consumers. ORCH-1 moves
-`run`, `check`, journals, discovery, and delivery to `ts.orch.v2`, then deletes
-the v1 taxonomy, codecs, and tests. V1 and v2 never share authority.
 
 ## Verification
 

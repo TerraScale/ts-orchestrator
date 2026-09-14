@@ -92,4 +92,3 @@ tests are the release record. No parallel approval ledger exists.
 
 Only three regions are built and qualified for launch. The architecture keeps
 a ceiling of twenty, but regions four through twenty are post-launch work.
-Orchestrator exposes no compatibility API for another cluster manager.

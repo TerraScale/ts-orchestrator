@@ -10,6 +10,7 @@ Related ADRs:
 [ADR 0029](../adr/0029-offer-stateless-tenant-compute.md) (stateless tenant compute),
 [ADR 0031](../adr/0031-run-tenant-workloads-as-unprivileged-oci-containers.md) (unprivileged OCI workloads),
 [ADR 0033](../adr/0033-gru-global-authority-and-regional-autonomy.md) (GRU global authority and regional autonomy).
+The deleted ADR 0028 stays retired.
 
 ## Goal
 

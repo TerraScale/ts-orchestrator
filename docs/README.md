@@ -13,6 +13,7 @@ These documents describe the current system:
 | [`guides/running-locally.md`](guides/running-locally.md) | Local host-agent and autoscaler operation |
 | [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v2` streams and consumers |
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
+| [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Current monitoring instruments, alerts, and fail-closed observation behavior |
 | [`contracts/controller-membership.md`](contracts/controller-membership.md) | Regional controller membership and the global cell directory |
 | [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Lean candidate handoff and authority separation |
 | [`runbooks/nats-gateway-operations.md`](runbooks/nats-gateway-operations.md) | Gateway rotation and failure handling |

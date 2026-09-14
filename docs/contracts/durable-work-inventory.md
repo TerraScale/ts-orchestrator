@@ -19,9 +19,9 @@ Delivery claim: **effectively-once mutation through operation-level idempotency 
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `CELL_SPEC` | RegionalCell | `ts.orch.v2.{cell}.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts write a terminal record; exhaustion warns on the final delivery. |
 | `CELL_OPERATIONS` | RegionalCell | `ts.orch.v2.{cell}.operation.>` | AuthoritativeJournal | 3 | Limits | 30 d | 1 GiB | Old | 2 min | KV CAS plus operation proofs fence every append. |
-| `CELL_EVENTS` | RegionalCell | `ts.orch.v2.{cell}.event.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
+| `CELL_EVENTS` | RegionalCell | `ts.orch.v2.{cell}.observation.>` | Replayable | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Consumers reconcile from journals, so loss or replay is safe. |
 | `GLOBAL_SPEC` | GlobalControl | `ts.orch.v2.global.desired.>` | AuthoritativeJournal | 3 | Limits | 30 d | 256 MiB | Old | 2 min | Deterministic conflicts write a terminal record. |
-| `GLOBAL_CI` | GlobalControl | `ts.orch.v2.global.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts and runner identity conflicts terminate loudly; exhaustion warns on the final delivery. |
+| `GLOBAL_CI` | GlobalControl | `ts.orch.v2.global.release.ci.>` | WorkQueue | 3 | Limits | 30 d | 1 GiB | Old | 24 h | Trigger conflicts and runner identity conflicts terminate loudly; exhaustion warns on the final delivery. |
 
 ### Required placement and current implementation
 

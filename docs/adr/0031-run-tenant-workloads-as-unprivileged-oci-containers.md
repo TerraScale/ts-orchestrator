@@ -6,10 +6,9 @@ Tracking: [TerraScale.Orchestrator#27](https://git.terrascale.tech/TerraScale/Te
 
 TerraScale Orchestrator uses OCI containers as its only workload runtime.
 Signed first-party TerraScale services run as trusted containers from the
-closed catalog, and customer stateless or serverless workloads run as
-unprivileged, digest-pinned OCI containers under the tenant contract. There is
-no microVM, WebAssembly, or other virtualized tenant tier, and none may be
-reintroduced without a superseding decision.
+closed catalog. When post-launch tenant compute ships, customer stateless or
+serverless workloads run as unprivileged, digest-pinned OCI containers under
+the tenant contract.
 
 Each customer allocation receives its own non-root container, process
 namespace, and cgroup on a tenant-worker node, with all Linux capabilities
@@ -17,7 +16,7 @@ dropped, `no-new-privileges`, a read-only root filesystem, bounded disposable
 scratch, seccomp, and Landlock where supported. The platform owns public
 listeners and NATS consumers, so tenant containers receive neither raw NATS
 credentials nor unrestricted host networking. HTTP and TerraScale Project
-Queue remain the launch triggers.
+Queue are the initial triggers for the post-launch function service.
 
 Tenant isolation is a hardened shared-kernel container boundary. The owner
 accepts the residual kernel-sharing risk explicitly and controls it through
@@ -28,8 +27,7 @@ roles. Tenant images are admitted only by immutable digest from the tenant
 registry namespace and cannot request privileged execution, host paths, host
 devices, raw sockets, Linux capabilities, or first-party identities.
 
-This ADR permanently retires the previous microVM and WebAssembly runtime
-directions. [ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
+[ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
 
 ## Consequences
 
@@ -43,7 +41,3 @@ directions. [ADR 0029](0029-offer-stateless-tenant-compute.md) remains in force.
   review, testing, and adversarial escape gates.
 - TerraBase access uses a versioned capability or credential-hiding gateway
   scoped to the invoking tenant and project.
-- Bare metal, KVM, and WebAssembly runtimes are not launch requirements for
-  customer compute and may not be reintroduced as tenant tiers without a new
-  ADR; the repository retired-runtime policy tests block their return in
-  living source and documentation.

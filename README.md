@@ -3,8 +3,7 @@
 TerraScale Orchestrator is TerraScale's Go control plane. It provisions the
 OCI estate, schedules workloads on plain Linux hosts, manages regional
 capacity, coordinates TerraBase Member placement, and owns rollout and
-routing. It is intentionally not compatible with Kubernetes, Nomad, or ECS
-APIs.
+routing through a purpose-built control API.
 
 The workspace [`GOAL.md`](../GOAL.md) is the cross-repository authority. The
 repository [`GOAL.md`](GOAL.md) points to that authority and records any
@@ -91,8 +90,10 @@ go test -race ./...
 
 The local rootless runtime guide is
 [`docs/guides/running-locally.md`](docs/guides/running-locally.md). OCI setup
-belongs to the provider guide added by ORCH-5. Local process provisioning is a
-single-host test facility and does not survive an autoscaler restart.
+is documented in
+[`docs/guides/oci-manual-bootstrap.md`](docs/guides/oci-manual-bootstrap.md).
+Local process provisioning is a single-host test facility and does not survive
+an autoscaler restart.
 
 ## Documentation
 
@@ -100,5 +101,9 @@ single-host test facility and does not survive an autoscaler restart.
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
 - [GRU and regional authority](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
 - [Rootless Podman hosting](docs/architecture/podman-rootless-hosting-and-autoscaling.md)
+- [Durable work inventory](docs/contracts/durable-work-inventory.md)
+- [Controller membership](docs/contracts/controller-membership.md)
+- [NATS monitoring snapshot](docs/contracts/nats-monitoring-snapshot.md)
 - [NATS gateway operations](docs/runbooks/nats-gateway-operations.md)
 - [NATS monitoring](docs/runbooks/nats-monitoring.md)
+- [OCI manual bootstrap](docs/guides/oci-manual-bootstrap.md)

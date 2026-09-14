@@ -8,8 +8,7 @@ Use these names in code, issues, tests, and documentation.
 
 The Go control plane that provisions OCI, schedules TerraScale workloads on
 rootless Podman, manages regional capacity and routing, and coordinates
-TerraBase placement. It exposes no Kubernetes, Nomad, or ECS compatibility
-API.
+TerraBase placement through a purpose-built control API.
 
 **Global controller**
 

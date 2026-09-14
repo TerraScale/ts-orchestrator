@@ -54,8 +54,8 @@ The operation ID and candidate digest form the idempotency identity. Replaying
 the same signed document returns the same admission outcome. Reusing the
 operation ID with different bytes is a conflict and performs no mutation.
 
-## Migration
+## Protocol
 
-ORCH-1 moves delivery onto the `ts.orch.v2` subject and envelope taxonomy.
-DEP-3 updates the producer and shared corpus to this lean document. The old v1
-mapping and the candidate-qualification packet are not compatibility targets.
+Orchestrator delivery uses the `ts.orch.v2` subject and envelope taxonomy. The
+handoff is admitted through that contract before a regional rollout operation
+can bind it to current authority.
