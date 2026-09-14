@@ -83,10 +83,8 @@ A pre-cutover failure removes only green.
 
 The retained immutable image digest restored without rebuilding.
 
-A role in the closed `AdmittedRoleCatalog`. The catalog binds the role to an
-artifact key, allowed runtime drivers, capabilities, host placement rules,
-and minimum replicas. Examples include `orchestrator`, `terrabase-member`,
-`control-nats-server`, `product-nats-server`, `grafana`, and `ci-runner`.
+One admitted workload instance bound to a canonical plan fingerprint, node,
+resources, identity, configuration, and artifact digest.
 
 **Launch region**
 

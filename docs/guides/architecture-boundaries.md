@@ -3,7 +3,7 @@
 The workspace [`GOAL.md`](../../../GOAL.md) is authoritative. This page is the
 short map for Orchestrator contributors.
 
-## Product role
+## Product roles
 
 | Role | Boundary |
 | --- | --- |
@@ -16,10 +16,10 @@ short map for Orchestrator contributors.
 Orchestrator never becomes a customer data proxy. Dashboard and customer
 applications use the public Database API through `@terrascale/sdk`.
 
-GRU starts first and hosts the single active global master. Every Region runs
-its own regional orchestrator from initial admission. The master manages
-those processes; they reconcile local OCI resources and coordinate TerraBase
-members under fenced, Region-scoped authority.
+GRU owns the three-replica global authority. GRU, SFO, and FRA each own an
+autonomous three-replica regional group and a local JetStream R3 domain. NATS
+gateway links move approved control messages between domains. No JetStream
+Raft group spans regions.
 
 GRU owns the three-replica global authority. GRU, SFO, and FRA each own an
 autonomous three-replica regional group and a local JetStream R3 domain. NATS
