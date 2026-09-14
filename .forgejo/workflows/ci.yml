@@ -31,7 +31,7 @@ jobs:
           TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN: ${{ secrets.TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ -z "${TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN:-}" ]]; then
+          if [[ -z "${TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN}" ]]; then
             echo "X-8 is blocked: TERRASCALE_DEPLOY_REPOSITORY_READ_TOKEN is not configured." >&2
             exit 1
           fi
@@ -46,7 +46,6 @@ jobs:
             echo "X-8 is blocked: replace TS_DEPLOY_REVISION and TS_DEPLOY_EXPECTED_TREE with the accepted DEP-1 full commit and its Git tree." >&2
             exit 1
           fi
-
       - name: Fetch the exact reviewed Deploy source
         shell: bash
         env:
@@ -56,9 +55,8 @@ jobs:
           umask 077
           git_config_global="${RUNNER_TEMP}/terrascale-deploy-gitconfig"
           askpass="${RUNNER_TEMP}/terrascale-deploy-askpass"
-          askpass_wrapper="${RUNNER_TEMP}/terrascale-deploy-askpass-wrapper"
           cleanup() {
-            rm -f -- "${git_config_global}" "${askpass}" "${askpass_wrapper}"
+            rm -f -- "${git_config_global}" "${askpass}"
           }
           trap cleanup EXIT
           : >"${git_config_global}"
@@ -72,16 +70,9 @@ jobs:
           esac
           EOF
           chmod 600 "${askpass}"
-          cat >"${askpass_wrapper}" <<'EOF'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          exec /bin/sh "${TERRASCALE_ASKPASS_SCRIPT:?}" "$@"
-          EOF
-          chmod 700 "${askpass_wrapper}"
           test ! -e ts-deploy
           git init --initial-branch=empty ts-deploy
-          TERRASCALE_ASKPASS_SCRIPT="${askpass}" \
-          GIT_CONFIG_GLOBAL="${git_config_global}" GIT_ASKPASS="${askpass_wrapper}" GIT_TERMINAL_PROMPT=0 \
+          GIT_CONFIG_GLOBAL="${git_config_global}" GIT_ASKPASS="${askpass}" GIT_TERMINAL_PROMPT=0 \
             git -C ts-deploy -c credential.helper= fetch --no-tags --depth=1 \
             "https://git.terrascale.tech/${TS_DEPLOY_REPOSITORY}.git" "${TS_DEPLOY_REVISION}"
           git -C ts-deploy checkout --detach FETCH_HEAD
@@ -107,7 +98,7 @@ jobs:
           test "$(git rev-parse HEAD^{tree})" = "${TS_DEPLOY_EXPECTED_TREE}"
           mkdir -p "${GOBIN}"
           go build -trimpath -o "${GOBIN}/terrascale-deploy" ./cmd/terrascale-deploy
-          go version -m "${GOBIN}/terrascale-deploy"
+          go version -m "${GOBIN}/terrascale-deploy" | tee "${RUNNER_TEMP}/terrascale-deploy-build.txt"
           "${GOBIN}/terrascale-deploy" ci resolve-cli
 
       - uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5

@@ -7,19 +7,6 @@ if [[ $# -ne 1 || ! "$1" =~ ^artifacts/[A-Za-z0-9][A-Za-z0-9._-]*(/[A-Za-z0-9][A
 fi
 
 output="$1"
-current=""
-IFS='/' read -r -a output_components <<<"$output"
-for component in "${output_components[@]}"; do
-  if [[ -z "$current" ]]; then
-    current="$component"
-  else
-    current="$current/$component"
-  fi
-  if [[ -L "$current" ]]; then
-    echo "refusing symlinked artifact output component: $current" >&2
-    exit 2
-  fi
-done
 
 rm -rf -- "$output"
 
@@ -53,8 +40,8 @@ expected_text=$(printf '%s\n' "${expected_files[@]}")
 actual_text=$(printf '%s\n' "${actual_files[@]}")
 if [[ "$actual_text" != "$expected_text" ]]; then
   echo "artifact file set mismatch" >&2
-  printf 'expected:\n%s\n' "$expected_text" >&2
-  printf 'actual:\n%s\n' "$actual_text" >&2
+  printf 'expected:\n%s' "$expected_text" >&2
+  printf 'actual:\n%s' "$actual_text" >&2
   exit 1
 fi
 

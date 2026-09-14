@@ -19,7 +19,7 @@ const (
 	MaximumSourceFileBytes    = 1 << 20
 	MaximumSourceArchiveBytes = 256 << 20
 	MaximumChangedPaths       = 4096
-	CIDescriptorPath          = ".terrascale/ci-v2.json"
+	CIDescriptorPath          = ".terrascale/deploy.json"
 )
 
 type SourceConfig struct {
