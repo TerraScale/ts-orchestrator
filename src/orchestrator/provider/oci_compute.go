@@ -457,35 +457,71 @@ type OCIComputeNodeClient struct {
 	Ownership     DurableOwnershipEvidence
 }
 
+type ociNodeLaunchRequest struct {
+	authority     string
+	service       OCIService
+	region        string
+	compartmentID string
+	body          []byte
+	headers       map[string]string
+}
+
+func (r ociNodeLaunchRequest) digest() string {
+	return digestCanonical("oci-node-launch-request-v2", r.authority, string(r.service), r.region, http.MethodPost, "/20160918/instances", r.compartmentID, string(r.body), r.headers["opc-retry-token"])
+}
+
+func (c *OCIComputeNodeClient) transportBinding() (string, OCIService, string, error) {
+	if c == nil || c.OCI == nil || c.OCI.Config.Endpoint == nil {
+		return "", "", "", &InvalidOperationError{Message: "OCI node client is unavailable"}
+	}
+	config := c.OCI.Config
+	if config.Service != OCIServiceCore || config.Endpoint.Scheme != "https" || config.Endpoint.User != nil ||
+		config.Endpoint.RawQuery != "" || config.Endpoint.Fragment != "" || config.Endpoint.Opaque != "" ||
+		config.Endpoint.RawPath != "" || (config.Endpoint.Path != "" && config.Endpoint.Path != "/") ||
+		!regionPattern.MatchString(config.Region) || !validOCIServiceHost(config.Service, config.Region, config.Endpoint.Host) {
+		return "", "", "", &InvalidOperationError{Message: "OCI node client authority is invalid"}
+	}
+	return config.Endpoint.Host, config.Service, config.Region, nil
+}
+
 func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
-	if c == nil || c.OCI == nil {
-		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node client is unavailable"}
-	}
-	if c.OCI.Signer != nil && c.EstateBinding == nil {
-		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node client requires a verified estate network binding"}
-	}
-	if ctx == nil {
-		return CreateNodeProviderResponse{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
-	}
-	if err := ctx.Err(); err != nil {
-		return CreateNodeProviderResponse{}, err
-	}
-	if err := validateCreateRequestShape(r); err != nil {
-		return CreateNodeProviderResponse{}, err
-	}
-	parameters, ok := r.Context.ActionParameters.(CreateNodeProviderParameters)
-	if !ok || parameters != r.Parameters || parameters.TemplateId.Value != r.Binding.TemplateId || parameters.PlacementId.Value != r.Binding.PlacementId || parameters.BootstrapEnvelopeDigest.Sha256 != r.Binding.BootstrapEnvelopeDigest {
-		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node create parameters are not bound to the authorized request"}
-	}
-	if c.LaunchResolver == nil {
-		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node create requires an injected launch resolver"}
-	}
-	spec, err := c.LaunchResolver.Resolve(ctx, parameters.TemplateId, parameters.PlacementId, parameters.BootstrapEnvelopeDigest)
+	launch, err := c.prepareNodeLaunch(ctx, r)
 	if err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
-	if err := validateOciNodeLaunchSpecWithEstate(spec, r, c.EstateBinding); err != nil {
-		return CreateNodeProviderResponse{}, err
+	return c.executeNodeLaunch(ctx, launch)
+}
+
+func (c *OCIComputeNodeClient) prepareNodeLaunch(ctx context.Context, r CreateNodeProviderRequest) (ociNodeLaunchRequest, error) {
+	if c == nil || c.OCI == nil {
+		return ociNodeLaunchRequest{}, &InvalidOperationError{Message: "OCI node client is unavailable"}
+	}
+	if ctx == nil {
+		return ociNodeLaunchRequest{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
+	}
+	if err := ctx.Err(); err != nil {
+		return ociNodeLaunchRequest{}, err
+	}
+	authority, service, region, err := c.transportBinding()
+	if err != nil {
+		return ociNodeLaunchRequest{}, err
+	}
+	if err := validateCreateRequestShape(r); err != nil {
+		return ociNodeLaunchRequest{}, err
+	}
+	parameters, ok := r.Context.ActionParameters.(CreateNodeProviderParameters)
+	if !ok || parameters != r.Parameters || parameters.TemplateId.Value != r.Binding.TemplateId || parameters.PlacementId.Value != r.Binding.PlacementId || parameters.BootstrapEnvelopeDigest.Sha256 != r.Binding.BootstrapEnvelopeDigest {
+		return ociNodeLaunchRequest{}, &InvalidOperationError{Message: "OCI node create parameters are not bound to the authorized request"}
+	}
+	if c.LaunchResolver == nil {
+		return ociNodeLaunchRequest{}, &InvalidOperationError{Message: "OCI node create requires an injected launch resolver"}
+	}
+	spec, err := c.LaunchResolver.Resolve(ctx, parameters.TemplateId, parameters.PlacementId, parameters.BootstrapEnvelopeDigest)
+	if err != nil {
+		return ociNodeLaunchRequest{}, err
+	}
+	if err := validateOciNodeLaunchSpec(spec, r); err != nil {
+		return ociNodeLaunchRequest{}, err
 	}
 	target := r.Context.Target.(IdempotentProviderCreate)
 	payload := struct {
@@ -518,55 +554,47 @@ func (c *OCIComputeNodeClient) CreateNode(ctx context.Context, r CreateNodeProvi
 		SourceType string `json:"sourceType"`
 		ImageID    string `json:"imageId"`
 	}{SourceType: "image", ImageID: spec.ImageId}, Metadata: map[string]string{"user_data": spec.BootstrapBase64}, FreeformTags: map[string]string{"terrascale-operation": r.Context.OperationId.Value, "terrascale-create-key": target.Key.Value, "terrascale-idempotency-key": r.Context.IdempotencyKey.Value}}
-	proof := CreateNodeProviderRequestProof{
-		Authority: authority, Service: service, Region: region, Method: http.MethodPost, Path: "/20160918/instances",
-		CompartmentId: r.Binding.CompartmentId, RetryToken: r.Binding.IdempotencyKey, BindingDigest: r.Binding.Digest(),
-		OperationId: r.Binding.OperationId, CreateKey: r.Binding.CreateKey, CellId: r.Binding.CellId, Generation: r.Binding.Generation,
-		Body: mustJSON(payload),
-	}
-	proof.Digest = proof.calculatedDigest()
-	return ociNodeLaunchRequest{request: proof}, nil
-}
-
-func (c *OCIComputeNodeClient) validateNodeLaunchRequest(launch ociNodeLaunchRequest) error {
-	authority, service, region, err := c.transportBinding()
-	if err != nil {
-		return err
-	}
-	request := launch.request
-	if request.Authority != authority || request.Service != service || request.Region != region || request.Digest != request.calculatedDigest() ||
-		request.Method != http.MethodPost || request.Path != "/20160918/instances" || request.RetryToken == "" ||
-		!isOCID(request.CompartmentId, "compartment") || len(request.Body) == 0 || len(request.Body) > 128<<10 {
-		return &InvalidOperationError{Message: "OCI node launch request is unavailable"}
-	}
-	return nil
+	return ociNodeLaunchRequest{
+		authority:     authority,
+		service:       service,
+		region:        region,
+		compartmentID: r.Context.CompartmentId.Value,
+		body:          mustJSON(payload),
+		headers:       map[string]string{"opc-retry-token": r.Context.IdempotencyKey.Value},
+	}, nil
 }
 
 func (c *OCIComputeNodeClient) executeNodeLaunch(ctx context.Context, launch ociNodeLaunchRequest) (CreateNodeProviderResponse, error) {
+	if c == nil || c.OCI == nil {
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node client is unavailable"}
+	}
 	if ctx == nil {
 		return CreateNodeProviderResponse{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
-	if err := c.validateNodeLaunchRequest(launch); err != nil {
+	authority, service, region, err := c.transportBinding()
+	if err != nil {
 		return CreateNodeProviderResponse{}, err
 	}
-	request := launch.request
-	resp, err := c.OCI.DoWithHeaders(ctx, request.Method, request.Path, bytes.NewReader(request.Body), map[string]string{"opc-retry-token": request.RetryToken})
+	if launch.authority != authority || launch.service != service || launch.region != region ||
+		!isOCID(launch.compartmentID, "compartment") || len(launch.body) == 0 || launch.headers["opc-retry-token"] == "" {
+		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node launch request is unavailable"}
+	}
+	resp, err := c.OCI.DoWithHeaders(ctx, http.MethodPost, "/20160918/instances", bytes.NewReader(launch.body), launch.headers)
 	if err != nil {
-		var exhausted *ociResponseRetriesExhaustedError
-		if errors.As(err, &exhausted) {
+		var unknown *ProviderOutcomeUnknownError
+		if errors.As(err, &unknown) {
 			return CreateNodeProviderResponse{}, err
 		}
-		var unknown *ProviderOutcomeUnknownError
-		if errors.As(err, &unknown) || indeterminate(err) {
+		if indeterminate(err) {
 			return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node create outcome is unknown"}
 		}
 		return CreateNodeProviderResponse{}, err
 	}
 	if err := ociStatus(resp, "node create"); err != nil {
-		if resp.StatusCode == http.StatusTooManyRequests || (resp.StatusCode >= 500 && resp.StatusCode != http.StatusNotImplemented) {
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
 			return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node create outcome is unknown"}
 		}
 		return CreateNodeProviderResponse{}, err
@@ -576,18 +604,12 @@ func (c *OCIComputeNodeClient) executeNodeLaunch(ctx context.Context, launch oci
 		return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node create outcome is unknown"}
 	}
 	var item ociInstanceDocument
-	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") || item.CompartmentID != r.Context.CompartmentId.Value {
-		if recovered, recoveryErr := c.reconcileNodeCreate(ctx, r); recoveryErr == nil {
-			return recovered, nil
-		}
-		return CreateNodeProviderResponse{}, &InvalidDataError{Message: "OCI node create response is invalid"}
+	if json.Unmarshal(body, &item) != nil || !isOCID(item.ID, "instance") || item.CompartmentID != launch.compartmentID {
+		return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node create response is invalid and its outcome is unknown"}
 	}
 	work := safeHeader(resp, "opc-work-request-id")
 	if !validWorkRequestID(work) {
 		return CreateNodeProviderResponse{}, &ProviderOutcomeUnknownError{Message: "OCI node create response has no work request and its outcome is unknown"}
-	}
-	if err := waitOCIWorkRequest(ctx, c.WorkRequests, work); err != nil {
-		return CreateNodeProviderResponse{}, err
 	}
 	return CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: work}}, nil
 }
@@ -674,109 +696,14 @@ func (c *OCIComputeNodeClient) ReconcileCreateNode(ctx context.Context, r Create
 	if err := ctx.Err(); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
-	if _, _, _, err := c.transportBinding(); err != nil {
-		return CreateNodeReconciliation{}, err
-	}
 	if err := validateCreateRequestShape(r); err != nil {
 		return CreateNodeReconciliation{}, err
 	}
-	items, err := c.listNodeInstances(ctx, r.Context.CompartmentId.Value)
-	if err != nil {
-		return CreateNodeReconciliation{}, err
-	}
-	for _, item := range items {
-		if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != r.Context.CompartmentId.Value {
-			return CreateNodeReconciliation{}, &InvalidDataError{Message: "OCI node observation contains an out-of-scope resource"}
-		}
-	}
-	// Tags and broad ownership records cannot prove that an instance is the
-	// result of this exact launch. Observation is intentionally read-only and
-	// remains unknown; only journal-bound opc-retry-token replay can resolve it.
+	// OCI does not expose a create-operation binding on an instance. Tags and
+	// broad lifecycle ownership cannot identify the result of this exact
+	// launch, so direct reconciliation must remain unknown. The provider
+	// wrapper may use only its journal-bound exact opc-retry-token replay.
 	return CreateNodeReconciliation{Status: CreateNodeUnknown}, nil
-}
-
-func (c *OCIComputeNodeClient) listNodeInstances(ctx context.Context, compartment string) ([]ociInstanceDocument, error) {
-	v := url.Values{}
-	v.Set("compartmentId", compartment)
-	v.Set("limit", "1000")
-	items := make([]ociInstanceDocument, 0)
-	for page, pageCount := "", 0; ; pageCount++ {
-		resp, err := c.OCI.Do(ctx, http.MethodGet, "/20160918/instances?"+cloneOCIQuery(v, page), nil)
-		if err != nil {
-			return nil, err
-		}
-		if err := ociStatus(resp, "node reconciliation"); err != nil {
-			return nil, err
-		}
-		body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-		if err != nil {
-			return nil, err
-		}
-		pageItems, err := decodeOCIInstanceList(body)
-		if err != nil || len(pageItems) > maximumOCIListResults || len(items)+len(pageItems) > maximumOCIListResults*maximumOCIPages {
-			return nil, &InvalidDataError{Message: "OCI node reconciliation response is invalid"}
-		}
-		for _, item := range pageItems {
-			if !isOCID(item.ID, "instance") || !isOCID(item.CompartmentID, "compartment") || item.CompartmentID != compartment {
-				return nil, &InvalidDataError{Message: "OCI node reconciliation response is outside the requested compartment"}
-			}
-		}
-		items = append(items, pageItems...)
-		next, err := nextOCIPage(resp, page, pageCount)
-		if err != nil {
-			return nil, err
-		}
-		if next == "" {
-			return items, nil
-		}
-		page = next
-	}
-}
-
-func (c *OCIComputeNodeClient) reconcileNodeCreate(ctx context.Context, r CreateNodeProviderRequest) (CreateNodeProviderResponse, error) {
-	if c == nil || c.Ownership == nil || !c.Ownership.AuthoritativeDurable() {
-		return CreateNodeProviderResponse{}, &InvalidOperationError{Message: "OCI node create recovery requires authoritative ownership evidence"}
-	}
-	items, err := c.listNodeInstances(ctx, r.Context.CompartmentId.Value)
-	if err != nil {
-		return CreateNodeProviderResponse{}, err
-	}
-	for _, item := range items {
-		if item.FreeformTags["terrascale-create-key"] == r.Binding.CreateKey && item.FreeformTags["terrascale-operation"] == r.Context.OperationId.Value && isOCID(item.ID, "instance") {
-			record, owned, lookupErr := c.Ownership.Lookup(ctx, ProviderResourceId{Value: item.ID})
-			if lookupErr != nil {
-				return CreateNodeProviderResponse{}, lookupErr
-			}
-			if !owned || record.CompartmentId.Value != r.Context.CompartmentId.Value || record.Generation.Value != r.Binding.Generation {
-				continue
-			}
-			work := item.ETag
-			if work == "" {
-				work = "recovered-" + r.Binding.CreateKey
-			}
-			return CreateNodeProviderResponse{NodeId: ProviderResourceId{Value: item.ID}, WorkRequestId: ProviderWorkRequestId{Value: work}}, nil
-		}
-		if err := ociStatus(resp, "node observation"); err != nil {
-			return nil, err
-		}
-		body, err := ReadBoundedBody(resp, c.OCI.Config.MaxBodyBytes)
-		if err != nil {
-			return nil, err
-		}
-		pageItems, err := decodeOCIList[ociInstanceDocument](body)
-		if err != nil || len(pageItems) > maximumOCIListResults || len(items)+len(pageItems) > maxOCIInstanceResults {
-			return nil, &InvalidDataError{Message: "OCI node observation response is invalid"}
-		}
-		items = append(items, pageItems...)
-		next, err := nextOCIPage(resp, page, pageCount+1)
-		if err != nil {
-			return nil, err
-		}
-		if next == "" {
-			return items, nil
-		}
-		page = next
-	}
 }
 
 var _ RunnerCapacityAdapter = (*OCIComputeClient)(nil)
