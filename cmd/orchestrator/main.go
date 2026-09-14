@@ -40,8 +40,6 @@ const (
 	natsConfigAliasEnvironment       = "TS_ORCH_NATS_CONFIG_FILE"
 	natsReadinessAliasEnvironment    = "TS_ORCH_NATS_READINESS_TIMEOUT"
 	ociEstateFileEnvironment         = "TS_ORCH_OCI_ESTATE_FILE"
-	ociKeyIDEnvironment              = "TS_ORCH_OCI_KEY_ID"
-	ociPrivateKeyFileEnvironment     = "TS_ORCH_OCI_PRIVATE_KEY_FILE"
 	providerEnvironment              = "TS_ORCH_PROVIDER"
 
 	// The documented explicit configuration flags of the autoscaler role.
@@ -223,16 +221,14 @@ func verifyConfiguredOCIEstate(ctx context.Context, lookup envLookup) error {
 		return errors.New("provider selection is invalid")
 	}
 	estateFile, estatePresent := lookup(ociEstateFileEnvironment)
-	keyID, keyPresent := lookup(ociKeyIDEnvironment)
-	keyFile, keyFilePresent := lookup(ociPrivateKeyFileEnvironment)
-	if !estatePresent || !keyPresent || !keyFilePresent || strings.TrimSpace(estateFile) == "" || strings.TrimSpace(keyID) == "" || strings.TrimSpace(keyFile) == "" {
+	if !estatePresent || strings.TrimSpace(estateFile) == "" {
 		return errors.New("OCI estate verification configuration is required")
 	}
 	spec, err := provider.LoadOCIEstateSpec(estateFile)
 	if err != nil {
 		return err
 	}
-	reader, err := provider.NewOCIEstateHTTPReader(spec, keyID, keyFile)
+	reader, err := provider.NewOCIEstateHTTPReader(spec)
 	if err != nil {
 		return err
 	}
@@ -724,7 +720,7 @@ func writeCatalog(output io.Writer) error {
 		"TS_ORCH_JOURNAL_NATS_NKEY_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CA_FILE", "TS_ORCH_JOURNAL_NATS_TLS_CERT_FILE", "TS_ORCH_JOURNAL_NATS_TLS_KEY_FILE", "TS_ORCH_JOURNAL_AUTHORITY_PUBLIC_KEY_FILE", "TS_ORCH_JOURNAL_REPLY_SIGNING_KEY_FILE", "TS_ORCH_JOURNAL_CONTROLLER_NKEYS",
 		natsServerConfigEnvironment, natsServerReadinessEnvironment,
 		natsServerConfigAliasEnvironment, natsConfigAliasEnvironment, natsReadinessAliasEnvironment,
-		providerEnvironment, ociEstateFileEnvironment, ociKeyIDEnvironment, ociPrivateKeyFileEnvironment,
+		providerEnvironment, ociEstateFileEnvironment,
 		autoscalerTickIntervalEnvironment, autoscalerMinNodesEnvironment, autoscalerMaxNodesEnvironment,
 		autoscalerScaleUpHeadroomEnvironment, autoscalerScaleDownHeadroomEnvironment,
 		autoscalerScaleUpTicksEnvironment, autoscalerScaleDownTicksEnvironment,
