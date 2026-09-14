@@ -1,158 +1,104 @@
 # TerraScale orchestration terms
 
-Use these names in C# namespaces, code, tests, issues, and documentation. The
-workspace-level `GOAL.md`, when present alongside this repository, defines
-product scope; these terms describe the implementation in this checkout.
+Use these names in code, issues, tests, and documentation.
 
-## Control and messaging
+## Control plane
 
 **TerraScale Orchestrator**
 
-The .NET 11 control service in `src/TerraScale.Orchestrator`. It validates
-configuration, starts regional NATS control, optionally joins global authority
-and directory services, evaluates control-plane decisions, and coordinates
-provider, runtime, TerraBase, delivery, and telemetry boundaries.
+The Go control plane that provisions OCI, schedules TerraScale workloads on
+rootless Podman, manages regional capacity and routing, and coordinates
+TerraBase placement. It exposes no Kubernetes, Nomad, or ECS compatibility
+API.
 
-**Regional control**
+**Global controller**
 
-The NATS-backed control runtime for one cell. It owns regional membership,
-regional operation requests, runtime assignments, and regional observations.
-It requires a scoped controller identity and mTLS material when running.
+One replica of the three-replica GRU global control group. The active replica
+owns global policy, release admission, the region catalog, Cloudflare intent,
+and regional journal aggregation. It is never a database leader.
 
-**Global authority**
+**Regional controller**
 
-The optional GRU-only control runtime for global state, directory publication,
-cross-region delivery, CI, and native GitOps. Its presence does not make a
-NATS storage leader a separate application authority.
+One replica of a region's three-replica control group. The active replica
+executes accepted policy through the regional scheduler, provider, identity,
+runtime, and routing adapters.
 
-**Global directory**
+**Regional policy**
 
-The publisher and watcher runtime that exposes admitted cell membership and
-bounded health observations. The directory service is configured separately
-from the regional controller and is valid only with its publisher/watch
-runtime.
+A signed, immutable generation of global policy accepted by one regional
+group. It is not a raw NATS message, provider observation, or source-repository
+manifest.
 
-**Control state**
+**Authority claim**
 
-Fenced, signed, idempotent orchestration intent, observations, and receipts
-stored through NATS and JetStream. It does not contain customer documents,
-database replication, query results, reactive frames, or usage truth.
-
-**Operation journal**
-
-A durable record of an operation's intent, authorization, dispatch, provider
-observation, and terminal outcome. Recovery resumes the recorded operation and
-does not create a replacement merely because a response was lost.
-
-**Fail-closed composition**
-
-Startup behavior that rejects invalid cell placement, credential ownership,
-authority combinations, missing delivery executors, and incomplete TLS/NKey
-configuration before a component can mutate state.
+The current term, session, build, protocol generation, lease, and KV revision
+that permit a controller to advance control state while local quorum is
+healthy. It does not replace provider, storage, identity, or TerraBase
+authorization.
 
 ## Runtime
 
-**Admitted role**
+**First-party workload**
+
+A TerraScale service admitted from the closed role catalog and run as a
+digest-pinned rootless Podman container under a transient systemd user unit.
+
+**Tenant workload**
+
+A post-launch stateless function run as an unprivileged, digest-pinned OCI
+container on a dedicated tenant-worker node. It has no durable local state,
+host access, provider credentials, or control-plane identity.
+
+**Allocation**
+
+One admitted workload instance bound to a canonical plan fingerprint, node,
+resources, identity, configuration, and artifact digest.
+
+**Node**
+
+A plain OCI Linux host managed by one `ts-node` agent. It runs workloads under
+an unprivileged account and reports capacity and drain state to its regional
+controller.
+
+**Managed TerraBase**
+
+The stateful database workload. TerraBase owns membership, replication,
+repair, and durability. Orchestrator owns capacity and fenced placement intent.
+
+## Delivery
+
+**Candidate handoff**
+
+The signed document from `ts-deploy` that identifies the source commit and
+tree, Deploy CLI, immutable image digests, test results, target, and rollback
+digest. It grants no rollout authority.
+
+**Regional blue-green rollout**
+
+A rollout that starts a complete green generation beside blue, runs the
+required checks, and switches traffic through one durable routing generation.
+A pre-cutover failure removes only green.
+
+**Rollback digest**
+
+The retained immutable image digest restored without rebuilding.
 
 A role in the closed `AdmittedRoleCatalog`. The catalog binds the role to an
 artifact key, allowed runtime drivers, capabilities, host placement rules,
 and minimum replicas. Examples include `orchestrator`, `terrabase-member`,
 `control-nats-server`, `product-nats-server`, `grafana`, and `ci-runner`.
 
-**Allocation**
+**Launch region**
 
-One admitted role instance identified by a DNS-style allocation ID and bound
-to an artifact digest, architecture, driver, resources, and execution plan.
+One of the three customer-selectable regions: GRU in Sao Paulo, SFO in San
+Francisco, or FRA in Frankfurt.
 
-**Host runtime plan**
+**Planned region**
 
-The versioned value produced by `HostRuntimePlan.Create`. It is the complete
-canonical input for starting, observing, stopping, or deleting an allocation.
-It contains exactly one systemd or OCI execution payload.
+A location beyond GRU, SFO, and FRA. It is not built, tested, or selectable at
+launch.
 
-**Native systemd plan**
+**Region catalog**
 
-An allocation executed through a hardened systemd unit. The plan pins the
-artifact path, arguments, encrypted workload credential, cgroup-v2 limits,
-and systemd isolation properties. The adapter rechecks the canonical plan
-before invoking fixed `systemctl` or `systemd-run` paths.
-
-**OCI plan**
-
-An allocation executed through containerd in the `terrascale` namespace. The
-plan pins the registry image digest and platform, runs as an unprivileged UID
-and GID, drops capabilities, uses a read-only root and seccomp profile, and
-binds cgroup-v2 limits.
-
-**Plan fingerprint**
-
-The lowercase SHA-256 digest over the complete plan identity and execution
-settings. An observed systemd or containerd allocation with a different
-fingerprint is not owned by the requested plan and is rejected.
-
-**MCP workload**
-
-A workload represented by the runtime MCP manifest and contract. Its
-reconciliation follows the same admitted role, allocation, identity, and
-artifact rules as other runtime assignments.
-
-## Provider, placement, and delivery
-
-**Provider ownership**
-
-The evidence that an OCI resource belongs to the declared operation, cell,
-and compartment. Discovery or a matching tag alone cannot authorize adoption,
-deletion, or compensation.
-
-**TerraBase placement intent**
-
-The orchestrator's bounded request for member allocation, region, capacity,
-or lifecycle action. TerraBase remains authoritative for membership,
-replication, and database correctness.
-
-**Candidate handoff**
-
-The signed delivery document consumed by the orchestrator. It binds source and
-tree identity, immutable artifacts, evidence, target, and rollback material.
-It grants no authority by itself; admission and durable control state are
-still required.
-
-**Direct delivery**
-
-The authenticated delivery mutation path composed from regional or global
-adapters. Run mode may serve it; check mode consumes configuration and
-validation without enabling the live mutation endpoint.
-
-**Native GitOps handoff**
-
-A signed, journaled handoff of an admitted source and cell specification to
-regional runtime state. Source identity, acceptance barriers, convergence, and
-live receipts are separate from provider observations.
-
-## Security and evidence
-
-**Command identity**
-
-The signing and verification material used for command envelopes and delivery
-handoffs. CI job dispatch, artifact attestations, and runtime observations can
-use independently configured role identities and are rejected when the
-required signer or trusted verifier is missing.
-
-**Controller identity**
-
-The regional NATS NKey and mTLS identity used by the process for control
-requests. Global, directory, infrastructure, and journal-writer identities
-are separate credentials with separate admission rules.
-
-**Evidence gate**
-
-A bounded, verifiable set of observations required before an operation can be
-authorized or promoted. Missing, stale, conflicting, or unverifiable evidence
-holds the operation and cannot be replaced with a warning or retry.
-
-**Historical record**
-
-An ADR or dated evidence file retained for traceability. The records linked by
-the [ADR index](docs/adr/README.md) preserve earlier safety decisions and
-qualification evidence; the current project and namespace map remains in
-[DESIGN.md](DESIGN.md).
+The GRU-owned list of regions admitted for customer selection. Provider
+discovery alone cannot add a region to the catalog.

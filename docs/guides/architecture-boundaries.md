@@ -1,133 +1,95 @@
 # Architecture boundaries
 
-The workspace [`GOAL.md`](../../../GOAL.md) defines product scope, repository responsibilities,
-and release gates.
+The workspace [`GOAL.md`](../../../GOAL.md) is authoritative. This page is the
+short map for Orchestrator contributors.
 
 ## Product role
 
-`ts-orchestrator` is TerraScale's product-specific C# control plane targeting
-.NET 11. It is the single automation authority for the declared OCI and
-Cloudflare estate. It manages Region and host lifecycle, identity, placement
-intent, signed release activation, repair coordination, infrastructure
-telemetry, and estate-state publication.
-
-It is not Kubernetes-compatible, a general workload scheduler, a customer
-compute product, a query proxy, or part of the data path. It never owns
-database mutations, SQLite behavior, CRDT merge, replication correctness,
-reactive sync, or authoritative usage.
-
-| Component | Boundary |
+| Role | Boundary |
 | --- | --- |
-| TerraBase | C# API host and database boundary; owns API mapping, protocol validation, stream lifecycle, local durable storage, and replication state. Optional private inter-node replication uses configured MagicOnion/MessagePack over mTLS; the Orchestrator supplies placement intent and peer lists. |
-| Orchestrator | Declares and reconciles infrastructure, operates hosts, supplies placement intent, coordinates repair, and activates releases. |
-| `ts-node` | Only agent allowed to mutate a production host; verifies and installs signed binaries and manages hardened systemd units. |
-| Dashboard | Vinext Cloudflare Worker; owns identity, organizations, projects, billing, MCP, and the customer/admin UI. |
-| `ts-deploy` | Builds, checks, signs, publishes, and submits candidates; never owns rollout state. |
+| Dashboard | Vinext TypeScript application. Owns Better Auth, organizations, projects, Stripe billing, MCP, and customer workflows. |
+| Database API | Go gateway. Owns the public REST and reactive WebSocket API and is the only network TBEP client. |
+| TerraBase | Rust database engine. Owns storage, replication, repair, reactive views, backups, and authoritative usage facts. |
+| Orchestrator | Go control plane. Owns OCI infrastructure, scheduling, capacity, identity, routing, rollout, and TerraBase placement intent. |
+| Deploy | Go CLI used by Forgejo Actions. Builds, tests, publishes images, and submits candidate handoffs. |
 
-The executable is `src/TerraScale.Orchestrator`. Its current command surface
-is `run` (the default), `check`, `catalog`, `provision-journal`, and
-`journal-writer`; `runtime plan` and the read-only `operator status` and
-`operator members` queries are handled by the same executable. Use the
-[repository README](../../README.md) and [design map](../../DESIGN.md) for
-the current .NET restore, build, test, and inspection commands.
-
-## Control topology
+Orchestrator never becomes a customer data proxy. Dashboard and customer
+applications use the public Database API through `@terrascale/sdk`.
 
 GRU starts first and hosts the single active global master. Every Region runs
 its own regional orchestrator from initial admission. The master manages
 those processes; they reconcile local OCI resources and coordinate TerraBase
 members under fenced, Region-scoped authority.
 
-Every TerraBase member machine runs its own local `ts-orchestrator` as a
-separate systemd service. Local processes coordinate under fenced regional
-authority and use local `ts-node` for host mutations. There are no dedicated
-control hosts, including after launch. One selected orchestrator in each of GRU, SFO, and
-FRA hosts a global control-store replica. Those embedded NATS replicas form the permanent global JetStream R3 after the temporary pre-customer GRU
-R1 bootstrap. Regions 4 through 20 also run regional orchestrators but do not
-join the global R3. They use it for authoritative control state. A separate
-regional R3 requires at least three eligible hosts and remains post-launch
-capacity work. Regional process placement and NATS replica placement are
-separate decisions.
+GRU owns the three-replica global authority. GRU, SFO, and FRA each own an
+autonomous three-replica regional group and a local JetStream R3 domain. NATS
+gateway links move approved control messages between domains. No JetStream
+Raft group spans regions.
 
-Control mutations are fenced, authenticated, idempotent, restart-safe, and
-durably journaled. Loss of GRU or NATS can freeze new global mutations but
-cannot stop reads, eligible writes, replication, or reconnect recovery in an
-already admitted Region.
+When GRU or a gateway is unavailable, a regional quorum continues work already
+allowed by its accepted policy. Global policy, catalog changes, new release
+admission, and destructive work that needs a complete regional journal wait.
+Customer reads, eligible writes, replication, and reactive delivery do not
+depend on Orchestrator or NATS availability.
 
-NATS contains orchestrator control state only, including validated BYOK
-provider references and wrapped database-key ciphertext. Customer documents,
-WAL, replication frames, reactive frames, query results, usage truth, provider
-credentials, and plaintext key material never enter it.
-The deployed runtime currently serves one AWS KMS authority tuple per process;
-NATS-recovered references are checked against that tuple and mismatches fail
-closed. Multi-authority hosting requires a new, qualified credential-source
-mapping.
+## Database placement and transport
 
-## Estate and providers
+Each database selects from the launch regions GRU, SFO, and FRA. A selected
+region stores every logical partition and places two active Members across
+independent failure domains.
 
-The complete desired estate is typed C# configuration. The reconciler observes
-OCI and Cloudflare, produces a deterministic dependency-ordered plan, applies
-it, re-observes, and records drift and audit events. Missing or ambiguous
-ownership fails closed; deletion requires proven TerraScale ownership and
-authority.
+Orchestrator owns database placement intent, regional capacity, Member and
+volume allocation identities, and concrete host placement. TerraBase owns
+membership acceptance, replication epochs, repair, catch-up, durability, and
+safe retirement. Host pressure may request capacity in a selected region. It
+cannot change database geography.
 
-Routine OCI and Cloudflare changes are automated. The owner performs only
-account, plan, payment, and initial credential setup. `bootstrap` creates the
-first GRU estate from an empty tenancy and hands authority to the running
-control plane. `add-region <code>` creates and qualifies a complete Region.
+The Database API connects through `terrabase-go` using protobuf/gRPC over
+HTTP/2 with TLS 1.3 mutual authentication. TerraBase Member replication uses a
+separate direct QUIC transport with mutual authentication. NATS carries neither
+protocol.
 
-## Hosts and delivery
+## Workload runtime
 
-Production hosts are Ubuntu LTS minimal. They run `ts-node`, TerraBase,
-a local `ts-orchestrator`, and the Grafana
-agent. Global control-store replicas run only on selected member hosts. `ts-node` installs versioned static
-binaries under `/opt/terrascale`, verifies ed25519 signatures and SHA-256
-digests, writes hardened systemd units, coordinates drain, atomically activates
-the new version, and restores the prior digest on rollback.
+Workloads run as digest-pinned rootless Podman containers inside transient
+systemd user units. Container and unit labels bind the allocation ID and
+canonical plan fingerprint. Reconciliation refuses foreign, mismatched, or
+unfenced processes.
 
-`ts-deploy` submits a candidate but cannot activate it. The orchestrator first
-mirrors accepted artifacts to every Region. TerraBase rollout begins with one
-GRU canary and then advances one host at a time across Regions while preserving
-RF=2 and enforcing drain, health, replication, backup, and catch-up gates.
-There is no regional blue-green product stack.
+The runtime enforces non-root users, cgroup v2 limits, dropped capabilities,
+`no-new-privileges`, read-only root filesystems, seccomp, explicit volumes, and
+separate credentials. Stateful placement applies replica anti-affinity and
+drain safety before a node can retire.
 
-## Placement and residency
+Tenant compute is the first post-launch feature. The runtime keeps a distinct
+unprivileged tenant-container profile without exposing host paths, privileged
+execution, provider credentials, or control-plane identities.
 
-Every launch Region has two admitted member hosts. The orchestrator supplies
-TerraBase placement intent and peer lists; TerraBase accepts membership and
-owns replication and repair correctness. The orchestrator never appoints a
-database leader.
+## OCI and routing
 
-A database placement lock is immutable after creation. Placement,
-replication, backup, restore, export, branch, repair, and Region lifecycle all
-apply the same lock and cannot widen it.
+OCI is the only launch cloud. Ampere ARM64 is the default compute platform.
+x86_64 remains supported for TerraBase Members. Provider mutations use
+persisted intent, deterministic identities, positive ownership, fenced
+authority, and same-operation resume after uncertain outcomes.
 
-## Local qualification
+Cloudflare owns DNS, global load balancing, TLS termination, and caching for
+public cacheable API reads. It does not own control state. Orchestrator manages
+the global and regional API hostnames plus the app, docs, and status hostnames
+defined by D-24.
 
-Firecracker on Linux/KVM remains the planned local qualification backend. The
-earlier six-guest design and its test-only `SandboxVMProvider` are retained in
-the [historical qualification guide](running-locally.md) and dated evidence;
-they are not a command surface of the current C# solution.
+## Delivery
 
-Bounded local OCI, Cloudflare, object-store, and edge endpoints exercise real
-provider contracts and failure semantics. They have no privileged path into
-orchestration decisions. Production code cannot import Firecracker or register
-the local endpoints.
+Forgejo Actions calls `ts-deploy` to build, test, publish, and submit the exact
+candidate digest. The handoff includes source and tree identity, Deploy CLI
+identity, image digests, and test results. It does not authorize rollout.
 
-Unit fakes remain useful but do not qualify host lifecycle, delivery, repair,
-networking, storage, or degraded mode. A current C# Firecracker qualification
-harness and its command contract still need to be restored before those areas
-can be qualified locally. Real OCI and Cloudflare gates still qualify provider
-behavior and production performance.
+Orchestrator admits the candidate under current fenced authority and owns
+regional blue-green rollout, the durable routing generation, and rollback by
+the retained digest. CI success on `develop`, immutable image digests, and
+tests are the release record. No parallel approval ledger exists.
 
-## Trust and visibility
+## Scope limits
 
-Host and workload identity use short-lived certificates, mutual TLS, SPIFFE
-identity, rotated trust bundles, and auditable bootstrap grants. Configuration
-contains secret references rather than secret bytes. Secrets and customer
-content never enter Git, logs, traces, metrics, fixtures, or receipts.
-
-The orchestrator publishes bounded `estate.*` documents into the control-plane
-database on change and at least every ten seconds. The dashboard reads them
-through the public SDK. Infrastructure actions remain in the orchestrator
-runtime; the dashboard does not gain a private control transport.
+Only three regions are built and qualified for launch. The architecture keeps
+a ceiling of twenty, but regions four through twenty are post-launch work.
+Orchestrator exposes no compatibility API for another cluster manager.

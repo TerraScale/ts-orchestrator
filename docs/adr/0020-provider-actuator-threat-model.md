@@ -1,70 +1,69 @@
-# ADR 0020: Provider mutation fencing and same-operation recovery
+# ADR 0020: Fence provider mutations with persisted intent
 
-- Status: Accepted safety boundary; provider qualification remains a gate
-- Decision owner: Cloud
+- Status: Accepted
+- Updated: 2026-08-30
+- Scope: OCI compute, volumes, attachments, work requests, Object Storage, and
+  other external mutations owned by Orchestrator
 
 ## Context
 
-An OCI or Cloudflare mutation can outlive the controller and the request that
-started it. A process can crash after its authority check, lose a response, or
-receive a delayed work-request result after leadership changes. Provider IAM
-does not understand the orchestrator's lease or fencing epoch.
-
-The orchestrator therefore treats every external mutation as a durable,
-restart-safe operation. This boundary applies to the declared estate and host
-lifecycle; it never carries customer data or authorizes a TerraBase mutation.
+An OCI operation can continue after the initiating HTTP call times out or the
+controller loses leadership. OCI does not understand a NATS lease. Retrying as
+a new logical operation could create a duplicate resource or let a stale
+controller conflict with its successor.
 
 ## Decision
 
-Use persisted intent plus same-operation resume as the control fence:
+Every provider mutation uses persisted intent and same-operation resume.
 
-1. Persist a `Prepared` operation with its exact target or deterministic create
-   key, expected observation, generation, terminal state, deadline, and
-   operation identity. `Prepared` is intent, not provider-call authorization.
-2. The current fenced writer re-observes the provider, verifies ownership,
-   authority, approvals, policy, and deadline, and transitions stale work to
-   `Held` without calling the provider.
-3. Once every gate passes, atomically persist `AuthorizedForProviderCall` with
-   the exact action, target, payload digest, idempotency key, authorizing epoch,
-   and evidence digests. This is the irreversible commit point in the control
-   model.
-4. Only that exact record can create a provider operation context. The
-   compartment-scoped actuator verifies it immediately before dispatch and
-   records the dispatch attempt before crossing the provider boundary.
-5. A timeout or lost response is an unknown outcome. Recovery reads provider
-   truth using the same operation and idempotency key, then resumes or
-   reconciles that operation; it never creates a replacement operation merely
-   because the response was lost.
-6. A late completion is accepted only when it completes the already-authorized
-   operation. Otherwise it is quarantined as an inconsistent observation and
-   cannot authorize compensating destruction by itself.
+1. Before any provider call, the current regional authority writes a prepared
+   operation with the exact target or deterministic create identity, desired
+   terminal state, ownership facts, permitted compensation, deadline, and
+   authority term.
+2. The actuator rechecks the current authority, local quorum, operation state,
+   positive ownership, expected provider observation, and deadline before the
+   call.
+3. The provider request uses the operation's deterministic retry token and
+   resource name. Retries never create a new logical identity.
+4. A timeout or lost response moves the operation to `OutcomeUnknown`. The
+   controller observes OCI and its work request until it can prove the
+   original operation's outcome.
+5. A successor resumes the same operation. It cannot replace it with a fresh
+   create, detach, delete, or compensation request.
+6. The controller persists the provider result before acknowledging terminal
+   control work.
 
-Once authorization commits, leadership or deadline changes may hold dispatch
-or require reconciliation, but cannot replace the action, target, payload,
-request key, or terminal intent. This does not claim that a provider call must
-succeed or that a deliberate, separately authorized compensation is
-impossible.
+Tags help find resources but never grant authority. Mutation requires a
+persisted operation plus positive ownership and matching generation. An
+unknown resource remains untouched.
 
-## Safety rules
+## Destructive operations
 
-- Every mutating adapter call consumes one committed authorization record.
-- Exactly one logical operation owns a target transition; leadership changes
-  the executor, not the authorized outcome.
-- Create retries reuse the same deterministic create identity.
-- Unknown responses are reconciled through provider read/work-request APIs
-  before retry or compensation.
-- Discovery, tags, and provider inventory never authorize adoption, cleanup,
-  mutation, or compensation.
-- Credentials remain scoped to the Region and compartment whose estate is
-  being reconciled; broader credentials are never a retry fallback.
-- Journals, logs, traces, metrics, and evidence contain no secret material.
+Delete, terminate, detach, and release operations require all ordinary fences
+plus a current owner, retention and drain completion, dependency checks, and a
+fresh provider observation. Missing inventory, a stale term, an ambiguous work
+request, or a conflicting generation makes the operation read-only.
 
-## Required verification
+Compensation is explicit. The prepared operation lists which compensating
+steps are allowed and their targets. A controller cannot invent cleanup after
+an unexpected partial result.
 
-Qualification must inject process loss, leadership loss, deadline changes,
-stale observations, duplicate requests, delayed responses, and contradictory
-provider observations before and after every authorization and dispatch
-checkpoint. It must prove one owned terminal outcome, no duplicate create, no
-stale accepted mutation, and no mutation of unowned resources. The D-81
-Firecracker suite covers local host and systemd failure behavior; real OCI and
-Cloudflare qualification remains required for provider semantics.
+## Credentials
+
+Regional actuators use compartment-scoped OCI identities. The GRU global
+controller distributes policy and limits but does not hold routine regional
+mutation credentials. Credentials never appear in control messages, operation
+documents, logs, or test fixtures.
+
+## Required tests
+
+Provider adapters cover lost responses, work-request eventual consistency,
+controller restart, leadership change, duplicate delivery, stale generation,
+unknown resources, capacity errors, and compensation after partial completion.
+Live OCI tests stay opt-in and use a dedicated development scope.
+
+## Consequences
+
+Provider operations take more reconciliation steps, but retries converge on
+one owned outcome. A stale controller cannot turn uncertainty into a second
+mutation.

@@ -329,7 +329,7 @@ go test ./tests/ -run TestPodmanAutoscaleLaneEndToEnd -v
 The live podman smoke is gated twice — by the `live_podman` build tag and by
 `TS_ORCH_LIVE=1` — so the ordinary sweep never touches a real runtime. It
 runs the real `ProcessPodmanClient` as your unprivileged user against the
-local image `localhost/benchmark-csharp-noble:latest` (present on this host;
+local image `localhost/benchmark-go:latest` (present on this host;
 it never pulls from the network) and asserts preflight, create (not
 started), start, Running, stop, delete, and Absent:
 

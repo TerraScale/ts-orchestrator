@@ -4,4 +4,4 @@ Status: Accepted.
 
 Date: 2026-08-29.
 
-TerraScale rolls back a release when health checks, error rate, latency, tenant isolation, replication, billing reconciliation, or the synthetic customer journey fails. Under D-67 and D-68, rollback restores the previous qualified binary digest without rebuilding it.
+TerraScale rolls back a release when health checks, error rate, latency, tenant isolation, replication, billing reconciliation, or the synthetic customer journey fails. Rollback restores the previous immutable digest without rebuilding it.

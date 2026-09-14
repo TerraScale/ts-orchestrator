@@ -1,17 +1,18 @@
 # Architecture decisions
 
-The workspace [`GOAL.md`](../../../GOAL.md) wins whenever an ADR conflicts
-with a closed product decision. This directory contains only ADRs that still
-constrain the current Go orchestrator and its native systemd runtime.
+The workspace [`GOAL.md`](../../../GOAL.md) wins when an ADR conflicts with a
+fixed decision. This directory contains only decisions that still constrain
+the current architecture.
 
 | ADR | Status |
 | --- | --- |
-| [0020: Provider mutation fencing](0020-provider-actuator-threat-model.md) | Accepted safety boundary; provider qualification remains a gate |
-| [0024: Greenfield bring-up](0024-greenfield-bringup.md) | Accepted boundary; production qualification remains a gate |
-| [0025: Rollback on customer gate failure](0025-rollback-on-customer-gate-failure.md) | Accepted |
-| [0026: BYOK control-state boundary](0026-byok-control-state-boundary.md) | Accepted; credentials and plaintext keys stay outside NATS |
+| [0018: Database placement and host scheduling](0018-placement-boundary.md) | Accepted |
+| [0020: Provider mutation fencing](0020-provider-actuator-threat-model.md) | Accepted |
+| [0024: Greenfield OCI boundary](0024-greenfield-bringup.md) | Accepted |
+| [0025: Roll back on customer gate failure](0025-rollback-on-customer-gate-failure.md) | Accepted |
+| [0029: Stateless tenant compute](0029-offer-stateless-tenant-compute.md) | Accepted, post-launch |
+| [0031: Unprivileged tenant containers](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) | Accepted, post-launch |
+| [0033: GRU global authority and regional autonomy](0033-gru-global-authority-and-regional-autonomy.md) | Accepted |
 
-The delivery and qualification contracts are defined by workspace decisions
-D-67, D-68, and D-81. Retired deployment and workload records are not current
-design inputs. Dated records remain available as historical evidence until
-their retention or deletion is explicitly decided.
+Git history contains superseded records. New documentation must not cite a
+deleted ADR as current authority.

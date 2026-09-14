@@ -1,34 +1,37 @@
-# ADR 0024: Greenfield bring-up and residual-resource quarantine
+# ADR 0024: Build a greenfield OCI estate
 
-- Status: Accepted greenfield boundary; production qualification remains a gate
-- Decision owner: Cloud
+- Status: Accepted
+- Updated: 2026-08-30
+- Scope: OCI bootstrap and ownership
 
 ## Decision
 
-The first TerraScale estate is created from an empty OCI tenancy. The
-orchestrator must not adopt an existing resource, identity, route, bucket,
-volume, host, or control store merely because a provider can discover it.
+TerraScale starts from a new OCI estate. Orchestrator does not adopt legacy
+compute, storage, network, IAM, Vault, DNS, control-plane, or data resources.
+A tag, familiar name, or matching address does not prove ownership.
 
-Unknown provider state is held until a scoped read-only observation, positive
-TerraScale ownership evidence, and an accountable owner establish what the
-resource is and whether a disposition is allowed. Missing credentials,
-unavailable tooling, stale observations, and unqueried APIs never imply that
-an estate is clean or that deletion is safe.
+Resources that change during normal operation are managed through the fenced
+OCI provider. This includes compute instances, block volumes, attachments,
+registry pulls, Object Storage objects, and work requests.
 
-`bootstrap` creates and verifies the declared GRU estate, installs only the
-signed Go binaries through `ts-node`, and hands authority to the running
-control plane. `add-region` applies the same declaration, ownership, and
-fail-closed rules to SFO and FRA. Neither command authorizes an unscoped
-provider mutation.
+Until the end-to-end bootstrap command lands, an operator creates the one-time
+compartments, VCNs, subnets, network security groups, IAM policies, and Vault
+resources from the reviewed ORCH-5 runbook. Orchestrator performs read-only
+startup checks against the recorded estate identities and refuses a malformed
+or broadened estate.
 
-## Consequences and verification
+ORCH-6 replaces the manual creation step with a resumable bootstrap command.
+It will use the same ownership model and provider fences. It must not create a
+second state owner.
 
-Provider reconciliation must distinguish absent, creating, healthy, failed,
-and indeterminate resources and must never repeat an uncertain destructive
-operation. D-67 qualification covers deterministic plan, ownership, and
-rollback behavior; D-81 covers the local Firecracker/systemd lifecycle. Real
-OCI and Cloudflare qualification must still verify account, identity, quota,
-eventual-consistency, and production-performance behavior before launch.
+## Legacy resources
 
-This ADR changes no runtime or cloud state. Its rollback is a Git revert, not
-a cloud operation.
+Unrecognized resources remain outside the ownership graph and are never
+mutated. Cleanup needs a separate, explicit owner decision based on a current
+read-only inventory. This ADR authorizes no legacy cleanup.
+
+## Consequences
+
+The launch estate has a clear ownership boundary. Setup requires a reviewed
+one-time procedure until ORCH-6 lands, but normal node and storage churn is
+automated and restart-safe.
