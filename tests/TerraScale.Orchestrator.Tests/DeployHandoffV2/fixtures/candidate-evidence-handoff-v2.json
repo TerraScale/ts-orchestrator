@@ -16,7 +16,7 @@
       }
     },
     "deployCli": {
-      "package": "TerraScale.Deploy.Cli",
+      "package": "ts-deploy",
       "version": "2.4.0",
       "packageDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "executableDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"

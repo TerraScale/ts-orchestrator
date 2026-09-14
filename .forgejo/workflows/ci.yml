@@ -9,6 +9,7 @@ on:
 
 jobs:
   ci:
+    name: Run ts-orchestrator checks
     uses: TerraScale/ts-deploy/.forgejo/workflows/deploy.yml@main
     with:
       repo: ts-orchestrator

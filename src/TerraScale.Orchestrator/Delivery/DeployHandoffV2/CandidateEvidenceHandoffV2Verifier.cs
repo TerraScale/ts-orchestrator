@@ -233,7 +233,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
         ValidateCleanWorktree(source, payload.IssuedAt);
 
         var cli = payload.DeployCli;
-        if (cli is null || cli.Package != "TerraScale.Deploy.Cli" || !VersionPattern().IsMatch(cli.Version ?? string.Empty) ||
+        if (cli is null || cli.Package != "ts-deploy" || !VersionPattern().IsMatch(cli.Version ?? string.Empty) ||
             !IsDigest(cli.PackageDigest) || !IsDigest(cli.ExecutableDigest))
             Reject("handoff_v2_cli_invalid", "The exact Deploy CLI identity is incomplete.", "Bind the pinned CLI version, package digest, and executable digest.");
         ValidateLocks(payload.DependencyLocks);
@@ -583,7 +583,7 @@ internal static partial class CandidateEvidenceHandoffV2Verifier
     }
 
     private static bool ValidExpectedDeployCli(CandidateHandoffV2DeployCli? cli) =>
-        cli is not null && cli.Package == "TerraScale.Deploy.Cli" &&
+        cli is not null && cli.Package == "ts-deploy" &&
         VersionPattern().IsMatch(cli.Version ?? string.Empty) &&
         IsDigest(cli.PackageDigest) && IsDigest(cli.ExecutableDigest);
 
