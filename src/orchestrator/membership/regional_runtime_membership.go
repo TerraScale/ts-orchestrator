@@ -1,4 +1,4 @@
-package control
+package membership
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
@@ -153,28 +154,27 @@ func RegionalRuntimeMembershipHealthEvaluate(
 	conflictingControllers int,
 ) (RegionalRuntimeMembershipHealth, error) {
 	if strings.TrimSpace(cell) == "" {
-		return RegionalRuntimeMembershipHealth{}, errors.New(
-			"The value cannot be an empty string or composed entirely of whitespace. (Parameter 'cell')")
+		return RegionalRuntimeMembershipHealth{}, &errs.Argument{Param: "cell", Message: "The value cannot be an empty string or composed entirely of whitespace. (Parameter 'cell')"}
 	}
 
 	switch expectedControllers {
 	case 1, 3, 5:
 	default:
-		return RegionalRuntimeMembershipHealth{}, fmt.Errorf(
+		return RegionalRuntimeMembershipHealth{}, &errs.Argument{Param: "expectedControllers", Message: fmt.Sprintf(
 			"Specified argument was out of the range of valid values. (Parameter 'expectedControllers')\nActual value was %d.",
-			expectedControllers)
+			expectedControllers)}
 	}
 
 	if rejectedRecords < 0 {
-		return RegionalRuntimeMembershipHealth{}, fmt.Errorf(
+		return RegionalRuntimeMembershipHealth{}, &errs.Argument{Param: "rejectedRecords", Message: fmt.Sprintf(
 			"Specified argument was out of the range of valid values. (Parameter 'rejectedRecords')\nActual value was %d.",
-			rejectedRecords)
+			rejectedRecords)}
 	}
 
 	if conflictingControllers < 0 {
-		return RegionalRuntimeMembershipHealth{}, fmt.Errorf(
+		return RegionalRuntimeMembershipHealth{}, &errs.Argument{Param: "conflictingControllers", Message: fmt.Sprintf(
 			"Specified argument was out of the range of valid values. (Parameter 'conflictingControllers')\nActual value was %d.",
-			conflictingControllers)
+			conflictingControllers)}
 	}
 
 	valid := make([]RegionalRuntimeMember, 0, len(records))
@@ -331,13 +331,13 @@ type RegionalRuntimeMembership struct {
 	LeaseDuration     time.Duration
 
 	store        jetstream.KeyValue
-	topology     *NatsTopology
+	topology     *Topology
 	key          string
 	sessionId    string
 	build        string
 	capabilities []string
 	startedAt    time.Time
-	authority    func() RegionalAuthoritySnapshot
+	authority    func() AuthoritySnapshot
 	identity     *RegionalRuntimeMembershipIdentity
 	ownsIdentity bool
 
@@ -356,6 +356,7 @@ type RegionalRuntimeMembership struct {
 	heartbeatStartMu sync.Mutex
 	marshal          func(any) ([]byte, error)
 	heartbeatTicks   <-chan time.Time
+	watchRetryDelay  time.Duration
 	heartbeatFailure atomic.Pointer[errorBox]
 	revisionMu       sync.Mutex
 	revision         uint64
@@ -368,33 +369,34 @@ type RegionalRuntimeMembership struct {
 func RegionalRuntimeMembershipStartAsync(
 	ctx context.Context,
 	store jetstream.KeyValue,
-	topology *NatsTopology,
+	topology *Topology,
 	build string,
 	capabilities []string,
 	startedAt time.Time,
-	authority func() RegionalAuthoritySnapshot,
+	authority func() AuthoritySnapshot,
 	identity *RegionalRuntimeMembershipIdentity,
 ) (*RegionalRuntimeMembership, error) {
 	if ctx == nil {
-		return nil, errors.New("(Parameter 'ctx')")
+		return nil, &errs.Argument{Param: "ctx", Message: "(Parameter 'ctx')"}
 	}
-	if store == nil || topology == nil {
-		return nil, errors.New("(Parameter 'store')")
+	if store == nil {
+		return nil, &errs.Argument{Param: "store", Message: "(Parameter 'store')"}
+	}
+	if topology == nil {
+		return nil, &errs.Argument{Param: "topology", Message: "(Parameter 'topology')"}
 	}
 
 	if strings.TrimSpace(build) == "" {
-		return nil, errors.New(
-			"The value cannot be an empty string or composed entirely of whitespace. (Parameter 'build')")
+		return nil, &errs.Argument{Param: "build", Message: "The value cannot be an empty string or composed entirely of whitespace. (Parameter 'build')"}
 	}
 
 	if authority == nil {
-		return nil, errors.New("(Parameter 'authority')")
+		return nil, &errs.Argument{Param: "authority", Message: "(Parameter 'authority')"}
 	}
 
 	if len(capabilities) == 0 || !isOrdinallySortedAndDistinct(capabilities) ||
 		anyStringWhitespace(capabilities) {
-		return nil, errors.New(
-			"Runtime capabilities must be non-empty, unique, and ordinally sorted. (Parameter 'capabilities')")
+		return nil, &errs.Argument{Param: "capabilities", Message: "Runtime capabilities must be non-empty, unique, and ordinally sorted. (Parameter 'capabilities')"}
 	}
 
 	// A supplied identity remains caller-owned; identities generated here are
@@ -671,7 +673,7 @@ func (m *RegionalRuntimeMembership) claim(ctx context.Context) error {
 					"another instance. The record's own lease is the first recovery path; if the key stays wedged "+
 					"past it, an operator must purge '%s' from the %s bucket after the "+
 					"record's lease has lapsed, and this instance will then claim the empty slot.",
-				m.key, m.key, m.topology.Runtime().Bucket)
+				m.key, m.key, m.topology.RuntimeBucket)
 		}
 
 		decision := RegionalRuntimeMembershipMutation.Decide(
@@ -780,17 +782,20 @@ func (m *RegionalRuntimeMembership) watchLoop() {
 	for {
 		watcher, err := m.store.Watch(m.stoppingCtx, "controller.>")
 		if err != nil {
-			select {
-			case <-m.stoppingCtx.Done():
+			if !m.waitForWatchRetry() {
 				return
-			case <-time.After(time.Second):
 			}
-
 			continue
 		}
 
+		initializing := true
+		seen := make(map[string]struct{})
 		for entry := range watcher.Updates() {
 			if entry == nil {
+				if initializing {
+					m.reconcileObservedKeys(seen)
+					initializing = false
+				}
 				continue
 			}
 
@@ -818,6 +823,9 @@ func (m *RegionalRuntimeMembership) watchLoop() {
 			if !member.VerifySignedIdentity() {
 				m.rejectMember(key)
 				continue
+			}
+			if initializing {
+				seen[key] = struct{}{}
 			}
 
 			m.membersMu.Lock()
@@ -863,11 +871,37 @@ func (m *RegionalRuntimeMembership) watchLoop() {
 		}
 
 		watcher.Stop()
-		select {
-		case <-m.stoppingCtx.Done():
+		if !m.waitForWatchRetry() {
 			return
-		case <-time.After(time.Second):
 		}
+	}
+}
+
+func (m *RegionalRuntimeMembership) waitForWatchRetry() bool {
+	delay := m.watchRetryDelay
+	if delay <= 0 {
+		delay = time.Second
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-m.stoppingCtx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (m *RegionalRuntimeMembership) reconcileObservedKeys(seen map[string]struct{}) {
+	m.membersMu.Lock()
+	defer m.membersMu.Unlock()
+	for key := range m.members {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		delete(m.members, key)
+		delete(m.previousMembers, key)
+		delete(m.identityPins, key)
 	}
 }
 
@@ -941,6 +975,12 @@ func isOrdinallySortedAndDistinct(values []string) bool {
 	}
 
 	return true
+}
+
+// IsOrdinallySortedAndDistinct reports whether values are strictly ordered
+// with no duplicates.
+func IsOrdinallySortedAndDistinct(values []string) bool {
+	return isOrdinallySortedAndDistinct(values)
 }
 
 func allCapabilitiesBounded(values []string) bool {

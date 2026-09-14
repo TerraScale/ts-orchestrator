@@ -1,4 +1,4 @@
-package control
+package authority
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 // RegionalAuthoritySnapshot mirrors the C# record.
@@ -135,6 +137,7 @@ type RegionalAuthorityCoordinator struct {
 	candidateId               string
 	leaseKey                  string
 	tolerateTransientFailures bool
+	nonce                     func() (string, error)
 
 	stateMu           sync.Mutex
 	journalState      *AuthorityState
@@ -164,13 +167,16 @@ func RegionalAuthorityCoordinatorStartAsync(
 	instance string,
 ) (*RegionalAuthorityCoordinator, error) {
 	if ctx == nil {
-		return nil, errors.New("(Parameter 'ctx')")
+		return nil, &errs.Argument{Param: "ctx", Message: "(Parameter 'ctx')"}
 	}
 	if store == nil {
-		return nil, errors.New("(Parameter 'store')")
+		return nil, &errs.Argument{Param: "store", Message: "(Parameter 'store')"}
 	}
-	if !messagingCellTokenIsValid(cell) || !messagingCellTokenIsValid(instance) {
-		return nil, errors.New("The regional authority identity is invalid.")
+	if !authorityIdentityTokenIsValid(cell) {
+		return nil, &errs.Argument{Param: "cell", Message: "The regional authority cell is invalid."}
+	}
+	if !authorityIdentityTokenIsValid(instance) {
+		return nil, &errs.Argument{Param: "instance", Message: "The regional authority instance is invalid."}
 	}
 	coordinator := newRegionalAuthorityCoordinator(
 		store, cell+"-regional", cell+"-controller-"+instance, "authority.regional", false)
@@ -191,16 +197,16 @@ func RegionalAuthorityCoordinatorStartGlobalAsync(
 	instance string,
 ) (*RegionalAuthorityCoordinator, error) {
 	if ctx == nil {
-		return nil, errors.New("(Parameter 'ctx')")
+		return nil, &errs.Argument{Param: "ctx", Message: "(Parameter 'ctx')"}
 	}
 	if store == nil {
-		return nil, errors.New("(Parameter 'store')")
+		return nil, &errs.Argument{Param: "store", Message: "(Parameter 'store')"}
 	}
-	if !GlobalNatsTopologyIsCellToken(cell) {
-		return nil, errors.New("The global authority candidate cell is invalid. (Parameter 'cell')")
+	if !authorityIdentityTokenIsValid(cell) {
+		return nil, &errs.Argument{Param: "cell", Message: "The global authority candidate cell is invalid. (Parameter 'cell')"}
 	}
-	if !messagingCellTokenIsValid(instance) {
-		return nil, errors.New("The global authority candidate instance is invalid. (Parameter 'instance')")
+	if !authorityIdentityTokenIsValid(instance) {
+		return nil, &errs.Argument{Param: "instance", Message: "The global authority candidate instance is invalid. (Parameter 'instance')"}
 	}
 
 	coordinator := newRegionalAuthorityCoordinator(
@@ -230,6 +236,7 @@ func newRegionalAuthorityCoordinator(
 		candidateId:               candidateId,
 		leaseKey:                  leaseKey,
 		tolerateTransientFailures: tolerateTransientFailures,
+		nonce:                     randomNatsNonce,
 		journalState:              AuthorityStateEmpty,
 		snapshot:                  regionalAuthoritySnapshotInitial,
 		stoppingCtx:               stoppingCtx,
@@ -253,7 +260,7 @@ func (c *RegionalAuthorityCoordinator) startLoop() {
 			}
 
 			if err := c.tick(c.stoppingCtx); err != nil &&
-				c.tolerateTransientFailures && isNatsTransientError(err) {
+				c.tolerateTransientFailures && IsNatsTransientError(err) {
 				c.stateMu.Lock()
 				confirmed := AuthorityObservation{
 					AuthorityId:   c.authorityId,
@@ -312,10 +319,10 @@ func (c *RegionalAuthorityCoordinator) Dispose() {
 
 func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 	if ctx == nil {
-		return errors.New("(Parameter 'ctx')")
+		return &errs.Argument{Param: "ctx", Message: "(Parameter 'ctx')"}
 	}
 	if c == nil || c.store == nil {
-		return errors.New("(Parameter 'coordinator')")
+		return &errs.Argument{Param: "coordinator", Message: "(Parameter 'coordinator')"}
 	}
 	state := c.currentState()
 
@@ -338,14 +345,22 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 		return nil
 	}
 
-	requestId := "acquire-" + randomNatsNonce()
+	requestNonce, err := c.nonce()
+	if err != nil {
+		return err
+	}
+	leaseNonce, err := c.nonce()
+	if err != nil {
+		return err
+	}
+	requestId := "acquire-" + requestNonce
 	health := regionalAuthorityHealth(now, time.Duration(0))
 	baseline := observed
 	acquisition, err := AuthorityEngine.DecideFromState(c.currentState(), NewAcquireAuthority(
 		c.authorityId,
 		c.candidateId,
 		requestId,
-		"lease-"+randomNatsNonce(),
+		"lease-"+leaseNonce,
 		&baseline,
 		&health,
 		c.leaseDuration))
@@ -366,7 +381,11 @@ func (c *RegionalAuthorityCoordinator) tick(ctx context.Context) error {
 
 func (c *RegionalAuthorityCoordinator) renew(ctx context.Context, current AuthorityObservation) error {
 	now := time.Now().UTC()
-	requestId := "renew-" + randomNatsNonce()
+	requestNonce, err := c.nonce()
+	if err != nil {
+		return err
+	}
+	requestId := "renew-" + requestNonce
 	c.stateMu.Lock()
 	elapsed := time.Duration(0)
 	if !c.confirmedLeaseAge.IsZero() {
@@ -538,7 +557,9 @@ func regionalAuthorityHealth(now time.Time, confirmedLeaseAge time.Duration) Aut
 	}
 }
 
-func isNatsTransientError(err error) bool {
+// IsNatsTransientError reports whether a failed JetStream operation is safe
+// to retry without changing authority state.
+func IsNatsTransientError(err error) bool {
 	return errors.Is(err, jetstream.ErrKeyNotFound) ||
 		errors.Is(err, jetstream.ErrKeyExists) ||
 		errors.Is(err, jetstream.ErrKeyRevisionMismatch) ||
@@ -657,11 +678,27 @@ func singleCompareAndSetLeaseIntent(intents []AuthorityIntent) (*CompareAndSetLe
 	return intent, ok
 }
 
-func randomNatsNonce() string {
+func randomNatsNonce() (string, error) {
 	sessionBytes := make([]byte, 16)
 	if _, err := rand.Read(sessionBytes); err != nil {
-		return "00000000000000000000000000000000"
+		return "", err
 	}
 
-	return hex.EncodeToString(sessionBytes)
+	return hex.EncodeToString(sessionBytes), nil
+}
+
+func authorityIdentityTokenIsValid(value string) bool {
+	if len(value) < 1 || len(value) > 63 || value[0] == '-' || value[len(value)-1] == '-' {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character >= 'a' && character <= 'z' ||
+			character >= '0' && character <= '9' ||
+			character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }

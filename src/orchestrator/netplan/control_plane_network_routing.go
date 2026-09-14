@@ -1,6 +1,7 @@
-package control
+package netplan
 
 import (
+	"encoding/hex"
 	"sort"
 	"strconv"
 )
@@ -15,7 +16,7 @@ func networkInputSnapshotCopy[T any](source []T, maximum int, parameterName stri
 		return nil, argumentNil(parameterName)
 	}
 	if len(source) > maximum {
-		return nil, invalidArgument("Network input exceeds the technical item limit.")
+		return nil, invalidArgument(parameterName, "Network input exceeds the technical item limit.")
 	}
 	result := make([]T, len(source))
 	copy(result, source)
@@ -273,19 +274,10 @@ func NewNetworkRouteEvidence(scope NetworkRouteScope, routes []NetworkRouteObser
 	evidence := &NetworkRouteEvidence{Scope: scope, Shape: shape, NoOverlappingMutation: noOverlappingMutation,
 		LocalPolicy: localPolicy, TunnelConfigured: tunnelConfigured, TrafficProven: trafficProven,
 		TunnelHealthy: tunnelHealthy, RouteConfigured: routeConfigured, Partitioned: partitioned,
-		routes: routes, approved: approved, links: links, cells: cells}
-	if routes == nil {
-		evidence.routes = []NetworkRouteObservation{}
-	}
-	if approved == nil {
-		evidence.approved = []NetworkPrefix{}
-	}
-	if links == nil {
-		evidence.links = []NetworkPeerLink{}
-	}
-	if cells == nil {
-		evidence.cells = []NetworkCellId{}
-	}
+		routes:   append([]NetworkRouteObservation{}, routes...),
+		approved: append([]NetworkPrefix{}, approved...),
+		links:    append([]NetworkPeerLink{}, links...),
+		cells:    append([]NetworkCellId{}, cells...)}
 	validCells := len(evidence.cells) > 0
 	distinctCells := map[NetworkCellId]struct{}{}
 	for _, cell := range evidence.cells {
@@ -351,11 +343,23 @@ func (s NetworkRouteScope) Equal(other NetworkRouteScope) bool {
 		s.Generation == other.Generation && s.Epoch == other.Epoch && s.Operation == other.Operation
 }
 
-func (e *NetworkRouteEvidence) Routes() []NetworkRouteObservation { return e.routes }
-func (e *NetworkRouteEvidence) ApprovedPrefixes() []NetworkPrefix { return e.approved }
-func (e *NetworkRouteEvidence) Links() []NetworkPeerLink          { return e.links }
-func (e *NetworkRouteEvidence) Cells() []NetworkCellId            { return e.cells }
-func (e *NetworkRouteEvidence) CellCount() uint32                 { return uint32(len(e.cells)) }
+func (e *NetworkRouteEvidence) Routes() []NetworkRouteObservation {
+	return append([]NetworkRouteObservation{}, e.routes...)
+}
+
+func (e *NetworkRouteEvidence) ApprovedPrefixes() []NetworkPrefix {
+	return append([]NetworkPrefix{}, e.approved...)
+}
+
+func (e *NetworkRouteEvidence) Links() []NetworkPeerLink {
+	return append([]NetworkPeerLink{}, e.links...)
+}
+
+func (e *NetworkRouteEvidence) Cells() []NetworkCellId {
+	return append([]NetworkCellId{}, e.cells...)
+}
+
+func (e *NetworkRouteEvidence) CellCount() uint32 { return uint32(len(e.cells)) }
 
 func (e *NetworkRouteEvidence) Equal(other *NetworkRouteEvidence) bool {
 	if other == nil || !e.Scope.Equal(other.Scope) || e.Shape != other.Shape ||
@@ -403,7 +407,7 @@ func networkCanonicalRoutes(routes []NetworkRouteObservation) []string {
 		}
 		keys = append(keys, "route:identity:"+route.Route.Value+":identity:"+route.Owner.Value+
 			":identity:"+route.NextPeer.Value+":"+learned+":"+strconv.Itoa(int(route.TrustPlane))+
-			":prefix:"+strconv.Itoa(route.Destination.Address.BitLength())+":"+
+			":prefix:"+hex.EncodeToString(route.Destination.Address.bytes)+":"+
 			strconv.Itoa(int(route.Destination.Bits)))
 	}
 	return networkCanonicalSorted(keys)
@@ -412,7 +416,7 @@ func networkCanonicalRoutes(routes []NetworkRouteObservation) []string {
 func networkCanonicalPrefixes(prefixes []NetworkPrefix) []string {
 	keys := make([]string, 0, len(prefixes))
 	for _, prefix := range prefixes {
-		keys = append(keys, "prefix:"+strconv.Itoa(prefix.Address.BitLength())+":"+
+		keys = append(keys, "prefix:"+hex.EncodeToString(prefix.Address.bytes)+":"+
 			strconv.Itoa(int(prefix.Bits)))
 	}
 	return networkCanonicalSorted(keys)
@@ -511,7 +515,8 @@ func (networkRoutePlanner) Plan(expected *NetworkRouteScope, observedGeneration,
 	}
 	routePairs := map[string]int{}
 	for _, route := range e.routes {
-		key := strconv.Itoa(int(route.Destination.Bits)) + "|" + route.NextPeer.Value
+		key := hex.EncodeToString(route.Destination.Address.bytes) + "|" +
+			strconv.Itoa(int(route.Destination.Bits)) + "|" + route.NextPeer.Value
 		routePairs[key]++
 	}
 	for _, count := range routePairs {

@@ -1,4 +1,4 @@
-package control
+package authority
 
 // AuthorityDigestEmptyJournalDigest mirrors AuthorityDigest.EmptyJournalDigest.
 var AuthorityDigestEmptyJournalDigest = digestHash("TerraScale.AuthorityJournal.v1")

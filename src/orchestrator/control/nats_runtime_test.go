@@ -15,6 +15,30 @@ import (
 	"terrascale.tech/orchestrator/src/orchestrator/protocol"
 )
 
+type natsRuntimeMembershipStub struct {
+	snapshot RegionalRuntimeMembershipSnapshot
+	failure  error
+	done     chan struct{}
+}
+
+type natsRuntimeAuthorityStub struct {
+	snapshot RegionalAuthoritySnapshot
+	done     chan struct{}
+}
+
+func (s *natsRuntimeAuthorityStub) Completion() <-chan struct{} { return s.done }
+func (s *natsRuntimeAuthorityStub) Snapshot() RegionalAuthoritySnapshot {
+	return s.snapshot
+}
+func (s *natsRuntimeAuthorityStub) Dispose() {}
+
+func (s *natsRuntimeMembershipStub) Completion() <-chan struct{} { return s.done }
+func (s *natsRuntimeMembershipStub) Snapshot() RegionalRuntimeMembershipSnapshot {
+	return s.snapshot
+}
+func (s *natsRuntimeMembershipStub) LastFailure() error { return s.failure }
+func (s *natsRuntimeMembershipStub) Dispose() error     { return s.failure }
+
 func TestNatsRuntimeCheckFailsClosedWhenInfrastructureJournalIsMissing(t *testing.T) {
 	client, topology, cleanup := natsRuntimeTestServer(t)
 	defer cleanup()
@@ -79,15 +103,15 @@ func TestNatsRuntimeReadinessIncludesMembershipLoopFailure(t *testing.T) {
 	now := time.Now().UTC()
 	expires := now.Add(time.Minute)
 	runtime := &NatsRuntime{
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: &natsRuntimeAuthorityStub{snapshot: RegionalAuthoritySnapshot{
 			State: "leader", ObservedAt: now, LeaseExpiresAt: &expires,
 		}},
-		membership: &RegionalRuntimeMembership{},
+		membership: &natsRuntimeMembershipStub{},
 	}
 	if !runtime.ready() {
 		t.Fatal("healthy authority and membership should be ready")
 	}
-	runtime.membership.heartbeatFailure.Store(&errorBox{err: errors.New("heartbeat failed")})
+	runtime.membership.(*natsRuntimeMembershipStub).failure = errors.New("heartbeat failed")
 	if runtime.ready() {
 		t.Fatal("a terminal membership heartbeat failure must make the runtime not ready")
 	}
@@ -113,11 +137,11 @@ func TestNatsRuntimeHealthServiceReturnsTheBoundV2Envelope(t *testing.T) {
 	runtime := &NatsRuntime{
 		client:   client,
 		topology: NewNatsTopology("gru", 1, "controller-1"),
-		authority: &RegionalAuthorityCoordinator{snapshot: RegionalAuthoritySnapshot{
+		authority: &natsRuntimeAuthorityStub{snapshot: RegionalAuthoritySnapshot{
 			State: "leader", IsLeader: true, Epoch: 2, KvRevision: 4,
 			ObservedAt: now, LeaseExpiresAt: &expires,
 		}},
-		membership:  &RegionalRuntimeMembership{},
+		membership:  &natsRuntimeMembershipStub{},
 		stats:       NewNatsServiceEndpointStats(),
 		lifetimeCtx: context.Background(),
 	}

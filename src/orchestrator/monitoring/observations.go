@@ -1,4 +1,4 @@
-package control
+package monitoring
 
 import (
 	"encoding/json"
@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"time"
+
+	"terrascale.tech/orchestrator/src/orchestrator/membership"
 )
 
 // NatsMonitoringPlane mirrors the C# enum.
@@ -209,7 +211,7 @@ func NatsConnectionsObserve(
 
 // Validate mirrors the C# Validate.
 func (o NatsConnectionsObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.Connections < 0 || o.Reconnects < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS connections observation is invalid.")
 	}
@@ -231,7 +233,7 @@ func NatsRoutesObserve(cell string, routes int64, observedAt time.Time) NatsRout
 }
 
 func (o NatsRoutesObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.Routes < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS routes observation is invalid.")
 	}
@@ -265,7 +267,7 @@ func (o NatsGatewaysObservation) FullyDisconnected() bool {
 }
 
 func (o NatsGatewaysObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.ConnectedGateways < 0 || o.DisconnectedGateways < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS gateways observation is invalid.")
 	}
@@ -293,7 +295,7 @@ func NatsAccountsObserve(
 }
 
 func (o NatsAccountsObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.Accounts < 0 || o.Connections < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS accounts observation is invalid.")
 	}
@@ -327,7 +329,7 @@ func NatsJetStreamObserve(
 }
 
 func (o NatsJetStreamObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.Domains < 0 || o.Streams < 0 || o.Consumers < 0 ||
 		o.MemoryBytes < 0 || o.StorageBytes < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS JetStream observation is invalid.")
@@ -416,7 +418,7 @@ func NatsServerResourceObserve(
 }
 
 func (o NatsServerResourceObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.ServerMemoryBytes < 0 || o.JetStreamStorageBytes < 0 || o.ObservedAt.IsZero() {
 		return fmt.Errorf("The NATS server resource observation is invalid.")
 	}
@@ -458,7 +460,7 @@ func (o NatsCertificateObservation) RemainingDays(now time.Time) int64 {
 }
 
 func (o NatsCertificateObservation) Validate() error {
-	if o.SchemaVersion != 1 || !messagingCellTokenIsValid(o.Cell) ||
+	if o.SchemaVersion != 1 || !monitoringCellTokenIsValid(o.Cell) ||
 		o.CertificateClass < NatsCertificateClassServerListener ||
 		o.CertificateClass > NatsCertificateClassMonitoringClient ||
 		o.NotAfter.IsZero() || o.ObservedAt.IsZero() {
@@ -518,7 +520,7 @@ type NatsMeshCell struct {
 }
 
 func (c NatsMeshCell) Validate() error {
-	if !messagingCellTokenIsValid(c.Cell) ||
+	if !monitoringCellTokenIsValid(c.Cell) ||
 		c.State < NatsMeshCellStateHealthy || c.State > NatsMeshCellStateDisconnected {
 		return fmt.Errorf("The NATS mesh cell state is invalid.")
 	}
@@ -531,6 +533,19 @@ type NatsMeshHealth struct {
 	SchemaVersion int
 	ObservedAt    time.Time
 	Cells         []NatsMeshCell
+}
+
+// MeshDirectoryEntry is the bounded directory view needed to evaluate mesh
+// health without depending on the control package.
+type MeshDirectoryEntry struct {
+	Cell                string
+	LeaseExpiresAt      time.Time
+	MembershipCondition membership.RegionalRuntimeMembershipCondition
+}
+
+// MeshDirectorySnapshot is the directory view consumed by monitoring.
+type MeshDirectorySnapshot struct {
+	Cells []MeshDirectoryEntry
 }
 
 // NatsMeshHealthCurrentSchemaVersion mirrors the C# constant.
@@ -559,8 +574,8 @@ func (h NatsMeshHealth) DisconnectedCells() int { return h.Count(NatsMeshCellSta
 // observations.
 func NatsMeshHealthEvaluate(
 	expectedCells []string,
-	membershipByCell map[string]RegionalRuntimeMembershipHealth,
-	directory GlobalCellDirectorySnapshot,
+	membershipByCell map[string]membership.RegionalRuntimeMembershipHealth,
+	directory MeshDirectorySnapshot,
 	gatewaysByCell map[string]NatsGatewaysObservation,
 	observedAt time.Time,
 ) (NatsMeshHealth, error) {
@@ -598,8 +613,8 @@ func NatsMeshHealthEvaluate(
 
 func natsMeshStateFor(
 	cell string,
-	membershipByCell map[string]RegionalRuntimeMembershipHealth,
-	directory GlobalCellDirectorySnapshot,
+	membershipByCell map[string]membership.RegionalRuntimeMembershipHealth,
+	directory MeshDirectorySnapshot,
 	gatewaysByCell map[string]NatsGatewaysObservation,
 	observedAt time.Time,
 ) NatsMeshCellState {
@@ -609,7 +624,7 @@ func natsMeshStateFor(
 		return NatsMeshCellStateDisconnected
 	}
 
-	var entry *GlobalCellDirectoryEntry
+	var entry *MeshDirectoryEntry
 	for index := range directory.Cells {
 		if directory.Cells[index].Cell == cell {
 			entry = &directory.Cells[index]
@@ -629,7 +644,7 @@ func natsMeshStateFor(
 		return NatsMeshCellStateConflicting
 	}
 
-	if entry.Membership.Condition == RegionalRuntimeMembershipConditionHealthy {
+	if entry.MembershipCondition == membership.RegionalRuntimeMembershipConditionHealthy {
 		return NatsMeshCellStateHealthy
 	}
 
@@ -727,7 +742,7 @@ func (a NatsMonitoringAggregate) WithAvailability(availability NatsMonitoringAva
 // Validate mirrors the C# Validate.
 func (a NatsMonitoringAggregate) Validate() error {
 	if a.SchemaVersion != NatsMonitoringAggregateCurrentSchemaVersion ||
-		!messagingCellTokenIsValid(a.Cell) ||
+		!monitoringCellTokenIsValid(a.Cell) ||
 		a.Plane < NatsMonitoringPlaneControl || a.Plane > NatsMonitoringPlaneProduct ||
 		a.ClusterRole < NatsClusterRoleRegional || a.ClusterRole > NatsClusterRoleGlobalAuthority ||
 		a.Availability < NatsMonitoringAvailabilityAvailable ||

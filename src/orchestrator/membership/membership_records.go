@@ -1,4 +1,4 @@
-package control
+package membership
 
 import (
 	"crypto/ecdsa"

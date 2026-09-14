@@ -38,8 +38,8 @@ type NatsRuntime struct {
 	topology       *NatsTopology
 	service        *natsSvcServer
 	serviceInfo    *nats.Subscription
-	authority      *RegionalAuthorityCoordinator
-	membership     *RegionalRuntimeMembership
+	authority      regionalAuthorityCoordinator
+	membership     regionalRuntimeMembership
 	stats          *NatsServiceEndpointStats
 	commandIngress *NatsCommandIngress
 
@@ -50,6 +50,19 @@ type NatsRuntime struct {
 	closeOnce      sync.Once
 	closed         int32
 	closeErr       error
+}
+
+type regionalRuntimeMembership interface {
+	Completion() <-chan struct{}
+	Snapshot() RegionalRuntimeMembershipSnapshot
+	LastFailure() error
+	Dispose() error
+}
+
+type regionalAuthorityCoordinator interface {
+	Completion() <-chan struct{}
+	Snapshot() RegionalAuthoritySnapshot
+	Dispose()
 }
 
 type natsRuntimeState struct {
