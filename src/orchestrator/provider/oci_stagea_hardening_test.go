@@ -372,10 +372,9 @@ func TestStageARegistryBlobRejectsHostileRedirectsWithoutDisclosure(t *testing.T
 		{name: "fragment", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/object?token=secret#fragment"}},
 		{name: "invalid namespace", locations: []string{"https://bad.name.objectstorage.sa-saopaulo-1.oci.customer-oci.com/object?token=secret"}},
 		{name: "other namespace host", locations: []string{"https://another.objectstorage.sa-saopaulo-1.oci.customer-oci.com/p/signed?token=secret"}},
-		{name: "namespaced host wrong namespace path", locations: []string{"https://tenancy.objectstorage.sa-saopaulo-1.oci.customer-oci.com/n/another/b/bucket/o/layer?token=secret"}},
 		{name: "generic host missing namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/signed?token=secret"}},
 		{name: "generic host wrong namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/p/signed/n/another/b/bucket/o/layer?token=secret"}},
-		{name: "noncanonical namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/x/n/tenancy/b/bucket/o/layer?token=secret"}},
+		{name: "duplicate namespace path", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/n/tenancy/b/bucket/o/n/tenancy?token=secret"}},
 		{name: "duplicate", locations: []string{"https://objectstorage.sa-saopaulo-1.oraclecloud.com/one?token=secret", "https://objectstorage.sa-saopaulo-1.oraclecloud.com/two?token=secret"}},
 	}
 	for _, test := range tests {

@@ -1023,9 +1023,9 @@ func NewOCIRegistryAdapter(transport *OCIHTTPTransport, scope OCIRegistryScope) 
 		}
 		repositories[canonical] = struct{}{}
 	}
-	// Snapshot every authority-bearing transport value. Registry credentials
-	// must not follow later mutation of caller-owned config, endpoint, client,
-	// cookie jar, redirect policy, or signer fields.
+	// Registry credentials and authority must not remain coupled to mutable
+	// caller-owned transport fields. Keep a defensive copy of every authority
+	// bearing value, disable cookies, and retain the no-redirect policy.
 	endpoint := *transport.Config.Endpoint
 	config := transport.Config
 	config.Endpoint = &endpoint
@@ -1527,16 +1527,6 @@ func (a *OCIRegistryAdapter) PullBlob(ctx context.Context, request RegistryBlobR
 	if err != nil {
 		return nil, 0, err
 	}
-	if !validRegistryDigest(request.Digest) {
-		return nil, 0, &errs.Argument{Message: "registry blob request is invalid"}
-	}
-	resp, err := a.registry.DoWithHeaders(ctx, http.MethodGet, "/v2/"+repository+"/blobs/"+url.PathEscape(request.Digest), nil, map[string]string{
-		"Accept":          "application/octet-stream",
-		"Accept-Encoding": "identity",
-	})
-	if err != nil {
-		return nil, 0, err
-	}
 	redirected := false
 	if resp.StatusCode == http.StatusTemporaryRedirect {
 		location, valid := singleRegistryRedirectLocation(resp)
@@ -1626,6 +1616,10 @@ func validRegistryBlobRedirectAuthority(target *url.URL, region, namespace strin
 	for index, part := range parts {
 		if part != "n" {
 			continue
+		}
+		namespaceSegments++
+		if index+1 < len(parts) && parts[index+1] == namespace {
+			pathNamespaceMatches = true
 		}
 		namespaceSegments++
 		if index+1 < len(parts) && parts[index+1] == namespace {
