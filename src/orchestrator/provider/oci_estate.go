@@ -534,6 +534,28 @@ func verifyEstateKey(ctx context.Context, reader OCIEstateReader, spec OCIEstate
 	return nil
 }
 
+// VerifyOCIEstateAndBind returns a launch allowlist only after every
+// read-only estate check has succeeded. Callers cannot construct the binding
+// directly because its fields and constructor are private.
+func VerifyOCIEstateAndBind(ctx context.Context, spec OCIEstateSpec, reader OCIEstateReader) (*OCINodeEstateBinding, error) {
+	if err := VerifyOCIEstate(ctx, spec, reader); err != nil {
+		return nil, err
+	}
+	binding := &OCINodeEstateBinding{
+		vcnID: spec.VCNID,
+		subnets: make(map[string]struct{}, len(spec.SubnetIDs)),
+		networkSecurityGroups: make(map[string]struct{}, len(spec.NetworkSecurityGroupIDs)),
+		digest: fingerprintJSON("oci-estate-binding", spec),
+	}
+	for _, id := range spec.SubnetIDs {
+		binding.subnets[id] = struct{}{}
+	}
+	for _, id := range spec.NetworkSecurityGroupIDs {
+		binding.networkSecurityGroups[id] = struct{}{}
+	}
+	return binding, nil
+}
+
 func verifyEstatePolicy(ctx context.Context, reader OCIEstateReader, compartment string, expected OCIEstatePolicy) error {
 	body, status, err := reader.Read(ctx, OCIServiceIdentity, "/20160918/policies/"+url.PathEscape(expected.ID))
 	var document struct {

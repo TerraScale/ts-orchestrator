@@ -158,7 +158,7 @@ func TestOCINodeCreateRequiresResolvedLaunchConfiguration(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		posts++
 		body, _ = io.ReadAll(request.Body)
-		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Opc-Work-Request-Id": []string{"work-1"}}, Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.sa-saopaulo-1.testinstance"}`))}, nil
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Opc-Work-Request-Id": []string{"work-1"}}, Body: io.NopCloser(strings.NewReader(`{"id":"ocid1.instance.oc1.x","compartmentId":"ocid1.compartment.oc1.x"}`))}, nil
 	})}
 	cfg, err := NewOCITransportConfig("gru", "https://iaas.gru.oraclecloud.com")
 	if err != nil {
