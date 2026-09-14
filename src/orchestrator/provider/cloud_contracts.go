@@ -255,8 +255,12 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation failure code is invalid"}
 	}
 	if len(result.ResourceID) > 2048 || len(result.WorkRequestID) > 256 || len(result.ETag) > 512 ||
-		strings.ContainsAny(result.ResourceID+result.WorkRequestID+result.ETag, "\r\n") {
+		strings.ContainsAny(result.ResourceID+result.WorkRequestID+result.ETag, "\r\n") ||
+		(result.WorkRequestID != "" && !validWorkRequestID(result.WorkRequestID)) {
 		return ProviderMutationRecord{}, &errs.Argument{Message: "provider mutation result is invalid"}
+	}
+	if providerFailure && !validWorkRequestID(result.WorkRequestID) {
+		return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider-proven mutation failure has no valid work-request identity"}
 	}
 	key := mutationJournalKey(intent.Scope)
 	for attempt := 0; attempt < 8; attempt++ {
@@ -278,14 +282,15 @@ func (j *CASProviderMutationJournal) transition(ctx context.Context, intent Prov
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation terminal outcome cannot change"}
 		}
 		providerProvedUnknownFailure := prior.State == MutationUnknown && state == MutationFailed && providerFailure &&
-			validWorkRequestID(result.WorkRequestID) && prior.Result == result
+			prior.Result == result && validWorkRequestID(result.WorkRequestID)
 		if !validMutationTransition(intent.Action, prior.State, state) && !providerProvedUnknownFailure {
 			return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation state transition is invalid"}
 		}
 		if prior.State == MutationUnknown && state == MutationUnknown {
-			if result == (ProviderMutationResult{}) {
+			switch {
+			case result == (ProviderMutationResult{}):
 				result = prior.Result
-			} else if prior.Result != (ProviderMutationResult{}) && prior.Result != result {
+			case prior.Result != (ProviderMutationResult{}) && prior.Result != result:
 				return ProviderMutationRecord{}, &InvalidOperationError{Message: "provider mutation unknown outcome cannot change identity"}
 			}
 		}
@@ -310,9 +315,6 @@ func validMutationTransition(action string, from, to ProviderMutationState) bool
 	}
 	switch from {
 	case MutationPrepared:
-		// A read-before-delete can prove that the resource is already absent.
-		// Recording that terminal observation must not require a no-op provider
-		// mutation, but every nonterminal mutation still passes through submitted.
 		return to == MutationSubmitted || (to == MutationSucceeded && observedAbsentAction(action))
 	case MutationSubmitted:
 		return to == MutationSucceeded || to == MutationFailed || to == MutationUnknown
@@ -327,7 +329,7 @@ func validMutationTransition(action string, from, to ProviderMutationState) bool
 
 func observedAbsentAction(action string) bool {
 	switch action {
-	case "compute.terminate", "volume.delete", "attachment.delete", "object.delete":
+	case "volume.delete", "attachment.delete", "object.delete":
 		return true
 	default:
 		return false
@@ -401,6 +403,9 @@ func (j *CASProviderMutationJournal) MarkFailed(ctx context.Context, intent Prov
 }
 
 func (j *CASProviderMutationJournal) MarkProviderFailed(ctx context.Context, intent ProviderMutationIntent, result ProviderMutationResult, code string) (ProviderMutationRecord, error) {
+	if code != "provider-work-request-failed" && code != "provider-work-request-canceled" {
+		return ProviderMutationRecord{}, &errs.Argument{Message: "provider-proven mutation failure code is invalid"}
+	}
 	return j.transition(ctx, intent, MutationFailed, result, code, true)
 }
 
@@ -551,6 +556,20 @@ type ObjectStorageProvider interface {
 }
 
 type ObjectRef struct{ Namespace, Bucket, Name string }
+
+// ObjectStorageReservation is an exact durable catalog reservation. The
+// catalog records generated ledger and backup object names before the
+// provider adapter may read or mutate them.
+type ObjectStorageReservation struct{ Object ObjectRef }
+
+// DurableObjectStorageAuthority is the read-authority seam for Object
+// Storage. Mutation fingerprints do not authorize HEAD, GET, or LIST, so the
+// adapter requires a separate durable exact-name reservation for every call.
+type DurableObjectStorageAuthority interface {
+	AuthoritativeDurable() bool
+	LookupObject(context.Context, ObjectRef) (ObjectStorageReservation, bool, error)
+}
+
 type ObjectPutRequest struct {
 	Mutation ProviderMutationIntent
 	Object   ObjectRef

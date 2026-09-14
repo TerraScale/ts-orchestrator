@@ -185,13 +185,12 @@ func isOCID(v, kind string) bool {
 	if (regionless && parts[3] != "") || (!regionless && parts[3] == "") {
 		return false
 	}
+	if !regionless && !regionPattern.MatchString(parts[3]) {
+		return false
+	}
 	for index, part := range parts[3:] {
 		if part == "" {
-			// Only global IAM resources may omit the region. Accepting the
-			// regionless form for regional resources weakens service and scope
-			// validation because the resulting identifier cannot name a real
-			// instance, volume, network, Vault, or key.
-			if index != 0 || len(parts) < 5 || !regionlessOCIDKind(kind) {
+			if index != 0 || len(parts) < 5 || !regionless {
 				return false
 			}
 			continue
@@ -216,6 +215,7 @@ func regionlessOCIDKind(kind string) bool {
 		return false
 	}
 }
+
 func indeterminate(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, new(*http.ProtocolError)) || errors.As(err, new(*url.Error)) || errors.As(err, new(*ProviderOutcomeUnknownError))
 }
@@ -359,9 +359,6 @@ func NewOCIHTTPTransport(config OCITransportConfig, client *http.Client, signer 
 		client = &http.Client{Timeout: config.Timeout}
 	}
 	clientClone := *client
-	// OCI service authorities are allowlisted by the transport config. Never
-	// let net/http replay a signed request body to a redirect target that did
-	// not pass that validation.
 	clientClone.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	client = &clientClone
 	// Keep the endpoint immutable from callers that reuse their config value.
@@ -388,6 +385,17 @@ func (t *OCIHTTPTransport) Do(ctx context.Context, method, path string, body io.
 // DoWithHeaders is Do with a small caller-supplied set of validated headers.
 // Header names/values are rejected if they contain controls.
 func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	return t.doWithHeaders(ctx, method, path, body, headers, true)
+}
+
+// DoOnceWithHeaders sends exactly one HTTP request. It is for durable
+// mutations whose submitted or unknown state may only be reconciled, never
+// resubmitted by a transport retry loop.
+func (t *OCIHTTPTransport) DoOnceWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	return t.doWithHeaders(ctx, method, path, body, headers, false)
+}
+
+func (t *OCIHTTPTransport) doWithHeaders(ctx context.Context, method, path string, body io.Reader, headers map[string]string, allowRetries bool) (*http.Response, error) {
 	if t == nil || t.Client == nil || t.Config.Endpoint == nil {
 		return nil, &InvalidOperationError{Message: "OCI transport is unavailable"}
 	}
@@ -404,15 +412,15 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		return nil, &errs.Argument{Message: "OCI request headers exceed limit"}
 	}
 	callerHeaders := make(map[string]string, len(headers))
-	for k, v := range headers {
-		if k == "" || strings.TrimSpace(k) != k || strings.ContainsAny(k+v, "\r\n") || strings.ContainsAny(k, ": \t") || len(v) > 4096 {
+	for key, value := range headers {
+		if key == "" || strings.TrimSpace(key) != key || strings.ContainsAny(key+value, "\r\n") || strings.ContainsAny(key, ": \t") || len(value) > 4096 {
 			return nil, &errs.Argument{Message: "OCI request header is invalid"}
 		}
-		canonical := http.CanonicalHeaderKey(k)
-		if _, duplicate := callerHeaders[canonical]; duplicate {
+		canonical := http.CanonicalHeaderKey(key)
+		if _, exists := callerHeaders[canonical]; exists {
 			return nil, &errs.Argument{Message: "OCI request header is duplicated"}
 		}
-		callerHeaders[canonical] = v
+		callerHeaders[canonical] = value
 	}
 	var data []byte
 	hasBody := body != nil
@@ -430,7 +438,7 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 	mutation := method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
 	replayFenced := mutation && ociMutationReplayFenced(callerHeaders)
 	attempts := 1
-	if readOnly || mutation {
+	if allowRetries && (readOnly || mutation) {
 		attempts += t.Config.MaxRetries
 	}
 	for n := 0; n < attempts; n++ {
@@ -443,8 +451,8 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 			return nil, err
 		}
 		req.Header.Set("Accept", "application/json")
-		for k, v := range callerHeaders {
-			req.Header.Set(k, v)
+		for key, value := range callerHeaders {
+			req.Header.Set(key, value)
 		}
 		if hasBody && req.Header.Get("Content-Type") == "" {
 			req.Header.Set("Content-Type", "application/json")
@@ -515,8 +523,6 @@ func (t *OCIHTTPTransport) DoWithHeaders(ctx context.Context, method, path strin
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		// A mutation transport error can arrive after OCI accepted the request.
-		// Never repost it automatically; the durable intent must reconcile.
 		if mutation || n+1 == attempts {
 			return nil, redactOCIError(err, "OCI request transport failed")
 		}
@@ -550,14 +556,34 @@ func retryableOCIConflictResponse(resp *http.Response, max int64) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	// Nonretryable conflicts still belong to the adapter's terminal failure
-	// classifier, so restore the bounded body for its one remaining read.
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	code, valid := decodeOCIErrorCode(raw)
 	if !valid {
 		return false, &InvalidDataError{Message: "OCI mutation conflict response is invalid"}
 	}
 	return code == "IncorrectState" || code == "LockConflict", nil
+}
+
+func boundedOCIRetryDelay(ctx context.Context, attempt int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 4 {
+		attempt = 4
+	}
+	base := time.Second << (attempt - 1)
+	jitter := time.Duration(uint64(time.Now().UnixNano()) % uint64(base/2+1))
+	timer := time.NewTimer(base + jitter)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func redactOCIError(err error, fallback string) error {

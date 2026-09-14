@@ -15,15 +15,15 @@ import (
 
 func testContext(t *testing.T, action ProviderAction, target ProviderTarget, params ProviderActionParameters) ProviderOperationContext {
 	t.Helper()
-	c, e := NewProviderOperationContext(ProviderOperationId{"op-1"}, ProviderCellId{"gru"}, ProviderCompartmentId{"ocid1.compartment.oc1..x"}, ProviderEpoch{2}, ResourceVolume, action, target, ProviderGeneration{1}, ObservedPresent, TerminalExpanded, nil, DeadlineEvidence{DeadlineValid, ProviderGeneration{1}}, ProviderIdempotencyKey{"idem-1"}, nil, params)
+	c, e := NewProviderOperationContext(ProviderOperationId{"op-1"}, ProviderCellId{"gru"}, ProviderCompartmentId{"ocid1.compartment.oc1..testcompartment"}, ProviderEpoch{2}, ResourceVolume, action, target, ProviderGeneration{1}, ObservedPresent, TerminalExpanded, nil, DeadlineEvidence{DeadlineValid, ProviderGeneration{1}}, ProviderIdempotencyKey{"idem-1"}, nil, params)
 	if e != nil {
 		t.Fatal(e)
 	}
 	return c
 }
 func TestAuthorizationRejectsTagsAlone(t *testing.T) {
-	c := testContext(t, ActionExpandVolume, ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.x"}}, ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
-	r, _ := NewProviderAuthorizationRequest(c, nil, nil, []ProviderInventoryTagEvidence{{ResourceId: ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.x"}, CellId: c.CellId, CompartmentId: c.CompartmentId, OperationId: c.OperationId, Generation: c.ExpectedGeneration}}, EvidenceComplete, nil, nil, nil, nil, ProviderCallEvidence{Context: c, Status: CallNotCalled})
+	c := testContext(t, ActionExpandVolume, ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.testvolume"}}, ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
+	r, _ := NewProviderAuthorizationRequest(c, nil, nil, []ProviderInventoryTagEvidence{{ResourceId: ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.testvolume"}, CellId: c.CellId, CompartmentId: c.CompartmentId, OperationId: c.OperationId, Generation: c.ExpectedGeneration}}, EvidenceComplete, nil, nil, nil, nil, ProviderCallEvidence{Context: c, Status: CallNotCalled})
 	if d := Authorize(r); d.Authorized {
 		t.Fatal("tags must not authorize")
 	}
@@ -53,7 +53,7 @@ func (f *fakeVolume) UpdateVolume(context.Context, VolumeUpdateRequest) (*Volume
 }
 func TestExpansionCancellationBeforeTransport(t *testing.T) {
 	f := &fakeVolume{}
-	c := testContext(t, ActionExpandVolume, ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.x"}}, ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
+	c := testContext(t, ActionExpandVolume, ExistingProviderResource{ProviderResourceId{"ocid1.volume.oc1.sa-saopaulo-1.testvolume"}}, ExpandVolumeProviderParameters{ProviderByteCount{2 << 30}})
 	x := ExpandVolumeProviderIntent{intentBase{c}, c.ActionParameters.(ExpandVolumeProviderParameters)}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -68,7 +68,7 @@ func TestReceiptRoundTripAndTamper(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b := CreateNodeReceiptBinding{"op", "tenant", "node", "idem", "create", "gru", "ocid1.compartment.oc1..x", "tmpl", "place", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "auth", "fingerprint", 1, 2, 1}
+	b := CreateNodeReceiptBinding{"op", "tenant", "node", "idem", "create", "gru", "ocid1.compartment.oc1..testcompartment", "tmpl", "place", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "auth", "fingerprint", 1, 2, 1}
 	issued := time.Unix(100, 0)
 	r, e := signer.Sign(b, issued, issued.Add(time.Minute))
 	if e != nil {

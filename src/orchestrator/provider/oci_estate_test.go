@@ -54,19 +54,18 @@ func TestEstateVerifierRejectsMalformedManualEstate(t *testing.T) {
 	control := "ocid1.compartment.oc1..control"
 	network := "ocid1.compartment.oc1..network"
 	workload := "ocid1.compartment.oc1..workload"
-	vcn := "ocid1.vcn.oc1.sa-saopaulo-1.x"
+	vcn := "ocid1.vcn.oc1.sa-saopaulo-1.testvcn"
 	subnets := []string{"ocid1.subnet.oc1.sa-saopaulo-1.a", "ocid1.subnet.oc1.sa-saopaulo-1.b", "ocid1.subnet.oc1.sa-saopaulo-1.c"}
 	nsgs := []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.a", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.b", "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.c"}
-	vault := "ocid1.vault.oc1.sa-saopaulo-1.x"
-	key := "ocid1.key.oc1.sa-saopaulo-1.x"
-	policy := "ocid1.policy.oc1..x"
-	dynamicGroup := "ocid1.dynamicgroup.oc1..x"
+	vault := "ocid1.vault.oc1.sa-saopaulo-1.testvault"
+	key := "ocid1.key.oc1.sa-saopaulo-1.testkey"
+	policy := "ocid1.policy.oc1..testpolicy"
 	statement := "Allow dynamic-group terrascale-orchestrator to manage instances in compartment terrascale-workload"
 	matchingRule := "ALL {instance.compartment.id = '" + control + "'}"
 	retentionRule := OCIEstateRetentionRuleSpec{ID: "minimum-retention", DisplayName: "minimum-retention", TimeAmount: 1, TimeUnit: "DAYS"}
 	lifecycleRule := OCIEstateLifecycleRuleSpec{Name: "archive", Action: "ARCHIVE", TimeAmount: 30, TimeUnit: "DAYS", IsEnabled: true, Target: "objects", InclusionPrefixes: []string{"region/"}}
 	spec := OCIEstateSpec{
-		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..x",
+		Region: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..testtenancy",
 		ControlCompartmentID: control, NetworkCompartmentID: network, WorkloadCompartmentID: workload,
 		VCNID: vcn, SubnetIDs: subnets, NetworkSecurityGroupIDs: nsgs,
 		IAMPolicyCompartmentID: control, IAMPolicies: []OCIEstatePolicy{{ID: policy, Statements: []string{statement}}},

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,7 +36,16 @@ func waitContext(ctx context.Context, duration time.Duration) error {
 }
 
 func validWorkRequestID(id string) bool {
-	return len(id) > 0 && len(id) <= 256 && !strings.ContainsAny(id, "\r\n/?#%")
+	if len(id) == 0 || len(id) > 256 || strings.TrimSpace(id) != id {
+		return false
+	}
+	for _, value := range id {
+		if (value < 'a' || value > 'z') && (value < 'A' || value > 'Z') &&
+			(value < '0' || value > '9') && value != '.' && value != '_' && value != '-' && value != ':' {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (WorkRequest, error) {
@@ -63,7 +73,7 @@ func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (
 		Status          string  `json:"status"`
 		PercentComplete float64 `json:"percentComplete"`
 	}
-	if json.Unmarshal(body, &document) != nil || document.ID != id || document.PercentComplete < 0 || document.PercentComplete > 100 {
+	if json.Unmarshal(body, &document) != nil || document.ID != id || math.IsNaN(document.PercentComplete) || math.IsInf(document.PercentComplete, 0) || document.PercentComplete < 0 || document.PercentComplete > 100 {
 		return WorkRequest{}, &InvalidDataError{Message: "OCI work request response is invalid"}
 	}
 	state := WorkRequestState("")
@@ -85,15 +95,17 @@ func (a *OCIWorkRequestAdapter) GetWorkRequest(ctx context.Context, id string) (
 }
 
 func (a *OCIWorkRequestAdapter) WaitWorkRequest(ctx context.Context, id string, policy WorkRequestWaitPolicy) (WorkRequest, error) {
-	if a == nil || a.Wait == nil || policy.PollInterval < 0 || policy.PollInterval > time.Minute || policy.MaxPolls < 1 || policy.MaxPolls > 10000 || policy.MaxNotFound < 0 || policy.MaxNotFound > policy.MaxPolls {
+	if a == nil || a.Wait == nil || !validWorkRequestID(id) || policy.PollInterval < 0 || policy.PollInterval > time.Minute || policy.MaxPolls < 1 || policy.MaxPolls > 10000 || policy.MaxNotFound < 0 || policy.MaxNotFound > policy.MaxPolls {
 		return WorkRequest{}, &errs.Argument{Message: "OCI work request wait policy is invalid"}
 	}
 	notFound := 0
+	last := WorkRequest{ID: id, State: WorkRequestNotVisible}
 	for poll := 0; poll < policy.MaxPolls; poll++ {
 		request, err := a.GetWorkRequest(ctx, id)
 		if err != nil {
 			return WorkRequest{}, err
 		}
+		last = request
 		switch request.State {
 		case WorkRequestSucceeded:
 			return request, nil
@@ -111,7 +123,7 @@ func (a *OCIWorkRequestAdapter) WaitWorkRequest(ctx context.Context, id string, 
 			}
 		}
 	}
-	return WorkRequest{ID: id, State: WorkRequestInProgress}, &ProviderOutcomeUnknownError{Message: "OCI work request did not reach a terminal state"}
+	return last, &ProviderOutcomeUnknownError{Message: "OCI work request did not reach a terminal state"}
 }
 
 var _ WorkRequestProvider = (*OCIWorkRequestAdapter)(nil)
