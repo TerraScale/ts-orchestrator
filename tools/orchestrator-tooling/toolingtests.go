@@ -67,6 +67,7 @@ func toolingTestSuite() []toolingTest {
 	return []toolingTest{
 		{"git bytes preserve non UTF-8 blob", gitBytesPreserveNonUtf8Blob},
 		{"no python sources", noPythonSources},
+		{"retired deploy handoff v1 fixtures absent", retiredDeployHandoffV1FixturesAbsent},
 		{"CI result manifest", testCiResultManifest},
 		{"workspace topology lease", developmentWorkspaceTopologyLease},
 	}
@@ -116,6 +117,22 @@ func noPythonSources() {
 	})
 	if len(python) != 0 {
 		panic(fmt.Errorf("Python sources remain: %s", strings.Join(python, ",")))
+	}
+}
+
+func retiredDeployHandoffV1FixturesAbsent() {
+	path := filepath.Join(ToolingSupport.Root(), "testdata", "delivery", "deploy_handoff")
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		panic(err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".json") {
+			panic(errors.New("retired deploy handoff v1 fixtures remain"))
+		}
 	}
 }
 

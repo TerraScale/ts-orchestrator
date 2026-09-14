@@ -68,16 +68,15 @@ alone accepts membership, repair, replica retirement, and durability facts.
 
 ## Delivery
 
-`ts-deploy` runs in Forgejo Actions and owns build, test, and image
-publication. DEP-3 owns the external candidate handoff contract; that
-machine-readable integration is not implemented in this repository, so
-external candidate documents fail closed. The existing in-process delivery
-handoff grants no provider, runtime, routing, or rollout authority.
+`ts-deploy` runs in Forgejo Actions and owns build, test, and image publication.
+The external candidate handoff and candidate adoption are not wired. DEP-3
+owns that machine contract. Until it lands, external candidate documents fail
+closed.
 
-Once the DEP-3 contract is added and wired, Orchestrator will verify the
-handoff, admit the exact digest, create a full green regional generation beside
-blue, switch traffic through a durable routing generation, and roll back by
-digest. It will never rebuild during promotion or rollback.
+The current in-process delivery path turns bounded Forgejo events into an
+internal plan for the delivery reconciler. It grants no provider, runtime,
+routing, or rollout authority. Orchestrator owns admission and digest-based
+rollout after DEP-3 connects the external handoff to that boundary.
 
 ## Local verification
 
