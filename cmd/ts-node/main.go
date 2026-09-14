@@ -15,9 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"regexp"
+	stdruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,9 +27,6 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-
-	stdruntime "runtime"
-
 	"terrascale.tech/orchestrator/src/orchestrator/control"
 	"terrascale.tech/orchestrator/src/orchestrator/hostagent"
 	hostruntime "terrascale.tech/orchestrator/src/orchestrator/runtime"
@@ -47,6 +46,7 @@ const (
 	tsNodeDefaultTasksMax         = 512
 	tsNodeDefaultNodeClass        = "greenfield"
 	tsNodeHeartbeatMinimumPercent = 1
+	tsNodeMaxReconnects           = 8
 )
 
 // tsNodeTokenPattern is the bounded canonical node and class token vocabulary
@@ -60,24 +60,23 @@ func isTsNodeSpaceRune(r rune) bool { return r <= ' ' || r == 0x7f }
 // tsNodeConfiguration is the fully explicit runtime configuration of one node
 // host agent after flag parsing.
 type tsNodeConfiguration struct {
-	NodeId               string
-	NodeClass            string
-	NatsUrl              string
-	NatsNKeyFile         string
-	NatsTlsCaFile        string
-	NatsTlsCertFile      string
-	NatsTlsKeyFile       string
-	PodmanBinaryPath     string
-	SystemctlBinaryPath  string
-	SystemdRunBinaryPath string
-	XdgRuntimeDir        string
-	SeccompProfilePath   string
-	RunAsUid             uint32
-	HeartbeatInterval    time.Duration
-	ConnectTimeout       time.Duration
-	CpuQuotaPercent      int
-	TasksMax             int
-	LogicalCpuCount      int
+	NodeId              string
+	NodeClass           string
+	NatsUrl             string
+	NatsNKeyFile        string
+	NatsCredentialsFile string
+	NatsTlsCaFile       string
+	NatsTlsCertFile     string
+	NatsTlsKeyFile      string
+	PodmanBinaryPath    string
+	XdgRuntimeDir       string
+	SeccompProfilePath  string
+	RunAsUid            uint32
+	HeartbeatInterval   time.Duration
+	ConnectTimeout      time.Duration
+	CpuQuotaPercent     int
+	TasksMax            int
+	LogicalCpuCount     int
 }
 
 // parseTsNodeArguments validates the explicit flag vector of the node agent
@@ -113,9 +112,8 @@ func parseTsNodeArguments(
 	}
 	for name := range flags {
 		switch name {
-		case "--node-id", "--node-class", "--nats-url", "--nats-nkey-file", "--nats-tls-ca-file",
-			"--nats-tls-cert-file", "--nats-tls-key-file", "--podman-binary", "--systemctl-binary",
-			"--systemd-run-binary", "--xdg-runtime-dir",
+		case "--node-id", "--node-class", "--nats-url", "--nats-nkey-file", "--nats-credentials-file",
+			"--nats-tls-ca-file", "--nats-tls-cert-file", "--nats-tls-key-file", "--podman-binary", "--xdg-runtime-dir",
 			"--seccomp-profile", "--run-as-uid", "--heartbeat-interval", "--connect-timeout",
 			"--cpu-quota-percent", "--tasks-max", "--logical-cpu-count":
 		default:
@@ -142,10 +140,39 @@ func parseTsNodeArguments(
 			"ts-node: --node-class must be a lowercase DNS-style token")
 	}
 	natsUrl := flags["--nats-url"]
+	parsedNatsURL, err := url.Parse(natsUrl)
 	if natsUrl == "" || strings.HasPrefix(natsUrl, "-") ||
-		strings.ContainsFunc(natsUrl, isTsNodeSpaceRune) {
+		strings.ContainsFunc(natsUrl, isTsNodeSpaceRune) || err != nil ||
+		!parsedNatsURL.IsAbs() || parsedNatsURL.Scheme != "tls" || parsedNatsURL.Host == "" ||
+		parsedNatsURL.User != nil || parsedNatsURL.RawQuery != "" || parsedNatsURL.Fragment != "" {
 		return tsNodeConfiguration{}, errors.New(
-			"ts-node: --nats-url is required and must be whitespace-free and flag-safe")
+			"ts-node: --nats-url is required and must be an absolute tls:// URL")
+	}
+	natsNKeyFile := flags["--nats-nkey-file"]
+	natsCredentialsFile := flags["--nats-credentials-file"]
+	if (strings.TrimSpace(natsNKeyFile) == "") == (strings.TrimSpace(natsCredentialsFile) == "") {
+		return tsNodeConfiguration{}, errors.New(
+			"ts-node: exactly one of --nats-nkey-file or --nats-credentials-file is required")
+	}
+	for flag, value := range map[string]string{
+		"--nats-nkey-file":        natsNKeyFile,
+		"--nats-credentials-file": natsCredentialsFile,
+	} {
+		if value != "" && (strings.HasPrefix(value, "-") || strings.ContainsFunc(value, isTsNodeSpaceRune)) {
+			return tsNodeConfiguration{}, fmt.Errorf(
+				"ts-node: %s must be a whitespace-free and flag-safe path", flag)
+		}
+	}
+	tlsPaths := map[string]string{
+		"--nats-tls-ca-file":   flags["--nats-tls-ca-file"],
+		"--nats-tls-cert-file": flags["--nats-tls-cert-file"],
+		"--nats-tls-key-file":  flags["--nats-tls-key-file"],
+	}
+	for flag, value := range tlsPaths {
+		if value == "" || strings.HasPrefix(value, "-") || strings.ContainsFunc(value, isTsNodeSpaceRune) {
+			return tsNodeConfiguration{}, fmt.Errorf(
+				"ts-node: %s is required and must be a whitespace-free and flag-safe path", flag)
+		}
 	}
 	natsNKeyFile := flags["--nats-nkey-file"]
 	natsTlsCaFile := flags["--nats-tls-ca-file"]
@@ -256,24 +283,23 @@ func parseTsNodeArguments(
 	}
 
 	return tsNodeConfiguration{
-		NodeId:               nodeId,
-		NodeClass:            nodeClass,
-		NatsUrl:              natsUrl,
-		NatsNKeyFile:         natsNKeyFile,
-		NatsTlsCaFile:        natsTlsCaFile,
-		NatsTlsCertFile:      natsTlsCertFile,
-		NatsTlsKeyFile:       natsTlsKeyFile,
-		PodmanBinaryPath:     podmanBinary,
-		SystemctlBinaryPath:  systemctlBinary,
-		SystemdRunBinaryPath: systemdRunBinary,
-		XdgRuntimeDir:        xdgRuntimeDir,
-		SeccompProfilePath:   seccompProfile,
-		RunAsUid:             runAsUid,
-		HeartbeatInterval:    heartbeatInterval,
-		ConnectTimeout:       connectTimeout,
-		CpuQuotaPercent:      cpuQuotaPercent,
-		TasksMax:             tasksMax,
-		LogicalCpuCount:      logicalCpuCount,
+		NodeId:              nodeId,
+		NodeClass:           nodeClass,
+		NatsUrl:             natsUrl,
+		NatsNKeyFile:        natsNKeyFile,
+		NatsCredentialsFile: natsCredentialsFile,
+		NatsTlsCaFile:       tlsPaths["--nats-tls-ca-file"],
+		NatsTlsCertFile:     tlsPaths["--nats-tls-cert-file"],
+		NatsTlsKeyFile:      tlsPaths["--nats-tls-key-file"],
+		PodmanBinaryPath:    podmanBinary,
+		XdgRuntimeDir:       xdgRuntimeDir,
+		SeccompProfilePath:  seccompProfile,
+		RunAsUid:            runAsUid,
+		HeartbeatInterval:   heartbeatInterval,
+		ConnectTimeout:      connectTimeout,
+		CpuQuotaPercent:     cpuQuotaPercent,
+		TasksMax:            tasksMax,
+		LogicalCpuCount:     logicalCpuCount,
 	}, nil
 }
 
@@ -294,6 +320,155 @@ func validateTsNodeProcessIdentity(realUid uint32, effectiveUid uint32) error {
 type tsNodePendingRelay struct {
 	mutex   sync.Mutex
 	counter hostagent.PendingAllocationCounter
+}
+
+// tsNodeAuthenticatedNatsConnection defers the first authenticated dial until
+// HostAgent.Start invokes the transport. This keeps composition side-effect
+// free while ensuring the host agent cannot take its unauthenticated URL path.
+// The connection is owned here because HostAgent receives it as a wired
+// transport; Drain therefore closes the authenticated client as well.
+type tsNodeAuthenticatedNatsConnection struct {
+	mutex         sync.Mutex
+	configuration control.NatsConnectionConfiguration
+	connection    hostagent.NatsConnection
+	closed        bool
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) live() (hostagent.NatsConnection, error) {
+	if c == nil {
+		return nil, errors.New("ts-node: authenticated NATS connection is unavailable")
+	}
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	if c.closed {
+		return nil, errors.New("ts-node: authenticated NATS connection is closed")
+	}
+	if c.connection != nil {
+		return c.connection, nil
+	}
+	client, err := control.NatsConnect(context.Background(), c.configuration)
+	if err != nil {
+		// Do not surface any NATS option or credential material in process
+		// errors. The configured file validators already provide diagnostics
+		// without reading secret bytes into an error.
+		return nil, errors.New("ts-node: authenticated NATS connection failed")
+	}
+	connection, err := hostagent.NewLiveNatsConnection(client)
+	if err != nil {
+		client.Close()
+		return nil, errors.New("ts-node: authenticated NATS connection failed")
+	}
+	c.connection = connection
+	return connection, nil
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Subscribe(subject string, handler func(*nats.Msg)) (*nats.Subscription, error) {
+	connection, err := c.live()
+	if err != nil {
+		return nil, err
+	}
+	return connection.Subscribe(subject, handler)
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Publish(subject string, payload []byte) error {
+	connection, err := c.live()
+	if err != nil {
+		return err
+	}
+	return connection.Publish(subject, payload)
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Request(subject string, payload []byte, timeout time.Duration) (*nats.Msg, error) {
+	connection, err := c.live()
+	if err != nil {
+		return nil, err
+	}
+	return connection.Request(subject, payload, timeout)
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Flush() error {
+	connection, err := c.live()
+	if err != nil {
+		return err
+	}
+	return connection.Flush()
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Drain() error {
+	if c == nil {
+		return nil
+	}
+	c.mutex.Lock()
+	if c.closed {
+		c.mutex.Unlock()
+		return nil
+	}
+	c.closed = true
+	connection := c.connection
+	c.connection = nil
+	c.mutex.Unlock()
+	if connection == nil {
+		return nil
+	}
+	err := connection.Drain()
+	connection.Close()
+	return err
+}
+
+func (c *tsNodeAuthenticatedNatsConnection) Close() {
+	if c == nil {
+		return
+	}
+	c.mutex.Lock()
+	if c.closed {
+		c.mutex.Unlock()
+		return
+	}
+	c.closed = true
+	connection := c.connection
+	c.connection = nil
+	c.mutex.Unlock()
+	if connection != nil {
+		connection.Close()
+	}
+}
+
+// tsNodeNatsConnectionConfiguration resolves the explicit node identity and
+// mTLS files through the shared control validators. No credential bytes are
+// retained in the returned configuration.
+func tsNodeNatsConnectionConfiguration(configuration tsNodeConfiguration) (control.NatsConnectionConfiguration, error) {
+	parsed, err := url.Parse(configuration.NatsUrl)
+	if err != nil || !parsed.IsAbs() || parsed.Scheme != "tls" || parsed.Host == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return control.NatsConnectionConfiguration{}, errors.New(
+			"ts-node: --nats-url must be an absolute tls:// URL")
+	}
+	authentication, err := control.NatsAuthenticationFilesResolve(
+		configuration.NatsNKeyFile, configuration.NatsCredentialsFile, "TS_NODE_NATS")
+	if err != nil {
+		return control.NatsConnectionConfiguration{}, errors.New("ts-node: NATS authentication files are invalid")
+	}
+	if authentication == nil {
+		return control.NatsConnectionConfiguration{}, errors.New(
+			"ts-node: exactly one NATS NKey or credentials file is required")
+	}
+	tlsFiles, err := control.NatsTlsFilesResolve(
+		configuration.NatsTlsCaFile, configuration.NatsTlsCertFile, configuration.NatsTlsKeyFile,
+		"TS_NODE_NATS_TLS")
+	if err != nil {
+		return control.NatsConnectionConfiguration{}, errors.New("ts-node: NATS mTLS files are invalid")
+	}
+	if tlsFiles == nil {
+		return control.NatsConnectionConfiguration{}, errors.New(
+			"ts-node: complete NATS mTLS files are required")
+	}
+	return control.NatsConnectionConfiguration{
+		URL:            parsed.String(),
+		Authentication: authentication,
+		TLS:            tlsFiles,
+		Timeout:        configuration.ConnectTimeout,
+		MaxReconnects:  tsNodeMaxReconnects,
+	}, nil
 }
 
 // bind attaches the executor the relay reports pending allocations for.
@@ -342,8 +517,11 @@ func newTsNodePodmanClient(configuration tsNodeConfiguration) (*hostruntime.Syst
 	if configuration.XdgRuntimeDir != expectedRuntimeDir {
 		return nil, errors.New("ts-node: XDG runtime directory must match the run uid")
 	}
-	commandRunner := hostruntime.ProcessHostCommandRunner{}
-	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, commandRunner)
+	natsConfiguration, err := tsNodeNatsConnectionConfiguration(configuration)
+	if err != nil {
+		return nil, err
+	}
+	podmanClient, err := hostruntime.NewProcessPodmanClient(rootless, hostruntime.ProcessHostCommandRunner{})
 	if err != nil {
 		return nil, fmt.Errorf("ts-node: the podman client is unavailable: %s", err.Error())
 	}
@@ -429,9 +607,7 @@ func composeTsNodeAgent(configuration tsNodeConfiguration) (*hostagent.HostAgent
 	}
 	agent, err := hostagent.NewHostAgent(hostagent.HostAgentConfig{
 		NodeId:            nodeId,
-		NatsURL:           configuration.NatsUrl,
-		NatsOptions:       natsOptions,
-		ConnectTimeout:    configuration.ConnectTimeout,
+		Connection:        &tsNodeAuthenticatedNatsConnection{configuration: natsConfiguration},
 		Systemd:           systemdAdapter,
 		Container:         containerAdapter,
 		Metrics:           metrics,

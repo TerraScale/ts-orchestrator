@@ -10,16 +10,30 @@ import (
 	"time"
 )
 
+func secureTsNodeArguments(args ...string) []string {
+	result := append([]string(nil), args...)
+	for index, value := range result {
+		if strings.HasPrefix(value, "nats://") {
+			result[index] = "tls://" + strings.TrimPrefix(value, "nats://")
+		}
+	}
+	return append(result,
+		"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+		"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+		"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+		"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem")
+}
+
 func TestParseTsNodeArgumentsAppliesDefaults(t *testing.T) {
-	configuration, err := parseTsNodeArguments([]string{
+	configuration, err := parseTsNodeArguments(secureTsNodeArguments(
 		"--node-id", "gru-node-1",
 		"--nats-url", "nats://127.0.0.1:4222",
-	}, 1000, 1000, 8)
+	), 1000, 8)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
 	if configuration.NodeId != "gru-node-1" || configuration.NodeClass != "greenfield" ||
-		configuration.NatsUrl != "nats://127.0.0.1:4222" {
+		configuration.NatsUrl != "tls://127.0.0.1:4222" {
 		t.Fatalf("identity flags = %#v", configuration)
 	}
 	if configuration.PodmanBinaryPath != tsNodeDefaultPodmanBinary {
@@ -52,7 +66,7 @@ func TestParseTsNodeArgumentsAppliesDefaults(t *testing.T) {
 }
 
 func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
-	configuration, err := parseTsNodeArguments([]string{
+	configuration, err := parseTsNodeArguments(secureTsNodeArguments(
 		"--logical-cpu-count", "4",
 		"--heartbeat-interval", "250ms",
 		"--tasks-max", "128",
@@ -67,12 +81,12 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 		"--run-as-uid", "1001",
 		"--node-id", "as-node-4",
 		"--nats-url", "nats://regional:4222",
-	}, 1001, 1001, 16)
+	), 1001, 16)
 	if err != nil {
 		t.Fatalf("parse failed: %v", err)
 	}
 	if configuration.NodeId != "as-node-4" || configuration.NodeClass != "greenfield-tiny" ||
-		configuration.NatsUrl != "nats://regional:4222" ||
+		configuration.NatsUrl != "tls://regional:4222" ||
 		configuration.PodmanBinaryPath != "/opt/podman/bin/podman" ||
 		configuration.SystemctlBinaryPath != "/opt/systemd/bin/systemctl" ||
 		configuration.SystemdRunBinaryPath != "/opt/systemd/bin/systemd-run" ||
@@ -88,23 +102,66 @@ func TestParseTsNodeArgumentsAcceptsExplicitOverridesInAnyOrder(t *testing.T) {
 	}
 }
 
-func TestParseTsNodeArgumentsBindsProductionNatsCredentials(t *testing.T) {
-	configuration, err := parseTsNodeArguments([]string{
-		"--node-id", "gru-node-1",
-		"--nats-url", "tls://regional.internal:4222",
-		"--nats-nkey-file", "/run/credentials/ts-node/nkey.seed",
-		"--nats-tls-ca-file", "/run/credentials/ts-node/ca.pem",
-		"--nats-tls-cert-file", "/run/credentials/ts-node/client.pem",
-		"--nats-tls-key-file", "/run/credentials/ts-node/client.key",
-	}, 1000, 1000, 8)
-	if err != nil {
-		t.Fatalf("parse failed: %v", err)
+func TestParseTsNodeArgumentsRequiresSecureNatsConfiguration(t *testing.T) {
+	base := []string{"--node-id", "gru-node-1", "--nats-url", "tls://127.0.0.1:4222"}
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing authentication",
+			args: append(append([]string(nil), base...),
+				"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+				"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+				"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem"),
+			want: "exactly one of --nats-nkey-file or --nats-credentials-file is required",
+		},
+		{
+			name: "both authentication families",
+			args: append(append([]string(nil), base...),
+				"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+				"--nats-credentials-file", "/run/credentials/terrascale/node.creds",
+				"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+				"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+				"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem"),
+			want: "exactly one of --nats-nkey-file or --nats-credentials-file is required",
+		},
+		{
+			name: "missing client certificate",
+			args: append(append([]string(nil), base...),
+				"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+				"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+				"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem"),
+			want: "--nats-tls-cert-file is required",
+		},
+		{
+			name: "plaintext URL",
+			args: append([]string{"--node-id", "gru-node-1", "--nats-url", "nats://127.0.0.1:4222"},
+				"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+				"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+				"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+				"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem"),
+			want: "--nats-url is required and must be an absolute tls:// URL",
+		},
 	}
-	if configuration.NatsNKeyFile != "/run/credentials/ts-node/nkey.seed" ||
-		configuration.NatsTlsCaFile != "/run/credentials/ts-node/ca.pem" ||
-		configuration.NatsTlsCertFile != "/run/credentials/ts-node/client.pem" ||
-		configuration.NatsTlsKeyFile != "/run/credentials/ts-node/client.key" {
-		t.Fatalf("NATS credential paths = %#v", configuration)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := parseTsNodeArguments(test.args, 1000, 8)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v; want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestTsNodeNatsConnectionConfigurationFailsClosedWithoutSecrets(t *testing.T) {
+	_, err := tsNodeNatsConnectionConfiguration(tsNodeConfiguration{
+		NatsUrl:        "tls://127.0.0.1:4222",
+		ConnectTimeout: time.Second,
+	})
+	if err == nil || !strings.Contains(err.Error(), "NATS") {
+		t.Fatalf("missing authentication was accepted: %v", err)
 	}
 }
 
@@ -132,7 +189,7 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 		{
 			name: "flag-like nats url",
 			args: []string{"--node-id", "gru-node-1", "--nats-url", "--evil"},
-			want: "--nats-url is required and must be whitespace-free and flag-safe",
+			want: "--nats-url is required and must be an absolute tls:// URL",
 		},
 		{
 			name: "unsupported nats scheme",
@@ -234,7 +291,11 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := parseTsNodeArguments(test.args, 1000, 1000, 8)
+			args := secureTsNodeArguments(test.args...)
+			if test.name == "flag without value" {
+				args = test.args
+			}
+			_, err := parseTsNodeArguments(args, 1000, 8)
 			if err == nil {
 				t.Fatalf("invalid args %q were accepted", test.args)
 			}
@@ -248,9 +309,13 @@ func TestParseTsNodeArgumentsRejectsInvalidInput(t *testing.T) {
 func TestParseTsNodeArgumentsFailsClosedUnderUidZero(t *testing.T) {
 	_, err := parseTsNodeArguments([]string{
 		"--node-id", "gru-node-1",
-		"--nats-url", "nats://127.0.0.1:4222",
-	}, 0, 0, 8)
-	if err == nil || !strings.Contains(err.Error(), "real or effective uid of 0") {
+		"--nats-url", "tls://127.0.0.1:4222",
+		"--nats-nkey-file", "/run/credentials/terrascale/node.seed",
+		"--nats-tls-ca-file", "/run/credentials/terrascale/ca.pem",
+		"--nats-tls-cert-file", "/run/credentials/terrascale/node.pem",
+		"--nats-tls-key-file", "/run/credentials/terrascale/node-key.pem",
+	}, 0, 8)
+	if err == nil || !strings.Contains(err.Error(), "must never run as uid 0") {
 		t.Fatalf("uid 0 default was accepted: %v", err)
 	}
 }
@@ -268,69 +333,57 @@ func TestParseTsNodeArgumentsRejectsEffectiveRootAndSetuidMismatch(t *testing.T)
 
 func TestComposeTsNodeAgentValidatesRootlessContext(t *testing.T) {
 	_, err := composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:               "gru-node-1",
-		NodeClass:            "greenfield",
-		NatsUrl:              "nats://127.0.0.1:4222",
-		PodmanBinaryPath:     "podman",
-		SystemctlBinaryPath:  tsNodeDefaultSystemctlBinary,
-		SystemdRunBinaryPath: tsNodeDefaultSystemdRunBinary,
-		XdgRuntimeDir:        "/run/user/1000",
-		SeccompProfilePath:   tsNodeDefaultSeccompProfile,
-		RunAsUid:             1000,
-		HeartbeatInterval:    time.Second,
-		ConnectTimeout:       time.Second,
-		CpuQuotaPercent:      100,
-		TasksMax:             128,
-		LogicalCpuCount:      1,
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "tls://127.0.0.1:4222",
+		PodmanBinaryPath:   "podman",
+		XdgRuntimeDir:      "/run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "rootless podman context is invalid") {
 		t.Fatalf("relative podman path was accepted: %v", err)
 	}
 
 	_, err = composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:               "gru-node-1",
-		NodeClass:            "greenfield",
-		NatsUrl:              "nats://127.0.0.1:4222",
-		PodmanBinaryPath:     "/usr/bin/podman",
-		SystemctlBinaryPath:  tsNodeDefaultSystemctlBinary,
-		SystemdRunBinaryPath: tsNodeDefaultSystemdRunBinary,
-		XdgRuntimeDir:        "run/user/1000",
-		SeccompProfilePath:   tsNodeDefaultSeccompProfile,
-		RunAsUid:             1000,
-		HeartbeatInterval:    time.Second,
-		ConnectTimeout:       time.Second,
-		CpuQuotaPercent:      100,
-		TasksMax:             128,
-		LogicalCpuCount:      1,
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "tls://127.0.0.1:4222",
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
 	if err == nil || !strings.Contains(err.Error(), "rootless podman context is invalid") {
 		t.Fatalf("relative xdg runtime dir was accepted: %v", err)
 	}
 
-	agent, err := composeTsNodeAgent(tsNodeConfiguration{
-		NodeId:               "gru-node-1",
-		NodeClass:            "greenfield",
-		NatsUrl:              "nats://127.0.0.1:4222",
-		PodmanBinaryPath:     "/usr/bin/podman",
-		SystemctlBinaryPath:  tsNodeDefaultSystemctlBinary,
-		SystemdRunBinaryPath: tsNodeDefaultSystemdRunBinary,
-		XdgRuntimeDir:        "/run/user/1000",
-		SeccompProfilePath:   tsNodeDefaultSeccompProfile,
-		RunAsUid:             1000,
-		HeartbeatInterval:    time.Second,
-		ConnectTimeout:       time.Second,
-		CpuQuotaPercent:      100,
-		TasksMax:             128,
-		LogicalCpuCount:      1,
+	_, err = composeTsNodeAgent(tsNodeConfiguration{
+		NodeId:             "gru-node-1",
+		NodeClass:          "greenfield",
+		NatsUrl:            "tls://127.0.0.1:4222",
+		PodmanBinaryPath:   "/usr/bin/podman",
+		XdgRuntimeDir:      "/run/user/1000",
+		SeccompProfilePath: tsNodeDefaultSeccompProfile,
+		RunAsUid:           1000,
+		HeartbeatInterval:  time.Second,
+		ConnectTimeout:     time.Second,
+		CpuQuotaPercent:    100,
+		TasksMax:           128,
+		LogicalCpuCount:    1,
 	})
-	if err != nil {
-		t.Fatalf("valid configuration failed to compose: %v", err)
-	}
-	if agent == nil || agent.NodeId().Value != "gru-node-1" {
-		t.Fatalf("agent = %#v", agent)
-	}
-	if agent.Cordoned() {
-		t.Fatal("a fresh agent must not be cordoned")
+	if err == nil || !strings.Contains(err.Error(), "NATS") {
+		t.Fatalf("configuration without NATS identity must fail closed: %v", err)
 	}
 }
 

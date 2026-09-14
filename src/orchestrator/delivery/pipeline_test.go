@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type pipelineSource struct {
@@ -52,6 +53,30 @@ type pipelineHandoff struct {
 	count int
 	err   error
 	plans []*DeliveryPlan
+}
+
+type blockingPipelineHandoff struct {
+	mu      sync.Mutex
+	count   int
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h *blockingPipelineHandoff) Handoff(ctx context.Context, _ *DeliveryPlan) error {
+	h.mu.Lock()
+	h.count++
+	first := h.count == 1
+	h.mu.Unlock()
+	if first {
+		close(h.entered)
+		select {
+		case <-h.release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 func (h *pipelineHandoff) Handoff(_ context.Context, plan *DeliveryPlan) error {
@@ -144,6 +169,85 @@ func TestDeliveryProcessorFencesAuthorityChange(t *testing.T) {
 	}
 	if handoff.count != 0 {
 		t.Fatal("fenced delivery reached handoff")
+	}
+}
+
+func TestDeliveryProcessorDurableClaimAllowsOneConcurrentHandoff(t *testing.T) {
+	graph, root, _ := pipelineGraph(t)
+	ledger := NewMemoryLedger()
+	handoff := &blockingPipelineHandoff{entered: make(chan struct{}), release: make(chan struct{})}
+	one := NewDeliveryProcessor(graph, ledger, handoff, nil)
+	two := NewDeliveryProcessor(graph, ledger, handoff, nil)
+	event := pipelineEvent(root)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := one.Process(context.Background(), event)
+		firstDone <- err
+	}()
+	select {
+	case <-handoff.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first processor did not reach handoff")
+	}
+	secondReceipt, secondErr := two.Process(context.Background(), event)
+	if !errors.Is(secondErr, ErrDeliveryClaimed) || secondReceipt.Disposition != DeliveryClaimed {
+		t.Fatalf("second processor receipt=%+v err=%v", secondReceipt, secondErr)
+	}
+	handoff.mu.Lock()
+	if handoff.count != 1 {
+		handoff.mu.Unlock()
+		t.Fatalf("concurrent handoffs=%d", handoff.count)
+	}
+	handoff.mu.Unlock()
+	close(handoff.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first processor err=%v", err)
+	}
+	replay, err := two.Process(context.Background(), event)
+	if err != nil || replay.Disposition != DeliveryDuplicate {
+		t.Fatalf("replay receipt=%+v err=%v", replay, err)
+	}
+}
+
+func TestDeliveryProcessorRecoversExpiredClaimAfterRestart(t *testing.T) {
+	graph, root, _ := pipelineGraph(t)
+	ledger := NewMemoryLedger()
+	event := pipelineEvent(root)
+	started := make(chan struct{})
+	crashed := NewDeliveryProcessor(graph, ledger, DeliveryHandoffFunc(func(ctx context.Context, _ *DeliveryPlan) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}), nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := crashed.Process(ctx, event)
+		firstDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("claimant did not reach handoff")
+	}
+	cancel()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("crashed claimant err=%v", err)
+	}
+
+	restartedHandoffs := 0
+	restarted := NewDeliveryProcessor(graph, ledger, DeliveryHandoffFunc(func(context.Context, *DeliveryPlan) error {
+		restartedHandoffs++
+		return nil
+	}), nil)
+	restarted.now = func() time.Time { return time.Now().Add(DeliveryClaimLease + time.Second) }
+	receipt, err := restarted.Process(context.Background(), event)
+	if err != nil || receipt.Disposition != DeliveryRecorded || restartedHandoffs != 1 {
+		t.Fatalf("restart receipt=%+v err=%v handoffs=%d", receipt, err, restartedHandoffs)
+	}
+	replay, err := restarted.Process(context.Background(), event)
+	if err != nil || replay.Disposition != DeliveryDuplicate || restartedHandoffs != 1 {
+		t.Fatalf("restart replay receipt=%+v err=%v handoffs=%d", replay, err, restartedHandoffs)
 	}
 }
 

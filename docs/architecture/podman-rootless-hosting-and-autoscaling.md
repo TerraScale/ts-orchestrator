@@ -131,8 +131,10 @@ invocation, ever runs as uid 0.**
 ## NATS transport map
 
 Each node runs one host agent that connects to the regional embedded NATS
-(ADR 0033 keeps NATS the control transport). The subjects are closed and
-built only from validated `NodeId` tokens:
+(ADR 0033 keeps NATS the control transport). The agent uses a separately
+scoped host-agent NKey (or credentials file) and its complete client mTLS
+tuple; the regional controller identity is never reused by a node. The
+subjects are closed and built only from validated `NodeId` tokens:
 
 | Subject | Pattern | Use |
 | --- | --- | --- |
@@ -216,21 +218,17 @@ operation, not a fast path.
   local adapter (systemd user units or rootless podman, chosen by the
   plan's driver), returns typed receipts, and publishes heartbeats whose
   running-task gauge comes from its own tracked allocations. It holds no
-  cluster credentials beyond its regional NATS connection.
+  cluster credentials beyond its scoped regional NATS identity and mTLS
+  files.
 - **Autoscaler role** — a control-plane role that consumes heartbeats and
   the schedule state, applies the decision rules above, and drives a
-  `NodeProvisioner` implementation. The single-host validation lane uses
-  `LocalProcessNodeProvisioner` with `CommandProcessSpawner`, selected only by
-  the exact provider value `local-dev`; the OCI estate plugs into the same
-  seam. The local implementation keeps child ownership only in process memory
-  and resolves separately issued NKey and mTLS credentials for each child from
-  the configured node credential directory. The NATS account must ACL each
-  identity to that node's subjects. The local provider still keeps ownership
-  only in process memory and is not restart-reconciling or an OCI provider.
-  Its direct live smoke covers the real provision, cordon, drain, and retire
-  sequence through embedded NATS. A separate role-level smoke starts the real
-  command with authenticated TLS/NKey NATS and scheduler-feed wiring. ADR 0033
-  gives the regional autonomy model.
+  `NodeProvisioner` implementation (the greenfield OCI estate of ADR 0024
+  provides the provisioning seam; ADR 0033 gives the regional autonomy
+  model). Its explicit `TS_ORCH_AUTOSCALER_NODE_NATS_*` configuration is
+  validated before startup. The process provisioner appends the resulting
+  node identity and mTLS file paths to every `ts-node` argv; caller-supplied
+  extra arguments cannot override those security-owned flags, and secret
+  bytes are never placed in argv.
 - **DrainSafetyEvaluator** — one implementation in the control plane that
   combines replica health from heartbeats with the placement state.
 

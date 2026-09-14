@@ -77,16 +77,63 @@ type NodeProcessSpec struct {
 	BinaryPath string
 	NodeId     string
 	NatsUrl    string
+	Nats       NodeNatsCredentials
 	Args       []string
 	Env        map[string]string
 	RunAsUid   uint32
 }
 
+// NodeNatsCredentials is the file-only NATS transport identity passed to a
+// provisioned node. The files must have been resolved and validated by the
+// composition layer; this package deliberately never receives secret bytes.
+// Exactly one of NKeyFile and CredentialsFile is required, together with a
+// complete client mTLS tuple.
+type NodeNatsCredentials struct {
+	NKeyFile        string
+	CredentialsFile string
+	TlsCaFile       string
+	TlsCertFile     string
+	TlsKeyFile      string
+}
+
+func (c NodeNatsCredentials) validate() error {
+	hasNKey := c.NKeyFile != ""
+	hasCredentials := c.CredentialsFile != ""
+	if hasNKey == hasCredentials {
+		return &ArgumentError{Param: "nats", Message: "Exactly one NKey or credentials file is required."}
+	}
+	identityName, identityPath := "natsNKeyFile", c.NKeyFile
+	if !hasNKey {
+		identityName, identityPath = "natsCredentialsFile", c.CredentialsFile
+	}
+	if _, err := requireAutoscalingAbsolutePath(identityPath, identityName); err != nil {
+		return err
+	}
+	if strings.ContainsFunc(identityPath, isAutoscalingSpaceOrControlRune) {
+		return &ArgumentError{Param: "nats", Message: "NATS identity paths must be whitespace-free and flag-safe."}
+	}
+	for name, value := range map[string]string{
+		"natsTlsCaFile": c.TlsCaFile, "natsTlsCertFile": c.TlsCertFile,
+		"natsTlsKeyFile": c.TlsKeyFile,
+	} {
+		if value == "" {
+			return &ArgumentError{Param: "nats", Message: "NATS identity and complete mTLS file paths are required."}
+		}
+		if _, err := requireAutoscalingAbsolutePath(value, name); err != nil {
+			return err
+		}
+		if strings.ContainsFunc(value, isAutoscalingSpaceOrControlRune) {
+			return &ArgumentError{Param: "nats", Message: "NATS mTLS paths must be whitespace-free and flag-safe."}
+		}
+	}
+	return nil
+}
+
 // NewNodeProcessSpec validates one node process spec. The binary path is a
 // bounded absolute path, the node id is a bounded canonical token, the NATS
 // URL is bounded, whitespace-free, and flag-safe, every argument is bounded
-// and control-free and may not claim the reserved identity flags, environment
-// keys are canonical uppercase names that may not override
+// and control-free and may not claim reserved identity/security flags,
+// environment keys are canonical uppercase names that may not override
 // XDG_RUNTIME_DIR, and the run uid is nonzero: nothing in this lane ever
 // spawns a privileged child.
 func NewNodeProcessSpec(
@@ -96,7 +143,14 @@ func NewNodeProcessSpec(
 	args []string,
 	env map[string]string,
 	runAsUid uint32,
+	nats ...NodeNatsCredentials,
 ) (NodeProcessSpec, error) {
+	if len(nats) != 1 {
+		return NodeProcessSpec{}, &ArgumentError{Param: "nats", Message: "A scoped NATS identity and complete mTLS files are required."}
+	}
+	if err := nats[0].validate(); err != nil {
+		return NodeProcessSpec{}, err
+	}
 	validatedBinary, err := requireAutoscalingAbsolutePath(binaryPath, "binaryPath")
 	if err != nil {
 		return NodeProcessSpec{}, err
@@ -123,8 +177,7 @@ func NewNodeProcessSpec(
 	arguments := make([]string, 0, len(args))
 	for _, argument := range args {
 		if argument == "" || len(argument) > autoscalingMaximumArgumentLength ||
-			argument == "--node-id" || argument == "--nats-url" ||
-			strings.HasPrefix(argument, "--node-id=") || strings.HasPrefix(argument, "--nats-url=") ||
+			isAutoscalingReservedArgument(argument) ||
 			strings.ContainsFunc(argument, isAutoscalingSpaceOrControlRune) {
 			return NodeProcessSpec{}, &errs.Argument{
 				Param:   "args",
@@ -167,10 +220,27 @@ func NewNodeProcessSpec(
 		BinaryPath: validatedBinary,
 		NodeId:     validatedNode,
 		NatsUrl:    natsUrl,
+		Nats:       nats[0],
 		Args:       arguments,
 		Env:        environment,
 		RunAsUid:   runAsUid,
 	}, nil
+}
+
+// isAutoscalingReservedArgument keeps caller-supplied ExtraArgs from
+// replacing either node identity or any NATS authentication/trust file. The
+// provisioner appends those security-owned flags from validated config.
+func isAutoscalingReservedArgument(argument string) bool {
+	for _, flag := range []string{
+		"--node-id", "--nats-url", "--nats-nkey-file", "--nats-credentials-file",
+		"--nats-tls-ca-file", "--nats-tls-cert-file", "--nats-tls-key-file",
+		"--run-as-uid", "--xdg-runtime-dir", "--podman-binary", "--seccomp-profile",
+	} {
+		if argument == flag || strings.HasPrefix(argument, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 // XdgRuntimeDir returns the dedicated XDG runtime directory of this node
@@ -179,13 +249,22 @@ func (s NodeProcessSpec) XdgRuntimeDir() string {
 	return fmt.Sprintf("/run/user/%d", s.RunAsUid)
 }
 
-// childArguments composes the explicit child argv: the caller arguments
-// first, then the identity flags this lane owns, so a node agent always
-// learns its own node id and NATS URL last and in that order.
+// childArguments composes the explicit child argv: caller arguments first,
+// then the node identity and NATS security flags this lane owns. Secret bytes
+// never enter argv; the final values are validated file paths.
 func (s NodeProcessSpec) childArguments() []string {
-	arguments := make([]string, 0, len(s.Args)+4)
+	arguments := make([]string, 0, len(s.Args)+14)
 	arguments = append(arguments, s.Args...)
 	arguments = append(arguments, "--node-id", s.NodeId, "--nats-url", s.NatsUrl)
+	if s.Nats.NKeyFile != "" {
+		arguments = append(arguments, "--nats-nkey-file", s.Nats.NKeyFile)
+	} else {
+		arguments = append(arguments, "--nats-credentials-file", s.Nats.CredentialsFile)
+	}
+	arguments = append(arguments,
+		"--nats-tls-ca-file", s.Nats.TlsCaFile,
+		"--nats-tls-cert-file", s.Nats.TlsCertFile,
+		"--nats-tls-key-file", s.Nats.TlsKeyFile)
 	return arguments
 }
 
@@ -296,6 +375,7 @@ func (p *StaticNodeProvisioner) Retire(ctx context.Context, nodeId string) error
 type LocalProcessProvisionerConfig struct {
 	AgentBinaryPath string
 	NatsUrl         string
+	Nats            NodeNatsCredentials
 	AgentArguments  []string
 	// AgentArgumentsForNode supplies node-scoped authentication arguments.
 	// When set, it replaces AgentArguments for each node. The resolver must
@@ -322,16 +402,21 @@ func NewLocalProcessProvisionerConfig(
 	natsUrl string,
 	agentArguments []string,
 	runAsUid uint32,
+	nats ...NodeNatsCredentials,
 ) (LocalProcessProvisionerConfig, error) {
+	if len(nats) != 1 {
+		return LocalProcessProvisionerConfig{}, &ArgumentError{Param: "nats", Message: "A scoped NATS identity and complete mTLS files are required."}
+	}
 	// A probe spec with a placeholder node token applies the exact spec
 	// validation to the shared fields without inventing a second rule set.
-	probe, err := NewNodeProcessSpec(agentBinaryPath, "node", natsUrl, agentArguments, nil, runAsUid)
+	probe, err := NewNodeProcessSpec(agentBinaryPath, "node", natsUrl, agentArguments, nil, runAsUid, nats[0])
 	if err != nil {
 		return LocalProcessProvisionerConfig{}, err
 	}
 	return LocalProcessProvisionerConfig{
 		AgentBinaryPath: probe.BinaryPath,
 		NatsUrl:         probe.NatsUrl,
+		Nats:            probe.Nats,
 		AgentArguments:  append([]string{}, probe.Args...),
 		RunAsUid:        probe.RunAsUid,
 	}, nil
@@ -368,7 +453,7 @@ func NewLocalProcessNodeProvisioner(
 	spawner ProcessSpawner,
 ) (*LocalProcessNodeProvisioner, error) {
 	validated, err := NewLocalProcessProvisionerConfig(
-		config.AgentBinaryPath, config.NatsUrl, config.AgentArguments, config.RunAsUid)
+		config.AgentBinaryPath, config.NatsUrl, config.AgentArguments, config.RunAsUid, config.Nats)
 	if err != nil {
 		return nil, err
 	}
@@ -412,6 +497,18 @@ func (p *LocalProcessNodeProvisioner) Provision(ctx context.Context, request Nod
 	}
 	validated, err := NewNodeProvisionRequest(
 		request.NodeId, request.NodeClass, request.Resources, request.Reason)
+	if err != nil {
+		return err
+	}
+	spec, err := NewNodeProcessSpec(
+		p.config.AgentBinaryPath,
+		validated.NodeId,
+		p.config.NatsUrl,
+		append(append([]string{}, p.config.AgentArguments...),
+			"--node-class", validated.NodeClass),
+		nil,
+		p.config.RunAsUid,
+		p.config.Nats)
 	if err != nil {
 		return err
 	}
@@ -922,7 +1019,7 @@ func (s *CommandProcessSpawner) Spawn(ctx context.Context, spec NodeProcessSpec)
 		return 0, &InvalidOperationError{Message: "The process spawner is unavailable."}
 	}
 	validated, err := NewNodeProcessSpec(
-		spec.BinaryPath, spec.NodeId, spec.NatsUrl, spec.Args, spec.Env, spec.RunAsUid)
+		spec.BinaryPath, spec.NodeId, spec.NatsUrl, spec.Args, spec.Env, spec.RunAsUid, spec.Nats)
 	if err != nil {
 		return 0, err
 	}

@@ -629,6 +629,46 @@ func TestConvergeRejectsOverlappingOperationForSameAllocation(t *testing.T) {
 	}
 }
 
+func TestObserveAllocationsDoesNotRaceAnInFlightConverge(t *testing.T) {
+	adapter := &concurrentNativeAdapter{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	executor := newExecutorForTest(t, adapter, &fakeContainerAdapter{})
+	plan := executorTestPlan(t, runtime.AdmittedRoleOrchestrator,
+		runtime.RuntimeDriverNativeSystemd, "draining-allocation")
+	result := make(chan error, 1)
+	go func() {
+		_, err := executor.Converge(context.Background(), executorTestCommand(t, plan, "cmd-draining-converge"))
+		result <- err
+	}()
+	select {
+	case <-adapter.entered:
+	case <-time.After(time.Second):
+		t.Fatal("the converge adapter call did not start")
+	}
+
+	executor.SetCordoned(true)
+	observations, err := executor.ObserveAllocations(context.Background())
+	if err == nil {
+		t.Fatal("an in-flight converge must make drain observation fail closed")
+	}
+	if len(observations) != 1 || observations[0].State != allocationStateUnknown || observations[0].Running {
+		t.Fatalf("in-flight allocation observation = %+v, err=%v", observations, err)
+	}
+	if executor.Drained(observations) {
+		t.Fatal("an in-flight converge must not report the node drained")
+	}
+	if got := adapter.convergeCalls.Load(); got != 1 {
+		t.Fatalf("converge adapter calls = %d, want 1", got)
+	}
+
+	close(adapter.release)
+	if err := <-result; err != nil {
+		t.Fatalf("converge failed: %v", err)
+	}
+}
+
 func TestExistingAllocationOperatesAtCapacityAndDeleteReleasesSlot(t *testing.T) {
 	container := &fakeContainerAdapter{}
 	executor := newExecutorForTest(t, &fakeNativeAdapter{}, container)

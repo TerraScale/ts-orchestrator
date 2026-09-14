@@ -20,8 +20,11 @@ qualification remains incomplete.
   your user), plus `systemctl` and `systemd-run` for a systemd **user** manager
   with linger enabled (`loginctl enable-linger "$USER"`);
 - Go 1.27;
-- the regional NATS URL you will use everywhere below, written `nats://127.0.0.1:4222`
-  in the examples.
+- a regional TLS NATS URL (the examples use `tls://127.0.0.1:4222`);
+- owner-private files for the controller NKey and mTLS tuple, and a separate
+  owner-private, node-scoped NKey (or credentials file) and mTLS tuple. The
+  node identity must not be the controller identity; all node private files
+  must be readable by the configured `TS_ORCH_AUTOSCALER_RUN_AS_UID` account.
 
 Firecracker is test infrastructure, never a production provider. The
 historical test-only Go `SandboxVMProvider` controlled Firecracker through the
@@ -148,33 +151,31 @@ context at startup and exits non-zero before touching anything if either its
 real or effective uid is 0, or if those uids differ. `--run-as-uid` must equal
 that nonzero effective uid.
 
-## What `vm-test` proves
+```sh
+./bin/ts-node \
+  --node-id as-node-1 \
+  --nats-url tls://127.0.0.1:4222 \
+  --nats-nkey-file /run/credentials/terrascale/node.seed \
+  --nats-tls-ca-file /run/credentials/terrascale/ca.pem \
+  --nats-tls-cert-file /run/credentials/terrascale/node.pem \
+  --nats-tls-key-file /run/credentials/terrascale/node-key.pem \
+  --podman-binary /usr/bin/podman \
+  --heartbeat-interval 5s
+```
 
 The suite covers:
 
-1. greenfield GRU bootstrap followed by `add-region sfo` and `add-region fra`;
-2. the three co-hosted replicas forming one cross-Region JetStream R3 group;
-3. declared OCI and Cloudflare reconciliation, including drift, retries,
-   eventual state, uncertain mutations, and refusal to delete unowned state;
-4. signed `ts-node` installation, hardened units, drain, health, activation,
-   catch-up, rollback, and persistent data;
-5. the GRU canary and one-host-at-a-time rollout while RF=2 remains available;
-6. Worker and Snippet promotion and rollback through the local edge contracts;
-7. KV ordering and refresh, estate publication, metrics, logs, and bounded
-   labels;
-8. host loss, Region loss, partitions, latency and loss, clock skew, disk
-   faults, expired certificates, A1-capacity failure, and E5 selection;
-9. placement-lock enforcement across placement, replication, backup, restore,
-   export, branching, repair, and Region changes;
-10. restore drills, JetStream snapshots, and per-Region artifact mirrors;
-11. the admitted data plane continuing while GRU, NATS, or the control plane is
-    unavailable; and
-12. idempotent cleanup after normal completion and every supported interruption.
+Flags (all optional except identity, URL, NATS authentication, and mTLS
+flags):
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--node-id` | required | lowercase DNS-style node token |
-| `--nats-url` | required | regional NATS URL the agent dials |
+| `--nats-url` | required | regional `tls://` NATS URL the agent dials |
+| `--nats-nkey-file` / `--nats-credentials-file` | exactly one required | node-scoped NATS identity file; secret bytes never belong in argv |
+| `--nats-tls-ca-file` | required | NATS server trust-root PEM |
+| `--nats-tls-cert-file` | required | node client certificate PEM |
+| `--nats-tls-key-file` | required | private node client-key PEM |
 | `--node-class` | `greenfield` | informational node class token (the provisioner passes it) |
 | `--podman-binary` | `/usr/bin/podman` | absolute rootless podman path |
 | `--systemctl-binary` | `/usr/bin/systemctl` | absolute systemctl path used with `--user` |
@@ -261,12 +262,14 @@ subjects.
 
 ```sh
 TS_ORCH_NATS_URL=tls://127.0.0.1:4222 \
-TS_ORCH_NATS_NKEY_FILE=/run/credentials/autoscaler/nkey.seed \
-TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/autoscaler/ca.pem \
-TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/autoscaler/client.pem \
-TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/autoscaler/client.key \
-TS_ORCH_AUTOSCALER_PROVIDER=local-dev \
-TS_ORCH_AUTOSCALER_NODE_NATS_CREDENTIAL_DIRECTORY=/run/credentials/ts-node/nodes \
+TS_ORCH_NATS_NKEY_FILE=/run/credentials/terrascale/controller.seed \
+TS_ORCH_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
+TS_ORCH_NATS_TLS_CERT_FILE=/run/credentials/terrascale/controller.pem \
+TS_ORCH_NATS_TLS_KEY_FILE=/run/credentials/terrascale/controller-key.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_NKEY_FILE=/run/credentials/terrascale/node.seed \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CA_FILE=/run/credentials/terrascale/ca.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_CERT_FILE=/run/credentials/terrascale/node.pem \
+TS_ORCH_AUTOSCALER_NODE_NATS_TLS_KEY_FILE=/run/credentials/terrascale/node-key.pem \
 TS_ORCH_AUTOSCALER_TICK_INTERVAL=10s \
 TS_ORCH_AUTOSCALER_MIN_NODES=1 \
 TS_ORCH_AUTOSCALER_MAX_NODES=3 \
@@ -281,6 +284,13 @@ TS_ORCH_AUTOSCALER_RUN_AS_UID=1000 \
 TS_ORCH_AUTOSCALER_DRAIN_MAX_LAG_BYTES=1048576 \
   ./bin/orchestrator autoscaler
 ```
+
+The `TS_ORCH_AUTOSCALER_NODE_NATS_*` values are required for every autoscaler
+deployment. Use `..._CREDENTIALS_FILE` instead of
+`..._NKEY_FILE` when the node identity is packaged as a NATS credentials file,
+but never set both. The autoscaler validates these files before starting and
+passes their paths to each spawned `ts-node`; it does not inherit ambient
+environment variables or pass secret contents.
 
 What it does on every tick: nodes are tracked from their heartbeats (a node
 silent for three tick intervals leaves the snapshot), the drain gate consults
