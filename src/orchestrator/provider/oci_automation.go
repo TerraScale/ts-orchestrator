@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"terrascale.tech/orchestrator/src/orchestrator/errs"
 )
 
 const maximumOCIListResults = 1000
@@ -41,7 +43,7 @@ func decodeOCIList[T any](raw []byte) ([]T, error) {
 func expectJSONMutation(intent ProviderMutationIntent, action, scope string, value any) error {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return &ArgumentError{Message: "provider mutation request cannot be fingerprinted"}
+		return &errs.Argument{Message: "provider mutation request cannot be fingerprinted"}
 	}
 	return expectMutation(intent, action, scope, string(raw))
 }
@@ -73,15 +75,15 @@ func requireOwnedResource(ctx context.Context, ownership DurableOwnershipEvidenc
 
 func safeFreeformTags(tags map[string]string) (map[string]string, error) {
 	if len(tags) > 32 {
-		return nil, &ArgumentError{Message: "provider tags exceed limit"}
+		return nil, &errs.Argument{Message: "provider tags exceed limit"}
 	}
 	result := make(map[string]string, len(tags)+2)
 	for key, value := range tags {
 		if len(key) < 1 || len(key) > 128 || len(value) > 256 || strings.ContainsAny(key+value, "\r\n") {
-			return nil, &ArgumentError{Message: "provider tag is invalid"}
+			return nil, &errs.Argument{Message: "provider tag is invalid"}
 		}
 		if strings.HasPrefix(key, "terrascale-") {
-			return nil, &ArgumentError{Message: "provider tag uses a reserved name"}
+			return nil, &errs.Argument{Message: "provider tag uses a reserved name"}
 		}
 		result[key] = value
 	}
@@ -196,24 +198,24 @@ func ComputeLaunchMutationScope(request ComputeLaunchRequest) string {
 
 func validateComputeLaunch(request ComputeLaunchRequest) error {
 	if !isOCID(request.CompartmentID, "compartment") || !isOCID(request.ImageID, "image") {
-		return &ArgumentError{Message: "compute launch resource identity is invalid"}
+		return &errs.Argument{Message: "compute launch resource identity is invalid"}
 	}
 	if err := validateBoundedName(request.DisplayName, "compute display name", 128); err != nil {
 		return err
 	}
 	if len(request.NSGIDs) > 5 || len(request.Candidates) < 1 || len(request.Candidates) > 12 {
-		return &ArgumentError{Message: "compute launch placement set is invalid"}
+		return &errs.Argument{Message: "compute launch placement set is invalid"}
 	}
 	seenNSG := map[string]bool{}
 	for _, id := range request.NSGIDs {
 		if !isOCID(id, "networksecuritygroup") || seenNSG[id] {
-			return &ArgumentError{Message: "compute launch network security group is invalid"}
+			return &errs.Argument{Message: "compute launch network security group is invalid"}
 		}
 		seenNSG[id] = true
 	}
 	bootstrap, err := base64.StdEncoding.DecodeString(request.BootstrapBase64)
 	if err != nil || len(bootstrap) == 0 || len(bootstrap) > 32*1024 {
-		return &ArgumentError{Message: "compute launch bootstrap is invalid"}
+		return &errs.Argument{Message: "compute launch bootstrap is invalid"}
 	}
 	for _, candidate := range request.Candidates {
 		if len(candidate.AvailabilityDomain) < 1 || len(candidate.AvailabilityDomain) > 128 ||
@@ -222,7 +224,7 @@ func validateComputeLaunch(request ComputeLaunchRequest) error {
 			strings.ContainsAny(candidate.AvailabilityDomain+candidate.FaultDomain+candidate.Shape, "\r\n") ||
 			math.IsNaN(candidate.OCPUs) || math.IsInf(candidate.OCPUs, 0) || candidate.OCPUs <= 0 || candidate.OCPUs > 192 ||
 			math.IsNaN(candidate.MemoryGiB) || math.IsInf(candidate.MemoryGiB, 0) || candidate.MemoryGiB <= 0 || candidate.MemoryGiB > 2048 {
-			return &ArgumentError{Message: "compute launch capacity candidate is invalid"}
+			return &errs.Argument{Message: "compute launch capacity candidate is invalid"}
 		}
 	}
 	if _, err := safeFreeformTags(request.Tags); err != nil {
@@ -245,7 +247,7 @@ func (a *OCIComputeAdapter) LaunchInstance(ctx context.Context, request ComputeL
 		return ComputeInstance{}, &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
 	}
 	if ctx == nil {
-		return ComputeInstance{}, &ArgumentError{Param: "ctx", Message: "provider context is required"}
+		return ComputeInstance{}, &errs.Argument{Param: "ctx", Message: "provider context is required"}
 	}
 	if err := ctx.Err(); err != nil {
 		return ComputeInstance{}, err
@@ -402,7 +404,7 @@ func (a *OCIComputeAdapter) findInstanceForIntent(ctx context.Context, request C
 
 func (a *OCIComputeAdapter) GetInstance(ctx context.Context, id string) (ComputeInstance, bool, error) {
 	if a == nil || a.Core == nil || !isOCID(id, "instance") {
-		return ComputeInstance{}, false, &ArgumentError{Message: "compute instance identity is invalid"}
+		return ComputeInstance{}, false, &errs.Argument{Message: "compute instance identity is invalid"}
 	}
 	resp, err := a.Core.Do(ctx, http.MethodGet, "/20160918/instances/"+url.PathEscape(id), nil)
 	if err != nil {
@@ -444,7 +446,7 @@ func (a *OCIComputeAdapter) TerminateInstance(ctx context.Context, request Compu
 		return &InvalidOperationError{Message: "OCI compute adapter is unavailable"}
 	}
 	if !isOCID(request.InstanceID, "instance") || !isSafeETag(request.IfMatch) {
-		return &ArgumentError{Message: "compute termination fence is invalid"}
+		return &errs.Argument{Message: "compute termination fence is invalid"}
 	}
 	if err := requireOwnedResource(ctx, a.Ownership, request.InstanceID, ""); err != nil {
 		return err

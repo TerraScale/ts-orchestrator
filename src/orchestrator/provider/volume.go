@@ -267,15 +267,13 @@ func validOCIServiceHost(service OCIService, region, host string) bool {
 	if service != OCIServiceVaultManagement {
 		return host == expected
 	}
-	suffix := "-management.kms." + region + ".oraclecloud.com"
+	// OCI Vault management endpoints use the Vault OCID as the first DNS
+	// label, followed by the management KMS suffix. Keep the OCID check here
+	// so a caller cannot redirect this authority to another arbitrary host.
+	suffix := ".management.kms." + region + ".oci.oraclecloud.com"
 	prefix := strings.TrimSuffix(host, suffix)
-	if prefix == "" || !strings.HasSuffix(host, suffix) || len(prefix) > 128 {
+	if prefix == "" || !strings.HasSuffix(host, suffix) || !isOCID(prefix, "vault") {
 		return false
-	}
-	for _, ch := range prefix {
-		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
-			return false
-		}
 	}
 	return true
 }
@@ -291,7 +289,7 @@ func NewOCIServiceTransportConfig(service OCIService, region, endpoint string) (
 	}
 	_, ok := ociServiceHost(service, region)
 	if !ok {
-		return OCITransportConfig{}, &ArgumentError{Message: "OCI service is invalid"}
+		return OCITransportConfig{}, &errs.Argument{Message: "OCI service is invalid"}
 	}
 	u, err := url.Parse(strings.TrimSpace(endpoint))
 	if err != nil || u.Opaque != "" || u.Scheme != "https" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.RawPath != "" || (u.Path != "" && u.Path != "/") || u.Host != "iaas."+region+".oraclecloud.com" {
