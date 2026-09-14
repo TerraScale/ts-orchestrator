@@ -1,5 +1,5 @@
 {
-  "repository": "TerraScale.Orchestrator",
+  "repository": "TerraScale/TerraScale.Orchestrator",
   "prProfiles": [
     {
       "name": "static",
@@ -50,17 +50,8 @@
       "commands": [
         {
           "description": "Build the linux-x64 and linux-arm64 artifacts",
-          "command": "podman",
-          "arguments": [
-            "build",
-            "--file",
-            ".terrascale/ci.Dockerfile",
-            "--target",
-            "ci-artifact",
-            "--output",
-            "type=local,dest=artifacts/orchestrator",
-            "."
-          ]
+          "command": "bash",
+          "arguments": [".terrascale/build-artifacts.sh", "artifacts/orchestrator"]
         }
       ]
     }
