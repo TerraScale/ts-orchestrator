@@ -65,7 +65,7 @@ jobs:
           for project in "${test_projects[@]}"; do
             test -f "${project}"
             nice -n 10 dotnet run --project "${project}" \
-              --configuration Release --no-build --no-restore --nologo -- \
+              --configuration Release --no-build --no-restore -- \
               --minimum-expected-tests 1
           done
 
