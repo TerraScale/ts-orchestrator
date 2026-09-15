@@ -1,6 +1,6 @@
 # Native backup lifecycle boundary
 
-Workspace D-29 and TerraBase ADR 0046 assign backup capture, WAL/checkpoint
+Workspace D-29 and the native backup design assign backup capture, WAL/checkpoint
 coordination, shared scheduling, uploads, PITR, restore, and branching to
 TerraBase's engine subsystem behind its C# host boundary. The orchestrator owns regional OCI buckets,
 lifecycle policy and key authority, and requests engine lifecycle work through
