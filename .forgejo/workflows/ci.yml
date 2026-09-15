@@ -3,6 +3,7 @@ name: TerraScale orchestrator checks
 on:
   push:
     branches: [develop, main]
+  workflow_dispatch:
 
 concurrency:
   group: orchestrator-${{ forgejo.workflow }}-${{ forgejo.repository }}-${{ forgejo.ref }}
