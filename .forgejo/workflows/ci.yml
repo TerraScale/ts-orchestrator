@@ -184,7 +184,7 @@ jobs:
       # This upload is CI evidence only. Release creation, signing, and
       # promotion remain owned by the separately authorized release workflow.
       - name: Upload source-matched orchestrator artifact evidence
-        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5
+        uses: https://data.forgejo.org/actions/upload-artifact@v7.0.1
         with:
           name: ts-orchestrator-source-matched-${{ forgejo.sha }}
           path: ${{ runner.temp }}/ts-orchestrator-artifacts/artifacts
