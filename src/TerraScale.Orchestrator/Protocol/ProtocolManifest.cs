@@ -82,7 +82,6 @@ public sealed class ProtocolManifest
         string name,
         string version,
         string root,
-        IReadOnlyList<string> supersededRoots,
         IReadOnlyList<string> reservedRegionTokens,
         IReadOnlyList<ProtocolSubjectFamily> subjectFamilies,
         IReadOnlyList<ProtocolAccountKindGrants> accountKinds)
@@ -90,7 +89,6 @@ public sealed class ProtocolManifest
         Name = name;
         Version = version;
         Root = root;
-        SupersededRoots = supersededRoots;
         ReservedRegionTokens = reservedRegionTokens;
         SubjectFamilies = subjectFamilies;
         AccountKinds = accountKinds;
@@ -104,8 +102,6 @@ public sealed class ProtocolManifest
     public string Version { get; }
 
     public string Root { get; }
-
-    public IReadOnlyList<string> SupersededRoots { get; }
 
     /// <summary>Region tokens that are reserved for scope names and can never name a Region.</summary>
     public IReadOnlyList<string> ReservedRegionTokens { get; }
@@ -150,9 +146,7 @@ public sealed class ProtocolManifest
         if (string.IsNullOrWhiteSpace(dto.Name) || dto.Name.Length > 128 ||
             string.IsNullOrWhiteSpace(dto.Version) || dto.Version.Length > 32 ||
             string.IsNullOrWhiteSpace(dto.Root) || dto.Root.Length > 128 ||
-            dto.Root.Any(char.IsWhiteSpace) ||
-            dto.SupersededRoots is not { Count: >= 1 } ||
-            dto.SupersededRoots.Any(static root => string.IsNullOrWhiteSpace(root) || root.Length > 128))
+            dto.Root.Any(char.IsWhiteSpace))
         {
             throw new InvalidOperationException("The protocol manifest header is malformed.");
         }
@@ -222,7 +216,6 @@ public sealed class ProtocolManifest
             dto.Name!,
             dto.Version!,
             dto.Root!,
-            dto.SupersededRoots.Where(static root => !string.IsNullOrWhiteSpace(root)).ToArray(),
             reserved,
             families,
             kinds);
@@ -245,9 +238,6 @@ internal sealed class ProtocolManifestDto
 
     [JsonPropertyName("root")]
     public string? Root { get; set; }
-
-    [JsonPropertyName("supersededRoots")]
-    public List<string>? SupersededRoots { get; set; }
 
     [JsonPropertyName("regionToken")]
     public ProtocolRegionTokenDto? RegionToken { get; set; }

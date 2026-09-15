@@ -526,13 +526,6 @@ public static class NatsSubjectTaxonomy
             violations.Add($"The manifest root '{manifest.Root}' is not the canonical root '{Root}'.");
         }
 
-        if (!manifest.SupersededRoots.Contains(SupersededRoot) ||
-            manifest.SupersededRoots.Contains(Root) ||
-            manifest.SupersededRoots.Distinct(StringComparer.Ordinal).Count() != manifest.SupersededRoots.Count)
-        {
-            violations.Add("The manifest superseded-root set is not exactly the superseded v1 root.");
-        }
-
         if (manifest.ReservedRegionTokens.Count != 1 ||
             !string.Equals(manifest.ReservedRegionTokens[0], GlobalScopeToken, StringComparison.Ordinal))
         {

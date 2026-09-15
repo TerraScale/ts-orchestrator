@@ -28,7 +28,6 @@ public sealed class ProtocolManifestTests
         await Assert.That(manifest.Root).IsEqualTo("ts.orch.v2");
         await Assert.That(manifest.Root).IsEqualTo(NatsSubjectTaxonomy.Root);
         await Assert.That(manifest.Version).IsEqualTo("v2");
-        await Assert.That(manifest.SupersededRoots).IsEquivalentTo(["ts.orch.v1"]);
         await Assert.That(manifest.ReservedRegionTokens).IsEquivalentTo(["global"]);
     }
 
