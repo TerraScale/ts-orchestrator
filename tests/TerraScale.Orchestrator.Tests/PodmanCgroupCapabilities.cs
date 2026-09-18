@@ -23,12 +23,14 @@ internal static class PodmanCgroupCapabilities
     /// Points a podman invocation at the cgroup-disabled override when the
     /// environment cannot manage cgroups. This is what makes podless pods
     /// work: <c>pod create</c> itself has no cgroup flag, so the infra
-    /// container is covered only through containers.conf.
+    /// container is covered only through containers.conf. The override env
+    /// layers on top of the image's own config, preserving settings such as
+    /// the init binary path.
     /// </summary>
     public static void Configure(ProcessStartInfo startInfo)
     {
         if (OverrideConfigPath.Value is { } path)
-            startInfo.Environment["CONTAINERS_CONF"] = path;
+            startInfo.Environment["CONTAINERS_CONF_OVERRIDE"] = path;
     }
 
     private static string? WriteOverrideConfig()
