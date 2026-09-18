@@ -38,16 +38,16 @@ jobs:
 
       - name: Restore the locked solution
         shell: bash
-        run: nice -n 10 dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
+        run: dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
 
       - name: Check .NET formatting
         shell: bash
-        run: nice -n 10 dotnet format style TerraScale.Orchestrator.slnx --verify-no-changes --no-restore
+        run: dotnet format style TerraScale.Orchestrator.slnx --verify-no-changes --no-restore
 
       - name: Build the release solution
         shell: bash
         run: >-
-          nice -n 10 dotnet build TerraScale.Orchestrator.slnx
+          dotnet build TerraScale.Orchestrator.slnx
           --configuration Release --no-restore --nologo
           -p:ContinuousIntegrationBuild=true
 
@@ -64,7 +64,7 @@ jobs:
           )
           for project in "${test_projects[@]}"; do
             test -f "${project}"
-            nice -n 10 dotnet run --project "${project}" \
+            dotnet run --project "${project}" \
               --configuration Release --no-build --no-restore -- \
               --minimum-expected-tests 1
           done
@@ -97,10 +97,10 @@ jobs:
 
           project="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj"
           test -f "${project}"
-          version="$(nice -n 19 dotnet msbuild "${project}" -getProperty:Version -nologo)"
-          target_framework="$(nice -n 19 dotnet msbuild "${project}" -getProperty:TargetFramework -nologo)"
-          publish_single_file="$(nice -n 19 dotnet msbuild "${project}" -getProperty:PublishSingleFile -nologo)"
-          self_contained="$(nice -n 19 dotnet msbuild "${project}" -getProperty:SelfContained -nologo)"
+          version="$(dotnet msbuild "${project}" -getProperty:Version -nologo)"
+          target_framework="$(dotnet msbuild "${project}" -getProperty:TargetFramework -nologo)"
+          publish_single_file="$(dotnet msbuild "${project}" -getProperty:PublishSingleFile -nologo)"
+          self_contained="$(dotnet msbuild "${project}" -getProperty:SelfContained -nologo)"
           test -n "${version}"
           test -n "${target_framework}"
           test "${publish_single_file}" = true
@@ -113,14 +113,14 @@ jobs:
 
           # The source lock file records both runtime graphs together. Restore
           # once, then publish each architecture from this exact checkout.
-          nice -n 19 dotnet restore "${project}" --locked-mode --nologo
+          dotnet restore "${project}" --locked-mode --nologo
           for pair in "linux-x64:Advanced Micro Devices X86-64" "linux-arm64:AArch64"; do
             rid="${pair%%:*}"
             expected_machine="${pair#*:}"
             publish_dir="${root}/publish/${rid}"
             asset="terrascale-orchestrator-${rid}"
             mkdir -p -- "${publish_dir}"
-            nice -n 19 dotnet publish "${project}" \
+            dotnet publish "${project}" \
               --configuration Release \
               --runtime "${rid}" \
               --self-contained true \
