@@ -51,6 +51,94 @@ jobs:
           --configuration Release --no-restore --nologo
           -p:ContinuousIntegrationBuild=true
 
+      - name: Install the container init the NATS fixtures require
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The job image ships no container-init binary, and podman needs one
+          # (catatonit-compatible) to start any container: it execs the
+          # entrypoint, forwards signals, reaps orphans, and pauses bare as the
+          # pod's infra container (-P). Compile a minimal static stand-in and
+          # register it via containers.conf.d; the test-side
+          # CONTAINERS_CONF_OVERRIDE layers cgroup settings on top.
+          cat > /tmp/ts-podman-init.c <<'EOF'
+          #define _GNU_SOURCE
+          #include <signal.h>
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include <string.h>
+          #include <sys/types.h>
+          #include <sys/wait.h>
+          #include <unistd.h>
+
+          static volatile sig_atomic_t terminate;
+          static volatile pid_t forwarded_pid;
+
+          static void pause_handler(int signal_number)
+          {
+              (void)signal_number;
+              terminate = 1;
+          }
+
+          static void forward_handler(int signal_number)
+          {
+              if (forwarded_pid > 0)
+                  kill(forwarded_pid, signal_number);
+          }
+
+          int main(int argc, char **argv)
+          {
+              if (argc <= 1 || (argc == 2 && strcmp(argv[1], "-P") == 0))
+              {
+                  struct sigaction pause_action = {0};
+                  pause_action.sa_handler = pause_handler;
+                  sigaction(SIGTERM, &pause_action, NULL);
+                  sigaction(SIGINT, &pause_action, NULL);
+                  sigaction(SIGHUP, &pause_action, NULL);
+                  sigaction(SIGPIPE, &pause_action, NULL);
+                  while (!terminate)
+                      pause();
+                  return 0;
+              }
+
+              pid_t child = fork();
+              if (child < 0)
+              {
+                  perror("fork");
+                  return 1;
+              }
+              if (child == 0)
+              {
+                  execvp(argv[1], &argv[1]);
+                  perror("execvp");
+                  _exit(127);
+              }
+
+              forwarded_pid = child;
+              struct sigaction forward_action = {0};
+              forward_action.sa_handler = forward_handler;
+              sigaction(SIGTERM, &forward_action, NULL);
+              sigaction(SIGINT, &forward_action, NULL);
+
+              int status = 0;
+              while (wait(&status) != child)
+              {
+                  // Reap reparented zombies until our own child reports.
+              }
+              return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+          }
+          EOF
+          gcc -O2 -static -o /usr/local/bin/ts-podman-init /tmp/ts-podman-init.c
+          strip /usr/local/bin/ts-podman-init
+          /usr/local/bin/ts-podman-init -P &
+          init_pid=$!
+          sleep 0.3
+          kill -TERM "$init_pid"
+          wait "$init_pid"
+          mkdir -p /etc/containers/containers.conf.d
+          printf '[containers]\ninit_path = "/usr/local/bin/ts-podman-init"\n' \
+            > /etc/containers/containers.conf.d/99-podman-init.conf
+
       - name: Run every TUnit test project
         shell: bash
         run: |
