@@ -69,6 +69,20 @@ public sealed class NatsRuntime : IAsyncDisposable
     private volatile Observability.OrchestratorTelemetry? serviceTelemetry;
 
     /// <summary>
+    /// The live authority lease still owns a delivery's admission. The fencing epoch is the
+    /// comparison basis because it identifies the lease TERM: a renewal rewrites the lease
+    /// (and its KV revision) every tick without touching the epoch, so a delivery admitted
+    /// under a lease must survive its own leader's renewals mid-flight and on replay, while
+    /// every superseded leader — a new acquisition, holder, or term — advances the epoch and
+    /// still fences. Comparing the raw KV revision here would fence every delivery that
+    /// straddles one renewal tick and pin its durable record out forever.
+    /// </summary>
+    internal static bool AuthorityIsCurrent(RegionalAuthoritySnapshot current, DeliveryRequest request) =>
+        current.Ready && current.IsLeader &&
+        current.Epoch == request.AuthorityGeneration &&
+        current.Epoch == request.WriterEpoch;
+
+    /// <summary>
     /// Attaches the process telemetry so service endpoint statistics also flow into
     /// the bounded NATS instruments. Optional: without it the read-only stats
     /// endpoint still serves the same statistics; only OTLP export is absent.
@@ -264,13 +278,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 var adapters = DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
                     () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
-                    request =>
-                    {
-                        var current = authority.Snapshot;
-                        return current.Ready && current.IsLeader &&
-                            current.KvRevision == request.AuthorityGeneration &&
-                            current.Epoch == request.WriterEpoch;
-                    },
+                    request => AuthorityIsCurrent(authority.Snapshot, request),
                     admittedDeliveryTargets,
                     artifactSignatureVerifier);
                 directDelivery = new DirectDeliveryService(
@@ -280,13 +288,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     adapters.Journal,
                     adapters.ArtifactBuilder,
                     auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
-                    authorityIsCurrent: request =>
-                    {
-                        var current = authority.Snapshot;
-                        return current.Ready && current.IsLeader &&
-                            current.KvRevision == request.AuthorityGeneration &&
-                            current.Epoch == request.WriterEpoch;
-                    });
+                    authorityIsCurrent: request => AuthorityIsCurrent(authority.Snapshot, request));
                 candidateHandoffV2Admission = CandidateEvidenceHandoffV2AdmissionRuntime.ComposeProduction(
                     ledger,
                     artifactSignatureVerifier!,
@@ -351,6 +353,10 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 // Three payload kinds share the signed seam. Direct requests and v1
                                 // mappings can execute with Orchestrator authority. V2 candidate
                                 // evidence stops after admission and keeps every authority field zero.
+                                // The lease's fencing epoch stamps BOTH the authority generation and
+                                // the writer epoch: it is the stable lease term, so a request signed
+                                // against it stays current across the leader's own renewals (which
+                                // only advance the KV revision) and is fenced by any new term.
                                 var lease = authority.Snapshot;
                                 var payload = Encoding.UTF8.GetBytes(message.Data ?? string.Empty);
                                 var admission = DirectDeliveryCommandIngress.Decode(
@@ -360,7 +366,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                     DateTimeOffset.UtcNow,
                                     TimeSpan.FromMinutes(5),
                                     commandSignatureVerifier,
-                                    lease.KvRevision,
+                                    lease.Epoch,
                                     lease.Epoch);
                                 var response = admission.Kind switch
                                 {
@@ -372,7 +378,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                     { IsAdmittedForTargetMutation: true } mapping =>
                                         DeliveryWireCodec.SerializeReceipt(
                                             await handoffDelivery.DeliverMappedAsync(
-                                                mapping, lease.KvRevision, lease.Epoch, admission.Attempt, cancellationToken)
+                                                mapping, lease.Epoch, lease.Epoch, admission.Attempt, cancellationToken)
                                                 .ConfigureAwait(false)),
                                     DirectDeliveryCommandPayloadKind.CandidateEvidenceHandoffV2 when
                                         admission.CandidateEvidence is { } identity &&

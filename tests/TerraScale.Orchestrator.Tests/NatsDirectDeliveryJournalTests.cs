@@ -478,6 +478,53 @@ public sealed class NatsDirectDeliveryJournalTests
         "actor-1",
         "direct customer change");
 
+    [Test]
+    public async Task TheJournalRecordCapNeverExceedsTheDeliveryBucketValueSize()
+    {
+        // A record the journal accepts must also fit the provisioned ORCH_DELIVERY KV bucket:
+        // anything admitted beyond its MaxValueSize is rejected by KV on write and retried
+        // forever. The journal cap is pinned to stay at or below the bucket cap.
+        var bucketCap = new TerraScale.Orchestrator.Messaging.NatsTopology("cap-test", 1).Delivery.MaxValueSize;
+        var journalCap = NatsDirectDeliveryJournal.MaximumRecordBytes;
+
+        await Assert.That(journalCap).IsLessThanOrEqualTo(bucketCap);
+    }
+
+    [Test]
+    public async Task ARecordBeyondTheDeliveryBucketValueSizeIsRejectedByTheJournalItself()
+    {
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger);
+        // 60 bounded health-check names of 300 characters: a receipt of roughly 18 KiB — over
+        // the bucket's 16 KiB value cap but well-formed, so only the size bound can reject it.
+        var checks = Enumerable.Range(0, 60)
+            .Select(_ => new DeliveryHealthCheck(new string('h', 300), DeliveryHealthStatus.Passed))
+            .ToArray();
+        var record = new DeliveryJournalRecord(
+            "operation-oversize",
+            Fingerprint(),
+            DeliveryJournalState.Succeeded,
+            new DeliveryReceipt(
+                1,
+                "operation-oversize",
+                DeliveryReceiptStatus.Succeeded,
+                null,
+                null,
+                null,
+                new DeliveryProvenance(true, null, null),
+                new DeliveryHealth(checks, true),
+                new DeliveryRollback(false, null, DeliveryRollbackStatus.NotRequired),
+                "audit-test",
+                new DeliveryErrorInfo(null, null, null)));
+
+        await Assert.That(async () => await journal.AppendAsync(record, CancellationToken.None))
+            .Throws<InvalidDataException>();
+        await Assert.That(ledger.Values).IsEmpty();
+    }
+
+    private static string Fingerprint() =>
+        $"sha256:{Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes("operation-oversize")))}";
+
     private const string ValidDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     private const string ArtifactDigest = "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
     private const string OtherArtifactDigest = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";

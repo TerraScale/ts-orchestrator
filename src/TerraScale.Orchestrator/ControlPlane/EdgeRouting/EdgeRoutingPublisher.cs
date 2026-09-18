@@ -145,9 +145,10 @@ public sealed class EdgePublishOperationException : Exception
 /// when its fingerprint — branch placements, eligibility, residency, and revision inputs —
 /// changed since the last observed successful write), and retryable (bounded exponential backoff
 /// with jitter on transient Cloudflare failures). Keys of databases absent from the snapshot are
-/// bulk-deleted only after every write of the pass succeeded; a failed step leaves its
-/// observation un-advanced so the next pass retries. A pass that fails changes nothing
-/// downstream of the failure.
+/// discovered by listing the PLACEMENT namespace — never by remembering past passes, so a fresh
+/// publisher still reconciles keys left by any earlier process — and bulk-deleted only after
+/// every write of the pass succeeded; a failed step leaves the keys in place so the next pass
+/// retries. A pass that fails changes nothing downstream of the failure.
 /// <para>
 /// Single-writer contract (ADR 0050 §6): exactly one publisher instance may run; concurrent
 /// instances are a contract violation — the revision guard reads eventually-consistent KV and
@@ -172,11 +173,11 @@ public sealed class EdgeRoutingPublisher
     // gate is the only fencing available against one publisher overlapping itself.
     private readonly SemaphoreSlim publishGate = new(1, 1);
 
-    // Observations advance only after the corresponding write or delete succeeded, so a failed
-    // pass retries the same work on the next pass instead of silently skipping it. They are
-    // in-memory on purpose: a restarted publisher rewrites everything, which is always safe.
+    // Observations advance only after the corresponding write succeeded, so a failed pass
+    // retries the same work on the next pass instead of silently skipping it. They are in-memory
+    // on purpose: a restarted publisher rewrites everything, which is always safe. Stale-key
+    // deletion keeps NO observation — it is reality-based, from a fresh namespace listing.
     private readonly Dictionary<string, string> observedFingerprints = new(StringComparer.Ordinal);
-    private readonly HashSet<string> publishedDatabases = new(StringComparer.Ordinal);
     private string? regionsNamespaceId;
     private string? placementNamespaceId;
 
@@ -310,7 +311,6 @@ public sealed class EdgeRoutingPublisher
             foreach (var item in chunk)
             {
                 observedFingerprints[item.Placement.DatabaseName] = item.Fingerprint;
-                publishedDatabases.Add(item.Placement.DatabaseName);
             }
 
             writes += chunk.Length;
@@ -319,30 +319,32 @@ public sealed class EdgeRoutingPublisher
         if (writes > 0)
             steps.Add(new(EdgePublishStepCode.PlacementWrite, EdgePublishStepOutcome.Succeeded, writes));
 
-        // 3. Stale keys leave only after every write of the pass succeeded; a failed delete keeps
-        //    the observation so the next pass retries it.
-        var staleDatabases = publishedDatabases
-            .Where(database => !snapshot.Databases.ContainsKey(database))
+        // 3. Stale keys leave only after every write of the pass succeeded. Deletion is
+        //    reality-based: the PLACEMENT namespace is listed every pass — never remembered —
+        //    so the only executable path (a fresh publisher per CLI invocation) still removes
+        //    keys written by any earlier process. Only `db:`-prefixed keys the snapshot does not
+        //    claim are deleted; any other key in the namespace is not this publisher's to touch.
+        //    A failed listing or delete leaves the keys in place; the next pass lists again.
+        var claimedKeys = snapshot.Databases.Keys.Select(PlacementKey).ToHashSet(StringComparer.Ordinal);
+        var staleKeys = (await ListPlacementKeysAsync(cancellationToken))
+            .Where(key => key.StartsWith("db:", StringComparison.Ordinal) && !claimedKeys.Contains(key))
             .Order(StringComparer.Ordinal)
             .ToArray();
-        if (staleDatabases.Length > 0)
+        var deleted = 0;
+        foreach (var chunk in staleKeys.Chunk(CloudflareKvClient.MaximumBulkKeys))
         {
-            var staleKeys = staleDatabases.Select(static database => PlacementKey(database)).ToArray();
             await RetryAsync(
                 EdgePublishStepCode.StaleDelete,
-                async token => await client.DeleteKeysInBulkAsync(placementNamespaceId!, staleKeys, token),
+                async token => await client.DeleteKeysInBulkAsync(placementNamespaceId!, chunk, token),
                 cancellationToken);
-            foreach (var database in staleDatabases)
-            {
-                publishedDatabases.Remove(database);
-                observedFingerprints.Remove(database);
-            }
-
-            steps.Add(new(EdgePublishStepCode.StaleDelete, EdgePublishStepOutcome.Succeeded, staleDatabases.Length));
+            deleted += chunk.Length;
         }
 
+        if (deleted > 0)
+            steps.Add(new(EdgePublishStepCode.StaleDelete, EdgePublishStepOutcome.Succeeded, deleted));
+
         watch.Stop();
-        return new EdgePublishResult(writes, skips, staleDatabases.Length, watch.Elapsed, steps.ToImmutable());
+        return new EdgePublishResult(writes, skips, deleted, watch.Elapsed, steps.ToImmutable());
     }
 
     /// <summary>
@@ -403,31 +405,52 @@ public sealed class EdgeRoutingPublisher
     /// The revision-guard read. A namespace-not-found class 404 means the cached namespace id
     /// is stale (the namespace was deleted and recreated) or misconfigured: it must surface as
     /// a typed misconfiguration failure, never as a silent null that would disable the revision
-    /// guard and wedge the pass. Before giving up the placement namespace id is re-resolved
-    /// exactly once; a different id invalidates the cache and the read is retried under it.
+    /// guard and wedge the pass.
     /// </summary>
-    private async Task<string?> GetPublishedPlacementValueAsync(string key, CancellationToken cancellationToken)
+    private Task<string?> GetPublishedPlacementValueAsync(string key, CancellationToken cancellationToken) =>
+        PlacementNamespaceReadAsync(
+            EdgePublishStepCode.PlacementWrite,
+            (namespaceId, token) => client.GetKeyValueAsync(namespaceId, key, token),
+            cancellationToken);
+
+    /// <summary>The stale-detection read: every key actually present in the PLACEMENT namespace.</summary>
+    private Task<IReadOnlyList<string>> ListPlacementKeysAsync(CancellationToken cancellationToken) =>
+        PlacementNamespaceReadAsync(
+            EdgePublishStepCode.StaleDelete,
+            (namespaceId, token) => client.ListKeysAsync(namespaceId, token),
+            cancellationToken);
+
+    /// <summary>
+    /// One read against the placement namespace under the cached namespace id. A
+    /// namespace-not-found class 404 re-resolves the placement namespace id exactly once; a
+    /// different id invalidates the cache and the read is retried under it, anything else is a
+    /// permanent misconfiguration that surfaces as the typed exception.
+    /// </summary>
+    private async Task<T> PlacementNamespaceReadAsync<T>(
+        EdgePublishStepCode step,
+        Func<string, CancellationToken, Task<T>> read,
+        CancellationToken cancellationToken)
     {
         var attemptedNamespaceId = placementNamespaceId!;
         try
         {
             return await RetryAsync(
-                EdgePublishStepCode.PlacementWrite,
-                async token => await client.GetKeyValueAsync(attemptedNamespaceId, key, token),
+                step,
+                token => read(attemptedNamespaceId, token),
                 cancellationToken);
         }
         catch (CloudflareKvNamespaceNotFoundException)
         {
             var resolved = await RetryAsync(
-                EdgePublishStepCode.PlacementWrite,
+                step,
                 async token => await client.ResolveNamespaceIdAsync(placementNamespaceTitle, token),
                 cancellationToken);
             if (resolved is null || string.Equals(resolved, attemptedNamespaceId, StringComparison.Ordinal))
                 throw;
             placementNamespaceId = resolved;
             return await RetryAsync(
-                EdgePublishStepCode.PlacementWrite,
-                async token => await client.GetKeyValueAsync(resolved, key, token),
+                step,
+                token => read(resolved, token),
                 cancellationToken);
         }
     }

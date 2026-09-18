@@ -23,14 +23,16 @@ The control plane contains the following responsibilities:
   retirement;
 - workload identities, certificates, trust bundles, and secret references;
 - TerraBase Member and volume allocation intent;
-- regional blue-green rollout and rollback by immutable digest; and
-- Cloudflare routing for `api.terrascale.tech`, the GRU, SFO, and FRA regional
-  API endpoints, `app.terrascale.tech`, `docs.terrascale.tech`, and
+- regional rollout and rollback by immutable digest; and
+- Cloudflare zone routing: `atlas.terrascale.tech` serves the ts-atlas
+  discovery and region-catalog Worker (metadata only), `api.terrascale.tech`
+  routes to the dashboard Worker for product routes, the GRU, SFO, and FRA
+  `<region>.api.terrascale.tech` regional endpoints, `sync.api.terrascale.tech`,
+  `app.terrascale.tech`, `docs.terrascale.tech`, and
   `status.terrascale.tech`; and
 - versioned database/branch placement publication to the edge routing KV for
   SDK discovery, through the ordered, idempotent, retryable EdgeRouting
-  publisher (`src/TerraScale.Orchestrator/ControlPlane/EdgeRouting/`, ADR 0050
-  §6).
+  publisher (`src/TerraScale.Orchestrator/ControlPlane/EdgeRouting/`).
 
 It does not own database mutations, CRDT merge semantics, replication,
 reactive subscriptions, authoritative usage accounting, customer identity,
@@ -50,14 +52,16 @@ is unavailable.
 
 ## Workload hosting
 
-Production workloads run as rootless Podman containers supervised by transient
-systemd user units. Every container and supervisor unit carries the canonical
-allocation identity and plan fingerprint. A missing or mismatched fence stops
-reconciliation instead of adopting the process.
+Production workloads run as digest-pinned native binaries under hardened
+transient systemd system units (`terrascale-<allocation>.service`). Each unit's
+description carries the canonical allocation identity and plan fingerprint; a
+missing or mismatched fence stops reconciliation instead of adopting the
+process.
 
-The runtime requires cgroup v2, the systemd cgroup manager, seccomp, a read-only
-root filesystem, dropped capabilities, `no-new-privileges`, bounded resources,
-and explicit persistent volumes. TerraBase replicas use anti-affinity and drain
+Units run with `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`,
+kernel and control-group protection, `RestrictSUIDSGID`, `LockPersonality`,
+private tmp, runtime, and state directories, and cgroup-v2 resource bounds for
+memory, tasks, CPU, and IO. TerraBase replicas use anti-affinity and drain
 safety so node churn cannot remove the required regional replica floor.
 
 ## Database boundary
@@ -78,12 +82,13 @@ alone accepts membership, repair, replica retirement, and durability facts.
 
 `ts-deploy` runs in Forgejo Actions and owns build, test, image publication,
 and candidate handoff. The handoff identifies the source commit and tree, the
-Deploy CLI version, immutable image digests, and test results. It grants no
+Deploy CLI version, immutable artifact digests, and test results. It grants no
 rollout authority.
 
-Orchestrator verifies the handoff, admits the exact digest, creates a full
-green regional generation beside blue, switches traffic through a durable
-routing generation, and rolls back by digest. It never rebuilds during
+Orchestrator verifies the handoff and admits the exact digest. Hosts then
+converge leaderlessly ([ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md)):
+each host stops the old unit and recreates it bound to the new digest, and
+rollback is a deploy of the previous digest. It never rebuilds during
 promotion or rollback.
 
 ## Local verification
@@ -154,10 +159,8 @@ OCI setup is documented in
 - [Documentation index](docs/README.md)
 - [Architecture boundaries](docs/guides/architecture-boundaries.md)
 - [GRU and regional authority](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
-- [Rootless Podman hosting](docs/architecture/podman-rootless-hosting-and-autoscaling.md)
 - [Durable work inventory](docs/contracts/durable-work-inventory.md)
 - [Controller membership](docs/contracts/controller-membership.md)
-- [NATS monitoring snapshot](docs/contracts/nats-monitoring-snapshot.md)
 - [NATS gateway operations](docs/runbooks/nats-gateway-operations.md)
 - [NATS monitoring](docs/runbooks/nats-monitoring.md)
 - [OCI manual bootstrap](docs/guides/oci-manual-bootstrap.md)

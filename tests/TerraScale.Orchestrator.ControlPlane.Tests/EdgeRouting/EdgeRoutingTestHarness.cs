@@ -29,6 +29,9 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
 
     public List<string> Calls { get; } = new();
 
+    /// <summary>Keys served per <c>keys</c>-listing page; small values exercise cursor pagination.</summary>
+    public int KeysPageSize { get; set; } = 1000;
+
     public void Fail(string method, string pathContains, HttpStatusCode status, int times = 1) =>
         scriptedFailures.Add(new(method, pathContains, status, times));
 
@@ -62,6 +65,9 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
         var segments = request.RequestUri!.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (request.Method.Method == "GET" && segments[^1] == "namespaces")
             return Envelope(HttpStatusCode.OK, result: NamespaceListJson());
+
+        if (request.Method.Method == "GET" && segments[^1] == "keys")
+            return KeysPage(segments[^2], request.RequestUri!);
 
         if (segments[^2] == "values")
         {
@@ -110,10 +116,54 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
     private string NamespaceListJson() =>
         "[" + string.Join(",", namespaces.Select(pair => $$"""{"id":"{{pair.Id}}","title":"{{pair.Title}}"}""")) + "]";
 
+    /// <summary>
+    /// One cursor-paginated page of a namespace's keys in ordinal order: the page ends at
+    /// <see cref="KeysPageSize"/> keys and carries the cursor while more keys remain, which is
+    /// exactly when the client must follow it.
+    /// </summary>
+    private HttpResponseMessage KeysPage(string namespaceId, Uri uri)
+    {
+        if (!namespaces.Any(pair => pair.Id == namespaceId))
+            return NamespaceNotFoundEnvelope(namespaceId);
+        IEnumerable<string> remaining = values.Keys
+            .Select(static namespaced => namespaced.Split('\n'))
+            .Where(parts => parts[0] == namespaceId)
+            .Select(static parts => parts[1])
+            .Order(StringComparer.Ordinal);
+        var cursor = QueryParameter(uri, "cursor");
+        if (cursor is not null)
+            remaining = remaining.Where(key => string.CompareOrdinal(key, cursor) > 0);
+        var page = remaining.Take(KeysPageSize).ToArray();
+        var names = string.Join(",", page.Select(key => $$"""{"name":"{{key}}"}"""));
+        var info = page.Length == KeysPageSize
+            ? $",\"result_info\":{{\"cursor\":\"{page[^1]}\"}}"
+            : string.Empty;
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"success\":true,\"errors\":[],\"messages\":[],\"result\":[" + names + "]" + info + "}",
+                Encoding.UTF8,
+                "application/json"),
+        };
+    }
+
+    private static string? QueryParameter(Uri uri, string name)
+    {
+        foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = pair.IndexOf('=');
+            if (separator > 0 && string.Equals(pair[..separator], name, StringComparison.Ordinal))
+                return Uri.UnescapeDataString(pair[(separator + 1)..]);
+        }
+
+        return null;
+    }
+
     private static string Describe(HttpRequestMessage request, string? body)
     {
         var segments = request.RequestUri!.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments[^1] == "namespaces") return "GET namespaces";
+        if (segments[^1] == "keys") return $"GET {segments[^2]} keys";
         if (segments[^2] == "values")
             return $"{request.Method.Method} {segments[^3]} values {Uri.UnescapeDataString(segments[^1])}";
         using var document = JsonDocument.Parse(body!);

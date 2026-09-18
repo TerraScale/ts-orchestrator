@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,7 @@ using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
+using TUnit.Core;
 using HostRole = TerraScale.Orchestrator.Runtime.AdmittedRole;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -232,6 +234,229 @@ public sealed class HostConvergenceRuntimeTests
         }).Throws<Exception>();
     }
 
+    [Test]
+    public async Task TheReplaceLeaseIsRenewedWhileItsHolderWorksSoAPeerCannotStealItMidAttempt()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var artifact = Encoding.UTF8.GetBytes("slow-replacement");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+
+        // The pass outlives the one-second lease duration many times over.
+        var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(2) };
+        var configuration = new HostConvergenceConfiguration(
+            [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64);
+        await using var convergence = HostConvergenceRuntime.Create(
+            delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            converger, configuration, "gru", "test-1",
+            observationTimeout: TimeSpan.FromSeconds(3),
+            replaceLeaseDuration: TimeSpan.FromSeconds(1));
+        var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
+        var pass = convergence.ReconcileOnceAsync(HostRole.TerraBaseMember, descriptor, CancellationToken.None);
+
+        // A peer host must never acquire the lease while the holder is alive and renewing;
+        // probing starts only once the holder demonstrably holds it (first converge underway).
+        await converger.FirstConvergeStarted;
+        await using var peer = HostConvergenceRuntime.Create(
+            delivery, runtimeStore, client, new MemoryArtifactSource(), new FakeConverger(),
+            configuration, "gru", "test-2", observationTimeout: TimeSpan.FromSeconds(3));
+        while (!pass.IsCompleted)
+        {
+            await using var stolen = await peer.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
+            await Assert.That(stolen).IsNull();
+            await Task.Delay(200);
+        }
+        await pass;
+
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("converged");
+    }
+
+    [Test]
+    public async Task LosingTheReplaceLeaseMidAttemptAbortsTheAttemptWithoutClaimingConvergence()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var artifact = Encoding.UTF8.GetBytes("steal-me");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+
+        var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(5) };
+        await using var convergence = HostConvergenceRuntime.Create(
+            delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            converger, new HostConvergenceConfiguration(
+                [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
+            "gru", "test-1",
+            observationTimeout: TimeSpan.FromSeconds(3),
+            replaceLeaseDuration: TimeSpan.FromSeconds(1));
+        var pass = convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // Another host force-owns the lease while this holder is still working: the holder's
+        // renewal must notice, abort the attempt, and never claim convergence.
+        await Task.Delay(300);
+        await runtimeStore.PutAsync("host.replace.terrabase-server", JsonSerializer.Serialize(
+            new HostConvergenceReplaceLease("gru.peer-host", DateTimeOffset.UtcNow + TimeSpan.FromMinutes(5)),
+            HostConvergenceJsonContext.Default.HostConvergenceReplaceLease));
+
+        await Assert.That(async () => await pass).Throws<OperationCanceledException>();
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation).IsNull();
+    }
+
+    [Test]
+    public async Task AnExpiredSelfOwnedReplaceLeaseIsReacquirableByTheSameRestartedHolder()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (_, runtimeStore, _) = server.Stores();
+        var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
+        var convergence = StartConvergence(server);
+        var key = "host.replace.terrabase-server";
+
+        string Lease(string holder, DateTimeOffset expiresAt) => JsonSerializer.Serialize(
+            new HostConvergenceReplaceLease(holder, expiresAt),
+            HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
+
+        // A live lease — even one still held under our own name — is never acquirable.
+        await runtimeStore.PutAsync(key, Lease("gru.test-1", DateTimeOffset.UtcNow + TimeSpan.FromMinutes(1)));
+        await Assert.That(await convergence.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None)).IsNull();
+
+        // A crashed peer's expired lease is taken over.
+        await runtimeStore.PutAsync(key, Lease("gru.other-host", DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1)));
+        await using var taken = await convergence.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
+        await Assert.That(taken).IsNotNull();
+
+        // This instance crashed mid-replacement and left its OWN lease behind: once expired it
+        // re-acquires it, so its member does not stay down until the next digest admission.
+        await runtimeStore.PutAsync(key, Lease("gru.test-1", DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1)));
+        await using var reacquired = await convergence.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
+        await Assert.That(reacquired).IsNotNull();
+    }
+
+    [Test]
+    public async Task AFailedRollbackReportsRollbackFailedAndKeepsThePreviousMarker()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var good = Encoding.UTF8.GetBytes("known-good-binary");
+        var broken = Encoding.UTF8.GetBytes("crash-looping-binary");
+        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
+        var brokenHex = Convert.ToHexStringLower(SHA256.HashData(broken));
+        var source = new MemoryArtifactSource(
+            ("sha256-" + goodHex, good),
+            ("sha256-" + brokenHex, broken));
+
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var converger = new FakeConverger();
+        await using var convergence = StartConvergence(
+            delivery, runtimeStore, client, installRoot, source, converger);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // Both the replacement AND the restore attempt fail their observations.
+        converger.FailWhenRunning(brokenHex);
+        converger.FailWhenRunning(goodHex);
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{brokenHex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("rollback-failed");
+        await Assert.That(observation.Digest).IsEqualTo($"sha256:{brokenHex}");
+        await Assert.That(observation.Error).IsNotNull();
+        // The marker still names the last digest that actually converged, so the next pass
+        // retries the un-rolled-back replacement from it.
+        var marker = JsonSerializer.Deserialize<JsonElement>(
+            await File.ReadAllTextAsync(Path.Combine(installRoot, "terrabase-server", "current.json")));
+        await Assert.That(marker.GetProperty("digest").GetString()).IsEqualTo($"sha256:{goodHex}");
+        await Assert.That(converger.ConvergedPlans.Last().ArtifactDigest!.Value).IsEqualTo(goodHex);
+    }
+
+    [Test]
+    public async Task APersistentlyFailingReconcilePassIsLoggedWhileTheLoopRetries()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        // Undecodable desired state makes every pass throw before any durable side effect.
+        await delivery.PutAsync(
+            DirectDeliveryTargetKey.For("terrabase-server", "production", "gru"), "not-json");
+
+        // TUnit captures Console.Error per test, including the background loop's writes.
+        await using var convergence = HostConvergenceRuntime.Start(
+            delivery, runtimeStore, client, new MemoryArtifactSource(), new FakeConverger(),
+            new HostConvergenceConfiguration(
+                [HostRole.TerraBaseMember], "production",
+                Path.Combine(server.Directory, "artifacts"), HostArchitecture.Arm64),
+            "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
+        var output = TestContext.Current!.Output;
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (DateTime.UtcNow < deadline && !output.GetErrorOutput().Contains("Host convergence pass"))
+            await Task.Delay(100);
+        await Assert.That(output.GetErrorOutput())
+            .Contains("Host convergence pass for TerraBaseMember failed (JsonException)");
+    }
+
+    [Test]
+    public async Task AFailedObservationReportDoesNotSuppressTheNextPublish()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var artifact = Encoding.UTF8.GetBytes("reported-on-the-second-pass");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+
+        var failing = DispatchProxy.Create<INatsKVStore, FailingPutRuntimeStore>();
+        var store = (FailingPutRuntimeStore)(object)failing;
+        store.Inner = runtimeStore;
+        store.FailNextPut = true;
+
+        var converger = new FakeConverger();
+        await using var convergence = HostConvergenceRuntime.Create(
+            delivery, failing, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            converger, new HostConvergenceConfiguration(
+                [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
+            "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
+
+        // The durable observation put fails: the pass must fail with the marker still absent,
+        // so the next pass cannot early-return on an unreported convergence.
+        await Assert.That(async () =>
+        {
+            await convergence.ReconcileOnceAsync(
+                HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        }).Throws<Exception>();
+        await Assert.That(File.Exists(Path.Combine(installRoot, "terrabase-server", "current.json"))).IsFalse();
+
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("converged");
+        await Assert.That(File.Exists(Path.Combine(installRoot, "terrabase-server", "current.json"))).IsTrue();
+    }
+
+    /// <summary>KV store proxy failing the next PutAsync once, proving report-before-marker ordering.</summary>
+    private class FailingPutRuntimeStore : DispatchProxy
+    {
+        public INatsKVStore? Inner { get; set; }
+
+        public bool FailNextPut { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == "PutAsync" && FailNextPut)
+            {
+                FailNextPut = false;
+                throw new NatsKVException("The runtime observation store is unavailable.");
+            }
+            return targetMethod.Invoke(Inner, args);
+        }
+    }
+
     private static HostConvergenceRuntime StartConvergence(ConvergenceNatsServer server) =>
         StartConvergence(server.Stores().Item1, server.Stores().Item2, server.Stores().Item3,
             Path.Combine(server.Directory, "artifacts"), new MemoryArtifactSource(), new FakeConverger());
@@ -279,14 +504,23 @@ public sealed class HostConvergenceRuntimeTests
     {
         private readonly List<HostRuntimePlan> plans = [];
         private readonly List<string> actions = [];
-        private string? failingHex;
+        private readonly HashSet<string> failingHexes = [];
 
         public IReadOnlyList<HostRuntimePlan> ConvergedPlans => plans;
 
         /// <summary>Ordered action log ("stop"/"converge") proving replacement ordering.</summary>
         public IReadOnlyList<string> Actions => actions;
 
-        public void FailWhenRunning(string hex) => failingHex = hex;
+        /// <summary>Simulates an attempt that outlives the replace lease duration.</summary>
+        public TimeSpan? ConvergeDelay { get; set; }
+
+        private readonly TaskCompletionSource firstConverge =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Completes when the first converge attempt begins (the lease is held by then).</summary>
+        public Task FirstConvergeStarted => firstConverge.Task;
+
+        public void FailWhenRunning(string hex) => failingHexes.Add(hex);
 
         public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
@@ -294,18 +528,20 @@ public sealed class HostConvergenceRuntimeTests
             return Task.CompletedTask;
         }
 
-        public Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+        public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
+            firstConverge.TrySetResult();
+            if (ConvergeDelay is { } delay)
+                await Task.Delay(delay, cancellationToken);
             plans.Add(plan);
             actions.Add("converge");
-            return Task.CompletedTask;
         }
 
         public Task<SystemdAllocationObservation> ObserveAsync(
             HostRuntimePlan plan,
             CancellationToken cancellationToken)
         {
-            var failed = failingHex is not null && plan.ArtifactDigest!.Value == failingHex;
+            var failed = failingHexes.Contains(plan.ArtifactDigest!.Value);
             return Task.FromResult(new SystemdAllocationObservation(
                 plan.Systemd!.UnitName,
                 failed ? SystemdAllocationState.Failed : SystemdAllocationState.Running,

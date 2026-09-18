@@ -77,20 +77,32 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var argument in new[]
-                 {
-                     "run", "--rm",
-                     "--name", containerName,
-                     "--pod", podName,
-                     "--label", OwnershipLabel,
-                     "--security-opt", "no-new-privileges",
-                     "--cap-drop", "all",
-                     "--pids-limit", "128",
-                     "--memory", "256m",
-                     "--volume", $"{root}:{root}:rw",
-                     TestContainerImages.Nats,
-                     "--config", fullConfiguration,
-                 })
+        var arguments = new List<string>
+        {
+            "run", "--rm",
+            "--name", containerName,
+            "--pod", podName,
+            "--label", OwnershipLabel,
+            "--security-opt", "no-new-privileges",
+            "--cap-drop", "all",
+        };
+        if (PodmanCgroupCapabilities.CgroupLimits)
+        {
+            arguments.Add("--pids-limit");
+            arguments.Add("128");
+            arguments.Add("--memory");
+            arguments.Add("256m");
+        }
+        else
+        {
+            arguments.Add("--cgroups=disabled");
+        }
+        arguments.AddRange([
+            "--volume", $"{root}:{root}:rw",
+            TestContainerImages.Nats,
+            "--config", fullConfiguration,
+        ]);
+        foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
         foreach (var readOnlyRoot in readOnlyRoots)
         {
@@ -135,12 +147,13 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
-        var exitCode = await RunAsync(arguments, cancellationToken);
+        var (exitCode, diagnostics) = await RunAsync(arguments, cancellationToken);
         if (exitCode != 0)
-            throw new InvalidOperationException($"Podman exited with code {exitCode} while preparing a containerized NATS test cluster.");
+            throw new InvalidOperationException(
+                $"Podman exited with code {exitCode} while preparing a containerized NATS test cluster. diagnostics={diagnostics}");
     }
 
-    private static async Task<int> RunAsync(
+    private static async Task<(int ExitCode, string Diagnostics)> RunAsync(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
@@ -159,7 +172,7 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
         await Task.WhenAll(output, error);
-        return process.ExitCode;
+        return (process.ExitCode, $"{await output} | {await error}".Trim());
     }
 }
 

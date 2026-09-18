@@ -10,10 +10,8 @@ These documents describe the current system:
 | [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Product, data-path, control-plane, and delivery boundaries |
 | [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | GRU global authority, regional autonomy, and JetStream R3 |
 | [`adr/0034-autoforming-cells-and-leaderless-host-convergence.md`](adr/0034-autoforming-cells-and-leaderless-host-convergence.md) | Auto-forming cells, NATS artifact store, leaderless host convergence, operator deploy |
-| [`architecture/podman-rootless-hosting-and-autoscaling.md`](architecture/podman-rootless-hosting-and-autoscaling.md) | Rootless Podman hosting, stateful drain safety, and autoscaling |
 | [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v2` streams and consumers |
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
-| [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Current monitoring instruments, alerts, and fail-closed observation behavior |
 | [`contracts/controller-membership.md`](contracts/controller-membership.md) | Regional controller membership and the global cell directory |
 | [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Lean candidate handoff and authority separation |
 | [`runbooks/nats-gateway-operations.md`](runbooks/nats-gateway-operations.md) | Gateway rotation and failure handling |

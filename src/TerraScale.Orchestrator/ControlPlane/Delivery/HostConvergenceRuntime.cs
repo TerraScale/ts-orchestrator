@@ -111,7 +111,8 @@ internal enum HostConvergenceOutcomeState
 {
     Converged = 1,
     RolledBack = 2,
-    Failed = 3
+    Failed = 3,
+    RollbackFailed = 4
 }
 
 /// <summary>
@@ -127,7 +128,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan ObservationPollInterval = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan ReplaceLeaseDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan DefaultReplaceLeaseDuration = TimeSpan.FromMinutes(5);
     private const int MaximumConvergeAttempts = 3;
 
     private readonly INatsKVStore delivery;
@@ -140,6 +141,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly string instance;
     private readonly string agentObservationSubject;
     private readonly TimeSpan observationTimeout;
+    private readonly TimeSpan replaceLeaseDuration;
+    private readonly TimeSpan replaceLeaseRenewalInterval;
     private readonly CancellationTokenSource stopping = new();
     private readonly List<Task> loops = [];
 
@@ -152,9 +155,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         HostConvergenceConfiguration configuration,
         string cell,
         string instance,
-        TimeSpan? observationTimeout = null)
+        TimeSpan? observationTimeout = null,
+        TimeSpan? replaceLeaseDuration = null)
     {
         this.observationTimeout = observationTimeout ?? TimeSpan.FromSeconds(90);
+        this.replaceLeaseDuration = replaceLeaseDuration ?? DefaultReplaceLeaseDuration;
+        replaceLeaseRenewalInterval = this.replaceLeaseDuration / 3;
         this.delivery = delivery;
         this.runtimeStore = runtimeStore;
         this.connection = connection;
@@ -176,9 +182,10 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         HostConvergenceConfiguration configuration,
         string cell,
         string instance,
-        TimeSpan? observationTimeout = null) =>
+        TimeSpan? observationTimeout = null,
+        TimeSpan? replaceLeaseDuration = null) =>
         new(delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
-            observationTimeout);
+            observationTimeout, replaceLeaseDuration);
 
     /// <summary>Starts one reconcile loop per configured role. The loops never throw: failures are reported as observations.</summary>
     internal static HostConvergenceRuntime Start(
@@ -190,11 +197,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         HostConvergenceConfiguration configuration,
         string cell,
         string instance,
-        TimeSpan? observationTimeout = null)
+        TimeSpan? observationTimeout = null,
+        TimeSpan? replaceLeaseDuration = null)
     {
         var runtimeLoop = Create(
             delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
-            observationTimeout);
+            observationTimeout, replaceLeaseDuration);
         runtimeLoop.loops.AddRange(configuration.Roles.Select(
             role => Task.Run(() => runtimeLoop.ReconcileLoopAsync(role, runtimeLoop.stopping.Token))));
         return runtimeLoop;
@@ -226,9 +234,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             {
                 return;
             }
-            catch (Exception)
+            catch (Exception exception)
             {
-                // A transient ledger or store failure must not kill the loop; the next pass retries.
+                // A transient ledger or store failure must not kill the loop; the next pass
+                // retries — but never silently: a persistently failing pass stays observable.
+                Console.Error.WriteLine(
+                    $"Host convergence pass for {role} failed ({exception.GetType().Name}); retrying next pass.");
             }
             try
             {
@@ -266,29 +277,49 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         if (descriptor.MinimumReplicas > 1 && lease is null)
             return; // Another host is replacing its member right now; retry next pass.
 
+        // The lease renews itself while this pass works and aborts it through the work token
+        // the moment the lease is lost, so two hosts never replace members of one service
+        // concurrently — not even when the work outlives a single lease duration.
+        var work = lease?.Token ?? cancellationToken;
         var previous = current?.Digest;
-        var outcome = await InstallConvergeAndObserveAsync(role, descriptor, desired, cancellationToken)
+        var outcome = await InstallConvergeAndObserveAsync(role, descriptor, desired, work)
             .ConfigureAwait(false);
         if (outcome.State == HostConvergenceOutcomeState.Converged)
         {
-            await WriteCurrentMarkerAsync(descriptor, desired, previous, cancellationToken).ConfigureAwait(false);
+            // Report before the marker: a failed report must not leave every later pass
+            // early-returning on a stale observation; the next pass re-converges and
+            // re-reports instead.
             await ReportAsync(descriptor, desired, outcome, cancellationToken).ConfigureAwait(false);
+            await WriteCurrentMarkerAsync(descriptor, desired, previous, cancellationToken).ConfigureAwait(false);
             return;
         }
 
         // The new version failed its post-converge observation: restore the exact previous
         // digest (artifact directories are immutable and never deleted, so it is still on
-        // disk) and report the rolled-back outcome. A first deployment has nothing to restore.
+        // disk). A first deployment has nothing to restore.
         if (previous is { } rollbackDigest)
         {
-            var rollback = await InstallConvergeAndObserveAsync(role, descriptor, rollbackDigest, cancellationToken)
+            var rollback = await InstallConvergeAndObserveAsync(role, descriptor, rollbackDigest, work)
                 .ConfigureAwait(false);
-            await WriteCurrentMarkerAsync(descriptor, rollbackDigest, previous: null, cancellationToken)
-                .ConfigureAwait(false);
+            if (rollback.State == HostConvergenceOutcomeState.Converged)
+            {
+                // Only a successfully restored previous digest is rolled-back truth: report
+                // it and move the marker. A failed restore keeps the old marker (the next
+                // pass retries from it) and reports rollback-failed against the desired
+                // digest instead — never a rolled-back claim over a dead unit.
+                await ReportAsync(
+                    descriptor,
+                    rollbackDigest,
+                    rollback with { State = HostConvergenceOutcomeState.RolledBack },
+                    cancellationToken).ConfigureAwait(false);
+                await WriteCurrentMarkerAsync(descriptor, rollbackDigest, previous: null, cancellationToken)
+                    .ConfigureAwait(false);
+                return;
+            }
             await ReportAsync(
                 descriptor,
-                rollbackDigest,
-                rollback with { State = HostConvergenceOutcomeState.RolledBack },
+                desired,
+                rollback with { State = HostConvergenceOutcomeState.RollbackFailed },
                 cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -579,6 +610,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             {
                 HostConvergenceOutcomeState.Converged => "converged",
                 HostConvergenceOutcomeState.RolledBack => "rolled-back",
+                HostConvergenceOutcomeState.RollbackFailed => "rollback-failed",
                 _ => "failed"
             },
             outcome.UnitName,
@@ -602,21 +634,23 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 
     /// <summary>
     /// Acquires the cell-scoped replace lease for one replicated service by compare-and-set.
-    /// A lease whose holder crashed is taken over after expiry, so replacement never wedges.
+    /// A lease whose holder crashed — including this same instance after a restart — is taken
+    /// over once expired, so replacement never wedges. The returned handle renews the lease
+    /// while its holder keeps working and aborts the attempt if the lease is lost.
     /// </summary>
-    internal async Task<IAsyncDisposable?> AcquireReplaceLeaseAsync(
+    internal async Task<ReplaceLeaseHandle?> AcquireReplaceLeaseAsync(
         AdmittedRoleDescriptor descriptor,
         CancellationToken cancellationToken)
     {
         var key = $"host.replace.{descriptor.ArtifactKey}";
         var holder = $"{cell}.{instance}";
         var leaseJson = JsonSerializer.Serialize(
-            new HostConvergenceReplaceLease(holder, DateTimeOffset.UtcNow + ReplaceLeaseDuration),
+            new HostConvergenceReplaceLease(holder, DateTimeOffset.UtcNow + replaceLeaseDuration),
             HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
         try
         {
             await runtimeStore.CreateAsync(key, leaseJson, cancellationToken: cancellationToken).ConfigureAwait(false);
-            return new ReplaceLeaseHandle(this, key, holder);
+            return new ReplaceLeaseHandle(this, key, holder, cancellationToken);
         }
         catch (Exception exception) when (exception is NatsKVCreateException or NatsKVWrongLastRevisionException)
         {
@@ -642,13 +676,16 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         catch (JsonException)
         {
         }
-        if (existing is null || existing.Holder == holder || existing.ExpiresAt > DateTimeOffset.UtcNow)
+        // Only expiry gates a takeover: another host takes a crashed holder's lease, and a
+        // restarted holder re-takes its own (TS_ORCH_INSTANCE is stable across restarts), so
+        // a crash mid-replacement cannot wedge this host's member until the next admission.
+        if (existing is null || existing.ExpiresAt > DateTimeOffset.UtcNow)
             return null;
         try
         {
             await runtimeStore.UpdateAsync(key, leaseJson, entry.Revision, cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
-            return new ReplaceLeaseHandle(this, key, holder);
+            return new ReplaceLeaseHandle(this, key, holder, cancellationToken);
         }
         catch (Exception exception) when (exception is NatsKVException)
         {
@@ -679,13 +716,100 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             ? digest["sha256:".Length..].ToLowerInvariant()
             : digest.ToLowerInvariant();
 
-    private sealed class ReplaceLeaseHandle(
-        HostConvergenceRuntime owner,
+    /// <summary>
+    /// Refreshes the lease TTL on a cadence well under its duration while the holder works, so
+    /// a live host's lease never expires mid-replacement and cannot be stolen from under it.
+    /// </summary>
+    private async Task RenewReplaceLeaseAsync(
         string key,
-        string holder) : IAsyncDisposable
+        string holder,
+        CancellationTokenSource abort,
+        CancellationToken stopped)
     {
-        public async ValueTask DisposeAsync() =>
+        while (!stopped.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(replaceLeaseRenewalInterval, stopped).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            try
+            {
+                var entry = await runtimeStore.GetEntryAsync<string>(key, cancellationToken: stopped)
+                    .ConfigureAwait(false);
+                entry.EnsureSuccess();
+                var existing = JsonSerializer.Deserialize(
+                    entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
+                if (existing?.Holder != holder)
+                {
+                    abort.Cancel();
+                    return;
+                }
+                var renewed = JsonSerializer.Serialize(
+                    new HostConvergenceReplaceLease(holder, DateTimeOffset.UtcNow + replaceLeaseDuration),
+                    HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
+                await runtimeStore.UpdateAsync(key, renewed, entry.Revision, cancellationToken: stopped)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is NatsKVException or JsonException)
+            {
+                // The lease was deleted, taken over, or raced away: abort the attempt rather
+                // than keep replacing a member another host may be replacing concurrently.
+                abort.Cancel();
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// A held replace lease. It renews the TTL while the holder is alive and working — an
+    /// actively-working host can never have its lease (and member) stolen mid-replacement —
+    /// and cancels <see cref="Token"/> as soon as renewal loses the lease, aborting the
+    /// attempt. A holder that dies stops renewing, so its lease expires and a peer (or the
+    /// restarted holder) takes over.
+    /// </summary>
+    internal sealed class ReplaceLeaseHandle : IAsyncDisposable
+    {
+        private readonly HostConvergenceRuntime owner;
+        private readonly string key;
+        private readonly string holder;
+        private readonly CancellationTokenSource abort;
+        private readonly CancellationTokenSource stopped = new();
+        private readonly Task renewal;
+
+        internal ReplaceLeaseHandle(
+            HostConvergenceRuntime owner,
+            string key,
+            string holder,
+            CancellationToken cancellationToken)
+        {
+            this.owner = owner;
+            this.key = key;
+            this.holder = holder;
+            abort = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            renewal = Task.Run(() => this.owner.RenewReplaceLeaseAsync(key, holder, abort, stopped.Token));
+        }
+
+        /// <summary>Aborts while the holder is still working and the lease has been lost.</summary>
+        internal CancellationToken Token => abort.Token;
+
+        public async ValueTask DisposeAsync()
+        {
+            stopped.Cancel();
+            try
+            {
+                await renewal.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+            }
             await owner.ReleaseReplaceLeaseAsync(key, holder).ConfigureAwait(false);
+            abort.Dispose();
+            stopped.Dispose();
+        }
     }
 }
 

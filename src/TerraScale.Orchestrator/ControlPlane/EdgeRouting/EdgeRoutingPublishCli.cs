@@ -14,11 +14,11 @@ internal static class EdgeRoutingPublishCli
 {
     public static async Task<int> ExecuteAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken = default)
     {
-        var (accountId, regionsTitle, placementTitle, tokenFilePath, snapshotPath) = arguments switch
+        var (accountId, regionsTitle, placementTitle, tokenFilePath, snapshotFile) = arguments switch
         {
             ["--account", var account, "--regions-title", var regions, "--placement-title", var placement,
-                "--token-file", var token, "--snapshot", var snapshot] =>
-                (account, regions, placement, token, (string?)snapshot),
+                "--token-file", var token, "--snapshot", var snapshotPath] =>
+                (account, regions, placement, token, (string?)snapshotPath),
             ["--account", var account, "--regions-title", var regions, "--placement-title", var placement,
                 "--token-file", var token] =>
                 (account, regions, placement, token, null),
@@ -27,16 +27,32 @@ internal static class EdgeRoutingPublishCli
                 "--placement-title <title> --token-file <path> [--snapshot <path>]"),
         };
 
-        var snapshot = snapshotPath is null
+        var snapshot = snapshotFile is null
             ? new EdgePlacementSnapshot(new EdgeHealthDocument(0, [], []), null)
-            : EdgePlacementJson.ReadSnapshot(await File.ReadAllTextAsync(snapshotPath, cancellationToken));
-        var apiToken = (await File.ReadAllTextAsync(tokenFilePath, cancellationToken)).Trim();
+            : EdgePlacementJson.ReadSnapshot(await File.ReadAllTextAsync(snapshotFile, cancellationToken));
+        var apiToken = await ReadApiTokenAsync(tokenFilePath, cancellationToken);
         using var client = CloudflareKvClient.Create(apiToken, accountId);
         var result = await PublishOnceAsync(client, regionsTitle, placementTitle, snapshot, cancellationToken);
         Console.WriteLine(
             $"edge-routing publish: {result.PlacementWrites} placement write(s), " +
             $"{result.PlacementSkips} skipped, {result.DeletedKeys} deleted in {(long)result.Duration.TotalMilliseconds} ms");
         return 0;
+    }
+
+    /// <summary>
+    /// Reads the Cloudflare API token from an owner-private file, mirroring every sibling
+    /// credential path (NatsCredentialFile, EcdsaCommandIdentity): a group- or other-readable
+    /// token file is rejected before its contents are ever read.
+    /// </summary>
+    private static async Task<string> ReadApiTokenAsync(string path, CancellationToken cancellationToken)
+    {
+        if (!OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("The Cloudflare API token file requires Linux file permissions.");
+        var mode = File.GetUnixFileMode(path);
+        if ((mode & (UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute |
+                     UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute)) != 0)
+            throw new ArgumentException($"The Cloudflare API token file must be private to the current user: {path}.");
+        return (await File.ReadAllTextAsync(path, cancellationToken)).Trim();
     }
 
     /// <summary>

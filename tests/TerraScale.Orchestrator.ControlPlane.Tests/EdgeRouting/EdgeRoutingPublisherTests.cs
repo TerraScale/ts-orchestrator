@@ -59,8 +59,10 @@ public sealed class EdgeRoutingPublisherTests
         await Assert.That(second.PlacementWrites).IsEqualTo(0);
         await Assert.That(second.PlacementSkips).IsEqualTo(2);
         await Assert.That(second.DeletedKeys).IsEqualTo(0);
+        // The pass writes only the health document; the key listing is a read, taken every pass
+        // so stale detection is reality-based rather than remembered.
         await Assert.That(transport.Calls.Skip(callsAfterFirst).ToList())
-            .IsEquivalentTo([$"PUT {RegionsNamespaceId} values regions"]);
+            .IsEquivalentTo([$"PUT {RegionsNamespaceId} values regions", $"GET {PlacementNamespaceId} keys"]);
     }
 
     [Test]
@@ -173,6 +175,65 @@ public sealed class EdgeRoutingPublisherTests
     }
 
     [Test]
+    public async Task StaleKeyIsDeletedByAFreshPublisherBecauseDeletionListsTheNamespace()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        transport.Seed(PlacementNamespaceId, "foreign-key", "{}");
+        using var client = new CloudflareKvClient("token", AccountId, new HttpClient(transport));
+
+        // The executable lifecycle: PublishOnceAsync constructs a FRESH publisher per pass, so
+        // in-memory observations are always empty — deletion can only be correct by reading the
+        // namespace reality, not by remembering what an earlier pass wrote.
+        var first = await EdgeRoutingPublishCli.PublishOnceAsync(
+            client, "REGIONS", "PLACEMENT",
+            Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+            {
+                ["orders"] = Database(),
+                ["gone"] = Database(name: "gone"),
+            }));
+        await Assert.That(first.DeletedKeys).IsEqualTo(0);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:gone")).IsTrue();
+
+        var second = await EdgeRoutingPublishCli.PublishOnceAsync(
+            client, "REGIONS", "PLACEMENT",
+            Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+            {
+                ["orders"] = Database(revision: 2),
+            }));
+
+        await Assert.That(second.DeletedKeys).IsEqualTo(1);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:gone")).IsFalse();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+        // Only db:-prefixed keys the snapshot does not claim are deleted; a key this publisher
+        // does not own survives the pass.
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "foreign-key")).IsTrue();
+    }
+
+    [Test]
+    public async Task StaleDetectionFollowsTheListingCursorAcrossKeyPages()
+    {
+        using var transport = new FakeCloudflareKvTransport { KeysPageSize = 2 };
+        transport.Seed(PlacementNamespaceId, "db:legacy-1", "{}");
+        transport.Seed(PlacementNamespaceId, "db:legacy-2", "{}");
+        transport.Seed(PlacementNamespaceId, "db:legacy-3", "{}");
+        var publisher = Publisher(transport, new StaticEdgePlacementSource(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+        {
+            ["orders"] = Database(),
+        })));
+
+        var result = await publisher.PublishAsync();
+
+        // Four keys total (db:orders plus three seeded): two full pages carry a cursor, the
+        // third empty page ends the chain.
+        await Assert.That(transport.Calls.Count(call => call == $"GET {PlacementNamespaceId} keys")).IsEqualTo(3);
+        await Assert.That(result.DeletedKeys).IsEqualTo(3);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:legacy-1")).IsFalse();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:legacy-2")).IsFalse();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:legacy-3")).IsFalse();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+    }
+
+    [Test]
     public async Task TransientPlacementFailureRetriesWithObservableBackoffAndSucceeds()
     {
         using var transport = new FakeCloudflareKvTransport();
@@ -265,6 +326,56 @@ public sealed class EdgeRoutingPublisherTests
                     ["orders"] = Database(name: "orders", branches: new Dictionary<string, IReadOnlyList<EdgeBranchPlacement>>()),
                 }),
                 EdgePlacementErrorCode.BranchRegionListEmpty),
+            // ts-proxy parity (normalizeHealth): the catalog gates the whole health document.
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, country: "br")])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, country: "BRA")])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, name: " Frankfurt ")])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, name: "")])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, name: new string('x', 129))])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [])),
+                EdgePlacementErrorCode.CatalogEmpty),
+            new(Snapshot(health: Health(
+                    [Region(RegionCode.Gru)],
+                    Enumerable.Range(0, 21).Select(_ => CatalogEntry(RegionCode.Gru)).ToList())),
+                EdgePlacementErrorCode.CatalogTooLarge),
+            new(Snapshot(health: Health(
+                    [Region(RegionCode.Gru), Region(RegionCode.Sfo)],
+                    [CatalogEntry(RegionCode.Gru)])),
+                EdgePlacementErrorCode.CatalogRegionSetMismatch),
+            new(Snapshot(health: Health([Region(RegionCode.Gru, latitude: 91)], [CatalogEntry(RegionCode.Gru)])),
+                EdgePlacementErrorCode.HealthCoordinatesInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru, longitude: -181)], [CatalogEntry(RegionCode.Gru)])),
+                EdgePlacementErrorCode.HealthCoordinatesInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, latitude: 90.5)])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health([Region(RegionCode.Gru)], [CatalogEntry(RegionCode.Gru, longitude: 181)])),
+                EdgePlacementErrorCode.CatalogEntryInvalid),
+            new(Snapshot(health: Health(
+                    [Region(RegionCode.Gru), Region(RegionCode.Sfo)],
+                    [CatalogEntry(RegionCode.Gru), CatalogEntry(RegionCode.Sfo)]),
+                    databases: new Dictionary<string, EdgeDatabasePlacement>
+                    {
+                        ["orders"] = Database(name: "orders", branches: Enumerable.Range(0, 17).ToDictionary(
+                            index => index == 0 ? "main" : $"branch-{index:d2}",
+                            _ => MainBranch((RegionCode.Gru, true, true))["main"])),
+                    }),
+                EdgePlacementErrorCode.BranchMapTooLarge),
+            new(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+                {
+                    ["orders"] = Database(name: "orders", branches: MainBranch(
+                        Enumerable.Range(0, 21).Select(_ => (RegionCode.Gru, true, true)).ToArray())),
+                }),
+                EdgePlacementErrorCode.BranchRegionListTooLarge),
+            new(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+                {
+                    ["orders"] = Database(name: new string('a', 64)),
+                }),
+                EdgePlacementErrorCode.DatabaseNameInvalid),
         };
 
         foreach (var row in rows)
@@ -405,5 +516,165 @@ public sealed class EdgeRoutingPublisherTests
         await publisher.PublishAsync();
 
         await Assert.That(transport.Calls.Count(call => call == "GET namespaces")).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task ConcurrentPassesOfOnePublisherExecuteStrictlySequentially()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        var source = new GatedEdgePlacementSource(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+        {
+            ["orders"] = Database(),
+        }));
+        var publisher = Publisher(transport, source);
+
+        // Pass one enters its snapshot read and holds the publish gate open; pass two starts
+        // and must stay outside the pass (it may not even reach its snapshot read) until the
+        // first pass completes — overlapping passes would race the revision guard.
+        var first = publisher.PublishAsync();
+        await source.FirstCallStarted.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = publisher.PublishAsync();
+        await Task.Delay(100);
+        await Assert.That(source.SnapshotCalls).IsEqualTo(1);
+        source.ReleaseFirstCall();
+        await first;
+        await second;
+        await Assert.That(source.SnapshotCalls).IsEqualTo(2);
+        await Assert.That(source.MaxConcurrentSnapshotCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task RecreatedPlacementNamespaceIsReResolvedOnceAndThePassRecovers()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        var source = Source(Database());
+        var publisher = Publisher(transport, source);
+
+        await publisher.PublishAsync();
+        transport.RecreateNamespace("PLACEMENT", "ns-placement-2");
+        source.Set(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+        {
+            ["orders"] = Database(revision: 2),
+        }));
+
+        var result = await publisher.PublishAsync();
+
+        await Assert.That(result.PlacementWrites).IsEqualTo(1);
+        await Assert.That(transport.Calls.Count(call => call == "GET namespaces")).IsEqualTo(3);
+        using var document = JsonDocument.Parse(transport.StoredValue("ns-placement-2", "db:orders")!);
+        await Assert.That(document.RootElement.GetProperty("rev").GetInt32()).IsEqualTo(2);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+    }
+
+    [Test]
+    public async Task NamespaceNotFoundThatReResolutionCannotRepairFailsThePass()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        var source = Source(Database());
+        var publisher = Publisher(transport, source);
+
+        await publisher.PublishAsync();
+        transport.RemoveNamespace("PLACEMENT");
+        source.Set(Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+        {
+            ["orders"] = Database(revision: 2),
+        }));
+
+        await Assert.ThrowsAsync<CloudflareKvNamespaceNotFoundException>(() => publisher.PublishAsync());
+        await Assert.That(transport.Calls.Count(call => call == "GET namespaces")).IsEqualTo(3);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+    }
+
+    [Test]
+    public async Task PublishCommandCompositionRunsOnePassEndToEndFromASnapshotFile()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        var snapshotPath = Path.Combine(Path.GetTempPath(), $"edge-snapshot-{Guid.NewGuid():N}.json");
+        File.WriteAllText(snapshotPath, $$"""
+            {
+              "updated": {{HealthUpdated}},
+              "regions": { "GRU": { "ok": true, "lag_ms": 0, "lat": -23.43, "lon": -46.47 } },
+              "catalog": [ { "code": "GRU", "name": "Sao Paulo", "country": "BR", "lat": -23.43, "lon": -46.47 } ],
+              "databases": {
+                "orders": { "revision": 7, "residency": "eu-only",
+                  "branches": { "main": [ { "region": "GRU", "read": true, "write": true } ] } }
+              }
+            }
+            """);
+        try
+        {
+            var snapshot = EdgePlacementJson.ReadSnapshot(File.ReadAllText(snapshotPath));
+            using var client = new CloudflareKvClient("token", AccountId, new HttpClient(transport));
+
+            var result = await EdgeRoutingPublishCli.PublishOnceAsync(client, "REGIONS", "PLACEMENT", snapshot);
+
+            await Assert.That(result.PlacementWrites).IsEqualTo(1);
+            using var document = JsonDocument.Parse(transport.StoredValue(PlacementNamespaceId, "db:orders")!);
+            await Assert.That(document.RootElement.GetProperty("rev").GetInt32()).IsEqualTo(7);
+            await Assert.That(document.RootElement.GetProperty("res").GetString()).IsEqualTo("eu-only");
+            await Assert.That(transport.StoredValue(RegionsNamespaceId, "regions")).IsNotNull();
+        }
+        finally
+        {
+            File.Delete(snapshotPath);
+        }
+    }
+
+    [Test]
+    public async Task GroupOrOtherReadableTokenFileFailsClosedBeforeAnythingRuns()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var tokenPath = Path.Combine(Path.GetTempPath(), $"edge-token-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(tokenPath, "cf-token");
+        File.SetUnixFileMode(tokenPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead);
+        try
+        {
+            var failure = (await Assert.ThrowsAsync<ArgumentException>(() => EdgeRoutingPublishCli.ExecuteAsync(
+            [
+                "--account", AccountId,
+                "--regions-title", "REGIONS",
+                "--placement-title", "PLACEMENT",
+                "--token-file", tokenPath,
+            ])))!;
+            await Assert.That(failure.Message).Contains("private to the current user");
+        }
+        finally
+        {
+            File.Delete(tokenPath);
+        }
+    }
+
+    /// <summary>Holds the first snapshot call open until the test releases it; tracks call concurrency.</summary>
+    private sealed class GatedEdgePlacementSource(EdgePlacementSnapshot snapshot) : IEdgePlacementSource
+    {
+        private readonly TaskCompletionSource firstCallStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource releaseFirstCall = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int concurrent;
+
+        public int SnapshotCalls { get; private set; }
+        public int MaxConcurrentSnapshotCalls { get; private set; }
+        public Task FirstCallStarted => firstCallStarted.Task;
+
+        public void ReleaseFirstCall() => releaseFirstCall.TrySetResult();
+
+        public async Task<EdgePlacementSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default)
+        {
+            SnapshotCalls++;
+            MaxConcurrentSnapshotCalls = Math.Max(MaxConcurrentSnapshotCalls, Interlocked.Increment(ref concurrent));
+            try
+            {
+                if (SnapshotCalls == 1)
+                {
+                    firstCallStarted.TrySetResult();
+                    await releaseFirstCall.Task.WaitAsync(cancellationToken);
+                }
+            }
+            finally
+            {
+                Interlocked.Decrement(ref concurrent);
+            }
+
+            return snapshot;
+        }
     }
 }

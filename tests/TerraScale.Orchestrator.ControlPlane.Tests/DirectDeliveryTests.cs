@@ -8,6 +8,7 @@ using TUnit.Assertions.Extensions;
 using TUnit.Core;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.ControlPlane.Tests;
 
@@ -1429,6 +1430,73 @@ public sealed class DirectDeliveryTests
             .IsEqualTo(DeliveryJournalState.Applying);
         await Assert.That(regions.Single(static region => region.Region == "sfo").PreviousArtifactDigest)
             .IsEqualTo(PreviousDigest);
+    }
+
+    [Test]
+    public async Task A_renewal_mid_flight_keeps_the_admitting_lease_authoritative_through_the_rollback()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+        var snapshot = new RegionalAuthoritySnapshot(
+            "leader", true, 5, 100,
+            DateTimeOffset.UtcNow.AddSeconds(10), DateTimeOffset.UtcNow, null);
+        var gateCalls = 0;
+        var coordinator = Coordinator(target, journal,
+            // The REAL production gate (NatsRuntime.AuthorityIsCurrent) against a live snapshot:
+            // the first gate pass admits the delivery, then the leader renews its lease — same
+            // fencing epoch, new KV revision — before any later gate check runs. The delivery
+            // and its rollback must stay authoritative: a renewal is not a new leader.
+            authorityIsCurrent: request =>
+            {
+                var current = NatsRuntime.AuthorityIsCurrent(snapshot, request);
+                if (++gateCalls == 1)
+                    snapshot = snapshot with { KvRevision = 103 };
+                return current;
+            });
+
+        var receipt = await coordinator.DeliverAsync(
+            Request() with { AuthorityGeneration = 5, WriterEpoch = 5 });
+
+        await Assert.That(gateCalls).IsGreaterThan(1);
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(receipt.Rollback.Attempted).IsTrue();
+        await Assert.That(receipt.Rollback.Status).IsEqualTo(DeliveryRollbackStatus.Succeeded);
+        await Assert.That(journal.Records[^1].State).IsEqualTo(DeliveryJournalState.RolledBack);
+    }
+
+    [Test]
+    public async Task A_new_authority_term_after_admission_still_fences_the_delivery()
+    {
+        var target = new RecordingTarget { FailHealthInRegion = "sfo" };
+        var journal = new InMemoryDeliveryJournal();
+        var snapshot = new RegionalAuthoritySnapshot(
+            "leader", true, 5, 100,
+            DateTimeOffset.UtcNow.AddSeconds(10), DateTimeOffset.UtcNow, null);
+        var gateCalls = 0;
+        var coordinator = Coordinator(target, journal,
+            // Admitted under term 5, then another leader takes the lease (epoch 6, revision
+            // 104): the same real gate must fence before any mutation or journal admission.
+            authorityIsCurrent: request =>
+            {
+                var current = NatsRuntime.AuthorityIsCurrent(snapshot, request);
+                if (++gateCalls == 1)
+                    snapshot = snapshot with { Epoch = 6, KvRevision = 104 };
+                return current;
+            });
+
+        var receipt = await coordinator.DeliverAsync(
+            Request() with { AuthorityGeneration = 5, WriterEpoch = 5 });
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.Failed);
+        await Assert.That(receipt.Error.Code).IsEqualTo(DirectDeliveryErrorCode.AuthorityFenced);
+        // Read-only observation may have started, but no mutation or rollback ran: the durable
+        // record terminally fails fenced with no write-ahead rollback material ever spent.
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal) ||
+            call.StartsWith("rollback:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(journal.Records[^1].State).IsEqualTo(DeliveryJournalState.Failed);
+        await Assert.That(journal.Records[^1].Receipt!.Error.Code)
+            .IsEqualTo(DirectDeliveryErrorCode.AuthorityFenced);
     }
 
     private static DirectDeliveryCoordinator Coordinator(IDeliveryTarget target, IDeliveryJournal journal,

@@ -237,13 +237,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 DirectDeliveryRuntimeAdapterSet.Create(
                     ledger,
                     () => authority.Snapshot.Ready && authority.Snapshot.IsLeader,
-                    request =>
-                    {
-                        var current = authority.Snapshot;
-                        return current.Ready && current.IsLeader &&
-                            current.KvRevision == request.AuthorityGeneration &&
-                            current.Epoch == request.WriterEpoch;
-                    },
+                    request => NatsRuntime.AuthorityIsCurrent(authority.Snapshot, request),
                     admittedDeliveryTargets,
                     ciArtifactSignatures);
             var directDelivery = new DirectDeliveryService(
@@ -253,13 +247,7 @@ internal sealed class GlobalNatsRuntime : IAsyncDisposable
                 deliveryJournal,
                 artifactBuilder,
                 auditIdFactory: static () => $"audit-{Guid.NewGuid():N}",
-                authorityIsCurrent: request =>
-                {
-                    var current = authority.Snapshot;
-                    return current.Ready && current.IsLeader &&
-                        current.KvRevision == request.AuthorityGeneration &&
-                        current.Epoch == request.WriterEpoch;
-                });
+                authorityIsCurrent: request => NatsRuntime.AuthorityIsCurrent(authority.Snapshot, request));
             var candidateHandoffV2Admission = CandidateEvidenceHandoffV2AdmissionRuntime.ComposeProduction(
                 ledger,
                 ciArtifactSignatures!,

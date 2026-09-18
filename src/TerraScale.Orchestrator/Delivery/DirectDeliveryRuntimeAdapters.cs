@@ -25,7 +25,11 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
     internal const int DefaultOperationHistoryCap = 1024;
     internal const int DefaultPruneInterval = 1;
     private const string OperationKeyPrefix = "direct.operation.";
-    private const int MaximumRecordBytes = 64 * 1024;
+    // The journal writes into the provisioned ORCH_DELIVERY KV bucket, whose MaxValueSize
+    // (NatsTopology.Delivery) is 16 KiB. The journal's own cap must never exceed the KV cap:
+    // a record the journal accepts but KV rejects retries forever. The invariant
+    // MaximumRecordBytes <= NatsTopology.Delivery.MaxValueSize is pinned by tests.
+    internal const int MaximumRecordBytes = 16 * 1024;
     // direct.target.* records hold only each region's CURRENT deployed digest; the pre-mutation
     // digests rollback needs live in the direct.operation.* records. They are live state and are
     // never pruned by the history bound.

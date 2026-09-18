@@ -63,11 +63,17 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
     private static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// The observation identity returned for a lease document this build cannot validate:
+    /// empty, malformed, a foreign cell's, or written by a different schema version. The
+    /// document still exists in KV, so it is distinct from <c>kv-absent</c>.
+    /// </summary>
+    internal const string UnreadableLeaseObservationId = "lease-unreadable";
+
     private readonly INatsKVStore store;
     private readonly string authorityId;
     private readonly string candidateId;
     private readonly string leaseKey;
-    private readonly bool tolerateTransientFailures;
     private readonly Stopwatch confirmedLeaseAge = new();
     private readonly CancellationTokenSource stopping = new();
     // Keep only the current pure-engine state. Replaying an unbounded renewal
@@ -82,14 +88,12 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         INatsKVStore store,
         string authorityId,
         string candidateId,
-        string leaseKey,
-        bool tolerateTransientFailures = false)
+        string leaseKey)
     {
         this.store = store;
         this.authorityId = authorityId;
         this.candidateId = candidateId;
         this.leaseKey = leaseKey;
-        this.tolerateTransientFailures = tolerateTransientFailures;
     }
 
     public RegionalAuthoritySnapshot Snapshot => Volatile.Read(ref snapshot);
@@ -124,8 +128,7 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             store,
             "global",
             $"global-controller-{cell}-{instance}",
-            "authority.global",
-            tolerateTransientFailures: true);
+            "authority.global");
         await coordinator.TickAsync(cancellationToken);
         coordinator.loop = coordinator.RunAsync(coordinator.stopping.Token);
         return coordinator;
@@ -156,18 +159,24 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
             {
                 await TickAsync(cancellationToken);
             }
-            catch (Exception exception) when (
-                tolerateTransientFailures && IsTransient(exception))
+            catch (Exception exception) when (IsTransient(exception))
             {
+                // Transient NATS failures (timeout, lost connection) demote this candidate to
+                // an explicit unavailable snapshot — every mutation is fenced while the loop
+                // retries on the next tick — instead of faulting the tick loop and taking the
+                // process down. Dropping the in-memory journal state forces a fresh
+                // observation before any leader claim is re-made. Persistent, non-transient
+                // failures still escape and fault Completion (fail-stop).
+                var unavailable = $"{authorityId}-nats-unavailable";
                 var confirmed = journalState.Confirmed ?? new AuthorityObservation(
-                    authorityId, 0, 0, "global-nats-unavailable", null);
+                    authorityId, 0, 0, unavailable, null);
                 journalState = AuthorityState.Empty;
                 confirmedLeaseAge.Reset();
                 Publish(
                     "unavailable",
                     false,
                     confirmed,
-                    "global-nats-unavailable",
+                    unavailable,
                     DateTimeOffset.UtcNow);
             }
         }
@@ -188,6 +197,16 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
 
         var observed = await ReadAsync(cancellationToken);
         var now = DateTimeOffset.UtcNow;
+        if (observed.ObservationId == UnreadableLeaseObservationId)
+        {
+            // A lease document this build cannot validate (another build's schema, a foreign
+            // cell, or corruption) is a FENCE, never a process crash: surfacing it on the
+            // snapshot keeps every candidate alive and the cell explicitly leaderless until
+            // the key is deleted or a build that understands the document takes over. An
+            // exception here would crash-loop every candidate instead.
+            Publish("follower", false, observed, "authority-lease-invalid", now);
+            return;
+        }
         if (observed.Lease is not null &&
             observed.Lease.ServerIssuedAt + observed.Lease.Duration > now)
         {
@@ -324,6 +343,12 @@ internal sealed class RegionalAuthorityCoordinator : IAsyncDisposable
         catch (NatsKVKeyNotFoundException)
         {
             return new AuthorityObservation(authorityId, 0, 0, "kv-absent", null);
+        }
+        // An unparseable or invalid lease document is observed as an unreadable lease rather
+        // than thrown: the caller fences on it (no current authority) and stays alive.
+        catch (Exception exception) when (exception is InvalidOperationException or JsonException)
+        {
+            return new AuthorityObservation(authorityId, 0, 0, UnreadableLeaseObservationId, null);
         }
     }
 

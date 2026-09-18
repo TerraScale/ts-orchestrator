@@ -46,7 +46,7 @@ public sealed record OrchestratorOptions(
 
         var cell = environment("TS_ORCH_CELL") ?? "local";
         var url = environment("TS_ORCH_NATS_URL") ?? "nats://127.0.0.1:4222";
-        var replicasText = environment("TS_ORCH_REPLICAS") ?? "1";
+        var replicasText = environment("TS_ORCH_REPLICAS");
         var instance = environment("TS_ORCH_INSTANCE") ?? "local";
         var globalUrl = environment("TS_ORCH_GLOBAL_NATS_URL");
         var globalDirectoryUrl = environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL");
@@ -122,6 +122,21 @@ public sealed record OrchestratorOptions(
         RejectNatsUrlUserInfo(globalUrl, "TS_ORCH_GLOBAL_NATS_URL");
         RejectNatsUrlUserInfo(globalDirectoryUrl, "TS_ORCH_GLOBAL_DIRECTORY_NATS_URL");
         RejectNatsUrlUserInfo(globalDirectoryServiceUrl, "TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL");
+
+        if (string.IsNullOrWhiteSpace(replicasText))
+        {
+            // Only the read-only commands may default to a single-node cell. Every command
+            // that provisions or converges the SHARED controller topology must state its
+            // replica count explicitly: defaulting a restarted controller of a shared R3
+            // cell to 1 would silently re-provision its streams and buckets as R1.
+            if (command is OrchestratorCommand.Run or OrchestratorCommand.ProvisionJournal or
+                OrchestratorCommand.JournalWriter)
+            {
+                throw new ArgumentException(
+                    $"TS_ORCH_REPLICAS is required for the {CommandName(command)} command: it provisions or converges the shared cell topology, and an unset replica count could silently re-provision a shared R3 cell as R1. Set TS_ORCH_REPLICAS explicitly (1 for a single-node cell).");
+            }
+            replicasText = "1";
+        }
 
         if (!int.TryParse(replicasText, out var replicas) || replicas is < 1 or > 5 || replicas % 2 == 0)
         {

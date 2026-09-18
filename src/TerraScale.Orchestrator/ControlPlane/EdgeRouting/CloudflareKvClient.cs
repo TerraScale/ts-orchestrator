@@ -9,7 +9,7 @@ namespace TerraScale.Orchestrator.ControlPlane.EdgeRouting;
 public sealed record CloudflareKvError(int Code, string Message);
 
 /// <summary>A Cloudflare KV REST call failed; <see cref="Status"/> carries the HTTP status when one was observed.</summary>
-public sealed class CloudflareKvException : Exception
+public class CloudflareKvException : Exception
 {
     internal CloudflareKvException(
         HttpStatusCode? status,
@@ -46,7 +46,7 @@ public sealed class CloudflareKvNamespaceNotFoundException : CloudflareKvExcepti
 /// <summary>
 /// Minimal Cloudflare Workers KV REST client (<c>https://api.cloudflare.com/client/v4</c>) built
 /// on the BCL <see cref="HttpClient"/> only: namespace resolution by title, single-key read and
-/// write, bulk write, and bulk delete. The API token is passed by the caller, which owns its
+/// write, bulk write, bulk delete, and key listing. The API token is passed by the caller, which owns its
 /// secret handling; nothing here invents an environment convention. Every call carries its own
 /// timeout and failures surface as typed <see cref="CloudflareKvException"/>s.
 /// </summary>
@@ -56,6 +56,7 @@ public sealed class CloudflareKvClient : IDisposable
     private const int MaximumResponseBytes = 1024 * 1024;
     private const int PageSize = 50;
     private const int MaximumPageCount = 100;
+    private const int KeyPageLimit = 1000;
     private static readonly TimeSpan DefaultCallTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>Cloudflare KV accepts at most 10,000 keys per bulk write or delete.</summary>
@@ -200,6 +201,37 @@ public sealed class CloudflareKvClient : IDisposable
         await CallAsync(HttpMethod.Delete, BulkPath(namespaceId), buffer.ToArray(), ReadEnvelopeSuccessAsync, cancellationToken);
     }
 
+    /// <summary>
+    /// Lists every key of one namespace by following the API's cursor pagination. A 404 whose
+    /// error envelope names a missing namespace throws <see cref="CloudflareKvNamespaceNotFoundException"/>
+    /// instead — a stale namespace id must never read as an empty namespace.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> ListKeysAsync(
+        string namespaceId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(namespaceId))
+            throw new ArgumentException("The Cloudflare KV namespace id is required.", nameof(namespaceId));
+        var keys = new List<string>();
+        string? cursor = null;
+        for (var page = 1; page <= MaximumPageCount; page++)
+        {
+            var path = $"{KeysPath(namespaceId)}?limit={KeyPageLimit}" +
+                       (cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}");
+            var (names, nextCursor) = await CallAsync(
+                HttpMethod.Get,
+                path,
+                null,
+                ReadKeysPageAsync,
+                cancellationToken);
+            keys.AddRange(names);
+            if (nextCursor is null) return keys;
+            cursor = nextCursor;
+        }
+
+        throw new InvalidOperationException("The Cloudflare KV key listing exceeded its page bound.");
+    }
+
     private static void ValidateEntries(string namespaceId, IReadOnlyList<KeyValuePair<string, string>> entries)
     {
         if (string.IsNullOrWhiteSpace(namespaceId))
@@ -231,6 +263,13 @@ public sealed class CloudflareKvClient : IDisposable
         if (string.IsNullOrWhiteSpace(namespaceId))
             throw new ArgumentException("The Cloudflare KV namespace id is required.", nameof(namespaceId));
         return $"accounts/{Uri.EscapeDataString(accountId)}/storage/kv/namespaces/{Uri.EscapeDataString(namespaceId)}/bulk";
+    }
+
+    private string KeysPath(string namespaceId)
+    {
+        if (string.IsNullOrWhiteSpace(namespaceId))
+            throw new ArgumentException("The Cloudflare KV namespace id is required.", nameof(namespaceId));
+        return $"accounts/{Uri.EscapeDataString(accountId)}/storage/kv/namespaces/{Uri.EscapeDataString(namespaceId)}/keys";
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path, byte[]? body = null)
@@ -306,6 +345,42 @@ public sealed class CloudflareKvClient : IDisposable
         }
 
         return (match, count);
+    }
+
+    private static async Task<(IReadOnlyList<string> Names, string? Cursor)> ReadKeysPageAsync(
+        HttpResponseMessage response,
+        CancellationToken cancellationToken)
+    {
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            var failure = await ReadNamespaceNotFoundAsync(response, cancellationToken);
+            if (failure is not null) throw failure;
+        }
+
+        using var document = await ReadEnvelopeAsync(response, cancellationToken);
+        if (!response.IsSuccessStatusCode || !TrySuccess(document, out var success) || !success)
+            throw CloudflareFailure(response.StatusCode, document);
+        if (document.RootElement.ValueKind != JsonValueKind.Object ||
+            !document.RootElement.TryGetProperty("result", out var entries) ||
+            entries.ValueKind != JsonValueKind.Array)
+            throw new CloudflareKvException(
+                response.StatusCode,
+                "The Cloudflare KV key listing did not carry a result array.",
+                []);
+        var names = new List<string>();
+        foreach (var entry in entries.EnumerateArray())
+        {
+            if (entry.ValueKind == JsonValueKind.Object &&
+                entry.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String)
+                names.Add(name.GetString()!);
+        }
+
+        string? cursor = null;
+        if (document.RootElement.TryGetProperty("result_info", out var info) &&
+            info.ValueKind == JsonValueKind.Object &&
+            info.TryGetProperty("cursor", out var next) && next.ValueKind == JsonValueKind.String)
+            cursor = next.GetString();
+        return (names, string.IsNullOrEmpty(cursor) ? null : cursor);
     }
 
     private static async Task<object?> ReadEnvelopeSuccessAsync(

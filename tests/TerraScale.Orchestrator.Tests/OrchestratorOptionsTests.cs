@@ -38,6 +38,79 @@ public sealed class OrchestratorOptionsTests
     }
 
     [Test]
+    public async Task RunWithoutExplicitReplicasFailsFastInsteadOfSilentlyDefaultingToR1()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-run-replicas-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var values = await RunEnvironmentAsync(directory);
+
+            // A controller restarted without TS_ORCH_REPLICAS must not silently re-provision
+            // a shared R3 cell as R1: the run command requires an explicit value.
+            var run = await Assert.That(() => OrchestratorOptions.Parse(["run"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
+            await Assert.That(run!.Message).Contains("TS_ORCH_REPLICAS");
+            var writer = await Assert.That(() => OrchestratorOptions.Parse(["journal-writer"], _ => null))
+                .Throws<ArgumentException>();
+            await Assert.That(writer!.Message).Contains("TS_ORCH_REPLICAS");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task ExplicitReplicasKeepSingleNodeDevCellsWorking()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Path.Combine(Path.GetTempPath(), $"ts-orch-dev-replicas-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var values = await RunEnvironmentAsync(directory);
+            values["TS_ORCH_REPLICAS"] = "1";
+
+            var run = OrchestratorOptions.Parse(["run"], values.GetValueOrDefault);
+            await Assert.That(run.Replicas).IsEqualTo(1);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Test]
+    public async Task ReadOnlyCommandsKeepTheSingleNodeDefault()
+    {
+        // check/catalog never provision or converge the shared cell topology, so an unset
+        // TS_ORCH_REPLICAS stays a safe single-node default for them.
+        await Assert.That(OrchestratorOptions.Parse(["check"], _ => null).Replicas).IsEqualTo(1);
+        await Assert.That(OrchestratorOptions.Parse(["catalog"], _ => null).Replicas).IsEqualTo(1);
+    }
+
+    private static async Task<Dictionary<string, string>> RunEnvironmentAsync(string directory)
+    {
+        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
+        using var tlsKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        var tls = await WriteCertificateAsync(directory, "regional", tlsKey, isAuthority: true);
+        var nkey = Path.Combine(directory, "regional.nk");
+        await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+        File.SetUnixFileMode(nkey, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["TS_ORCH_CELL"] = "gru",
+            ["TS_ORCH_NATS_URL"] = "tls://control.example:4222",
+            ["TS_ORCH_NATS_NKEY_FILE"] = nkey,
+            ["TS_ORCH_NATS_TLS_CA_FILE"] = tls.Certificate,
+            ["TS_ORCH_NATS_TLS_CERT_FILE"] = tls.Certificate,
+            ["TS_ORCH_NATS_TLS_KEY_FILE"] = tls.PrivateKey,
+        };
+    }
+
+    [Test]
     public async Task NatsUrlRejectsUserInformationWithoutEchoingTheSecret()
     {
         var exception = await Assert.That(() => OrchestratorOptions.Parse(

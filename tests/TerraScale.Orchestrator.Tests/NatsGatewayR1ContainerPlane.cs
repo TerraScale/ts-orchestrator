@@ -208,12 +208,23 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             "--publish", $"127.0.0.1:{placement.ClientPort}:{placement.ClientPort}/tcp",
             "--security-opt", "no-new-privileges",
             "--cap-drop", "all",
-            "--pids-limit", "128",
-            "--memory", $"{ServerMemoryLimitMiB}m",
+        };
+        if (PodmanCgroupCapabilities.CgroupLimits)
+        {
+            arguments.Add("--pids-limit");
+            arguments.Add("128");
+            arguments.Add("--memory");
+            arguments.Add($"{ServerMemoryLimitMiB}m");
+        }
+        else
+        {
+            arguments.Add("--cgroups=disabled");
+        }
+        arguments.AddRange([
             "--volume", $"{Path.GetDirectoryName(fullConfiguration)!}:{Path.GetDirectoryName(fullConfiguration)!}:rw",
             TestContainerImages.Nats,
             "--config", fullConfiguration,
-        };
+        ]);
         var startInfo = new ProcessStartInfo("podman")
         {
             RedirectStandardError = true,

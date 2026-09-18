@@ -6,8 +6,8 @@ Use these names in code, issues, tests, and documentation.
 
 **TerraScale Orchestrator**
 
-The Go control plane that provisions OCI, schedules TerraScale workloads on
-rootless Podman, manages regional capacity and routing, and coordinates
+The C# control plane that provisions OCI, schedules TerraScale workloads on
+plain Linux hosts, manages regional capacity and routing, and coordinates
 TerraBase placement through a purpose-built control API.
 
 **Global controller**
@@ -40,7 +40,7 @@ authorization.
 **First-party workload**
 
 A TerraScale service admitted from the closed role catalog and run as a
-digest-pinned rootless Podman container under a transient systemd user unit.
+digest-pinned native binary under a hardened transient systemd system unit.
 
 **Tenant workload**
 
@@ -55,9 +55,9 @@ resources, identity, configuration, and artifact digest.
 
 **Node**
 
-A plain OCI Linux host managed by one `ts-node` agent. It runs workloads under
-an unprivileged account and reports capacity and drain state to its regional
-controller.
+A plain OCI Linux host that converges itself through the orchestrator's
+admitted host roles. It runs workloads under an unprivileged account and
+reports capacity and drain state to its regional controller.
 
 **Managed TerraBase**
 
@@ -72,18 +72,16 @@ The signed document from `ts-deploy` that identifies the source commit and
 tree, Deploy CLI, immutable image digests, test results, target, and rollback
 digest. It grants no rollout authority.
 
-**Regional blue-green rollout**
+**Regional rollout**
 
-A rollout that starts a complete green generation beside blue, runs the
-required checks, and switches traffic through one durable routing generation.
-A pre-cutover failure removes only green.
+A rollout where every configured host converges leaderlessly to the admitted
+digest: fetch, verify, stop the old unit, recreate bound to the new digest,
+observe, and report. Stateful roles serialize through the cell replace lease.
+A failed replacement restores the exact previous digest.
 
 **Rollback digest**
 
-The retained immutable image digest restored without rebuilding.
-
-One admitted workload instance bound to a canonical plan fingerprint, node,
-resources, identity, configuration, and artifact digest.
+The retained immutable artifact digest restored without rebuilding.
 
 **Launch region**
 

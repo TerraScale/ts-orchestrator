@@ -153,8 +153,10 @@ internal static class EdgePlacementJson
     /// <c>edge-routing-publish</c> command. The shape mirrors the two wire documents: the health
     /// document (<c>updated</c>, <c>regions</c>, <c>catalog</c>) plus a <c>databases</c> map of
     /// placement documents keyed by database name. Malformed input throws
-    /// <see cref="FormatException"/>; semantic acceptance is <see cref="EdgePlacementValidation"/>'s
-    /// job, so a parsed snapshot is still validated fail-closed before anything is published.
+    /// (<see cref="JsonException"/> for invalid JSON, <see cref="FormatException"/> for
+    /// well-formed JSON with a wrong shape); semantic acceptance is
+    /// <see cref="EdgePlacementValidation"/>'s job, so a parsed snapshot is still validated
+    /// fail-closed before anything is published.
     /// </summary>
     public static EdgePlacementSnapshot ReadSnapshot(string json)
     {
