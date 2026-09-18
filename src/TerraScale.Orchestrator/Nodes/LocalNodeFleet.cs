@@ -25,7 +25,7 @@ public sealed record MemberLaunchDescription(
 /// scale-down, and auto-heal against real members on one host (and, through
 /// the Firecracker lane, inside VMs); it is not a production provisioner.
 /// </summary>
-public sealed class LocalNodeFleet : IAsyncDisposable
+public sealed class LocalNodeFleet : INodeFleet, IAsyncDisposable
 {
     private readonly Func<NodeProvisionRequest, MemberLaunchDescription> memberFactory;
     private readonly ResourceVector nodeCapacity;

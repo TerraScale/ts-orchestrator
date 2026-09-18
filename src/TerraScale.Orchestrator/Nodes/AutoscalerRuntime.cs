@@ -12,16 +12,16 @@ namespace TerraScale.Orchestrator.Nodes;
 public sealed class AutoscalerRuntime
 {
     private readonly AutoscalerEngine engine;
-    private readonly LocalNodeFleet fleet;
+    private readonly INodeFleet fleet;
 
-    public AutoscalerRuntime(AutoscalerEngine engine, LocalNodeFleet fleet)
+    public AutoscalerRuntime(AutoscalerEngine engine, INodeFleet fleet)
     {
         this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
         this.fleet = fleet ?? throw new ArgumentNullException(nameof(fleet));
     }
 
     /// <summary>The fleet this runtime drives.</summary>
-    public LocalNodeFleet Fleet => fleet;
+    public INodeFleet Fleet => fleet;
 
     /// <summary>
     /// Observes the fleet with the supplied demand, ticks the engine, applies
