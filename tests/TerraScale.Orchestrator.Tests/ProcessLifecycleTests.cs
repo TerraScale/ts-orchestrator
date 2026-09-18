@@ -71,15 +71,7 @@ public sealed class ProcessLifecycleTests
     {
         for (var attempt = 0; attempt < 200; attempt++)
         {
-            try
-            {
-                using var process = Process.GetProcessById(processId);
-                if (process.HasExited)
-                {
-                    return true;
-                }
-            }
-            catch (ArgumentException)
+            if (HasTerminated(processId))
             {
                 return true;
             }
@@ -88,6 +80,32 @@ public sealed class ProcessLifecycleTests
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Reads the kernel's view of the process: /proc/<pid>/stat disappears
+    /// once the process is gone, and a job container whose PID 1 does not
+    /// reap orphans keeps a killed process as a state-Z entry forever, which
+    /// <see cref="Process.HasExited"/> does not report as exited.
+    /// </summary>
+    private static bool HasTerminated(int processId)
+    {
+        try
+        {
+            var stat = File.ReadAllText($"/proc/{processId}/stat");
+            var state = stat.LastIndexOf(')') is var close and >= 0 && close + 2 < stat.Length
+                ? stat[close + 2]
+                : 'Z';
+            return state is 'Z' or 'X' or 'x';
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static void TryKill(int processId)
