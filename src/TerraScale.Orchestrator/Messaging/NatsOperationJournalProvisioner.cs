@@ -88,6 +88,7 @@ internal static class NatsOperationJournalProvisioner
         await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
         var objects = jetStream.CreateObjectStoreContext();
         await OpenOrCreateAndValidateObjectStoreAsync(objects, topology.Bundles, cancellationToken);
+        await OpenOrCreateAndValidateObjectStoreAsync(objects, topology.Artifacts, cancellationToken);
         var protocolPackage = await OpenOrCreateAndValidateObjectStoreAsync(
             objects, topology.ProtocolPackage, cancellationToken);
 

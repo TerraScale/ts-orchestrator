@@ -223,7 +223,11 @@ internal sealed class NativeSystemdRuntimeAdmission
                 candidate.AllocationId,
                 candidate.ArtifactDigest,
                 candidate.Architecture,
-                candidate.Resources);
+                candidate.Resources,
+                // The immutable digest layout root is a deployment parameter: reconstruct the
+                // canonical plan under the candidate's own root so admission compares like for
+                // like instead of pinning every host to the /opt default.
+                InstallRootOf(candidate.Systemd));
         }
         catch (Exception exception)
         {
@@ -253,6 +257,18 @@ internal sealed class NativeSystemdRuntimeAdmission
         }
 
         return expected;
+    }
+
+    /// <summary>
+    /// The digest layout root of one executable path <c>{root}/{artifactKey}/sha256-{digest}/{artifactKey}</c>.
+    /// </summary>
+    private static string? InstallRootOf(SystemdExecutionPlan? systemd)
+    {
+        if (systemd?.Executable is not { } executable)
+            return null;
+        var digestDirectory = Path.GetDirectoryName(executable);
+        var keyDirectory = digestDirectory is null ? null : Path.GetDirectoryName(digestDirectory);
+        return keyDirectory is null ? null : Path.GetDirectoryName(keyDirectory);
     }
 }
 

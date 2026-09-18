@@ -114,6 +114,18 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         NumberOfReplicas = Replicas
     };
 
+    /// <summary>
+    /// Digest-addressed immutable first-party artifacts. Objects are named by their own
+    /// SHA-256 content digest, so the store converges like a set: republishing identical
+    /// bytes is a no-op and a name can never change meaning.
+    /// </summary>
+    public NatsObjConfig Artifacts => new("ORCH_ARTIFACTS")
+    {
+        Description = $"Digest-addressed first-party deploy artifacts for {Cell}",
+        MaxBytes = 8L * 1024 * 1024 * 1024,
+        NumberOfReplicas = Replicas
+    };
+
     public ConsumerConfig StartupConsumer => new("runtime_startup")
     {
         Description = $"Acknowledged runtime startup events for {Cell}",

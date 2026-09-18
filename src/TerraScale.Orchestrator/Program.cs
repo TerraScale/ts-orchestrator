@@ -64,6 +64,21 @@ try
         args,
         ResolvedEnvironment);
     var startupPlan = OrchestratorRuntimeComposition.Plan(options);
+    // Auto-forming cells: `run` converges its own controller topology at startup unless an
+    // operator explicitly pins provisioning to the infrastructure identity. Host roles turn
+    // the same process into a deploying host that converges admitted digests leaderlessly.
+    var autoProvision = ResolvedEnvironment("TS_ORCH_AUTO_PROVISION") is not { } autoProvisionValue ||
+        autoProvisionValue is not ("0" or "false");
+    TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null;
+    var hostRoleNames = ResolvedEnvironment("TS_ORCH_HOST_ROLES");
+    if (options.Command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
+        !string.IsNullOrWhiteSpace(hostRoleNames))
+    {
+        hostConvergence = TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration.Parse(
+            hostRoleNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            ResolvedEnvironment("TS_ORCH_HOST_ENVIRONMENT"),
+            ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"));
+    }
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.
     TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null;
@@ -129,7 +144,9 @@ try
             startupPlan.RegistersDirectDeliveryEndpoint,
             admittedDeliveryTargets,
             ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
-            candidateHandoffV2Policies);
+            candidateHandoffV2Policies,
+            autoProvision,
+            hostConvergence);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;

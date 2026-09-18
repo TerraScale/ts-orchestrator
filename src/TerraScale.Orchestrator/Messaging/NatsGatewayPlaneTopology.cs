@@ -111,6 +111,7 @@ internal static class NatsGatewayPlaneTopology
             regional.Operations.Bucket,
             regional.OperationProofConsumptions.Bucket,
             regional.Bundles.Bucket,
+            regional.Artifacts.Bucket,
             regional.ProtocolPackage.Bucket,
             regional.StartupConsumer.Name!,
             .. Enumerable.Range(1, ServersPerRegion)

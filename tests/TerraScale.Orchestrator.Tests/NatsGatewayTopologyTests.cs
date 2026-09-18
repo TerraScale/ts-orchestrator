@@ -999,6 +999,7 @@ public sealed class NatsGatewayTopologyTests
             topology.Operations.Bucket,
             topology.OperationProofConsumptions.Bucket,
             topology.Bundles.Bucket,
+            topology.Artifacts.Bucket,
             topology.ProtocolPackage.Bucket,
             topology.StartupConsumer.Name!,
             .. Enumerable.Range(1, 3)

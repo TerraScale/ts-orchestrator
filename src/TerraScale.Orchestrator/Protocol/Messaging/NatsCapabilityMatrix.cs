@@ -361,7 +361,7 @@ public static class NatsCapabilityMatrix
             "Small signed bundles, protocol packages, and evidence only; never the build registry or backup system; secrets never enter objects.",
             "Missing or byte-unequal protocol package fails startup closed; bundle digests are content-addressed.",
             "Object counts/bytes per bucket and integrity-check failures.",
-            "CELL_BUNDLES, GLOBAL_BUNDLES, CI_RUNNER_BUNDLES, ORCH_PROTOCOL_PACKAGE with byte-exact verification in NatsRuntime."),
+            "CELL_BUNDLES, ORCH_ARTIFACTS, GLOBAL_BUNDLES, CI_RUNNER_BUNDLES, ORCH_PROTOCOL_PACKAGE with byte-exact verification in NatsRuntime."),
         Accept(
             NatsCapability.Accounts,
             NatsCapabilityOwner.SecurityAndIdentity,

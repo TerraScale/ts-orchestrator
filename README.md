@@ -5,9 +5,12 @@ single binary. It provisions the OCI estate, schedules workloads on plain
 Linux hosts, manages regional capacity, coordinates TerraBase Member
 placement, and owns rollout and routing through a purpose-built control API.
 
-The workspace [`GOAL.md`](../GOAL.md) is the cross-repository authority. The
-repository [`GOAL.md`](GOAL.md) points to that authority and records any
-repository-local context.
+The workspace [`GOAL.md`](../GOAL.md) is the cross-repository authority. In priority
+order, this repository optimizes for: green suites on every merge; one-command deploys
+that hosts converge leaderlessly through NATS; NATS carrying state, artifacts, and
+observations end to end; cells that auto-form and auto-join; and real-microVM multi-region
+proof. [ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md)
+records the decisions behind the deploy path.
 
 ## Ownership boundary
 
@@ -84,6 +87,48 @@ dotnet restore TerraScale.Orchestrator.slnx --locked-mode
 dotnet build TerraScale.Orchestrator.slnx --configuration Release --no-restore
 dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build
 ```
+
+The remaining suites are `TerraScale.Orchestrator.ControlPlane.Tests`,
+`TerraScale.Orchestrator.Protocol.Tests`, `TerraScale.Orchestrator.Scheduler.Tests`, and
+`TerraScale.Orchestrator.ModelTests`. The live Firecracker lanes additionally need KVM,
+sudo, and prepared inputs:
+
+```bash
+TS_ORCH_LIVE_VM=1 TS_ORCH_VM_INPUTS=<inputs> \
+  dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build
+```
+
+## Deploying a new TerraBase version
+
+[ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md) records the
+decisions; the operator path is:
+
+```bash
+# 1. publish the artifact into the regional NATS object store (prints its sha256)
+terrascale-orchestrator operator artifact-push --file ./terrabase-server \
+  --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
+
+# 2. admit the new digest through the signed direct-delivery endpoint
+terrascale-orchestrator operator deploy \
+  --service terrabase-server --digest sha256:... --manifest-digest sha256:... \
+  --regions gru --source-repository TerraScale/TerraBase \
+  --source-commit <40-hex> --source-tree-digest sha256:... \
+  --reason "ship v1.2.3" --key-file operator.pem \
+  --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
+```
+
+Every host configured with `TS_ORCH_HOST_ROLES=terrabase-member` then converges itself:
+fetch by digest from `ORCH_ARTIFACTS`, verify SHA-256, install under the immutable digest
+path, converge the systemd unit, observe, and report. Stateful roles serialize through the
+cell replace lease; a failed replacement restores the exact previous digest. Rollback is a
+deploy of the previous digest with the same command.
+
+## Auto-forming cells
+
+`run` converges the regional controller topology idempotently at startup (streams, KV,
+object stores, consumers): the first instance creates the cell, later instances join, and
+`TS_ORCH_AUTO_PROVISION=0` restores infrastructure-only provisioning. The infrastructure
+`ORCH_OPERATIONS` journal always stays with the `provision-journal` command.
 
 OCI setup is documented in
 [`docs/guides/oci-manual-bootstrap.md`](docs/guides/oci-manual-bootstrap.md).

@@ -28,6 +28,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly DirectDeliveryService? directDelivery;
     private readonly CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission;
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
+    private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
 
     private NatsRuntime(
         NatsClient client,
@@ -40,7 +41,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         NatsTopology topology,
         DirectDeliveryService? directDelivery,
         CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
-        ServiceEndpointInstrumentation serviceInstrumentation)
+        ServiceEndpointInstrumentation serviceInstrumentation,
+        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence)
     {
         this.client = client;
         this.service = service;
@@ -53,6 +55,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.directDelivery = directDelivery;
         this.candidateHandoffV2Admission = candidateHandoffV2Admission;
         this.serviceInstrumentation = serviceInstrumentation;
+        this.hostConvergence = hostConvergence;
     }
 
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
@@ -139,7 +142,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         bool registersDirectDeliveryEndpoint = true,
         DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null,
         Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null,
-        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null)
+        CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null,
+        bool autoProvision = true,
+        ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -177,12 +182,23 @@ public sealed class NatsRuntime : IAsyncDisposable
 
         RegionalRuntimeMembership? membership = null;
         RegionalAuthorityCoordinator? authority = null;
+        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergenceRuntime = null;
         try
         {
             await client.ConnectAsync();
             if (options.NatsNKeyFile is not null || options.NatsTls is not null)
             {
                 await VerifyAnonymousDeniedAsync(natsUrl.ToString(), options.NatsTls, cancellationToken);
+            }
+            if (autoProvision && options.Command == OrchestratorCommand.Run)
+            {
+                // Auto-forming cells: every controller converges the shared controller topology
+                // idempotently before opening it, so the first instance creates the cell and
+                // later instances join it with no operator step. CreateOrUpdate makes concurrent
+                // bootstraps converge; the infrastructure-only ORCH_OPERATIONS journal is
+                // deliberately absent here.
+                await NatsOperationJournalProvisioner.ProvisionControllerTopologyAsync(
+                    client, topology, cancellationToken);
             }
             var nativeGitOpsEnabled = NativeGitOpsRuntime.IsEnabled(
                 options.GlobalNats is not null &&
@@ -494,6 +510,21 @@ public sealed class NatsRuntime : IAsyncDisposable
 
             await VerifyServiceAsync(client, topology, cancellationToken);
 
+            if (hostConvergence is not null && state.Delivery is not null && state.Artifacts is not null)
+            {
+                // Leaderless host convergence: every host process converges its configured
+                // roles from the durable admitted desired digest, independent of leadership.
+                hostConvergenceRuntime = ControlPlane.Delivery.HostConvergenceRuntime.Start(
+                    state.Delivery,
+                    state.Runtime,
+                    client.Connection,
+                    new ControlPlane.Delivery.NatsObjectArtifactSource(state.Artifacts),
+                    new ControlPlane.Delivery.SystemdHostConverger(),
+                    hostConvergence,
+                    options.Cell,
+                    options.Instance);
+            }
+
             return new(
                 client,
                 service,
@@ -505,7 +536,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 topology,
                 directDelivery,
                 candidateHandoffV2Admission,
-                endpointInstrumentation);
+                endpointInstrumentation,
+                hostConvergenceRuntime);
         }
         catch
         {
@@ -716,7 +748,15 @@ public sealed class NatsRuntime : IAsyncDisposable
                 }
                 finally
                 {
-                    await client.DisposeAsync();
+                    try
+                    {
+                        if (hostConvergence is not null)
+                            await hostConvergence.DisposeAsync();
+                    }
+                    finally
+                    {
+                        await client.DisposeAsync();
+                    }
                 }
             }
         }
@@ -750,7 +790,11 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore? delivery = null;
         INatsObjStore? bundles = null;
         INatsJSConsumer? cellSpecConsumer = null;
+        INatsObjStore? artifacts = null;
         delivery = await OpenKeyValueAsync(keyValue, topology.Delivery, cancellationToken);
+        artifacts = await objects.GetObjectStoreAsync(topology.Artifacts.Bucket, cancellationToken);
+        NatsOperationJournalStore.ValidateExactObjectConfiguration(
+            (await artifacts.GetStatusAsync(cancellationToken)).Info.Config, topology.Artifacts);
         if (nativeGitOpsEnabled)
         {
             bundles = await objects.GetObjectStoreAsync(topology.Bundles.Bucket, cancellationToken);
@@ -759,7 +803,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             cellSpecConsumer = await OpenExactConsumerAsync(
                 jetStream, "CELL_SPEC", topology.CellSpecConsumer, cancellationToken);
         }
-        return new(startupConsumer, cellSpecConsumer, leaders, runtime, delivery, bundles, protocolPackage);
+        return new(startupConsumer, cellSpecConsumer, leaders, runtime, delivery, bundles, protocolPackage, artifacts);
     }
 
     private static async Task<INatsKVStore> OpenKeyValueAsync(
@@ -899,6 +943,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsKVStore Runtime,
         INatsKVStore? Delivery,
         INatsObjStore? Bundles,
-        INatsObjStore ProtocolPackage);
+        INatsObjStore ProtocolPackage,
+        INatsObjStore? Artifacts);
 
 }

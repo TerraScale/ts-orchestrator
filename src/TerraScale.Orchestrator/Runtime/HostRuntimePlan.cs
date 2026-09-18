@@ -96,7 +96,8 @@ public sealed record HostRuntimePlan(
         RuntimeAllocationId allocationId,
         ArtifactDigest digest,
         HostArchitecture architecture,
-        RuntimeResourceLimits? requestedResources = null)
+        RuntimeResourceLimits? requestedResources = null,
+        string? installRoot = null)
     {
         var descriptor = AdmittedRoleCatalog.Admit(role, driver);
         var resources = RuntimeResourceLimitPolicy.For(role, requestedResources);
@@ -110,7 +111,7 @@ public sealed record HostRuntimePlan(
                 digest,
                 architecture,
                 resources,
-                CreateSystemd(descriptor, allocationId, digest, resources),
+                CreateSystemd(descriptor, allocationId, digest, resources, installRoot),
                 null),
             RuntimeDriver.OciContainer => new(
                 2,
@@ -130,11 +131,15 @@ public sealed record HostRuntimePlan(
         AdmittedRoleDescriptor descriptor,
         RuntimeAllocationId allocation,
         ArtifactDigest digest,
-        RuntimeResourceLimits resources)
+        RuntimeResourceLimits resources,
+        string? installRoot)
     {
         var unit = $"terrascale-{allocation}.service";
         var stateDirectory = $"/var/lib/terrascale-{allocation}";
-        var executable = $"/opt/terrascale/artifacts/{descriptor.ArtifactKey}/sha256-{digest}/{descriptor.ArtifactKey}";
+        var root = string.IsNullOrWhiteSpace(installRoot)
+            ? "/opt/terrascale/artifacts"
+            : installRoot;
+        var executable = $"{root}/{descriptor.ArtifactKey}/sha256-{digest}/{descriptor.ArtifactKey}";
         var arguments = descriptor.Role switch
         {
             AdmittedRole.ControlNatsServer or AdmittedRole.ProductNatsServer or AdmittedRole.RoutePolicyController =>

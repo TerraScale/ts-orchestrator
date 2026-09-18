@@ -13,6 +13,7 @@ the current architecture.
 | [0029: Stateless tenant compute](0029-offer-stateless-tenant-compute.md) | Accepted, post-launch |
 | [0031: Unprivileged tenant containers](0031-run-tenant-workloads-as-unprivileged-oci-containers.md) | Accepted, post-launch |
 | [0033: GRU global authority and regional autonomy](0033-gru-global-authority-and-regional-autonomy.md) | Accepted |
+| [0034: Auto-forming cells and leaderless host convergence](0034-autoforming-cells-and-leaderless-host-convergence.md) | Accepted |
 
 Git history contains superseded records. New documentation must not cite a
 deleted ADR as current authority.

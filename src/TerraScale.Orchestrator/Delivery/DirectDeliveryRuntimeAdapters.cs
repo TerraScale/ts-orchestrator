@@ -654,10 +654,7 @@ internal sealed class NatsDirectDeliveryTarget(IForgejoDeliveryLedger ledger) : 
     private static string Key(DeliveryTarget target, string region) =>
         target.Service is not { } service || target.Environment is not { } environment
             ? throw new InvalidDataException("A direct delivery target is not admitted.")
-            : $"direct.target.{Token(service)}.{Token(environment)}.{Token(region)}";
-
-    private static string Token(string value) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(value)))[..32];
+            : DirectDeliveryTargetKey.For(service, environment, region);
 
     private static DirectDeliveryState Read(string value) =>
         JsonSerializer.Deserialize<DirectDeliveryState>(value, DeliveryWireCodec.JsonOptions)

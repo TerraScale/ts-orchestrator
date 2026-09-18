@@ -139,6 +139,11 @@ internal static class DirectDeliveryCommandWire
         ArgumentNullException.ThrowIfNull(sign);
         if (payload.Length is < 1 or > MaximumPayloadBytes)
             throw new ArgumentException("The direct delivery payload exceeds its bound.", nameof(payload));
+        // The validity window travels through the headers as unix milliseconds, and the signed
+        // material hashes exact ticks: truncate HERE so what is signed is bit-identical to what
+        // the receiver reconstructs from the headers, for every caller.
+        issuedAt = DateTimeOffset.FromUnixTimeMilliseconds(issuedAt.ToUnixTimeMilliseconds());
+        expiresAt = DateTimeOffset.FromUnixTimeMilliseconds(expiresAt.ToUnixTimeMilliseconds());
         if (!ProtocolRevision.TryCreate(1, out var protocol) ||
             !CellId.TryCreate(cell, out var cellId) ||
             !AggregateId.TryCreate(Aggregate, out var aggregate) ||

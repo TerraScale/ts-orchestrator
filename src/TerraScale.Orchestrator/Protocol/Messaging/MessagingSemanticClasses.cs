@@ -57,6 +57,7 @@ public static class MessagingSemanticClasses
         new("GLOBAL_RELEASES", MessagingSemanticClass.AuthoritativeJournal, "Durable delivery and CI journal ledger; authoritative history."),
         new("CI_RUNNER_JOBS", MessagingSemanticClass.Lossy, "Fenced command acceptance pointers; idempotency keys keep replays safe."),
         new("CELL_BUNDLES", MessagingSemanticClass.Snapshot, "Signed regional control bundles; content-addressed and re-fetchable."),
+        new("ORCH_ARTIFACTS", MessagingSemanticClass.Snapshot, "Digest-addressed first-party deploy artifacts; content-addressed and byte-verified at install."),
         new("GLOBAL_BUNDLES", MessagingSemanticClass.Snapshot, "Content-addressed global CI pipeline and GitOps handoff records."),
         new("CI_RUNNER_BUNDLES", MessagingSemanticClass.Snapshot, "Content-addressed runner source, log, evidence, and artifact records."),
         new("ORCH_PROTOCOL_PACKAGE", MessagingSemanticClass.Snapshot, "Immutable canonical protocol package; byte-exact verified at startup."),
