@@ -1,9 +1,9 @@
 # TerraScale Orchestrator
 
-TerraScale Orchestrator is TerraScale's Go control plane. It provisions the
-OCI estate, schedules workloads on plain Linux hosts, manages regional
-capacity, coordinates TerraBase Member placement, and owns rollout and
-routing through a purpose-built control API.
+TerraScale Orchestrator is TerraScale's C# control plane, deployed as a
+single binary. It provisions the OCI estate, schedules workloads on plain
+Linux hosts, manages regional capacity, coordinates TerraBase Member
+placement, and owns rollout and routing through a purpose-built control API.
 
 The workspace [`GOAL.md`](../GOAL.md) is the cross-repository authority. The
 repository [`GOAL.md`](GOAL.md) points to that authority and records any
@@ -55,9 +55,8 @@ safety so node churn cannot remove the required regional replica floor.
 
 ## Database boundary
 
-The public Database API is a Go service and the only network TBEP client. It
-connects to TerraBase through the shared `terrabase-go` client using
-protobuf/gRPC over HTTP/2 with TLS 1.3 mutual authentication. TerraBase
+The public Database API service is the only network TBEP client. It connects
+to TerraBase over HTTP/2 with TLS 1.3 mutual authentication. TerraBase
 Member-to-Member replication uses its own direct QUIC transport with mutual
 authentication. Orchestrator is not on either data path.
 
@@ -81,19 +80,13 @@ promotion or rollback.
 ## Local verification
 
 ```bash
-gofmt -l .
-go vet ./...
-go build ./...
-go test ./...
-go test -race ./...
+dotnet restore TerraScale.Orchestrator.slnx --locked-mode
+dotnet build TerraScale.Orchestrator.slnx --configuration Release --no-restore
+dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build
 ```
 
-The local rootless runtime guide is
-[`docs/guides/running-locally.md`](docs/guides/running-locally.md). OCI setup
-is documented in
+OCI setup is documented in
 [`docs/guides/oci-manual-bootstrap.md`](docs/guides/oci-manual-bootstrap.md).
-Local process provisioning is a single-host test facility and does not survive
-an autoscaler restart.
 
 ## Documentation
 

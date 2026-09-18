@@ -10,7 +10,6 @@ These documents describe the current system:
 | [`guides/architecture-boundaries.md`](guides/architecture-boundaries.md) | Product, data-path, control-plane, and delivery boundaries |
 | [`adr/0033-gru-global-authority-and-regional-autonomy.md`](adr/0033-gru-global-authority-and-regional-autonomy.md) | GRU global authority, regional autonomy, and JetStream R3 |
 | [`architecture/podman-rootless-hosting-and-autoscaling.md`](architecture/podman-rootless-hosting-and-autoscaling.md) | Rootless Podman hosting, stateful drain safety, and autoscaling |
-| [`guides/running-locally.md`](guides/running-locally.md) | Local host-agent and autoscaler operation |
 | [`contracts/durable-work-inventory.md`](contracts/durable-work-inventory.md) | Durable `ts.orch.v2` streams and consumers |
 | [`contracts/nats-capability-matrix.md`](contracts/nats-capability-matrix.md) | NATS capabilities admitted by the control plane |
 | [`contracts/nats-monitoring-snapshot.md`](contracts/nats-monitoring-snapshot.md) | Current monitoring instruments, alerts, and fail-closed observation behavior |

@@ -15,3 +15,7 @@ AI IS NOT ALLOWED TO EDIT THIS FILE ONLY HUMANS CAN!
 # Libraries
 - We should use nats for ts-orchestrator <-> ts-orchestrator comunnication
 - We should use TUnit for tests
+
+## Tests
+- We MUST use TUnit for tests
+- Prefer using `dotnet run --project {project}` instead of `dotnet test` as using dotnet run for TUnit is faster
