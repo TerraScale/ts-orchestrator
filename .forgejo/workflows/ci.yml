@@ -138,6 +138,14 @@ jobs:
           mkdir -p /etc/containers/containers.conf.d
           printf '[containers]\ninit_path = "/usr/local/bin/ts-podman-init"\n' \
             > /etc/containers/containers.conf.d/99-podman-init.conf
+          # Native overlay mounts fail inside the job container; the image ships
+          # fuse-overlayfs, so pin the storage graph to it before the first
+          # podman invocation initializes the store.
+          mkdir -p /etc/containers
+          if [ ! -e /etc/containers/storage.conf ]; then
+            printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
+              > /etc/containers/storage.conf
+          fi
 
       - name: Run every TUnit test project
         shell: bash
