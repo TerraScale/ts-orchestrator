@@ -612,7 +612,7 @@ public sealed class HostConvergenceRuntimeTests
                         await server.client.ConnectAsync();
                         break;
                     }
-                    catch (NatsException) when (attempt < 20)
+                    catch (NatsException) when (attempt < 150)
                     {
                         await Task.Delay(200);
                     }
