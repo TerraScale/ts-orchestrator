@@ -24,7 +24,7 @@ public sealed class VmNodeFleetScaleHealTests
             Environment.GetEnvironmentVariable("TS_ORCH_LIVE_VM") == "1",
             "Set TS_ORCH_LIVE_VM=1 and TS_ORCH_VM_INPUTS=<prepared vm inputs directory> to run the Firecracker lane.");
         var inputs = RequirePreparedInputs();
-        await using var lane = await VmLane.PrepareAsync(inputs);
+        await using var lane = await VmLane.PrepareAsync(inputs, "GRU", subnetThirdOctet: 77);
         await using var fleet = new VmNodeFleet(lane.Options, lane.DescribeMember);
         var engine = new AutoscalerEngine(
             new AutoscalerConfig(
@@ -87,11 +87,78 @@ public sealed class VmNodeFleetScaleHealTests
         Environment.GetEnvironmentVariable("TS_ORCH_VM_INPUTS")
             ?? throw new InvalidOperationException("TS_ORCH_VM_INPUTS must point at the prepared vm lane inputs.");
 
+    /// <summary>
+    /// The multi-region Firecracker lane: three isolated region fleets, each on its own
+    /// subnet and bridge with its own regional database and member cluster. A full region
+    /// loss must not disturb the other regions, and the lost region heals itself with a
+    /// replacement member — the multi-cluster, multi-region topology this control plane
+    /// deploys, emulated on one host with real microVMs.
+    /// </summary>
+    [Test]
+    public async Task VmFleetBootsThreeRegionsAndHealsRegionLoss()
+    {
+        Skip.Unless(
+            Environment.GetEnvironmentVariable("TS_ORCH_LIVE_VM") == "1",
+            "Set TS_ORCH_LIVE_VM=1 and TS_ORCH_VM_INPUTS=<prepared vm inputs directory> to run the Firecracker multi-region lane.");
+        var inputs = RequirePreparedInputs();
+        await using var gru = await VmLane.PrepareAsync(inputs, "GRU", subnetThirdOctet: 77);
+        await using var sfo = await VmLane.PrepareAsync(inputs, "SFO", subnetThirdOctet: 78);
+        await using var fra = await VmLane.PrepareAsync(inputs, "FRA", subnetThirdOctet: 79);
+        await using var gruFleet = new VmNodeFleet(gru.Options, gru.DescribeMember);
+        await using var sfoFleet = new VmNodeFleet(sfo.Options, sfo.DescribeMember);
+        await using var fraFleet = new VmNodeFleet(fra.Options, fra.DescribeMember);
+
+        // Each region boots one real member on its own isolated network. The prepared
+        // guest inputs carry one fixed member identity set; each fleet gets its own copy,
+        // so the same member names repeat inside isolated regional clusters.
+        await gruFleet.ProvisionAsync(new NodeProvisionRequest(
+            "vm-node-1", "gru", gru.Options.NodeCapacity, "multi-region bootstrap"));
+        await sfoFleet.ProvisionAsync(new NodeProvisionRequest(
+            "vm-node-1", "sfo", sfo.Options.NodeCapacity, "multi-region bootstrap"));
+        await fraFleet.ProvisionAsync(new NodeProvisionRequest(
+            "vm-node-1", "fra", fra.Options.NodeCapacity, "multi-region bootstrap"));
+        await Assert.That(gruFleet.IsMemberAlive("vm-node-1")).IsTrue();
+        await Assert.That(sfoFleet.IsMemberAlive("vm-node-1")).IsTrue();
+        await Assert.That(fraFleet.IsMemberAlive("vm-node-1")).IsTrue();
+
+        // Region loss: SFO's member dies hard; GRU and FRA never notice.
+        sfoFleet.KillMember("vm-node-1");
+        await Assert.That(sfoFleet.IsMemberAlive("vm-node-1")).IsFalse();
+        await Assert.That(gruFleet.IsMemberAlive("vm-node-1")).IsTrue();
+        await Assert.That(fraFleet.IsMemberAlive("vm-node-1")).IsTrue();
+
+        // The lost region heals itself with a replacement member in a fresh microVM.
+        var demand = new AllocationDemand("terrabase-member", "terrabase-member", true, new ResourceVector(
+            cpu: 20, memory: 6_500_000_000, blockIo: 0, ephemeralDisk: 0, bandwidth: 0, pids: 2, fileDescriptors: 0, hugePages: 0));
+        var engine = new AutoscalerEngine(
+            new AutoscalerConfig(
+                minNodes: 1,
+                maxNodes: 3,
+                scaleUpHeadroomPercent: 30,
+                scaleDownHeadroomPercent: 40,
+                scaleUpConfirmTicks: 2,
+                scaleDownConfirmTicks: 2,
+                maxConcurrentProvisions: 2,
+                flapSuppressionTicks: 0),
+            new ReplicaDrainSafetyEvaluator(new DrainPolicy(maxLagBytes: 1_000_000)));
+        var sfoRuntime = new AutoscalerRuntime(engine, sfoFleet);
+        for (var step = 0; step < 4; step++)
+            await sfoRuntime.StepAsync([demand]);
+        await Assert.That(sfoFleet.IsMemberAlive("as-node-1")).IsTrue();
+        await Assert.That(gruFleet.IsMemberAlive("vm-node-1")).IsTrue();
+        await Assert.That(fraFleet.IsMemberAlive("vm-node-1")).IsTrue();
+
+        gru.Succeeded = true;
+        sfo.Succeeded = true;
+        fra.Succeeded = true;
+    }
+
     private sealed class VmLane : IAsyncDisposable
     {
-        private VmLane(string root, VmFleetOptions options, string databaseId, string tenantId, string observerCertificate, string observerKey, string observerAuthority)
+        private VmLane(string root, string region, VmFleetOptions options, string databaseId, string tenantId, string observerCertificate, string observerKey, string observerAuthority)
         {
             Root = root;
+            Region = region;
             Options = options;
             DatabaseId = databaseId;
             TenantId = tenantId;
@@ -101,6 +168,8 @@ public sealed class VmNodeFleetScaleHealTests
         }
 
         public string Root { get; }
+
+        public string Region { get; }
 
         public VmFleetOptions Options { get; }
 
@@ -120,7 +189,7 @@ public sealed class VmNodeFleetScaleHealTests
             {
                 ["TERRABASE_NODE_ID"] = request.NodeId,
                 ["TERRABASE_REPLICA_EPOCH"] = "1",
-                ["TERRABASE_REGION"] = "GRU",
+                ["TERRABASE_REGION"] = Region,
                 ["TERRABASE_MEMBER_CERT_FILE"] = $"/opt/payload/certs/{request.NodeId}.crt",
                 ["TERRABASE_MEMBER_KEY_FILE"] = $"/opt/payload/certs/{request.NodeId}.key",
                 ["TERRABASE_CLUSTER_CA_FILE"] = "/opt/payload/certs/ca.crt",
@@ -138,8 +207,8 @@ public sealed class VmNodeFleetScaleHealTests
                 ["TERRABASE_DATABASE_MODE"] = "explicit",
                 ["TERRABASE_DATABASE_PATH"] = "/var/lib/terrabase",
                 ["TERRABASE_DATABASE_BACKEND"] = "storage-engine",
-                ["TERRABASE_DATABASE_HOME_REGION"] = "GRU",
-                ["TERRABASE_DATABASE_SELECTED_REGIONS"] = "GRU",
+                ["TERRABASE_DATABASE_HOME_REGION"] = Region,
+                ["TERRABASE_DATABASE_SELECTED_REGIONS"] = Region,
             });
 
         private string FingerprintOf(string member) =>
@@ -148,7 +217,7 @@ public sealed class VmNodeFleetScaleHealTests
                 .Replace(" ", string.Empty, StringComparison.Ordinal)
                 .ToUpperInvariant();
 
-        public static async Task<VmLane> PrepareAsync(string inputs)
+        public static async Task<VmLane> PrepareAsync(string inputs, string region, int subnetThirdOctet)
         {
             var root = Path.Combine(Path.GetTempPath(), "orchestrator-vm-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -223,7 +292,7 @@ public sealed class VmNodeFleetScaleHealTests
                 ObserverAuthorityPath = Path.Combine(certs, "ca.crt"),
                 ReadinessTimeout = TimeSpan.FromSeconds(180),
             };
-            return new VmLane(root, options, databaseId, tenantId,
+            return new VmLane(root, region, options with { SubnetThirdOctet = subnetThirdOctet }, databaseId, tenantId,
                 Path.Combine(certs, "observer.crt"), Path.Combine(certs, "observer.key"), Path.Combine(certs, "ca.crt"));
         }
 
