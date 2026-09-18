@@ -24,6 +24,7 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
     private readonly VmFleetOptions options;
     private readonly Func<NodeProvisionRequest, VmMemberDescription> memberFactory;
     private readonly Dictionary<string, VmNode> nodes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> drainedGracefully = new(StringComparer.Ordinal);
     private readonly Lock gate = new();
     private int provisionedCount;
 
@@ -101,10 +102,22 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
             nodes[nodeId] = node with { State = AutoscalingNodeState.Draining };
         }
 
-        // ponytail: drain is a power-off after the drain-safety gate passed;
-        // a graceful in-guest shutdown needs the guest agent the VM lane has
-        // not grown yet.
-        await node.StopAsync();
+        if (await node.DrainAsync())
+        {
+            lock (gate)
+            {
+                drainedGracefully.Add(nodeId);
+            }
+        }
+    }
+
+    /// <summary>Whether the last drain of one node let the guest stop its member cleanly.</summary>
+    public bool WasDrainedGracefully(string nodeId)
+    {
+        lock (gate)
+        {
+            return drainedGracefully.Contains(nodeId);
+        }
     }
 
     /// <inheritdoc />
@@ -376,7 +389,8 @@ internal sealed record VmNode(
     string Address,
     int PeerPort,
     string WorkingDirectory,
-    HttpClient Peer)
+    HttpClient Peer,
+    HttpClient Api)
     : IAsyncDisposable
 {
     public bool IsAlive => Firecracker is { HasExited: false } && ProbeAsync().GetAwaiter().GetResult().Up;
@@ -474,7 +488,7 @@ internal sealed record VmNode(
         await PutAsync(api, "actions", """{"action_type":"InstanceStart"}""");
 
         var peer = BuildPeerClient(options);
-        var node = new VmNode(nodeId, AutoscalingNodeState.Provisioning, firecracker, apiSocket, tap, address, description.PeerPort, workingDirectory, peer);
+        var node = new VmNode(nodeId, AutoscalingNodeState.Provisioning, firecracker, apiSocket, tap, address, description.PeerPort, workingDirectory, peer, api);
         if (!await node.WaitUntilReadyAsync(options.ReadinessTimeout, consoleWriter))
         {
             consoleWriter.Flush();
@@ -509,6 +523,32 @@ internal sealed record VmNode(
 
     public void Kill() => StopAsync().GetAwaiter().GetResult();
 
+    /// <summary>
+    /// Drains the guest gracefully: the ctrl-alt-del keystroke makes systemd
+    /// stop every unit — the member receives SIGTERM and closes its log —
+    /// before the guest exits and the microVM shuts down. Returns false when
+    /// the guest did not exit in time and a hard kill had to finish it.
+    /// </summary>
+    public async Task<bool> DrainAsync()
+    {
+        try
+        {
+            await PutAsync(Api, "actions", """{"action_type":"SendCtrlAltDel"}""");
+        }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+
+        if (await Task.Run(() => Firecracker.WaitForExit(45_000), CancellationToken.None))
+        {
+            return true;
+        }
+
+        await StopAsync();
+        return false;
+    }
+
     public void DisposeResources()
     {
         ReleaseResources();
@@ -525,6 +565,7 @@ internal sealed record VmNode(
     public void ReleaseResources()
     {
         Peer.Dispose();
+        Api.Dispose();
         Firecracker.Dispose();
         VmNodeFleet.RunCommand("sudo", $"ip link del {TapName}", ignoreFailure: true);
     }

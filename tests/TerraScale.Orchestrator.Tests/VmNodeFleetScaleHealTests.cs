@@ -71,7 +71,11 @@ public sealed class VmNodeFleetScaleHealTests
         await runtime.StepAsync([]);
         var scaleDown = await runtime.StepAsync([]);
         await Assert.That(scaleDown.OfType<AutoscalerAction.CordonNode>().SingleOrDefault()).IsNotNull();
-        await Assert.That(scaleDown.OfType<AutoscalerAction.DrainNode>().SingleOrDefault()).IsNotNull();
+        var drain = scaleDown.OfType<AutoscalerAction.DrainNode>().SingleOrDefault();
+        await Assert.That(drain).IsNotNull();
+        // The drain reached inside the guest: systemd stopped the member
+        // cleanly before the microVM exited, not a hard power-off.
+        await Assert.That(fleet.WasDrainedGracefully(drain!.NodeId)).IsTrue();
         var retire = await runtime.StepAsync([]);
         var retired = retire.OfType<AutoscalerAction.RetireNode>().SingleOrDefault();
         await Assert.That(retired).IsNotNull();
