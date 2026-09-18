@@ -199,15 +199,19 @@ public sealed record DrainDecision(bool Allowed, string Reason, ReadOnlyCollecti
 /// Drain safety policy: the maximum replication lag a drained replica may
 /// carry. The bound is exclusive; a caught-up replica (zero lag) always passes.
 /// </summary>
-public sealed record DrainPolicy(long MaxLagBytes)
+public sealed record DrainPolicy
 {
-    public DrainPolicy
+    public DrainPolicy(long maxLagBytes)
     {
-        if (MaxLagBytes < 1)
+        if (maxLagBytes < 1)
         {
-            throw new ArgumentOutOfRangeException(nameof(MaxLagBytes), MaxLagBytes, "The drain lag bound must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(maxLagBytes), maxLagBytes, "The drain lag bound must be positive.");
         }
+
+        MaxLagBytes = maxLagBytes;
     }
+
+    public long MaxLagBytes { get; }
 }
 
 /// <summary>
@@ -443,6 +447,8 @@ public sealed record NodeProvisionRequest
         {
             throw new ArgumentException("A provision request must reserve at least one resource.", nameof(resources));
         }
+
+        Reason = reason;
     }
 
     public string NodeId { get; }

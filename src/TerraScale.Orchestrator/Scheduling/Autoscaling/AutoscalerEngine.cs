@@ -277,7 +277,7 @@ public sealed class AutoscalerEngine
             !recentlyRetired.ContainsKey(node.NodeId) &&
             node.State is AutoscalingNodeState.Cordoned or AutoscalingNodeState.Draining);
 
-    private IEnumerable<NodeDrainCandidate> PeerCandidates(AutoscalerSnapshot snapshot, string candidateNodeId) =>
+    private IReadOnlyList<NodeDrainCandidate> PeerCandidates(AutoscalerSnapshot snapshot, string candidateNodeId) =>
         snapshot.Nodes.Where(node => node.NodeId != candidateNodeId).Select(node => node.ToDrainCandidate()).ToArray();
 
     private static int ActiveFleetSize(AutoscalerSnapshot snapshot) =>
@@ -448,7 +448,7 @@ public sealed class AutoscalerEngine
             return 1;
         }
 
-        return (long)Math.Min(needed, int.MaxValue);
+        return (long)BigInteger.Min(needed, int.MaxValue);
     }
 
     /// <summary>
