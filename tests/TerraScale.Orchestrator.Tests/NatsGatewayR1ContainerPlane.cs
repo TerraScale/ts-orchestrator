@@ -232,6 +232,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        PodmanCgroupCapabilities.Configure(startInfo);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
@@ -365,6 +366,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        PodmanCgroupCapabilities.Configure(startInfo);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo)
@@ -396,6 +398,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        PodmanCgroupCapabilities.Configure(startInfo);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo)

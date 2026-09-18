@@ -16,6 +16,32 @@ internal static class PodmanCgroupCapabilities
 
     public static bool CgroupLimits => CgroupLimitsSupported.Value;
 
+    private static readonly Lazy<string?> OverrideConfigPath = new(
+        WriteOverrideConfig, LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>
+    /// Points a podman invocation at the cgroup-disabled override when the
+    /// environment cannot manage cgroups. This is what makes podless pods
+    /// work: <c>pod create</c> itself has no cgroup flag, so the infra
+    /// container is covered only through containers.conf.
+    /// </summary>
+    public static void Configure(ProcessStartInfo startInfo)
+    {
+        if (OverrideConfigPath.Value is { } path)
+            startInfo.Environment["CONTAINERS_CONF"] = path;
+    }
+
+    private static string? WriteOverrideConfig()
+    {
+        if (CgroupLimitsSupported.Value)
+            return null;
+        var path = Path.Combine(Path.GetTempPath(), $"ts-orch-podman-{Guid.NewGuid():N}.conf");
+        File.WriteAllText(path, "[containers]\ncgroups=\"disabled\"\n");
+        if (OperatingSystem.IsLinux())
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return path;
+    }
+
     private static bool ProbeCgroupLimits()
     {
         var startInfo = new ProcessStartInfo("podman")

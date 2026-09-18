@@ -77,6 +77,7 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        PodmanCgroupCapabilities.Configure(startInfo);
         var arguments = new List<string>
         {
             "run", "--rm",
@@ -164,6 +165,7 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        PodmanCgroupCapabilities.Configure(startInfo);
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo)
