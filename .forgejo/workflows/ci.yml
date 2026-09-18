@@ -146,6 +146,13 @@ jobs:
             printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
               > /etc/containers/storage.conf
           fi
+          # netavark needs aardvark-dns to serve container names on the gateway
+          # fixture network; the image does not ship it. Best effort: without
+          # it only the DNS-backed gateway plane fixtures fail, and the apt
+          # error lands in the log instead of hiding the test results.
+          if ! apt-get update -qq && apt-get install -y --no-install-recommends aardvark-dns; then
+            echo "warning: aardvark-dns install failed; gateway plane fixtures will fail" >&2
+          fi
 
       - name: Run every TUnit test project
         shell: bash
