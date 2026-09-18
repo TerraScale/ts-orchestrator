@@ -358,7 +358,9 @@ public sealed record NodeObservation
     internal NodeDrainCandidate ToDrainCandidate() => new(NodeId, StatefulReplicas);
 
     internal static bool Fits(ResourceVector candidate, ResourceVector within) =>
-        candidate.SubtractChecked(within).OrderedValues().All(dimension => dimension.Value <= 0);
+        candidate.OrderedValues()
+            .Zip(within.OrderedValues(), (candidateValue, withinValue) => (candidateValue.Value, withinValue.Value))
+            .All(pair => pair.Item1 <= pair.Item2);
 }
 
 /// <summary>
