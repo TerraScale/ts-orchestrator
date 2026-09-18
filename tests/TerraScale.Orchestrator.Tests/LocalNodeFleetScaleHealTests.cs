@@ -108,7 +108,7 @@ public sealed class LocalNodeFleetScaleHealTests
     /// A canonical 26-character Crockford base32 ULID, matching the identity
     /// text TerraBase requires for database ids without taking a dependency.
     /// </summary>
-    private static class CanonicalUlid
+    internal static class CanonicalUlid
     {
         private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 

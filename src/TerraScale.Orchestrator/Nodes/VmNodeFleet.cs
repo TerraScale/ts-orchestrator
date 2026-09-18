@@ -51,6 +51,34 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Restarts one killed node's member on its retained rootfs: the VM power
+    /// loss may have torn the member's write-ahead log, and a healthy restart
+    /// is the end-to-end proof that recovery truncates to the last committed
+    /// frame instead of failing every reopen.
+    /// </summary>
+    public async Task RestartAsync(string nodeId)
+    {
+        VmNode node;
+        lock (gate)
+        {
+            node = RequireNode(nodeId);
+        }
+
+        await node.StopAsync();
+        node.ReleaseResources();
+        var restarted = await VmNode.StartAsync(
+            options,
+            Path.Combine(options.RootDirectory, nodeId),
+            nodeId,
+            node.Address,
+            new VmMemberDescription(node.PeerPort, new Dictionary<string, string>()));
+        lock (gate)
+        {
+            nodes[nodeId] = restarted;
+        }
+    }
+
     /// <inheritdoc />
     public Task CordonAsync(string nodeId)
     {
@@ -152,8 +180,16 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
 
         foreach (var node in remaining)
         {
-            await node.StopAsync();
-            node.DisposeResources();
+            // Teardown is best-effort per node: one broken node handle must
+            // not leak the remaining VMs and their tap devices.
+            try
+            {
+                await node.StopAsync();
+                node.DisposeResources();
+            }
+            catch (InvalidOperationException)
+            {
+            }
         }
 
         VmNodeFleet.RunCommand("sudo", $"ip link del br-fc{options.SubnetThirdOctet}", ignoreFailure: true);
@@ -366,6 +402,17 @@ internal sealed record VmNode(
         VmNodeFleet.RunCommand("sudo", $"ip link set {tap} up");
 
         var apiSocket = Path.Combine(workingDirectory, "fc.sock");
+        // A retained working directory still holds the previous boot's API
+        // socket; a stale file would satisfy the wait below and every PUT
+        // would hit a dead socket.
+        try
+        {
+            File.Delete(apiSocket);
+        }
+        catch (FileNotFoundException)
+        {
+        }
+
         var console = Path.Combine(workingDirectory, "console.log");
         var consoleWriter = new FileStream(console, FileMode.Create, FileAccess.Write, FileShare.Read);
         var firecracker = Process.Start(new ProcessStartInfo
@@ -445,10 +492,18 @@ internal sealed record VmNode(
 
     public async Task StopAsync()
     {
-        if (Firecracker is { HasExited: false } alive)
+        try
         {
-            alive.Kill(entireProcessTree: true);
-            await Task.Run(() => alive.WaitForExit(10_000), CancellationToken.None);
+            if (Firecracker is { HasExited: false } alive)
+            {
+                alive.Kill(entireProcessTree: true);
+                await Task.Run(() => alive.WaitForExit(10_000), CancellationToken.None);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // The process handle was already disposed by a restart — the
+            // firecracker behind it is gone.
         }
     }
 
@@ -456,8 +511,7 @@ internal sealed record VmNode(
 
     public void DisposeResources()
     {
-        Peer.Dispose();
-        Firecracker.Dispose();
+        ReleaseResources();
         try
         {
             Directory.Delete(WorkingDirectory, recursive: true);
@@ -465,7 +519,13 @@ internal sealed record VmNode(
         catch (IOException)
         {
         }
+    }
 
+    /// <summary>Releases the process and tap but keeps the rootfs and logs.</summary>
+    public void ReleaseResources()
+    {
+        Peer.Dispose();
+        Firecracker.Dispose();
         VmNodeFleet.RunCommand("sudo", $"ip link del {TapName}", ignoreFailure: true);
     }
 

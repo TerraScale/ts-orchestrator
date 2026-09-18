@@ -60,6 +60,13 @@ public sealed class VmNodeFleetScaleHealTests
         await Assert.That(fleet.IsMemberAlive("as-node-1")).IsTrue();
         await Assert.That(healTicks.SelectMany(actions => actions).OfType<AutoscalerAction.DrainNode>()).IsEmpty();
 
+        // --- power-loss recovery: the killed VM's member must restart
+        // healthy on its retained rootfs — recovery truncates the possibly
+        // torn write-ahead log to the last committed frame instead of
+        // failing every reopen.
+        await fleet.RestartAsync("vm-node-1");
+        await Assert.That(fleet.IsMemberAlive("vm-node-1")).IsTrue();
+
         // --- scale down: confirmed idle cordons, drains, and retires a node.
         await runtime.StepAsync([]);
         var scaleDown = await runtime.StepAsync([]);
