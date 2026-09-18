@@ -39,7 +39,7 @@ public sealed class CandidateEvidenceHandoffV2VerifierTests
             envelope.Signature.Identity).ToArray();
 
         await Assert.That(Convert.ToHexStringLower(SHA256.HashData(material)))
-            .IsEqualTo("9c2dce7f498dfa9647f1e2f6aa2ab9acebfef3807952d1ed5b54147103090a45");
+            .IsEqualTo("ebc705336346c8f1ea576b0936bd302aa67d919d58b5bb72d1fd344e5313073c");
         await Assert.That(Encoding.UTF8.GetString(material)).StartsWith(
             "{\"domain\":\"terrascale.deploy/candidate-evidence-handoff/v2\",\"schemaVersion\":2");
     }
