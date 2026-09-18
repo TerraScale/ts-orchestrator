@@ -292,4 +292,5 @@ jobs:
           name: ts-orchestrator-source-matched-${{ forgejo.sha }}
           path: ${{ runner.temp }}/ts-orchestrator-artifacts/artifacts
           if-no-files-found: error
+          include-hidden-files: false
           retention-days: 7
