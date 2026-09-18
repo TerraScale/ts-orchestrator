@@ -22,10 +22,11 @@ public static class OperatorCli
         Func<string, string?> environment,
         CancellationToken cancellationToken)
     {
-        if (arguments.Count == 0 || arguments[0] is not ("status" or "members" or "deploy" or "artifact-push"))
+        if (arguments.Count == 0 ||
+            arguments[0] is not ("status" or "members" or "deploy" or "artifact-push" or "evidence-record"))
         {
             throw new ArgumentException(
-                "operator requires 'status', 'members', 'deploy', or 'artifact-push'.");
+                "operator requires 'status', 'members', 'deploy', 'artifact-push', or 'evidence-record'.");
         }
         var command = arguments[0];
         var values = ParseValues(arguments.Skip(1).ToArray());
@@ -121,6 +122,11 @@ public static class OperatorCli
             await PushArtifactAsync(client, topology, values, cancellationToken);
             return 0;
         }
+        if (command == "evidence-record")
+        {
+            await RecordEvidenceAsync(client, topology, values, cancellationToken);
+            return 0;
+        }
         await DeployAsync(client, topology, cell, values, environment, cancellationToken);
         return 0;
     }
@@ -145,6 +151,35 @@ public static class OperatorCli
         stream.Position = 0;
         await store.PutAsync($"sha256-{hex}", stream, leaveOpen: true, cancellationToken);
         Console.WriteLine($"sha256:{hex}");
+    }
+
+    /// <summary>
+    /// Records the durable signed artifact-evidence binding on a cell, so `operator deploy`
+    /// passes production provenance on day one — before the global CI chain exists. The key
+    /// file is the CI-artifact role's private key; the controller must carry its public half
+    /// in the same trust set production provenance verifies against.
+    /// </summary>
+    private static async Task RecordEvidenceAsync(
+        NatsClient client,
+        NatsTopology topology,
+        IReadOnlyDictionary<string, string> values,
+        CancellationToken cancellationToken)
+    {
+        var keyFile = Required(values, "--key-file", "evidence-record --key-file");
+        using var signer = EcdsaCommandSigner.LoadPrivatePem(keyFile);
+        var evidence = new TerraScale.Orchestrator.Delivery.DirectDeliveryArtifactEvidence(
+            Required(values, "--source-repository", "evidence-record --source-repository"),
+            Required(values, "--source-commit", "evidence-record --source-commit"),
+            Required(values, "--source-tree-digest", "evidence-record --source-tree-digest"),
+            Required(values, "--digest", "evidence-record --digest"),
+            Required(values, "--manifest-digest", "evidence-record --manifest-digest"),
+            Value(values, "--kind", "service"));
+        var keyValue = client.CreateJetStreamContext().CreateKeyValueStoreContext();
+        var ledger = new TerraScale.Orchestrator.Delivery.NatsForgejoDeliveryLedger(
+            await keyValue.GetStoreAsync(topology.Delivery.Bucket, cancellationToken));
+        var disposition = await new TerraScale.Orchestrator.Delivery.DirectDeliveryArtifactEvidenceJournal(ledger)
+            .RecordAsync(evidence, signer, cancellationToken);
+        Console.WriteLine(disposition.ToString().ToLowerInvariant());
     }
 
     /// <summary>

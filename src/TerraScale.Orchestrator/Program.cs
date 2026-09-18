@@ -35,6 +35,12 @@ try
             Environment.GetEnvironmentVariable,
             shutdown.Token);
     }
+    if (args.FirstOrDefault() is "edge-routing-publish")
+    {
+        return await TerraScale.Orchestrator.ControlPlane.EdgeRouting.EdgeRoutingPublishCli.ExecuteAsync(
+            args.Skip(1).ToArray(),
+            shutdown.Token);
+    }
     var runtimeConfiguration = OrchestratorRuntimeConfiguration.Load(
         Environment.GetEnvironmentVariable("TS_ORCH_CONFIG"));
     string? LocalEnvironment(string key) =>
@@ -77,7 +83,9 @@ try
         hostConvergence = TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration.Parse(
             hostRoleNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             ResolvedEnvironment("TS_ORCH_HOST_ENVIRONMENT"),
-            ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"));
+            ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"),
+            ResolvedEnvironment("TS_ORCH_HOST_ENV_DIR"),
+            ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"));
     }
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.

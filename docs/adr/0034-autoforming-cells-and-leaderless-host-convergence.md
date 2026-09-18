@@ -33,6 +33,17 @@
    (Principles from Anna / "Eliminating Boundaries in Cloud Storage with Anna": epoch-fenced
    membership, coordination-free serving, join/leave without consensus.)
 
+   Binary replacement is stop-then-recreate: a transient systemd unit's `ExecStart` is fixed
+   at creation, so a converge that would change the executable stops the existing unit first
+   (a stopped transient unit disappears, the next converge recreates it bound to the new
+   digest). Per-role configuration ships as one environment file —
+   `TS_ORCH_HOST_ENV_DIR/<artifactKey>.env` is copied to the exact path the unit's
+   `EnvironmentFile` property names — and the state layout root (`TS_ORCH_HOST_STATE_ROOT`,
+   default `/var/lib`) and artifact root are deployment parameters of the canonical plan.
+   `LoadCredentialEncrypted` is opt-in on the plan until a secrets pipeline provisions
+   encrypted credential files; systemd refuses a unit whose encrypted credential is absent,
+   so the default plan omits it.
+
 4. **Stateful replacements serialize through an expiring KV lease.** Roles whose catalog
    entry has `MinimumReplicas > 1` (TerraBase members, orchestrator, control NATS) acquire a
    cell-scoped `host.replace.<service>` compare-and-set lease before replacing their unit. A
@@ -48,7 +59,10 @@
    handoff manifest, signs it with the operator's P-256 key, and submits it to the regional
    signed direct-delivery endpoint. The manifest payload kind carries no lease claims — the
    controller injects its own live authority — so the operator never races the lease. Retries
-   with the same operation id replay the durable record.
+   with the same operation id replay the durable record. Production provenance additionally
+   requires a durable signed artifact-evidence record; `operator evidence-record` writes it
+   with the CI-artifact role key, so a day-one cell (before the global CI chain exists) can
+   admit deploys without inventing a trust path.
 
 7. **The emulated estate runs on Firecracker.** The live VM lane boots one microVM fleet per
    region on its own subnet and bridge (`SubnetThirdOctet` 77/78/79 = GRU/SFO/FRA), each with

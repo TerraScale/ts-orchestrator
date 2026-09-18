@@ -226,8 +226,12 @@ internal sealed class NativeSystemdRuntimeAdmission
                 candidate.Resources,
                 // The immutable digest layout root is a deployment parameter: reconstruct the
                 // canonical plan under the candidate's own root so admission compares like for
-                // like instead of pinning every host to the /opt default.
-                InstallRootOf(candidate.Systemd));
+                // like instead of pinning every host to the /opt default. The credential flag
+                // travels in the plan itself (the LoadCredentialEncrypted property), so the
+                // reconstruction reproduces whatever the candidate carries.
+                InstallRootOf(candidate.Systemd),
+                HasEncryptedCredentials(candidate.Systemd),
+                StateRootOf(candidate.Systemd));
         }
         catch (Exception exception)
         {
@@ -257,6 +261,22 @@ internal sealed class NativeSystemdRuntimeAdmission
         }
 
         return expected;
+    }
+
+    private static bool HasEncryptedCredentials(SystemdExecutionPlan? systemd) =>
+        systemd?.Properties.Any(static value =>
+            value.StartsWith("LoadCredentialEncrypted=", StringComparison.Ordinal)) ?? false;
+
+    /// <summary>The state layout root the plan's absolute EnvironmentFile/Environment paths live under.</summary>
+    private static string? StateRootOf(SystemdExecutionPlan? systemd)
+    {
+        if (systemd?.Properties.FirstOrDefault(static value =>
+                value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal)) is not { } environmentFile)
+            return null;
+        // EnvironmentFile=-{root}/terrascale-{allocation}/environment
+        var path = environmentFile["EnvironmentFile=-".Length..];
+        var allocationDirectory = Path.GetDirectoryName(path);
+        return allocationDirectory is null ? null : Path.GetDirectoryName(allocationDirectory);
     }
 
     /// <summary>

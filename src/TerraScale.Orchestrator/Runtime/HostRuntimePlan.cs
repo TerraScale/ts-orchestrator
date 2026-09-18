@@ -97,7 +97,9 @@ public sealed record HostRuntimePlan(
         ArtifactDigest digest,
         HostArchitecture architecture,
         RuntimeResourceLimits? requestedResources = null,
-        string? installRoot = null)
+        string? installRoot = null,
+        bool encryptedWorkloadCredentials = false,
+        string? stateRoot = null)
     {
         var descriptor = AdmittedRoleCatalog.Admit(role, driver);
         var resources = RuntimeResourceLimitPolicy.For(role, requestedResources);
@@ -111,7 +113,8 @@ public sealed record HostRuntimePlan(
                 digest,
                 architecture,
                 resources,
-                CreateSystemd(descriptor, allocationId, digest, resources, installRoot),
+                CreateSystemd(
+                    descriptor, allocationId, digest, resources, installRoot, encryptedWorkloadCredentials, stateRoot),
                 null),
             RuntimeDriver.OciContainer => new(
                 2,
@@ -132,10 +135,12 @@ public sealed record HostRuntimePlan(
         RuntimeAllocationId allocation,
         ArtifactDigest digest,
         RuntimeResourceLimits resources,
-        string? installRoot)
+        string? installRoot,
+        bool encryptedWorkloadCredentials,
+        string? stateRoot)
     {
         var unit = $"terrascale-{allocation}.service";
-        var stateDirectory = $"/var/lib/terrascale-{allocation}";
+        var stateDirectory = $"{(stateRoot is null ? "/var/lib" : stateRoot)}/terrascale-{allocation}";
         var root = string.IsNullOrWhiteSpace(installRoot)
             ? "/opt/terrascale/artifacts"
             : installRoot;
@@ -149,8 +154,8 @@ public sealed record HostRuntimePlan(
         var configurationProperty = descriptor.Role == AdmittedRole.Orchestrator
             ? $"Environment=TS_ORCH_CONFIG={stateDirectory}/config.json"
             : $"EnvironmentFile=-{stateDirectory}/environment";
-        var properties = new[]
-        {
+        string[] properties =
+        [
             "Type=exec",
             "Restart=always",
             "RestartSec=5s",
@@ -166,7 +171,13 @@ public sealed record HostRuntimePlan(
             $"StateDirectory=terrascale-{allocation}",
             $"RuntimeDirectory=terrascale-{allocation}",
             configurationProperty,
-            $"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred",
+            // LoadCredentialEncrypted is mandatory-loading when present: systemd refuses the
+            // unit if the encrypted credential file is absent, so it is only emitted when the
+            // caller supplies (and therefore provisions) workload credentials. The secrets
+            // pipeline turns this on; host convergence writes the plaintext environment file.
+            .. (encryptedWorkloadCredentials
+                ? [$"LoadCredentialEncrypted=workload:{stateDirectory}/credentials/workload.cred"]
+                : Array.Empty<string>()),
             $"MemoryMax={resources.MemoryMaxBytes}",
             $"MemoryHigh={resources.MemoryHighBytes}",
             $"MemorySwapMax={resources.MemorySwapMaxBytes}",
@@ -175,7 +186,7 @@ public sealed record HostRuntimePlan(
             $"CPUWeight={resources.CpuWeight}",
             $"IOWeight={resources.IoWeight}",
             $"Nice={resources.Nice}"
-        };
+        ];
         return new(
             unit,
             executable,

@@ -26,7 +26,15 @@ public sealed class HostRuntimePlanTests
         await Assert.That(plan.Systemd.Properties).Contains("ProtectControlGroups=yes");
         await Assert.That(plan.Systemd.Properties)
             .Contains("EnvironmentFile=-/var/lib/terrascale-gru-terrabase-1/environment");
-        await Assert.That(plan.Systemd.Properties)
+        // Encrypted workload credentials are opt-in: systemd refuses a unit whose
+        // LoadCredentialEncrypted target is absent, so the default plan omits the property
+        // until a secrets pipeline provisions the encrypted credential file.
+        await Assert.That(plan.Systemd.Properties.Any(static value =>
+            value.StartsWith("LoadCredentialEncrypted=", StringComparison.Ordinal))).IsFalse();
+        var credentialed = HostRuntimePlan.Create(
+            plan.Role, plan.Driver, plan.AllocationId!, plan.ArtifactDigest!, plan.Architecture,
+            plan.Resources, installRoot: null, encryptedWorkloadCredentials: true);
+        await Assert.That(credentialed.Systemd!.Properties)
             .Contains("LoadCredentialEncrypted=workload:/var/lib/terrascale-gru-terrabase-1/credentials/workload.cred");
         await Assert.That(plan.Systemd.Properties).Contains($"MemoryMax={plan.Resources.MemoryMaxBytes}");
         await Assert.That(plan.Systemd.Properties).Contains($"MemoryHigh={plan.Resources.MemoryHighBytes}");

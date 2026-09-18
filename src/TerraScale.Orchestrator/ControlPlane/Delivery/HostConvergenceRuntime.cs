@@ -21,19 +21,26 @@ public sealed record HostConvergenceConfiguration(
     IReadOnlyList<HostRole> Roles,
     string Environment,
     string InstallRoot,
-    HostArchitecture Architecture)
+    HostArchitecture Architecture,
+    string? EnvironmentDirectory = null,
+    string? StateDirectoryRoot = null)
 {
     public const string DefaultInstallRoot = "/opt/terrascale/artifacts";
+    public const string DefaultStateDirectoryRoot = "/var/lib";
 
     internal static HostConvergenceConfiguration Parse(
         IReadOnlyList<string> roleNames,
         string? environment,
         string? installRoot,
+        string? environmentDirectory = null,
+        string? stateDirectoryRoot = null,
         HostArchitecture? architecture = null) => new(
         roleNames.Select(HostRuntimeCli.ParseRole).ToArray(),
         environment is { Length: > 0 } ? environment : "production",
         string.IsNullOrWhiteSpace(installRoot) ? DefaultInstallRoot : installRoot,
-        architecture ?? DetectArchitecture());
+        architecture ?? DetectArchitecture(),
+        string.IsNullOrWhiteSpace(environmentDirectory) ? null : environmentDirectory,
+        string.IsNullOrWhiteSpace(stateDirectoryRoot) ? DefaultStateDirectoryRoot : stateDirectoryRoot);
 
     internal static HostArchitecture DetectArchitecture() =>
         System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
@@ -95,6 +102,7 @@ internal interface IHostArtifactSource
 internal interface IHostRuntimeConverger
 {
     Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken);
+    Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken);
     Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken);
 }
 
@@ -307,8 +315,14 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             var executable = plan.Systemd!.Executable;
             if (!File.Exists(executable))
                 await InstallArtifactAsync(descriptor, hex, executable, cancellationToken).ConfigureAwait(false);
+            InstallEnvironmentFile(plan);
             for (var attempt = 1; attempt <= MaximumConvergeAttempts; attempt++)
             {
+                // A transient unit's ExecStart is fixed at creation: replacing a binary REQUIRES
+                // stopping the old unit first (a stopped transient unit disappears, so the
+                // converge below recreates it bound to the new digest's executable). Without
+                // this, an upgrade would silently keep running — or restart — the old binary.
+                await converger.StopAsync(plan, cancellationToken).ConfigureAwait(false);
                 await converger.ConvergeAsync(plan, cancellationToken).ConfigureAwait(false);
                 var deadline = DateTimeOffset.UtcNow + observationTimeout;
                 while (DateTimeOffset.UtcNow < deadline)
@@ -339,7 +353,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             new($"host-{descriptor.ArtifactKey}-{instance}"),
             new(hex),
             configuration.Architecture,
-            installRoot: configuration.InstallRoot);
+            installRoot: configuration.InstallRoot,
+            stateRoot: configuration.StateDirectoryRoot);
 
     /// <summary>Fetches the artifact from the object store and installs it under its digest path after verifying the hash.</summary>
     private async Task InstallArtifactAsync(
@@ -382,6 +397,27 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             if (File.Exists(partial))
                 File.Delete(partial);
         }
+    }
+
+    /// <summary>
+    /// Copies the configured per-role environment file ({EnvironmentDirectory}/{artifactKey}.env)
+    /// to the exact path the unit's EnvironmentFile property names. Without it a converged
+    /// member starts with no TERRABASE_* configuration. Absent source or property is a no-op.
+    /// </summary>
+    private void InstallEnvironmentFile(HostRuntimePlan plan)
+    {
+        if (configuration.EnvironmentDirectory is not { } directory)
+            return;
+        var source = Path.Combine(directory, $"{AdmittedRoleCatalog.Get(plan.Role).ArtifactKey}.env");
+        if (!File.Exists(source))
+            return;
+        var property = plan.Systemd?.Properties.FirstOrDefault(static value =>
+            value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal));
+        if (property is null)
+            return;
+        var target = property["EnvironmentFile=-".Length..];
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.Copy(source, target, overwrite: true);
     }
 
     /// <summary>Stream wrapper that hashes while copying and compares against the expected hex digest once finalized.</summary>
@@ -682,6 +718,9 @@ internal sealed class SystemdHostConverger(
 
     public Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
         admissionFactory.Admit(plan).ConvergeAsync(cancellationToken);
+
+    public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        admissionFactory.Admit(plan).StopAsync(cancellationToken);
 
     public Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
         admissionFactory.Admit(plan).ObserveAsync(cancellationToken);

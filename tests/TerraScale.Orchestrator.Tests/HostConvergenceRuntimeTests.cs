@@ -150,6 +150,64 @@ public sealed class HostConvergenceRuntimeTests
     }
 
     [Test]
+    public async Task UpgradeStopsTheOldUnitBeforeConvergingTheNewOneAndDistributesItsEnvironment()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var environmentDirectory = Path.Combine(server.Directory, "host-env");
+        var stateDirectoryRoot = Path.Combine(server.Directory, "state");
+        Directory.CreateDirectory(environmentDirectory);
+        var v1 = Encoding.UTF8.GetBytes("member-v1");
+        var v2 = Encoding.UTF8.GetBytes("member-v2");
+        var v1Hex = Convert.ToHexStringLower(SHA256.HashData(v1));
+        var v2Hex = Convert.ToHexStringLower(SHA256.HashData(v2));
+        await File.WriteAllTextAsync(
+            Path.Combine(environmentDirectory, "terrabase-server.env"),
+            "TERRABASE_REGION=GRU\nTERRABASE_NODE_ID=gru-member-1\n");
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{v1Hex}");
+
+        var converger = new FakeConverger();
+        var configuration = new HostConvergenceConfiguration(
+            [HostRole.TerraBaseMember],
+            "production",
+            installRoot,
+            HostArchitecture.Arm64,
+            EnvironmentDirectory: environmentDirectory,
+            StateDirectoryRoot: stateDirectoryRoot);
+        await using var convergence = HostConvergenceRuntime.Create(
+            delivery, runtimeStore, client, new MemoryArtifactSource(
+                ("sha256-" + v1Hex, v1), ("sha256-" + v2Hex, v2)), converger, configuration,
+            "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        var firstAttempt = converger.Actions.Count;
+        await Assert.That(firstAttempt).IsGreaterThan(0);
+
+        // The unit's EnvironmentFile landed where the plan's property names it.
+        var unit = converger.ConvergedPlans[0].Systemd!;
+        var environmentProperty = unit.Properties.Single(static value =>
+            value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal));
+        var environmentFile = environmentProperty["EnvironmentFile=-".Length..];
+        await Assert.That(environmentFile).IsEqualTo(
+            Path.Combine(stateDirectoryRoot, "terrascale-host-terrabase-server-test-1", "environment"));
+        await Assert.That(File.Exists(environmentFile)).IsTrue();
+        await Assert.That(await File.ReadAllTextAsync(environmentFile)).Contains("TERRABASE_REGION=GRU");
+
+        // A second version replaces the first: the old transient unit is stopped BEFORE the
+        // new one converges, so the old binary can never keep serving a stale digest.
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{v2Hex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        var upgraded = converger.ConvergedPlans.Last();
+        await Assert.That(upgraded.ArtifactDigest!.Value).IsEqualTo(v2Hex);
+        var actionList = converger.Actions.ToList();
+        var lastConverge = actionList.LastIndexOf("converge");
+        await Assert.That(lastConverge).IsGreaterThan(0);
+        await Assert.That(converger.Actions[lastConverge - 1]).IsEqualTo("stop");
+    }
+
+    [Test]
     public async Task StatefulReplaceLeaseSerializesAndExpires()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -220,15 +278,26 @@ public sealed class HostConvergenceRuntimeTests
     private sealed class FakeConverger : IHostRuntimeConverger
     {
         private readonly List<HostRuntimePlan> plans = [];
+        private readonly List<string> actions = [];
         private string? failingHex;
 
         public IReadOnlyList<HostRuntimePlan> ConvergedPlans => plans;
 
+        /// <summary>Ordered action log ("stop"/"converge") proving replacement ordering.</summary>
+        public IReadOnlyList<string> Actions => actions;
+
         public void FailWhenRunning(string hex) => failingHex = hex;
+
+        public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+        {
+            actions.Add("stop");
+            return Task.CompletedTask;
+        }
 
         public Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
             plans.Add(plan);
+            actions.Add("converge");
             return Task.CompletedTask;
         }
 

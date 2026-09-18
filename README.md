@@ -26,7 +26,11 @@ The control plane contains the following responsibilities:
 - regional blue-green rollout and rollback by immutable digest; and
 - Cloudflare routing for `api.terrascale.tech`, the GRU, SFO, and FRA regional
   API endpoints, `app.terrascale.tech`, `docs.terrascale.tech`, and
-  `status.terrascale.tech`.
+  `status.terrascale.tech`; and
+- versioned database/branch placement publication to the edge routing KV for
+  SDK discovery, through the ordered, idempotent, retryable EdgeRouting
+  publisher (`src/TerraScale.Orchestrator/ControlPlane/EdgeRouting/`, ADR 0050
+  §6).
 
 It does not own database mutations, CRDT merge semantics, replication,
 reactive subscriptions, authoritative usage accounting, customer identity,
@@ -65,7 +69,9 @@ authentication. Orchestrator is not on either data path.
 
 Each database chooses from the three launch regions. Every selected region
 places two active TerraBase Members per partition across independent failure
-domains. Orchestrator supplies capacity and fenced placement intent. TerraBase
+domains. Orchestrator supplies capacity and fenced placement intent; the
+resulting database/branch placements are published to the edge routing KV so
+SDK discovery serves the same intent. TerraBase
 alone accepts membership, repair, replica retirement, and durability facts.
 
 ## Delivery
@@ -117,11 +123,21 @@ terrascale-orchestrator operator deploy \
   --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
 ```
 
+Production provenance additionally requires one durable signed evidence record per artifact
+(the CI normally writes it); on a day-one cell, record it once with the CI-artifact key:
+
+```bash
+terrascale-orchestrator operator evidence-record   --digest sha256:... --manifest-digest sha256:...   --source-repository TerraScale/TerraBase --source-commit <40-hex>   --source-tree-digest sha256:... --key-file ci-artifact.pem   --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
+```
+
 Every host configured with `TS_ORCH_HOST_ROLES=terrabase-member` then converges itself:
 fetch by digest from `ORCH_ARTIFACTS`, verify SHA-256, install under the immutable digest
-path, converge the systemd unit, observe, and report. Stateful roles serialize through the
-cell replace lease; a failed replacement restores the exact previous digest. Rollback is a
-deploy of the previous digest with the same command.
+path, stop the old unit, converge the systemd unit bound to the new binary, observe, and
+report. The member's `TERRABASE_*` configuration ships as
+`TS_ORCH_HOST_ENV_DIR/terrabase-server.env`, copied to the unit's environment file on every
+converge. Stateful roles serialize through the cell replace lease; a failed replacement
+restores the exact previous digest. Rollback is a deploy of the previous digest with the
+same command.
 
 ## Auto-forming cells
 
