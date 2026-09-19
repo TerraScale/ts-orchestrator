@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 
 namespace TerraScale.Orchestrator.Messaging;
@@ -231,6 +232,7 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
 {
     internal static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(5);
     internal static readonly TimeSpan LeaseDuration = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan WatchRetryDelay = TimeSpan.FromSeconds(1);
 
     private readonly INatsKVStore store;
     private readonly NatsTopology topology;
@@ -472,83 +474,117 @@ internal sealed class RegionalRuntimeMembership : IAsyncDisposable
         using var timer = new PeriodicTimer(HeartbeatInterval);
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
-            var value = Serialize(Document(DateTimeOffset.UtcNow));
-            revision = await store.UpdateAsync(key, value, revision, cancellationToken: cancellationToken);
+            try
+            {
+                var value = Serialize(Document(DateTimeOffset.UtcNow));
+                revision = await store.UpdateAsync(key, value, revision, cancellationToken: cancellationToken);
+            }
+            catch (Exception exception) when (IsTransient(exception))
+            {
+                // Transient NATS failures (timeout, lost connection) skip one renewal;
+                // the lease carries three heartbeat intervals of slack, so the loop
+                // retries on the next tick instead of faulting Completion and taking
+                // the process down. Persistent, non-transient failures still escape
+                // (fail-stop), and a genuinely lost slot still surfaces as the
+                // non-transient CAS revision fault.
+            }
         }
         throw new InvalidOperationException("The regional runtime membership heartbeat stopped unexpectedly.");
     }
 
     private async Task WatchAsync(CancellationToken cancellationToken)
     {
-        await foreach (var entry in store.WatchAsync<string>("controller.>", cancellationToken: cancellationToken))
+        while (true)
         {
-            entry.EnsureSuccess();
-            if (entry.Value is null)
-            {
-                members.TryRemove(entry.Key, out _);
-                previousMembers.TryRemove(entry.Key, out _);
-                identityPins.TryRemove(entry.Key, out _);
-                continue;
-            }
-
-            RegionalRuntimeMember member;
             try
             {
-                member = Deserialize(entry.Value);
-            }
-            catch (JsonException)
-            {
-                Interlocked.Increment(ref rejectedRecords);
-                members.TryRemove(entry.Key, out _);
-                previousMembers.TryRemove(entry.Key, out _);
-                continue;
-            }
-            if (!member.IsValidFor(topology.Cell, DateTimeOffset.UtcNow) ||
-                entry.Key != $"controller.{member.Instance}")
-            {
-                Interlocked.Increment(ref rejectedRecords);
-                members.TryRemove(entry.Key, out _);
-                previousMembers.TryRemove(entry.Key, out _);
-                continue;
-            }
-            if (!member.VerifySignedIdentity())
-            {
-                Interlocked.Increment(ref rejectedRecords);
-                members.TryRemove(entry.Key, out _);
-                previousMembers.TryRemove(entry.Key, out _);
-                continue;
-            }
-            var pinnedKey = identityPins.GetOrAdd(entry.Key, member.IdentityPublicKey);
-            if (pinnedKey != member.IdentityPublicKey)
-            {
-                // Key continuity: a different key is only accepted as a healing
-                // takeover once the previously observed record's lease has fully
-                // lapsed. Under a live lease the slot's key may not change.
-                var pinnedPrevious = members.GetValueOrDefault(entry.Key);
-                if (pinnedPrevious is null || pinnedPrevious.LeaseExpiresAt > DateTimeOffset.UtcNow)
+                await foreach (var entry in store.WatchAsync<string>("controller.>", cancellationToken: cancellationToken))
                 {
-                    Interlocked.Increment(ref rejectedRecords);
-                    members.TryRemove(entry.Key, out _);
-                    previousMembers.TryRemove(entry.Key, out _);
-                    continue;
+                    entry.EnsureSuccess();
+                    if (entry.Value is null)
+                    {
+                        members.TryRemove(entry.Key, out _);
+                        previousMembers.TryRemove(entry.Key, out _);
+                        identityPins.TryRemove(entry.Key, out _);
+                        continue;
+                    }
+
+                    RegionalRuntimeMember member;
+                    try
+                    {
+                        member = Deserialize(entry.Value);
+                    }
+                    catch (JsonException)
+                    {
+                        Interlocked.Increment(ref rejectedRecords);
+                        members.TryRemove(entry.Key, out _);
+                        previousMembers.TryRemove(entry.Key, out _);
+                        continue;
+                    }
+                    if (!member.IsValidFor(topology.Cell, DateTimeOffset.UtcNow) ||
+                        entry.Key != $"controller.{member.Instance}")
+                    {
+                        Interlocked.Increment(ref rejectedRecords);
+                        members.TryRemove(entry.Key, out _);
+                        previousMembers.TryRemove(entry.Key, out _);
+                        continue;
+                    }
+                    if (!member.VerifySignedIdentity())
+                    {
+                        Interlocked.Increment(ref rejectedRecords);
+                        members.TryRemove(entry.Key, out _);
+                        previousMembers.TryRemove(entry.Key, out _);
+                        continue;
+                    }
+                    var pinnedKey = identityPins.GetOrAdd(entry.Key, member.IdentityPublicKey);
+                    if (pinnedKey != member.IdentityPublicKey)
+                    {
+                        // Key continuity: a different key is only accepted as a healing
+                        // takeover once the previously observed record's lease has fully
+                        // lapsed. Under a live lease the slot's key may not change.
+                        var pinnedPrevious = members.GetValueOrDefault(entry.Key);
+                        if (pinnedPrevious is null || pinnedPrevious.LeaseExpiresAt > DateTimeOffset.UtcNow)
+                        {
+                            Interlocked.Increment(ref rejectedRecords);
+                            members.TryRemove(entry.Key, out _);
+                            previousMembers.TryRemove(entry.Key, out _);
+                            continue;
+                        }
+                        identityPins[entry.Key] = member.IdentityPublicKey;
+                    }
+
+                    // Stash the outgoing record unconditionally: the snapshot's CURRENT
+                    // conflicting-session gauge classifies the live record against the
+                    // immediately preceding one. A session change under a still-live
+                    // lease stays counted as a current conflict exactly until the new
+                    // session's next renewal replaces the stashed predecessor.
+                    if (members.TryGetValue(entry.Key, out var previous))
+                        previousMembers[entry.Key] = previous;
+
+                    members[entry.Key] = member;
+                    if (entry.Key == key && member.SessionId == sessionId)
+                        selfObserved.TrySetResult();
                 }
-                identityPins[entry.Key] = member.IdentityPublicKey;
+                throw new InvalidOperationException("The regional runtime membership watcher stopped unexpectedly.");
             }
-
-            // Stash the outgoing record unconditionally: the snapshot's CURRENT
-            // conflicting-session gauge classifies the live record against the
-            // immediately preceding one. A session change under a still-live
-            // lease stays counted as a current conflict exactly until the new
-            // session's next renewal replaces the stashed predecessor.
-            if (members.TryGetValue(entry.Key, out var previous))
-                previousMembers[entry.Key] = previous;
-
-            members[entry.Key] = member;
-            if (entry.Key == key && member.SessionId == sessionId)
-                selfObserved.TrySetResult();
+            catch (Exception exception) when (IsTransient(exception))
+            {
+                // Transient NATS failures tear the watch down; re-establish it after
+                // a short delay instead of faulting Completion and taking the process
+                // down. The re-watch replays every current record, so the observed
+                // view converges rather than going silently stale. Persistent,
+                // non-transient failures still escape (fail-stop).
+                await Task.Delay(WatchRetryDelay, cancellationToken);
+            }
         }
-        throw new InvalidOperationException("The regional runtime membership watcher stopped unexpectedly.");
     }
+
+    private static bool IsTransient(Exception exception) =>
+        // Infrastructure transients only (connection loss, timeout): unlike the
+        // authority tick loop, the heartbeat does not re-observe before renewing,
+        // so a swallowed KV protocol outcome could never self-correct. CAS faults
+        // and missing keys (NatsKVException) therefore stay fail-stop.
+        exception is NatsException and not NatsKVException;
 
     private RegionalRuntimeMember Document(DateTimeOffset observedAt)
     {

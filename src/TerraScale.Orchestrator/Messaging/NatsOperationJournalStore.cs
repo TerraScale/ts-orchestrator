@@ -304,7 +304,7 @@ internal static class NatsOperationJournalStore
     private static void ValidateExpected(NatsKVConfig configuration)
     {
         var isOperationJournal = configuration.Bucket == "ORCH_OPERATIONS" &&
-            configuration.History == 2 && configuration.MaxAge == TimeSpan.Zero &&
+            configuration.History == 2 && configuration.MaxAge == TimeSpan.FromDays(30) &&
             configuration.MaxValueSize == 16 * 1024 && configuration.MaxBytes == 256 * 1024 * 1024;
         var isProofConsumption = configuration.Bucket == "ORCH_OPERATION_PROOFS" &&
             configuration.History == 1 && configuration.MaxAge == TimeSpan.FromMinutes(5) &&

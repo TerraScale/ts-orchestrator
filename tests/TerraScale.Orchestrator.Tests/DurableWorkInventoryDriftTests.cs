@@ -1,4 +1,5 @@
 using NATS.Client.JetStream.Models;
+using NATS.Client.KeyValueStore;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol.Messaging;
 
@@ -47,6 +48,37 @@ public sealed class DurableWorkInventoryDriftTests
         var cellEvents = topology.Streams.Single(stream => stream.Name == "CELL_EVENTS");
         await Assert.That(cellSpec.DuplicateWindow).IsEqualTo(DuplicateWindowPolicy.CellStreams.Window);
         await Assert.That(cellEvents.DuplicateWindow).IsEqualTo(DuplicateWindowPolicy.CellStreams.Window);
+    }
+
+    [Test]
+    public async Task Authoritative_operation_journal_declares_server_side_expiry()
+    {
+        var topology = new NatsTopology(Cell, 3, Instance);
+
+        // Without server-side MaxAge the bounded journal is write-only-forever: at
+        // the 256MiB hard cap with Discard=New JetStream rejects every put and the
+        // cell's mutation journal is permanently bricked. Expiry must age records
+        // out server-side, exactly as every other regional durable stream does.
+        await Assert.That(topology.Operations.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
+        await Assert.That(topology.Operations.MaxBytes).IsEqualTo(256L * 1024 * 1024);
+        await Assert.That(NatsOperationJournalStore.CanonicalStream(topology.Operations).MaxAge)
+            .IsEqualTo(TimeSpan.FromDays(30));
+        await Assert.That(NatsOperationJournalStore.CanonicalStream(topology.Operations).Discard)
+            .IsEqualTo(StreamConfigDiscard.New);
+
+        // Fail closed: an expiry-less (or differently aged) R3 configuration is not
+        // the exact journal shape, so validating against it must be refused before
+        // any journal operation is served.
+        var journalWithoutExpiry = new NatsKVConfig("ORCH_OPERATIONS")
+        {
+            History = 2,
+            MaxValueSize = 16 * 1024,
+            MaxBytes = 256 * 1024 * 1024,
+            NumberOfReplicas = 3,
+        };
+        await Assert.That(() => NatsOperationJournalStore.ValidateConfiguration(
+                NatsOperationJournalStore.CanonicalStream(topology.Operations), journalWithoutExpiry))
+            .Throws<ArgumentException>();
     }
 
     [Test]
