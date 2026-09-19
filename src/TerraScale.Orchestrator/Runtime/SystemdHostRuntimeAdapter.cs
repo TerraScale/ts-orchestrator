@@ -148,20 +148,7 @@ internal sealed class SystemdHostRuntimeAdapter(
         CancellationToken cancellationToken)
     {
         var systemd = RequireCanonicalSystemdPlan(plan);
-        var arguments = ManagerArguments(
-            "show",
-            systemd.UnitName,
-            "--property=LoadState",
-            "--property=ActiveState",
-            "--property=SubState",
-            "--property=MainPID",
-            "--property=Result",
-            "--property=Description");
-        var result = await commandRunner.RunAsync("/usr/bin/systemctl", arguments, cancellationToken);
-        var values = result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => line.Split('=', 2))
-            .Where(parts => parts.Length == 2)
-            .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+        var (result, values) = await ShowUnitAsync(systemd, cancellationToken);
         if (values.GetValueOrDefault("LoadState") == "not-found")
         {
             return new(systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
@@ -177,6 +164,77 @@ internal sealed class SystemdHostRuntimeAdapter(
             throw new InvalidOperationException(
                 $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
         }
+        return MapObservation(systemd, plan, values);
+    }
+
+    public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+    {
+        var systemd = RequireCanonicalSystemdPlan(plan);
+        // Stopping an existing unit is fenced on the unit's OWN canonical identity — the
+        // allocation id its Description carries — not on the candidate plan's fingerprint:
+        // replacing a binary must be able to stop the unit a previous digest created
+        // (stop-then-recreate). The exact-fingerprint fence stays on adoption
+        // (converge/observe), so a foreign unit squatting on this name is still refused.
+        var (result, values) = await ShowUnitAsync(systemd, cancellationToken);
+        if (values.GetValueOrDefault("LoadState") == "not-found")
+        {
+            return;
+        }
+        if (result.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"systemd could not inspect allocation {plan.AllocationId}; exit code {result.ExitCode}.");
+        }
+        var description = values.GetValueOrDefault("Description");
+        if (values.GetValueOrDefault("LoadState") != "loaded" ||
+            description?.StartsWith(OwnedDescriptionPrefix(plan), StringComparison.Ordinal) != true)
+        {
+            throw new InvalidOperationException(
+                $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
+        }
+        if (MapObservation(systemd, plan, values).State is SystemdAllocationState.Absent or
+            SystemdAllocationState.Stopped or SystemdAllocationState.Failed or
+            SystemdAllocationState.Stopping)
+        {
+            return;
+        }
+        var stop = await commandRunner.RunAsync(
+            "/usr/bin/systemctl",
+            ManagerArguments("stop", systemd.UnitName),
+            cancellationToken);
+        if (stop.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"systemd could not stop allocation {plan.AllocationId}; exit code {stop.ExitCode}.");
+        }
+    }
+
+    private async Task<(HostCommandResult Result, Dictionary<string, string> Values)> ShowUnitAsync(
+        SystemdExecutionPlan systemd,
+        CancellationToken cancellationToken)
+    {
+        var arguments = ManagerArguments(
+            "show",
+            systemd.UnitName,
+            "--property=LoadState",
+            "--property=ActiveState",
+            "--property=SubState",
+            "--property=MainPID",
+            "--property=Result",
+            "--property=Description");
+        var result = await commandRunner.RunAsync("/usr/bin/systemctl", arguments, cancellationToken);
+        var values = result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Split('=', 2))
+            .Where(parts => parts.Length == 2)
+            .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+        return (result, values);
+    }
+
+    private static SystemdAllocationObservation MapObservation(
+        SystemdExecutionPlan systemd,
+        HostRuntimePlan plan,
+        Dictionary<string, string> values)
+    {
         var state = values.GetValueOrDefault("ActiveState") switch
         {
             "active" => SystemdAllocationState.Running,
@@ -197,28 +255,11 @@ internal sealed class SystemdHostRuntimeAdapter(
             values.GetValueOrDefault("Result") ?? "unknown");
     }
 
-    public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
-    {
-        var systemd = RequireCanonicalSystemdPlan(plan);
-        var observation = await ObserveAsync(plan, cancellationToken);
-        if (observation.State is SystemdAllocationState.Absent or SystemdAllocationState.Stopped or
-            SystemdAllocationState.Failed or SystemdAllocationState.Stopping)
-        {
-            return;
-        }
-        var result = await commandRunner.RunAsync(
-            "/usr/bin/systemctl",
-            ManagerArguments("stop", systemd.UnitName),
-            cancellationToken);
-        if (result.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                $"systemd could not stop allocation {plan.AllocationId}; exit code {result.ExitCode}.");
-        }
-    }
-
     private static string PlanDescription(HostRuntimePlan plan) =>
         $"TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}";
+
+    private static string OwnedDescriptionPrefix(HostRuntimePlan plan) =>
+        $"TerraScale allocation {plan.AllocationId} plan ";
 
     private IReadOnlyList<string> ManagerArguments(params string[] arguments) => userManager
         ? new[] { "--user" }.Concat(arguments).ToArray()

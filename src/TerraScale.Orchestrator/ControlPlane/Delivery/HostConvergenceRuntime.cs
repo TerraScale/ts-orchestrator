@@ -88,8 +88,20 @@ internal sealed record HostConvergenceReplaceLease(
     string Holder,
     DateTimeOffset ExpiresAt);
 
+/// <summary>
+/// The durable per-host, per-service retry backoff after one failed converge-and-rollback
+/// cycle: a desired digest whose replacement keeps failing must not stop and restore the
+/// healthy previous unit on every 5-second pass. Keyed <c>host.backoff.{instance}.{key}</c>
+/// in <c>ORCH_RUNTIME</c>, so it survives process restarts; a cycle that converges clears it.
+/// </summary>
+internal sealed record HostConvergenceBackoff(
+    string Digest,
+    int Failures,
+    DateTimeOffset NotBefore);
+
 [JsonSerializable(typeof(HostConvergenceObservation))]
 [JsonSerializable(typeof(HostConvergenceReplaceLease))]
+[JsonSerializable(typeof(HostConvergenceBackoff))]
 internal sealed partial class HostConvergenceJsonContext : JsonSerializerContext;
 
 /// <summary>Copies immutable digest-addressed artifacts into a destination stream.</summary>
@@ -127,9 +139,13 @@ internal enum HostConvergenceOutcomeState
 internal sealed class HostConvergenceRuntime : IAsyncDisposable
 {
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan ObservationPollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultReplaceLeaseDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan FailedCycleBackoffBase = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan FailedCycleBackoffMaximum = TimeSpan.FromMinutes(15);
     private const int MaximumConvergeAttempts = 3;
+
+    /// <summary>How long a readiness poll waits before re-observing a starting unit. Tests shrink it.</summary>
+    internal TimeSpan ObservationPollInterval { get; set; } = TimeSpan.FromSeconds(2);
 
     private readonly INatsKVStore delivery;
     private readonly INatsKVStore runtimeStore;
@@ -271,6 +287,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             await IsServingAsync(role, descriptor, desired, cancellationToken).ConfigureAwait(false))
             return;
 
+        if (await BackedOffAsync(descriptor, desired, cancellationToken).ConfigureAwait(false))
+            return; // A previously failed cycle for this digest is still in backoff.
+
         await using var lease = descriptor.MinimumReplicas > 1
             ? await AcquireReplaceLeaseAsync(descriptor, cancellationToken).ConfigureAwait(false)
             : null;
@@ -291,6 +310,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             // re-reports instead.
             await ReportAsync(descriptor, desired, outcome, cancellationToken).ConfigureAwait(false);
             await WriteCurrentMarkerAsync(descriptor, desired, previous, cancellationToken).ConfigureAwait(false);
+            await ClearBackoffAsync(descriptor, cancellationToken).ConfigureAwait(false);
             return;
         }
 
@@ -314,6 +334,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
                     cancellationToken).ConfigureAwait(false);
                 await WriteCurrentMarkerAsync(descriptor, rollbackDigest, previous: null, cancellationToken)
                     .ConfigureAwait(false);
+                await RecordFailedCycleAsync(descriptor, desired, cancellationToken).ConfigureAwait(false);
                 return;
             }
             await ReportAsync(
@@ -321,9 +342,11 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
                 desired,
                 rollback with { State = HostConvergenceOutcomeState.RollbackFailed },
                 cancellationToken).ConfigureAwait(false);
+            await RecordFailedCycleAsync(descriptor, desired, cancellationToken).ConfigureAwait(false);
             return;
         }
         await ReportAsync(descriptor, desired, outcome, cancellationToken).ConfigureAwait(false);
+        await RecordFailedCycleAsync(descriptor, desired, cancellationToken).ConfigureAwait(false);
     }
 
     internal sealed record ConvergeOutcome(
@@ -359,9 +382,14 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
                 while (DateTimeOffset.UtcNow < deadline)
                 {
                     var observation = await converger.ObserveAsync(plan, cancellationToken).ConfigureAwait(false);
-                    if (observation.State is SystemdAllocationState.Running or SystemdAllocationState.Starting)
+                    // Readiness gate: only an active unit with a live main process serves.
+                    // 'activating' — including systemd auto-restart after a crash — is NOT
+                    // serving: keep polling, and let the attempt fail (and the pass roll
+                    // back) if the unit never comes up within the budget.
+                    if (observation.State == SystemdAllocationState.Running &&
+                        observation.MainProcessId is not null)
                         return new(HostConvergenceOutcomeState.Converged, observation.UnitName, null);
-                    if (observation.State is not SystemdAllocationState.Failed)
+                    if (observation.State is not (SystemdAllocationState.Failed or SystemdAllocationState.Starting))
                         break;
                     await Task.Delay(ObservationPollInterval, cancellationToken).ConfigureAwait(false);
                 }
@@ -517,7 +545,11 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         {
             var plan = PlanFor(role, descriptor, HexOf(desiredDigest));
             var observation = await converger.ObserveAsync(plan, cancellationToken).ConfigureAwait(false);
-            return observation.State is SystemdAllocationState.Running or SystemdAllocationState.Starting;
+            // The same readiness gate as a replacement: an auto-restarting unit is not
+            // serving, so a crash-looping member is re-replaced instead of passively
+            // early-returned as healthy.
+            return observation.State == SystemdAllocationState.Running &&
+                observation.MainProcessId is not null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -708,6 +740,106 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         catch (Exception exception) when (exception is NatsKVException or JsonException or OperationCanceledException)
         {
             // An unreleased lease simply expires; replacement is delayed, never lost.
+        }
+    }
+
+    private string BackoffKey(AdmittedRoleDescriptor descriptor) =>
+        $"host.backoff.{instance}.{descriptor.ArtifactKey}";
+
+    /// <summary>
+    /// True while a failed cycle's backoff still bars a new attempt at this desired digest.
+    /// The waiting pass re-writes the entry so the bucket's age purge cannot silently drop a
+    /// long backoff. The backoff scopes to the digest that failed, so a newly admitted digest
+    /// (the operator's remedy) is attempted immediately; a read failure fails open — one
+    /// extra attempt beats wedging replacement on a store hiccup.
+    /// </summary>
+    private async Task<bool> BackedOffAsync(
+        AdmittedRoleDescriptor descriptor,
+        string desired,
+        CancellationToken cancellationToken)
+    {
+        HostConvergenceBackoff? backoff;
+        try
+        {
+            var entry = await runtimeStore.GetEntryAsync<string>(
+                BackoffKey(descriptor), cancellationToken: cancellationToken).ConfigureAwait(false);
+            entry.EnsureSuccess();
+            backoff = JsonSerializer.Deserialize(
+                entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
+        }
+        catch (Exception exception) when (
+            exception is NatsKVKeyNotFoundException or NatsKVKeyDeletedException or NatsKVException or JsonException)
+        {
+            return false;
+        }
+        if (backoff is null || backoff.Digest != desired || backoff.NotBefore <= DateTimeOffset.UtcNow)
+            return false;
+        try
+        {
+            await runtimeStore.PutAsync(
+                BackoffKey(descriptor),
+                JsonSerializer.Serialize(backoff, HostConvergenceJsonContext.Default.HostConvergenceBackoff),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is NatsKVException)
+        {
+            // Losing the touch only risks the age purge ending the backoff early.
+        }
+        return true;
+    }
+
+    /// <summary>Records one failed converge-and-rollback cycle, doubling the next window per failure.</summary>
+    private async Task RecordFailedCycleAsync(
+        AdmittedRoleDescriptor descriptor,
+        string desired,
+        CancellationToken cancellationToken)
+    {
+        var failures = 1;
+        try
+        {
+            var entry = await runtimeStore.GetEntryAsync<string>(
+                BackoffKey(descriptor), cancellationToken: cancellationToken).ConfigureAwait(false);
+            entry.EnsureSuccess();
+            var existing = JsonSerializer.Deserialize(
+                entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
+            if (existing is { Digest: var digest, Failures: var count } && digest == desired)
+                failures = count + 1;
+        }
+        catch (Exception exception) when (
+            exception is NatsKVKeyNotFoundException or NatsKVKeyDeletedException or NatsKVException or JsonException)
+        {
+            // No readable prior record: this failure starts a fresh backoff ladder.
+        }
+        var backoff = new HostConvergenceBackoff(
+            desired,
+            failures,
+            DateTimeOffset.UtcNow + TimeSpan.FromTicks(Math.Min(
+                FailedCycleBackoffBase.Ticks << Math.Min(failures - 1, 31),
+                FailedCycleBackoffMaximum.Ticks)));
+        try
+        {
+            await runtimeStore.PutAsync(
+                BackoffKey(descriptor),
+                JsonSerializer.Serialize(backoff, HostConvergenceJsonContext.Default.HostConvergenceBackoff),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is NatsKVException)
+        {
+            // Losing the record costs one extra attempt; the next failed cycle re-records it.
+        }
+    }
+
+    private async Task ClearBackoffAsync(AdmittedRoleDescriptor descriptor, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runtimeStore.DeleteAsync(BackoffKey(descriptor), cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is NatsKVException)
+        {
+            // A stale entry only delays the next replacement of a digest that just failed;
+            // the serving early-return keeps this converged host passive regardless.
         }
     }
 

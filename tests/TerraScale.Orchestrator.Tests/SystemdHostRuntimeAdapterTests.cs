@@ -106,11 +106,52 @@ public sealed class SystemdHostRuntimeAdapterTests
             .Throws<InvalidOperationException>();
     }
 
-    private static HostRuntimePlan NativePlan() => HostRuntimePlan.Create(
+    [Test]
+    public async Task StoppingAnExistingUnitIsFencedOnItsOwnIdentityNotTheCandidatePlan()
+    {
+        // A unit created by a previous digest carries THAT plan's fingerprint in its
+        // Description; the unit name is digest-invariant. Replacing the binary must stop
+        // it (stop-then-recreate) — requiring the candidate plan's fingerprint here would
+        // make every digest change throw before systemctl stop is ever reached.
+        var oldPlan = NativePlan();
+        var newPlan = NativePlan("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210");
+        var runningUnderOldPlan = new HostCommandResult(0,
+            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nResult=success\n" +
+            $"Description=TerraScale allocation {oldPlan.AllocationId} plan {CanonicalPlanFingerprint.Compute(oldPlan)}\n",
+            string.Empty);
+        var stopping = new RecordingRunner(
+            runningUnderOldPlan, new HostCommandResult(0, string.Empty, string.Empty));
+
+        await new SystemdHostRuntimeAdapter(stopping).StopAsync(newPlan, CancellationToken.None);
+
+        var stop = stopping.Commands.Last();
+        await Assert.That(stop.Executable).IsEqualTo("/usr/bin/systemctl");
+        await Assert.That(stop.Arguments).Contains("stop");
+        await Assert.That(stop.Arguments).Contains(newPlan.Systemd!.UnitName);
+
+        // The exact-fingerprint fence stays on adoption: observing the old unit under the
+        // NEW plan still refuses instead of adopting a mismatched process.
+        var observing = new RecordingRunner(runningUnderOldPlan);
+        await Assert.That(async () =>
+        {
+            await new SystemdHostRuntimeAdapter(observing).ObserveAsync(newPlan, CancellationToken.None);
+        }).Throws<InvalidOperationException>();
+
+        // A foreign unit squatting on the name is never stopped, let alone adopted.
+        var foreign = new RecordingRunner(new HostCommandResult(0,
+            "LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\nDescription=foreign\n",
+            string.Empty));
+        await Assert.That(() => new SystemdHostRuntimeAdapter(foreign)
+                .StopAsync(newPlan, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(foreign.Commands).Count().IsEqualTo(1);
+    }
+
+    private static HostRuntimePlan NativePlan(string digest = Digest) => HostRuntimePlan.Create(
         AdmittedRole.Orchestrator,
         RuntimeDriver.NativeSystemd,
         new RuntimeAllocationId("gru-orchestrator-1"),
-        new ArtifactDigest(Digest),
+        new ArtifactDigest(digest),
         HostArchitecture.Arm64);
 
     private sealed class RecordingRunner(params HostCommandResult[] results) : IHostCommandRunner

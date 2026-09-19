@@ -377,6 +377,178 @@ public sealed class HostConvergenceRuntimeTests
     }
 
     [Test]
+    public async Task AnAutoRestartingReplacementNeverCountsAsConvergedAndRollsBack()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var good = Encoding.UTF8.GetBytes("known-good-binary");
+        var crashLooping = Encoding.UTF8.GetBytes("auto-restart-looping-binary");
+        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
+        var crashHex = Convert.ToHexStringLower(SHA256.HashData(crashLooping));
+        var source = new MemoryArtifactSource(
+            ("sha256-" + goodHex, good),
+            ("sha256-" + crashHex, crashLooping));
+
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var converger = new FakeConverger();
+        await using var convergence = FastConvergence(delivery, runtimeStore, client, installRoot, source, converger);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // The replacement binary execs then dies; Restart=always holds the unit in
+        // activating/auto-restart (Starting, no live main PID) indefinitely.
+        converger.HoldInAutoRestart(crashHex);
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{crashHex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // A merely-starting unit never releases the cycle as converged and serving: the
+        // pass must report the restored previous digest, never the crash-looping one.
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("rolled-back");
+        await Assert.That(observation.Digest).IsEqualTo($"sha256:{goodHex}");
+        await Assert.That(converger.ConvergedPlans.Last().ArtifactDigest!.Value).IsEqualTo(goodHex);
+    }
+
+    [Test]
+    public async Task AnAutoRestartingUnitIsNotServingSoThePassDoesNotEarlyReturn()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var good = Encoding.UTF8.GetBytes("serving-then-crash-looping");
+        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
+
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var converger = new FakeConverger();
+        await using var convergence = FastConvergence(
+            delivery, runtimeStore, client, installRoot,
+            new MemoryArtifactSource(("sha256-" + goodHex, good)), converger);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        var converged = converger.ConvergedPlans.Count;
+
+        // The serving unit crashes and systemd holds it in auto-restart while the desired
+        // digest is unchanged: a starting unit must not count as serving, so the pass
+        // replaces it instead of passively early-returning.
+        converger.HoldInAutoRestart(goodHex);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(converger.ConvergedPlans.Count).IsGreaterThan(converged);
+        // It never reaches a running observation again: the cycle (and its own restore)
+        // fails rather than claiming convergence over a crash-looping unit.
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("rollback-failed");
+    }
+
+    [Test]
+    public async Task AFailedConvergeAndRollbackCycleBacksOffTheNextAttemptDurably()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var good = Encoding.UTF8.GetBytes("known-good-binary");
+        var broken = Encoding.UTF8.GetBytes("crash-looping-binary");
+        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
+        var brokenHex = Convert.ToHexStringLower(SHA256.HashData(broken));
+        var source = new MemoryArtifactSource(
+            ("sha256-" + goodHex, good),
+            ("sha256-" + brokenHex, broken));
+
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var converger = new FakeConverger();
+        await using var convergence = FastConvergence(delivery, runtimeStore, client, installRoot, source, converger);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // The poisoned digest fails its cycle and the healthy previous unit is restored.
+        converger.FailWhenRunning(brokenHex);
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{brokenHex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        var actionsAfterFailedCycle = converger.Actions.Count;
+
+        // The very next pass must NOT re-stop the restored unit for the same poisoned
+        // digest: the failed cycle left a durable backoff.
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(converger.Actions.Count).IsEqualTo(actionsAfterFailedCycle);
+
+        var entry = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
+        entry.EnsureSuccess();
+        var backoff = JsonSerializer.Deserialize<HostConvergenceBackoff>(
+            entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
+        await Assert.That(backoff!.Failures).IsEqualTo(1);
+        await Assert.That(backoff.Digest).IsEqualTo($"sha256:{brokenHex}");
+        await Assert.That(backoff.NotBefore).IsGreaterThan(DateTimeOffset.UtcNow);
+    }
+
+    [Test]
+    public async Task BackoffEscalatesAcrossFailedCyclesAndAConvergingCycleResets()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var good = Encoding.UTF8.GetBytes("known-good-binary");
+        var broken = Encoding.UTF8.GetBytes("crash-looping-binary");
+        var repaired = Encoding.UTF8.GetBytes("repaired-binary");
+        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
+        var brokenHex = Convert.ToHexStringLower(SHA256.HashData(broken));
+        var repairedHex = Convert.ToHexStringLower(SHA256.HashData(repaired));
+        var source = new MemoryArtifactSource(
+            ("sha256-" + goodHex, good),
+            ("sha256-" + brokenHex, broken),
+            ("sha256-" + repairedHex, repaired));
+
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var converger = new FakeConverger();
+        await using var convergence = FastConvergence(delivery, runtimeStore, client, installRoot, source, converger);
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        // A backoff ladder persisted by a previous process: three failures against the
+        // broken digest, already expired, so the next pass goes through and escalates it.
+        await runtimeStore.PutAsync("host.backoff.test-1.terrabase-server", JsonSerializer.Serialize(
+            new HostConvergenceBackoff(
+                $"sha256:{brokenHex}", 3, DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1)),
+            HostConvergenceJsonContext.Default.HostConvergenceBackoff));
+        converger.FailWhenRunning(brokenHex);
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{brokenHex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        var entry = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
+        entry.EnsureSuccess();
+        var backoff = JsonSerializer.Deserialize<HostConvergenceBackoff>(
+            entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
+        await Assert.That(backoff!.Failures).IsEqualTo(4);
+        // 30s doubled three times = 4 minutes, well under the 15-minute cap.
+        await Assert.That(backoff.NotBefore - DateTimeOffset.UtcNow).IsGreaterThan(TimeSpan.FromMinutes(3));
+        await Assert.That(backoff.NotBefore - DateTimeOffset.UtcNow).IsLessThan(TimeSpan.FromMinutes(5));
+        var actionsAfterCycle = converger.Actions.Count;
+
+        // The escalated window actually gates the next pass.
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(converger.Actions.Count).IsEqualTo(actionsAfterCycle);
+
+        // A different admitted digest (the operator's remedy) is not the broken digest's
+        // backoff, and a cycle that converges clears the ladder entirely.
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{repairedHex}");
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.State).IsEqualTo("converged");
+        await Assert.That(observation.Digest).IsEqualTo($"sha256:{repairedHex}");
+        await Assert.That(async () =>
+        {
+            var cleared = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
+            cleared.EnsureSuccess();
+        }).Throws<Exception>();
+    }
+
+    [Test]
     public async Task APersistentlyFailingReconcilePassIsLoggedWhileTheLoopRetries()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -461,6 +633,33 @@ public sealed class HostConvergenceRuntimeTests
         StartConvergence(server.Stores().Item1, server.Stores().Item2, server.Stores().Item3,
             Path.Combine(server.Directory, "artifacts"), new MemoryArtifactSource(), new FakeConverger());
 
+    /// <summary>A convergence runtime with a millisecond observation cadence for failure-path tests.</summary>
+    private static HostConvergenceRuntime FastConvergence(
+        INatsKVStore delivery,
+        INatsKVStore runtimeStore,
+        NATS.Client.Core.INatsConnection connection,
+        string installRoot,
+        IHostArtifactSource source,
+        IHostRuntimeConverger converger)
+    {
+        var convergence = HostConvergenceRuntime.Create(
+            delivery,
+            runtimeStore,
+            connection,
+            source,
+            converger,
+            new HostConvergenceConfiguration(
+                [HostRole.TerraBaseMember],
+                "production",
+                installRoot,
+                HostArchitecture.Arm64),
+            "gru",
+            "test-1",
+            observationTimeout: TimeSpan.FromMilliseconds(200));
+        convergence.ObservationPollInterval = TimeSpan.FromMilliseconds(20);
+        return convergence;
+    }
+
     private static HostConvergenceRuntime StartConvergence(
         INatsKVStore delivery,
         INatsKVStore runtimeStore,
@@ -505,6 +704,7 @@ public sealed class HostConvergenceRuntimeTests
         private readonly List<HostRuntimePlan> plans = [];
         private readonly List<string> actions = [];
         private readonly HashSet<string> failingHexes = [];
+        private readonly HashSet<string> autoRestartHexes = [];
 
         public IReadOnlyList<HostRuntimePlan> ConvergedPlans => plans;
 
@@ -521,6 +721,9 @@ public sealed class HostConvergenceRuntimeTests
         public Task FirstConvergeStarted => firstConverge.Task;
 
         public void FailWhenRunning(string hex) => failingHexes.Add(hex);
+
+        /// <summary>Simulates a crash-looping unit systemd holds in activating/auto-restart.</summary>
+        public void HoldInAutoRestart(string hex) => autoRestartHexes.Add(hex);
 
         public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
@@ -541,12 +744,15 @@ public sealed class HostConvergenceRuntimeTests
             HostRuntimePlan plan,
             CancellationToken cancellationToken)
         {
-            var failed = failingHexes.Contains(plan.ArtifactDigest!.Value);
+            var hex = plan.ArtifactDigest!.Value;
+            var failed = failingHexes.Contains(hex);
+            var autoRestart = autoRestartHexes.Contains(hex);
             return Task.FromResult(new SystemdAllocationObservation(
                 plan.Systemd!.UnitName,
-                failed ? SystemdAllocationState.Failed : SystemdAllocationState.Running,
-                failed ? null : 4242,
-                failed ? "exit-code" : "success"));
+                failed ? SystemdAllocationState.Failed :
+                    autoRestart ? SystemdAllocationState.Starting : SystemdAllocationState.Running,
+                failed || autoRestart ? null : 4242,
+                failed ? "exit-code" : autoRestart ? "auto-restart" : "success"));
         }
     }
 
