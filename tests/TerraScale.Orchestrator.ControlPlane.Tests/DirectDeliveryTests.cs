@@ -1056,6 +1056,42 @@ public sealed class DirectDeliveryTests
     }
 
     [Test]
+    public async Task A_region_stuck_in_rolling_back_replays_as_rollback_continuation()
+    {
+        // Crash mid-rollback: the coordinator persisted the region as 'rolling_back' (record
+        // state Failed, receipt-less) and died before the KV rollback. The single region's
+        // rolling_back debt alone must route replay to rollback CONTINUATION — treating it as
+        // already restored (or as fresh apply material) would re-apply over an owed rollback.
+        var journal = new InMemoryDeliveryJournal();
+        var request = Request();
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Failed,
+            null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "rolling_back", PreviousDigest, null, PreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "rolling_back", PreviousDigest, null, PreviousManifestDigest),
+            ]), default);
+        var target = new RecordingTarget();
+        target.SeedCurrentArtifact("gru", ArtifactDigest, ValidDigest);
+        target.SeedCurrentArtifact("sfo", ArtifactDigest, ValidDigest);
+
+        var receipt = await Coordinator(target, journal).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.RollbackDigests).IsEquivalentTo([("gru", PreviousDigest), ("sfo", PreviousDigest)]);
+        await Assert.That(target.CurrentDigestOf("gru")).IsEqualTo(PreviousDigest);
+        await Assert.That(target.CurrentDigestOf("sfo")).IsEqualTo(PreviousDigest);
+        var regions = journal.Records[^1].Regions!;
+        await Assert.That(regions.Select(static region => region.State))
+            .IsEquivalentTo(["rollback_succeeded", "rollback_succeeded"]);
+    }
+
+    [Test]
     public async Task Adapter_secret_material_never_reaches_receipts()
     {
         const string token = "sekrit-token-123";

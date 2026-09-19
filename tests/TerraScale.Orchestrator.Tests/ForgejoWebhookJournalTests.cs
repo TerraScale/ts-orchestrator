@@ -221,6 +221,9 @@ public sealed class ForgejoWebhookJournalTests
 
         internal int Mutations { get; private set; }
 
+        /// <summary>How many key enumerations (retention prune scans) ran against this ledger.</summary>
+        internal int Listings { get; private set; }
+
         internal IReadOnlyList<string> Values
         {
             get
@@ -293,6 +296,7 @@ public sealed class ForgejoWebhookJournalTests
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            Listings++;
             string[] keys;
             lock (sync)
             {
