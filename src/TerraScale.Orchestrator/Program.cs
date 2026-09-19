@@ -9,6 +9,7 @@ using TerraScale.Orchestrator.Observability;
 using TerraScale.Orchestrator.Security;
 using TerraScale.Orchestrator.Tooling;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -23,11 +24,7 @@ try
         return HostRuntimeCli.Execute(args.Skip(1).ToArray());
     }
     using var shutdown = new CancellationTokenSource();
-    Console.CancelKeyPress += (_, eventArgs) =>
-    {
-        eventArgs.Cancel = true;
-        shutdown.Cancel();
-    };
+    using var shutdownSignals = ShutdownSignals.Wire(shutdown);
     if (args.FirstOrDefault() is "operator")
     {
         return await OperatorCli.ExecuteAsync(
@@ -134,7 +131,7 @@ try
     using var ciRoleIdentities = TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityRuntime.Open(
         TerraScale.Orchestrator.Delivery.DeliveryRoleIdentityConfiguration.Resolve(ResolvedEnvironment),
         commandIdentity,
-        ProductionCiRoles(options, startupPlan));
+        ProductionRoleComposition.ProductionCiRoles(options, startupPlan));
     using var ciRunnerNatsIdentity = options.CiRunnerNatsIdentity?.Open();
     using var telemetry = OrchestratorTelemetry.Start(options, ResolvedEnvironment);
     using var startupActivity = telemetry.StartRuntime();
@@ -195,24 +192,31 @@ try
                 trustedVerifierConfigured: verifier is not null);
             try
             {
-                globalRuntime = await GlobalNatsRuntime.StartAsync(
-                    options.GlobalNats,
-                    options.Instance,
-                    options.Cell,
-                    ciRunnerNatsIdentity,
-                    shutdown.Token,
-                    options.ForgejoSource,
-                    options.ForgejoCiSourceGraph,
-                    options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
-                    ciRoleIdentities?.CiJob ?? commandIdentity?.Signer,
-                    ciRoleIdentities?.CiArtifact ?? commandIdentity?.Signer,
-                    ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
-                    ciRoleIdentities?.CiRuntimeSignatures ?? commandIdentity?.Verifier,
-                    commandIdentity?.Signer,
-                    verifier is not null,
-                    ciConsumptionEnabled: startupPlan.StartsCiConsumption,
-                    admittedDeliveryTargets: admittedDeliveryTargets,
-                    candidateHandoffV2Policies: candidateHandoffV2Policies);
+                globalRuntime = await GlobalControlStartup.StartWithRetryAsync(
+                    token => GlobalNatsRuntime.StartAsync(
+                        options.GlobalNats,
+                        options.Instance,
+                        options.Cell,
+                        ciRunnerNatsIdentity,
+                        token,
+                        options.ForgejoSource,
+                        options.ForgejoCiSourceGraph,
+                        options.Command == OrchestratorCommand.Run ? options.OciCiRunnerPool : null,
+                        ciRoleIdentities?.CiJob ?? commandIdentity?.Signer,
+                        ciRoleIdentities?.CiArtifact ?? commandIdentity?.Signer,
+                        ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
+                        ciRoleIdentities?.CiRuntimeSignatures ?? commandIdentity?.Verifier,
+                        commandIdentity?.Signer,
+                        verifier is not null,
+                        ciConsumptionEnabled: startupPlan.StartsCiConsumption,
+                        admittedDeliveryTargets: admittedDeliveryTargets,
+                        candidateHandoffV2Policies: candidateHandoffV2Policies),
+                    (attempt, exception) => Console.Error.WriteLine(
+                        $"Global control start attempt {attempt} failed ({exception.GetType().Name}); retrying with backoff."),
+                    shutdown.Token);
+                if (globalRuntime is null)
+                    Console.Error.WriteLine(
+                        "Global control is unavailable after repeated start attempts; regional control remains active.");
                 if (globalRuntime is not null && options.Command is OrchestratorCommand.Run &&
                     NativeGitOpsRuntime.IsEnabled(
                         globalNatsConfigured: GlobalNatsConfiguration.IsLegacyAuthorityAliasAllowed(options.Cell),
@@ -298,8 +302,16 @@ try
     if (options.Command is OrchestratorCommand.Run)
     {
         // Regional lifecycle is intentionally independent of every WAN/global
-        // subsystem. Their own health surfaces report failures and recovery.
-        await ownedRuntime.Completion.WaitAsync(shutdown.Token);
+        // subsystem. Their own health surfaces report failures and recovery — but a
+        // FAULTED global or native-GitOps completion must not outlive the process:
+        // it is observed here, logged, and fails the process through the same path a
+        // regional fault takes, so systemd restarts a fresh candidate instead of
+        // leaving a zombie controller holding a dead global control role.
+        await RunCompletion.AwaitAsync(
+            ownedRuntime.Completion,
+            ownedGlobalRuntime?.Completion,
+            ownedNativeGitOpsRuntime?.Completion,
+            shutdown.Token);
     }
 
     return 0;
@@ -317,25 +329,185 @@ catch (Exception exception)
 /// <summary>
 /// The CI/delivery roles this composition actually composes, whose production startup therefore
 /// requires independently configured key material. Direct delivery always verifies durable
-/// artifact evidence (the CiArtifact trust root); global control additionally verifies native
-/// runtime observations (CiRuntime), and an OCI runner pool additionally signs job dispatch
-/// (CiJob) and artifact attestations (CiArtifact signing).
+/// artifact evidence against the CiArtifact PUBLIC trust root — fail closed, but never demand
+/// the PRIVATE signing key from a process that only verifies (a member host must not hold CI
+/// attestation signing material). Global control additionally verifies native runtime
+/// observations (CiRuntime), and the CI signer controller (an OCI runner pool in run mode)
+/// additionally signs job dispatch (CiJob) and artifact attestations (CiArtifact signing).
 /// </summary>
-static IReadOnlyCollection<TerraScale.Orchestrator.Delivery.DeliverySigningRole> ProductionCiRoles(
-    OrchestratorOptions options,
-    TerraScale.Orchestrator.OrchestratorStartupPlan startupPlan)
+internal static class ProductionRoleComposition
 {
-    if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
-        return [];
-    var roles = new SortedSet<TerraScale.Orchestrator.Delivery.DeliverySigningRole>
+    internal static IReadOnlyCollection<TerraScale.Orchestrator.Delivery.DeliverySigningRole> ProductionCiRoles(
+        OrchestratorOptions options,
+        TerraScale.Orchestrator.OrchestratorStartupPlan startupPlan)
     {
-        // Production direct delivery fails closed without the artifact-evidence verifier in
-        // both the regional and global adapter sets; that verifier is the CiArtifact trust root.
-        TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiArtifact,
-    };
-    if (options.GlobalNats is not null || startupPlan.StartsCiConsumption)
-        roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiRuntime);
-    if (options.Command == OrchestratorCommand.Run && options.OciCiRunnerPool is not null)
-        roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiJob);
-    return roles.ToArray();
+        if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
+            return [];
+        var roles = new SortedSet<TerraScale.Orchestrator.Delivery.DeliverySigningRole>
+        {
+            // Production direct delivery fails closed without the artifact-evidence verifier in
+            // both the regional and global adapter sets; that verifier is the CiArtifact trust root.
+            TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiArtifactTrust,
+        };
+        if (options.GlobalNats is not null || startupPlan.StartsCiConsumption)
+            roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiRuntime);
+        if (options.Command == OrchestratorCommand.Run && options.OciCiRunnerPool is not null)
+        {
+            // Only this composition ever signs CI evidence: it must carry the role's private key,
+            // and its absence fails closed here rather than at first attestation.
+            roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiJob);
+            roles.Add(TerraScale.Orchestrator.Delivery.DeliverySigningRole.CiArtifact);
+        }
+        return roles.ToArray();
+    }
+}
+
+/// <summary>
+/// Graceful-shutdown triggers for the run process: SIGINT (<see cref="Console.CancelKeyPress"/>)
+/// and SIGTERM — the signal systemd delivers on every unit stop and rollout replacement. Both
+/// cancel the shared shutdown token instead of letting the default handler terminate the
+/// process, so lease release, service drain, and the ordered disposal chain actually run in
+/// production, not only for an interactive Ctrl+C.
+/// </summary>
+internal sealed class ShutdownSignals : IDisposable
+{
+    private readonly CancellationTokenSource shutdown;
+    private readonly PosixSignalRegistration? sigterm;
+
+    private ShutdownSignals(CancellationTokenSource shutdown)
+    {
+        this.shutdown = shutdown;
+        Console.CancelKeyPress += OnCancelKeyPress;
+        sigterm = OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+            ? PosixSignalRegistration.Create(PosixSignal.SIGTERM, OnPosixSignal)
+            : null;
+    }
+
+    internal static ShutdownSignals Wire(CancellationTokenSource shutdown) => new(shutdown);
+
+    internal void OnCancelKeyPress(object? sender, ConsoleCancelEventArgs eventArgs)
+    {
+        // Cancel the default termination so the graceful disposal chain runs.
+        eventArgs.Cancel = true;
+        Trigger();
+    }
+
+    internal void OnPosixSignal(PosixSignalContext context)
+    {
+        context.Cancel = true;
+        Trigger();
+    }
+
+    /// <summary>The shared graceful-shutdown trigger behind both signals.</summary>
+    internal void Trigger() => shutdown.Cancel();
+
+    public void Dispose()
+    {
+        Console.CancelKeyPress -= OnCancelKeyPress;
+        sigterm?.Dispose();
+    }
+}
+
+/// <summary>
+/// Bounded, observable retry for the global control runtime's start: a boot-time global NATS
+/// blip (cell restart, quorum re-election) must not permanently strip global-control duties
+/// from an otherwise healthy controller. Attempts back off exponentially; after the bound the
+/// composition degrades to regional control and the caller logs the degradation.
+/// </summary>
+internal static class GlobalControlStartup
+{
+    internal const int MaxStartAttempts = 5;
+
+    internal static async Task<T?> StartWithRetryAsync<T>(
+        Func<CancellationToken, Task<T>> start,
+        Action<int, Exception> attemptFailed,
+        CancellationToken cancellationToken,
+        Func<int, TimeSpan>? backoff = null) where T : class
+    {
+        ArgumentNullException.ThrowIfNull(start);
+        ArgumentNullException.ThrowIfNull(attemptFailed);
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await start(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                if (attempt >= MaxStartAttempts)
+                    return null;
+                attemptFailed(attempt, exception);
+                await Task.Delay((backoff ?? Backoff)(attempt), cancellationToken);
+            }
+        }
+    }
+
+    internal static TimeSpan Backoff(int attempt) =>
+        TimeSpan.FromMilliseconds(Math.Min(500 * (1 << Math.Min(attempt - 1, 4)), 8_000));
+}
+
+/// <summary>
+/// Awaits the run-mode lifecycles: the regional completion governs graceful shutdown, while
+/// the unobserved WAN/global completions (global authority, native GitOps) are supervised —
+/// their faults fail the process instead of zombieing behind healthy regional control.
+/// </summary>
+internal static class RunCompletion
+{
+    internal static async Task AwaitAsync(
+        Task regionalCompletion,
+        Task? globalCompletion,
+        Task? nativeGitOpsCompletion,
+        CancellationToken cancellationToken)
+    {
+        var regional = regionalCompletion.WaitAsync(cancellationToken);
+        // Flat WhenAny over the regional wait and every fail-stop observer: awaiting the
+        // winner propagates its outcome — a nested WhenAny would leave the observer's
+        // fault unobserved and the fail-stop would never reach the process exit path.
+        var lifecycles = new List<Task> { regional };
+        if (globalCompletion is not null)
+            lifecycles.Add(FailStopOnFaultedAsync("global authority", globalCompletion, cancellationToken));
+        if (nativeGitOpsCompletion is not null)
+            lifecycles.Add(FailStopOnFaultedAsync("native GitOps", nativeGitOpsCompletion, cancellationToken));
+        if (lifecycles.Count == 1)
+        {
+            await regional;
+            return;
+        }
+        await await Task.WhenAny(lifecycles);
+    }
+
+    /// <summary>
+    /// Fail-stop supervision for a completion nothing else awaits: a fault (or an unexpected
+    /// clean stop) is logged, then rethrown so the process exits non-zero and systemd restarts
+    /// a fresh candidate. Cancellation is the graceful path and stays silent.
+    /// </summary>
+    internal static async Task FailStopOnFaultedAsync(
+        string role,
+        Task completion,
+        CancellationToken cancellationToken,
+        Action<string>? log = null)
+    {
+        log ??= static message => Console.Error.WriteLine(message);
+        try
+        {
+            await completion.WaitAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            log(
+                $"{role} runtime failed ({exception.GetType().Name}): {exception.Message}. " +
+                "Stopping the process so a restart recovers the role.");
+            throw;
+        }
+        log($"{role} runtime stopped without cancellation; stopping the process.");
+        throw new InvalidOperationException($"The {role} runtime terminated without cancellation.");
+    }
 }

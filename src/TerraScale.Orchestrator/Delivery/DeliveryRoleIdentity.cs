@@ -25,6 +25,14 @@ public enum DeliverySigningRole
     /// verification-only; the signing key lives with the runner process.
     /// </summary>
     CiRuntime = 3,
+    /// <summary>
+    /// Verification-only slice of the CI artifact role: every composition that verifies durable
+    /// artifact evidence (regional and global direct delivery) requires the role's PUBLIC trust
+    /// keys. Only a composition that signs CI evidence (a CI signer controller) additionally
+    /// carries the private key through <see cref="CiArtifact"/>; verifier-only processes —
+    /// including member hosts — must never hold signing material.
+    /// </summary>
+    CiArtifactTrust = 4,
 }
 
 /// <summary>
@@ -227,6 +235,13 @@ internal sealed class DeliveryRoleIdentityRuntime : IDisposable
                         $"This composition requires {DeliveryRoleIdentityConfiguration.CiRuntimeTrustKeyFilesVariable} " +
                         "for the native runtime-observation verification role; the shared command identity is " +
                         "not admitted for it.");
+                break;
+            case DeliverySigningRole.CiArtifactTrust:
+                if (configuration?.CiArtifactTrustKeyFiles.Count is not > 0)
+                    throw new InvalidOperationException(
+                        $"This composition requires {DeliveryRoleIdentityConfiguration.CiArtifactTrustKeyFilesVariable} " +
+                        "for the CI artifact evidence verification role; the shared command identity is not " +
+                        "admitted for it.");
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(role));
