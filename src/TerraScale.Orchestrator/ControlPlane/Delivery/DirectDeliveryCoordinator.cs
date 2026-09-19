@@ -1170,7 +1170,9 @@ public class DirectDeliveryCoordinator
     }
 
     /// <summary>
-    /// A journaled record whose rollback is still pending: recovery must resume or complete the
+    /// A journaled record whose rollback is still pending — including a region interrupted
+    /// mid-rollback (<c>rolling_back</c>, the crash shape between the durable state change and
+    /// the region's KV rollback): recovery must resume or complete the
     /// rollback instead of replaying a terminal receipt. A FAILURE whose terminal receipt never
     /// became durable (crash or journal outage between the failure-progress persist and the
     /// receipt persist) also owes recovery when its regions still carry forward write-ahead
@@ -1188,19 +1190,21 @@ public class DirectDeliveryCoordinator
     private static bool NeedsRollbackRecovery(DeliveryJournalRecord? record) =>
         record is not null &&
         (record.State == DeliveryJournalState.RollingBack ||
-            record.Regions?.Any(static region => region.State is "rollback_failed" or "rollback_pending") == true ||
+            record.Regions?.Any(static region =>
+                region.State is "rollback_failed" or "rollback_pending" or "rolling_back") == true ||
             record.Receipt?.Error.Code == DirectDeliveryErrorCode.RollbackFailed ||
             (record.State == DeliveryJournalState.Failed && record.Receipt is null && HasWriteAheadDebt(record)));
 
     /// <summary>
     /// True when any region holds durable write-ahead rollback material in a phase that has not
-    /// been restored yet (forward delivery phases, or rollback phases that replay finishes).
-    /// A receipt-less record with such debt owes its rollback.
+    /// been restored yet (forward delivery phases, or rollback phases that replay finishes —
+    /// including a region interrupted mid-rollback, whose rollback replay must CONTINUE, never
+    /// be skipped as already restored). A receipt-less record with such debt owes its rollback.
     /// </summary>
     private static bool HasWriteAheadDebt(DeliveryJournalRecord record) =>
         record.Regions?.Any(static region =>
             region.State is "applied" or "healthy" or "health_failed" or "rollback_pending" or
-                "rollback_failed" or "rollback_succeeded" &&
+                "rolling_back" or "rollback_failed" or "rollback_succeeded" &&
             IsDigest(region.PreviousArtifactDigest) && IsDigest(region.PreviousManifestDigest)) == true;
 
     /// <summary>
@@ -1225,9 +1229,15 @@ public class DirectDeliveryCoordinator
             .ToList();
     }
 
+    /// <summary>
+    /// Regions owing rollback work, including one interrupted mid-rollback (<c>rolling_back</c>):
+    /// a crash between the durable 'rolling_back' persist and the region's KV rollback must replay
+    /// as rollback CONTINUATION — excluding it here would let recovery skip the region and emit a
+    /// rolled_back receipt while the failed artifact stays deployed.
+    /// </summary>
     private static List<MutationSnapshot> ProgressMutations(IEnumerable<DeliveryRegionProgress> progress) =>
         progress.Where(static value => value.State is "applied" or "healthy" or "health_failed" or
-                "rollback_pending" or "rollback_failed" or "rollback_succeeded")
+                "rollback_pending" or "rolling_back" or "rollback_failed" or "rollback_succeeded")
             .Where(static value => IsDigest(value.PreviousArtifactDigest) && IsDigest(value.PreviousManifestDigest))
             .Select(static value => new MutationSnapshot(
                 value.Region,

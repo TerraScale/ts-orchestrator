@@ -23,7 +23,12 @@ internal sealed class DirectDeliveryJournalConflictException : Exception
 internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) : IDeliveryJournal
 {
     internal const int DefaultOperationHistoryCap = 1024;
-    internal const int DefaultPruneInterval = 1;
+    // The prune scan enumerates the whole operation prefix and re-reads every over-cap key, so
+    // it is amortized over appends exactly like the webhook dedupe indexes (ForgejoWebhookJournal).
+    internal const int DefaultPruneInterval = 32;
+    // Age proxy for orphaned in-flight records: the KV store exposes no wall clock, so ledger
+    // revision distance bounds how long an unresumable record can hold a journal slot.
+    internal const int DefaultInFlightRevisionHorizon = 2 * DefaultOperationHistoryCap;
     private const string OperationKeyPrefix = "direct.operation.";
     // The journal writes into the provisioned ORCH_DELIVERY KV bucket, whose MaxValueSize
     // (NatsTopology.Delivery) is 16 KiB. The journal's own cap must never exceed the KV cap:
@@ -37,21 +42,26 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
     private readonly IForgejoDeliveryRetentionLedger? retention = ledger as IForgejoDeliveryRetentionLedger;
     private readonly int operationHistoryCap = DefaultOperationHistoryCap;
     private readonly int pruneInterval = DefaultPruneInterval;
+    private readonly int inFlightRevisionHorizon = DefaultInFlightRevisionHorizon;
     private int appendsSincePrune;
 
     internal NatsDirectDeliveryJournal(
         IForgejoDeliveryLedger ledger,
         IForgejoDeliveryRetentionLedger retention,
         int operationHistoryCap = DefaultOperationHistoryCap,
-        int pruneInterval = DefaultPruneInterval) : this(ledger)
+        int pruneInterval = DefaultPruneInterval,
+        int inFlightRevisionHorizon = DefaultInFlightRevisionHorizon) : this(ledger)
     {
         this.retention = retention ?? throw new ArgumentNullException(nameof(retention));
         if (operationHistoryCap is < 1 or > 65_536)
             throw new ArgumentOutOfRangeException(nameof(operationHistoryCap));
         if (pruneInterval is < 1 or > 65_536)
             throw new ArgumentOutOfRangeException(nameof(pruneInterval));
+        if (inFlightRevisionHorizon is < 0 or > 1_048_576)
+            throw new ArgumentOutOfRangeException(nameof(inFlightRevisionHorizon));
         this.operationHistoryCap = operationHistoryCap;
         this.pruneInterval = pruneInterval;
+        this.inFlightRevisionHorizon = inFlightRevisionHorizon;
     }
 
     public async ValueTask<DeliveryJournalRecord?> ReadAsync(
@@ -111,17 +121,20 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
                 throw new DirectDeliveryJournalConflictException();
             }
         }
-        // The cap is an invariant, not an eventual target. The interval remains a constructor
-        // compatibility input but cannot permit an append to leave the durable key count above
-        // the configured bound.
-        _ = Interlocked.Increment(ref appendsSincePrune);
+        // Retention is amortized over appends: the prune enumerates the whole operation prefix
+        // and re-reads every over-cap key, so it must not run per append — a 64-region delivery
+        // appends ~3R+2 progress records, each of which would otherwise pay the full scan.
+        // Every pruneInterval-th append enforces the cap; between prunes the durable key count
+        // may overshoot the cap by at most pruneInterval-1 keys.
+        if (Interlocked.Increment(ref appendsSincePrune) < pruneInterval) return;
+        appendsSincePrune = 0;
         await DeliveryJournalRetention.PruneAsync(
             retention,
             OperationKeyPrefix,
             operationHistoryCap,
-            (entry, _, token) => Task.FromResult(new DeliveryJournalPruneDecision(
-                IsPrunable(Read(entry.Value)))),
-            "in-flight or rollback-recovery-pending direct delivery operations",
+            (entry, newestRevision, token) => Task.FromResult(new DeliveryJournalPruneDecision(
+                IsPrunable(Read(entry.Value), newestRevision - entry.Revision))),
+            "in-flight direct delivery operations younger than the bounded-age horizon, or rollback-recovery-pending ones",
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -172,9 +185,14 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
 
     /// <summary>
     /// Prunable means terminal AND recovered: a Failed record that still owes rollback recovery
-    /// (rollback-pending/failed regions, a rollback-failed receipt, or a receipt-less record
-    /// whose regions still carry write-ahead rollback material) holds the only durable copy of
-    /// the pre-mutation digests and must never be pruned.
+    /// (rollback-pending/failed/mid-rollback regions, a rollback-failed receipt, or a
+    /// receipt-less record whose regions still carry write-ahead rollback material) holds the
+    /// only durable copy of the pre-mutation digests and must never be pruned. An in-flight
+    /// record is prunable only past the bounded-age horizon: its writer may still be
+    /// mid-delivery, but a leader crash mid-apply orphans the record forever (a retry carries
+    /// the new lease epoch and fingerprints as a different request, so it can never re-enter
+    /// this record), and without the horizon each orphan would hold a journal slot until
+    /// retention overflow wedges every delivery in the domain.
     /// </summary>
     /// <remarks>
     /// Third agreeing site: the coordinator's <c>NeedsRollbackRecovery</c>/<c>HasWriteAheadDebt</c>
@@ -183,30 +201,34 @@ internal sealed class NatsDirectDeliveryJournal(IForgejoDeliveryLedger ledger) :
     /// whether retention may delete the record at all. All three must classify the same shapes
     /// the same way: pruning a record those route to recovery would destroy the only durable
     /// pre-mutation digests, and a retry would re-apply over an owed or finished rollback.
+    /// A live delivery that is falsely expired by the horizon loses nothing durable: its next
+    /// append re-creates the record from the coordinator's full progress snapshot.
     /// </remarks>
-    private static bool IsPrunable(DeliveryJournalRecord record) =>
+    private bool IsPrunable(DeliveryJournalRecord record, ulong revisionDistance) =>
         record.State switch
         {
             DeliveryJournalState.Succeeded => true,
             DeliveryJournalState.RolledBack => true,
             DeliveryJournalState.Failed =>
                 record.Regions?.Any(static region =>
-                    region.State is "rollback_failed" or "rollback_pending") != true &&
+                    region.State is "rollback_failed" or "rollback_pending" or "rolling_back") != true &&
                 record.Receipt?.Error.Code != DirectDeliveryErrorCode.RollbackFailed &&
                 !(record.Receipt is null && HasWriteAheadRollbackMaterial(record)),
-            _ => false,
+            _ => revisionDistance >= (ulong)inFlightRevisionHorizon,
         };
 
     /// <summary>
     /// Mirrors the coordinator's write-ahead-debt test, including completed
-    /// <c>rollback_succeeded</c> regions: deleting a receipt-less completed rollback would let
-    /// replay re-apply the artifact over a finished rollback. Digest presence uses the same
-    /// content-addressed hex shape the journal validates elsewhere.
+    /// <c>rollback_succeeded</c> regions and regions interrupted mid-rollback
+    /// (<c>rolling_back</c>: a crash between the durable state change and the KV rollback):
+    /// deleting a receipt-less record in either shape would let replay re-apply the artifact
+    /// over an owed or finished rollback. Digest presence uses the same content-addressed hex
+    /// shape the journal validates elsewhere.
     /// </summary>
     private static bool HasWriteAheadRollbackMaterial(DeliveryJournalRecord record) =>
         record.Regions?.Any(static region =>
             region.State is "applied" or "healthy" or "health_failed" or "rollback_pending" or
-                "rollback_failed" or "rollback_succeeded" &&
+                "rolling_back" or "rollback_failed" or "rollback_succeeded" &&
             region.PreviousArtifactDigest is { } artifact && Sha256(artifact) &&
             region.PreviousManifestDigest is { } manifest && Sha256(manifest)) == true;
 
@@ -392,20 +414,34 @@ internal static class DeliveryJournalRetention
         }
         if (keys.Count <= cap) return;
 
-        // Oldest-first by ledger revision (a monotonically increasing write order); the newest
-        // observed revision is the decider's bounded-age horizon reference.
-        var candidates = new List<(string Key, ulong Revision)>(keys.Count);
+        // One read per key, kept for the whole prune: the entry's revision both orders the
+        // candidates and drives the compare-and-set delete (no per-candidate re-reads). A key
+        // that vanished between the listing and this read no longer exists durably and must
+        // stop counting toward the cap, or a phantom would trip the overflow below while the
+        // store is actually at or under it.
+        var candidates = new List<(string Key, ForgejoDeliveryLedgerEntry Entry)>(keys.Count);
+        List<string>? vanished = null;
         foreach (var key in keys)
         {
-            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry) continue;
-            candidates.Add((key, entry.Revision));
+            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry)
+            {
+                (vanished ??= []).Add(key);
+                continue;
+            }
+            candidates.Add((key, entry));
         }
-        var newestRevision = candidates.Count == 0 ? 0UL : candidates.Max(static candidate => candidate.Revision);
+        if (vanished is not null)
+            foreach (var key in vanished)
+                keys.Remove(key);
+        if (keys.Count <= cap) return;
+
+        // Oldest-first by ledger revision (a monotonically increasing write order); the newest
+        // observed revision is the decider's bounded-age horizon reference.
+        var newestRevision = candidates.Count == 0 ? 0UL : candidates.Max(static candidate => candidate.Entry.Revision);
         var unreadable = 0;
-        foreach (var (key, revision) in candidates.OrderBy(static candidate => candidate.Revision))
+        foreach (var (key, entry) in candidates.OrderBy(static candidate => candidate.Entry.Revision))
         {
             if (keys.Count <= cap) return;
-            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } entry) continue;
             DeliveryJournalPruneDecision decision;
             try
             {
@@ -426,9 +462,19 @@ internal static class DeliveryJournalRetention
                 continue;
             }
             if (!decision.Prunable) continue;
-            if (await ledger.GetAsync(key, cancellationToken).ConfigureAwait(false) is not { } current) continue;
-            await retention.DeleteAsync(key, current.Revision, cancellationToken).ConfigureAwait(false);
-            if (decision.ObjectNameToDelete is { } objectName && objects is not null)
+            var deleted = false;
+            try
+            {
+                await retention.DeleteAsync(key, entry.Revision, cancellationToken).ConfigureAwait(false);
+                deleted = true;
+            }
+            catch (ForgejoDeliveryLedgerConflictException)
+            {
+                // A concurrent writer deleted or rewrote the key after our read: it is no longer
+                // ours to prune, and losing that race must never fail the append that is
+                // already durable. A rewritten key is a fresh record its winning writer owns.
+            }
+            if (deleted && decision.ObjectNameToDelete is { } objectName && objects is not null)
                 await objects.DeleteIfExistsAsync(objectName, cancellationToken).ConfigureAwait(false);
             keys.Remove(key);
         }

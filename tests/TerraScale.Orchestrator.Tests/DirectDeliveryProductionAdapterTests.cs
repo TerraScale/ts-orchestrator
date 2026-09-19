@@ -575,6 +575,48 @@ public sealed class DirectDeliveryProductionAdapterTests
     }
 
     [Test]
+    public async Task Restart_with_a_region_stuck_in_rolling_back_continues_its_rollback()
+    {
+        // The real crash shape: the coordinator persisted the region as 'rolling_back' (record
+        // state Failed, receipt-less — TryPersistProgressAsync always writes Failed) and died
+        // before the region's KV rollback. Replay must CONTINUE that region's rollback through
+        // the real journal's continuity rules; skipping it would emit a rolled_back receipt
+        // while the failed artifact stays deployed in the region.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(new LedgerAdapter(ledger));
+        var request = Request(CommitA) with
+        {
+            Target = new DeliveryTarget("authentication", "development", ["gru", "sfo"]),
+        };
+        await journal.AppendAsync(new(
+            request.OperationId!,
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Failed,
+            Receipt: null,
+            ArtifactDigest,
+            [
+                new DeliveryRegionProgress("gru", "healthy", PreviousArtifactDigest, null, PreviousManifestDigest),
+                new DeliveryRegionProgress("sfo", "rolling_back", PreviousArtifactDigest, null, PreviousManifestDigest),
+            ]), default);
+        var target = new FencedTarget();
+        target.Seed("gru", ArtifactDigest, ManifestDigest);
+        target.Seed("sfo", ArtifactDigest, ManifestDigest);
+
+        var receipt = await CoordinatorOver(new LedgerAdapter(ledger), target).DeliverAsync(request);
+
+        await Assert.That(receipt.Status).IsEqualTo(DeliveryReceiptStatus.RolledBack);
+        await Assert.That(target.Calls.Any(static call =>
+            call.StartsWith("apply:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(target.Calls).Contains("rollback:sfo");
+        await Assert.That(target.DigestOf("sfo")).IsEqualTo(PreviousArtifactDigest);
+        await Assert.That(target.DigestOf("gru")).IsEqualTo(PreviousArtifactDigest);
+        var record = await journal.ReadAsync(request.OperationId!, default);
+        await Assert.That(record!.State).IsEqualTo(DeliveryJournalState.RolledBack);
+        await Assert.That(record.Regions!.Single(static region => region.Region == "sfo").State)
+            .IsEqualTo("rollback_succeeded");
+    }
+
+    [Test]
     public async Task A_target_revision_cas_loss_reports_the_typed_mutation_race()
     {
         // The digest fence matched, but the ledger's revision compare-and-set lost to a
@@ -654,7 +696,7 @@ public sealed class DirectDeliveryProductionAdapterTests
         // journal must fail closed (overflow) rather than delete it, or a retry would re-apply
         // over an owed rollback.
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
         var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
 
         await journal.AppendAsync(new("retain-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
@@ -690,7 +732,7 @@ public sealed class DirectDeliveryProductionAdapterTests
         // rollback_succeeded without a durable receipt still owes its terminal record: deleting
         // it would let replay re-apply the artifact over a finished rollback.
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
         var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
 
         await journal.AppendAsync(new("retain-done-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
@@ -720,7 +762,7 @@ public sealed class DirectDeliveryProductionAdapterTests
         // Positive control: a receipt-less Failed record with NO write-ahead debt owes nothing
         // and stays prunable — the guard protects recovery material, not every failure.
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
         var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
 
         await journal.AppendAsync(new("retain-free-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
@@ -732,6 +774,38 @@ public sealed class DirectDeliveryProductionAdapterTests
 
         await Assert.That(await journal.ReadAsync("retain-free-1", default)).IsNull();
         await Assert.That(await journal.ReadAsync("retain-free-2", default)).IsNotNull();
+    }
+
+    [Test]
+    public async Task Retention_never_prunes_a_receipt_less_failure_with_a_region_mid_rollback()
+    {
+        // The crash-mid-rollback shape: a receipt-less Failed record whose region is
+        // 'rolling_back' carries the only durable copy of the pre-mutation digests and owes
+        // rollback continuation — under cap pressure the journal must fail closed (overflow)
+        // rather than delete it while the region still runs the failed artifact.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
+        var fingerprint = DirectDeliveryCoordinator.RequestFingerprint(Request(CommitA));
+
+        await journal.AppendAsync(new("retain-rolling-1", fingerprint, DeliveryJournalState.Failed, Receipt: null,
+            ArtifactDigest,
+            [new DeliveryRegionProgress("gru", "rolling_back", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+
+        var overflowed = false;
+        try
+        {
+            await journal.AppendAsync(new("retain-rolling-2", fingerprint, DeliveryJournalState.Failed,
+                Receipt: null, ArtifactDigest,
+                [new DeliveryRegionProgress("gru", "rolling_back", PreviousArtifactDigest, null, PreviousManifestDigest)]), default);
+        }
+        catch (TerraScale.Orchestrator.Delivery.JournalRetentionOverflowException)
+        {
+            overflowed = true;
+        }
+
+        await Assert.That(overflowed).IsTrue();
+        await Assert.That(await journal.ReadAsync("retain-rolling-1", default)).IsNotNull();
+        await Assert.That(await journal.ReadAsync("retain-rolling-2", default)).IsNotNull();
     }
 
     [Test]

@@ -235,12 +235,15 @@ public sealed class NatsDirectDeliveryJournalTests
     }
 
     [Test]
-    public async Task PruningIsAmortizedOverAppendsNotPerAppend()
+    public async Task Retention_pruning_is_amortized_over_appends_not_run_per_append()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        // The cap remains exact even when the configured scan interval is large.
-        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 2, pruneInterval: 1_000);
-        foreach (var index in new[] { 1, 2, 3, 4, 5 })
+        // Prune only every 4th append: eight appends must enumerate the key prefix exactly
+        // twice (not eight times), and between prunes the key count may overshoot the cap by
+        // at most pruneInterval-1 keys. Only direct.operation.* keys exist in this ledger, so
+        // the in-memory value count is the durable key count.
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 2, pruneInterval: 4);
+        for (var index = 1; index <= 8; index++)
         {
             var request = Request($"operation-amortized-{index}", ArtifactDigest);
             await journal.AppendAsync(new(
@@ -249,9 +252,171 @@ public sealed class NatsDirectDeliveryJournalTests
                 DeliveryJournalState.Succeeded,
                 SuccessReceipt($"operation-amortized-{index}"),
                 ArtifactDigest), default);
+            await Assert.That(ledger.Values.Count).IsLessThanOrEqualTo(2 + 3);
         }
 
-        await Assert.That(await CountOperationsAsync(ledger)).IsEqualTo(2);
+        await Assert.That(ledger.Listings).IsEqualTo(2);
+        await Assert.That(ledger.Values.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task An_orphaned_in_flight_record_expires_after_the_revision_age_horizon()
+    {
+        // A leader crash mid-apply leaves an in-flight record whose writer can never resume
+        // (a retry carries the new lease epoch and fingerprints as a different request).
+        // Without the bounded-age horizon that orphan holds its journal slot forever, until
+        // retention overflow wedges every delivery in the domain.
+        var ledger = new ForgejoWebhookJournalTests.TestLedger();
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 2, pruneInterval: 1,
+            inFlightRevisionHorizon: 4);
+        var orphan = Request("operation-orphan", ArtifactDigest);
+        await journal.AppendAsync(new(
+            "operation-orphan",
+            DirectDeliveryCoordinator.RequestFingerprint(orphan),
+            DeliveryJournalState.Applying,
+            null,
+            ArtifactDigest), default);
+
+        // Newer operations advance the newest revision; inside the horizon the orphan stays
+        // (the prune drains the older terminal fillers instead).
+        foreach (var id in new[] { "operation-filler-a", "operation-filler-b" })
+        {
+            var filler = Request(id, ArtifactDigest);
+            await journal.AppendAsync(new(
+                id,
+                DirectDeliveryCoordinator.RequestFingerprint(filler),
+                DeliveryJournalState.Succeeded,
+                SuccessReceipt(id),
+                ArtifactDigest), default);
+        }
+        await Assert.That(await journal.ReadAsync("operation-orphan", default)).IsNotNull();
+
+        // One more append puts the newest revision a full horizon beyond the orphan's write
+        // (revisions 1..5: the orphan's 1 is 4 behind the newest 5): the expired orphan is
+        // pruned instead of wedging the cap.
+        var last = Request("operation-filler-a", ArtifactDigest);
+        await journal.AppendAsync(new(
+            "operation-filler-a",
+            DirectDeliveryCoordinator.RequestFingerprint(last),
+            DeliveryJournalState.Succeeded,
+            SuccessReceipt("operation-filler-a"),
+            ArtifactDigest), default);
+
+        await Assert.That(await journal.ReadAsync("operation-orphan", default)).IsNull();
+        await Assert.That(await journal.ReadAsync("operation-filler-a", default)).IsNotNull();
+        await Assert.That(await journal.ReadAsync("operation-filler-b", default)).IsNotNull();
+    }
+
+    [Test]
+    public async Task A_prune_delete_race_never_fails_the_durably_recorded_append()
+    {
+        // Writer A deletes the oldest key while writer B's prune holds a stale revision: B's
+        // compare-and-set delete loses, and that race must neither fail B's append (already
+        // durable) nor delete anything — the winning writer owns the keys now.
+        var inner = new ForgejoWebhookJournalTests.TestLedger();
+        var ledger = new DeleteRacingLedger(inner);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
+        foreach (var operationId in new[] { "operation-race-old", "operation-race-new" })
+        {
+            var request = Request(operationId, ArtifactDigest);
+            await journal.AppendAsync(new(
+                operationId,
+                DirectDeliveryCoordinator.RequestFingerprint(request),
+                DeliveryJournalState.Succeeded,
+                SuccessReceipt(operationId),
+                ArtifactDigest), default);
+        }
+
+        await Assert.That(ledger.LostDeletes).IsGreaterThanOrEqualTo(1);
+        await Assert.That(await CountOperationsAsync(inner)).IsEqualTo(2);
+        await Assert.That(await journal.ReadAsync("operation-race-new", default)).IsNotNull();
+    }
+
+    /// <summary>Delegates to the test ledger but loses every delete like a beaten CAS race.</summary>
+    private sealed class DeleteRacingLedger(ForgejoWebhookJournalTests.TestLedger inner) :
+        IForgejoDeliveryLedger,
+        IForgejoDeliveryRetentionLedger
+    {
+        internal int LostDeletes { get; private set; }
+
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken) =>
+            inner.GetAsync(key, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken) =>
+            inner.CreateAsync(key, value, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+            string key, string value, ulong revision, CancellationToken cancellationToken) =>
+            inner.UpdateAsync(key, value, revision, cancellationToken);
+
+        public async IAsyncEnumerable<string> ListKeysAsync(
+            string filter,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (var key in inner.ListKeysAsync(filter, cancellationToken))
+                yield return key;
+        }
+
+        public Task DeleteAsync(string key, ulong revision, CancellationToken cancellationToken)
+        {
+            LostDeletes++;
+            throw new ForgejoDeliveryLedgerConflictException(new InvalidOperationException("lost delete race"));
+        }
+    }
+
+    [Test]
+    public async Task A_prune_over_vanished_keys_does_not_overflow_a_store_at_cap()
+    {
+        // A key deleted between the prune's listing and its read is a phantom: it no longer
+        // exists durably, so it must not count toward the cap — a store at its cap must
+        // neither fail the append with a spurious retention overflow nor prune a live record
+        // because the phantom made the store look over cap.
+        var inner = new ForgejoWebhookJournalTests.TestLedger();
+        var ledger = new PhantomKeyLedger(inner);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
+        var request = Request("operation-phantom", ArtifactDigest);
+
+        await journal.AppendAsync(new(
+            "operation-phantom",
+            DirectDeliveryCoordinator.RequestFingerprint(request),
+            DeliveryJournalState.Succeeded,
+            SuccessReceipt("operation-phantom"),
+            ArtifactDigest), default);
+
+        await Assert.That(ledger.PhantomsListed).IsGreaterThanOrEqualTo(1);
+        await Assert.That(await journal.ReadAsync("operation-phantom", default)).IsNotNull();
+    }
+
+    /// <summary>Delegates to the test ledger but lists one key that never reads back.</summary>
+    private sealed class PhantomKeyLedger(ForgejoWebhookJournalTests.TestLedger inner) :
+        IForgejoDeliveryLedger,
+        IForgejoDeliveryRetentionLedger
+    {
+        internal int PhantomsListed { get; private set; }
+
+        public Task<ForgejoDeliveryLedgerEntry?> GetAsync(string key, CancellationToken cancellationToken) =>
+            inner.GetAsync(key, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> CreateAsync(string key, string value, CancellationToken cancellationToken) =>
+            inner.CreateAsync(key, value, cancellationToken);
+
+        public Task<ForgejoDeliveryLedgerEntry> UpdateAsync(
+            string key, string value, ulong revision, CancellationToken cancellationToken) =>
+            inner.UpdateAsync(key, value, revision, cancellationToken);
+
+        public async IAsyncEnumerable<string> ListKeysAsync(
+            string filter,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (var key in inner.ListKeysAsync(filter, cancellationToken))
+                yield return key;
+            if (filter != "direct.operation.>") yield break;
+            PhantomsListed++;
+            yield return "direct.operation.phantom";
+        }
+
+        public Task DeleteAsync(string key, ulong revision, CancellationToken cancellationToken) =>
+            inner.DeleteAsync(key, revision, cancellationToken);
     }
 
     [Test]
@@ -400,7 +565,7 @@ public sealed class NatsDirectDeliveryJournalTests
     public async Task ALegacyRecordUnderCapPressureFailsBoundedInsteadOfKillingEveryAppend()
     {
         var ledger = new ForgejoWebhookJournalTests.TestLedger();
-        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1);
+        var journal = new NatsDirectDeliveryJournal(ledger, ledger, operationHistoryCap: 1, pruneInterval: 1);
         // A pre-change record: current-shape JSON minus the receipt's manifest-digest member.
         // It deserializes but cannot round-trip canonically — exactly the durable bytes a
         // previous record codec wrote.
