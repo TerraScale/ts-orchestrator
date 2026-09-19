@@ -101,6 +101,42 @@ public sealed class NativeGitOpsRuntimeTests
             .ThrowsNothing();
     }
 
+    [Test]
+    public async Task TransientNatsErrorMidPullRetriesInsteadOfKillingTheWorker()
+    {
+        var pulls = 0;
+        // One regional R3 blip (JetStream leader failover, publish timeout) must not
+        // permanently kill the relay/accept workers of a surviving region.
+        await NativeGitOpsRuntime.PullWithTransientRetryAsync(
+            _ =>
+            {
+                pulls++;
+                return pulls == 1
+                    ? Task.FromException(new NATS.Client.JetStream.NatsJSTimeoutException("regional CELL_SPEC publish timed out"))
+                    : Task.CompletedTask;
+            },
+            "relay",
+            CancellationToken.None);
+
+        await Assert.That(pulls).IsEqualTo(2);
+        await Assert.That(NativeGitOpsRuntime.IsTransientNatsError(
+            new NATS.Client.Core.NatsException("connection reset"))).IsTrue();
+    }
+
+    [Test]
+    public async Task NonTransientErrorEscapesThePullAndFaultsCompletion()
+    {
+        // A non-transient failure must still fail-stop: it escapes the pull, the worker
+        // fault propagates through RunWorkersAsync, and Completion faults for the observer.
+        await Assert.That(() => NativeGitOpsRuntime.PullWithTransientRetryAsync(
+                _ => Task.FromException(new InvalidDataException("relay decode failed")),
+                "relay",
+                CancellationToken.None))
+            .Throws<InvalidDataException>();
+        await Assert.That(NativeGitOpsRuntime.IsTransientNatsError(
+            new InvalidDataException("relay decode failed"))).IsFalse();
+    }
+
     private static RegionalAuthoritySnapshot Snapshot(
         string state,
         bool leader,

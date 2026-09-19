@@ -26,6 +26,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly INatsObjStore? bundles;
     private readonly NatsTopology topology;
     private readonly DirectDeliveryService? directDelivery;
+    private readonly INatsSvcServer? directDeliveryService;
     private readonly CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission;
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
     private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
@@ -40,6 +41,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsObjStore? bundles,
         NatsTopology topology,
         DirectDeliveryService? directDelivery,
+        INatsSvcServer? directDeliveryService,
         CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
         ServiceEndpointInstrumentation serviceInstrumentation,
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence)
@@ -53,6 +55,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.bundles = bundles;
         this.topology = topology;
         this.directDelivery = directDelivery;
+        this.directDeliveryService = directDeliveryService;
         this.candidateHandoffV2Admission = candidateHandoffV2Admission;
         this.serviceInstrumentation = serviceInstrumentation;
         this.hostConvergence = hostConvergence;
@@ -81,6 +84,37 @@ public sealed class NatsRuntime : IAsyncDisposable
         current.Ready && current.IsLeader &&
         current.Epoch == request.AuthorityGeneration &&
         current.Epoch == request.WriterEpoch;
+
+    /// <summary>
+    /// Only the current authority leader may execute a direct-delivery mutation. The mutation
+    /// endpoint is registered WITHOUT a queue group (see <see cref="DirectDeliveryServiceConfig"/>),
+    /// so every controller receives each request and the leader answers it; a follower or an
+    /// election-window receiver drops the request without replying — it can never execute the
+    /// mutation, and replying would race the leader's authoritative receipt (and historically
+    /// surfaced as a misleading authorization denial).
+    /// </summary>
+    internal static bool ServesDirectDeliveryRequests(RegionalAuthoritySnapshot lease) =>
+        lease.Ready && lease.IsLeader;
+
+    /// <summary>
+    /// The direct-delivery mutation service: deliberately outside the shared controller queue
+    /// group. Queue-group delivery would hand each request to one random controller while only
+    /// the leader can execute, making success per-attempt luck and every follower hit an
+    /// authorization-shaped denial; without a queue group every controller receives the request
+    /// and exactly the leader replies.
+    /// </summary>
+    internal static NatsSvcConfig DirectDeliveryServiceConfig(NatsTopology topology, string instance) => new(
+        $"{topology.ServiceName}_direct_delivery",
+        "1.0.0")
+    {
+        Description = "TerraScale direct delivery mutation service",
+        Metadata = new Dictionary<string, string>
+        {
+            ["cell"] = topology.Cell,
+            ["instance"] = instance
+        },
+        UseQueueGroup = false
+    };
 
     /// <summary>
     /// Attaches the process telemetry so service endpoint statistics also flow into
@@ -266,6 +300,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken);
 
             DirectDeliveryService? directDelivery = null;
+            INatsSvcServer? directDeliveryService = null;
             CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission = null;
             if (state.Delivery is not null)
             {
@@ -344,12 +379,23 @@ public sealed class NatsRuntime : IAsyncDisposable
                 if (registersDirectDeliveryEndpoint && commandSignatureVerifier is not null)
                 {
                     var handoffDelivery = new TerraScale.Orchestrator.Delivery.DeployHandoff.DeployHandoffDeliveryRuntime(directDelivery);
-                    await service.AddEndpointAsync<string>(
+                    // Registered on its own queue-group-free service (DirectDeliveryServiceConfig),
+                    // not the shared controller queue group: only the leader can execute, so
+                    // queue-group load balancing would make every attempt a lottery.
+                    directDeliveryService = await services.AddServiceAsync(
+                        DirectDeliveryServiceConfig(topology, options.Instance),
+                        cancellationToken);
+                    await directDeliveryService.AddEndpointAsync<string>(
                         message => HandleAsync(
                             NatsServiceEndpointName.DirectDelivery,
                             message,
                             async () =>
                             {
+                                // A follower (or an election-window receiver) never executes and
+                                // never replies: the current leader receives its own copy of the
+                                // same request and answers it.
+                                if (!ServesDirectDeliveryRequests(authority.Snapshot))
+                                    return;
                                 // Three payload kinds share the signed seam. Direct requests and v1
                                 // mappings can execute with Orchestrator authority. V2 candidate
                                 // evidence stops after admission and keeps every authority field zero.
@@ -541,6 +587,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 state.Bundles,
                 topology,
                 directDelivery,
+                directDeliveryService,
                 candidateHandoffV2Admission,
                 endpointInstrumentation,
                 hostConvergenceRuntime);
@@ -738,30 +785,38 @@ public sealed class NatsRuntime : IAsyncDisposable
     {
         try
         {
-            await service.DisposeAsync();
+            if (directDeliveryService is not null)
+                await directDeliveryService.DisposeAsync();
         }
         finally
         {
             try
             {
-                await authority.DisposeAsync();
+                await service.DisposeAsync();
             }
             finally
             {
                 try
                 {
-                    await membership.DisposeAsync();
+                    await authority.DisposeAsync();
                 }
                 finally
                 {
                     try
                     {
-                        if (hostConvergence is not null)
-                            await hostConvergence.DisposeAsync();
+                        await membership.DisposeAsync();
                     }
                     finally
                     {
-                        await client.DisposeAsync();
+                        try
+                        {
+                            if (hostConvergence is not null)
+                                await hostConvergence.DisposeAsync();
+                        }
+                        finally
+                        {
+                            await client.DisposeAsync();
+                        }
                     }
                 }
             }

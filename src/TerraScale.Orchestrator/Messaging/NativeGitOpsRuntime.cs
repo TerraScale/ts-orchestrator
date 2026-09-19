@@ -1,3 +1,5 @@
+using NATS.Client.Core;
+using NATS.Client.JetStream;
 using TerraScale.Orchestrator.Delivery;
 using TerraScale.Orchestrator.Protocol;
 using System.Runtime.ExceptionServices;
@@ -12,6 +14,7 @@ internal sealed class NativeGitOpsRuntime : IAsyncDisposable
 {
     private static readonly TimeSpan PullWait = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan AuthorityPause = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan TransientRetryPause = TimeSpan.FromSeconds(1);
 
     private readonly CancellationTokenSource stopping = new();
     private readonly Task completion;
@@ -126,14 +129,17 @@ internal sealed class NativeGitOpsRuntime : IAsyncDisposable
                 continue;
             }
 
-            _ = await consumer.NextAsync(
-                globalLease.Epoch,
-                DateTimeOffset.UtcNow,
-                TimeSpan.FromMinutes(1),
-                PullWait,
-                verifier,
-                () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
-                      SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
+            await PullWithTransientRetryAsync(
+                token => consumer.NextAsync(
+                    globalLease.Epoch,
+                    DateTimeOffset.UtcNow,
+                    TimeSpan.FromMinutes(1),
+                    PullWait,
+                    verifier,
+                    () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
+                          SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
+                    token),
+                "relay",
                 cancellationToken);
         }
     }
@@ -156,33 +162,69 @@ internal sealed class NativeGitOpsRuntime : IAsyncDisposable
                 continue;
             }
 
-            _ = await consumer.NextWithConvergenceAsync(
-                globalLease.Epoch,
-                DateTimeOffset.UtcNow,
-                TimeSpan.FromMinutes(1),
-                PullWait,
-                verifier,
-                () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
-                      SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
-                async (accepted, token) =>
-                {
-                    var receipt = await convergence.AdvanceAsync(
-                        accepted,
-                        [],
-                        [],
-                        null,
-                        Watermark(accepted.StreamSequence),
-                        () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
-                              SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
-                        token);
-                    // Pending Observe/Apply/Hold is evidence only. Do not use CanDispatch:
-                    // this runtime contains no projector, assignment, executor, or adapter.
-                    return receipt.Disposition is NativeGitOpsCellConvergenceJournalDisposition.Recorded or
-                        NativeGitOpsCellConvergenceJournalDisposition.Duplicate;
-                },
+            await PullWithTransientRetryAsync(
+                token => consumer.NextWithConvergenceAsync(
+                    globalLease.Epoch,
+                    DateTimeOffset.UtcNow,
+                    TimeSpan.FromMinutes(1),
+                    PullWait,
+                    verifier,
+                    () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
+                          SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
+                    async (accepted, token) =>
+                    {
+                        var receipt = await convergence.AdvanceAsync(
+                            accepted,
+                            [],
+                            [],
+                            null,
+                            Watermark(accepted.StreamSequence),
+                            () => SameGlobalAuthority(globalLease, global.AuthoritySnapshot) &&
+                                  SameRegionalLeaderAuthority(regionalLease, regional.AuthoritySnapshot),
+                            token);
+                        // Pending Observe/Apply/Hold is evidence only. Do not use CanDispatch:
+                        // this runtime contains no projector, assignment, executor, or adapter.
+                        return receipt.Disposition is NativeGitOpsCellConvergenceJournalDisposition.Recorded or
+                            NativeGitOpsCellConvergenceJournalDisposition.Duplicate;
+                    },
+                    token),
+                "accept",
                 cancellationToken);
         }
     }
+
+    /// <summary>
+    /// One pull with transient-NATS retry: a single WAN or R3 blip (leader failover, publish
+    /// timeout) must not permanently kill the relay/accept workers of a surviving region. The
+    /// transient set matches the authority coordinator's; non-transient failures escape and
+    /// fault <see cref="Completion"/> (fail-stop, observed by the composition root).
+    /// </summary>
+    internal static async Task PullWithTransientRetryAsync(
+        Func<CancellationToken, Task> pull,
+        string worker,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                await pull(cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (IsTransientNatsError(exception) &&
+                                              !cancellationToken.IsCancellationRequested)
+            {
+                Console.Error.WriteLine(
+                    $"Native GitOps {worker} worker hit a transient NATS error " +
+                    $"({exception.GetType().Name}); retrying.");
+                await Task.Delay(TransientRetryPause, cancellationToken);
+            }
+        }
+    }
+
+    internal static bool IsTransientNatsError(Exception exception) =>
+        exception is NatsException or NatsJSApiNoResponseException or NatsJSTimeoutException or
+            NatsJSConnectionException;
 
     private static long Watermark(ulong streamSequence) => streamSequence > long.MaxValue
         ? long.MaxValue
