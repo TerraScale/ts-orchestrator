@@ -29,16 +29,15 @@ public sealed class CiRunnerIsolationPolicyTests
     }
 
     [Test]
-    public async Task UntrustedJobsRejectEveryPrivilegedReachabilityAndHostEscape()
+    public async Task UntrustedJobsRejectProbedMetadataReachabilityAndHostEscape()
     {
         var value = Case(JobKind.ProductValidation, TrustZone.UntrustedProduct,
             [RunnerCapability.Compile, RunnerCapability.Test]);
         var cases = new[]
         {
+            // The one reachability fact evidence may carry: the runner's TCP probe of the
+            // metadata service on the build's NAT egress path.
             value.Evidence with { MetadataServiceReachable = true },
-            value.Evidence with { ProductionNetworkReachable = true },
-            value.Evidence with { ControlNatsReachable = true },
-            value.Evidence with { DatabaseReachable = true },
             value.Evidence with { HostDockerSocketMounted = true },
             value.Evidence with { RootlessBuildKit = false },
             value.Evidence with { NetworkScope = CiRunnerNetworkScope.DeploymentServicesOnly },
@@ -106,7 +105,7 @@ public sealed class CiRunnerIsolationPolicyTests
                 production.Evidence with
                 {
                     CredentialProfile = CiRunnerCredentialProfile.ControlRecovery,
-                    ControlNatsReachable = true,
+                    NetworkScope = CiRunnerNetworkScope.ControlRecoveryOnly,
                 }).Accepted)
             .IsFalse();
         await Assert.That(CiRunnerIsolationPolicy.Evaluate(
@@ -164,9 +163,6 @@ public sealed class CiRunnerIsolationPolicyTests
             Seccomp: true,
             CgroupV2: true,
             MetadataServiceReachable: false,
-            ProductionNetworkReachable: zone is TrustZone.ProductionRelease or TrustZone.ControlRecovery,
-            ControlNatsReachable: zone == TrustZone.ControlRecovery,
-            DatabaseReachable: false,
             WorkloadIdentityBound: true,
             CredentialsShortLived: true,
             CredentialsPhaseScoped: true,

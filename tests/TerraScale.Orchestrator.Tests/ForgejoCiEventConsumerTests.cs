@@ -1,3 +1,5 @@
+using System.Net;
+using Oci.Common.Model;
 using TerraScale.Orchestrator.Delivery;
 
 namespace TerraScale.Orchestrator.Tests;
@@ -9,6 +11,45 @@ namespace TerraScale.Orchestrator.Tests;
 /// </summary>
 public sealed class ForgejoCiEventConsumerTests
 {
+    [Test]
+    public async Task OperationalOciProviderFailuresRetryAndDurableRejectionsTerminate()
+    {
+        // One 429 throttle, 409 OutOfHostCapacity (the norm for VM.Standard.A1.Flex), 5xx, or a
+        // transport-level timeout is operational: the CI event must retry via redelivery, never
+        // be ack-terminated with its commit status unreported and its runners orphaned.
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(429, "TooManyRequests")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(409, "OutOfHostCapacity")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(500, "InternalError")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(503, "Unavailable")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(408, "RequestTimeout")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        // A stale ETag fence (the instance changed between observation and mutation) is a
+        // concurrency outcome: the next observe re-reads the ETag and the retry succeeds.
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(412, "PreconditionFailed")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+        // The SDK wraps transport failures (connect timeouts, resets) without a status.
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(
+                new OciException("The OCI request timed out.", new TimeoutException())))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Retry);
+
+        // Durable provider rejections are deterministic on every redelivery: terminate.
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(401, "NotAuthenticated")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(403, "NotAuthorizedOrNotFound")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(404, "NotFound")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+        await Assert.That(ForgejoCiEventConsumer.ClassifyFailure(Oci(400, "InvalidParameter")))
+            .IsEqualTo(ForgejoCiEventProcessDisposition.Terminal);
+    }
+
+    private static OciException Oci(int status, string serviceCode) =>
+        new((HttpStatusCode)status, $"OCI responded {status}.", serviceCode, "ocid1.request.oc1..test");
+
     [Test]
     public async Task TheFinalAllowedDeliveryIsExactlyTheOneAtTheDeliveryCap()
     {

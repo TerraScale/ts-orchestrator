@@ -222,10 +222,10 @@ internal sealed record CiRunnerProcessConfiguration(
             observation.UserNamespace,
             observation.Seccomp,
             observation.CgroupV2,
-            MetadataServiceReachable: false,
-            ProductionNetworkReachable: false,
-            ControlNatsReachable: false,
-            DatabaseReachable: false,
+            // The probed value, never a fabricated negative: the digest below only matches the
+            // pinned profile when the runner actually observed the metadata service as
+            // unreachable, so an un-isolated host refuses the command instead of lying.
+            observation.MetadataServiceReachable,
             WorkloadIdentityBound: true,
             CredentialsShortLived: true,
             CredentialsPhaseScoped: true,

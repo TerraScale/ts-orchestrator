@@ -110,7 +110,9 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
     }
 
     internal Task Completion => completion;
-    internal bool RootlessIsolationVerified => true;
+    // True only once the connected peer was verified to be the closed buildkitd invocation in
+    // its rootless user namespace — never a constant disconnected from that check.
+    internal bool RootlessIsolationVerified { get; private set; }
 
     internal static async Task<CiRunnerBuildKitDaemon> StartAsync(
         CiRunnerBuildKitDaemonInvocation invocation,
@@ -196,6 +198,7 @@ internal sealed class CiRunnerBuildKitDaemon : IAsyncDisposable
                 {
                     await socket.ConnectAsync(new UnixDomainSocketEndPoint(invocation.SocketPath), waiting.Token);
                     VerifyPeer(socket, invocation, expectedUserId);
+                    RootlessIsolationVerified = true;
                     return;
                 }
                 catch (SocketException)
