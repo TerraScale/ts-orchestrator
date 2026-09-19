@@ -387,6 +387,12 @@ public sealed class CloudflareKvClient : IDisposable
         HttpResponseMessage response,
         CancellationToken cancellationToken)
     {
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            var failure = await ReadNamespaceNotFoundAsync(response, cancellationToken);
+            if (failure is not null) throw failure;
+        }
+
         using var document = await ReadEnvelopeAsync(response, cancellationToken);
         if (!response.IsSuccessStatusCode || !TrySuccess(document, out var success) || !success)
             throw CloudflareFailure(response.StatusCode, document);

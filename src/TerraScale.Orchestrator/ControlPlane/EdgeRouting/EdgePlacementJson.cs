@@ -149,6 +149,79 @@ internal static class EdgePlacementJson
     }
 
     /// <summary>
+    /// Parses the placement content of a published <c>db:&lt;name&gt;</c> value — revision,
+    /// residency, and branches, with the writer clock (<c>u</c>) ignored — so the publisher can
+    /// compare an equal-revision document for content equality. Null when the value is absent,
+    /// unreadable, or not a complete v2 document; such a value never satisfies the
+    /// equal-revision skip.
+    /// </summary>
+    public static EdgeDatabasePlacement? TryReadPublishedPlacement(string? value, string databaseName)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        try
+        {
+            using var document = JsonDocument.Parse(value, ReaderOptions);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("v", out var version) || version.ValueKind != JsonValueKind.Number ||
+                !version.TryGetInt32(out var schemaVersion) || schemaVersion != PlacementSchemaVersion ||
+                !root.TryGetProperty("rev", out var revision) || revision.ValueKind != JsonValueKind.Number ||
+                !revision.TryGetInt32(out var parsedRevision) || parsedRevision < 0 ||
+                !root.TryGetProperty("br", out var branches) || branches.ValueKind != JsonValueKind.Object)
+                return null;
+
+            var parsedBranches = new Dictionary<string, IReadOnlyList<EdgeBranchPlacement>>(StringComparer.Ordinal);
+            foreach (var branch in branches.EnumerateObject())
+            {
+                if (branch.Value.ValueKind != JsonValueKind.Array) return null;
+                var entries = new List<EdgeBranchPlacement>();
+                foreach (var entry in branch.Value.EnumerateArray())
+                {
+                    if (entry.ValueKind != JsonValueKind.Object ||
+                        !entry.TryGetProperty("region", out var region) || region.ValueKind != JsonValueKind.String ||
+                        !entry.TryGetProperty("read", out var read) ||
+                        read.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                        !entry.TryGetProperty("write", out var write) ||
+                        write.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                        !RegionCode.TryCreate(region.GetString(), out var parsedRegion))
+                        return null;
+                    entries.Add(new EdgeBranchPlacement(parsedRegion, read.GetBoolean(), write.GetBoolean()));
+                }
+
+                parsedBranches[branch.Name] = entries;
+            }
+
+            EdgeResidency? residency = null;
+            if (root.TryGetProperty("res", out var res))
+            {
+                if (res.ValueKind == JsonValueKind.String)
+                    residency = EdgeResidency.FromLabel(res.GetString()!);
+                else if (res.ValueKind == JsonValueKind.Array)
+                {
+                    var regions = new List<RegionCode>();
+                    foreach (var entry in res.EnumerateArray())
+                    {
+                        if (entry.ValueKind != JsonValueKind.String ||
+                            !RegionCode.TryCreate(entry.GetString(), out var region))
+                            return null;
+                        regions.Add(region);
+                    }
+
+                    residency = EdgeResidency.FromRegions(regions);
+                }
+                else if (res.ValueKind != JsonValueKind.Null)
+                    return null;
+            }
+
+            return new EdgeDatabasePlacement(databaseName, residency, parsedRevision, parsedBranches);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Reads a JSON edge placement snapshot document — the operational input of the
     /// <c>edge-routing-publish</c> command. The shape mirrors the two wire documents: the health
     /// document (<c>updated</c>, <c>regions</c>, <c>catalog</c>) plus a <c>databases</c> map of

@@ -134,6 +134,7 @@ public sealed class EdgePlacementSnapshot
 public enum EdgePlacementErrorCode
 {
     SnapshotMissing = 1,
+    DatabasesEmpty,
     HealthRegionInvalid,
     HealthRegionDuplicate,
     HealthLagInvalid,
@@ -193,6 +194,11 @@ public static class EdgePlacementValidation
             errors.Add(new(EdgePlacementErrorCode.SnapshotMissing));
             return errors.ToImmutable();
         }
+
+        // An empty databases collection is an operator error, never a full drain: a truncated,
+        // wrong, or partially written file must not mass-delete every db: key of the namespace.
+        if (snapshot.Databases.IsEmpty)
+            errors.Add(new(EdgePlacementErrorCode.DatabasesEmpty));
 
         var catalogRegions = ValidateHealth(snapshot.Health, errors);
         foreach (var placement in snapshot.Databases.Values)
