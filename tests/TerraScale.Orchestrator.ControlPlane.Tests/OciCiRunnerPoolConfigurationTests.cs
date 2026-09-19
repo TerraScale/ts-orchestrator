@@ -33,7 +33,7 @@ public sealed class OciCiRunnerPoolConfigurationTests
                 imageId = "ocid1.image.oc1.sa-saopaulo-1.runner",
                 generation = 7,
                 idleSeconds = 60,
-                pollSeconds = 5,
+                pollSeconds = 10,
                 runners = new[]
                 {
                     new { runner = "ci-untrusted-1", zone = "untrusted-product", sequence = 10, bootstrapFile = "untrusted.cloud-init" },
@@ -59,6 +59,59 @@ public sealed class OciCiRunnerPoolConfigurationTests
         {
             root.Delete(recursive: true);
         }
+    }
+
+    [Test]
+    public async Task ThePollCadenceFloorStaysAtWhatTheOciApiCanSustain()
+    {
+        var root = Directory.CreateDirectory(Path.Combine(
+            Path.GetTempPath(),
+            $"ts-orch-oci-ci-cadence-{Guid.NewGuid():N}"));
+        try
+        {
+            await File.WriteAllTextAsync(
+                Path.Combine(root.FullName, "runner.cloud-init"),
+                "#cloud-config\nruncmd: []\n");
+
+            // Below the floor: rejected. A sub-10s cadence multiplies OCI API volume per poll
+            // tick without ever deciding anything sooner (the idle floor is 30s).
+            await Assert.That(() => OciCiRunnerPoolConfiguration.Load(Pool(root, pollSeconds: 9))!)
+                .Throws<InvalidDataException>();
+
+            var pool = OciCiRunnerPoolConfiguration.Load(Pool(root, pollSeconds: 10))!;
+            await Assert.That(pool.PollInterval).IsEqualTo(TimeSpan.FromSeconds(10));
+            // The test seam keeps a faster cadence available without widening the operator bound.
+            await Assert.That(pool.WithPollInterval(TimeSpan.FromSeconds(1)).PollInterval)
+                .IsEqualTo(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    private static string Pool(DirectoryInfo root, int pollSeconds)
+    {
+        var path = Path.Combine(root.FullName, $"pool-{pollSeconds}.json");
+        File.WriteAllText(path, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
+            compartmentId = "ocid1.compartment.oc1..ci",
+            availabilityDomain = "sa-saopaulo-1-ad-1",
+            faultDomain = "FAULT-DOMAIN-1",
+            subnetId = "ocid1.subnet.oc1.sa-saopaulo-1.ci",
+            networkSecurityGroupIds = new[] { "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.ci" },
+            imageId = "ocid1.image.oc1.sa-saopaulo-1.runner",
+            generation = 7,
+            idleSeconds = 60,
+            pollSeconds,
+            runners = new[]
+            {
+                new { runner = "ci-untrusted-1", zone = "untrusted-product", sequence = 10, bootstrapFile = "runner.cloud-init" },
+            }
+        }));
+        return path;
     }
 
     [Test]
@@ -88,7 +141,7 @@ public sealed class OciCiRunnerPoolConfigurationTests
                   "imageId":"ocid1.image.oc1.sa-saopaulo-1.runner",
                   "generation":7,
                   "idleSeconds":60,
-                  "pollSeconds":5,
+                  "pollSeconds":10,
                   "runners":[{"runner":"ci-untrusted-1","zone":"untrusted-product","sequence":10,"bootstrapFile":"runner.cloud-init"}]
                 }
                 """);

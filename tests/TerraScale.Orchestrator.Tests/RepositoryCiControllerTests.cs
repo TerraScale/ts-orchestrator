@@ -394,13 +394,13 @@ public sealed class RepositoryCiControllerTests
             imageId = "ocid1.image.oc1.sa-saopaulo-1.runner",
             generation = 7,
             idleSeconds = 60,
-            pollSeconds = 1,
+            pollSeconds = 10,
             runners = new[]
             {
                 new { runner = "ci-untrusted-1", zone = "untrusted-product", sequence = 10, bootstrapFile = "runner.cloud-init" },
             }
         }));
-        return OciCiRunnerPoolConfiguration.Load(path)!;
+        return OciCiRunnerPoolConfiguration.Load(path)!.WithPollInterval(TimeSpan.FromSeconds(1));
     }
 
     /// <summary>

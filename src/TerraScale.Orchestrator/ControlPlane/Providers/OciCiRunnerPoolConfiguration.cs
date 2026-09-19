@@ -37,6 +37,15 @@ public sealed class OciCiRunnerPoolConfiguration
     internal TimeSpan PollInterval { get; }
     internal IReadOnlyList<OciCiRunnerPoolSlot> Slots { get; }
 
+    /// <summary>
+    /// Test seam for the poll cadence: operator-loaded pools always sit at the 10s floor, tests
+    /// that exercise the poll loop shorten it here without widening the operator bound.
+    /// </summary>
+    internal OciCiRunnerPoolConfiguration WithPollInterval(TimeSpan pollInterval) =>
+        pollInterval < TimeSpan.FromSeconds(1) || pollInterval > TimeSpan.FromSeconds(30)
+            ? throw new ArgumentOutOfRangeException(nameof(pollInterval))
+            : new(Endpoint, Template, IdleTimeout, pollInterval, [.. Slots]);
+
     public static OciCiRunnerPoolConfiguration? Load(string? path)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
@@ -55,7 +64,9 @@ public sealed class OciCiRunnerPoolConfiguration
             !endpoint.Host.StartsWith("iaas.", StringComparison.Ordinal) ||
             !endpoint.Host.EndsWith(".oraclecloud.com", StringComparison.Ordinal))
             throw new InvalidDataException("The OCI CI runner pool endpoint is invalid.");
-        if (document.IdleSeconds is < 30 or > 900 || document.PollSeconds is < 1 or > 30)
+        // Each poll tick drives one filtered OCI list call; 10s is the floor the API can sustain
+        // per pipeline (the idle decision floor is 30s, so a faster cadence buys nothing).
+        if (document.IdleSeconds is < 30 or > 900 || document.PollSeconds is < 10 or > 30)
             throw new InvalidDataException("The OCI CI runner pool timing is outside its bound.");
 
         var template = new OciCiRunnerLaunchTemplate(

@@ -67,6 +67,7 @@ public sealed class CiRunnerProcessTests
             "512",
             "200000 100000",
             hostDockerSocketMounted: false,
+            metadataServiceReachable: false,
             20L * 1024 * 1024 * 1024,
             rootlessBuildKit: true,
             userNamespace: true);
@@ -102,9 +103,36 @@ public sealed class CiRunnerProcessTests
                 "max",
                 "max 100000",
                 false,
+                false,
                 1,
                 true,
                 true))
+            .Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task ProbedMetadataServiceReachabilityIsWhatTheEvidenceCarries()
+    {
+        var accepted = await RepositoryCiJobInboxTests.AcceptedAsync();
+        var command = accepted.Command;
+        var expected = CiRunnerExecutionPlannerTests.Isolation(command);
+        var observation = Observation(expected);
+
+        // The probed value flows into the evidence verbatim: a runner that actually reached
+        // 169.254.169.254 must refuse the pinned unreachable profile (digest mismatch) rather
+        // than fabricate the required negative — and must not silently stamp "false" either.
+        await Assert.That(() => CiRunnerProcessConfiguration.CreateIsolationEvidence(
+                accepted,
+                command.Runner,
+                command.AllowedZones.Single(),
+                command.RunnerSequence,
+                command.RequiredCapabilities,
+                observation with { MetadataServiceReachable = true },
+                expected.CpuMilliCores,
+                expected.MemoryBytes,
+                expected.EphemeralDiskBytes,
+                expected.Pids,
+                expected.MaximumLogBytes))
             .Throws<InvalidDataException>();
     }
 
@@ -112,6 +140,7 @@ public sealed class CiRunnerProcessTests
         expected.ReadOnlyRootFilesystem,
         expected.RootlessBuildKit,
         expected.HostDockerSocketMounted,
+        expected.MetadataServiceReachable,
         expected.NoNewPrivileges,
         expected.UserNamespace,
         expected.Seccomp,

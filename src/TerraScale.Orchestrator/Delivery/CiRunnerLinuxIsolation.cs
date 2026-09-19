@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
@@ -8,6 +10,7 @@ internal sealed record CiRunnerLinuxIsolationObservation(
     bool ReadOnlyRootFilesystem,
     bool RootlessBuildKit,
     bool HostDockerSocketMounted,
+    bool MetadataServiceReachable,
     bool NoNewPrivileges,
     bool UserNamespace,
     bool Seccomp,
@@ -22,6 +25,8 @@ internal static class CiRunnerLinuxIsolationProbe
 {
     private const int MaximumKernelFileCharacters = 1024 * 1024;
     private const string CgroupRoot = "/sys/fs/cgroup";
+    private const int MetadataServicePort = 80;
+    private static readonly TimeSpan MetadataServiceProbeTimeout = TimeSpan.FromMilliseconds(500);
 
     [SupportedOSPlatform("linux")]
     internal static CiRunnerLinuxIsolationObservation Observe(
@@ -43,6 +48,7 @@ internal static class CiRunnerLinuxIsolationProbe
             ReadBounded(Path.Combine(cgroupDirectory, "cpu.max")),
             Path.Exists("/run/docker.sock") || Path.Exists("/var/run/docker.sock") ||
                 !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DOCKER_HOST")),
+            MetadataServiceReachable(),
             new DriveInfo(configuration.WorkspaceRoot).TotalSize,
             daemon.RootlessIsolationVerified,
             daemon.RootlessIsolationVerified);
@@ -59,6 +65,7 @@ internal static class CiRunnerLinuxIsolationProbe
         string pidsMax,
         string cpuMax,
         bool hostDockerSocketMounted,
+        bool metadataServiceReachable,
         long ephemeralDiskLimitBytes,
         bool rootlessBuildKit,
         bool userNamespace)
@@ -75,6 +82,7 @@ internal static class CiRunnerLinuxIsolationProbe
             RootReadOnly(mountInfo),
             rootlessBuildKit,
             hostDockerSocketMounted,
+            metadataServiceReachable,
             noNewPrivileges,
             userNamespace,
             seccomp,
@@ -83,6 +91,33 @@ internal static class CiRunnerLinuxIsolationProbe
             memory,
             ephemeralDiskLimitBytes,
             pids);
+    }
+
+    /// <summary>
+    /// Probes the one network-reachability claim a CI runner can actually establish: the
+    /// untrusted build's only egress is slirp4netns NAT through this process's network
+    /// namespace, so a TCP connect here bounds what the build can reach at the OCI instance
+    /// metadata service. Neither rootlesskit nor OCI NSGs can deny 169.254.169.254, so the
+    /// probed value — never a fabricated constant — is the reachability evidence.
+    /// </summary>
+    [SupportedOSPlatform("linux")]
+    private static bool MetadataServiceReachable()
+    {
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            var connect = socket.ConnectAsync(
+                new IPEndPoint(IPAddress.Parse("169.254.169.254"), MetadataServicePort));
+            return connect.Wait(MetadataServiceProbeTimeout) && socket.Connected;
+        }
+        catch (AggregateException)
+        {
+            return false;
+        }
+        catch (SocketException)
+        {
+            return false;
+        }
     }
 
     internal static void Require(

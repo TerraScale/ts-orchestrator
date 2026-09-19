@@ -1,5 +1,6 @@
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
+using TerraScale.Orchestrator.ControlPlane.Providers;
 using TerraScale.Orchestrator.Messaging;
 
 namespace TerraScale.Orchestrator.Delivery;
@@ -226,7 +227,8 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
 
     /// <summary>
     /// Maps one processing failure to the delivery disposition: operational retention overflow
-    /// and transient infrastructure failures retry; deterministic durable conflicts terminate.
+    /// and transient infrastructure failures (including operational OCI provider API failures)
+    /// retry; deterministic durable conflicts terminate.
     /// </summary>
     internal static ForgejoCiEventProcessDisposition ClassifyFailure(Exception exception) =>
         exception switch
@@ -238,6 +240,12 @@ internal sealed class ForgejoCiEventConsumer : IAsyncDisposable
                 ForgejoCiEventProcessDisposition.Retry,
             InvalidDataException => ForgejoCiEventProcessDisposition.Terminal,
             _ when IsTransientDeliveryFailure(exception) => ForgejoCiEventProcessDisposition.Retry,
+            // An operational OCI provider failure (429 throttle, 409 OutOfHostCapacity, timeout,
+            // 5xx) is not a deterministic property of the CI event: retry via the normal
+            // redelivery backoff. Only durable provider rejections (auth, not-found, malformed)
+            // fall through to Terminal.
+            _ when OciCiRunnerProviderFailures.IsTransient(exception) =>
+                ForgejoCiEventProcessDisposition.Retry,
             _ => ForgejoCiEventProcessDisposition.Terminal,
         };
 

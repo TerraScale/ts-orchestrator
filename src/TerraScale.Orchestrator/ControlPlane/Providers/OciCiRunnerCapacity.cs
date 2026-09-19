@@ -1,9 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using Oci.Common;
 using Oci.Common.Auth;
+using Oci.Common.Model;
 using Oci.CoreService;
 using Oci.CoreService.Models;
 using Oci.CoreService.Requests;
@@ -121,6 +123,13 @@ internal sealed class OciCiRunnerLaunchTemplate
 
 internal sealed class OciCiRunnerCapacityRequest
 {
+    /// <summary>
+    /// OCI control-plane timestamps can sit marginally ahead of the controller clock (NTP skew).
+    /// A future-dated observation inside this window is accepted; a zero-tolerance check would
+    /// permanently terminate the CI event that observed it for a two-second clock difference.
+    /// </summary>
+    private static readonly TimeSpan AllowedClockSkew = TimeSpan.FromSeconds(2);
+
     internal OciCiRunnerCapacityRequest(
         DateTimeOffset now,
         TimeSpan idleTimeout,
@@ -155,7 +164,8 @@ internal sealed class OciCiRunnerCapacityRequest
         {
             _ = new ProviderResourceId(node.InstanceId);
             _ = GlobalNatsTopology.CiRunnerIdentityHash(node.Runner);
-            if (node.Sequence <= 0 || !Enum.IsDefined(node.State) || node.LastActivity > now ||
+            if (node.Sequence <= 0 || !Enum.IsDefined(node.State) ||
+                node.LastActivity > now.Add(AllowedClockSkew) ||
                 node.FreeformTags is null || node.FreeformTags.Count > 16)
                 throw new ArgumentException("An OCI CI runner observation is invalid.", nameof(observed));
         }
@@ -207,12 +217,28 @@ internal static class OciCiRunnerCapacityEngine
             Matches(node, demand, request.LaunchTemplate))).ToArray();
         foreach (var demand in request.Desired)
         {
+            // An exact identity claimed by two live nodes, or worn by a node this pool does not
+            // own, is genuinely ambiguous and fails closed. A single owned node with the same
+            // identity but a stale generation/bootstrap is ordinary rotation, not ambiguity.
             var collisions = live.Where(node => node.Runner == demand.Runner && node.Sequence == demand.Sequence).ToArray();
-            if (collisions.Length > 1 || collisions.Any(node => !Matches(node, demand, request.LaunchTemplate)))
+            if (collisions.Length > 1 || collisions.Any(node => !Owned(node)))
                 throw new InvalidDataException("An OCI CI runner identity has ambiguous provider ownership.");
         }
 
         var actions = new List<OciCiRunnerCapacityAction>();
+        foreach (var node in live.Where(node => Owned(node) && !managed.Contains(node) &&
+                     node.State is OciCiRunnerNodeState.Launching or OciCiRunnerNodeState.Running or
+                         OciCiRunnerNodeState.Stopped)
+                     .OrderBy(static node => node.InstanceId, StringComparer.Ordinal))
+        {
+            // Rotation reconciliation: an owned node that no longer matches the current pool
+            // identity (generation, bootstrap, or sequence rotation) is retired deterministically.
+            // The idle loop below only ever reaches matching nodes, so without this branch every
+            // rotation would leak a billed instance and its boot volume forever.
+            if (string.IsNullOrWhiteSpace(node.ETag))
+                throw new InvalidDataException("A drifted OCI CI runner has no exact ETag fence.");
+            actions.Add(new TerminateOciCiRunnerAction(node.InstanceId, node.ETag));
+        }
         foreach (var node in managed.OrderBy(static node => node.InstanceId, StringComparer.Ordinal))
         {
             var stopped = node.State == OciCiRunnerNodeState.Stopped;
@@ -356,17 +382,81 @@ internal interface IOciCiRunnerCapacityAdapter : IDisposable
         CancellationToken cancellationToken);
 }
 
+/// <summary>One single-attempt transport over the generated OCI compute and network clients.</summary>
+internal interface IOciCiRunnerComputeTransport : IDisposable
+{
+    Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
+        ListInstancesRequest request, CancellationToken cancellationToken);
+
+    Task<Oci.CoreService.Responses.GetInstanceResponse> GetInstanceAsync(
+        GetInstanceRequest request, CancellationToken cancellationToken);
+
+    Task<Oci.CoreService.Responses.ListVnicAttachmentsResponse> ListVnicAttachmentsAsync(
+        ListVnicAttachmentsRequest request, CancellationToken cancellationToken);
+
+    Task<Oci.CoreService.Responses.GetVnicResponse> GetVnicAsync(
+        GetVnicRequest request, CancellationToken cancellationToken);
+
+    Task<Oci.CoreService.Responses.LaunchInstanceResponse> LaunchInstanceAsync(
+        LaunchInstanceRequest request, CancellationToken cancellationToken);
+
+    Task<Oci.CoreService.Responses.TerminateInstanceResponse> TerminateInstanceAsync(
+        TerminateInstanceRequest request, CancellationToken cancellationToken);
+}
+
+internal sealed class OciCiRunnerSdkTransport(
+    ComputeClient compute,
+    VirtualNetworkClient network) : IOciCiRunnerComputeTransport
+{
+    public Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
+        ListInstancesRequest request, CancellationToken cancellationToken) =>
+        compute.ListInstances(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public Task<Oci.CoreService.Responses.GetInstanceResponse> GetInstanceAsync(
+        GetInstanceRequest request, CancellationToken cancellationToken) =>
+        compute.GetInstance(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public Task<Oci.CoreService.Responses.ListVnicAttachmentsResponse> ListVnicAttachmentsAsync(
+        ListVnicAttachmentsRequest request, CancellationToken cancellationToken) =>
+        compute.ListVnicAttachments(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public Task<Oci.CoreService.Responses.GetVnicResponse> GetVnicAsync(
+        GetVnicRequest request, CancellationToken cancellationToken) =>
+        network.GetVnic(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public Task<Oci.CoreService.Responses.LaunchInstanceResponse> LaunchInstanceAsync(
+        LaunchInstanceRequest request, CancellationToken cancellationToken) =>
+        compute.LaunchInstance(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public Task<Oci.CoreService.Responses.TerminateInstanceResponse> TerminateInstanceAsync(
+        TerminateInstanceRequest request, CancellationToken cancellationToken) =>
+        compute.TerminateInstance(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
+
+    public void Dispose()
+    {
+        network.Dispose();
+        compute.Dispose();
+    }
+}
+
 /// <summary>Executes already-decided OCI CI capacity actions with instance-principal authentication.</summary>
 internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
 {
     private const int MaximumBootstrapBytes = 32 * 1024;
-    private readonly ComputeClient client;
-    private readonly VirtualNetworkClient network;
 
-    private OciCiRunnerComputeAdapter(ComputeClient client, VirtualNetworkClient network)
+    private readonly IOciCiRunnerComputeTransport transport;
+
+    // An instance is immutable after launch except for its lifecycle state (and the ETag that
+    // rotates with it), so the first verified read of each instance is cached and every later
+    // poll tick derives the observation from the single list call. The cache is bounded by the
+    // observation cap and evicts entries the list stops returning.
+    private readonly Dictionary<string, CachedInstance> verified = new(StringComparer.Ordinal);
+
+    private sealed record CachedInstance(string ETag, Instance.LifecycleStateEnum? LifecycleState);
+
+    internal OciCiRunnerComputeAdapter(IOciCiRunnerComputeTransport transport)
     {
-        this.client = client;
-        this.network = network;
+        this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
     }
 
     internal static OciCiRunnerComputeAdapter CreateForInstancePrincipal(string endpoint)
@@ -381,7 +471,7 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         var compute = new ComputeClient(provider, configuration, endpointUri);
         try
         {
-            return new(compute, new(provider, configuration, endpointUri));
+            return new(new OciCiRunnerSdkTransport(compute, new(provider, configuration, endpointUri)));
         }
         catch
         {
@@ -399,7 +489,10 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         string? page = null;
         do
         {
-            var response = await client.ListInstances(
+            // One filtered list call per poll tick: compartment and availability domain are
+            // narrowed server-side (the API offers no tag, prefix, or multi-state filters), and
+            // per-instance details come from this listing plus the cache below.
+            var response = await transport.ListInstancesAsync(
                 new ListInstancesRequest
                 {
                     CompartmentId = template.CompartmentId,
@@ -409,9 +502,7 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
                     SortBy = ListInstancesRequest.SortByEnum.Timecreated,
                     SortOrder = ListInstancesRequest.SortOrderEnum.Asc,
                 },
-                null,
-                cancellationToken,
-                HttpCompletionOption.ResponseHeadersRead);
+                cancellationToken);
             foreach (var instance in response.Items ?? [])
             {
                 var tags = instance.FreeformTags;
@@ -429,45 +520,73 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         var observed = new List<OciCiRunnerNodeObservation>(instances.Count);
         foreach (var listed in instances)
         {
-            var response = await client.GetInstance(
-                new GetInstanceRequest { InstanceId = listed.Id },
-                null,
-                cancellationToken,
-                HttpCompletionOption.ResponseHeadersRead);
+            if (verified.TryGetValue(listed.Id, out var cached) &&
+                cached.LifecycleState == listed.LifecycleState)
+            {
+                observed.Add(Observation(listed, cached.ETag));
+                continue;
+            }
+            var response = await TryGetInstanceAsync(listed.Id, cancellationToken);
+            if (response is null) continue;
             var instance = response.Instance ??
                 throw new InvalidDataException("OCI returned an empty CI runner observation.");
             var attachment = await ReadPrimaryVnicAttachmentAsync(template, instance.Id, cancellationToken);
-            var vnicResponse = await network.GetVnic(
+            var vnicResponse = await transport.GetVnicAsync(
                 new GetVnicRequest { VnicId = attachment.VnicId },
-                null,
-                cancellationToken,
-                HttpCompletionOption.ResponseHeadersRead);
+                cancellationToken);
             var vnic = vnicResponse.Vnic ??
                 throw new InvalidDataException("OCI returned an empty CI runner VNIC observation.");
             RequireLaunchTemplate(instance, attachment, vnic, template);
-            var tags = instance.FreeformTags ??
-                throw new InvalidDataException("An owned OCI CI runner has no ownership tags.");
-            if (!tags.TryGetValue("terrascale-runner", out var runner) ||
-                !tags.TryGetValue("terrascale-runner-sequence", out var sequenceText) ||
-                !long.TryParse(sequenceText, System.Globalization.NumberStyles.None,
-                    System.Globalization.CultureInfo.InvariantCulture, out var sequence) || sequence <= 0 ||
-                instance.TimeCreated is not { } created)
-                throw new InvalidDataException("An owned OCI CI runner has invalid identity tags.");
-            var termination = instance.PreemptibleInstanceConfig?.PreemptionAction as TerminatePreemptionAction;
-            observed.Add(new(
-                instance.Id,
-                response.Etag ?? string.Empty,
-                runner,
-                sequence,
-                State(instance.LifecycleState),
-                ActiveJob: false,
-                new DateTimeOffset(DateTime.SpecifyKind(created, DateTimeKind.Utc)),
-                Preemptible: termination is not null,
-                PreserveBootVolume: termination?.PreserveBootVolume ?? true,
-                new ReadOnlyDictionary<string, string>(
-                    new Dictionary<string, string>(tags, StringComparer.Ordinal))));
+            var etag = response.Etag ?? string.Empty;
+            verified[listed.Id] = new(etag, instance.LifecycleState);
+            observed.Add(Observation(instance, etag));
         }
+        foreach (var id in verified.Keys.Where(id => instances.All(instance => instance.Id != id)).ToArray())
+            verified.Remove(id);
         return Array.AsReadOnly(observed.ToArray());
+    }
+
+    private async Task<Oci.CoreService.Responses.GetInstanceResponse?> TryGetInstanceAsync(
+        string instanceId,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await transport.GetInstanceAsync(
+                new GetInstanceRequest { InstanceId = instanceId },
+                cancellationToken);
+        }
+        catch (OciException failure) when (failure.StatusCode == HttpStatusCode.NotFound)
+        {
+            // Eventual consistency: the instance vanished between the list and this read (the
+            // terminate path re-observes every tick). A 404 here must not fail the poll tick.
+            return null;
+        }
+    }
+
+    private static OciCiRunnerNodeObservation Observation(Instance instance, string etag)
+    {
+        var tags = instance.FreeformTags ??
+            throw new InvalidDataException("An owned OCI CI runner has no ownership tags.");
+        if (!tags.TryGetValue("terrascale-runner", out var runner) ||
+            !tags.TryGetValue("terrascale-runner-sequence", out var sequenceText) ||
+            !long.TryParse(sequenceText, System.Globalization.NumberStyles.None,
+                System.Globalization.CultureInfo.InvariantCulture, out var sequence) || sequence <= 0 ||
+            instance.TimeCreated is not { } created)
+            throw new InvalidDataException("An owned OCI CI runner has invalid identity tags.");
+        var termination = instance.PreemptibleInstanceConfig?.PreemptionAction as TerminatePreemptionAction;
+        return new(
+            instance.Id,
+            etag,
+            runner,
+            sequence,
+            State(instance.LifecycleState),
+            ActiveJob: false,
+            new DateTimeOffset(DateTime.SpecifyKind(created, DateTimeKind.Utc)),
+            Preemptible: termination is not null,
+            PreserveBootVolume: termination?.PreserveBootVolume ?? true,
+            new ReadOnlyDictionary<string, string>(
+                new Dictionary<string, string>(tags, StringComparer.Ordinal)));
     }
 
     private async Task<VnicAttachment> ReadPrimaryVnicAttachmentAsync(
@@ -479,7 +598,7 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         string? page = null;
         do
         {
-            var response = await client.ListVnicAttachments(
+            var response = await transport.ListVnicAttachmentsAsync(
                 new ListVnicAttachmentsRequest
                 {
                     CompartmentId = template.CompartmentId,
@@ -487,9 +606,7 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
                     Limit = 100,
                     Page = page,
                 },
-                null,
-                cancellationToken,
-                HttpCompletionOption.ResponseHeadersRead);
+                cancellationToken);
             attachments.AddRange(response.Items ?? []);
             if (attachments.Count > 8)
                 throw new InvalidDataException("The OCI CI runner VNIC observation exceeded its bound.");
@@ -561,11 +678,9 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         {
             case LaunchOciCiRunnerAction launch:
                 {
-                    var response = await client.LaunchInstance(
+                    var response = await transport.LaunchInstanceAsync(
                         OciCiRunnerRequestCompiler.Launch(launch),
-                        null,
-                        cancellationToken,
-                        HttpCompletionOption.ResponseHeadersRead);
+                        cancellationToken);
                     var instance = response.Instance ??
                         throw new InvalidDataException("OCI returned no launched CI runner instance.");
                     _ = new ProviderResourceId(instance.Id);
@@ -577,11 +692,20 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
                 }
             case TerminateOciCiRunnerAction terminate:
                 {
-                    var response = await client.TerminateInstance(
-                        OciCiRunnerRequestCompiler.Terminate(terminate),
-                        null,
-                        cancellationToken,
-                        HttpCompletionOption.ResponseHeadersRead);
+                    Oci.CoreService.Responses.TerminateInstanceResponse response;
+                    try
+                    {
+                        response = await transport.TerminateInstanceAsync(
+                            OciCiRunnerRequestCompiler.Terminate(terminate),
+                            cancellationToken);
+                    }
+                    catch (OciException failure) when (failure.StatusCode == HttpStatusCode.NotFound)
+                    {
+                        // Idempotent goal state: an instance that no longer exists is terminated.
+                        // Terminating instances briefly keep appearing in lists, so this 404 must
+                        // not surface as a failure of the poll tick that planned the retire.
+                        return new(terminate.InstanceId, terminate.ETag, string.Empty, string.Empty);
+                    }
                     return new(
                         terminate.InstanceId,
                         terminate.ETag,
@@ -602,10 +726,19 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         return OciCiRunnerNodeState.Launching;
     }
 
-    public void Dispose()
-    {
-        network.Dispose();
-        client.Dispose();
-    }
+    public void Dispose() => transport.Dispose();
+}
+
+/// <summary>
+/// Splits OCI provider API failures into operational ones — 429 throttle, 409 capacity
+/// conflicts (OutOfHostCapacity), 408 request timeouts, 412 stale ETag fences, 5xx, and
+/// transport-level failures that never received a status — which must retry, and durable
+/// rejections (auth, not-found, malformed), which stay terminal. One operational failure must
+/// never permanently consume a CI event.
+/// </summary>
+internal static class OciCiRunnerProviderFailures
+{
+    internal static bool IsTransient(Exception exception) =>
+        exception is OciException failure && (int)failure.StatusCode is 0 or 408 or 409 or 412 or 429 or >= 500;
 }
 

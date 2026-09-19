@@ -41,10 +41,10 @@ internal static class CiRunnerResourceProfile
             UserNamespace: true,
             Seccomp: true,
             CgroupV2: true,
+            // The pinned profile requires an unreachable metadata service; the runner verifies
+            // this by probing 169.254.169.254 (the build's NAT egress path) before accepting a
+            // command, and a reachable probe fails the digest match instead of fabricating a pass.
             MetadataServiceReachable: false,
-            ProductionNetworkReachable: false,
-            ControlNatsReachable: false,
-            DatabaseReachable: false,
             WorkloadIdentityBound: true,
             CredentialsShortLived: true,
             CredentialsPhaseScoped: true,

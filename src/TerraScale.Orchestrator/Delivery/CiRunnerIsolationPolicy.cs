@@ -71,9 +71,6 @@ public sealed record CiRunnerIsolationEvidence(
     bool Seccomp,
     bool CgroupV2,
     bool MetadataServiceReachable,
-    bool ProductionNetworkReachable,
-    bool ControlNatsReachable,
-    bool DatabaseReachable,
     bool WorkloadIdentityBound,
     bool CredentialsShortLived,
     bool CredentialsPhaseScoped,
@@ -124,9 +121,11 @@ public static class CiRunnerIsolationPolicy
         if (evidence.HostDockerSocketMounted ||
             job.RequiredCapabilities.Contains(RunnerCapability.Compile) && !evidence.RootlessBuildKit)
             return Deny(CiRunnerAdmissionReason.HostEscapeRisk);
-        if (evidence.MetadataServiceReachable || evidence.DatabaseReachable ||
-            evidence.ProductionNetworkReachable != (runner.Zone is TrustZone.ProductionRelease or TrustZone.ControlRecovery) ||
-            evidence.ControlNatsReachable != (runner.Zone == TrustZone.ControlRecovery) ||
+        // The only reachability claim the evidence may carry is the one the runner actually
+        // probes (the OCI metadata service, via a TCP probe of the build's NAT egress path).
+        // Scope labels below state the required boundary; they are never treated as proof that
+        // an unprobed network path is unreachable.
+        if (evidence.MetadataServiceReachable ||
             evidence.NetworkScope != Network(runner.Zone))
             return Deny(CiRunnerAdmissionReason.NetworkBoundaryViolated);
         if (!evidence.WorkloadIdentityBound || !evidence.CredentialsShortLived ||

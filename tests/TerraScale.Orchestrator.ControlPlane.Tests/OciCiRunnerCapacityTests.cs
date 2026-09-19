@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Oci.CoreService.Models;
+using Oci.CoreService.Requests;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 
@@ -106,17 +107,99 @@ public sealed class OciCiRunnerCapacityTests
     }
 
     [Test]
-    public async Task TagsAloneNeverAuthorizeIdleRunnerDeletion()
+    public async Task ForeignOwnershipTagsNeverAuthorizeIdleRunnerDeletion()
     {
         var tagged = Demand("runner-tag-only", 48);
         var configured = Demand("runner-configured", 49);
+        // A node wearing another owner's tag — or none — is never this pool's to delete. (A
+        // node with our complete ownership quartet that fell outside the pool after a rotation
+        // IS reclaimed; RotatedGenerationOrSequenceRetiresDriftedOwnedRunnersInsteadOfThrowing
+        // pins that side.)
+        var foreign = new Dictionary<string, string>(OciCiRunnerCapacityEngine.Tags(tagged, 7), StringComparer.Ordinal)
+        {
+            ["terrascale-owner"] = "somebody-else",
+        };
 
         var actions = OciCiRunnerCapacityEngine.Decide(Request(
             [],
-            [Node(tagged, "tag-only", active: false, Now.AddMinutes(-5))],
+            [Node(tagged, "tag-only", active: false, Now.AddMinutes(-5), foreign)],
             permitted: [configured]));
 
         await Assert.That(actions).IsEmpty();
+    }
+
+    [Test]
+    public async Task RotatedGenerationOrSequenceRetiresDriftedOwnedRunnersInsteadOfThrowing()
+    {
+        // Template rotation while an old-generation runner is live: the old node must be retired
+        // through the normal terminate path and the current generation launched — never throw
+        // (a throw terminates the CI event and strands the old node's billing forever).
+        var demand = Demand("runner-rotated", 51);
+        var drifted = Node(
+            demand,
+            "old-generation",
+            active: false,
+            Now.AddSeconds(-5),
+            new Dictionary<string, string>(OciCiRunnerCapacityEngine.Tags(demand, 6), StringComparer.Ordinal));
+
+        var actions = OciCiRunnerCapacityEngine.Decide(Request([demand], [drifted]));
+
+        var retire = actions.OfType<TerminateOciCiRunnerAction>().Single();
+        await Assert.That(retire.InstanceId).IsEqualTo(drifted.InstanceId);
+        await Assert.That(retire.ETag).IsEqualTo(drifted.ETag);
+        await Assert.That(actions.OfType<LaunchOciCiRunnerAction>().Single().Demand).IsEqualTo(demand);
+
+        // Sequence rotation leaves the old identity outside the pool entirely: still reclaimed.
+        var configured = Demand("runner-configured", 52);
+        var orphan = Node(Demand("runner-retired", 900), "orphan", active: false, Now.AddSeconds(-5));
+
+        var reclaim = OciCiRunnerCapacityEngine.Decide(Request(
+            [configured],
+            [orphan],
+            permitted: [configured])).OfType<TerminateOciCiRunnerAction>().Single();
+
+        await Assert.That(reclaim.InstanceId).IsEqualTo(orphan.InstanceId);
+    }
+
+    [Test]
+    public async Task ASkewedFutureObservationIsToleratedOnlyInsideTheClockWindow()
+    {
+        var demand = Demand("runner-skew", 53);
+
+        // The OCI control-plane clock can lead the controller by a couple of seconds; a
+        // future-dated observation inside the window must not terminate the CI event.
+        _ = OciCiRunnerCapacityEngine.Decide(
+            Request([demand], [Node(demand, "skewed", active: false, Now.AddSeconds(1))]));
+
+        await Assert.That(() => OciCiRunnerCapacityEngine.Decide(
+                Request([demand], [Node(demand, "bound", active: false, Now.AddSeconds(60))])))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
+    public async Task OnePollTickIsOneFilteredListCallAndCachedInstanceDetails()
+    {
+        var template = Template();
+        var demand = Demand("runner-observe", 54);
+        using var transport = new TestOciTransport(template, demand, "etag-observe");
+        using var adapter = new OciCiRunnerComputeAdapter(transport);
+
+        var first = await adapter.ObserveAsync(template, CancellationToken.None);
+        var second = await adapter.ObserveAsync(template, CancellationToken.None);
+
+        await Assert.That(first.Select(static node => node.InstanceId))
+            .IsEquivalentTo([transport.Instance.Id]);
+        await Assert.That(first.Single().ETag).IsEqualTo("etag-observe");
+        await Assert.That(second.Single().ETag).IsEqualTo("etag-observe");
+        // Exactly one compartment/availability-domain-filtered list call per tick; per-instance
+        // details are derived from the listing plus the first-tick verification.
+        await Assert.That(transport.ListCalls).IsEqualTo(2);
+        await Assert.That(transport.GetInstanceCalls).IsEqualTo(1);
+        await Assert.That(transport.ListVnicAttachmentCalls).IsEqualTo(1);
+        await Assert.That(transport.GetVnicCalls).IsEqualTo(1);
+        await Assert.That(transport.LastList!.CompartmentId).IsEqualTo(template.CompartmentId);
+        await Assert.That(transport.LastList.AvailabilityDomain).IsEqualTo(template.AvailabilityDomain);
+        await Assert.That(transport.LastList.Limit).IsEqualTo(100);
     }
 
     [Test]
@@ -240,5 +323,132 @@ public sealed class OciCiRunnerCapacityTests
         Preemptible: true,
         PreserveBootVolume: false,
         tags ?? OciCiRunnerCapacityEngine.Tags(demand, 7));
+
+    /// <summary>A counting fake over the transport seam: observes the adapter's API call shape.</summary>
+    private sealed class TestOciTransport(
+        OciCiRunnerLaunchTemplate template,
+        OciCiRunnerDemand demand,
+        string etag) : IOciCiRunnerComputeTransport
+    {
+        internal Instance Instance { get; } = new()
+        {
+            Id = "ocid1.instance.oc1.sa-saopaulo-1.observe",
+            CompartmentId = template.CompartmentId,
+            AvailabilityDomain = template.AvailabilityDomain,
+            FaultDomain = template.FaultDomain,
+            DisplayName = "ci-runner-observe",
+            LifecycleState = Instance.LifecycleStateEnum.Running,
+            TimeCreated = DateTime.UnixEpoch,
+            Shape = OciCiRunnerRequestCompiler.Shape,
+            ShapeConfig = new()
+            {
+                Ocpus = OciCiRunnerRequestCompiler.Ocpus,
+                MemoryInGBs = OciCiRunnerRequestCompiler.MemoryInGbs,
+            },
+            ImageId = template.ImageId,
+            SourceDetails = new InstanceSourceViaImageDetails
+            {
+                ImageId = template.ImageId,
+                BootVolumeSizeInGBs = 50,
+                BootVolumeVpusPerGB = 10,
+            },
+            LaunchOptions = new() { IsPvEncryptionInTransitEnabled = true },
+            Metadata = new(StringComparer.Ordinal)
+            {
+                ["user_data"] = demand.BootstrapCloudInitBase64,
+            },
+            FreeformTags = new(OciCiRunnerCapacityEngine.Tags(demand, template.Generation),
+                StringComparer.Ordinal),
+        };
+
+        internal ListInstancesRequest? LastList { get; private set; }
+        internal int ListCalls { get; private set; }
+        internal int GetInstanceCalls { get; private set; }
+        internal int ListVnicAttachmentCalls { get; private set; }
+        internal int GetVnicCalls { get; private set; }
+
+        private VnicAttachment Attachment { get; } = new()
+        {
+            InstanceId = "ocid1.instance.oc1.sa-saopaulo-1.observe",
+            VnicId = "ocid1.vnic.oc1.sa-saopaulo-1.observe",
+            CompartmentId = template.CompartmentId,
+            AvailabilityDomain = template.AvailabilityDomain,
+            SubnetId = template.SubnetId,
+            NicIndex = 0,
+            LifecycleState = VnicAttachment.LifecycleStateEnum.Attached,
+        };
+
+        public Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
+            ListInstancesRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LastList = request;
+            ListCalls++;
+            return Task.FromResult(new Oci.CoreService.Responses.ListInstancesResponse
+            {
+                Items = [Instance],
+            });
+        }
+
+        public Task<Oci.CoreService.Responses.GetInstanceResponse> GetInstanceAsync(
+            GetInstanceRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GetInstanceCalls++;
+            return Task.FromResult(new Oci.CoreService.Responses.GetInstanceResponse
+            {
+                Instance = Instance,
+                Etag = etag,
+            });
+        }
+
+        public Task<Oci.CoreService.Responses.ListVnicAttachmentsResponse> ListVnicAttachmentsAsync(
+            ListVnicAttachmentsRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ListVnicAttachmentCalls++;
+            return Task.FromResult(new Oci.CoreService.Responses.ListVnicAttachmentsResponse
+            {
+                Items = [Attachment],
+            });
+        }
+
+        public Task<Oci.CoreService.Responses.GetVnicResponse> GetVnicAsync(
+            GetVnicRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            GetVnicCalls++;
+            return Task.FromResult(new Oci.CoreService.Responses.GetVnicResponse
+            {
+                Vnic = new Vnic
+                {
+                    Id = Attachment.VnicId,
+                    CompartmentId = template.CompartmentId,
+                    AvailabilityDomain = template.AvailabilityDomain,
+                    SubnetId = template.SubnetId,
+                    IsPrimary = true,
+                    LifecycleState = Vnic.LifecycleStateEnum.Available,
+                    NsgIds = template.NetworkSecurityGroupIds.ToList(),
+                    Ipv6Addresses = [],
+                },
+            });
+        }
+
+        public Task<Oci.CoreService.Responses.LaunchInstanceResponse> LaunchInstanceAsync(
+            LaunchInstanceRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<Oci.CoreService.Responses.TerminateInstanceResponse> TerminateInstanceAsync(
+            TerminateInstanceRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public void Dispose()
+        {
+        }
+    }
 }
 
