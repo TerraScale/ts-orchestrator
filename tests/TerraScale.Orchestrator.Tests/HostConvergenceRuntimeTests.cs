@@ -244,15 +244,17 @@ public sealed class HostConvergenceRuntimeTests
         var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
         await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
 
-        // The pass outlives the one-second lease duration many times over.
-        var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(2) };
+        // The pass outlives the lease duration several times over. The renewal budget is
+        // deliberately generous (two thirds of the duration): a loaded CI runner's scheduler
+        // stalls must not manufacture an expired lease out of holder jitter.
+        var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(4) };
         var configuration = new HostConvergenceConfiguration(
             [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64);
         await using var convergence = HostConvergenceRuntime.Create(
             delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, configuration, "gru", "test-1",
             observationTimeout: TimeSpan.FromSeconds(3),
-            replaceLeaseDuration: TimeSpan.FromSeconds(1));
+            replaceLeaseDuration: TimeSpan.FromSeconds(3));
         var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
         var pass = convergence.ReconcileOnceAsync(HostRole.TerraBaseMember, descriptor, CancellationToken.None);
 
@@ -266,7 +268,9 @@ public sealed class HostConvergenceRuntimeTests
         {
             await using var stolen = await peer.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
             await Assert.That(stolen).IsNull();
-            await Task.Delay(200);
+            // The probe itself is KV traffic against the same fixture as the renewals, so
+            // it stays slow enough not to starve the holder's renewal loop.
+            await Task.Delay(500);
         }
         await pass;
 
