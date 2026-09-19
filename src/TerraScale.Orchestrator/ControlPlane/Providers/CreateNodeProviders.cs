@@ -74,7 +74,7 @@ public interface IOciCreateNodeClient
     ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
     ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest request, CancellationToken cancellationToken);
 }
-/// <summary>Disabled by default; no production OCI mutation client is wired in this slice.</summary>
+/// <summary>Enabled only by the TerraBase reconciler composition, which supplies the OCI mutation client and the key service.</summary>
 public sealed class OciCreateNodeProvider(OciCreateNodeProviderOptions options, IOciCreateNodeClient client,
     ICreateNodeReceiptKeyResolver keys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys, ICreateNodeOperationJournal invocationJournal, TimeProvider clock) : ICreateNodeProvider
 {
@@ -94,5 +94,41 @@ public sealed class OciCreateNodeProvider(OciCreateNodeProviderOptions options, 
     { if (!options.Enabled) throw new InvalidOperationException("OCI CreateNode is disabled."); DeterministicCreateNodeProvider.ValidateRecovery(request, keys, recoveryKeys, clock.GetUtcNow()); return client.ReconcileCreateNodeAsync(request, cancellationToken); }
     private static bool ValidateKeyDomains(ICreateNodeReceiptKeyResolver receiptKeys, ICreateNodeRecoveryLookupKeyResolver recoveryKeys, ICreateNodeAuthoritativeInvocationCapabilityKeyResolver invocationCapabilityKeys)
     { CreateNodeKeyDomainValidator.EnsureDistinct(receiptKeys, recoveryKeys, invocationCapabilityKeys); return true; }
+}
+
+/// <summary>
+/// The TerraBase reconciler's CreateNode composition: the enabled OCI provider over its mutation
+/// client and crash-durable journal, wrapped in the coordinator wired from exactly one key
+/// service. The reconciler is enabled only when its configuration is present, so no other
+/// composition ever holds this provider.
+/// </summary>
+internal static class OciCreateNodeComposition
+{
+    internal static CreateNodeCoordinator ForReconciler(
+        IOciCreateNodeClient client,
+        ICreateNodeOperationJournal journal,
+        TerraBaseReconcilerKeyService keys,
+        TimeProvider clock,
+        CreateNodeCoordinatorOptions? options = null)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(keys);
+        ArgumentNullException.ThrowIfNull(clock);
+        var provider = new OciCreateNodeProvider(
+            new(true), client, keys.ReceiptKeys, keys.RecoveryKeys, keys.InvocationCapabilityKeys, journal, clock);
+        return new(
+            journal,
+            provider,
+            keys.ReceiptSigner,
+            keys.ReceiptKeys,
+            keys.TenantKeys,
+            keys.ProviderKeys,
+            keys.RecoverySigner,
+            keys.RecoveryKeys,
+            keys.InvocationCapabilityKeys,
+            clock,
+            options);
+    }
 }
 
