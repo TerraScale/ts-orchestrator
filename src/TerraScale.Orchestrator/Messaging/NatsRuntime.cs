@@ -31,6 +31,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
     private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
     private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
+    private readonly Nodes.OciMemberHostFleet? memberHostFleet;
 
     private NatsRuntime(
         NatsClient client,
@@ -46,7 +47,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
         ServiceEndpointInstrumentation serviceInstrumentation,
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence,
-        ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement)
+        ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement,
+        Nodes.OciMemberHostFleet? memberHostFleet)
     {
         this.client = client;
         this.service = service;
@@ -62,6 +64,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.serviceInstrumentation = serviceInstrumentation;
         this.hostConvergence = hostConvergence;
         this.terrabasePlacement = terrabasePlacement;
+        this.memberHostFleet = memberHostFleet;
     }
 
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
@@ -196,10 +199,16 @@ public sealed class NatsRuntime : IAsyncDisposable
         CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null,
         bool autoProvision = true,
         ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null,
-        ControlPlane.TerraBase.ITerraBasePlacementComposition? terrabasePlacement = null)
+        ControlPlane.TerraBase.TerraBaseReconcilerConfiguration? terrabaseConfiguration = null,
+        Nodes.OciMemberHostFleetConfigurationFile? memberFleet = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
+        if ((terrabaseConfiguration is null) != (memberFleet is null))
+            throw new InvalidOperationException(
+                "TS_ORCH_TERRABASE_RECONCILER and TS_ORCH_MEMBER_FLEET_FILE must be configured together: " +
+                "the placement reconciler never runs without its member-host fleet.");
+
         var natsUrl = OrchestratorOptions.ParseRegionalNatsUrl(options.NatsUrl, "TS_ORCH_NATS_URL");
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var clientOptions = new NatsOpts
@@ -236,6 +245,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator? authority = null;
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergenceRuntime = null;
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
+        Nodes.OciMemberHostFleet? memberHostFleet = null;
         try
         {
             await client.ConnectAsync();
@@ -294,7 +304,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 capabilities.Add("nats-mtls");
             }
-            if (terrabasePlacement?.Resolve() is not null)
+            if (terrabaseConfiguration is not null)
             {
                 capabilities.Add("terrabase-placement");
             }
@@ -586,16 +596,27 @@ public sealed class NatsRuntime : IAsyncDisposable
                     options.Instance);
             }
 
-            if (terrabasePlacement?.Resolve() is { } terrabasePlacementOptions && state.Delivery is not null)
+            if (terrabaseConfiguration is not null && state.Delivery is not null)
             {
-                // The TerraBase placement reconciler: same durable stores and fenced
-                // authority lease as the controller, leader-gated to one member action
-                // per tick through the member-host fleet seam.
+                // The TerraBase placement reconciler: same durable stores and fenced authority
+                // lease as the controller, leader-gated to one member action per tick. The OCI
+                // fleet is composed here because only here do the live lease, the ORCH_RUNTIME
+                // store, and the cell connection it needs all exist; every fleet mutation
+                // re-checks the lease through the same gate direct delivery uses.
+                var seams = new Nodes.NatsMemberHostSeams(state.Runtime, client.Connection);
+                memberHostFleet = new Nodes.OciMemberHostFleet(
+                    ControlPlane.Providers.OciMemberHostSdkTransport.CreateForInstancePrincipal(
+                        memberFleet!.Endpoint.ToString()),
+                    memberFleet.ForCell(options.Cell),
+                    () => ServesDirectDeliveryRequests(authority.Snapshot),
+                    seams,
+                    seams,
+                    TimeProvider.System);
                 terrabasePlacementRuntime = await ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime.StartAsync(
                     state.Delivery,
                     state.Runtime,
                     () => authority.Snapshot,
-                    terrabasePlacementOptions,
+                    new(terrabaseConfiguration, memberHostFleet),
                     options.Cell,
                     cancellationToken);
             }
@@ -614,7 +635,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 candidateHandoffV2Admission,
                 endpointInstrumentation,
                 hostConvergenceRuntime,
-                terrabasePlacementRuntime);
+                terrabasePlacementRuntime,
+                memberHostFleet);
         }
         catch
         {
@@ -626,6 +648,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 await membership.DisposeAsync();
             }
+            memberHostFleet?.Dispose();
             await client.DisposeAsync();
             throw;
         }
@@ -846,6 +869,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                             }
                             finally
                             {
+                                memberHostFleet?.Dispose();
                                 await client.DisposeAsync();
                             }
                         }

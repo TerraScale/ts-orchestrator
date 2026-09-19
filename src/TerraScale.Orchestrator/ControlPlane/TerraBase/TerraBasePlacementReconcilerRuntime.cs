@@ -71,26 +71,12 @@ public sealed class TerraBaseReconcilerConfiguration
 }
 
 /// <summary>
-/// The public composition seam the runtime host carries: the member-host fleet is an
-/// internal execution seam, so the options resolve to themselves inside the assembly
-/// and stay invisible to the runtime's public surface.
-/// </summary>
-public interface ITerraBasePlacementComposition
-{
-    internal TerraBasePlacementReconcilerOptions? Resolve();
-}
-
-/// <summary>
-/// The composition options: one member-host fleet plus its configuration. The fleet is
-/// the OCI provider slice's composition — <see cref="ComposeProduction"/> stays closed
-/// until that slice supplies it, so the reconciler never runs against nothing.
+/// The composition options: the loaded reconciler configuration plus the member-host
+/// fleet the runtime host builds where the authority lease and the NATS stores live.
 /// </summary>
 internal sealed record TerraBasePlacementReconcilerOptions(
     TerraBaseReconcilerConfiguration Configuration,
-    IMemberHostFleet Fleet) : ITerraBasePlacementComposition
-{
-    TerraBasePlacementReconcilerOptions? ITerraBasePlacementComposition.Resolve() => this;
-}
+    IMemberHostFleet Fleet);
 
 /// <summary>
 /// Hosting for the placement reconciler: one background loop ticking the leader-gated
@@ -107,12 +93,6 @@ internal sealed class TerraBasePlacementReconcilerRuntime : IAsyncDisposable
 
     private TerraBasePlacementReconcilerRuntime(TerraBasePlacementReconciler reconciler) =>
         this.reconciler = reconciler;
-
-    /// <summary>Composes the production options; without a fleet the reconciler stays down.</summary>
-    internal static TerraBasePlacementReconcilerOptions? ComposeProduction(
-        TerraBaseReconcilerConfiguration configuration,
-        IMemberHostFleet? fleet = null) =>
-        fleet is null ? null : new(configuration, fleet);
 
     /// <summary>Composes the reconciler with its optional edge publisher and starts the tick loop.</summary>
     internal static async Task<TerraBasePlacementReconcilerRuntime> StartAsync(

@@ -85,15 +85,16 @@ try
             ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"),
             memberObservabilityUrl: ResolvedEnvironment("TS_ORCH_HOST_MEMBER_OBSERVABILITY_URL"));
     }
-    // The TerraBase placement reconciler turns on with its bounded configuration file;
-    // the member-host fleet itself is the OCI provider slice's composition and arrives
-    // with it — without a fleet the reconciler stays down, fail closed.
-    TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBasePlacementReconcilerOptions? terrabasePlacement =
+    // The TerraBase placement reconciler turns on with its bounded configuration file and
+    // its member-host fleet file together: the runtime builds the OCI fleet where the
+    // authority lease and the NATS stores live, and refuses to run with only one of the
+    // two configured — fail closed at startup, never a reconciler running against nothing.
+    TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBaseReconcilerConfiguration? terrabasePlacement =
         TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBaseReconcilerConfiguration.Load(
-            ResolvedEnvironment("TS_ORCH_TERRABASE_RECONCILER")) is { } terrabaseConfiguration
-            ? TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime.ComposeProduction(
-                terrabaseConfiguration)
-            : null;
+            ResolvedEnvironment("TS_ORCH_TERRABASE_RECONCILER"));
+    TerraScale.Orchestrator.Nodes.OciMemberHostFleetConfigurationFile? memberFleet =
+        TerraScale.Orchestrator.Nodes.OciMemberHostFleetConfigurationFile.Load(
+            ResolvedEnvironment("TS_ORCH_MEMBER_FLEET_FILE"));
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.
     TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null;
@@ -162,7 +163,8 @@ try
             candidateHandoffV2Policies,
             autoProvision,
             hostConvergence,
-            terrabasePlacement);
+            terrabasePlacement,
+            memberFleet);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;

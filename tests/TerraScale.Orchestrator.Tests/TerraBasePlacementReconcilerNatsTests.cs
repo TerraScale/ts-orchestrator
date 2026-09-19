@@ -302,6 +302,9 @@ internal sealed class PlacementNatsServer : IAsyncDisposable
         }
     }
 
+    internal NATS.Client.Core.INatsConnection Connection =>
+        client?.Connection ?? throw new InvalidOperationException("The placement NATS server is not started.");
+
     private NATS.Client.KeyValueStore.INatsKVStore? delivery;
     private NATS.Client.KeyValueStore.INatsKVStore? runtimeStore;
 

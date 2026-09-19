@@ -34,6 +34,9 @@ internal sealed class TerraBasePlacementReconciler
     /// <summary>A recorded host missing from the fleet listing for this many consecutive ticks is dead.</summary>
     internal const int DeadAfterMissingTicks = 2;
 
+    /// <summary>The converged artifact every member host runs; also the host observation key leaf.</summary>
+    internal const string MemberArtifactKey = "terrabase-server";
+
     private const int MaximumIdentityLength = 256;
     private const int MaximumWriterObservations = 32;
 
@@ -852,7 +855,7 @@ internal sealed class TerraBasePlacementReconciler
         new NodeTemplateId("terrabase-member"),
         new ComputeShapeId("terrabase-member"),
         new PlacementDomainId("terrabase"),
-        new ComputeArtifactId("terrabase-server"),
+        new ComputeArtifactId(MemberArtifactKey),
         new ComputeDigestId(new string('a', 64)),
         new DemandObservationId($"placement-{intent.Database}-{intent.Revision}"),
         new ComputeOperationId($"terrabase-placement-{intent.Database}"),
