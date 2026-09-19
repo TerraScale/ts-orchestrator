@@ -210,6 +210,69 @@ public sealed class EdgeRoutingPublisherTests
     }
 
     [Test]
+    public async Task FreshPublisherEqualRevisionPassSkipsIdenticalDocumentsAndDrainsStaleKeys()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        using var client = new CloudflareKvClient("token", AccountId, new HttpClient(transport));
+
+        await EdgeRoutingPublishCli.PublishOnceAsync(
+            client, "REGIONS", "PLACEMENT",
+            Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+            {
+                ["orders"] = Database(),
+                ["gone"] = Database(name: "gone"),
+            }));
+
+        // The decommission scenario with NO revision advance: a fresh publisher whose only
+        // change is the removed database must treat the equal-revision published document as
+        // already current (identical content) and still reach the stale delete — rejecting on
+        // equal revision would wedge every rerun and never drain db:gone.
+        var second = await EdgeRoutingPublishCli.PublishOnceAsync(
+            client, "REGIONS", "PLACEMENT",
+            Snapshot(databases: new Dictionary<string, EdgeDatabasePlacement>
+            {
+                ["orders"] = Database(),
+            }));
+
+        await Assert.That(second.PlacementWrites).IsEqualTo(0);
+        await Assert.That(second.PlacementSkips).IsEqualTo(1);
+        await Assert.That(second.DeletedKeys).IsEqualTo(1);
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:gone")).IsFalse();
+        using var document = JsonDocument.Parse(transport.StoredValue(PlacementNamespaceId, "db:orders")!);
+        await Assert.That(document.RootElement.GetProperty("rev").GetInt32()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task FreshPublisherUnchangedPassRewritesNoPlacementDocument()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        using var client = new CloudflareKvClient("token", AccountId, new HttpClient(transport));
+        var databases = new Dictionary<string, EdgeDatabasePlacement>
+        {
+            ["orders"] = Database(),
+            ["zeta"] = Database(name: "zeta"),
+        };
+        await EdgeRoutingPublishCli.PublishOnceAsync(client, "REGIONS", "PLACEMENT", Snapshot(databases: databases));
+
+        var callsAfterFirst = transport.Calls.Count;
+        var second = await EdgeRoutingPublishCli.PublishOnceAsync(
+            client, "REGIONS", "PLACEMENT", Snapshot(databases: databases));
+
+        // Steady state for the executable lifecycle: the pass's only write is the health
+        // document. Currency comes from the namespace documents themselves (one guard read per
+        // database), never from rewriting the fleet.
+        await Assert.That(second.PlacementWrites).IsEqualTo(0);
+        await Assert.That(second.PlacementSkips).IsEqualTo(2);
+        await Assert.That(second.DeletedKeys).IsEqualTo(0);
+        await Assert.That(transport.Calls.Skip(callsAfterFirst)
+            .Where(call => call.Contains("bulk", StringComparison.Ordinal))).IsEmpty();
+        await Assert.That(transport.Calls.Skip(callsAfterFirst).Count(
+            call => call == $"GET {PlacementNamespaceId} values db:orders")).IsEqualTo(1);
+        await Assert.That(transport.Calls.Skip(callsAfterFirst).Count(
+            call => call == $"GET {PlacementNamespaceId} values db:zeta")).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task StaleDetectionFollowsTheListingCursorAcrossKeyPages()
     {
         using var transport = new FakeCloudflareKvTransport { KeysPageSize = 2 };
@@ -391,6 +454,30 @@ public sealed class EdgeRoutingPublisherTests
     }
 
     [Test]
+    public async Task EmptyDatabasesSnapshotFailsClosedAndDeletesNothing()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        transport.Seed(PlacementNamespaceId, "db:orders", "{}");
+        transport.Seed(PlacementNamespaceId, "foreign-key", "{}");
+        var publisher = Publisher(transport, new StaticEdgePlacementSource(Snapshot()));
+
+        var failure = (await Assert.ThrowsAsync<EdgePlacementValidationException>(() => publisher.PublishAsync()))!;
+        await Assert.That(failure.Errors.Any(error => error.Code == EdgePlacementErrorCode.DatabasesEmpty)).IsTrue();
+        await Assert.That(transport.Calls).IsEmpty();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "foreign-key")).IsTrue();
+
+        // The wrong-file scenario of the same failure: a snapshot document whose `databases`
+        // member is absent parses to an empty collection and is rejected identically.
+        var parsed = EdgePlacementJson.ReadSnapshot(
+            $$"""{"updated":{{HealthUpdated}},"regions":{},"catalog":[]}""");
+        var missing = (await Assert.ThrowsAsync<EdgePlacementValidationException>(
+            () => Publisher(transport, new StaticEdgePlacementSource(parsed)).PublishAsync()))!;
+        await Assert.That(missing.Errors.Any(error => error.Code == EdgePlacementErrorCode.DatabasesEmpty)).IsTrue();
+        await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+    }
+
+    [Test]
     public async Task RevisionRegressionAgainstThePublishedDocumentRejectsThePass()
     {
         using var transport = new FakeCloudflareKvTransport();
@@ -564,6 +651,23 @@ public sealed class EdgeRoutingPublisherTests
         using var document = JsonDocument.Parse(transport.StoredValue("ns-placement-2", "db:orders")!);
         await Assert.That(document.RootElement.GetProperty("rev").GetInt32()).IsEqualTo(2);
         await Assert.That(transport.HasKey(PlacementNamespaceId, "db:orders")).IsTrue();
+    }
+
+    [Test]
+    public async Task RecreatedRegionsNamespaceIsReResolvedOnceAndThePassRecovers()
+    {
+        using var transport = new FakeCloudflareKvTransport();
+        var source = Source(Database());
+        var publisher = Publisher(transport, source);
+
+        await publisher.PublishAsync();
+        transport.RecreateNamespace("REGIONS", "ns-regions-2");
+
+        var result = await publisher.PublishAsync();
+
+        await Assert.That(transport.Calls.Count(call => call == "GET namespaces")).IsEqualTo(3);
+        await Assert.That(transport.StoredValue("ns-regions-2", "regions")).IsNotNull();
+        await Assert.That(result.PlacementWrites).IsEqualTo(0);
     }
 
     [Test]

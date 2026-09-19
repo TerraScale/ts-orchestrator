@@ -143,7 +143,9 @@ public sealed class EdgePublishOperationException : Exception
 /// The single writer of edge-routing KV state (ADR 0050 §6). Every pass is ordered (the health
 /// document is written before any placement document), idempotent (a database is written only
 /// when its fingerprint — branch placements, eligibility, residency, and revision inputs —
-/// changed since the last observed successful write), and retryable (bounded exponential backoff
+/// changed since the last observed successful write, or, for a fresh publisher with no
+/// observations, when the published document at the same revision does not already match), and
+/// retryable (bounded exponential backoff
 /// with jitter on transient Cloudflare failures). Keys of databases absent from the snapshot are
 /// discovered by listing the PLACEMENT namespace — never by remembering past passes, so a fresh
 /// publisher still reconciles keys left by any earlier process — and bulk-deleted only after
@@ -163,6 +165,12 @@ public sealed class EdgeRoutingPublisher
     /// <summary>The single key of the <c>REGIONS</c> namespace.</summary>
     public const string HealthKey = "regions";
 
+    /// <summary>
+    /// The concurrency bound of the revision-guard reads: enough parallel GETs to hide one
+    /// round-trip per database, small enough to stay polite to the Cloudflare API.
+    /// </summary>
+    private const int GuardReadConcurrency = 8;
+
     private readonly CloudflareKvClient client;
     private readonly IEdgePlacementSource source;
     private readonly string regionsNamespaceTitle;
@@ -174,9 +182,12 @@ public sealed class EdgeRoutingPublisher
     private readonly SemaphoreSlim publishGate = new(1, 1);
 
     // Observations advance only after the corresponding write succeeded, so a failed pass
-    // retries the same work on the next pass instead of silently skipping it. They are in-memory
-    // on purpose: a restarted publisher rewrites everything, which is always safe. Stale-key
-    // deletion keeps NO observation — it is reality-based, from a fresh namespace listing.
+    // retries the same work on the next pass instead of silently skipping it. They are an
+    // in-memory fast path only: a fresh publisher (every CLI invocation) derives currency from
+    // the published documents themselves — the equal-revision guard skips a database whose
+    // published content already matches — so the namespace state, never this dictionary, is the
+    // source of truth. Stale-key deletion keeps NO observation — it is reality-based, from a
+    // fresh namespace listing.
     private readonly Dictionary<string, string> observedFingerprints = new(StringComparer.Ordinal);
     private string? regionsNamespaceId;
     private string? placementNamespaceId;
@@ -259,14 +270,22 @@ public sealed class EdgeRoutingPublisher
         await ResolveNamespaceIdsAsync(cancellationToken);
 
         // 1. Health first, unconditionally, every pass — a placement revision is never published
-        //    before the eligibility it describes.
-        await RetryAsync(
+        //    before the eligibility it describes. The write path re-resolves the REGIONS
+        //    namespace once on a not-found 404, symmetric with the placement reads below.
+        await NamespaceReadAsync<object?>(
             EdgePublishStepCode.HealthWrite,
-            async token => await client.PutKeyValueAsync(
-                regionsNamespaceId!,
-                HealthKey,
-                EdgePlacementJson.WriteHealthDocument(snapshot.Health),
-                token),
+            regionsNamespaceTitle,
+            regionsNamespaceId!,
+            id => regionsNamespaceId = id,
+            async (namespaceId, token) =>
+            {
+                await client.PutKeyValueAsync(
+                    namespaceId,
+                    HealthKey,
+                    EdgePlacementJson.WriteHealthDocument(snapshot.Health),
+                    token);
+                return null;
+            },
             cancellationToken);
         steps.Add(new(EdgePublishStepCode.HealthWrite, EdgePublishStepOutcome.Succeeded, 1));
 
@@ -278,22 +297,32 @@ public sealed class EdgeRoutingPublisher
         //    Cloudflare KV. Correctness therefore rests entirely on the single-writer contract
         //    (ADR 0050 §6: exactly one publisher instance may run; concurrent instances are a
         //    contract violation) plus the in-process gate serializing overlapping passes.
+        //    The guard reads run with bounded parallelism — one sequential GET per database
+        //    would pace the pass at a network round-trip per database — while the write plan
+        //    stays deterministic (name order). An equal-revision document whose published
+        //    content already matches is current: the write is skipped instead of rejected, so a
+        //    fresh publisher (every CLI invocation) converges without rewriting unchanged
+        //    documents, and a decommission-only snapshot still reaches the stale-delete step.
         var updatedUnixSeconds = clock.GetUtcNow().ToUnixTimeSeconds();
-        foreach (var item in pending)
+        using var guardGate = new SemaphoreSlim(GuardReadConcurrency, GuardReadConcurrency);
+        var decisions = await Task.WhenAll(
+            pending.Select(item => GuardAsync(item, guardGate, cancellationToken)).ToArray());
+        var toWrite = new List<PendingWrite>(pending.Count);
+        for (var index = 0; index < pending.Count; index++)
         {
-            var current = await GetPublishedPlacementValueAsync(
-                PlacementKey(item.Placement.DatabaseName),
-                cancellationToken);
-            if (EdgePlacementJson.TryReadPublishedRevision(current, out var publishedRevision) &&
-                item.Placement.Revision <= publishedRevision)
-                throw new EdgeRevisionRegressionException(
-                    item.Placement.DatabaseName,
-                    item.Placement.Revision,
-                    publishedRevision);
+            if (decisions[index])
+            {
+                toWrite.Add(pending[index]);
+            }
+            else
+            {
+                skips++;
+                observedFingerprints[pending[index].Placement.DatabaseName] = pending[index].Fingerprint;
+            }
         }
 
         var writes = 0;
-        foreach (var chunk in pending.Chunk(CloudflareKvClient.MaximumBulkKeys))
+        foreach (var chunk in toWrite.Chunk(CloudflareKvClient.MaximumBulkKeys))
         {
             var entries = chunk
                 .Select(item => new KeyValuePair<string, string>(
@@ -402,52 +431,97 @@ public sealed class EdgeRoutingPublisher
     }
 
     /// <summary>
+    /// The monotonicity guard for one database, run under the read gate. The published revision
+    /// must be advanced — or, at an equal revision, the published placement content must already
+    /// be identical (the writer clock is ignored), in which case the database is current and the
+    /// write is skipped. This is what makes a fresh publisher — no in-memory fingerprint cache,
+    /// i.e. every CLI invocation — able to rerun, heal, and drain without any revision having to
+    /// advance first.
+    /// </summary>
+    private async Task<bool> GuardAsync(
+        PendingWrite item,
+        SemaphoreSlim gate,
+        CancellationToken cancellationToken)
+    {
+        await gate.WaitAsync(cancellationToken);
+        try
+        {
+            var current = await GetPublishedPlacementValueAsync(
+                PlacementKey(item.Placement.DatabaseName),
+                cancellationToken);
+            if (!EdgePlacementJson.TryReadPublishedRevision(current, out var publishedRevision) ||
+                item.Placement.Revision > publishedRevision)
+                return true;
+            if (item.Placement.Revision < publishedRevision ||
+                EdgePlacementJson.TryReadPublishedPlacement(current, item.Placement.DatabaseName) is not { } published ||
+                !string.Equals(PlacementFingerprint(published), item.Fingerprint, StringComparison.Ordinal))
+                throw new EdgeRevisionRegressionException(
+                    item.Placement.DatabaseName,
+                    item.Placement.Revision,
+                    publishedRevision);
+            return false;
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    /// <summary>
     /// The revision-guard read. A namespace-not-found class 404 means the cached namespace id
     /// is stale (the namespace was deleted and recreated) or misconfigured: it must surface as
     /// a typed misconfiguration failure, never as a silent null that would disable the revision
     /// guard and wedge the pass.
     /// </summary>
     private Task<string?> GetPublishedPlacementValueAsync(string key, CancellationToken cancellationToken) =>
-        PlacementNamespaceReadAsync(
+        NamespaceReadAsync(
             EdgePublishStepCode.PlacementWrite,
+            placementNamespaceTitle,
+            placementNamespaceId!,
+            id => placementNamespaceId = id,
             (namespaceId, token) => client.GetKeyValueAsync(namespaceId, key, token),
             cancellationToken);
 
     /// <summary>The stale-detection read: every key actually present in the PLACEMENT namespace.</summary>
     private Task<IReadOnlyList<string>> ListPlacementKeysAsync(CancellationToken cancellationToken) =>
-        PlacementNamespaceReadAsync(
+        NamespaceReadAsync(
             EdgePublishStepCode.StaleDelete,
+            placementNamespaceTitle,
+            placementNamespaceId!,
+            id => placementNamespaceId = id,
             (namespaceId, token) => client.ListKeysAsync(namespaceId, token),
             cancellationToken);
 
     /// <summary>
-    /// One read against the placement namespace under the cached namespace id. A
-    /// namespace-not-found class 404 re-resolves the placement namespace id exactly once; a
-    /// different id invalidates the cache and the read is retried under it, anything else is a
-    /// permanent misconfiguration that surfaces as the typed exception.
+    /// One call against a cached namespace id. A namespace-not-found class 404 re-resolves the
+    /// namespace title exactly once; a different id invalidates the cache and the call is
+    /// retried under it, anything else is a permanent misconfiguration that surfaces as the
+    /// typed exception.
     /// </summary>
-    private async Task<T> PlacementNamespaceReadAsync<T>(
+    private async Task<T> NamespaceReadAsync<T>(
         EdgePublishStepCode step,
+        string namespaceTitle,
+        string cachedNamespaceId,
+        Action<string> updateNamespaceId,
         Func<string, CancellationToken, Task<T>> read,
         CancellationToken cancellationToken)
     {
-        var attemptedNamespaceId = placementNamespaceId!;
         try
         {
             return await RetryAsync(
                 step,
-                token => read(attemptedNamespaceId, token),
+                token => read(cachedNamespaceId, token),
                 cancellationToken);
         }
         catch (CloudflareKvNamespaceNotFoundException)
         {
             var resolved = await RetryAsync(
                 step,
-                async token => await client.ResolveNamespaceIdAsync(placementNamespaceTitle, token),
+                async token => await client.ResolveNamespaceIdAsync(namespaceTitle, token),
                 cancellationToken);
-            if (resolved is null || string.Equals(resolved, attemptedNamespaceId, StringComparison.Ordinal))
+            if (resolved is null || string.Equals(resolved, cachedNamespaceId, StringComparison.Ordinal))
                 throw;
-            placementNamespaceId = resolved;
+            updateNamespaceId(resolved);
             return await RetryAsync(
                 step,
                 token => read(resolved, token),

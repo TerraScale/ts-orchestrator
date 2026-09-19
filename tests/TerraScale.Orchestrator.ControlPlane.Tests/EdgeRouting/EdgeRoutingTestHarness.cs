@@ -26,6 +26,9 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
 
     private readonly Dictionary<string, string> values = new(StringComparer.Ordinal);
     private readonly List<ScriptedFailure> scriptedFailures = new();
+    // The publisher issues its revision-guard reads with bounded parallelism, so every state
+    // mutation below happens under this gate.
+    private readonly object sync = new();
 
     public List<string> Calls { get; } = new();
 
@@ -58,6 +61,14 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
         CancellationToken cancellationToken)
     {
         var body = request.Content is null ? null : await request.Content.ReadAsStringAsync(cancellationToken);
+        lock (sync)
+        {
+            return Route(request, body);
+        }
+    }
+
+    private HttpResponseMessage Route(HttpRequestMessage request, string? body)
+    {
         Calls.Add(Describe(request, body));
         if (TakeScriptedFailure(request) is { } failureStatus)
             return Envelope(failureStatus, success: false);
@@ -226,13 +237,19 @@ internal sealed class FakeEdgeTimeProvider : TimeProvider
 {
     public static readonly DateTimeOffset Timestamp = new(2026, 9, 18, 12, 0, 0, TimeSpan.Zero);
 
+    private readonly object sync = new();
+
     public List<TimeSpan> Delays { get; } = new();
 
     public override DateTimeOffset GetUtcNow() => Timestamp;
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
-        Delays.Add(dueTime);
+        lock (sync)
+        {
+            Delays.Add(dueTime);
+        }
+
         callback(state);
         return new CompletedTimer();
     }
