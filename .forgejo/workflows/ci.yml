@@ -287,10 +287,12 @@ jobs:
       # This upload is CI evidence only. Release creation, signing, and
       # promotion remain owned by the separately authorized release workflow.
       - name: Upload source-matched orchestrator artifact evidence
-        uses: https://data.forgejo.org/actions/upload-artifact@v7.0.1
+        # v7's include-hidden-files input fails this runner's YAML 1.2 input
+        # validation (the runner hands the action a trailing newline); v4 has
+        # no such input and the same core upload semantics.
+        uses: https://data.forgejo.org/actions/upload-artifact@v4.4.3
         with:
           name: ts-orchestrator-source-matched-${{ forgejo.sha }}
           path: ${{ runner.temp }}/ts-orchestrator-artifacts/artifacts
           if-no-files-found: error
-          include-hidden-files: false
           retention-days: 7
