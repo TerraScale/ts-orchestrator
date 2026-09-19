@@ -438,7 +438,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ValidateMember(member);
-        for (var attempt = 0; attempt < 100; attempt++)
+        for (var attempt = 0; attempt < 300; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (processes[member] is { HasExited: true })
@@ -449,12 +449,12 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 await client.PingAsync(cancellationToken);
                 return;
             }
-            catch (NatsException) when (attempt < 99)
+            catch (NatsException) when (attempt < 299)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
         }
-        throw new TimeoutException($"NATS member {member + 1} did not become ready within 10 seconds.");
+        throw new TimeoutException($"NATS member {member + 1} did not become ready within 30 seconds.");
     }
 
     private async Task WaitForJetStreamQuorumAsync(CancellationToken cancellationToken)
