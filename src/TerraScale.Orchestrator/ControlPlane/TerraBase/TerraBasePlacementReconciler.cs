@@ -235,6 +235,21 @@ internal sealed class TerraBasePlacementReconciler
                     Permanent: PlacementTopology.KindOf(state.MemberId) != TerraBaseMemberKind.Elastic,
                     CreateKey: CreateKey(intent, state)),
                 cancellationToken).ConfigureAwait(false);
+            // A member being re-hosted keeps its retained volume: the replacement attach is
+            // keyed to this host incarnation, so a retried tick resolves the same attachment.
+            var retained = await ReadVolumeAsync(delivery, intent.Database, state.MemberId, cancellationToken)
+                .ConfigureAwait(false);
+            if (retained is not null)
+            {
+                var outcome = await fleet.AttachVolumeAsync(
+                    retained.Document.ProviderVolumeId,
+                    resource,
+                    AttachKey(intent, state),
+                    cancellationToken).ConfigureAwait(false);
+                if (outcome != MemberVolumeOutcome.Completed)
+                    return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId, "attach-volume",
+                        null, intent.Revision);
+            }
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -302,8 +317,10 @@ internal sealed class TerraBasePlacementReconciler
         if (member.Observation.State == MemberHostState.Running && member.Observation.MemberHealth.Up)
         {
             // Host converged and the member serves: the ServiceHealthy evidence. The
-            // retained-volume identity is created once and fenced by its writer epoch.
-            await EnsureVolumeAsync(intent, member.State.MemberId, cancellationToken).ConfigureAwait(false);
+            // retained-volume identity — the observed provider volume — is created once
+            // and fenced by its writer epoch.
+            await EnsureVolumeAsync(
+                intent, member.State.MemberId, member.Observation.VolumeId, cancellationToken).ConfigureAwait(false);
             return await WriteMemberAsync(
                 member.State with
                 {
@@ -533,7 +550,7 @@ internal sealed class TerraBasePlacementReconciler
                     cancellationToken).ConfigureAwait(false);
 
             case PlacementMemberStateDocument.StageDeregistered:
-                await EnsureVolumeAsync(intent, state.MemberId, cancellationToken).ConfigureAwait(false);
+                await EnsureVolumeAsync(intent, state.MemberId, member.Observation?.VolumeId, cancellationToken).ConfigureAwait(false);
                 var volume = await ReadVolumeAsync(delivery, intent.Database, state.MemberId, cancellationToken).ConfigureAwait(false);
                 if (volume is { } retained)
                 {
@@ -557,6 +574,27 @@ internal sealed class TerraBasePlacementReconciler
                     if (detach.Action != StorageAction.Detach)
                         return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId, "detach-gate",
                             detach.Code.ToString(), intent.Revision);
+                    // The planned detach executes at the provider now: the retire that follows
+                    // must find the volume detached by decision, not by termination accident.
+                    // An unknown outcome holds the ladder for durable reconciliation.
+                    if (member.Observation is { } observation)
+                    {
+                        MemberVolumeOutcome outcome;
+                        try
+                        {
+                            outcome = await fleet.DetachVolumeAsync(
+                                retained.Document.ProviderVolumeId, observation.ResourceId, cancellationToken)
+                                .ConfigureAwait(false);
+                        }
+                        catch (Exception exception) when (exception is not OperationCanceledException)
+                        {
+                            return Result(PlacementTickObservation.StateError, intent.Database, state.MemberId, "detach-volume",
+                                exception.GetType().Name, intent.Revision);
+                        }
+                        if (outcome != MemberVolumeOutcome.Completed)
+                            return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId, "detach-volume",
+                                null, intent.Revision);
+                    }
                 }
                 return await GateThenActAsync(
                     intent, member, members, ScaleInState.Deregistered, "storage",
@@ -1054,17 +1092,23 @@ internal sealed class TerraBasePlacementReconciler
         return Result(action, intent.Database, updated.MemberId, action, null, intent.Revision);
     }
 
-    /// <summary>Creates the member's retained-volume identity once; a second create is a no-op.</summary>
+    /// <summary>
+    /// Creates the member's retained-volume identity once from the observed provider volume;
+    /// a second create is a no-op, so the identity survives every later host replacement.
+    /// A provider that reports no volume keeps the logical identity — the epoch fence still
+    /// holds, only the provider mutation is out of reach.
+    /// </summary>
     private async Task EnsureVolumeAsync(
         PlacementIntentDocument intent,
         string member,
+        string? providerVolumeId,
         CancellationToken cancellationToken)
     {
         var document = new PlacementVolumeStateDocument(
             PlacementVolumeStateDocument.CurrentSchemaVersion,
             intent.Database,
             member,
-            $"vol-{member}",
+            providerVolumeId ?? $"vol-{member}",
             $"attach-{member}",
             1,
             PlacementVolumeStateDocument.RetainedStateful,
@@ -1222,6 +1266,10 @@ internal sealed class TerraBasePlacementReconciler
     /// <summary>The stable provider idempotency token of one host incarnation.</summary>
     internal static string CreateKey(PlacementIntentDocument intent, PlacementMemberStateDocument state) =>
         $"placement.{intent.Database}.{state.MemberId}.r{intent.Revision}.h{state.HostSequence}";
+
+    /// <summary>The stable provider idempotency token of one volume attachment to one host incarnation.</summary>
+    internal static string AttachKey(PlacementIntentDocument intent, PlacementMemberStateDocument state) =>
+        $"{CreateKey(intent, state)}.attach";
 
     internal static string HostNodeOf(string member) => $"host-{member}";
 }

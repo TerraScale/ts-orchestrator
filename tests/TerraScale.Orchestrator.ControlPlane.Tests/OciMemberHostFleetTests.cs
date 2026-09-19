@@ -90,6 +90,7 @@ public sealed class OciMemberHostFleetTests
         await Assert.That(host.Cordon).IsFalse();
         await Assert.That(host.MemberHealth.Up).IsTrue();
         await Assert.That(host.MemberHealth.Role).IsEqualTo("Follower");
+        await Assert.That(host.VolumeId).IsEqualTo("ocid1.bootvolume.oc1.sa-saopaulo-1.member-1");
         await Assert.That(transport.Calls.Count(static call => call == "list")).IsEqualTo(1);
         await Assert.That(transport.Calls.First()).IsEqualTo("list");
 
@@ -242,6 +243,28 @@ public sealed class OciMemberHostFleetTests
     }
 
     [Test]
+    public async Task Volume_mutations_execute_through_the_fleet_seam()
+    {
+        var transport = new FakeMemberHostTransport();
+        transport.AddSeededMember(memberCordoned: false);
+        transport.AddVolumeAttachment(
+            "ocid1.volume.oc1.sa-saopaulo-1.member-1", InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
+        using var fleet = Fleet(transport, new FakeObservations());
+
+        var detached = await fleet.DetachVolumeAsync(
+            "ocid1.volume.oc1.sa-saopaulo-1.member-1", new(InstanceId), CancellationToken.None);
+        var attached = await fleet.AttachVolumeAsync(
+            "ocid1.volume.oc1.sa-saopaulo-1.member-1", new(InstanceId), "attach-key-1", CancellationToken.None);
+
+        await Assert.That(detached).IsEqualTo(MemberVolumeOutcome.Completed);
+        await Assert.That(attached).IsEqualTo(MemberVolumeOutcome.Completed);
+        await Assert.That(transport.Detaches.Single().VolumeAttachmentId).IsEqualTo("attachment-volume-1");
+        await Assert.That(transport.Attaches.Single().OpcRetryToken).IsEqualTo("attach-key-1");
+        await Assert.That(() => fleet.DetachVolumeAsync(" ", new(InstanceId), CancellationToken.None))
+            .Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task Lost_authority_aborts_every_provider_mutation()
     {
         var transport = new FakeMemberHostTransport();
@@ -254,6 +277,10 @@ public sealed class OciMemberHostFleetTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => fleet.CordonAsync(new(InstanceId), CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => fleet.DrainAsync(new(InstanceId), CancellationToken.None));
         await Assert.ThrowsAsync<InvalidOperationException>(() => fleet.RetireAsync(new(InstanceId), "etag-seed", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fleet.DetachVolumeAsync(
+            "ocid1.volume.oc1.sa-saopaulo-1.member-1", new(InstanceId), CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => fleet.AttachVolumeAsync(
+            "ocid1.volume.oc1.sa-saopaulo-1.member-1", new(InstanceId), "attach-key-1", CancellationToken.None));
         await Assert.That(() => adapter.DetachAsync(Compartment, "ocid1.volume.oc1..v", InstanceId, CancellationToken.None).AsTask())
             .Throws<InvalidOperationException>();
         await Assert.That(() => adapter.AttachAsync(Compartment, "ocid1.volume.oc1..v", InstanceId, "reattach-1", CancellationToken.None).AsTask())
@@ -452,6 +479,7 @@ public sealed class OciMemberHostFleetTests
         public List<Instance.LifecycleStateEnum>? LifecycleSequence { get; set; }
         public bool BootVolumeNeverAbsent { get; set; }
         public bool BootVolumePresent { get; set; } = true;
+        public string BootVolumeId { get; set; } = "ocid1.bootvolume.oc1.sa-saopaulo-1.member-1";
         public Exception? DetachFailure { get; set; }
         public Exception? AttachFailure { get; set; }
         public string ForeignInstanceId => "ocid1.instance.oc1.sa-saopaulo-1.foreign";
@@ -605,7 +633,12 @@ public sealed class OciMemberHostFleetTests
             return Task.FromResult(new Oci.CoreService.Responses.ListBootVolumeAttachmentsResponse
             {
                 Items = BootVolumePresent
-                    ? [new BootVolumeAttachment { Id = "boot-attachment-1", InstanceId = request.InstanceId }]
+                    ? [new BootVolumeAttachment
+                    {
+                        Id = "boot-attachment-1",
+                        InstanceId = request.InstanceId,
+                        BootVolumeId = BootVolumeId,
+                    }]
                     : [],
             });
         }

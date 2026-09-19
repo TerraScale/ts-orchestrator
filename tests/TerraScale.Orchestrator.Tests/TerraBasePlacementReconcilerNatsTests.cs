@@ -85,6 +85,15 @@ public sealed class TerraBasePlacementReconcilerNatsTests
         await Assert.That(members.Any(static member => member.MemberId == "elastic-fra")).IsFalse();
         await Assert.That(fleet.Calls.Any(static call => call.StartsWith("drain:", StringComparison.Ordinal))).IsTrue();
         await Assert.That(fleet.Calls.Any(static call => call.StartsWith("retire:", StringComparison.Ordinal))).IsTrue();
+        // The planned detach executed at the provider before the retire, by the victim's
+        // durable volume identity and against its exact instance.
+        var detachIndex = fleet.Calls.FindIndex(static call =>
+            call.StartsWith("detach-volume:vol-elastic-fra:", StringComparison.Ordinal));
+        var retireIndex = fleet.Calls.FindIndex(static call =>
+            call.StartsWith("retire:", StringComparison.Ordinal));
+        await Assert.That(detachIndex).IsGreaterThan(-1);
+        await Assert.That(retireIndex).IsGreaterThan(detachIndex);
+        await Assert.That(fleet.Calls[detachIndex]).EndsWith($":{elasticFra}");
         // The victim's retained volume record survives the member.
         var volume = await TerraBasePlacementReconciler.ReadVolumeAsync(
             server.Delivery, "prod-db", "elastic-fra", CancellationToken.None);
@@ -133,6 +142,43 @@ public sealed class TerraBasePlacementReconcilerNatsTests
             .ToArray();
         await Assert.That(provisionCalls.Length).IsEqualTo(2);
         await Assert.That(provisionCalls[0]).IsNotEqualTo(provisionCalls[1]);
+        // The retained volume was attached to the replacement host by its durable identity,
+        // idempotently keyed to the new host incarnation.
+        await Assert.That(fleet.Calls.Any(static call =>
+            call.StartsWith("attach-volume:vol-elastic-gru:", StringComparison.Ordinal))).IsTrue();
+        await Assert.That(fleet.Calls.Any(call =>
+            call.Contains($":{member.InstanceId}:", StringComparison.Ordinal))).IsTrue();
+    }
+
+    [Test]
+    public async Task UnknownVolumeAttachOutcomeHoldsTheReplacementUntilItResolvesEndToEnd()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+
+        await using var server = await PlacementNatsServer.StartAsync();
+        var fleet = new FakeMemberHostFleet();
+        var authority = new PlacementAuthorityHolder();
+        var reconciler = PlacementTestHarness.Reconciler(server, fleet, authority);
+
+        await PlacementTestHarness.ConvergeAsync(server, fleet, authority, reconciler, "prod-db", 1, "GRU");
+        fleet.RemoveHost(fleet.Instances.Single(instance => instance.EndsWith(".2")));
+
+        // A possibly-executed attach whose response was lost never advances the ladder and is
+        // never retried as a second logical attach: every tick holds on the same attach key.
+        fleet.VolumeAttachUnknown = true;
+        var held = await PlacementTestHarness.TickUntilAsync(
+            () => reconciler.TickAsync(CancellationToken.None),
+            result => result.Action == "attach-volume");
+        await Assert.That(held.State).IsEqualTo(PlacementTickObservation.StateHeld);
+
+        fleet.VolumeAttachUnknown = false;
+        var replaced = await PlacementTestHarness.TickUntilAsync(
+            () => reconciler.TickAsync(CancellationToken.None),
+            result => result.Action == "healthy" && result.Member == "elastic-gru");
+        await Assert.That(replaced.Member).IsEqualTo("elastic-gru");
+        var members = await PlacementTestHarness.MemberStatesAsync(server.Delivery, "prod-db");
+        await Assert.That(members.Single(static candidate => candidate.MemberId == "elastic-gru").Stage)
+            .IsEqualTo(PlacementMemberStateDocument.StageServing);
     }
 
     [Test]

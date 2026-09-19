@@ -136,15 +136,17 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
     private readonly Func<bool> authorityStillValid;
     private readonly IMemberHostObservationSource observations;
     private readonly IMemberHostCommandChannel commands;
+    private readonly OciMemberHostVolumeAdapter volumes;
     private readonly OciMemberHostFleetOptions options;
     private readonly TimeProvider clock;
 
     // An instance is immutable after launch except for its lifecycle state (and the ETag that
-    // rotates with it), so the first verified read of each instance is cached and every later
-    // observation derives from the filtered listing plus the cache.
+    // rotates with it), so the first verified read of each instance is cached — including its
+    // boot volume identity — and every later observation derives from the filtered listing
+    // plus the cache.
     private readonly Dictionary<string, VerifiedMemberHost> verified = new(StringComparer.Ordinal);
 
-    private sealed record VerifiedMemberHost(string ETag, Instance.LifecycleStateEnum? LifecycleState);
+    private sealed record VerifiedMemberHost(string ETag, Instance.LifecycleStateEnum? LifecycleState, string? VolumeId);
 
     internal OciMemberHostFleet(
         IOciMemberHostComputeTransport transport,
@@ -162,6 +164,7 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         this.commands = commands ?? throw new ArgumentNullException(nameof(commands));
         this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
         this.options = options ?? OciMemberHostFleetOptions.Default;
+        volumes = new OciMemberHostVolumeAdapter(transport, authorityStillValid, clock, this.options);
     }
 
     public async Task<IReadOnlyList<MemberHostObservation>> ObserveAsync(CancellationToken cancellationToken)
@@ -181,9 +184,11 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
                 throw new InvalidDataException("An owned member host has invalid identity tags.");
             var instance = listed;
             string etag;
+            string? volumeId;
             if (verified.TryGetValue(listed.Id, out var cached) && cached.LifecycleState == listed.LifecycleState)
             {
                 etag = cached.ETag;
+                volumeId = cached.VolumeId;
             }
             else
             {
@@ -191,9 +196,9 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
                 if (response is null) continue;
                 instance = response.Instance ??
                     throw new InvalidDataException("OCI returned an empty member host observation.");
-                await VerifyMemberHostAsync(instance, cancellationToken);
+                volumeId = await VerifyMemberHostAsync(instance, cancellationToken);
                 etag = response.Etag ?? string.Empty;
-                verified[listed.Id] = new(etag, instance.LifecycleState);
+                verified[listed.Id] = new(etag, instance.LifecycleState, volumeId);
             }
             var health = await observations.ObserveMemberHealthAsync(listed.Id, cancellationToken) ??
                 new MemberHealth(false, 0, nameof(TerraBaseRole.Unknown), 0, 0);
@@ -204,7 +209,8 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
                 region,
                 OciMemberHostStates.State(instance.LifecycleState),
                 tags.TryGetValue(OciMemberHostRequestCompiler.CordonTag, out var cordoned) && cordoned == "true",
-                health));
+                health,
+                volumeId));
         }
         foreach (var id in verified.Keys.Where(id => instances.All(instance => instance.Id != id)).ToArray())
             verified.Remove(id);
@@ -281,6 +287,32 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         // machine may only advance to Audited on evidence, never on the terminate acknowledgement.
         await WaitUntilBootVolumeAbsentAsync(compartment, id.InstanceId, cancellationToken);
     }
+
+    public async Task<MemberVolumeOutcome> DetachVolumeAsync(
+        string volumeId, ProviderResourceId id, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(volumeId))
+            throw new ArgumentException("Member host volume detachment requires the exact volume.", nameof(volumeId));
+        var instance = await ReadOwnedAsync(id, cancellationToken);
+        return Outcome(await volumes.DetachAsync(
+            instance.Instance.CompartmentId!, volumeId, id.InstanceId, cancellationToken));
+    }
+
+    public async Task<MemberVolumeOutcome> AttachVolumeAsync(
+        string volumeId, ProviderResourceId id, string createKey, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(volumeId))
+            throw new ArgumentException("Member host volume attachment requires the exact volume.", nameof(volumeId));
+        OciMemberHostLaunchPlan.Bounded(createKey, 256, nameof(createKey));
+        var instance = await ReadOwnedAsync(id, cancellationToken);
+        return Outcome(await volumes.AttachAsync(
+            instance.Instance.CompartmentId!, volumeId, id.InstanceId, createKey, cancellationToken));
+    }
+
+    private static MemberVolumeOutcome Outcome(OciMemberHostVolumeOutcome outcome) =>
+        outcome == OciMemberHostVolumeOutcome.Completed
+            ? MemberVolumeOutcome.Completed
+            : MemberVolumeOutcome.OutcomeUnknown;
 
     public void Dispose() => transport.Dispose();
 
@@ -401,7 +433,7 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         }
     }
 
-    private async Task VerifyMemberHostAsync(Instance instance, CancellationToken cancellationToken)
+    private async Task<string?> VerifyMemberHostAsync(Instance instance, CancellationToken cancellationToken)
     {
         var tags = instance.FreeformTags ??
             throw new InvalidDataException("An owned member host has no ownership tags.");
@@ -435,6 +467,34 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         var vnic = vnicResponse.Vnic ??
             throw new InvalidDataException("OCI returned an empty member host VNIC observation.");
         OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template);
+        // The boot volume is this member's retained stateful volume: preserved on retire for
+        // permanent members, reattached to a replacement host. Immutable after launch, so its
+        // identity is resolved once here and rides the cached verification.
+        var bootAttachments = new List<BootVolumeAttachment>();
+        page = null;
+        do
+        {
+            var response = await transport.ListBootVolumeAttachmentsAsync(
+                new ListBootVolumeAttachmentsRequest
+                {
+                    CompartmentId = template.CompartmentId,
+                    InstanceId = instance.Id,
+                    Limit = 100,
+                    Page = page,
+                },
+                cancellationToken);
+            bootAttachments.AddRange(response.Items ?? []);
+            if (bootAttachments.Count > 8)
+                throw new InvalidDataException("The member host boot-volume observation exceeded its bound.");
+            page = response.OpcNextPage;
+        }
+        while (!string.IsNullOrEmpty(page));
+        return bootAttachments.Count switch
+        {
+            0 => null,
+            1 => bootAttachments[0].BootVolumeId,
+            _ => throw new InvalidDataException("A member host must not have more than one boot volume attachment."),
+        };
     }
 
     private static void RequireOwned(Instance instance)

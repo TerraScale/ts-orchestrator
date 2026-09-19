@@ -26,6 +26,13 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
 
     public Exception? RetireFailure { get; set; }
 
+    public Exception? VolumeFailure { get; set; }
+
+    /// <summary>Scripted unknown outcomes: the mutation possibly executed, its response was lost.</summary>
+    public bool VolumeAttachUnknown { get; set; }
+
+    public bool VolumeDetachUnknown { get; set; }
+
     /// <summary>Runs inside ObserveAsync — the hook that flips authority mid-tick in tests.</summary>
     public Action? OnObserve { get; set; }
 
@@ -49,7 +56,8 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
                 MemberHostState.Running,
                 Cordon: false,
                 ETag: $"rev-{provisionSequence}",
-                new MemberHealth(up, lag, role, PeerAckCount: 2, MinReplicas: 1));
+                new MemberHealth(up, lag, role, PeerAckCount: 2, MinReplicas: 1),
+                VolumeId: $"vol-{member}");
             return instanceId;
         }
     }
@@ -110,7 +118,8 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
                     host.Region,
                     host.State,
                     host.Cordon,
-                    host.MemberHealth))
+                    host.MemberHealth,
+                    host.VolumeId))
                 .ToArray();
             return Task.FromResult(observations);
         }
@@ -132,7 +141,8 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
                 MemberHostState.Running,
                 Cordon: false,
                 ETag: $"rev-{provisionSequence}",
-                new MemberHealth(true, 0, "follower", PeerAckCount: 2, MinReplicas: 1));
+                new MemberHealth(true, 0, "follower", PeerAckCount: 2, MinReplicas: 1),
+                VolumeId: $"vol-{request.MemberId}");
             return Task.FromResult(new ProviderResourceId(instanceId));
         }
     }
@@ -181,6 +191,32 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
         }
     }
 
+    public Task<MemberVolumeOutcome> DetachVolumeAsync(
+        string volumeId, ProviderResourceId id, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            Calls.Add($"detach-volume:{volumeId}:{id.InstanceId}");
+            if (VolumeFailure is { } failure)
+                throw failure;
+            return Task.FromResult(
+                VolumeDetachUnknown ? MemberVolumeOutcome.OutcomeUnknown : MemberVolumeOutcome.Completed);
+        }
+    }
+
+    public Task<MemberVolumeOutcome> AttachVolumeAsync(
+        string volumeId, ProviderResourceId id, string createKey, CancellationToken cancellationToken)
+    {
+        lock (gate)
+        {
+            Calls.Add($"attach-volume:{volumeId}:{id.InstanceId}:{createKey}");
+            if (VolumeFailure is { } failure)
+                throw failure;
+            return Task.FromResult(
+                VolumeAttachUnknown ? MemberVolumeOutcome.OutcomeUnknown : MemberVolumeOutcome.Completed);
+        }
+    }
+
     private sealed record Host(
         string InstanceId,
         string Database,
@@ -189,5 +225,6 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
         MemberHostState State,
         bool Cordon,
         string ETag,
-        MemberHealth MemberHealth);
+        MemberHealth MemberHealth,
+        string VolumeId);
 }
