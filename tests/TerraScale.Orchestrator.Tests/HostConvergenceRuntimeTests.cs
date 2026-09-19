@@ -756,6 +756,159 @@ public sealed class HostConvergenceRuntimeTests
         }
     }
 
+    [Test]
+    public async Task MemberHealthGaugesRideTheObservationAndSchemaOneStaysValid()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var artifact = Encoding.UTF8.GetBytes("member-health-binary");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+        await using var member = await MemberHealthListener.StartAsync();
+
+        var convergence = HostConvergenceRuntime.Create(
+            delivery,
+            runtimeStore,
+            client,
+            new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            new FakeConverger(),
+            new HostConvergenceConfiguration(
+                [HostRole.TerraBaseMember],
+                "production",
+                installRoot,
+                HostArchitecture.Arm64,
+                MemberObservabilityUrl: member.Url),
+            "gru",
+            "test-1",
+            observationTimeout: TimeSpan.FromSeconds(3));
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+
+        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(observation!.SchemaVersion)
+            .IsEqualTo(HostConvergenceObservation.CurrentSchemaVersion);
+        await Assert.That(observation.MemberUp).IsTrue();
+        await Assert.That(observation.MemberReplicationLagSequences).IsEqualTo(7);
+        await Assert.That(observation.MemberRole).IsEqualTo("leader");
+        await Assert.That(observation.MemberPeerAckCount).IsEqualTo(2);
+        await Assert.That(observation.MemberMinReplicas).IsEqualTo(1);
+
+        // Schema 1 (pre-member-health) documents stay valid; the gauges are schema 2's alone.
+        var schemaOne = observation with { SchemaVersion = 1, MemberUp = null, MemberReplicationLagSequences = null, MemberRole = null, MemberPeerAckCount = null, MemberMinReplicas = null };
+        schemaOne.Validate();
+        await Assert.That(() => (schemaOne with { MemberUp = true }).Validate())
+            .Throws<InvalidOperationException>();
+    }
+
+    /// <summary>A loopback listener that answers exactly like a TerraBase member's observability endpoint.</summary>
+    private sealed class MemberHealthListener : IAsyncDisposable
+    {
+        private readonly HttpListener listener;
+        private readonly Task accept;
+
+        private MemberHealthListener(HttpListener listener, Task accept)
+        {
+            this.listener = listener;
+            this.accept = accept;
+            Url = listener.Prefixes.Single();
+        }
+
+        public string Url { get; }
+
+        public static async Task<MemberHealthListener> StartAsync()
+        {
+            var port = GetFreeLoopbackPort();
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            listener.Start();
+            var member = new MemberHealthListener(listener, Task.Run(() => AcceptLoopAsync(listener)));
+            // The listener must answer before the converge pass scrapes it.
+            using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+            for (var attempt = 0; attempt < 50; attempt++)
+            {
+                try
+                {
+                    using var response = await probe.GetAsync($"{member.Url}api/v1/health");
+                    if (response.IsSuccessStatusCode)
+                        return member;
+                }
+                catch (HttpRequestException)
+                {
+                }
+                await Task.Delay(100);
+            }
+            await member.DisposeAsync();
+            throw new TimeoutException("The member health listener never became ready.");
+        }
+
+        private static async Task AcceptLoopAsync(HttpListener listener)
+        {
+            while (listener.IsListening)
+            {
+                HttpListenerContext context;
+                try
+                {
+                    context = await listener.GetContextAsync();
+                }
+                catch (HttpListenerException)
+                {
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+                var path = context.Request.Url!.AbsolutePath;
+                switch (path)
+                {
+                    case "/api/v1/health":
+                        var health = Encoding.UTF8.GetBytes(
+                            """{"role":"leader","peerAckCount":2,"minReplicas":1}""");
+                        context.Response.ContentType = "application/json";
+                        context.Response.OutputStream.Write(health);
+                        break;
+                    case "/health/ready":
+                        break;
+                    default:
+                        var metrics = Encoding.UTF8.GetBytes(
+                            "terrabase_replication_lag_sequences{member=\"a\"} 7\n");
+                        context.Response.OutputStream.Write(metrics);
+                        break;
+                }
+                context.Response.Close();
+            }
+        }
+
+        private static int GetFreeLoopbackPort()
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+            return port;
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try
+            {
+                listener.Stop();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+            try
+            {
+                await accept.WaitAsync(TimeSpan.FromSeconds(2));
+            }
+            catch (TimeoutException)
+            {
+            }
+            listener.Close();
+        }
+    }
+
     private sealed class MemoryArtifactSource(params (string Name, byte[] Bytes)[] objects) : IHostArtifactSource
     {
         private readonly Dictionary<string, byte[]> stored =

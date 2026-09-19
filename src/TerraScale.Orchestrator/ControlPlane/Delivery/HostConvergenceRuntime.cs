@@ -23,7 +23,8 @@ public sealed record HostConvergenceConfiguration(
     string InstallRoot,
     HostArchitecture Architecture,
     string? EnvironmentDirectory = null,
-    string? StateDirectoryRoot = null)
+    string? StateDirectoryRoot = null,
+    string? MemberObservabilityUrl = null)
 {
     public const string DefaultInstallRoot = "/opt/terrascale/artifacts";
     public const string DefaultStateDirectoryRoot = "/var/lib";
@@ -34,13 +35,15 @@ public sealed record HostConvergenceConfiguration(
         string? installRoot,
         string? environmentDirectory = null,
         string? stateDirectoryRoot = null,
-        HostArchitecture? architecture = null) => new(
+        HostArchitecture? architecture = null,
+        string? memberObservabilityUrl = null) => new(
         roleNames.Select(HostRuntimeCli.ParseRole).ToArray(),
         environment is { Length: > 0 } ? environment : "production",
         string.IsNullOrWhiteSpace(installRoot) ? DefaultInstallRoot : installRoot,
         architecture ?? DetectArchitecture(),
         string.IsNullOrWhiteSpace(environmentDirectory) ? null : environmentDirectory,
-        string.IsNullOrWhiteSpace(stateDirectoryRoot) ? DefaultStateDirectoryRoot : stateDirectoryRoot);
+        string.IsNullOrWhiteSpace(stateDirectoryRoot) ? DefaultStateDirectoryRoot : stateDirectoryRoot,
+        string.IsNullOrWhiteSpace(memberObservabilityUrl) ? null : memberObservabilityUrl);
 
     internal static HostArchitecture DetectArchitecture() =>
         System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
@@ -53,6 +56,9 @@ public sealed record HostConvergenceConfiguration(
 /// <summary>
 /// The durable per-host convergence report other controllers and operators read. Published to
 /// <c>ORCH_RUNTIME</c> under <c>host.{instance}.{artifactKey}</c> after every reconcile pass.
+/// Schema 2 adds the member-health gauges of the hosted TerraBase member (liveness,
+/// replication lag in sequences, role, replica acknowledgements); schema-1 documents
+/// carry them absent and stay valid — readers tolerate both.
 /// </summary>
 internal sealed record HostConvergenceObservation(
     int SchemaVersion,
@@ -63,18 +69,28 @@ internal sealed record HostConvergenceObservation(
     string State,
     string? UnitName,
     DateTimeOffset ObservedAt,
-    string? Error = null)
+    string? Error = null,
+    bool? MemberUp = null,
+    long? MemberReplicationLagSequences = null,
+    string? MemberRole = null,
+    int? MemberPeerAckCount = null,
+    int? MemberMinReplicas = null)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
+    public const int MemberHealthSchemaVersion = 2;
 
     public void Validate()
     {
-        if (SchemaVersion != CurrentSchemaVersion ||
+        if (SchemaVersion is not (1 or CurrentSchemaVersion) ||
             string.IsNullOrWhiteSpace(Cell) || string.IsNullOrWhiteSpace(Instance) ||
             string.IsNullOrWhiteSpace(ArtifactKey) ||
             Digest is not { Length: 71 } || !Digest.StartsWith("sha256:", StringComparison.Ordinal) ||
             string.IsNullOrWhiteSpace(State) ||
-            ObservedAt == default)
+            ObservedAt == default ||
+            (SchemaVersion < MemberHealthSchemaVersion &&
+                (MemberUp is not null || MemberReplicationLagSequences is not null ||
+                 MemberRole is not null || MemberPeerAckCount is not null || MemberMinReplicas is not null)) ||
+            MemberReplicationLagSequences is < 0 || MemberPeerAckCount is < 0 || MemberMinReplicas is < 1)
             throw new InvalidOperationException("The host convergence observation is invalid.");
     }
 }
@@ -153,6 +169,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly IHostArtifactSource artifacts;
     private readonly IHostRuntimeConverger converger;
     private readonly HostConvergenceConfiguration configuration;
+    private readonly TerraScale.Orchestrator.Nodes.IMemberHealthSource? memberHealth;
     private readonly string cell;
     private readonly string instance;
     private readonly string agentObservationSubject;
@@ -183,6 +200,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.artifacts = artifacts;
         this.converger = converger;
         this.configuration = configuration;
+        memberHealth = configuration.MemberObservabilityUrl is { } url
+            ? new TerraScale.Orchestrator.Nodes.MemberHealthHttpSource(url)
+            : null;
         this.cell = cell;
         this.instance = instance;
         agentObservationSubject = NatsSubjectTaxonomy.HostAgentObservationSubject(cell, instance, "runtime");
@@ -632,6 +652,22 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         ConvergeOutcome outcome,
         CancellationToken cancellationToken)
     {
+        // The member-health gauges ride the same report: one scrape of the hosted
+        // member's loopback listener, absent when this host runs no member (or the
+        // member cannot be reached — the observation says so by omission, never by
+        // inventing values).
+        TerraScale.Orchestrator.Nodes.MemberObservation? member = null;
+        if (memberHealth is not null)
+        {
+            try
+            {
+                member = await memberHealth.ObserveAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                member = null;
+            }
+        }
         var observation = new HostConvergenceObservation(
             HostConvergenceObservation.CurrentSchemaVersion,
             cell,
@@ -647,7 +683,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             },
             outcome.UnitName,
             DateTimeOffset.UtcNow,
-            outcome.Error);
+            outcome.Error,
+            member?.Up,
+            member?.ReplicationLagSequences,
+            member?.Role,
+            member?.PeerAckCount,
+            member?.MinReplicas);
         observation.Validate();
         var json = JsonSerializer.Serialize(observation, HostConvergenceJsonContext.Default.HostConvergenceObservation);
         await runtimeStore.PutAsync($"host.{instance}.{descriptor.ArtifactKey}", json, cancellationToken: cancellationToken)

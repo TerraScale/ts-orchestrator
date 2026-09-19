@@ -44,7 +44,7 @@ internal static class EdgeRoutingPublishCli
     /// credential path (NatsCredentialFile, EcdsaCommandIdentity): a group- or other-readable
     /// token file is rejected before its contents are ever read.
     /// </summary>
-    private static async Task<string> ReadApiTokenAsync(string path, CancellationToken cancellationToken)
+    internal static async Task<string> ReadApiTokenAsync(string path, CancellationToken cancellationToken)
     {
         if (!OperatingSystem.IsLinux())
             throw new PlatformNotSupportedException("The Cloudflare API token file requires Linux file permissions.");

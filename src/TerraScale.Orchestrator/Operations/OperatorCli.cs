@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -23,10 +24,11 @@ public static class OperatorCli
         CancellationToken cancellationToken)
     {
         if (arguments.Count == 0 ||
-            arguments[0] is not ("status" or "members" or "deploy" or "artifact-push" or "evidence-record"))
+            arguments[0] is not ("status" or "members" or "deploy" or "artifact-push" or "evidence-record" or
+                "placement-apply"))
         {
             throw new ArgumentException(
-                "operator requires 'status', 'members', 'deploy', 'artifact-push', or 'evidence-record'.");
+                "operator requires 'status', 'members', 'deploy', 'artifact-push', 'evidence-record', or 'placement-apply'.");
         }
         var command = arguments[0];
         var values = ParseValues(arguments.Skip(1).ToArray());
@@ -127,8 +129,40 @@ public static class OperatorCli
             await RecordEvidenceAsync(client, topology, values, cancellationToken);
             return 0;
         }
+        if (command == "placement-apply")
+        {
+            await ApplyPlacementIntentAsync(client, topology, values, cancellationToken);
+            return 0;
+        }
         await DeployAsync(client, topology, cell, values, environment, cancellationToken);
         return 0;
+    }
+
+    /// <summary>
+    /// Writes one database's member-lifecycle intent: the active Region set (a subset of
+    /// <c>GRU</c>/<c>SFO</c>/<c>FRA</c>, no duplicates) and a revision that must strictly
+    /// advance the stored one. The write is compare-and-set — a racing operator loses
+    /// cleanly instead of overwriting.
+    /// </summary>
+    private static async Task ApplyPlacementIntentAsync(
+        NatsClient client,
+        NatsTopology topology,
+        IReadOnlyDictionary<string, string> values,
+        CancellationToken cancellationToken)
+    {
+        var intent = new TerraScale.Orchestrator.ControlPlane.TerraBase.PlacementIntentDocument(
+            TerraScale.Orchestrator.ControlPlane.TerraBase.PlacementIntentDocument.CurrentSchemaVersion,
+            Required(values, "--database", "placement-apply --database"),
+            Required(values, "--regions", "placement-apply --regions")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+            Required(values, "--partition", "placement-apply --partition"),
+            long.Parse(Required(values, "--revision", "placement-apply --revision"), CultureInfo.InvariantCulture));
+        intent.ValidateAdmission();
+        var keyValue = client.CreateJetStreamContext().CreateKeyValueStoreContext();
+        var delivery = await keyValue.GetStoreAsync(topology.Delivery.Bucket, cancellationToken);
+        var disposition = await TerraScale.Orchestrator.ControlPlane.TerraBase.PlacementIntentStore.ApplyAsync(
+            delivery, intent, cancellationToken);
+        Console.WriteLine(disposition);
     }
 
     /// <summary>
@@ -288,7 +322,8 @@ public static class OperatorCli
                     "--source-repository" or "--source-commit" or "--source-tree-digest" or
                     "--rollback-digest" or "--rollback-manifest-digest" or
                     "--configuration-revision" or "--migration-revision" or
-                    "--requested-by" or "--reason") ||
+                    "--requested-by" or "--reason" or "--database" or "--partition" or
+                    "--revision") ||
                 !values.TryAdd(arguments[index], arguments[index + 1]))
             {
                 throw new ArgumentException(

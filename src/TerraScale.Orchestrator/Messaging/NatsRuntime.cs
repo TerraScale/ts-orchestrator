@@ -30,6 +30,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission;
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
     private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
+    private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
 
     private NatsRuntime(
         NatsClient client,
@@ -44,7 +45,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsSvcServer? directDeliveryService,
         CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
         ServiceEndpointInstrumentation serviceInstrumentation,
-        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence)
+        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence,
+        ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement)
     {
         this.client = client;
         this.service = service;
@@ -59,6 +61,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.candidateHandoffV2Admission = candidateHandoffV2Admission;
         this.serviceInstrumentation = serviceInstrumentation;
         this.hostConvergence = hostConvergence;
+        this.terrabasePlacement = terrabasePlacement;
     }
 
     public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
@@ -192,7 +195,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null,
         CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null,
         bool autoProvision = true,
-        ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null)
+        ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null,
+        ControlPlane.TerraBase.ITerraBasePlacementComposition? terrabasePlacement = null)
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
@@ -231,6 +235,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalRuntimeMembership? membership = null;
         RegionalAuthorityCoordinator? authority = null;
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergenceRuntime = null;
+        ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
         try
         {
             await client.ConnectAsync();
@@ -288,6 +293,10 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (options.NatsTls is not null)
             {
                 capabilities.Add("nats-mtls");
+            }
+            if (terrabasePlacement?.Resolve() is not null)
+            {
+                capabilities.Add("terrabase-placement");
             }
             capabilities.Sort(StringComparer.Ordinal);
             membership = await RegionalRuntimeMembership.StartAsync(
@@ -577,6 +586,20 @@ public sealed class NatsRuntime : IAsyncDisposable
                     options.Instance);
             }
 
+            if (terrabasePlacement?.Resolve() is { } terrabasePlacementOptions && state.Delivery is not null)
+            {
+                // The TerraBase placement reconciler: same durable stores and fenced
+                // authority lease as the controller, leader-gated to one member action
+                // per tick through the member-host fleet seam.
+                terrabasePlacementRuntime = await ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime.StartAsync(
+                    state.Delivery,
+                    state.Runtime,
+                    () => authority.Snapshot,
+                    terrabasePlacementOptions,
+                    options.Cell,
+                    cancellationToken);
+            }
+
             return new(
                 client,
                 service,
@@ -590,7 +613,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 directDeliveryService,
                 candidateHandoffV2Admission,
                 endpointInstrumentation,
-                hostConvergenceRuntime);
+                hostConvergenceRuntime,
+                terrabasePlacementRuntime);
         }
         catch
         {
@@ -815,7 +839,15 @@ public sealed class NatsRuntime : IAsyncDisposable
                         }
                         finally
                         {
-                            await client.DisposeAsync();
+                            try
+                            {
+                                if (terrabasePlacement is not null)
+                                    await terrabasePlacement.DisposeAsync();
+                            }
+                            finally
+                            {
+                                await client.DisposeAsync();
+                            }
                         }
                     }
                 }

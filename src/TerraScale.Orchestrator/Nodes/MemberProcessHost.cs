@@ -1,8 +1,136 @@
 using System.Diagnostics;
 using System.Text;
-using System.Net.Http.Json;
 
 namespace TerraScale.Orchestrator.Nodes;
+
+/// <summary>
+/// Observes one TerraBase member's health and replication lag. The single scrape
+/// seam shared by the process host (child members) and the host convergence report
+/// path (systemd-hosted members) — both must see the same gauges.
+/// </summary>
+internal interface IMemberHealthSource
+{
+    Task<MemberObservation> ObserveAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Scrapes one member's loopback observability listener: the health endpoint for
+/// liveness (and role, when the member reports it) and the metrics endpoint for the
+/// <c>terrabase_replication_lag_sequences</c> gauge.
+/// </summary>
+internal sealed class MemberHealthHttpSource(string observabilityUrl) : IMemberHealthSource
+{
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly string observabilityUrl = observabilityUrl.TrimEnd('/');
+
+    public async Task<MemberObservation> ObserveAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await Http.GetAsync($"{observabilityUrl}/api/v1/health", cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return new(false, 0);
+            string? role = null;
+            int? peerAckCount = null;
+            int? minReplicas = null;
+            try
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
+                var root = System.Text.Json.JsonElement.Parse(body);
+                if (root.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    if (root.TryGetProperty("role", out var roleValue) && roleValue.ValueKind == System.Text.Json.JsonValueKind.String)
+                        role = roleValue.GetString();
+                    if (root.TryGetProperty("peerAckCount", out var peerValue) && peerValue.ValueKind == System.Text.Json.JsonValueKind.Number)
+                        peerAckCount = peerValue.GetInt32();
+                    if (root.TryGetProperty("minReplicas", out var replicaValue) && replicaValue.ValueKind == System.Text.Json.JsonValueKind.Number)
+                        minReplicas = replicaValue.GetInt32();
+                }
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                // A non-JSON health body still proves liveness; the gauges stay unknown.
+            }
+            var lag = await ScrapeReplicationLagAsync(cancellationToken);
+            return new(true, lag, role, peerAckCount, minReplicas);
+        }
+        catch (HttpRequestException)
+        {
+            return new(false, 0);
+        }
+        catch (TaskCanceledException)
+        {
+            return new(false, 0);
+        }
+    }
+
+    /// <summary>Polls the member's readiness endpoint once per 200 ms until it answers or the timeout elapses.</summary>
+    internal async Task<bool> WaitUntilReadyAsync(TimeSpan timeout)
+    {
+        using var cancellation = new CancellationTokenSource(timeout);
+        while (!cancellation.IsCancellationRequested)
+        {
+            try
+            {
+                using var response = await Http.GetAsync($"{observabilityUrl}/health/ready", cancellation.Token);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (TaskCanceledException)
+            {
+                return false;
+            }
+
+            await Task.Delay(200, cancellation.Token);
+        }
+
+        return false;
+    }
+
+    private async Task<long> ScrapeReplicationLagAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var metrics = await Http.GetAsync($"{observabilityUrl}/internal/metrics", cancellationToken);
+            if (!metrics.IsSuccessStatusCode)
+            {
+                return 0;
+            }
+
+            var body = await metrics.Content.ReadAsStringAsync(cancellationToken);
+            var total = 0L;
+            foreach (var line in body.Split('\n'))
+            {
+                if (!line.StartsWith("terrabase_replication_lag_sequences", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var separator = line.LastIndexOf('}');
+                var valueText = separator < 0 ? line.Split(' ')[^1] : line[(separator + 1)..].Trim();
+                if (long.TryParse(valueText, out var value) && value > 0)
+                {
+                    total += value;
+                }
+            }
+
+            return total;
+        }
+        catch (HttpRequestException)
+        {
+            return 0;
+        }
+        catch (TaskCanceledException)
+        {
+            return 0;
+        }
+    }
+}
 
 /// <summary>
 /// One TerraBase member running as a real child process. The caller supplies
@@ -11,22 +139,21 @@ namespace TerraScale.Orchestrator.Nodes;
 /// metrics scraping, graceful stop with kill escalation, and hard kill for
 /// host-loss scenarios.
 /// </summary>
-public sealed class MemberProcessHost : IAsyncDisposable
+public sealed class MemberProcessHost : IMemberHealthSource, IAsyncDisposable
 {
     private const string MemberEnabledVariable = "TERRABASE_MEMBER_ENABLED";
     private const string PeerUrlVariable = "TERRABASE_PEER_URL";
     private const string ObservabilityUrlVariable = "TERRABASE_OBSERVABILITY_URL";
 
-    private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly MemberHealthHttpSource health;
     private readonly StringBuilder output = new();
-    private readonly string observabilityUrl;
     private readonly int peerPort;
     private Process? process;
 
     private MemberProcessHost(string observabilityUrl, int peerPort)
     {
-        this.observabilityUrl = observabilityUrl;
         this.peerPort = peerPort;
+        health = new(observabilityUrl);
     }
 
     /// <summary>Launches one member and waits for its readiness endpoint.</summary>
@@ -117,72 +244,8 @@ public sealed class MemberProcessHost : IAsyncDisposable
     /// observability listener. A member that answers its health endpoint with
     /// a success code is up; the replication lag gauge is read when present.
     /// </summary>
-    public async Task<MemberObservation> ObserveAsync(CancellationToken cancellationToken = default)
-    {
-        if (!IsAlive)
-        {
-            return new MemberObservation(false, 0);
-        }
-
-        try
-        {
-            using var response = await http.GetAsync($"{observabilityUrl}/api/v1/health", cancellationToken);
-            if (!response.IsSuccessStatusCode)
-            {
-                return new MemberObservation(false, 0);
-            }
-
-            var lag = await ScrapeReplicationLagAsync(cancellationToken);
-            return new MemberObservation(true, lag);
-        }
-        catch (HttpRequestException)
-        {
-            return new MemberObservation(false, 0);
-        }
-        catch (TaskCanceledException)
-        {
-            return new MemberObservation(false, 0);
-        }
-    }
-
-    private async Task<long> ScrapeReplicationLagAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var metrics = await http.GetAsync($"{observabilityUrl}/internal/metrics", cancellationToken);
-            if (!metrics.IsSuccessStatusCode)
-            {
-                return 0;
-            }
-
-            var body = await metrics.Content.ReadAsStringAsync(cancellationToken);
-            var total = 0L;
-            foreach (var line in body.Split('\n'))
-            {
-                if (!line.StartsWith("terrabase_replication_lag_sequences", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                var separator = line.LastIndexOf('}');
-                var valueText = separator < 0 ? line.Split(' ')[^1] : line[(separator + 1)..].Trim();
-                if (long.TryParse(valueText, out var value) && value > 0)
-                {
-                    total += value;
-                }
-            }
-
-            return total;
-        }
-        catch (HttpRequestException)
-        {
-            return 0;
-        }
-        catch (TaskCanceledException)
-        {
-            return 0;
-        }
-    }
+    public Task<MemberObservation> ObserveAsync(CancellationToken cancellationToken = default) =>
+        IsAlive ? health.ObserveAsync(cancellationToken) : Task.FromResult(new MemberObservation(false, 0));
 
     /// <summary>
     /// Stops the member gracefully with SIGTERM — the host flips its metrics
@@ -229,42 +292,27 @@ public sealed class MemberProcessHost : IAsyncDisposable
     {
         await StopAsync(TimeSpan.FromSeconds(10));
         process?.Dispose();
-        http.Dispose();
         GC.SuppressFinalize(this);
     }
 
     private async Task<bool> WaitUntilReadyAsync(TimeSpan timeout)
     {
-        using var cancellation = new CancellationTokenSource(timeout);
-        while (!cancellation.IsCancellationRequested)
+        if (process is { HasExited: true })
         {
-            if (process is { HasExited: true })
-            {
-                return false;
-            }
-
-            try
-            {
-                using var response = await http.GetAsync($"{observabilityUrl}/health/ready", cancellation.Token);
-                if (response.IsSuccessStatusCode)
-                {
-                    return true;
-                }
-            }
-            catch (HttpRequestException)
-            {
-            }
-            catch (TaskCanceledException)
-            {
-                return false;
-            }
-
-            await Task.Delay(200, cancellation.Token);
+            return false;
         }
 
-        return false;
+        return await health.WaitUntilReadyAsync(timeout);
     }
 }
 
-/// <summary>One observed member state for autoscaler snapshots.</summary>
-public sealed record MemberObservation(bool Up, long ReplicationLagSequences);
+/// <summary>
+/// One observed member state for autoscaler snapshots. The role and replica
+/// acknowledgement gauges are present when the member reports them.
+/// </summary>
+public sealed record MemberObservation(
+    bool Up,
+    long ReplicationLagSequences,
+    string? Role = null,
+    int? PeerAckCount = null,
+    int? MinReplicas = null);

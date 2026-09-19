@@ -82,8 +82,18 @@ try
             ResolvedEnvironment("TS_ORCH_HOST_ENVIRONMENT"),
             ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"),
             ResolvedEnvironment("TS_ORCH_HOST_ENV_DIR"),
-            ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"));
+            ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"),
+            memberObservabilityUrl: ResolvedEnvironment("TS_ORCH_HOST_MEMBER_OBSERVABILITY_URL"));
     }
+    // The TerraBase placement reconciler turns on with its bounded configuration file;
+    // the member-host fleet itself is the OCI provider slice's composition and arrives
+    // with it — without a fleet the reconciler stays down, fail closed.
+    TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBasePlacementReconcilerOptions? terrabasePlacement =
+        TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBaseReconcilerConfiguration.Load(
+            ResolvedEnvironment("TS_ORCH_TERRABASE_RECONCILER")) is { } terrabaseConfiguration
+            ? TerraScale.Orchestrator.ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime.ComposeProduction(
+                terrabaseConfiguration)
+            : null;
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.
     TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null;
@@ -151,7 +161,8 @@ try
             ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
             candidateHandoffV2Policies,
             autoProvision,
-            hostConvergence);
+            hostConvergence,
+            terrabasePlacement);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
