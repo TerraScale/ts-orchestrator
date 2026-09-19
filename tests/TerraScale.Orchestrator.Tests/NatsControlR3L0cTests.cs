@@ -565,6 +565,7 @@ public sealed class NatsControlR3L0cTests
 
         var operations = await jetStream.GetStreamAsync("KV_ORCH_OPERATIONS");
         await Assert.That(operations.Info.Config.NumReplicas).IsEqualTo(3);
+        await Assert.That(operations.Info.Config.MaxAge).IsEqualTo(TimeSpan.FromDays(30));
         await Assert.That(operations.Info.Config.DenyDelete).IsTrue();
         await Assert.That(operations.Info.Config.DenyPurge).IsTrue();
         await Assert.That(operations.Info.Config.AllowDirect).IsTrue();

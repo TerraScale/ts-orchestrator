@@ -81,6 +81,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         History = 2,
         MaxValueSize = 16 * 1024,
         MaxBytes = 256 * 1024 * 1024,
+        // Server-side expiry keeps the bounded journal from bricking at its hard
+        // cap: records age out like every other regional durable stream (30 days).
+        MaxAge = TimeSpan.FromDays(30),
         // This authoritative journal is provisioned only by the infrastructure
         // identity; controller TS_ORCH_REPLICAS must never reconfigure it.
         NumberOfReplicas = 3
