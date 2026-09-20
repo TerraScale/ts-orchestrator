@@ -143,9 +143,7 @@ public sealed class EdgePublishOperationException : Exception
 /// The single writer of edge-routing KV state (ADR 0050 §6). Every pass is ordered (the health
 /// document is written before any placement document), idempotent (a database is written only
 /// when its fingerprint — branch placements, eligibility, residency, and revision inputs —
-/// changed since the last observed successful write, or, for a fresh publisher with no
-/// observations, when the published document at the same revision does not already match), and
-/// retryable (bounded exponential backoff
+/// changed since the last observed successful write), and retryable (bounded exponential backoff
 /// with jitter on transient Cloudflare failures). Keys of databases absent from the snapshot are
 /// discovered by listing the PLACEMENT namespace — never by remembering past passes, so a fresh
 /// publisher still reconciles keys left by any earlier process — and bulk-deleted only after
@@ -165,12 +163,6 @@ public sealed class EdgeRoutingPublisher
     /// <summary>The single key of the <c>REGIONS</c> namespace.</summary>
     public const string HealthKey = "regions";
 
-    /// <summary>
-    /// The concurrency bound of the revision-guard reads: enough parallel GETs to hide one
-    /// round-trip per database, small enough to stay polite to the Cloudflare API.
-    /// </summary>
-    private const int GuardReadConcurrency = 8;
-
     private readonly CloudflareKvClient client;
     private readonly IEdgePlacementSource source;
     private readonly string regionsNamespaceTitle;
@@ -182,12 +174,11 @@ public sealed class EdgeRoutingPublisher
     private readonly SemaphoreSlim publishGate = new(1, 1);
 
     // Observations advance only after the corresponding write succeeded, so a failed pass
-    // retries the same work on the next pass instead of silently skipping it. They are an
-    // in-memory fast path only: a fresh publisher (every CLI invocation) derives currency from
-    // the published documents themselves — the equal-revision guard skips a database whose
-    // published content already matches — so the namespace state, never this dictionary, is the
-    // source of truth. Stale-key deletion keeps NO observation — it is reality-based, from a
-    // fresh namespace listing.
+    // retries the same work on the next pass instead of silently skipping it. They are in-memory
+    // on purpose: a restarted publisher rewrites everything, which is always safe. They are
+    // never allowed to outlive their key — every pass's namespace listing voids observations
+    // whose key is gone, so the cache cannot claim the edge holds a document it lost.
+    // Stale-key deletion keeps NO observation — it is reality-based, from a fresh namespace listing.
     private readonly Dictionary<string, string> observedFingerprints = new(StringComparer.Ordinal);
     private string? regionsNamespaceId;
     private string? placementNamespaceId;
@@ -244,6 +235,12 @@ public sealed class EdgeRoutingPublisher
         if (!errors.IsEmpty)
             throw new EdgePlacementValidationException(errors);
 
+        // Namespace ids are re-verified before the write plan is computed: a recreated
+        // PLACEMENT namespace invalidates every observed fingerprint, so the plan rewrites
+        // unchanged databases into the new namespace instead of skipping them.
+        var steps = ImmutableArray.CreateBuilder<EdgePublishStep>();
+        await ResolveNamespaceIdsAsync(cancellationToken);
+
         // The write plan is deterministic: databases in name order, written only when their
         // fingerprint changed since the last observed successful write.
         var pending = new List<PendingWrite>();
@@ -266,27 +263,9 @@ public sealed class EdgeRoutingPublisher
         if (pending.Count > options.MaximumWritesPerPass)
             throw new EdgePublishBudgetException(pending.Count, options.MaximumWritesPerPass);
 
-        var steps = ImmutableArray.CreateBuilder<EdgePublishStep>();
-        await ResolveNamespaceIdsAsync(cancellationToken);
-
         // 1. Health first, unconditionally, every pass — a placement revision is never published
-        //    before the eligibility it describes. The write path re-resolves the REGIONS
-        //    namespace once on a not-found 404, symmetric with the placement reads below.
-        await NamespaceReadAsync<object?>(
-            EdgePublishStepCode.HealthWrite,
-            regionsNamespaceTitle,
-            regionsNamespaceId!,
-            id => regionsNamespaceId = id,
-            async (namespaceId, token) =>
-            {
-                await client.PutKeyValueAsync(
-                    namespaceId,
-                    HealthKey,
-                    EdgePlacementJson.WriteHealthDocument(snapshot.Health),
-                    token);
-                return null;
-            },
-            cancellationToken);
+        //    before the eligibility it describes.
+        await WriteHealthDocumentAsync(snapshot.Health, cancellationToken);
         steps.Add(new(EdgePublishStepCode.HealthWrite, EdgePublishStepOutcome.Succeeded, 1));
 
         // 2. Revision monotonicity against the currently published document, then bulk writes of
@@ -297,32 +276,22 @@ public sealed class EdgeRoutingPublisher
         //    Cloudflare KV. Correctness therefore rests entirely on the single-writer contract
         //    (ADR 0050 §6: exactly one publisher instance may run; concurrent instances are a
         //    contract violation) plus the in-process gate serializing overlapping passes.
-        //    The guard reads run with bounded parallelism — one sequential GET per database
-        //    would pace the pass at a network round-trip per database — while the write plan
-        //    stays deterministic (name order). An equal-revision document whose published
-        //    content already matches is current: the write is skipped instead of rejected, so a
-        //    fresh publisher (every CLI invocation) converges without rewriting unchanged
-        //    documents, and a decommission-only snapshot still reaches the stale-delete step.
         var updatedUnixSeconds = clock.GetUtcNow().ToUnixTimeSeconds();
-        using var guardGate = new SemaphoreSlim(GuardReadConcurrency, GuardReadConcurrency);
-        var decisions = await Task.WhenAll(
-            pending.Select(item => GuardAsync(item, guardGate, cancellationToken)).ToArray());
-        var toWrite = new List<PendingWrite>(pending.Count);
-        for (var index = 0; index < pending.Count; index++)
+        foreach (var item in pending)
         {
-            if (decisions[index])
-            {
-                toWrite.Add(pending[index]);
-            }
-            else
-            {
-                skips++;
-                observedFingerprints[pending[index].Placement.DatabaseName] = pending[index].Fingerprint;
-            }
+            var current = await GetPublishedPlacementValueAsync(
+                PlacementKey(item.Placement.DatabaseName),
+                cancellationToken);
+            if (EdgePlacementJson.TryReadPublishedRevision(current, out var publishedRevision) &&
+                item.Placement.Revision < publishedRevision)
+                throw new EdgeRevisionRegressionException(
+                    item.Placement.DatabaseName,
+                    item.Placement.Revision,
+                    publishedRevision);
         }
 
         var writes = 0;
-        foreach (var chunk in toWrite.Chunk(CloudflareKvClient.MaximumBulkKeys))
+        foreach (var chunk in pending.Chunk(CloudflareKvClient.MaximumBulkKeys))
         {
             var entries = chunk
                 .Select(item => new KeyValuePair<string, string>(
@@ -354,9 +323,20 @@ public sealed class EdgeRoutingPublisher
         //    keys written by any earlier process. Only `db:`-prefixed keys the snapshot does not
         //    claim are deleted; any other key in the namespace is not this publisher's to touch.
         //    A failed listing or delete leaves the keys in place; the next pass lists again.
-        var claimedKeys = snapshot.Databases.Keys.Select(PlacementKey).ToHashSet(StringComparer.Ordinal);
-        var staleKeys = (await ListPlacementKeysAsync(cancellationToken))
-            .Where(key => key.StartsWith("db:", StringComparison.Ordinal) && !claimedKeys.Contains(key))
+        var presentKeys = (await ListPlacementKeysAsync(cancellationToken)).ToHashSet(StringComparer.Ordinal);
+        // The same listing invalidates the fingerprint cache, so the cache can never keep
+        // describing a key the edge no longer holds: an observation whose `db:` key is absent
+        // from the namespace (out-of-band delete, KV data loss) is voided and the next pass
+        // republishes that database instead of skipping it as unchanged forever. Existence
+        // only — rewriting content an out-of-contract writer tampered with is the
+        // single-writer contract's to prevent (ADR 0050 §6), not a listing's to detect.
+        foreach (var name in observedFingerprints.Keys
+                     .Where(name => !presentKeys.Contains(PlacementKey(name)))
+                     .ToArray())
+            observedFingerprints.Remove(name);
+        var staleKeys = presentKeys
+            .Where(key => key.StartsWith("db:", StringComparison.Ordinal) &&
+                          !snapshot.Databases.ContainsKey(key["db:".Length..]))
             .Order(StringComparer.Ordinal)
             .ToArray();
         var deleted = 0;
@@ -366,6 +346,10 @@ public sealed class EdgeRoutingPublisher
                 EdgePublishStepCode.StaleDelete,
                 async token => await client.DeleteKeysInBulkAsync(placementNamespaceId!, chunk, token),
                 cancellationToken);
+            // The observation dies with the key: a database re-onboarded later with an unchanged
+            // revision must be rewritten, not skipped against the fingerprint of a deleted key.
+            foreach (var key in chunk)
+                observedFingerprints.Remove(key["db:".Length..]);
             deleted += chunk.Length;
         }
 
@@ -421,49 +405,65 @@ public sealed class EdgeRoutingPublisher
                 cancellationToken)
                 ?? throw new InvalidOperationException(
                     $"The Cloudflare KV namespace '{regionsNamespaceTitle}' does not exist.");
-        if (placementNamespaceId is null)
-            placementNamespaceId = await RetryAsync(
-                EdgePublishStepCode.HealthWrite,
-                async token => await client.ResolveNamespaceIdAsync(placementNamespaceTitle, token),
-                cancellationToken)
-                ?? throw new InvalidOperationException(
-                    $"The Cloudflare KV namespace '{placementNamespaceTitle}' does not exist.");
+        var resolvedPlacement = await RetryAsync(
+            EdgePublishStepCode.HealthWrite,
+            async token => await client.ResolveNamespaceIdAsync(placementNamespaceTitle, token),
+            cancellationToken);
+        if (resolvedPlacement is null)
+        {
+            // The namespace existed for an earlier pass but is gone now: the same typed
+            // misconfiguration failure the read path raises, never a silent skip.
+            if (placementNamespaceId is not null)
+                throw new CloudflareKvNamespaceNotFoundException(System.Net.HttpStatusCode.NotFound, []);
+            throw new InvalidOperationException(
+                $"The Cloudflare KV namespace '{placementNamespaceTitle}' does not exist.");
+        }
+        if (placementNamespaceId is not null &&
+            !string.Equals(resolvedPlacement, placementNamespaceId, StringComparison.Ordinal))
+        {
+            // The namespace was deleted and recreated: fingerprints observed in the old
+            // one describe keys that no longer exist, so every database is rewritten.
+            observedFingerprints.Clear();
+        }
+        placementNamespaceId = resolvedPlacement;
     }
 
     /// <summary>
-    /// The monotonicity guard for one database, run under the read gate. The published revision
-    /// must be advanced — or, at an equal revision, the published placement content must already
-    /// be identical (the writer clock is ignored), in which case the database is current and the
-    /// write is skipped. This is what makes a fresh publisher — no in-memory fingerprint cache,
-    /// i.e. every CLI invocation — able to rerun, heal, and drain without any revision having to
-    /// advance first.
+    /// The health write with the same recreation recovery the placement reads have: a
+    /// namespace-not-found class 404 re-resolves the REGIONS namespace exactly once and
+    /// retries under the new id; anything else is a permanent misconfiguration.
     /// </summary>
-    private async Task<bool> GuardAsync(
-        PendingWrite item,
-        SemaphoreSlim gate,
-        CancellationToken cancellationToken)
+    private async Task WriteHealthDocumentAsync(EdgeHealthDocument health, CancellationToken cancellationToken)
     {
-        await gate.WaitAsync(cancellationToken);
+        var attempted = regionsNamespaceId!;
         try
         {
-            var current = await GetPublishedPlacementValueAsync(
-                PlacementKey(item.Placement.DatabaseName),
+            await RetryAsync(
+                EdgePublishStepCode.HealthWrite,
+                async token => await client.PutKeyValueAsync(
+                    attempted,
+                    HealthKey,
+                    EdgePlacementJson.WriteHealthDocument(health),
+                    token),
                 cancellationToken);
-            if (!EdgePlacementJson.TryReadPublishedRevision(current, out var publishedRevision) ||
-                item.Placement.Revision > publishedRevision)
-                return true;
-            if (item.Placement.Revision < publishedRevision ||
-                EdgePlacementJson.TryReadPublishedPlacement(current, item.Placement.DatabaseName) is not { } published ||
-                !string.Equals(PlacementFingerprint(published), item.Fingerprint, StringComparison.Ordinal))
-                throw new EdgeRevisionRegressionException(
-                    item.Placement.DatabaseName,
-                    item.Placement.Revision,
-                    publishedRevision);
-            return false;
         }
-        finally
+        catch (CloudflareKvNamespaceNotFoundException)
         {
-            gate.Release();
+            var resolved = await RetryAsync(
+                EdgePublishStepCode.HealthWrite,
+                async token => await client.ResolveNamespaceIdAsync(regionsNamespaceTitle, token),
+                cancellationToken);
+            if (resolved is null || string.Equals(resolved, attempted, StringComparison.Ordinal))
+                throw;
+            regionsNamespaceId = resolved;
+            await RetryAsync(
+                EdgePublishStepCode.HealthWrite,
+                async token => await client.PutKeyValueAsync(
+                    resolved,
+                    HealthKey,
+                    EdgePlacementJson.WriteHealthDocument(health),
+                    token),
+                cancellationToken);
         }
     }
 
@@ -474,54 +474,50 @@ public sealed class EdgeRoutingPublisher
     /// guard and wedge the pass.
     /// </summary>
     private Task<string?> GetPublishedPlacementValueAsync(string key, CancellationToken cancellationToken) =>
-        NamespaceReadAsync(
+        PlacementNamespaceReadAsync(
             EdgePublishStepCode.PlacementWrite,
-            placementNamespaceTitle,
-            placementNamespaceId!,
-            id => placementNamespaceId = id,
             (namespaceId, token) => client.GetKeyValueAsync(namespaceId, key, token),
             cancellationToken);
 
     /// <summary>The stale-detection read: every key actually present in the PLACEMENT namespace.</summary>
     private Task<IReadOnlyList<string>> ListPlacementKeysAsync(CancellationToken cancellationToken) =>
-        NamespaceReadAsync(
+        PlacementNamespaceReadAsync(
             EdgePublishStepCode.StaleDelete,
-            placementNamespaceTitle,
-            placementNamespaceId!,
-            id => placementNamespaceId = id,
             (namespaceId, token) => client.ListKeysAsync(namespaceId, token),
             cancellationToken);
 
     /// <summary>
-    /// One call against a cached namespace id. A namespace-not-found class 404 re-resolves the
-    /// namespace title exactly once; a different id invalidates the cache and the call is
-    /// retried under it, anything else is a permanent misconfiguration that surfaces as the
-    /// typed exception.
+    /// One read against the placement namespace under the cached namespace id. A
+    /// namespace-not-found class 404 re-resolves the placement namespace id exactly once; a
+    /// different id invalidates the cache and the read is retried under it, anything else is a
+    /// permanent misconfiguration that surfaces as the typed exception.
     /// </summary>
-    private async Task<T> NamespaceReadAsync<T>(
+    private async Task<T> PlacementNamespaceReadAsync<T>(
         EdgePublishStepCode step,
-        string namespaceTitle,
-        string cachedNamespaceId,
-        Action<string> updateNamespaceId,
         Func<string, CancellationToken, Task<T>> read,
         CancellationToken cancellationToken)
     {
+        var attemptedNamespaceId = placementNamespaceId!;
         try
         {
             return await RetryAsync(
                 step,
-                token => read(cachedNamespaceId, token),
+                token => read(attemptedNamespaceId, token),
                 cancellationToken);
         }
         catch (CloudflareKvNamespaceNotFoundException)
         {
             var resolved = await RetryAsync(
                 step,
-                async token => await client.ResolveNamespaceIdAsync(namespaceTitle, token),
+                async token => await client.ResolveNamespaceIdAsync(placementNamespaceTitle, token),
                 cancellationToken);
-            if (resolved is null || string.Equals(resolved, cachedNamespaceId, StringComparison.Ordinal))
+            if (resolved is null || string.Equals(resolved, attemptedNamespaceId, StringComparison.Ordinal))
                 throw;
-            updateNamespaceId(resolved);
+            placementNamespaceId = resolved;
+            // The namespace was recreated empty: fingerprints observed in the old one
+            // describe keys that no longer exist, so every database must be rewritten
+            // instead of skipped as unchanged.
+            observedFingerprints.Clear();
             return await RetryAsync(
                 step,
                 token => read(resolved, token),
@@ -573,10 +569,12 @@ public sealed class EdgeRoutingPublisher
     /// <summary>Exponential backoff with equal-part jitter: half fixed, half random, capped.</summary>
     private TimeSpan BackoffDelay(int attempt)
     {
+        // The exponential term is computed in floating point: a tick shift of a large initial
+        // backoff would wrap negative long before the cap, and a negative delay is not a delay.
         var shift = Math.Min(attempt - 1, 30);
-        var exponential = TimeSpan.FromTicks(Math.Min(
-            options.MaximumBackoff.Ticks,
-            options.InitialBackoff.Ticks << shift));
+        var exponential = TimeSpan.FromMilliseconds(Math.Min(
+            options.MaximumBackoff.TotalMilliseconds,
+            options.InitialBackoff.TotalMilliseconds * Math.Pow(2, shift)));
         var half = TimeSpan.FromTicks(exponential.Ticks / 2);
         var jitter = TimeSpan.FromTicks((long)(half.Ticks * Random.Shared.NextDouble()));
         return half + jitter;

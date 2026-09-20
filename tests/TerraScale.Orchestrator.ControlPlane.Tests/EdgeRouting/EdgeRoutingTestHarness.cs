@@ -41,6 +41,9 @@ internal sealed class FakeCloudflareKvTransport : HttpMessageHandler
     public void Seed(string namespaceId, string key, string value) =>
         values[NamespacedKey(namespaceId, key)] = value;
 
+    /// <summary>Simulates an out-of-band key deletion: the key vanishes with no API call recorded.</summary>
+    public void Remove(string namespaceId, string key) => values.Remove(NamespacedKey(namespaceId, key));
+
     /// <summary>Simulates deleting and recreating a namespace: the title survives, the id does not.</summary>
     public void RecreateNamespace(string title, string newId)
     {

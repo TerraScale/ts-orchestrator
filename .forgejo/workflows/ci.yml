@@ -40,6 +40,15 @@ jobs:
         shell: bash
         run: dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
 
+      - name: Fail closed on vulnerable NuGet packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_check_nuget_vulnerabilities.py'
+          python3 scripts/check_nuget_vulnerabilities.py \
+            src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj \
+            tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj
+
       - name: Check .NET formatting
         shell: bash
         run: dotnet format style TerraScale.Orchestrator.slnx --verify-no-changes --no-restore
@@ -158,6 +167,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p -- artifacts/ci/tests
+          test_log="artifacts/ci/tests/orchestrator-tests.log"
           test_projects=(
             tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj
             tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchestrator.ModelTests.csproj
@@ -169,8 +180,34 @@ jobs:
             test -f "${project}"
             dotnet run --project "${project}" \
               --configuration Release --no-build --no-restore -- \
-              --minimum-expected-tests 1
+              --minimum-expected-tests 1 2>&1 | tee -a "${test_log}"
           done
+          grep -Fq 'Test run summary: Passed!' "${test_log}"
+          grep -Eq 'failed: 0' "${test_log}"
+          for project in "${test_projects[@]}"; do
+            project_dir="$(dirname "${project}")"
+            project_name="$(basename "${project}" .csproj)"
+            report="$(find "${project_dir}" -type f -path '*/TestResults/*-report.html' -print -quit)"
+            test -n "${report}"
+            cp -- "${report}" "artifacts/ci/tests/${project_name}.html"
+          done
+          (cd artifacts/ci/tests && sha256sum -- * ) > artifacts/ci/tests/SHA256SUMS
+          (cd artifacts/ci/tests && sha256sum --check --strict SHA256SUMS)
+          jq -n \
+            --arg sourceCommit "${SOURCE_SHA:?event SHA is required}" \
+            --arg testLog "orchestrator-tests.log" \
+            --arg digests "SHA256SUMS" \
+            --argjson projectCount "${#test_projects[@]}" \
+            '{schemaVersion: 1, sourceCommit: $sourceCommit, projectCount: $projectCount, testLog: $testLog, digests: $digests}' \
+            > artifacts/ci/tests/test-receipt.json
+
+      - name: Upload orchestrator test evidence
+        uses: https://data.forgejo.org/actions/upload-artifact@v7.0.1
+        with:
+          name: ts-orchestrator-tests-${{ forgejo.sha }}
+          path: artifacts/ci/tests
+          if-no-files-found: error
+          retention-days: 30
 
   artifact:
     name: artifact/linux-amd64-arm64
