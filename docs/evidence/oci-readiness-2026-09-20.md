@@ -1,231 +1,177 @@
-# OCI deployment readiness record — 2026-09-20
+# OCI deployment readiness — 2026-09-20
 
-This record is the current deployment gate for `ts-orchestrator`, TerraBase,
-and `ts-auth`. It distinguishes local evidence from OCI evidence. Passing a
-local test does not qualify an OCI identity, policy, network, or resource.
+**Do not start OCI deployment yet.** Local tests cover useful components, but
+the production first-boot, resource ownership handoff, automatic regional
+formation, and complete runtime qualification are not finished. No OCI
+mutation or local OpenTofu apply was performed for this readiness work.
 
-## Decision
+## Required ownership model
 
-**Do not start the OCI deployment yet.** The local runtime and VM qualification
-gates below pass, but the production OCI mutation path is not implemented or
-composed. OCI has not been mutated by this audit.
+`ts-infra` is authoritative for supported regions and starts the first GRU
+orchestrator. Orchestrator must then own the OCI resource lifecycle and create
+autonomous regional orchestrator/NATS clusters, whose admitted hosts pick up
+work automatically. `ts-auth` and TerraBase scale independently. Status and
+metrics must expose needs, actions, and progress across these lifecycles.
 
-The next deployment can be a supervised GRU staging deployment only after the
-blocking implementation and bootstrap gates are closed, followed by the live
-negative-permission tests in the last section.
+Current `ts-infra` code emits generation-versioned region intent and contains
+an explicitly disabled GRU-only seed estate and one private ARM64 controller.
+It does not create SFO/FRA infrastructure. Runtime OCI fleet startup consumes
+`TS_ORCH_REGION_INTENT_FILE` and rejects unsupported cells or mismatched OCI
+endpoints/templates. This is startup validation; it neither distributes intent
+updates nor creates regional clusters. OpenTofu still owns the seed resources.
 
-The required node behavior is part of that gate: a new controller or workload
-host must bootstrap from its regional configuration, discover the regional NATS
-service, claim one unexpired signed membership slot, converge the regional
-topology, and begin consuming only admitted work. No operator should edit a
-peer list or manually assign a task to make a replacement useful.
+The [bootstrap contract](../operations/control-bootstrap.md) defines the
+required first boot and exact-resource handoff. A tag or output does not
+transfer ownership. A signed adoption request, CI relinquishment without
+destruction, durable state publication, and signed release receipt are still
+needed before the controller may mutate the seed foundation.
 
-## Evidence captured locally
+## Verification evidence
 
-Evidence files are under `/tmp/ts-oci-readiness-20260920` and are tied to a
-dirty shared workspace, so they are qualification evidence for the tested
-source state rather than an immutable release receipt.
+These are working-tree results, not qualification of an immutable release.
+Other changes are present in the shared checkouts. Rerun the final gates against
+the exact release revision before deployment.
 
-| Gate | Result | Evidence |
+| Check | Result | Evidence/limit |
 | --- | --- | --- |
-| Orchestrator locked Release build | Pass | `orchestrator-build.log` |
-| Orchestrator Release single-file linux-x64 publish | Pass | `orchestrator-publish` output from this run |
-| Orchestrator unit/integration suites | 2,139 passed, 0 failed, 3 opt-in | prior suite receipt in evidence directory |
-| Real local NATS control paths | Pass | NATS fixture receipts in the orchestrator test results |
-| Local TerraBase process fleet | Pass, 1/1 | `live-fleet-final.log` |
-| Firecracker single-region boot/heal/drain | Pass | `live-vm.log` |
-| Firecracker three-region loss/heal | Pass | `live-vm.log` |
-| Orchestrator NuGet audit, including transitives | Pass, no known vulnerabilities | vulnerability audit output |
-| `ts-auth` Release build and locked restore | Pass | `auth-build.log` |
-| Malformed bearer wire probes | Pass, real HTTP 401 responses | `auth-unicode.log` |
-| Complete current `ts-auth` suite | **Open** | an independently launched run remained in webhook polling; no final summary |
+| Orchestrator Release solution build, latest edits | Pass, 0 warnings/errors | `/tmp/ts-readiness-build-final2.log` |
+| Region-intent authorization tests | 19 passed | `/tmp/ts-region-intent-tests.log`; strict shape, mappings, endpoints, bounded/private file |
+| Operator-status projection tests | 4 passed before the additional missing-desired test | `/tmp/ts-operator-status-tests.log`; independent actual policy bounds and stale-decision rejection |
+| Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
+| OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
+| Refreshed read-only OCI plan, estate disabled | Pass; outputs only, no resource changes | `/tmp/ts-infra-region-plan.log`; passphrase available locally, never printed |
+| Auth browser context cleanup regression | 1 passed | `/tmp/ts-auth-browser-cleanup.log`; page disposal now closes its isolated context |
+| Auth admin authorization test after cleanup fix | 1 passed | `/tmp/ts-auth-admin-focused.log`; isolated pass does not establish the full-run timeout's cause |
+| Full auth CI-equivalent run before cleanup fix | Incomplete, interrupted after approximately 29 minutes | `/tmp/tsauth-ci-equivalent.log`; one admin browser timeout recorded; exit 1, no completed totals |
+| New full auth run after cleanup fix | Pending | `/tmp/tsauth-ci-cleanup-rerun.log`; bounded to 10 minutes, same serial concurrency as CI |
+| Latest full orchestrator main suite | Pending | `/tmp/ts-orchestrator-main-final.log`; three opt-in live fleet/VM tests skipped |
 
-The VM tests prove guest process lifecycle, health, and local network setup.
-They do not prove replicated customer-data correctness, OCI IAM, OCI network
-reachability, or an orchestrator running inside the guest.
+Earlier completed orchestrator results, before the latest region/status/scaler
+edits: main **952 passed, 3 live-test skips**; control plane **949 passed**;
+protocol **165 passed**; scheduler **102 passed**; model **59 passed**. Focused
+host convergence had 18 passes and admission 2 passes. These are component
+results, not proof of a fresh OCI VM booting and serving work.
 
-## Authentication that must exist in production
+Earlier auth log `/tmp/tsauth-final-run2.log` completed with 325 passes and
+49 failures (44 browser target-closed errors and five webhook/magic-link
+failures). It is distinct from the later interrupted runs. Focused reruns of
+webhooks (9 tests) and atomic magic-link consumption (1 test) passed. The
+subsequent session 49559 was terminated with exit 137 and has no passing suite
+result. Do not combine these runs into a green full-suite claim.
 
-### Orchestrator control-plane identity
+Prior focused service telemetry results: auth authenticated metrics 1 pass;
+TerraBase metrics/readiness 2 passes. Real containerd execution and the final
+external TerraBase/auth deployment remain unqualified.
 
-Each regional controller needs its own NATS NKey and complete client mTLS
-identity. The regional identity, global authority, global directory publisher,
-directory service, infrastructure journal provisioner, and journal writer must
-remain distinct. The binary already fails closed on missing TLS/NKey material,
-credential-file permissions, URL user-info, replica-count ambiguity, and
-identity reuse.
+## OCI inventory and configuration
 
-The controller also needs its command-signing key and trusted public keys. CI
-ingestion additionally needs the Forgejo source token and the OCI CI runner
-identity. Forgejo credentials are optional when CI ingestion is disabled.
+Read-only OCI CLI 3.82.0 queries confirm READY subscriptions:
 
-### OCI API identity
+| Cell | OCI region | OCI key |
+| --- | --- | --- |
+| GRU | `sa-saopaulo-1` (home) | GRU |
+| SFO | `us-sanjose-1` | SJC |
+| FRA | `eu-frankfurt-1` | FRA |
 
-The intended production identity is OCI Instance Principals on controller
-instances. A dynamic group must match only the controller instances in the
-controller compartment. No workstation API key or user private key should be
-installed on a controller. The bootstrap operator may use an OCI API key to
-create the initial estate, but that key is not a runtime credential.
+The GRU availability domain is `YDvv:SA-SAOPAULO-1-AD-1`. The recorded TerraScale
+compartment is `ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna`.
+Earlier direct listings found no compute instances in that compartment in
+these three regions, and no GRU VCN. Vault listing returned no entries in that
+compartment. These observations are scoped to the queried compartment and do
+not prove the whole tenancy is empty. Dynamic-group listing was denied, so
+controller dynamic-group absence is **unconfirmed**.
 
-The current source does not yet prove this path: the OCI Instance Principal
-adapter is wired for CI-runner capacity (and block-volume expansion), while
-`IOciCreateNodeClient` has no production implementation and no
-`IMemberHostFleet` composition exists. The attempted workstation
-`instance_principal` command was intentionally cancelled when it waited on
-the metadata service; it is not evidence of Instance Principal access.
+OpenTofu is 1.12.6 with OCI provider 6.37.0. The private local state passphrase
+exists and enabled the refreshed read-only plan. No state was edited manually.
+Saved plan files are private local artifacts; state encryption alone does not
+ensure saved plans are encrypted. The enabled configuration has been checked
+with mocks only. It still needs actual pinned artifacts/images, bootstrap,
+least-privilege IAM, private egress, quotas, Vault bindings, and cost review.
 
-### Secret and workload identity
+The estate now separates the TerraScale parent compartment from the tenancy
+root used for dynamic groups and the Email Delivery compartment. Its retained
+buckets disable versioning: Oracle explicitly disallows retention rules on
+versioned buckets ([OCI retention documentation](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingretentionrules.htm)).
+The current virtual-private Vault requires explicit resource/cost review.
 
-`ts-auth` requires its TerraBase API key/database route, master key, audit
-signing key plus verification keys, operator key, and any webhook/OAuth
-secrets. These must be injected through a reviewed secret profile (Infisical
-is currently implemented as a bounded file-credential client). Secret values,
-OCI signing keys, NATS seeds, and TLS private keys must never be placed in the
-estate file, image, desired-state document, or logs.
+## Authentication required before deployment
 
-OCI Vault integration for the final workload bootstrap and key rotation is not
-composed in the current orchestrator runtime. Until it is, `ts-auth` can only
-be rehearsed with the existing local/Infisical path; that is not a production
-OCI secret qualification.
+- **OCI controller:** Instance Principal. The dynamic group must match only
+  controller instances; workload hosts need separately scoped permissions.
+  Workstation API keys must not be installed on controllers. Prove allowed
+  operations and denial outside the owned compartments/resources from OCI.
+- **Regional NATS:** distinct controller, operator, infrastructure journal
+  provisioner, journal writer, and host identities, with private NKey/mTLS
+  material and exact regional subject permissions. The production regional
+  runtime uses NKey files; existing JWT-based test fixtures do not by
+  themselves prove its first-boot connection configuration.
+- **Command and enrollment trust:** pinned signing keys, grant audience,
+  certificate/node/region binding, fixed system project, and durable replay
+  records. Production admission currently accepts a generation once and
+  caches it for the process lifetime. Restart and credential renewal need a
+  complete protocol; do not weaken the replay fence to bypass this gap.
+- **Vault and workloads:** fetch pinned secret versions through scoped
+  Instance Principals, verify digests, write restricted files, rotate and
+  revoke credentials. Compose this path for NATS, TerraBase and auth secrets.
+  The existing Infisical/file seam is not OCI Vault qualification.
+- **Operator:** use authenticated
+  `ts.orch.v2.<cell>.query.operator-status` through a read-only operator
+  identity. Auth `/metrics` uses its dedicated `TS_AUTH_METRICS_KEY` in
+  `X-TerraScale-Metrics-Key`, with no operator-key fallback.
 
-## Required OCI staging estate
+## Blocking implementation and qualification
 
-Create this estate through the approved `ts-infra` CI workflow. Do not run
-`tofu apply` locally and do not edit its state file by hand.
+1. Complete the seed first boot: artifact verification, Instance Principal,
+   scoped Vault retrieval, NATS startup, isolated journal, controller admission,
+   and recovery after interruption at each stage.
+2. Implement and qualify the CI/controller seed ownership transfer. Bootstrap
+   IAM must not require an unknown new compartment ID in a manually supplied
+   rule or allow the controller to widen its own tenancy permissions.
+3. Compose regional network/storage/Vault/IAM and controller formation from
+   supported-region intent, with durable generation fencing, resource ownership,
+   idempotent retries, rollback, drain, and retained-data protections.
+4. Prove fresh host enrollment and automatic admitted task pickup, then restart,
+   credential renewal, node loss and replacement. Region support alone must
+   never authorize work or confer membership.
+5. Qualify generic auth scaling alongside stateful TerraBase placement. The
+   status projection now uses configured fleet limits, absent/suspended desired
+   state blocks allocation, and one workload's provider failure does not stop
+   the other. Provider readiness still needs exact node/cell/artifact binding,
+   and stateful retirement must prove drain and data safety.
+6. Finish status and telemetry for foundation, handoff, regional enrollment,
+   Vault rotation and every provider operation. Current workload aggregates and
+   needs/actions/progress are useful but are not complete OCI lifecycle coverage.
+7. Obtain completed green auth and orchestrator runs, then real containerd,
+   external TerraBase/auth and multi-region VM receipts on the final artifacts.
 
-1. Under the existing TerraScale compartment, create separate `terrascale-control`,
-   `terrascale-network`, and `terrascale-workload` compartments in each launch
-   region as applicable.
-2. Create private VCN/subnets and separate control/member NSGs in GRU first.
-   NATS, host-agent, and TerraBase member ports must have no internet ingress.
-3. Create a controller dynamic group scoped to the controller compartment.
-4. Grant only the reviewed controller policy: manage instances and volume
-   family in the workload compartment; use the recorded subnet/NSGs; read
-   owned work requests, compartments, network objects, Vault metadata/key
-   metadata, and the two owned buckets; pull from OCIR without repository
-   delete; manage objects only under the owned ledger and backup buckets.
-5. Create a private Vault and rotated HSM-protected key plus versioned ledger
-   and backup buckets. Record immutable OCIDs, endpoints, retention, and
-   lifecycle rules in a root-owned `0600` estate file with no credentials.
-6. Publish signed, architecture-specific single-file artifacts for
-   `ts-orchestrator`, TerraBase, and `ts-auth`; record SHA-256 digests and
-   rollback artifacts before creating a VM.
+## Final local gate
 
-The existing `ts-infra` checkout currently manages only Email Delivery
-resources. It does not create this estate. The runbook in
-[`oci-manual-bootstrap.md`](../guides/oci-manual-bootstrap.md) describes the
-human bootstrap shape, but its estate verifier and provider client are not
-present in the current runtime.
+Run at reduced local priority; CI keeps normal priority. Use TUnit, not
+`dotnet test`. Retain command, revision, exit code and test totals.
 
-## Automatic regional formation and task pickup
+- Locked restore, format, Release build, architecture-specific single-file
+  publish and vulnerability audit for orchestrator, TerraBase, and auth.
+- Full TUnit suites including real NATS, authenticated operator query and
+  permission denial, auth browser/security tests, and external TerraBase use.
+- Local provider-to-first-boot rehearsal with deterministic OCI transports:
+  lost responses, retry-token reuse, restart, ownership mismatch, IAM denial,
+  polling timeout, partial failure and cleanup. Prove no duplicate VM.
+- Real containerd pull/create/start/readiness/stop/delete on a disposable host;
+  verify pinned digest, isolation, wrong-image rejection and secret redaction.
+- Live local TerraBase fleet scale/heal, one-region and three-region VM
+  formation/loss/heal; verify no leaked guests, taps, bridges or listeners.
+- Independent auth/TerraBase target changes, cooldown, pending operations,
+  drain, failure isolation and status/metric agreement. Exercise key rotation,
+  backup/restore and the controller restart path.
+- Mocked OpenTofu tests and a reviewed enabled **plan**, with an exact bootstrap
+  artifact and least-privilege resource inventory. Applies remain CI-only.
 
-The C# runtime already contains part of the intended behavior:
+## First live OCI qualification, after local readiness
 
-- `run` auto-provisions the regional controller topology by default
-  (`TS_ORCH_AUTO_PROVISION=0` is the explicit opt-out), using idempotent
-  create-or-update operations before opening the streams and KV buckets;
-- each controller then publishes a signed, renewable `controller.<instance>`
-  membership record and discovers peers through the regional runtime bucket
-  and NATS service endpoints; and
-- a host configured with `TS_ORCH_HOST_ROLES` starts a five-second
-  leaderless-convergence loop. It reads the admitted digest from
-  `ORCH_DELIVERY`, fetches the immutable artifact from `ORCH_ARTIFACTS`,
-  acquires the stateful replacement lease when required, starts the runtime,
-  and publishes its observation. This is the automatic pickup path for an
-  admitted workload assignment.
-
-Those paths do not yet make a fresh OCI node self-sufficient. The node still
-needs a signed bootstrap grant, regional NATS URL/NKey/mTLS files, a stable
-instance identity, host-role/environment configuration, and a provider-created
-network address. `IMemberHostFleet` and the production OCI CreateNode client
-are absent, and the membership document explicitly says that health is not yet
-combined with authority as one mutation-eligibility decision. Therefore the
-following claim remains unproved until the OCI implementation lands:
-
-> Create a new VM in any admitted region, let it start with only its reviewed
-> bootstrap material, have it join the correct regional cluster without manual
-> peer edits, receive an admitted `ts-auth` or TerraBase assignment, report
-> ready, and begin serving work; repeat after a controller/member loss without
-> duplicate allocation or cross-region admission.
-
-The local NATS and Firecracker tests exercise pieces of this sequence, but not
-the full provider-to-VM-to-task path. The first live GRU gate therefore
-requires an explicit “new node joins and picks up work” receipt before SFO or
-FRA is enabled.
-
-## Blocking implementation work
-
-These are prerequisites for saying “ready to deploy”:
-
-- implement and compose the OCI CreateNode client with signed idempotency,
-  work-request polling, ownership/ETag reconciliation, and bounded retry;
-- implement the production `IMemberHostFleet` adapter for instance observe,
-  create, cordon, drain, and exact-instance terminate;
-- compose regional placement, storage, network, Vault, and estate-drift
-  verification in the single binary;
-- admit and compose the `ts-auth` workload as an OCI container with a stable
-  artifact identity, secret profile, health contract, dependency ordering on
-  TerraBase, and rollback/restore behavior;
-- make the controller's first-boot/bootstrap and trust rotation executable,
-  including NATS identities and the TerraBase member enrollment path;
-- add a staging configuration renderer/preflight that checks compartments,
-  dynamic-group rule, policy statements, quotas, image architecture,
-  subnet/NSG ownership, Vault key binding, and bucket retention before any
-  mutation.
-- complete the bootstrap/enrollment handshake so a new node obtains its
-  regional identity, NATS trust bundle, host role, and desired-state cursor
-  automatically; make the runtime reject wrong-region or stale grants before
-  it can claim work.
-
-## Final local gate before the first OCI mutation
-
-Run these against the exact release commit, with no dirty source:
-
-1. Locked restore, format, Release build, single-file `linux-arm64` and
-   `linux-x64` publishes, and transitive vulnerability audit for all three
-   services.
-2. Full orchestrator TUnit suite, real-NATS suite, local TerraBase fleet
-   scale/heal, Firecracker one-region and three-region loss/heal, and cleanup
-   verification (no tap, bridge, guest, or listener leaked).
-3. Full `ts-auth` TUnit suite, including browser tests, malformed UTF-8 bearer
-   wire probes, audit export/rotation, user deletion cascade, webhook retry,
-   and an external real TerraBase member run with a fresh database.
-4. Start the published binaries under a minimal service account and prove
-   rejected startup for missing/overbroad credentials, reused NKeys, missing
-   TLS, wrong artifact digest, missing secret profile, and invalid runtime
-   role. Keep the emitted logs and exit codes.
-5. Exercise the OCI client against a deterministic HTTP transport for work
-   request success, timeout, duplicate create reconciliation, ownership
-   mismatch, authorization denial, and bounded retry. This is a unit gate,
-   not live OCI evidence.
-
-## First live GRU staging gate
-
-After the blocking work and local gate pass, deploy one controller and one
-throwaway workload in GRU only. Before allowing TerraBase or `ts-auth` traffic,
-prove all of the following and retain the command output:
-
-- Instance Principal succeeds from the controller VM and the same API call is
-  denied from an untrusted VM and from the operator user outside the allowed
-  scope.
-- The controller can create, observe, tag, reconcile, cordon, drain, and
-  terminate only its owned instance/volume resources; a different region,
-  compartment, NSG, bucket, key, and unrelated instance are denied.
-- Work-request retry and controller restart return the original OCID rather
-  than creating a duplicate.
-- NATS mTLS/NKey trust rejects anonymous, wrong-region, reused, expired, and
-  journal-writer credentials; no credential material appears in logs.
-- TerraBase membership admission, replicated writes, leader loss, replacement,
-  drain, backup, and restore pass with customer-data assertions.
-- `ts-auth` starts from the OCI secret profile, serves health/readiness, reaches
-  TerraBase, survives a controller/VM restart, and its authentication,
-  scope-denial, tenant-isolation, audit, and rollback probes pass.
-- A newly created GRU host joins the regional controller/member cluster with no
-  peer-list edit, claims no work until its signed membership and health are
-  accepted, then receives one admitted `ts-auth`/TerraBase assignment. Remove
-  the host and repeat to prove replacement, idempotency, and automatic task
-  pickup. Repeat the same scenario after the region loses a controller quorum
-  and verify that no task crosses into another region.
-
-Only after the GRU receipt is reviewed should SFO and FRA be added. No live OCI
-deployment or mutation was performed while creating this record.
+Start with disposable GRU staging. Prove Instance Principal allow/deny behavior,
+private connectivity, Vault access/denial, seed handoff, fresh node joining,
+automatic task pickup, lost-create response recovery, controller restart, drain,
+backup/restore and complete cleanup. Run auth security and tenant-isolation
+probes over real TerraBase. Do not enable customer traffic or form SFO/FRA
+clusters until the GRU receipt is reviewed. Live OCI checks cannot be marked
+passed by mocked plans, transport tests, or local VM tests.

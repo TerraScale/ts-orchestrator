@@ -1111,6 +1111,10 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>",
                     "$JS.FC.KV_ORCH_RUNTIME.>",
                     "$KV.ORCH_RUNTIME.>",
+                    "$JS.API.STREAM.INFO.KV_ORCH_NODE_ENROLLMENTS",
+                    "$JS.API.DIRECT.GET.KV_ORCH_NODE_ENROLLMENTS",
+                    "$JS.API.DIRECT.GET.KV_ORCH_NODE_ENROLLMENTS.>",
+                    "$KV.ORCH_NODE_ENROLLMENTS.>",
                     "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
                     "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
                     "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>",
@@ -1135,6 +1139,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     $"{root}.command.journal.reply.{publicKey}.>",
                     $"{root}.command.runtime-lifecycle.reply.{publicKey}.>",
                     "$KV.ORCH_RUNTIME.>",
+                    "$KV.ORCH_NODE_ENROLLMENTS.>",
                 ]),
             Role.Infrastructure => new(
                 [
@@ -1159,6 +1164,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$JS.API.STREAM.CREATE.KV_ORCH_RUNTIME",
                     "$JS.API.STREAM.UPDATE.KV_ORCH_RUNTIME",
                     "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME",
+                    "$JS.API.STREAM.CREATE.KV_ORCH_NODE_ENROLLMENTS",
+                    "$JS.API.STREAM.UPDATE.KV_ORCH_NODE_ENROLLMENTS",
+                    "$JS.API.STREAM.INFO.KV_ORCH_NODE_ENROLLMENTS",
                     "$JS.API.STREAM.CREATE.KV_ORCH_DELIVERY",
                     "$JS.API.STREAM.UPDATE.KV_ORCH_DELIVERY",
                     "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY",
@@ -1246,6 +1254,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 [
                     NatsSubjectTaxonomy.ControllerStatusSubject(Cell),
                     NatsSubjectTaxonomy.ControllerMembersSubject(Cell),
+                    NatsSubjectTaxonomy.ControllerStatsSubject(Cell),
+                    NatsSubjectTaxonomy.ControllerOperatorStatusSubject(Cell),
                 ],
                 ["_INBOX.>"]),
             Role.WrongAccount => new([">"], ["_INBOX.>"]),
@@ -1600,4 +1610,3 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         WrongAccount,
     }
 }
-

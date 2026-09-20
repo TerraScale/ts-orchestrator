@@ -24,11 +24,11 @@ public static class OperatorCli
         CancellationToken cancellationToken)
     {
         if (arguments.Count == 0 ||
-            arguments[0] is not ("status" or "members" or "deploy" or "artifact-push" or "evidence-record" or
+            arguments[0] is not ("status" or "members" or "operator-status" or "stats" or "deploy" or "artifact-push" or "evidence-record" or
                 "placement-apply"))
         {
             throw new ArgumentException(
-                "operator requires 'status', 'members', 'deploy', 'artifact-push', 'evidence-record', or 'placement-apply'.");
+                "operator requires 'status', 'members', 'operator-status', 'stats', 'deploy', 'artifact-push', 'evidence-record', or 'placement-apply'.");
         }
         var command = arguments[0];
         var values = ParseValues(arguments.Skip(1).ToArray());
@@ -93,10 +93,17 @@ public static class OperatorCli
         await using var client = new NatsClient(clientOptions);
         await client.ConnectAsync();
         var topology = new NatsTopology(cell, 1);
-        if (command is "status" or "members")
+        if (command is "status" or "members" or "operator-status" or "stats")
         {
+            var subject = command switch
+            {
+                "status" => topology.StatusSubject,
+                "members" => topology.MembersSubject,
+                "operator-status" => topology.OperatorStatusSubject,
+                _ => topology.StatsSubject
+            };
             var response = await client.RequestAsync<string, string>(
-                command == "status" ? topology.StatusSubject : topology.MembersSubject,
+                subject,
                 command,
                 cancellationToken: cancellationToken);
             if (command == "status")
@@ -108,7 +115,7 @@ public static class OperatorCli
                 status.Validate(cell);
                 Console.WriteLine(JsonSerializer.Serialize(status, OutputOptions));
             }
-            else
+            else if (command == "members")
             {
                 var members = JsonSerializer.Deserialize(
                     response.Data ?? throw new InvalidOperationException("The regional controller returned no membership view."),
@@ -116,6 +123,21 @@ public static class OperatorCli
                     ?? throw new InvalidOperationException("The regional controller returned no membership view.");
                 members.Validate(cell);
                 Console.WriteLine(JsonSerializer.Serialize(members, OutputOptions));
+            }
+            else if (command == "operator-status")
+            {
+                var status = JsonSerializer.Deserialize(
+                    response.Data ?? throw new InvalidOperationException("The regional controller returned no operator status."),
+                    OperatorStatusJsonContext.Default.OperatorStatusDocument)
+                    ?? throw new InvalidOperationException("The regional controller returned no operator status.");
+                status.Validate();
+                Console.WriteLine(JsonSerializer.Serialize(status, OutputOptions));
+            }
+            else
+            {
+                using var stats = JsonDocument.Parse(
+                    response.Data ?? throw new InvalidOperationException("The regional controller returned no service statistics."));
+                Console.WriteLine(JsonSerializer.Serialize(stats.RootElement, OutputOptions));
             }
             return 0;
         }

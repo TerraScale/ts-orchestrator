@@ -119,6 +119,7 @@ public sealed class MessagingContractSourceScanTests
             regional.StatusSubject,
             regional.MembersSubject,
             regional.StatsSubject,
+            regional.OperatorStatusSubject,
             regional.DirectDeliverySubject,
             regional.OperationJournalCreateSubject,
             regional.OperationJournalUpdateSubject,

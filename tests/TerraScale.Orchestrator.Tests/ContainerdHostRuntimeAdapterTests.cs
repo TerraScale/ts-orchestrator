@@ -100,6 +100,34 @@ public sealed class ContainerdHostRuntimeAdapterTests
         await Assert.That(client.Operations).IsEquivalentTo(Array.Empty<string>());
     }
 
+    [Test]
+    public async Task OciRoleConvergerMapsContainerReadinessToHostReadiness()
+    {
+        var plan = HostRuntimePlan.Create(
+            AdmittedRole.Authentication,
+            RuntimeDriver.OciContainer,
+            new RuntimeAllocationId("gru-auth-1"),
+            new ArtifactDigest(Digest),
+            HostArchitecture.Arm64);
+        var client = new RecordingContainerdClient
+        {
+            Observation = new(
+                plan.Oci!.ContainerId,
+                ContainerdAllocationState.Running,
+                plan.Oci.ImageReference,
+                plan.Oci.Platform,
+                CanonicalPlanFingerprint.Compute(plan),
+                1234,
+                "running")
+        };
+
+        var observation = await new ContainerdHostRuntimeConverger(client)
+            .ObserveAsync(plan, CancellationToken.None);
+
+        await Assert.That(observation.State).IsEqualTo(SystemdAllocationState.Running);
+        await Assert.That(observation.MainProcessId).IsEqualTo(1234);
+    }
+
     private static HostRuntimePlan OciPlan() => HostRuntimePlan.Create(
         AdmittedRole.CustomerDashboard,
         RuntimeDriver.OciContainer,

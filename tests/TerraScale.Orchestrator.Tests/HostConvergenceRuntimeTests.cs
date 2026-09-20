@@ -24,6 +24,48 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class HostConvergenceRuntimeTests
 {
     [Test]
+    public async Task Fresh_node_does_not_start_or_pick_up_work_before_regional_admission()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "artifacts");
+        var artifact = Encoding.UTF8.GetBytes("admission-gated-binary");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+        var admission = new FakeAdmissionGate(false, false, "enrollment-pending");
+        var converger = new FakeConverger();
+        await using var convergence = StartConvergence(
+            delivery,
+            runtimeStore,
+            client,
+            installRoot,
+            new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            converger,
+            admission);
+
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember),
+            CancellationToken.None);
+
+        var blocked = await ReadObservationAsync(runtimeStore, "terrabase-server");
+        await Assert.That(converger.ConvergedPlans).IsEmpty();
+        await Assert.That(blocked!.State).IsEqualTo("blocked-admission");
+        await Assert.That(blocked.Error).IsEqualTo("enrollment-pending");
+
+        admission.Authorized = true;
+        admission.CredentialsReady = true;
+        await convergence.ReconcileOnceAsync(
+            HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember),
+            CancellationToken.None);
+
+        await Assert.That(converger.ConvergedPlans).Count().IsEqualTo(1);
+        await Assert.That((await ReadObservationAsync(runtimeStore, "terrabase-server"))!.State)
+            .IsEqualTo("converged");
+    }
+
+    [Test]
     public async Task ConvergesDesiredDigestInstallsVerifiedArtifactAndReportsObservation()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -670,7 +712,8 @@ public sealed class HostConvergenceRuntimeTests
         NATS.Client.Core.INatsConnection connection,
         string installRoot,
         IHostArtifactSource source,
-        IHostRuntimeConverger converger) =>
+        IHostRuntimeConverger converger,
+        IHostAdmissionGate? admission = null) =>
         HostConvergenceRuntime.Create(
             delivery,
             runtimeStore,
@@ -684,7 +727,8 @@ public sealed class HostConvergenceRuntimeTests
                 HostArchitecture.Arm64),
             "gru",
             "test-1",
-            observationTimeout: TimeSpan.FromSeconds(3));
+            observationTimeout: TimeSpan.FromSeconds(3),
+            admission: admission);
 
     internal static async Task<HostConvergenceObservation?> ReadObservationAsync(
         INatsKVStore runtimeStore,
@@ -758,6 +802,19 @@ public sealed class HostConvergenceRuntimeTests
                 failed || autoRestart ? null : 4242,
                 failed ? "exit-code" : autoRestart ? "auto-restart" : "success"));
         }
+    }
+
+    private sealed class FakeAdmissionGate(
+        bool authorized,
+        bool credentialsReady,
+        string reason) : IHostAdmissionGate
+    {
+        public bool Authorized { get; set; } = authorized;
+        public bool CredentialsReady { get; set; } = credentialsReady;
+        public string Reason { get; set; } = reason;
+
+        public ValueTask<HostAdmissionSnapshot> ObserveAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new HostAdmissionSnapshot(Authorized, CredentialsReady, Reason));
     }
 
     [Test]

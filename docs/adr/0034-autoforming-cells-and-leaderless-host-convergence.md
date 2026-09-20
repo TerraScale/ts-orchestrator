@@ -33,6 +33,13 @@
    (Principles from Anna / "Eliminating Boundaries in Cloud Storage with Anna": epoch-fenced
    membership, coordination-free serving, join/leave without consensus.)
 
+   The `IHostAdmissionGate` contract is the required first-boot boundary for OCI hosts.
+   Production `run` composes the signed regional enrollment verifier, grant policy checks,
+   credential-bundle digest check, and durable regional KV replay/generation fence. A
+   production host role without that configuration fails startup before NATS or OCI mutation;
+   an admitted result is cached for the process lifetime so the five-second convergence loop
+   does not consume the same grant repeatedly.
+
    Binary replacement is stop-then-recreate: a transient systemd unit's `ExecStart` is fixed
    at creation, so a converge that would change the executable stops the existing unit first
    (a stopped transient unit disappears, the next converge recreates it bound to the new

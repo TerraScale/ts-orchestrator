@@ -299,7 +299,10 @@ internal sealed class OciMemberHostSdkTransport(
         var compute = new ComputeClient(provider, configuration, endpointUri);
         try
         {
-            return new(compute, new OciCiRunnerSdkTransport(compute, new(provider, configuration, endpointUri)));
+            return new(compute, new OciCiRunnerSdkTransport(
+                compute,
+                new(provider, configuration, endpointUri),
+                new Oci.WorkrequestsService.WorkRequestClient(provider, configuration, endpointUri)));
         }
         catch
         {

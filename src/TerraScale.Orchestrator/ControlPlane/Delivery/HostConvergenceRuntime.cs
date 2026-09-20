@@ -24,7 +24,8 @@ public sealed record HostConvergenceConfiguration(
     HostArchitecture Architecture,
     string? EnvironmentDirectory = null,
     string? StateDirectoryRoot = null,
-    string? MemberObservabilityUrl = null)
+    string? MemberObservabilityUrl = null,
+    string? ContainerdCliPath = null)
 {
     public const string DefaultInstallRoot = "/opt/terrascale/artifacts";
     public const string DefaultStateDirectoryRoot = "/var/lib";
@@ -36,14 +37,16 @@ public sealed record HostConvergenceConfiguration(
         string? environmentDirectory = null,
         string? stateDirectoryRoot = null,
         HostArchitecture? architecture = null,
-        string? memberObservabilityUrl = null) => new(
+        string? memberObservabilityUrl = null,
+        string? containerdCliPath = null) => new(
         roleNames.Select(HostRuntimeCli.ParseRole).ToArray(),
         environment is { Length: > 0 } ? environment : "production",
         string.IsNullOrWhiteSpace(installRoot) ? DefaultInstallRoot : installRoot,
         architecture ?? DetectArchitecture(),
         string.IsNullOrWhiteSpace(environmentDirectory) ? null : environmentDirectory,
         string.IsNullOrWhiteSpace(stateDirectoryRoot) ? DefaultStateDirectoryRoot : stateDirectoryRoot,
-        string.IsNullOrWhiteSpace(memberObservabilityUrl) ? null : memberObservabilityUrl);
+        string.IsNullOrWhiteSpace(memberObservabilityUrl) ? null : memberObservabilityUrl,
+        string.IsNullOrWhiteSpace(containerdCliPath) ? null : containerdCliPath);
 
     internal static HostArchitecture DetectArchitecture() =>
         System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture switch
@@ -134,6 +137,24 @@ internal interface IHostRuntimeConverger
     Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// First-boot admission gate for a regional host. A host may read desired state
+/// before admission, but it must not install, start, or consume a workload until
+/// the signed regional enrollment and credential delivery have both completed.
+/// </summary>
+internal interface IHostAdmissionGate
+{
+    ValueTask<HostAdmissionSnapshot> ObserveAsync(CancellationToken cancellationToken);
+}
+
+internal sealed record HostAdmissionSnapshot(
+    bool Authorized,
+    bool MaterialReady,
+    string Reason)
+{
+    internal bool Ready => Authorized && MaterialReady;
+}
+
 /// <summary>The one admitted host action a reconcile pass decided on.</summary>
 internal enum HostConvergenceOutcomeState
 {
@@ -176,6 +197,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly TimeSpan observationTimeout;
     private readonly TimeSpan replaceLeaseDuration;
     private readonly TimeSpan replaceLeaseRenewalInterval;
+    private readonly IHostAdmissionGate? admission;
     private readonly CancellationTokenSource stopping = new();
     private readonly List<Task> loops = [];
 
@@ -189,11 +211,13 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string cell,
         string instance,
         TimeSpan? observationTimeout = null,
-        TimeSpan? replaceLeaseDuration = null)
+        TimeSpan? replaceLeaseDuration = null,
+        IHostAdmissionGate? admission = null)
     {
         this.observationTimeout = observationTimeout ?? TimeSpan.FromSeconds(90);
         this.replaceLeaseDuration = replaceLeaseDuration ?? DefaultReplaceLeaseDuration;
         replaceLeaseRenewalInterval = this.replaceLeaseDuration / 3;
+        this.admission = admission;
         this.delivery = delivery;
         this.runtimeStore = runtimeStore;
         this.connection = connection;
@@ -219,9 +243,10 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string cell,
         string instance,
         TimeSpan? observationTimeout = null,
-        TimeSpan? replaceLeaseDuration = null) =>
+        TimeSpan? replaceLeaseDuration = null,
+        IHostAdmissionGate? admission = null) =>
         new(delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
-            observationTimeout, replaceLeaseDuration);
+            observationTimeout, replaceLeaseDuration, admission);
 
     /// <summary>Starts one reconcile loop per configured role. The loops never throw: failures are reported as observations.</summary>
     internal static HostConvergenceRuntime Start(
@@ -234,11 +259,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string cell,
         string instance,
         TimeSpan? observationTimeout = null,
-        TimeSpan? replaceLeaseDuration = null)
+        TimeSpan? replaceLeaseDuration = null,
+        IHostAdmissionGate? admission = null)
     {
         var runtimeLoop = Create(
             delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
-            observationTimeout, replaceLeaseDuration);
+            observationTimeout, replaceLeaseDuration, admission);
         runtimeLoop.loops.AddRange(configuration.Roles.Select(
             role => Task.Run(() => runtimeLoop.ReconcileLoopAsync(role, runtimeLoop.stopping.Token))));
         return runtimeLoop;
@@ -301,11 +327,38 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             // an excuse to touch a running allocation.
             return;
         }
+        if (admission is not null)
+        {
+            var gate = await admission.ObserveAsync(cancellationToken).ConfigureAwait(false);
+            if (!gate.Ready)
+            {
+                await ReportAsync(
+                    descriptor,
+                    desired,
+                    new ConvergeOutcome(
+                        HostConvergenceOutcomeState.Failed,
+                        null,
+                        gate.Reason is { Length: > 128 } ? gate.Reason[..128] : gate.Reason),
+                    cancellationToken,
+                    state: "blocked-admission").ConfigureAwait(false);
+                return;
+            }
+        }
         var current = await ReadCurrentMarkerAsync(descriptor, cancellationToken).ConfigureAwait(false);
         if (current is { Digest: { } currentDigest } &&
             string.Equals(currentDigest, desired, StringComparison.Ordinal) &&
             await IsServingAsync(role, descriptor, desired, cancellationToken).ConfigureAwait(false))
+        {
+            // ORCH_RUNTIME observations expire independently of the local marker.
+            // Refresh the durable observation on every loop so operator status and
+            // readiness never report a healthy host from a stale five-minute record.
+            await ReportAsync(
+                descriptor,
+                desired,
+                new ConvergeOutcome(HostConvergenceOutcomeState.Converged, null),
+                cancellationToken).ConfigureAwait(false);
             return;
+        }
 
         if (await BackedOffAsync(descriptor, desired, cancellationToken).ConfigureAwait(false))
             return; // A previously failed cycle for this digest is still in backoff.
@@ -321,6 +374,15 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         // concurrently — not even when the work outlives a single lease duration.
         var work = lease?.Token ?? cancellationToken;
         var previous = current?.Digest;
+        if (previous is { } previousDigest &&
+            !string.Equals(previousDigest, desired, StringComparison.Ordinal))
+        {
+            // A runtime allocation is tied to its role identity, so an OCI
+            // replacement must first stop and remove the allocation created for
+            // the previous digest. The converger performs its own ownership fence.
+            var previousPlan = PlanFor(role, descriptor, HexOf(previousDigest));
+            await converger.StopAsync(previousPlan, work).ConfigureAwait(false);
+        }
         var outcome = await InstallConvergeAndObserveAsync(role, descriptor, desired, work)
             .ConfigureAwait(false);
         if (outcome.State == HostConvergenceOutcomeState.Converged)
@@ -384,11 +446,15 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         {
             var hex = HexOf(desiredDigest);
             var plan = PlanFor(role, descriptor, hex);
-            // The plan owns the executable path (immutable digest layout); installation lands
-            // exactly where the admitted systemd unit will run it.
-            var executable = plan.Systemd!.Executable;
-            if (!File.Exists(executable))
-                await InstallArtifactAsync(descriptor, hex, executable, cancellationToken).ConfigureAwait(false);
+            // Native artifacts are copied into the immutable executable layout. OCI roles are
+            // pulled by the composed containerd client from their digest-addressed image and
+            // never materialized as host files.
+            if (plan.Driver == RuntimeDriver.NativeSystemd)
+            {
+                var executable = plan.Systemd!.Executable;
+                if (!File.Exists(executable))
+                    await InstallArtifactAsync(descriptor, hex, executable, cancellationToken).ConfigureAwait(false);
+            }
             InstallEnvironmentFile(plan);
             for (var attempt = 1; attempt <= MaximumConvergeAttempts; attempt++)
             {
@@ -428,7 +494,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private HostRuntimePlan PlanFor(HostRole role, AdmittedRoleDescriptor descriptor, string hex) =>
         HostRuntimePlan.Create(
             role,
-            RuntimeDriver.NativeSystemd,
+            descriptor.DefaultDriver,
             new($"host-{descriptor.ArtifactKey}-{instance}"),
             new(hex),
             configuration.Architecture,
@@ -650,7 +716,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         AdmittedRoleDescriptor descriptor,
         string digest,
         ConvergeOutcome outcome,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? state = null)
     {
         // The member-health gauges ride the same report: one scrape of the hosted
         // member's loopback listener, absent when this host runs no member (or the
@@ -679,7 +746,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
                 HostConvergenceOutcomeState.Converged => "converged",
                 HostConvergenceOutcomeState.RolledBack => "rolled-back",
                 HostConvergenceOutcomeState.RollbackFailed => "rollback-failed",
-                _ => "failed"
+                _ => state ?? "failed"
             },
             outcome.UnitName,
             DateTimeOffset.UtcNow,

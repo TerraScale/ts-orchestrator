@@ -14,7 +14,8 @@ internal enum NatsServiceEndpointName
     Status = 3,
     Members = 4,
     Stats = 5,
-    DirectDelivery = 6
+    DirectDelivery = 6,
+    OperatorStatus = 7
 }
 
 internal enum NatsServiceRequestResult
@@ -197,4 +198,3 @@ internal sealed record NatsServiceStatsDocument(
 [JsonSerializable(typeof(NatsServiceStatsDocument))]
 [JsonSerializable(typeof(NatsServiceEndpointMeasurement))]
 internal sealed partial class NatsServiceEndpointStatsJsonContext : JsonSerializerContext;
-

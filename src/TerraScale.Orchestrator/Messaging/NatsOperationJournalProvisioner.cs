@@ -85,6 +85,7 @@ internal static class NatsOperationJournalProvisioner
         var keyValue = jetStream.CreateKeyValueStoreContext();
         await keyValue.CreateOrUpdateStoreAsync(topology.Leaders, cancellationToken);
         await keyValue.CreateOrUpdateStoreAsync(topology.Runtime, cancellationToken);
+        await keyValue.CreateOrUpdateStoreAsync(topology.NodeEnrollments, cancellationToken);
         await keyValue.CreateOrUpdateStoreAsync(topology.Delivery, cancellationToken);
         var objects = jetStream.CreateObjectStoreContext();
         await OpenOrCreateAndValidateObjectStoreAsync(objects, topology.Bundles, cancellationToken);
@@ -144,4 +145,3 @@ internal static class NatsOperationJournalProvisioner
         return store;
     }
 }
-

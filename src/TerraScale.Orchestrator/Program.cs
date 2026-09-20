@@ -73,6 +73,7 @@ try
     var autoProvision = ResolvedEnvironment("TS_ORCH_AUTO_PROVISION") is not { } autoProvisionValue ||
         autoProvisionValue is not ("0" or "false");
     TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null;
+    TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostAdmissionConfiguration? hostAdmission = null;
     var hostRoleNames = ResolvedEnvironment("TS_ORCH_HOST_ROLES");
     if (options.Command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
         !string.IsNullOrWhiteSpace(hostRoleNames))
@@ -83,7 +84,19 @@ try
             ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"),
             ResolvedEnvironment("TS_ORCH_HOST_ENV_DIR"),
             ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"),
-            memberObservabilityUrl: ResolvedEnvironment("TS_ORCH_HOST_MEMBER_OBSERVABILITY_URL"));
+            memberObservabilityUrl: ResolvedEnvironment("TS_ORCH_HOST_MEMBER_OBSERVABILITY_URL"),
+            containerdCliPath: ResolvedEnvironment("TS_ORCH_CONTAINERD_CLI"));
+        if (options.Command == OrchestratorCommand.Run ||
+            string.Equals(hostConvergence.Environment, "production", StringComparison.OrdinalIgnoreCase))
+        {
+            // Production host roles are never allowed to converge without a
+            // signed regional enrollment and a durable replay fence. The
+            // loader intentionally throws here, before NATS or any provider
+            // mutation starts, when the admission material is incomplete.
+            hostAdmission = TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostAdmissionConfiguration.Load(
+                ResolvedEnvironment,
+                options.Cell);
+        }
     }
     // The TerraBase placement reconciler turns on with its bounded configuration file and
     // its member-host fleet file together: the runtime builds the OCI fleet where the
@@ -95,6 +108,29 @@ try
     TerraScale.Orchestrator.Nodes.OciMemberHostFleetConfigurationFile? memberFleet =
         TerraScale.Orchestrator.Nodes.OciMemberHostFleetConfigurationFile.Load(
             ResolvedEnvironment("TS_ORCH_MEMBER_FLEET_FILE"));
+    TerraScale.Orchestrator.Nodes.OciWorkloadFleetConfigurationFile? workloadFleet =
+        TerraScale.Orchestrator.Nodes.OciWorkloadFleetConfigurationFile.Load(
+            ResolvedEnvironment("TS_ORCH_WORKLOAD_FLEET_FILE"));
+    if (memberFleet is not null || workloadFleet is not null || options.OciCiRunnerPool is not null)
+    {
+        var regionIntent = TerraScale.Orchestrator.Bootstrap.OciRegionIntent.Load(
+            ResolvedEnvironment("TS_ORCH_REGION_INTENT_FILE"));
+        regionIntent.RequireCell(options.Cell);
+        if (memberFleet is not null)
+        {
+            regionIntent.RequireEndpoint(options.Cell, memberFleet.Endpoint);
+            if (memberFleet.Templates.Keys.Any(region => region != options.Cell.ToUpperInvariant()))
+                throw new InvalidDataException("A member fleet may provision only its own supported regional cell.");
+        }
+        if (workloadFleet is not null)
+        {
+            regionIntent.RequireEndpoint(options.Cell, workloadFleet.Endpoint);
+            if (workloadFleet.Region != options.Cell.ToUpperInvariant())
+                throw new InvalidDataException("A workload fleet may provision only its own supported regional cell.");
+        }
+        if (options.OciCiRunnerPool is { } runnerPool)
+            regionIntent.RequireEndpoint(options.Cell, runnerPool.Endpoint);
+    }
     // The production admitted-target allow-list is configuration, never request input; parsing it
     // here means production composition fails closed at startup instead of at first request.
     TerraScale.Orchestrator.Delivery.DirectDeliveryAdmittedTargets? admittedDeliveryTargets = null;
@@ -163,12 +199,15 @@ try
             candidateHandoffV2Policies,
             autoProvision,
             hostConvergence,
+            hostAdmission,
             terrabasePlacement,
-            memberFleet);
+            memberFleet,
+            workloadFleet);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;
         observedRuntime.AttachServiceTelemetry(telemetry);
+        telemetry.ObserveOperatorStatus(() => observedRuntime.LatestOperatorStatus);
         telemetry.ObserveMembership(() => observedRuntime.MembershipHealth);
         if (options.GlobalDirectoryNats is not null)
         {

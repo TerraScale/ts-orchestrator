@@ -1,7 +1,7 @@
 # ADR 0024: Build a greenfield OCI estate
 
 - Status: Accepted
-- Updated: 2026-08-30
+- Updated: 2026-09-20
 - Scope: OCI bootstrap and ownership
 
 ## Decision
@@ -15,15 +15,17 @@ OCI provider. This includes compute instances, block volumes, attachments,
 Object Storage objects, and work requests. Registry access is part of the
 verified estate configuration, not a second state owner.
 
-Until the end-to-end bootstrap command lands, an operator creates the one-time
-compartments, VCNs, subnets, network security groups, IAM policies, and Vault
-resources from the reviewed ORCH-5 runbook. Orchestrator performs read-only
-startup checks against the recorded estate identities and refuses a malformed
-or broadened estate.
+`ts-infra` controls supported-region intent and creates the first GRU seed
+foundation and controller through CI. The required architecture then transfers
+exact seed resources to orchestrator, which establishes and manages supported
+regional clusters. This is a deliberate handoff of newly created resources,
+not discovery or adoption of arbitrary existing estate.
 
-ORCH-6 replaces the manual creation step with a resumable bootstrap command.
-It will use the same ownership model and provider fences. It must not create a
-second state owner.
+An adoption request is read-only until CI has relinquished the exact resources
+without destruction and durably published the encrypted resulting state. The
+controller needs a signed release receipt before it can mutate them. This
+handoff and the complete first boot remain unimplemented; tags do not authorize
+ownership. See [the bootstrap contract](../operations/control-bootstrap.md).
 
 ## Legacy resources
 

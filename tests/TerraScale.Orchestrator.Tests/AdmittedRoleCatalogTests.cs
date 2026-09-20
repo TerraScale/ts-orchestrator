@@ -22,6 +22,8 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo("ts-auth");
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).MinimumReplicas).IsEqualTo(1);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.TerraBaseMember).MinimumReplicas).IsEqualTo(3);
         await Assert.That(HostRuntimeCli.ParseRole("authentication"))
             .IsEqualTo(AdmittedRole.Authentication);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Grafana).DefaultDriver)

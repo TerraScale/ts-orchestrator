@@ -19,6 +19,16 @@ public sealed class OperatorCliTests
                 CancellationToken.None))
             .Throws<ArgumentException>();
         await Assert.That(async () => await OperatorCli.ExecuteAsync(
+                ["operator-status"],
+                _ => null,
+                CancellationToken.None))
+            .Throws<ArgumentException>();
+        await Assert.That(async () => await OperatorCli.ExecuteAsync(
+                ["stats"],
+                _ => null,
+                CancellationToken.None))
+            .Throws<ArgumentException>();
+        await Assert.That(async () => await OperatorCli.ExecuteAsync(
                 ["unknown"],
                 _ => null,
                 CancellationToken.None))
@@ -75,4 +85,3 @@ public sealed class OperatorCliTests
             .Throws<InvalidOperationException>();
     }
 }
-

@@ -25,6 +25,7 @@ public sealed class NatsControlAccountModelTests
             NatsControlAccountKind.GlobalAuthority,
             NatsControlAccountKind.GlobalDirectoryReadService,
             NatsControlAccountKind.RegionalController,
+            NatsControlAccountKind.OperatorQuery,
             NatsControlAccountKind.HostAgent,
             NatsControlAccountKind.CiCoordinator,
             NatsControlAccountKind.CiIsolatedRunner,
@@ -41,6 +42,7 @@ public sealed class NatsControlAccountModelTests
             "global-authority",
             "global-directory-read-service",
             "regional-controller",
+            "operator-query",
             "host-agent",
             "ci-coordinator",
             "ci-isolated-runner",
@@ -117,7 +119,8 @@ public sealed class NatsControlAccountModelTests
         foreach (var pattern in gru.Publish.Concat(gru.Subscribe))
         {
             var pinned = pattern.StartsWith("ts.orch.v2.gru.", StringComparison.Ordinal) ||
-                pattern.StartsWith("ts.orch.v2.global.", StringComparison.Ordinal);
+                pattern.StartsWith("ts.orch.v2.global.", StringComparison.Ordinal) ||
+                pattern == "_INBOX.>";
             await Assert.That(pinned)
                 .IsTrue()
                 .Because($"the GRU controller scope must stay pinned to GRU or the global scope: '{pattern}'");
@@ -198,6 +201,7 @@ public sealed class NatsControlAccountModelTests
         {
             yield return NatsControlAccountScope.Create(
                 NatsControlAccountKind.RegionalController, region, "host/" + region + "/agent-07");
+            yield return NatsControlAccountScope.Create(NatsControlAccountKind.OperatorQuery, region);
             yield return NatsControlAccountScope.Create(
                 NatsControlAccountKind.HostAgent, region, "host/" + region + "/agent-07");
             yield return NatsControlAccountScope.Create(NatsControlAccountKind.ReadOnlyMonitoring, region);
@@ -244,4 +248,3 @@ public sealed class NatsControlAccountModelTests
             compiled.Matches(concrete);
     }
 }
-

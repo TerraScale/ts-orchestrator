@@ -9,6 +9,8 @@ using Oci.Common.Model;
 using Oci.CoreService;
 using Oci.CoreService.Models;
 using Oci.CoreService.Requests;
+using Oci.WorkrequestsService;
+using Oci.WorkrequestsService.Requests;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
 
@@ -404,10 +406,20 @@ internal interface IOciCiRunnerComputeTransport : IDisposable
         TerminateInstanceRequest request, CancellationToken cancellationToken);
 }
 
+/// <summary>Optional work-request polling seam. Existing compute-only test transports remain valid.</summary>
+internal interface IOciWorkRequestTransport
+{
+    Task<Oci.WorkrequestsService.Responses.GetWorkRequestResponse> GetWorkRequestAsync(
+        string workRequestId,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class OciCiRunnerSdkTransport(
     ComputeClient compute,
-    VirtualNetworkClient network) : IOciCiRunnerComputeTransport
+    VirtualNetworkClient network,
+    WorkRequestClient? workRequests = null) : IOciCiRunnerComputeTransport, IOciWorkRequestTransport
 {
+    private readonly WorkRequestClient? workRequests = workRequests;
     public Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
         ListInstancesRequest request, CancellationToken cancellationToken) =>
         compute.ListInstances(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
@@ -432,9 +444,22 @@ internal sealed class OciCiRunnerSdkTransport(
         TerminateInstanceRequest request, CancellationToken cancellationToken) =>
         compute.TerminateInstance(request, null, cancellationToken, HttpCompletionOption.ResponseHeadersRead);
 
+    public Task<Oci.WorkrequestsService.Responses.GetWorkRequestResponse> GetWorkRequestAsync(
+        string workRequestId,
+        CancellationToken cancellationToken) =>
+        workRequests is null
+            ? Task.FromException<Oci.WorkrequestsService.Responses.GetWorkRequestResponse>(
+                new InvalidOperationException("OCI work-request polling is not configured for this transport."))
+            : workRequests.GetWorkRequest(
+                new GetWorkRequestRequest { WorkRequestId = workRequestId },
+                null,
+                cancellationToken,
+                HttpCompletionOption.ResponseHeadersRead);
+
     public void Dispose()
     {
         network.Dispose();
+        workRequests?.Dispose();
         compute.Dispose();
     }
 }
@@ -471,7 +496,10 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         var compute = new ComputeClient(provider, configuration, endpointUri);
         try
         {
-            return new(new OciCiRunnerSdkTransport(compute, new(provider, configuration, endpointUri)));
+            return new(new OciCiRunnerSdkTransport(
+                compute,
+                new(provider, configuration, endpointUri),
+                new WorkRequestClient(provider, configuration, endpointUri)));
         }
         catch
         {
@@ -741,4 +769,3 @@ internal static class OciCiRunnerProviderFailures
     internal static bool IsTransient(Exception exception) =>
         exception is OciException failure && (int)failure.StatusCode is 0 or 408 or 409 or 412 or 429 or >= 500;
 }
-

@@ -51,6 +51,9 @@ public static class MessagingSemanticClasses
         new("ORCH_LEADERS", MessagingSemanticClass.Lossy, "A lost lease record is recoverable: the next epoch winner re-acquires via CAS; history lives in the operation stream."),
         new("GLOBAL_CELLS", MessagingSemanticClass.Snapshot, "A lost advertisement re-converges when the cell renews it; regional state stays authoritative."),
         new("ORCH_RUNTIME", MessagingSemanticClass.Lossy, "Membership heartbeats are hints; the directory degrades to stale, never to wrong."),
+        // Enrollment is a durable current-state fence rather than an append-only journal:
+        // the latest generation is authoritative and replayed grants are rejected by CAS.
+        new("ORCH_NODE_ENROLLMENTS", MessagingSemanticClass.Snapshot, "Regional node enrollment generations and grant replays never expire; the latest fenced state is authoritative."),
         new("ORCH_DELIVERY", MessagingSemanticClass.Lossy, "Coordination records rebuild from journals; effects remain journaled."),
         new("ORCH_OPERATIONS", MessagingSemanticClass.AuthoritativeJournal, "The authoritative encrypted regional operation journal; never rebuilt from hints."),
         new("ORCH_OPERATION_PROOFS", MessagingSemanticClass.Lossy, "Expiry-bounded single-use proofs; a lost un-consumed proof simply expires."),
@@ -130,4 +133,3 @@ public static class MessagingSemanticClasses
         return rules;
     }
 }
-

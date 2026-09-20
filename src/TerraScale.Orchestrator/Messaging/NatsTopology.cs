@@ -18,6 +18,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     /// <summary>Read-only service statistics endpoint: version, schema, health, request/error/latency aggregates.</summary>
     public string StatsSubject => NatsSubjectTaxonomy.ControllerStatsSubject(Cell);
 
+    /// <summary>Read-only authenticated operator status, needs, actions, and progress.</summary>
+    public string OperatorStatusSubject => NatsSubjectTaxonomy.ControllerOperatorStatusSubject(Cell);
+
     public string DirectDeliverySubject => NatsSubjectTaxonomy.DirectDeliverySubject(Cell);
 
     public string OperationJournalCreateSubject => NatsSubjectTaxonomy.OperationJournalCreateSubject(Cell);
@@ -63,6 +66,16 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         History = 2,
         MaxAge = TimeSpan.FromMinutes(5),
         MaxBytes = 8 * 1024 * 1024,
+        NumberOfReplicas = Replicas
+    };
+
+    /// <summary>Non-expiring regional generation/replay fence for first-boot node enrollment.</summary>
+    public NatsKVConfig NodeEnrollments => new("ORCH_NODE_ENROLLMENTS")
+    {
+        Description = $"Durable regional node enrollment generations for {Cell}",
+        History = 2,
+        MaxValueSize = 8 * 1024,
+        MaxBytes = 16 * 1024 * 1024,
         NumberOfReplicas = Replicas
     };
 
@@ -203,4 +216,3 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
         AllowAtomicPublish = false,
     };
 }
-

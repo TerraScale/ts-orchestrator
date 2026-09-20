@@ -632,7 +632,8 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
                 root, pki, trust, regionalFra, "directory-reader-fra", readerFra),
             ["gru-operator-read"] = CreateUser(
                 root, pki, trust, regionalGru, "gru-operator-read",
-                new([$"{gruRegionalRoot}.query.status", $"{gruRegionalRoot}.query.members"], ["_INBOX.>"])),
+                new([$"{gruRegionalRoot}.query.status", $"{gruRegionalRoot}.query.members",
+                    $"{gruRegionalRoot}.query.stats", $"{gruRegionalRoot}.query.operator-status"], ["_INBOX.>"])),
             ["gru-infrastructure"] = CreateUser(
                 root, pki, trust, regionalGru, "gru-infrastructure",
                 new(

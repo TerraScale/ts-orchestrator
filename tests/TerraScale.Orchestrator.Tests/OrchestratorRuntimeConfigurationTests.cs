@@ -239,6 +239,7 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 ciRunnerNatsTlsCertificateFile = "/run/credentials/ci-runner.pem",
                 ciRunnerNatsTlsKeyFile = "/run/credentials/ci-runner-key.pem",
                 ociCiRunnerPoolConfigurationFile = "/etc/terrascale/oci-ci-pool.json",
+                ociWorkloadFleetConfigurationFile = "/etc/terrascale/oci-workload-fleet.json",
                 forgejoCiSourceGraphFile = "/etc/terrascale/forgejo-ci-source-graph.json"
             }));
 
@@ -273,6 +274,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 .IsEqualTo("/run/credentials/global-ca.pem");
             await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_CI_OCI_CONFIG"))
                 .IsEqualTo("/etc/terrascale/oci-ci-pool.json");
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_WORKLOAD_FLEET_FILE"))
+                .IsEqualTo("/etc/terrascale/oci-workload-fleet.json");
             await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE"))
                 .IsEqualTo("/etc/terrascale/forgejo-ci-source-graph.json");
         }

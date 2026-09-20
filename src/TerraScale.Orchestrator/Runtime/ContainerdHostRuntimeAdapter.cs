@@ -1,5 +1,9 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text.Json;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 
 namespace TerraScale.Orchestrator.Runtime;
 
@@ -122,11 +126,22 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         var oci = RequireCanonicalOciPlan(plan);
-        var observation = await ObserveAsync(plan, cancellationToken);
-        if (observation.State is ContainerdAllocationState.Running)
+        // Replacements call StopAsync with the previous digest. Inspect without
+        // requiring the candidate fingerprint, then accept only an allocation
+        // carrying a valid TerraScale fingerprint; arbitrary foreign containers
+        // remain fenced.
+        var observation = await client.ObserveAsync(Namespace, oci.ContainerId, cancellationToken);
+        if (observation.State == ContainerdAllocationState.Absent)
+            return;
+        if (!string.Equals(observation.PlanFingerprint, CanonicalPlanFingerprint.Compute(plan), StringComparison.Ordinal) &&
+            !IsTerraScaleFingerprint(observation.PlanFingerprint))
+            throw new InvalidOperationException(
+                $"Existing containerd allocation '{oci.ContainerId}' is not owned by TerraScale.");
+        if (observation.State is ContainerdAllocationState.Running or ContainerdAllocationState.Created)
         {
             await client.StopAsync(Namespace, oci.ContainerId, cancellationToken);
         }
+        await client.DeleteAsync(Namespace, oci.ContainerId, cancellationToken);
     }
 
     public async Task DeleteAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
@@ -157,6 +172,9 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
                 $"Existing containerd allocation '{expected.ContainerId}' is not owned by the canonical plan.");
         }
     }
+
+    private static bool IsTerraScaleFingerprint(string? value) =>
+        value is { Length: 64 } && value.All(static character => char.IsAsciiHexDigit(character));
 
     private static OciExecutionPlan RequireCanonicalOciPlan(HostRuntimePlan plan)
     {
@@ -195,6 +213,229 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         }
         return actualOci;
     }
+}
+
+/// <summary>Maps the containerd lifecycle to the host convergence observation contract.</summary>
+internal sealed class ContainerdHostRuntimeConverger(IContainerdClient client) : IHostRuntimeConverger
+{
+    private readonly ContainerdHostRuntimeAdapter adapter = new(client);
+
+    public Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        adapter.ConvergeAsync(plan, cancellationToken);
+
+    public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        adapter.StopAsync(plan, cancellationToken);
+
+    public async Task<SystemdAllocationObservation> ObserveAsync(
+        HostRuntimePlan plan,
+        CancellationToken cancellationToken)
+    {
+        var observation = await adapter.ObserveAsync(plan, cancellationToken).ConfigureAwait(false);
+        return new(
+            plan.Oci?.ContainerId ?? plan.AllocationId.Value,
+            observation.State switch
+            {
+                ContainerdAllocationState.Absent => SystemdAllocationState.Absent,
+                ContainerdAllocationState.Running => SystemdAllocationState.Running,
+                ContainerdAllocationState.Created => SystemdAllocationState.Starting,
+                ContainerdAllocationState.Stopped => SystemdAllocationState.Stopped,
+                _ => SystemdAllocationState.Failed
+            },
+            observation.ProcessId,
+            observation.Detail);
+    }
+}
+
+/// <summary>Routes each admitted role to its declared native or OCI runtime driver.</summary>
+internal sealed class CompositeHostRuntimeConverger(
+    IHostRuntimeConverger systemd,
+    IHostRuntimeConverger? containerd) : IHostRuntimeConverger
+{
+    private readonly IHostRuntimeConverger systemd = systemd ?? throw new ArgumentNullException(nameof(systemd));
+    private readonly IHostRuntimeConverger? containerd = containerd;
+
+    private IHostRuntimeConverger For(HostRuntimePlan plan) => plan.Driver switch
+    {
+        RuntimeDriver.NativeSystemd => systemd,
+        RuntimeDriver.OciContainer => containerd ?? throw new InvalidOperationException(
+            "An OCI workload was admitted but no production containerd client was configured."),
+        _ => throw new ArgumentOutOfRangeException(nameof(plan.Driver))
+    };
+
+    public Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        For(plan).ConvergeAsync(plan, cancellationToken);
+
+    public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        For(plan).StopAsync(plan, cancellationToken);
+
+    public Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+        For(plan).ObserveAsync(plan, cancellationToken);
+}
+
+/// <summary>
+/// Production containerd bridge using the installed nerdctl client. The command path is
+/// explicit configuration, arguments are passed without a shell, and every observation is
+/// checked against the canonical plan fingerprint before host convergence can claim readiness.
+/// </summary>
+internal sealed class NerdctlContainerdClient : IContainerdClient
+{
+    private readonly string executable;
+
+    internal NerdctlContainerdClient(string executable = "nerdctl") =>
+        this.executable = string.IsNullOrWhiteSpace(executable)
+            ? throw new ArgumentException("The containerd command path is required.", nameof(executable))
+            : executable;
+
+    public async Task<ContainerdAllocationObservation> ObserveAsync(
+        string @namespace,
+        string containerId,
+        CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(["--namespace", @namespace, "inspect", containerId], cancellationToken);
+        if (result.ExitCode != 0 && IsNotFound(result.Error))
+            return new(containerId, ContainerdAllocationState.Absent, null, null, null, null, "absent");
+        EnsureSuccess(result, "inspect containerd allocation");
+        using var document = JsonDocument.Parse(result.Output);
+        var root = document.RootElement.ValueKind == JsonValueKind.Array
+            ? document.RootElement.EnumerateArray().FirstOrDefault()
+            : document.RootElement;
+        if (root.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null)
+            return new(containerId, ContainerdAllocationState.Absent, null, null, null, null, "absent");
+        var status = root.TryGetProperty("State", out var state) && state.TryGetProperty("Status", out var stateValue)
+            ? stateValue.GetString()
+            : root.TryGetProperty("Status", out var statusValue) ? statusValue.GetString() : null;
+        var labels = root.TryGetProperty("Labels", out var rootLabels)
+            ? rootLabels
+            : root.TryGetProperty("Config", out var config) && config.TryGetProperty("Labels", out var labelValue)
+                ? labelValue
+                : default;
+        var image = labels.ValueKind == JsonValueKind.Object && labels.TryGetProperty("terrascale.image", out var imageLabel)
+            ? imageLabel.GetString()
+            : root.TryGetProperty("ImageName", out var imageName) ? imageName.GetString() : null;
+        var platform = labels.ValueKind == JsonValueKind.Object && labels.TryGetProperty("terrascale.platform", out var platformLabel)
+            ? platformLabel.GetString()
+            : root.TryGetProperty("Platform", out var platformValue) && platformValue.ValueKind == JsonValueKind.String
+                ? platformValue.GetString()
+                : null;
+        var fingerprint = labels.ValueKind == JsonValueKind.Object && labels.TryGetProperty("terrascale.plan", out var fingerprintValue)
+            ? fingerprintValue.GetString() : null;
+        int? pid = root.TryGetProperty("State", out state) && state.TryGetProperty("Pid", out var pidValue) && pidValue.TryGetInt32(out var parsedPid)
+            ? parsedPid : null;
+        return new(containerId, ParseState(status), image, platform, fingerprint, pid, status ?? "unknown");
+    }
+
+    public async Task<string> PullAsync(string @namespace, string imageReference, string platform, CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(["--namespace", @namespace, "pull", "--platform", platform, imageReference], cancellationToken);
+        EnsureSuccess(result, "pull containerd image");
+        // The requested image is digest-addressed. Returning its digest is safe only after the
+        // pull command has succeeded; the adapter separately rejects any non-matching digest.
+        var marker = imageReference.LastIndexOf("@sha256:", StringComparison.Ordinal);
+        if (marker < 0)
+            throw new InvalidOperationException("Containerd image references must be digest-addressed.");
+        return imageReference[(marker + "@sha256:".Length)..];
+    }
+
+    public async Task CreateAsync(ContainerdCreateRequest request, CancellationToken cancellationToken)
+    {
+        var security = request.Security;
+        var arguments = new List<string>
+        {
+            "--namespace", request.Namespace, "create", "--name", request.ContainerId,
+            "--platform", request.Platform, "--user", $"{security.RunAsUser}:{security.RunAsGroup}",
+            "--label", $"terrascale.plan={request.PlanFingerprint}",
+            "--label", $"terrascale.image={request.ImageReference}",
+            "--label", $"terrascale.platform={request.Platform}",
+            "--read-only", "--cap-drop", string.Join(',', security.DroppedCapabilities),
+            "--security-opt", "no-new-privileges=true", "--security-opt", $"seccomp={security.SeccompProfile}",
+            "--cgroup-parent", security.CgroupParent, "--memory", request.Resources.MemoryMaxBytes.ToString(CultureInfo.InvariantCulture),
+            "--memory-swap", request.Resources.MemoryMaxBytes.ToString(CultureInfo.InvariantCulture),
+            "--pids-limit", request.Resources.TasksMax.ToString(CultureInfo.InvariantCulture),
+            "--cpus", (request.Resources.CpuQuotaPercent / 100d).ToString("F2", CultureInfo.InvariantCulture),
+            request.ImageReference
+        };
+        var result = await RunAsync(arguments, cancellationToken);
+        EnsureSuccess(result, "create containerd allocation");
+    }
+
+    public Task StartAsync(string @namespace, string containerId, CancellationToken cancellationToken) =>
+        RunCheckedAsync(["--namespace", @namespace, "start", containerId], "start containerd allocation", cancellationToken);
+
+    public Task StopAsync(string @namespace, string containerId, CancellationToken cancellationToken) =>
+        RunCheckedAsync(["--namespace", @namespace, "stop", "--time", "10", containerId], "stop containerd allocation", cancellationToken);
+
+    public Task DeleteAsync(string @namespace, string containerId, CancellationToken cancellationToken) =>
+        RunCheckedAsync(["--namespace", @namespace, "rm", containerId], "delete containerd allocation", cancellationToken);
+
+    private async Task RunCheckedAsync(IReadOnlyList<string> arguments, string operation, CancellationToken cancellationToken)
+    {
+        var result = await RunAsync(arguments, cancellationToken);
+        EnsureSuccess(result, operation);
+    }
+
+    private async Task<CommandResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo(executable)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("The containerd command could not be started.");
+        var output = ReadBoundedAsync(process.StandardOutput, cancellationToken);
+        var error = ReadBoundedAsync(process.StandardError, cancellationToken);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            try
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException) { }
+            await process.WaitForExitAsync().ConfigureAwait(false);
+            throw;
+        }
+        return new(process.ExitCode, await output.ConfigureAwait(false), await error.ConfigureAwait(false));
+    }
+
+    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken cancellationToken)
+    {
+        const int maximumCharacters = 64 * 1024;
+        var buffer = new char[4096];
+        var builder = new StringBuilder();
+        while (true)
+        {
+            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+            if (count == 0) return builder.ToString();
+            if (builder.Length + count > maximumCharacters)
+                throw new InvalidOperationException("The containerd command produced too much output.");
+            builder.Append(buffer, 0, count);
+        }
+    }
+
+    private static ContainerdAllocationState ParseState(string? value) => value?.ToLowerInvariant() switch
+    {
+        "running" => ContainerdAllocationState.Running,
+        "created" => ContainerdAllocationState.Created,
+        "stopped" or "exited" => ContainerdAllocationState.Stopped,
+        "dead" or "failed" => ContainerdAllocationState.Failed,
+        _ => ContainerdAllocationState.Failed
+    };
+
+    private static bool IsNotFound(string error) => error.Contains("not found", StringComparison.OrdinalIgnoreCase);
+
+    private static void EnsureSuccess(CommandResult result, string operation)
+    {
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"The containerd client could not {operation}; exit code {result.ExitCode}.");
+    }
+
+    private sealed record CommandResult(int ExitCode, string Output, string Error);
 }
 
 internal static class CanonicalPlanFingerprint

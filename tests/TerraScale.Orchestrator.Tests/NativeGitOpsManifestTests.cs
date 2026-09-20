@@ -101,6 +101,22 @@ public sealed class NativeGitOpsManifestTests
     }
 
     [Test]
+    public async Task AuthenticationAndTerraBaseReplicaTargetsRemainIndependent()
+    {
+        var plan = Parse($$"""
+            {"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":4,"workloads":[
+              {"id":"auth","role":"Authentication","artifactDigest":"{{AuthDigest}}","cells":["gru"],"replicas":2},
+              {"id":"database","role":"TerraBaseMember","artifactDigest":"{{ControlDigest}}","cells":["gru"],"replicas":5}
+            ]}
+            """);
+
+        await Assert.That(plan.Workloads.Single(static value => value.Role == AdmittedRole.Authentication).Replicas)
+            .IsEqualTo(2);
+        await Assert.That(plan.Workloads.Single(static value => value.Role == AdmittedRole.TerraBaseMember).Replicas)
+            .IsEqualTo(5);
+    }
+
+    [Test]
     public async Task DependencyGraphRejectsMissingCrossCellSelfAndCycles()
     {
         var missing = Manifest([
@@ -148,4 +164,3 @@ public sealed class NativeGitOpsManifestTests
     private static string Manifest(IEnumerable<string> workloads) =>
         $$"""{"apiVersion":"terrascale.io/v1","kind":"TerraScaleDesiredState","generation":1,"workloads":[{{string.Join(',', workloads)}}]}""";
 }
-

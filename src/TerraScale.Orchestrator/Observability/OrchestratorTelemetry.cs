@@ -9,6 +9,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Observability;
 
@@ -104,6 +105,14 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private readonly ObservableGauge<long> natsCertificateExpiryDays;
     private readonly ObservableGauge<long> natsMonitoringAvailability;
     private readonly ObservableGauge<long> natsMeshCells;
+    private readonly ObservableGauge<long> operatorDesiredReplicas;
+    private readonly ObservableGauge<long> operatorObservedReplicas;
+    private readonly ObservableGauge<long> operatorReadyReplicas;
+    private readonly ObservableGauge<long> operatorProgressPercent;
+    private readonly ObservableGauge<long> operatorMinReplicas;
+    private readonly ObservableGauge<long> operatorMaxReplicas;
+    private readonly ObservableGauge<long> operatorNeeds;
+    private readonly ObservableGauge<long> operatorHealthy;
     private readonly OpenTelemetrySdk sdk;
     private readonly ILogger logger;
     private readonly string cell;
@@ -111,6 +120,7 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private Func<RegionalRuntimeMembershipHealth>? membershipHealth;
     private Func<GlobalCellDirectorySnapshot>? globalCellDirectory;
     private Func<NatsMonitoringAggregate>? natsMonitoring;
+    private Func<Operations.OperatorStatusDocument?>? operatorStatusObserver;
     // The most recent aggregate observed by the pull gauges; it supplies the bounded
     // scope labels for the push counters without holding any listener lock.
     private NatsMonitoringAggregate? natsScope;
@@ -294,6 +304,38 @@ internal sealed class OrchestratorTelemetry : IDisposable
             "terrascale.orchestrator.nats.mesh.cells",
             ObserveNatsMeshCells,
             unit: "{cell}");
+        operatorDesiredReplicas = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.desired.replicas",
+            () => ObserveOperatorWorkloads(static workload => workload.DesiredReplicas),
+            unit: "{replica}");
+        operatorObservedReplicas = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.observed.replicas",
+            () => ObserveOperatorWorkloads(static workload => workload.ObservedReplicas),
+            unit: "{replica}");
+        operatorReadyReplicas = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.ready.replicas",
+            () => ObserveOperatorWorkloads(static workload => workload.ReadyReplicas),
+            unit: "{replica}");
+        operatorProgressPercent = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.progress",
+            () => ObserveOperatorWorkloads(static workload => workload.ProgressPercent),
+            unit: "%");
+        operatorMinReplicas = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.min.replicas",
+            () => ObserveOperatorWorkloads(static workload => workload.MinReplicas),
+            unit: "{replica}");
+        operatorMaxReplicas = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.max.replicas",
+            () => ObserveOperatorWorkloads(static workload => workload.MaxReplicas),
+            unit: "{replica}");
+        operatorNeeds = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.needs",
+            () => ObserveOperatorWorkloads(static workload => workload.Needs.Count),
+            unit: "{need}");
+        operatorHealthy = meter.CreateObservableGauge(
+            "terrascale.orchestrator.workload.healthy",
+            () => ObserveOperatorWorkloads(static workload => workload.State == "ready" ? 1 : 0),
+            unit: "{boolean}");
         logger = sdk.GetLoggerFactory().CreateLogger(InstrumentationName);
     }
 
@@ -332,6 +374,18 @@ internal sealed class OrchestratorTelemetry : IDisposable
         ArgumentNullException.ThrowIfNull(observe);
         if (Interlocked.CompareExchange(ref natsMonitoring, observe, null) is not null)
             throw new InvalidOperationException("NATS monitoring telemetry is already attached.");
+    }
+
+    /// <summary>
+    /// Attaches the latest bounded operator projection. Workload gauges are deliberately
+    /// sourced from this projection so desired, observed, ready, and convergence progress
+    /// share the same authenticated state view as the operator-status endpoint.
+    /// </summary>
+    internal void ObserveOperatorStatus(Func<Operations.OperatorStatusDocument?> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref operatorStatusObserver, observe, null) is not null)
+            throw new InvalidOperationException("Operator status telemetry is already attached.");
     }
 
     /// <summary>
@@ -450,6 +504,14 @@ internal sealed class OrchestratorTelemetry : IDisposable
         GC.KeepAlive(natsCertificateExpiryDays);
         GC.KeepAlive(natsMonitoringAvailability);
         GC.KeepAlive(natsMeshCells);
+        GC.KeepAlive(operatorDesiredReplicas);
+        GC.KeepAlive(operatorObservedReplicas);
+        GC.KeepAlive(operatorReadyReplicas);
+        GC.KeepAlive(operatorProgressPercent);
+        GC.KeepAlive(operatorMinReplicas);
+        GC.KeepAlive(operatorMaxReplicas);
+        GC.KeepAlive(operatorNeeds);
+        GC.KeepAlive(operatorHealthy);
         sdk.Dispose();
         meter.Dispose();
         activitySource.Dispose();
@@ -702,6 +764,35 @@ internal sealed class OrchestratorTelemetry : IDisposable
         }
     }
 
+    private IEnumerable<Measurement<long>> ObserveOperatorWorkloads(
+        Func<Operations.OperatorWorkloadStatus, int> select)
+    {
+        var snapshot = Volatile.Read(ref operatorStatusObserver)?.Invoke();
+        if (snapshot is null) yield break;
+        foreach (var workload in snapshot.Workloads)
+        {
+            var descriptor = AdmittedRoleCatalog.All.FirstOrDefault(candidate =>
+                candidate.ArtifactKey == workload.Workload &&
+                candidate.Role.ToString() == workload.Role);
+            var workloadLabel = descriptor?.ArtifactKey ?? "other";
+            var roleLabel = descriptor?.Role.ToString().ToLowerInvariant() ?? "other";
+            var stateLabel = workload.State switch
+            {
+                "ready" or "converging" or "pending" or "waiting-for-desired-state" => workload.State,
+                _ => "other"
+            };
+            var tags = new TagList
+            {
+                { "terrascale.cell", snapshot.Cell },
+                { "workload", workloadLabel },
+                { "role", roleLabel },
+                { "state", stateLabel },
+                { "scale_action", workload.PendingScaleAction }
+            };
+            yield return new(select(workload), tags);
+        }
+    }
+
     private static string EndpointLabel(NatsServiceEndpointName endpoint) =>
         endpoint switch
         {
@@ -711,7 +802,7 @@ internal sealed class OrchestratorTelemetry : IDisposable
             NatsServiceEndpointName.Members => "members",
             NatsServiceEndpointName.Stats => "stats",
             NatsServiceEndpointName.DirectDelivery => "direct_delivery",
+            NatsServiceEndpointName.OperatorStatus => "operator_status",
             _ => throw new ArgumentOutOfRangeException(nameof(endpoint))
         };
 }
-

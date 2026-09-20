@@ -145,6 +145,14 @@ public static class NatsSubjectTaxonomy
     /// <summary>Read-only service statistics endpoint subject (no mutation surface).</summary>
     public static string ControllerStatsSubject(string cell) => RegionalRoot(cell) + ".query.stats";
 
+    /// <summary>
+    /// Authenticated operator status and progress endpoint. It is a query sibling of
+    /// status/stats, so regional query permissions cover it without widening any mutation
+    /// family.
+    /// </summary>
+    public static string ControllerOperatorStatusSubject(string cell) =>
+        RegionalRoot(cell) + ".query.operator-status";
+
     /// <summary>Signed direct-delivery mutation admission subject (request/reply, lossy transport).</summary>
     public static string DirectDeliverySubject(string cell) => RegionalRoot(cell) + ".command.delivery";
 
@@ -384,6 +392,15 @@ public static class NatsSubjectTaxonomy
     /// </summary>
     public static bool TryValidatePermissionPattern(string? pattern, out NatsSubjectPermissionError error)
     {
+        // Request/reply identities need a bounded private inbox for responses. It
+        // is transport-owned, never a control family, and is intentionally
+        // limited to the terminal wildcard shape.
+        if (pattern == "_INBOX.>")
+        {
+            error = NatsSubjectPermissionError.None;
+            return true;
+        }
+
         if (!SubjectPermissionPattern.TryParse(pattern, GrammarLimits, out var compiled, out _) ||
             compiled is null ||
             pattern is null)
@@ -711,4 +728,3 @@ public enum NatsSubjectAdmissionError
     /// <summary>The subject is platform-reserved NATS API surface, not control-family surface.</summary>
     PlatformReserved,
 }
-

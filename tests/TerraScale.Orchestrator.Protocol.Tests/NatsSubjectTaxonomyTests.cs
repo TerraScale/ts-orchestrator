@@ -30,6 +30,9 @@ public sealed class NatsSubjectTaxonomyTests
             .IsEqualTo(topology.InstanceHealthSubject);
         await Assert.That(NatsSubjectTaxonomy.ControllerStatusSubject("gru")).IsEqualTo(topology.StatusSubject);
         await Assert.That(NatsSubjectTaxonomy.ControllerMembersSubject("gru")).IsEqualTo(topology.MembersSubject);
+        await Assert.That(NatsSubjectTaxonomy.ControllerStatsSubject("gru")).IsEqualTo(topology.StatsSubject);
+        await Assert.That(NatsSubjectTaxonomy.ControllerOperatorStatusSubject("gru"))
+            .IsEqualTo(topology.OperatorStatusSubject);
         await Assert.That(NatsSubjectTaxonomy.DirectDeliverySubject("gru")).IsEqualTo(topology.DirectDeliverySubject);
 
         // Every regional topology subject the taxonomy still shares a shape with stays under v2.
@@ -40,6 +43,8 @@ public sealed class NatsSubjectTaxonomyTests
                      topology.InstanceHealthSubject,
                      topology.StatusSubject,
                      topology.MembersSubject,
+                     topology.StatsSubject,
+                     topology.OperatorStatusSubject,
                      topology.DirectDeliverySubject,
                  })
         {
@@ -442,4 +447,3 @@ public sealed class NatsSubjectTaxonomyTests
         }
     }
 }
-

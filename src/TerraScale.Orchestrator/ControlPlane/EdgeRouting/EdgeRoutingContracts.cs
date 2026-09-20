@@ -139,6 +139,7 @@ public enum EdgePlacementErrorCode
     HealthRegionDuplicate,
     HealthLagInvalid,
     HealthCoordinatesInvalid,
+    HealthStampInvalid,
     CatalogEmpty,
     CatalogTooLarge,
     CatalogEntryInvalid,
@@ -210,6 +211,10 @@ public static class EdgePlacementValidation
         EdgeHealthDocument health,
         ImmutableArray<EdgePlacementValidationError>.Builder errors)
     {
+        // The wire contract carries Unix seconds. Reject millisecond timestamps and
+        // non-positive values before they can make a stale health document appear current.
+        if (health.UpdatedUnixSeconds is <= 0 or > 4_102_444_800)
+            errors.Add(new(EdgePlacementErrorCode.HealthStampInvalid));
         var seenHealthRegions = new HashSet<RegionCode>();
         foreach (var region in health.Regions)
         {

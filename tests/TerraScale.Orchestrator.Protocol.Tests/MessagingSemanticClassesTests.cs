@@ -79,6 +79,7 @@ public sealed class MessagingSemanticClassesTests
         {
             topology.Leaders.Bucket!,
             topology.Runtime.Bucket!,
+            topology.NodeEnrollments.Bucket!,
             topology.Delivery.Bucket!,
             topology.Operations.Bucket!,
             topology.OperationProofConsumptions.Bucket!,
@@ -131,4 +132,3 @@ public sealed class MessagingSemanticClassesTests
         }
     }
 }
-

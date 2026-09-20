@@ -135,14 +135,29 @@ Production provenance additionally requires one durable signed evidence record p
 terrascale-orchestrator operator evidence-record   --digest sha256:... --manifest-digest sha256:...   --source-repository TerraScale/TerraBase --source-commit <40-hex>   --source-tree-digest sha256:... --key-file ci-artifact.pem   --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
 ```
 
-Every host configured with `TS_ORCH_HOST_ROLES=terrabase-member` then converges itself:
+Every admitted host configured with `TS_ORCH_HOST_ROLES=terrabase-member` then converges itself:
 fetch by digest from `ORCH_ARTIFACTS`, verify SHA-256, install under the immutable digest
 path, stop the old unit, converge the systemd unit bound to the new binary, observe, and
 report. The member's `TERRABASE_*` configuration ships as
 `TS_ORCH_HOST_ENV_DIR/terrabase-server.env`, copied to the unit's environment file on every
 converge. Stateful roles serialize through the cell replace lease; a failed replacement
 restores the exact previous digest. Rollback is a deploy of the previous digest with the
-same command.
+same command. In production, enabling this setting requires the signed regional enrollment
+and credential-readiness configuration below; startup fails before connecting to NATS when
+any required admission value is absent.
+
+The production host admission files are configured with
+`TS_ORCH_HOST_ENROLLMENT_FILE`, `TS_ORCH_HOST_ENROLLMENT_SIGNER_PUBLIC_KEY_FILE`,
+`TS_ORCH_HOST_BOOTSTRAP_TRUST_BUNDLE_FILE`, `TS_ORCH_HOST_CREDENTIAL_BUNDLE_FILE`,
+`TS_ORCH_HOST_NODE_ID`, `TS_ORCH_NATS_ACCOUNT_PUBLIC_KEY`,
+`TS_ORCH_HOST_CLUSTER_NAME`, `TS_ORCH_HOST_ENROLLMENT_SIGNER_KEY_ID`,
+`TS_ORCH_HOST_ENROLLMENT_SIGNER_KEY_VERSION`, and the three
+`TS_ORCH_BOOTSTRAP_SYSTEM_*_ULID` values. The optional operation defaults to
+`ensure-system-project-configuration`. The envelope and trust files are bounded regular
+files without writable group/other permissions; the credential bundle is owner-private and
+must hash to the digest in the signed envelope. A successful admission is cached for the
+process lifetime, while the durable regional NATS KV replay/generation fence accepts each
+node generation once.
 
 ## Auto-forming cells
 
@@ -151,8 +166,18 @@ object stores, consumers): the first instance creates the cell, later instances 
 `TS_ORCH_AUTO_PROVISION=0` restores infrastructure-only provisioning. The infrastructure
 `ORCH_OPERATIONS` journal always stays with the `provision-journal` command.
 
-OCI setup is documented in
-[`docs/guides/oci-manual-bootstrap.md`](docs/guides/oci-manual-bootstrap.md).
+`ts-infra` declares supported regions and creates the first GRU controller.
+The orchestrator is intended to take over resource lifecycle and establish
+each supported region's cluster. OCI fleet startup now requires the public
+`ts-infra` output in `TS_ORCH_REGION_INTENT_FILE`; it rejects unsupported cells
+and endpoints or templates belonging to a different region. Supported regions
+are not automatically admitted by this file.
+
+The complete first boot, Vault delivery, seed ownership transfer, and regional
+estate reconciliation remain deployment blockers. The current C# bootstrap
+contract and exact gaps are documented in
+[`docs/operations/control-bootstrap.md`](docs/operations/control-bootstrap.md)
+and the [OCI readiness record](docs/evidence/oci-readiness-2026-09-20.md).
 
 ## Documentation
 
@@ -163,4 +188,4 @@ OCI setup is documented in
 - [Controller membership](docs/contracts/controller-membership.md)
 - [NATS gateway operations](docs/runbooks/nats-gateway-operations.md)
 - [NATS monitoring](docs/runbooks/nats-monitoring.md)
-- [OCI manual bootstrap](docs/guides/oci-manual-bootstrap.md)
+- [OCI bootstrap and ownership handoff](docs/operations/control-bootstrap.md)

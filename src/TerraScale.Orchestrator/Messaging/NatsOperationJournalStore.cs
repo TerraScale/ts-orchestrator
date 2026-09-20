@@ -219,7 +219,7 @@ internal static class NatsOperationJournalStore
         StreamConfig actual,
         NatsKVConfig configuration)
     {
-        if (configuration.Bucket is not ("ORCH_LEADERS" or "ORCH_RUNTIME" or "ORCH_DELIVERY") ||
+        if (configuration.Bucket is not ("ORCH_LEADERS" or "ORCH_RUNTIME" or "ORCH_NODE_ENROLLMENTS" or "ORCH_DELIVERY") ||
             configuration.Republish is not null || configuration.Placement is not null ||
             configuration.Mirror is not null || configuration.Sources is { Count: > 0 } ||
             configuration.Metadata is { Count: > 0 })
@@ -315,4 +315,3 @@ internal static class NatsOperationJournalStore
         throw new ArgumentException("The authoritative CreateNode journal store configuration must be exact R3.", nameof(configuration));
     }
 }
-

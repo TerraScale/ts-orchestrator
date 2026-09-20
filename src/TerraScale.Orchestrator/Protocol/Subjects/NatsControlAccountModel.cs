@@ -20,6 +20,8 @@ public enum NatsControlAccountKind
     GlobalDirectoryReadService,
     /// <summary>One regional controller scope per Region; writes exactly its Region's families.</summary>
     RegionalController,
+    /// <summary>One regional operator scope per Region; requests only read-only query endpoints.</summary>
+    OperatorQuery,
     /// <summary>One admitted host agent; writes only its own hashed agent subjects.</summary>
     HostAgent,
     /// <summary>Publishes normalized CI trigger decisions; no control-state writes.</summary>
@@ -199,9 +201,9 @@ public static class NatsControlAccountModel
                         violations.Add($"The infrastructure account kind '{kindName}' grants '{template}' outside the platform-reserved surface.");
                     }
                 }
-                else if (IsPlatformPattern(materialized) ||
+                else if (materialized != "_INBOX.>" && (IsPlatformPattern(materialized) ||
                          !NatsSubjectTaxonomy.TryValidatePermissionPattern(materialized, out var error) ||
-                         error != NatsSubjectPermissionError.None)
+                         error != NatsSubjectPermissionError.None))
                 {
                     violations.Add($"The account kind '{kindName}' grants the non-closed permission '{template}'.");
                 }
@@ -282,6 +284,7 @@ public static class NatsControlAccountModel
             "global-authority" => NatsControlAccountKind.GlobalAuthority,
             "global-directory-read-service" => NatsControlAccountKind.GlobalDirectoryReadService,
             "regional-controller" => NatsControlAccountKind.RegionalController,
+            "operator-query" => NatsControlAccountKind.OperatorQuery,
             "host-agent" => NatsControlAccountKind.HostAgent,
             "ci-coordinator" => NatsControlAccountKind.CiCoordinator,
             "ci-isolated-runner" => NatsControlAccountKind.CiIsolatedRunner,
@@ -298,6 +301,7 @@ public static class NatsControlAccountModel
         NatsControlAccountKind.GlobalAuthority => "global-authority",
         NatsControlAccountKind.GlobalDirectoryReadService => "global-directory-read-service",
         NatsControlAccountKind.RegionalController => "regional-controller",
+        NatsControlAccountKind.OperatorQuery => "operator-query",
         NatsControlAccountKind.HostAgent => "host-agent",
         NatsControlAccountKind.CiCoordinator => "ci-coordinator",
         NatsControlAccountKind.CiIsolatedRunner => "ci-isolated-runner",
@@ -312,4 +316,3 @@ public static class NatsControlAccountModel
         return NatsSubjectTaxonomy.IsPlatformReservedRoot(firstToken);
     }
 }
-

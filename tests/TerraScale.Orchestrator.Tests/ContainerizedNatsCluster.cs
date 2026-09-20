@@ -121,8 +121,11 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
     {
         if (containers.Remove(process.Id, out var containerName))
         {
-            await RunAsync(["stop", "--time", "2", containerName], cancellationToken);
-            await RunAsync(["rm", "--force", containerName], cancellationToken);
+            // Podman can leave a stop request waiting on a dead pasta namespace.
+            // Cleanup must remain bounded so a passing test cannot hang the whole
+            // suite; the process kill below is the final ownership fence.
+            await BestEffortRunAsync(["stop", "--time", "2", containerName], cancellationToken);
+            await BestEffortRunAsync(["rm", "--force", containerName], cancellationToken);
         }
         if (!process.HasExited)
             process.Kill(entireProcessTree: true);
@@ -132,8 +135,30 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        await RunAsync(["pod", "rm", "--force", podName], CancellationToken.None);
+        await BestEffortRunAsync(["pod", "rm", "--force", podName], CancellationToken.None);
         containers.Clear();
+    }
+
+    private static async Task BestEffortRunAsync(
+        IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            _ = await RunAsync(arguments, timeout.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // The caller still owns the process/container and will apply its
+            // direct kill path. A stalled Podman helper is not test evidence.
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Cleanup is intentionally best effort; the lease quarantine
+            // records any remaining process/root for the next run.
+        }
     }
 
     private static bool IsWithinRoot(string path, string expectedRoot)
@@ -172,9 +197,18 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
             ?? throw new InvalidOperationException("Podman did not start.");
         var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
         var error = process.StandardError.ReadToEndAsync(cancellationToken);
-        await process.WaitForExitAsync(cancellationToken);
-        await Task.WhenAll(output, error);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken);
+            await Task.WhenAll(output, error);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            throw;
+        }
         return (process.ExitCode, $"{await output} | {await error}".Trim());
     }
 }
-

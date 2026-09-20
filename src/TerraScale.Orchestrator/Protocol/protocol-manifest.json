@@ -102,10 +102,10 @@
         "ts.orch.v2.<region>.desired.>",
         "ts.orch.v2.<region>.command.>",
         "ts.orch.v2.<region>.operation.>",
-        "ts.orch.v2.<region>.query.>",
         "ts.orch.v2.<region>.audit.>",
         "ts.orch.v2.<region>.observation.>",
-        "ts.orch.v2.<region>.agent.<agent-hash>.command.>"
+        "ts.orch.v2.<region>.agent.<agent-hash>.command.>",
+        "_INBOX.>"
       ],
       "subscribe": [
         "ts.orch.v2.<region>.desired.>",
@@ -117,6 +117,18 @@
         "ts.orch.v2.<region>.agent.<agent-hash>.observation.>",
         "ts.orch.v2.<region>.agent.<agent-hash>.ack.>"
       ]
+    },
+    {
+      "kind": "operator-query",
+      "regionScoped": true,
+      "publish": [
+        "ts.orch.v2.<region>.query.health",
+        "ts.orch.v2.<region>.query.status",
+        "ts.orch.v2.<region>.query.members",
+        "ts.orch.v2.<region>.query.stats",
+        "ts.orch.v2.<region>.query.operator-status"
+      ],
+      "subscribe": ["_INBOX.>"]
     },
     {
       "kind": "host-agent",
@@ -161,4 +173,3 @@
     }
   ]
 }
-
