@@ -18,6 +18,12 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo(RuntimeDriver.NativeSystemd);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.CustomerDashboard).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).ArtifactKey)
+            .IsEqualTo("ts-auth");
+        await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Authentication).DefaultDriver)
+            .IsEqualTo(RuntimeDriver.OciContainer);
+        await Assert.That(HostRuntimeCli.ParseRole("authentication"))
+            .IsEqualTo(AdmittedRole.Authentication);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.Grafana).DefaultDriver)
             .IsEqualTo(RuntimeDriver.OciContainer);
         await Assert.That(AdmittedRoleCatalog.Get(AdmittedRole.ControlNatsServer).MinimumReplicas).IsEqualTo(3);
@@ -38,4 +44,3 @@ public sealed class AdmittedRoleCatalogTests
             .IsEqualTo(AdmittedRole.TerraBaseMember);
     }
 }
-

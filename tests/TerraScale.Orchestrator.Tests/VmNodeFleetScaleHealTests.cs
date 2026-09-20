@@ -198,7 +198,7 @@ public sealed class VmNodeFleetScaleHealTests
                 ["TERRABASE_PEER_ALLOWLIST"] = "[" +
                     string.Join(",", new[] { "vm-node-1", "as-node-1", "as-node-2", "observer" }
                         .Where(member => member != request.NodeId)
-                        .Select(member => $$"""{"fingerprint":"{{FingerprintOf(member)}}","memberId":"{{member}}","epoch":1,"databases":["{{DatabaseId}}"],"tenants":["{{TenantId}}"]}""")) +
+                        .Select(member => $$"""{"fingerprint":"{{FingerprintOf(member)}}","memberId":"{{member}}","epoch":1,{{PeerUrlProperty(member)}}"databases":["{{DatabaseId}}"],"tenants":["{{TenantId}}"]}""")) +
                     "]",
                 ["TERRABASE_INTERNAL_DATABASE_ID"] = DatabaseId,
                 ["TERRABASE_DATABASE_ROUTE"] = "vm-lane-db",
@@ -211,11 +211,20 @@ public sealed class VmNodeFleetScaleHealTests
                 ["TERRABASE_DATABASE_SELECTED_REGIONS"] = Region,
             });
 
-        private string FingerprintOf(string member) =>
-            X509Certificate2.CreateFromPem(File.ReadAllText(Path.Combine(Root, "payload", "certs", $"{member}.crt")))
-                .GetCertHashString(HashAlgorithmName.SHA256)
-                .Replace(" ", string.Empty, StringComparison.Ordinal)
-                .ToUpperInvariant();
+        private string PeerUrlProperty(string member) => member switch
+        {
+            "vm-node-1" => $"\"url\":\"https://{Options.AddressFor(1)}:8422\",",
+            "as-node-1" => $"\"url\":\"https://{Options.AddressFor(2)}:8422\",",
+            "as-node-2" => $"\"url\":\"https://{Options.AddressFor(3)}:8422\",",
+            _ => string.Empty,
+        };
+
+        private string FingerprintOf(string member)
+        {
+            using var certificate = X509Certificate2.CreateFromPem(
+                File.ReadAllText(Path.Combine(Root, "payload", "certs", $"{member}.crt")));
+            return certificate.GetCertHashString(HashAlgorithmName.SHA256);
+        }
 
         public static async Task<VmLane> PrepareAsync(string inputs, string region, int subnetThirdOctet)
         {
@@ -224,7 +233,7 @@ public sealed class VmNodeFleetScaleHealTests
             var host = Path.Combine(root, "payload", "host");
             CopyDirectory(Path.Combine(inputs, "host"), host);
             var certs = Path.Combine(root, "payload", "certs");
-            CopyDirectory(Path.Combine(inputs, "certs"), certs);
+            VmFleetCertificates.Create(certs, subnetThirdOctet);
 
             var databaseId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();
             var tenantId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();

@@ -100,9 +100,11 @@ public sealed class LocalNodeFleetScaleHealTests
     private static NodeProvisionRequest ProvisionRequest(string nodeId) =>
         new(nodeId, "greenfield", NodeCapacity, "test bootstrap provision");
 
+    // Leave CPU and PID headroom after one node drains: three member processes
+    // must fit on two provisioned nodes without crossing the 70% scale-up limit.
     private static AllocationDemand MemberDemand() =>
         new("terrabase-member", "terrabase-member", true, new ResourceVector(
-            cpu: 20, memory: 6_500_000_000, blockIo: 0, ephemeralDisk: 0, bandwidth: 0, pids: 2, fileDescriptors: 0, hugePages: 0));
+            cpu: 40, memory: 6_500_000_000, blockIo: 0, ephemeralDisk: 0, bandwidth: 0, pids: 4, fileDescriptors: 0, hugePages: 0));
 
     /// <summary>
     /// A canonical 26-character Crockford base32 ULID, matching the identity
@@ -145,7 +147,8 @@ public sealed class LocalNodeFleetScaleHealTests
         var member = certificates.Member(request.NodeId);
         var dataPath = Path.Combine(root, request.NodeId, "data");
         Directory.CreateDirectory(dataPath);
-        var (peerPort, observabilityPort) = ReservePorts();
+        var peerPort = member.PeerPort;
+        var observabilityPort = member.ObservabilityPort;
         return new MemberLaunchDescription(
             request.NodeId,
             Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } dotnetRoot
@@ -254,11 +257,14 @@ public sealed class LocalNodeFleetScaleHealTests
                 var keyPath = Path.Combine(directory, "member.key");
                 File.WriteAllText(certificatePath, member.ExportCertificatePem());
                 File.WriteAllText(keyPath, PemEncoding.WriteString("PRIVATE KEY", member.GetRSAPrivateKey()!.ExportPkcs8PrivateKey()));
+                var (peerPort, observabilityPort) = ReservePorts();
                 cluster.members[nodeId] = new MemberCertificate(
                     nodeId,
                     certificatePath,
                     keyPath,
-                    member.GetCertHashString(HashAlgorithmName.SHA256).Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant());
+                    member.GetCertHashString(HashAlgorithmName.SHA256).Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant(),
+                    peerPort,
+                    observabilityPort);
             }
 
             return cluster;
@@ -273,7 +279,7 @@ public sealed class LocalNodeFleetScaleHealTests
             "[" + string.Join(",", members.Values
                 .Where(member => member.NodeId != except)
                 .Select(member =>
-                    $$"""{"fingerprint":"{{member.Fingerprint}}","memberId":"{{member.NodeId}}","epoch":1,"databases":["{{databaseId}}"],"tenants":["{{tenantId}}"]}""")) + "]";
+                    $$"""{"fingerprint":"{{member.Fingerprint}}","memberId":"{{member.NodeId}}","epoch":1,"url":"https://127.0.0.1:{{member.PeerPort}}","databases":["{{databaseId}}"],"tenants":["{{tenantId}}"]}""")) + "]";
 
         public void Dispose()
         {
@@ -281,5 +287,6 @@ public sealed class LocalNodeFleetScaleHealTests
         }
     }
 
-    private sealed record MemberCertificate(string NodeId, string CertificatePath, string KeyPath, string Fingerprint);
+    private sealed record MemberCertificate(string NodeId, string CertificatePath, string KeyPath, string Fingerprint,
+        int PeerPort, int ObservabilityPort);
 }

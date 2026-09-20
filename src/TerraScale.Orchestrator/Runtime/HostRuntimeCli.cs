@@ -52,6 +52,7 @@ internal static class HostRuntimeCli
 
     internal static AdmittedRole ParseRole(string value) => value switch
     {
+        "authentication" => AdmittedRole.Authentication,
         "customer-dashboard" => AdmittedRole.CustomerDashboard,
         "terrabase-member" => AdmittedRole.TerraBaseMember,
         "orchestrator" => AdmittedRole.Orchestrator,
@@ -134,4 +135,3 @@ internal static class HostRuntimeCli
                 ? parsed
                 : throw new ArgumentException($"Runtime option {key} must be an integer.");
 }
-

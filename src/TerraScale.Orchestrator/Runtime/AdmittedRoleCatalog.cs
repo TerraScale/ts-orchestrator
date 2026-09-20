@@ -20,7 +20,8 @@ public enum AdmittedRole
     VpnCoordinationRelay,
     RoutePolicyController,
     CiRunner,
-    JournalWriter
+    JournalWriter,
+    Authentication
 }
 
 public enum RuntimeDriver
@@ -42,7 +43,8 @@ public enum RoleCapability
     SyntheticProbe,
     NetworkCoordination,
     RoutePolicy,
-    IsolatedBuild
+    IsolatedBuild,
+    Authentication
 }
 
 public sealed record AdmittedRoleDescriptor(
@@ -80,6 +82,10 @@ public static class AdmittedRoleCatalog
 
     private static IEnumerable<AdmittedRoleDescriptor> CreateDescriptors()
     {
+        // ts-auth is an OCI workload. Its secret profile and dependency contract
+        // are supplied by the deployment handoff; the closed role catalog only
+        // admits the runtime and public HTTP capability.
+        yield return Oci(AdmittedRole.Authentication, "ts-auth", RoleCapability.PublicHttp, RoleCapability.Authentication);
         yield return Oci(AdmittedRole.CustomerDashboard, "terrascale-dashboard", RoleCapability.PublicHttp);
         yield return Both(
             AdmittedRole.TerraBaseMember,
