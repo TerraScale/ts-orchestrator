@@ -12,6 +12,68 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OciWorkloadFleetConfigurationFileTests
 {
     [Test]
+    [Arguments(0)]
+    [Arguments(9)]
+    public async Task Provider_does_not_clamp_invalid_demand_into_permission_to_launch(int desired)
+    {
+        var root = Directory.CreateTempSubdirectory("ts-orch-demand-");
+        try
+        {
+            var fleet = await WriteTestFleetAsync(root.FullName);
+            var transport = new FakeWorkloadTransport();
+            var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
+            var driver = new OciWorkloadReplicaDriver(transport, fleet, store,
+                _ => Task.FromResult(desired), () => true, "gru");
+            var policy = fleet.Policies.Single(value => value.WorkloadId == "ts-auth");
+            var observation = await driver.ObserveAsync(policy, CancellationToken.None);
+            var decision = new IndependentWorkloadAutoscaler([policy]).Tick([observation]).Single();
+            await driver.ApplyAsync(decision, CancellationToken.None);
+            await Assert.That(observation.DesiredReplicas).IsEqualTo(desired);
+            await Assert.That(decision.Action).IsEqualTo(WorkloadScaleAction.Blocked);
+            await Assert.That(transport.LaunchCalls).IsEqualTo(0);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [Test]
+    public async Task Generic_fleet_cannot_retire_stateful_members_without_drain_proof()
+    {
+        var root = Directory.CreateTempSubdirectory("ts-orch-retirement-");
+        try
+        {
+            var fleet = await WriteTestFleetAsync(root.FullName);
+            var transport = new FakeWorkloadTransport();
+            var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
+            var driver = new OciWorkloadReplicaDriver(transport, fleet, store,
+                _ => Task.FromResult(3), () => true, "gru");
+            var decision = new WorkloadScaleDecision("terrabase-server", "terrabase-member",
+                3, 4, 4, 0, 3, WorkloadScaleAction.ScaleIn, 100, "ready-replicas-above-desired");
+            await Assert.That(() => driver.ApplyAsync(decision, CancellationToken.None))
+                .Throws<InvalidOperationException>();
+            await Assert.That(transport.TerminateCalls).IsEqualTo(0);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    private static async Task<OciWorkloadFleetConfigurationFile> WriteTestFleetAsync(string directory)
+    {
+        await File.WriteAllTextAsync(Path.Combine(directory, "bootstrap"), "#cloud-config\nruncmd: []\n");
+        var path = Path.Combine(directory, "fleet.json");
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1,
+            region = "GRU",
+            endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
+            workloads = new[]
+            {
+                Workload("ts-auth", "authentication", "bootstrap", 1, 8),
+                Workload("terrabase-server", "terrabase-member", "bootstrap", 3, 12)
+            }
+        }));
+        return OciWorkloadFleetConfigurationFile.Load(path)!;
+    }
+
+    [Test]
     [Arguments("GRU", "https://iaas.sa-saopaulo-1.oraclecloud.com/", true)]
     [Arguments("SFO", "https://iaas.us-sanjose-1.oraclecloud.com/", true)]
     [Arguments("FRA", "https://iaas.eu-frankfurt-1.oraclecloud.com/", true)]
@@ -231,7 +293,6 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             var fleet = OciWorkloadFleetConfigurationFile.Load(path)!;
             var transport = new FakeWorkloadTransport();
             transport.FailFirstLaunch = true;
-            PutOnlyKvStore.Reset();
             var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
             var firstController = new OciWorkloadReplicaDriver(
                 transport,
@@ -262,7 +323,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             await Assert.That(transport.LastRetryToken).IsNotNull();
             await Assert.That(transport.WorkRequestPolls).IsEqualTo(1);
             await Assert.That(transport.LastRetryToken).IsEqualTo(transport.FirstRetryToken);
-            await Assert.That(PutOnlyKvStore.TotalWrites).IsEqualTo(3);
+            await Assert.That(((PutOnlyKvStore)store).TotalWrites).IsEqualTo(3);
         }
         finally
         {
@@ -272,16 +333,9 @@ public sealed class OciWorkloadFleetConfigurationFileTests
 
     private class PutOnlyKvStore : DispatchProxy
     {
-        public static int TotalWrites { get; private set; }
-        private static readonly Dictionary<string, string> Records = new(StringComparer.Ordinal);
-        private static ulong revision;
-
-        public static void Reset()
-        {
-            TotalWrites = 0;
-            revision = 0;
-            Records.Clear();
-        }
+        public int TotalWrites { get; private set; }
+        private readonly Dictionary<string, string> Records = new(StringComparer.Ordinal);
+        private ulong revision;
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
@@ -322,6 +376,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
         public bool FailFirstLaunch { get; set; }
         public int LaunchCalls { get; private set; }
         public int WorkRequestPolls { get; private set; }
+        public int TerminateCalls { get; private set; }
         public string? LastRetryToken { get; private set; }
         public string? FirstRetryToken { get; private set; }
         public LaunchInstanceRequest? LaunchedRequest { get; private set; }
@@ -360,7 +415,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
 
         public Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
             ListInstancesRequest request, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(new Oci.CoreService.Responses.ListInstancesResponse { Items = [] });
 
         public Task<Oci.CoreService.Responses.GetInstanceResponse> GetInstanceAsync(
             GetInstanceRequest request, CancellationToken cancellationToken) =>
@@ -375,8 +430,11 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             throw new NotSupportedException();
 
         public Task<Oci.CoreService.Responses.TerminateInstanceResponse> TerminateInstanceAsync(
-            TerminateInstanceRequest request, CancellationToken cancellationToken) =>
+            TerminateInstanceRequest request, CancellationToken cancellationToken)
+        {
+            TerminateCalls++;
             throw new NotSupportedException();
+        }
 
         public void Dispose() { }
     }

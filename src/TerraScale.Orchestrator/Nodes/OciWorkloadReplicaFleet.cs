@@ -255,7 +255,9 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         var snapshot = Array.AsReadOnly(observations.OrderBy(static value => value.InstanceId, StringComparer.Ordinal).ToArray());
         last[policy.WorkloadId] = snapshot;
         await ReconcileLatestScaleOutAsync(policy.WorkloadId, snapshot, cancellationToken).ConfigureAwait(false);
-        var desired = Math.Clamp(await desiredReplicas(policy.WorkloadId).ConfigureAwait(false), policy.MinReplicas, policy.MaxReplicas);
+        // Preserve invalid/absent demand so the scaler can reject it. Clamping
+        // here would turn a missing desired state into permission to launch.
+        var desired = await desiredReplicas(policy.WorkloadId).ConfigureAwait(false);
         var readyCount = snapshot.Count(static value => value.Ready);
         var pending = snapshot.Count(static value => value.State is not (Instance.LifecycleStateEnum.Running or Instance.LifecycleStateEnum.Stopped));
         var healthy = readyCount >= policy.MinReplicas && pending == 0;
@@ -273,6 +275,10 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
             decision.RoleKind,
             Math.Max(1, decision.TargetReplicas),
             Math.Max(1, decision.TargetReplicas)));
+        if (decision.Action == WorkloadScaleAction.ScaleIn &&
+            (decision.WorkloadId == "terrabase-server" || template.Policy.RoleKind == "terrabase-member"))
+            throw new InvalidOperationException(
+                "TerraBase retirement requires the stateful placement fleet's drain and data-safety proof.");
         var current = last.TryGetValue(decision.WorkloadId, out var snapshot) ? snapshot : [];
         if (decision.Action == WorkloadScaleAction.ScaleOut)
         {

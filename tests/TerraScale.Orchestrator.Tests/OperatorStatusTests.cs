@@ -123,7 +123,9 @@ public sealed class OperatorStatusTests
             "GetKeysAsync" => Keys(),
             "GetEntryAsync" => ValueTask.FromResult(new NatsKVEntry<string>("test", (string)args![0]!)
             {
-                Value = Records[(string)args[0]!], Revision = 1, Operation = NatsKVOperation.Put
+                Value = Records[(string)args[0]!],
+                Revision = 1,
+                Operation = NatsKVOperation.Put
             }),
             _ => throw new NotSupportedException(targetMethod?.Name)
         };
