@@ -1,5 +1,5 @@
 #!/usr/bin/env dotnet run
-#:package TUnit@1.56.18
+#:package TUnit
 #:include check-nuget-vulnerabilities.lib.cs
 
 // Port of the former scripts/test_check_nuget_vulnerabilities.py unittest suite.
