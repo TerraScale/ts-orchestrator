@@ -102,6 +102,45 @@ These are working-tree results, not qualification of an immutable release.
 Other changes are present in the shared checkouts. Rerun the final gates against
 the exact release revision before deployment.
 
+### Final candidate evidence — 2026-09-21
+
+The final local candidate revisions are `ts-orchestrator@4f97f005` and
+`ts-auth@2e98d0e`. The clean orchestrator rerun passed **1,459 tests**, with
+zero failures and seven expected live-lane skips; its supporting suites passed
+**969 control-plane**, **59 model**, **165 protocol**, and **106 scheduler**
+tests. Locked restore, required format, Release build (zero warnings/errors),
+and dependency audit also passed. The main-suite log is
+`/tmp/ts-goal-orchestrator-main-post-contamination-20260921.log`.
+
+The auth release run passed **381/381 tests**, with zero failures or skips. Its
+single-file payload SHA-256 is
+`f3f3d877b5f9a339064e035a7947f0bbd7c435a5d0cc27086f8980001e189171`.
+The locally built image is
+`localhost/terrascale/ts-auth:a82c42474804bcd6922e75fb388f2106c1fb285d`,
+with image digest
+`sha256:d8fe574566629aaae4db34f79a3837cbcdf7b1c739da2511cc4106e2f5dea75a`.
+The green test log is `/tmp/ts-goal-auth-full-20260921.log`; the corrected
+restore, publish, and image gate is `/tmp/ts-goal-auth-publish-fixed-20260921.log`.
+
+The external auth smoke exercised the real process against the local
+`TerraBaseDevMember` and passed **22/22 checks**, including account/session,
+management API, OIDC, SCIM, webhook, billing, passcode, and audit behavior:
+`/tmp/ts-goal-auth-external-devmember-smoke-20260921.log`. This is dev-member
+integration evidence only. The raw TerraBase production host has no composed
+public API-key authentication and tenant authorizer for document requests, so
+it fails closed; the dev member supplies a local stand-in for this boundary.
+
+The serialized Firecracker run passed the existing one-region and three-region
+lanes (**2 passed**). The auth lane failed at instance creation because the raw
+host returned HTTP **503 Service Unavailable**; it is a deployment blocker, not
+a passing VM result. The failure and cleanup evidence are in
+`/tmp/ts-goal-orchestrator-vm-auth-live-serialized-20260921.log`.
+
+These results are local release and integration evidence only. They do **not**
+qualify OCI deployment, production first boot, raw-host TerraBase/auth
+composition, native ARM64 service execution, ownership handoff, or regional
+formation.
+
 The [restricted desired-state receipt](host-desired-local-2026-09-21.json)
 records **2,638 passed** across all five projects, zero failures and five expected
 opt-in skips. It covers signed desired selection, controller and convergence
