@@ -192,10 +192,16 @@ fast path now trims the public page while retaining `HasMore`; its deterministic
 regression passed five consecutive runs, and the full API suite passed afterward.
 The API log is `/tmp/ts-goal-terrabase-api-after-fastpath-fixes-20260921.log`,
 and the strict Release solution build passed with zero warnings/errors in
-`/tmp/ts-goal-terrabase-final-solution-build-20260921.log`. The complete upstream
-ZoneTree stress project remains time-prohibitive locally: its WAL-heavy atomic
-update cases were stopped after more than 40 minutes without a failure, so it
-is not represented as a green deployment gate.
+`/tmp/ts-goal-terrabase-final-solution-build-20260921.log`.
+
+The full upstream-derived ZoneTree suite was enumerated at **314 tests** and
+passed completely with zero failures or skips. The assembly is intentionally
+nonparallel, so the run used seven non-overlapping TUnit UID partitions with
+separate storage and result roots, all at niceness 19 and idle I/O priority:
+32 SafeBTree, 269 other non-atomic cases, and all 13 WAL-heavy atomic cases.
+The longest partition finished in 34m45s. The enumeration is
+`/tmp/ts-goal-terrabase-upstream-list-20260921.json`; result logs are
+`/tmp/ts-goal-terrabase-upstream-{safebtree,atomic_increment,atomic_btree,atomic_mutable,atomic_upserts,group_a,group_b,group_c}-20260921.log`.
 
 The TerraBase solution-wide `dotnet format style --verify-no-changes` gate is
 currently red with approximately 300 existing `IDE0005` unused-using findings
@@ -343,6 +349,7 @@ execution/storage fencing remain blocked.
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
 | Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed**, plus committed auth focused **1 passed** | `/tmp/ts-goal-orchestrator-vm-all-final-payload-20260921.log` and `/tmp/ts-goal-orchestrator-vm-auth-ae4d099-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth |
 | Exact ts-auth x64 distroless image and local TerraBase gateway | Pass; health/readiness 200, create 200, graceful restart, durable duplicate 409, final exit 0 | `/tmp/ts-goal-auth-ae4d099-container-20260921.log`, `/tmp/ts-goal-auth-container-smoke-ae4d099-final-20260921.log`; image digest `sha256:e98e9bbf8e51dc7640c56fb76416755911d0bd8ffb036c26e31d496b65f4a4e0`; dev gateway only |
+| Full upstream-derived ZoneTree suite | **314 passed, 0 failed/skipped** | `/tmp/ts-goal-terrabase-upstream-list-20260921.json` plus `/tmp/ts-goal-terrabase-upstream-*-20260921.log`; all 13 WAL-heavy atomic cases included; longest partition 34m45s |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
 | OpenTofu Vault tier configuration | Pass; 9 mocked plan tests passed | `/tmp/ts-infra-vault-tier-validation.log`, `/tmp/ts-infra-vault-tier-tests.log`; shared HSM default, explicit dedicated tier and invalid-tier rejection; estate remains disabled |
