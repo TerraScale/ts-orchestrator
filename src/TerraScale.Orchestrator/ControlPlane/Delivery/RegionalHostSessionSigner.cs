@@ -43,6 +43,14 @@ internal sealed class RegionalHostSessionSigner
         return RegionalHostDesiredRequest.Sign(request.Enrollment, authentication, request.SessionId, lease.Epoch, role, now);
     }
 
+    internal RegionalHostArtifactRequest SignArtifact(AdmittedRole role, string digest, long offset, int length)
+    {
+        var now = clock.GetUtcNow();
+        if (now < request.IssuedAt || lease.ExpiresAt <= now)
+            throw new InvalidOperationException("The artifact request is outside this current host session.");
+        return RegionalHostArtifactRequest.Sign(request.Enrollment, authentication, request.SessionId, lease.Epoch, role, digest, offset, length, now);
+    }
+
     private RegionalHostReportProof Sign(string cell, string node, string artifact, RegionalHostReportKind kind, byte[] payload)
     {
         var now = clock.GetUtcNow();

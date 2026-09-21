@@ -415,3 +415,11 @@ or drain can be qualified. A KV lease alone does not stop a guest process or
 fence a storage writer.
 The [OCI readiness record](../evidence/oci-readiness-2026-09-20.md) remains
 the deployment gate.
+
+## Restricted native artifact delivery
+
+Hosts now request independently signed, current-session artifact chunks over
+their existing exact subjects. The controller checks the role/environment target
+for each request and streams from a bounded verified cache; the host still
+checks the complete artifact digest. See [host artifact delivery](host-artifact-delivery.md)
+for transport bounds, status, metrics and the remaining host startup gates.

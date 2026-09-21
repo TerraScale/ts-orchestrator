@@ -35,6 +35,8 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly HostObservationRelay? hostReports;
     private readonly RegionalHostSessionService? hostSessions;
     private readonly RegionalHostDesiredService? hostDesired;
+    private readonly RegionalHostArtifactService? hostArtifacts;
+    private readonly RegionalArtifactCache? artifactCache;
     private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
     private readonly Nodes.OciMemberHostFleet? memberHostFleet;
     private readonly WorkloadAutoscalerService? workloadAutoscaler;
@@ -62,7 +64,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         IDisposable? workloadReplicaDriver,
         OperatorStatusCache operatorStatus,
         RegionalHostSessionService? hostSessions,
-        RegionalHostDesiredService? hostDesired)
+        RegionalHostDesiredService? hostDesired,
+        RegionalHostArtifactService? hostArtifacts, RegionalArtifactCache? artifactCache)
     {
         this.client = client;
         this.service = service;
@@ -85,11 +88,14 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.operatorStatus = operatorStatus ?? throw new ArgumentNullException(nameof(operatorStatus));
         this.hostSessions = hostSessions;
         this.hostDesired = hostDesired;
+        this.hostArtifacts = hostArtifacts;
+        this.artifactCache = artifactCache;
     }
 
     public Task Completion => Task.WhenAny(new[] { authority.Completion, membership.Completion }
         .Concat(hostReports is null ? [] : new[] { hostReports.Completion })
         .Concat(hostDesired is null ? [] : new[] { hostDesired.Completion })
+        .Concat(hostArtifacts is null ? [] : new[] { hostArtifacts.Completion })
         .Concat(hostSessions is null ? [] : new[] { hostSessions.Completion })).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
@@ -159,6 +165,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         if (hostReports is not null) telemetry.ObserveHostReports(() => hostReports.Snapshot);
         if (hostSessions is not null) telemetry.ObserveHostSessions(() => hostSessions.Snapshot);
         if (hostDesired is not null) telemetry.ObserveHostDesired(() => hostDesired.Snapshot);
+        if (hostArtifacts is not null) telemetry.ObserveHostArtifacts(() => hostArtifacts.Snapshot);
     }
 
     /// <summary>
@@ -287,6 +294,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         HostObservationRelay? hostReportRelay = null;
         RegionalHostSessionService? hostSessionService = null;
         RegionalHostDesiredService? hostDesiredService = null;
+        RegionalHostArtifactService? hostArtifactService = null;
+        RegionalArtifactCache? artifactCache = null;
         IAuthorizedHostReportReader? authorizedHostReports = null;
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
         Nodes.OciMemberHostFleet? memberHostFleet = null;
@@ -650,7 +659,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 workloadAutoscalerRuntime?.Latest,
                                 workloadFleet?.Policies,
                                 hostReportRelay?.Snapshot,
-                                hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot)
+                                hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot, hostArtifactService?.Snapshot)
                             .ConfigureAwait(false);
                         operatorStatus.Set(status);
                         await message.ReplyAsync(
@@ -677,6 +686,9 @@ public sealed class NatsRuntime : IAsyncDisposable
                 var sessionAuthority = new RegionalHostSessionAuthority(state.NodeEnrollments, hostSessions.Policy);
                 hostSessionService = await RegionalHostSessionService.StartAsync(client.Connection, sessionAuthority, cancellationToken);
                 hostDesiredService = await RegionalHostDesiredService.StartAsync(client.Connection, new(state.Delivery ?? throw new InvalidOperationException("Host sessions require the regional delivery store."), sessionAuthority), cancellationToken);
+                artifactCache = new(new NatsRegionalArtifactDownloader(state.Artifacts ?? throw new InvalidOperationException("Host artifacts require the regional artifact store.")));
+                hostArtifactService = await RegionalHostArtifactService.StartAsync(client.Connection,
+                    new(state.Delivery, sessionAuthority, artifactCache), cancellationToken);
                 hostReportRelay = await HostObservationRelay.StartAsync(client.Connection, state.Runtime, sessionAuthority, cancellationToken);
                 authorizedHostReports = new SessionAuthorizedHostReportReader(state.Runtime, sessionAuthority);
             }
@@ -742,7 +754,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                         decisions,
                         workloadFleet.Policies,
                         hostReportRelay?.Snapshot,
-                        hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot);
+                        hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot, hostArtifactService?.Snapshot);
             }
 
             // Seed the projection before returning the runtime so workload gauges are useful
@@ -758,7 +770,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     workloadAutoscalerRuntime?.Latest,
                     workloadFleet?.Policies,
                     hostReportRelay?.Snapshot,
-                    hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot)
+                    hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot, hostArtifactService?.Snapshot)
                 .ConfigureAwait(false));
 
             return new(
@@ -782,7 +794,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 workloadReplicaDriver,
                 operatorStatus,
                 hostSessionService,
-                hostDesiredService);
+                hostDesiredService, hostArtifactService, artifactCache);
         }
         catch
         {
@@ -798,6 +810,8 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (workloadAutoscalerRuntime is not null)
                 await workloadAutoscalerRuntime.DisposeAsync();
             workloadReplicaDriver?.Dispose();
+            try { if (hostArtifactService is not null) await hostArtifactService.DisposeAsync(); }
+            finally { artifactCache?.Dispose(); }
             if (hostDesiredService is not null) await hostDesiredService.DisposeAsync();
             if (hostSessionService is not null) await hostSessionService.DisposeAsync();
             if (hostReportRelay is not null) await hostReportRelay.DisposeAsync();
@@ -819,7 +833,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         HostReportRelaySnapshot? hostReportSnapshot = null,
         RegionalHostSessionServiceSnapshot? hostSessionSnapshot = null,
         IAuthorizedHostReportReader? authorizedHostReports = null,
-        RegionalHostDesiredSnapshot? hostDesiredSnapshot = null)
+        RegionalHostDesiredSnapshot? hostDesiredSnapshot = null,
+        RegionalHostArtifactSnapshot? hostArtifactSnapshot = null)
     {
         const int maximumKeys = 512;
         var desired = new Dictionary<string, (int Replicas, long Generation, string? Digest)>(StringComparer.Ordinal);
@@ -1109,6 +1124,13 @@ public sealed class NatsRuntime : IAsyncDisposable
                 desiredSnapshot.RetryPending ? "desired-storage-or-response-failed" : null));
             if (desiredSnapshot.RetryPending) needs.Add("host-desired:retry-request");
         }
+        if (hostArtifactSnapshot is { } artifactSnapshot)
+        {
+            actions.Add(new("host-artifact", artifactSnapshot.RetryPending ? "retrying" : artifactSnapshot.InFlight || artifactSnapshot.Downloading ? "reading" : "listening",
+                artifactSnapshot.RetryPending || artifactSnapshot.InFlight || artifactSnapshot.Downloading ? 0 : 100, DateTimeOffset.UtcNow,
+                artifactSnapshot.RetryPending ? "artifact-storage-or-response-failed" : null));
+            if (artifactSnapshot.RetryPending) needs.Add("host-artifact:retry-request");
+        }
         var healthy = workloadStatuses.All(static workload => workload.State == "ready") && needs.Count == 0;
         var status = new OperatorStatusDocument(
             1,
@@ -1137,7 +1159,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         HostReportRelaySnapshot? hostReportSnapshot,
         RegionalHostSessionServiceSnapshot? hostSessionSnapshot,
         IAuthorizedHostReportReader? authorizedHostReports,
-        RegionalHostDesiredSnapshot? hostDesiredSnapshot)
+        RegionalHostDesiredSnapshot? hostDesiredSnapshot,
+        RegionalHostArtifactSnapshot? hostArtifactSnapshot)
     {
         try
         {
@@ -1152,7 +1175,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     decisions,
                     policies,
                     hostReportSnapshot,
-                    hostSessionSnapshot, authorizedHostReports, hostDesiredSnapshot)
+                    hostSessionSnapshot, authorizedHostReports, hostDesiredSnapshot, hostArtifactSnapshot)
                 .ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1357,7 +1380,15 @@ public sealed class NatsRuntime : IAsyncDisposable
                     {
                         try
                         {
-                            try { if (hostDesired is not null) await hostDesired.DisposeAsync(); }
+                            try
+                            {
+                                try
+                                {
+                                    try { if (hostArtifacts is not null) await hostArtifacts.DisposeAsync(); }
+                                    finally { artifactCache?.Dispose(); }
+                                }
+                                finally { if (hostDesired is not null) await hostDesired.DisposeAsync(); }
+                            }
                             finally { if (hostSessions is not null) await hostSessions.DisposeAsync(); }
                         }
                         finally

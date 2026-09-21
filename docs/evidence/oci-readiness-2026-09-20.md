@@ -41,8 +41,13 @@ desired service derives role/environment from enrollment, checks current session
 before and after storage access, confirms positive reads through CAS, and binds
 replies to the exact request and expiry. Missing desired state is distinct from
 malformed or unavailable storage. Status and metrics expose its retry needs.
-Restricted artifact, backoff and regional replacement protocols are still open;
-this does not enable the production host entry.
+Native artifact retrieval now uses independently signed, current-session chunk
+requests with exact role/environment target checks. The controller streams from
+a bounded verified cache; the host checks the complete digest before installing.
+The [artifact protocol](../operations/host-artifact-delivery.md) documents its
+limits, status and metrics. Durable backoff and regional replacement protocols
+are still open; this does not enable the production host entry. The producer's
+same-digest publication retry and orphan-chunk cleanup also remain unqualified.
 Protected credential validation now supplies fixed certificate/JWT/trust expiry
 to a nonrenewable monotonic material budget. The restricted R3 test composes
 these checks with session renewal and actual owned-process shutdown. The
@@ -142,6 +147,8 @@ execution/storage fencing remain blocked.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Restricted native artifact delivery | **2680 passed**, 0 failed, 5 expected skips across five suites; focused **109 passed** | [Source and log receipt](host-artifact-local-2026-09-21.json); main1384/control966/protocol165/model59/scheduler106; main16m05s527ms; Release0warnings/errors and required style passed. Real restricted R3 chunks and core convergence; backoff/replace remain controller-supplied test seams, and native ARM64 service execution is not established |
+| CI #512 at `88dec4466a` | **2638 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Published orphan-recovery fixture correction and signed desired protocol, before the artifact-delivery change; `/tmp/ts-orchestrator-ci512-job-{22025,22026}.log` |
 | Durable host ownership and recovery | **2616 passed**, 0 failed, 5 expected opt-in skips across five suites; final focused **111 passed**; ARM64 inventory **26 passed** | `/tmp/ts-host-recovery-{full-main,control,protocol,model,scheduler,abi-qualified,arm64-tests-corrected}.log`; main13m53s315ms; final Release0warnings/errors and required style passed; source chronology and native qualification limits in the receipt |
 | CI #510 at `857e57de` | **2564 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Main1268/control966/protocol165/model59/scheduler106; `/tmp/ts-orchestrator-ci510-job-{22021,22022}.log`; main37m42s665ms; published credential-expiry checkpoint before the durable recovery batch |
 | Tracked workload shutdown and complete regression | **2513 passed**, 0 failed, 5 expected opt-in skips across five suites | Main1217/control966/protocol165/model59/scheduler106; `/tmp/ts-host-shutdown-{full-main,control-tests,protocol-tests,model-tests,scheduler-tests}.log`; main13m45s021ms; Release0warnings/errors, required style passed; local inventory does not establish crash recovery or writer fencing |
@@ -371,7 +378,8 @@ repository's main-only push rule being resolved.
    hashed observation/ack/command subjects. Host reports now use an acknowledged
    controller relay; the controller's agent grants cover all hosts only in its
    fixed region. Desired selection now has a signed restricted-host protocol and
-   core-convergence caller coverage. Artifact retrieval, backoff and replacement
+   core-convergence caller coverage. Native artifact retrieval now has a separate
+   signed protocol, bounded cache and core-convergence coverage. Backoff and replacement
    leases still need restricted-host protocols. Session enrollment exists; its dedicated
    host startup composition remains incomplete.
    The report tests inject separate controller store handles and are not proof
@@ -508,6 +516,16 @@ preserving full supervisor exit/lock-release waiting. Its separate
 [receipt](host-recovery-orphan-local-2026-09-21.json) records final qualification;
 the failed CI result remains failed and requires a new run. Full log:
 `/tmp/ts-orchestrator-ci511-job-22023.log`.
+
+Task **512**, revision `88dec4466a`, passed both jobs: **2,638 tests passed**
+(main **1,342**, control plane **966**, model **59**, protocol **165**,
+scheduler **106**), with **5 expected live-lane skips**. Verification took
+**51m1s**; the x64/ARM64 single-file artifact job passed in **1m39s**. This
+confirms the published orphan-recovery fixture correction and signed desired
+protocol in CI. It precedes the restricted artifact-delivery change and does
+not prove native ARM64 service execution. Logs:
+`/tmp/ts-orchestrator-ci512-job-22025.log` and
+`/tmp/ts-orchestrator-ci512-job-22026.log`.
 
 ## First live OCI qualification, after local readiness
 

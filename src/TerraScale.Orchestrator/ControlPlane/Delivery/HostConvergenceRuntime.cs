@@ -3,7 +3,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
-using NATS.Client.ObjectStore;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using HostArchitecture = TerraScale.Orchestrator.Runtime.HostArchitecture;
@@ -125,7 +124,7 @@ internal sealed partial class HostConvergenceJsonContext : JsonSerializerContext
 /// <summary>Copies immutable digest-addressed artifacts into a destination stream.</summary>
 internal interface IHostArtifactSource
 {
-    Task CopyIntoAsync(string objectName, Stream destination, CancellationToken cancellationToken);
+    Task CopyIntoAsync(AdmittedRole role, string environment, string cell, string digest, Stream destination, CancellationToken cancellationToken);
 }
 
 /// <summary>Converges and observes one admitted host runtime plan.</summary>
@@ -549,7 +548,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         return new("host-" + Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..48]);
     }
 
-    /// <summary>Fetches the artifact from the object store and installs it under its digest path after verifying the hash.</summary>
+    /// <summary>Fetches the admitted artifact and installs it under its digest path after verifying the hash.</summary>
     private async Task InstallArtifactAsync(
         AdmittedRoleDescriptor descriptor,
         string hex,
@@ -563,16 +562,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         try
         {
             await using var target = File.Create(partial);
-            var hashing = new HashingWriteStream(target);
-            try
-            {
-                await artifacts.CopyIntoAsync($"sha256-{hex}", hashing, cancellationToken).ConfigureAwait(false);
-            }
-            catch (NatsObjNotFoundException)
-            {
-                throw new InvalidOperationException(
-                    $"The artifact sha256-{hex[..12]} for {descriptor.ArtifactKey} is not in the artifact store.");
-            }
+            using var hashing = new HashingWriteStream(target);
+            await artifacts.CopyIntoAsync(descriptor.Role, configuration.Environment, cell, $"sha256:{hex}", hashing, cancellationToken).ConfigureAwait(false);
             await hashing.FlushAsync(cancellationToken).ConfigureAwait(false);
             await target.FlushAsync(cancellationToken).ConfigureAwait(false);
             if (!hashing.Matches(hex))
@@ -1078,16 +1069,6 @@ internal static class DirectDeliveryTargetKey
 
     private static string Token(string value) =>
         Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)))[..32];
-}
-
-/// <summary>Artifact source over the regional NATS object store.</summary>
-internal sealed class NatsObjectArtifactSource(INatsObjStore store) : IHostArtifactSource
-{
-    public async Task CopyIntoAsync(string objectName, Stream destination, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(store);
-        await store.GetAsync(objectName, destination, leaveOpen: true, cancellationToken);
-    }
 }
 
 /// <summary>Converger over the fail-closed native systemd admission boundary.</summary>

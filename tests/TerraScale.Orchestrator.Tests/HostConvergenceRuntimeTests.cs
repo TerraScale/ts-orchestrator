@@ -1322,10 +1322,11 @@ public sealed class HostConvergenceRuntimeTests
         private readonly Dictionary<string, byte[]> stored =
             objects.ToDictionary(static value => value.Name, static value => value.Bytes, StringComparer.Ordinal);
 
-        public Task CopyIntoAsync(string objectName, Stream destination, CancellationToken cancellationToken)
+        public Task CopyIntoAsync(AdmittedRole role, string environment, string cell, string digest, Stream destination, CancellationToken cancellationToken)
         {
+            var objectName = "sha256-" + digest[7..];
             if (!stored.TryGetValue(objectName, out var bytes))
-                throw new NATS.Client.ObjectStore.NatsObjNotFoundException("object");
+                throw new InvalidOperationException("The test artifact is missing.");
             destination.Write(bytes, 0, bytes.Length);
             return Task.CompletedTask;
         }

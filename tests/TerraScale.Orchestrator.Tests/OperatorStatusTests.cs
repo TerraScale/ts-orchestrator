@@ -13,6 +13,25 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OperatorStatusTests
 {
     [Test]
+    [Arguments(false, false)]
+    [Arguments(false, true)]
+    [Arguments(true, false)]
+    [Arguments(true, true)]
+    public async Task Host_artifact_status_exposes_retry_need_and_progress(bool retryPending, bool reading)
+    {
+        var runtime = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var status = await NatsRuntime.BuildOperatorStatusAsync(null, null, runtime,
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 1),
+            new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None,
+            hostArtifactSnapshot: new(5, 7, 2, 1, retryPending, false, 7, 1, reading));
+        var action = status.Actions.Single(value => value.Kind == "host-artifact");
+        await Assert.That(action.State).IsEqualTo(retryPending ? "retrying" : reading ? "reading" : "listening");
+        await Assert.That(action.ProgressPercent).IsEqualTo(retryPending || reading ? 0 : 100);
+        await Assert.That(status.Needs.Contains("host-artifact:retry-request")).IsEqualTo(retryPending);
+        if (retryPending) await Assert.That(status.Healthy).IsFalse();
+    }
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     public async Task Host_desired_status_exposes_retry_need_and_progress(bool retryPending)

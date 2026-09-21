@@ -256,6 +256,15 @@ internal sealed class RegionalHostSessionAuthority(INatsKVStore store, RegionalH
             request.IssuedAt + RegionalHostSessionRequest.MaximumAge, now => request.HasValidProof(Cell, now), cancellationToken);
     }
 
+    internal Task<RegionalHostActionAuthorization> AuthorizeArtifactAsync(RegionalHostArtifactRequest request,
+        CancellationToken cancellationToken)
+    {
+        try { _ = request.Serialize(); }
+        catch (InvalidOperationException) { return Task.FromResult(DenyAction(RegionalHostSessionDecision.InvalidRequest)); }
+        return AuthorizeActionAsync(request.Enrollment, request.SessionId, request.Epoch, request.IssuedAt,
+            request.IssuedAt + RegionalHostSessionRequest.MaximumAge, now => request.HasValidProof(Cell, now), cancellationToken);
+    }
+
     private async Task<RegionalHostActionAuthorization> AuthorizeActionAsync(RegionalNodeEnrollmentEnvelope enrollment,
         string sessionId, ulong epoch, DateTimeOffset actionAt, DateTimeOffset freshnessDeadline,
         Func<DateTimeOffset, bool> verify, CancellationToken cancellationToken)
