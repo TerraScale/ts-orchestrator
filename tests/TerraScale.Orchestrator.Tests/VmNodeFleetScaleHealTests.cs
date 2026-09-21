@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using TerraScale.Orchestrator.Nodes;
@@ -15,6 +18,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// Gated by <c>TS_ORCH_LIVE_VM=1</c>: requires KVM, sudo for tap devices, and
 /// the prepared guest inputs under <c>TS_ORCH_VM_INPUTS</c>.
 /// </summary>
+[NotInParallel("FirecrackerLive")]
 public sealed class VmNodeFleetScaleHealTests
 {
     [Test]
@@ -81,6 +85,97 @@ public sealed class VmNodeFleetScaleHealTests
         await Assert.That(retired).IsNotNull();
         await Assert.That(fleet.IsMemberAlive(retired.NodeId)).IsFalse();
         lane.Succeeded = true;
+    }
+
+    [Test]
+    public async Task VmFleetRunsAuthAgainstTerraBaseAndRecoversDurableState()
+    {
+        Skip.Unless(
+            Environment.GetEnvironmentVariable("TS_ORCH_LIVE_VM") == "1",
+            "Set TS_ORCH_LIVE_VM=1 and TS_ORCH_VM_INPUTS=<prepared vm inputs directory> to run the Firecracker auth lane.");
+        var inputs = RequirePreparedInputs();
+        var authBinary = Path.Combine(inputs, "auth", "TerraScale.Auth");
+        if (!File.Exists(authBinary))
+        {
+            throw new InvalidOperationException(
+                $"The Firecracker auth lane requires a published ts-auth payload at {authBinary}.");
+        }
+
+        await using var lane = await VmLane.PrepareAsync(inputs, "GRU", subnetThirdOctet: 80, includeAuth: true);
+        await using var fleet = new VmNodeFleet(lane.Options, lane.DescribeMember);
+        await fleet.ProvisionAsync(new NodeProvisionRequest(
+            "vm-node-1", "auth-with-terrabase", lane.Options.NodeCapacity, "combined service qualification"));
+
+        using var auth = new HttpClient
+        {
+            BaseAddress = new Uri($"http://{lane.Options.AddressFor(1)}:8080"),
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+        await WaitForAuthReadinessAsync(auth);
+
+        using (var create = CreateAuthInstanceRequest())
+        using (var created = await auth.SendAsync(create))
+        {
+            await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Created);
+        }
+
+        // A hard VM stop takes both processes down without giving either
+        // systemd unit a shutdown opportunity. The retained rootfs and
+        // TerraBase WAL must recover before ts-auth can become ready again.
+        fleet.KillMember("vm-node-1");
+        await Assert.That(fleet.IsMemberAlive("vm-node-1")).IsFalse();
+        await fleet.RestartAsync("vm-node-1");
+        await Assert.That(fleet.IsMemberAlive("vm-node-1")).IsTrue();
+        await WaitForAuthReadinessAsync(auth);
+
+        using (var duplicate = CreateAuthInstanceRequest())
+        using (var conflict = await auth.SendAsync(duplicate))
+        {
+            await Assert.That(conflict.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
+        }
+
+        await fleet.DrainAsync("vm-node-1");
+        await Assert.That(fleet.WasDrainedGracefully("vm-node-1")).IsTrue();
+        await fleet.RetireAsync("vm-node-1");
+        lane.Succeeded = true;
+    }
+
+    private static HttpRequestMessage CreateAuthInstanceRequest()
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/instances")
+        {
+            Content = JsonContent.Create(new { slug = "vm-auth", name = "Firecracker Auth" }),
+        };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "vm-auth-operator-key");
+        return request;
+    }
+
+    private static async Task WaitForAuthReadinessAsync(HttpClient auth)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromMinutes(3);
+        HttpStatusCode? lastStatus = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                using var response = await auth.GetAsync("/readyz");
+                lastStatus = response.StatusCode;
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
+            catch (TaskCanceledException)
+            {
+            }
+
+            await Task.Delay(500);
+        }
+
+        throw new TimeoutException($"ts-auth did not become ready in the Firecracker guest; last HTTP status was {lastStatus}.");
     }
 
     private static string RequirePreparedInputs() =>
@@ -226,12 +321,21 @@ public sealed class VmNodeFleetScaleHealTests
             return certificate.GetCertHashString(HashAlgorithmName.SHA256);
         }
 
-        public static async Task<VmLane> PrepareAsync(string inputs, string region, int subnetThirdOctet)
+        public static async Task<VmLane> PrepareAsync(
+            string inputs,
+            string region,
+            int subnetThirdOctet,
+            bool includeAuth = false)
         {
             var root = Path.Combine(Path.GetTempPath(), "orchestrator-vm-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             var host = Path.Combine(root, "payload", "host");
             CopyDirectory(Path.Combine(inputs, "host"), host);
+            if (includeAuth)
+            {
+                CopyDirectory(Path.Combine(inputs, "auth"), Path.Combine(root, "payload", "auth"));
+            }
+
             var certs = Path.Combine(root, "payload", "certs");
             VmFleetCertificates.Create(certs, subnetThirdOctet);
 
@@ -243,7 +347,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Unit]
                 Description=Mount the TerraBase member payload disk
                 After=local-fs.target
-                Before=terrabase-member.service
+                Before=terrabase-member.service ts-auth.service
 
                 [Service]
                 Type=oneshot
@@ -280,11 +384,50 @@ public sealed class VmNodeFleetScaleHealTests
                 WantedBy=multi-user.target
                 """);
             units.Add((memberUnit, "terrabase-member.service"));
+            if (includeAuth)
+            {
+                var authUnit = Path.Combine(root, "ts-auth.service");
+                await File.WriteAllTextAsync(authUnit, $$"""
+                    [Unit]
+                    Description=TerraScale authentication service
+                    After=terrabase-member.service
+                    Requires=terrabase-member.service terrabase-payload.service
+
+                    [Service]
+                    Type=simple
+                    Environment=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
+                    Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/tmp/ts-auth-bundle
+                    Environment=ASPNETCORE_ENVIRONMENT=Production
+                    Environment=TS_AUTH_LISTEN=http://0.0.0.0:8080
+                    Environment=TS_AUTH_PUBLIC_ORIGIN=http://10.{{subnetThirdOctet}}.0.10:8080
+                    Environment=TS_AUTH_TERRASCALE_API_URL=http://127.0.0.1:8420
+                    Environment=TS_AUTH_TERRASCALE_API_KEY=vm-auth-api-key
+                    Environment=TS_AUTH_DATABASE=vm-lane-db
+                    Environment=TS_AUTH_MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+                    Environment=TS_AUTH_AUDIT_SIGNING_KEY=AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=
+                    Environment=TS_AUTH_OPERATOR_KEY=vm-auth-operator-key
+                    Environment=TS_AUTH_METRICS_KEY=vm-auth-metrics-key
+                    ExecStart=/opt/payload/auth/TerraScale.Auth
+                    StandardOutput=journal+console
+                    StandardError=journal+console
+                    Restart=on-failure
+                    RestartSec=2
+                    StartLimitIntervalSec=0
+
+                    [Install]
+                    WantedBy=multi-user.target
+                    """);
+                units.Add((authUnit, "ts-auth.service"));
+            }
+
             var disabledMarker = Path.Combine(root, "cloud-init.disabled");
             await File.WriteAllTextAsync(disabledMarker, string.Empty);
 
             var payloadDisk = Path.Combine(root, "payload.ext4");
-            await RunAsync("truncate", $"-s 420M {payloadDisk}");
+            var payloadBytes = Directory.EnumerateFiles(Path.Combine(root, "payload"), "*", SearchOption.AllDirectories)
+                .Sum(file => new FileInfo(file).Length);
+            var payloadSizeMib = Math.Max(420, checked((int)(payloadBytes / (1024 * 1024)) + 96));
+            await RunAsync("truncate", $"-s {payloadSizeMib}M {payloadDisk}");
             await RunAsync("mkfs.ext4", $"-q -F -d {Path.Combine(root, "payload")} {payloadDisk}");
 
             var options = new VmFleetOptions
