@@ -131,6 +131,16 @@ external-command containment or storage-writer proof. An already-submitted
 manager job and an external command that has not yet submitted its job are
 separate recovery obligations.
 
+The native command runner rejects cancellation already present before dispatch
+and waits for its process and both output readers to settle. Container commands
+abort on either output stream exceeding 64 Ki characters, without returning
+partial inventory evidence or including the output in the error. Systemd command
+capture remains bounded while excess output is drained. A failed reader cancels
+the process wait and the other reader; otherwise an abandoned pipe can block the
+command indefinitely. This is process cleanup, not durable containment: an
+orphan that escaped the process tree or work already accepted by a native manager
+still requires separate recovery and fencing evidence.
+
 The complete storage and drain path remains a deployment blocker:
 
 - Data-volume creation, volume-resource ownership, guest mounting, restart and
