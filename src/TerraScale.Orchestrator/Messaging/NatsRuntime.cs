@@ -736,14 +736,12 @@ public sealed class NatsRuntime : IAsyncDisposable
                 if (!string.Equals(workloadFleet.Region, options.Cell.ToUpperInvariant(), StringComparison.Ordinal))
                     throw new InvalidOperationException(
                         $"The OCI workload fleet region {workloadFleet.Region} does not match cell {options.Cell}.");
-                var desiredReader = new NatsWorkloadDesiredReplicaReader(state.Delivery, state.Bundles, options.Cell);
+                var desiredReader = new NatsWorkloadDesiredStateReader(state.Delivery, state.Bundles, options.Cell);
                 workloadReplicaDriver = new Nodes.OciWorkloadReplicaDriver(
                     Nodes.OciWorkloadComputeTransport.CreateForInstancePrincipal(workloadFleet.Endpoint.ToString()),
                     workloadFleet,
                     state.Runtime,
-                    workload => desiredReader.ReadAsync(
-                        workload,
-                        cancellationToken),
+                    desiredReader.ReadAsync,
                     () => ServesDirectDeliveryRequests(authority.Snapshot),
                     options.Cell);
                 workloadAutoscalerRuntime = WorkloadAutoscalerService.Start(
@@ -947,6 +945,10 @@ public sealed class NatsRuntime : IAsyncDisposable
                         entry.Value ?? string.Empty,
                         ControlPlane.Delivery.HostConvergenceJsonContext.Default.HostConvergenceObservation);
                     if (observation is null || observation.Cell != topology.Cell) continue;
+                    observation.Validate();
+                    if (key != $"host.{observation.Instance}.{observation.ArtifactKey}" ||
+                        observation.ObservedAt > DateTimeOffset.UtcNow)
+                        continue;
                     if (!observed.TryGetValue(observation.ArtifactKey, out var list))
                         observed[observation.ArtifactKey] = list = [];
                     if (list.Count < 256) list.Add(observation);
@@ -1007,11 +1009,11 @@ public sealed class NatsRuntime : IAsyncDisposable
                         ? desiredDigest
                         : "sha256:" + desiredDigest,
                     StringComparison.OrdinalIgnoreCase)).ToList();
-            var observedGeneration = desiredState.Generation > 0 && list.Any(item =>
-                item.State == "converged")
+            var observedGeneration = desiredState.Generation > 0 && desiredState.Digest is not null && list.Any(item =>
+                item.State == "converged" && item.Error is null)
                 ? desiredState.Generation
                 : (long?)null;
-            var ready = list.Count(item => item.State == "converged" &&
+            var ready = list.Count(item => desiredState.Digest is not null && item.State == "converged" && item.Error is null &&
                 (descriptor.Role != AdmittedRole.TerraBaseMember || item.MemberUp == true));
             var progress = desiredReplicas == 0 ? 0 : Math.Min(100, ready * 100 / desiredReplicas);
             var workloadNeeds = new List<string>();

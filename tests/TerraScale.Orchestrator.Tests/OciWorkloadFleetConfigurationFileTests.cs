@@ -4,6 +4,7 @@ using NATS.Client.KeyValueStore;
 using Oci.CoreService.Models;
 using Oci.CoreService.Requests;
 using TerraScale.Orchestrator.ControlPlane.Providers;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Nodes;
 using TerraScale.Orchestrator.Scheduler.Autoscaling;
 
@@ -23,7 +24,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             var transport = new FakeWorkloadTransport();
             var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
             var driver = new OciWorkloadReplicaDriver(transport, fleet, store,
-                _ => Task.FromResult(desired), () => true, "gru");
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(desired, "sha256:" + new string('a', 64))), () => true, "gru");
             var policy = fleet.Policies.Single(value => value.WorkloadId == "ts-auth");
             var observation = await driver.ObserveAsync(policy, CancellationToken.None);
             var decision = new IndependentWorkloadAutoscaler([policy]).Tick([observation]).Single();
@@ -45,12 +46,112 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             var transport = new FakeWorkloadTransport();
             var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
             var driver = new OciWorkloadReplicaDriver(transport, fleet, store,
-                _ => Task.FromResult(3), () => true, "gru");
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(3, "sha256:" + new string('a', 64))), () => true, "gru");
             var decision = new WorkloadScaleDecision("terrabase-server", "terrabase-member",
                 3, 4, 4, 0, 3, WorkloadScaleAction.ScaleIn, 100, "ready-replicas-above-desired");
             await Assert.That(() => driver.ApplyAsync(decision, CancellationToken.None))
                 .Throws<InvalidOperationException>();
             await Assert.That(transport.TerminateCalls).IsEqualTo(0);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [Test]
+    public async Task Authority_expiring_during_operation_persistence_prevents_the_launch()
+    {
+        var root = Directory.CreateTempSubdirectory("ts-orch-authority-");
+        try
+        {
+            var fleet = await WriteTestFleetAsync(root.FullName);
+            var transport = new FakeWorkloadTransport();
+            var store = DispatchProxy.Create<INatsKVStore, PutOnlyKvStore>();
+            using var driver = new OciWorkloadReplicaDriver(transport, fleet, store,
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(2, "sha256:" + new string('a', 64))),
+                () => ((PutOnlyKvStore)store).TotalWrites == 0, "gru");
+            var decision = new WorkloadScaleDecision("ts-auth", "authentication", 2, 1, 1, 0, 2,
+                WorkloadScaleAction.ScaleOut, 50, "ready-replicas-below-desired");
+            await Assert.That(() => driver.ApplyAsync(decision, CancellationToken.None)).Throws<InvalidOperationException>();
+            await Assert.That(((PutOnlyKvStore)store).TotalWrites).IsEqualTo(1);
+            await Assert.That(transport.LaunchCalls).IsEqualTo(0);
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
+    [Test]
+    [NotInParallel("TerrabasePlacement")]
+    public async Task Real_Nats_readiness_binds_node_cell_artifact_and_keeps_unready_vms_pending()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var root = Directory.CreateTempSubdirectory("ts-orch-readiness-");
+        try
+        {
+            var fleet = await WriteTestFleetAsync(root.FullName);
+            var policy = fleet.Policies.Single(value => value.WorkloadId == "ts-auth");
+            var template = fleet.TemplateFor(policy);
+            var launch = OciWorkloadRequestCompiler.Launch(template, "ts-auth", "authentication", "create-1", "gru").LaunchInstanceDetails;
+            var instance = new Instance
+            {
+                Id = "ocid1.instance.oc1.sa-saopaulo-1.auth-1",
+                CompartmentId = launch.CompartmentId,
+                AvailabilityDomain = launch.AvailabilityDomain,
+                FaultDomain = launch.FaultDomain,
+                Shape = launch.Shape,
+                ShapeConfig = new InstanceShapeConfig { Ocpus = launch.ShapeConfig.Ocpus, MemoryInGBs = launch.ShapeConfig.MemoryInGBs },
+                ImageId = template.LaunchTemplate.ImageId,
+                SourceDetails = launch.SourceDetails,
+                Metadata = launch.Metadata,
+                FreeformTags = launch.FreeformTags,
+                LifecycleState = Instance.LifecycleStateEnum.Running
+            };
+            var transport = new FakeWorkloadTransport { ObservedInstance = instance };
+            var digest = "sha256:" + new string('a', 64);
+            using var driver = new OciWorkloadReplicaDriver(transport, fleet, server.Runtime,
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(1, digest)), () => true, "gru");
+            var report = new HostConvergenceObservation(2, "gru", instance.Id, "ts-auth", digest,
+                "converged", "ts-auth.service", DateTimeOffset.UtcNow);
+            var invalid = new[]
+            {
+                report with { Instance = "another-node" },
+                report with { Cell = "fra" },
+                report with { ArtifactKey = "terrabase-server" },
+                report with { Digest = "sha256:" + new string('b', 64) },
+                report with { ObservedAt = DateTimeOffset.UtcNow.AddMinutes(-11) },
+                report with { ObservedAt = DateTimeOffset.UtcNow.AddMinutes(1) },
+                report with { SchemaVersion = 99 },
+                report with { State = "failed" },
+                report with { Error = "admission-denied" }
+            };
+            var scaler = new IndependentWorkloadAutoscaler([policy]);
+            foreach (var candidate in invalid)
+            {
+                await server.Runtime.PutAsync($"host.{instance.Id}.ts-auth",
+                    JsonSerializer.Serialize(candidate, HostConvergenceJsonContext.Default.HostConvergenceObservation));
+                var observation = await driver.ObserveAsync(policy, CancellationToken.None);
+                await Assert.That(observation.ReadyReplicas).IsEqualTo(0);
+                await Assert.That(observation.PendingReplicas).IsEqualTo(1);
+                // More than the confirmation window: unavailable readiness must
+                // not become an unbounded stream of replacement VMs.
+                for (var tick = 0; tick < 5; tick++)
+                    await driver.ApplyAsync(scaler.Tick([observation]).Single(), CancellationToken.None);
+            }
+            await Assert.That(transport.LaunchCalls).IsEqualTo(0);
+            await Assert.That(transport.TerminateCalls).IsEqualTo(0);
+            await server.Runtime.PutAsync($"host.{instance.Id}.ts-auth",
+                JsonSerializer.Serialize(report, HostConvergenceJsonContext.Default.HostConvergenceObservation));
+            var ready = await driver.ObserveAsync(policy, CancellationToken.None);
+            await Assert.That(ready.ReadyReplicas).IsEqualTo(1);
+            await Assert.That(ready.PendingReplicas).IsEqualTo(0);
+            instance.LifecycleState = Instance.LifecycleStateEnum.Stopped;
+            await Assert.That((await driver.ObserveAsync(policy, CancellationToken.None)).ReadyReplicas).IsEqualTo(0);
+            instance.LifecycleState = Instance.LifecycleStateEnum.Terminated;
+            await Assert.That((await driver.ObserveAsync(policy, CancellationToken.None)).ObservedReplicas).IsEqualTo(0);
+            instance.LifecycleState = Instance.LifecycleStateEnum.Running;
+            instance.FreeformTags[OciWorkloadRequestCompiler.CellTag] = "fra";
+            await Assert.That((await driver.ObserveAsync(policy, CancellationToken.None)).ObservedReplicas).IsEqualTo(0);
+            instance.FreeformTags[OciWorkloadRequestCompiler.CellTag] = "gru";
+            transport.DetailInstance = new Instance { Id = instance.Id };
+            await Assert.That(async () => { _ = await driver.ObserveAsync(policy, CancellationToken.None); }).Throws<InvalidDataException>();
         }
         finally { root.Delete(recursive: true); }
     }
@@ -298,7 +399,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
                 transport,
                 fleet,
                 store,
-                _ => Task.FromResult(2),
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(2, "sha256:" + new string('a', 64))),
                 () => true,
                 "gru");
             var decision = new WorkloadScaleDecision(
@@ -314,7 +415,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
                 transport,
                 fleet,
                 store,
-                _ => Task.FromResult(2),
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(2, "sha256:" + new string('a', 64))),
                 () => true,
                 "gru");
             await restartedController.ApplyAsync(decision, CancellationToken.None);
@@ -374,6 +475,8 @@ public sealed class OciWorkloadFleetConfigurationFileTests
     private sealed class FakeWorkloadTransport : IOciCiRunnerComputeTransport, IOciWorkRequestTransport
     {
         public bool FailFirstLaunch { get; set; }
+        public Instance? ObservedInstance { get; set; }
+        public Instance? DetailInstance { get; set; }
         public int LaunchCalls { get; private set; }
         public int WorkRequestPolls { get; private set; }
         public int TerminateCalls { get; private set; }
@@ -415,11 +518,15 @@ public sealed class OciWorkloadFleetConfigurationFileTests
 
         public Task<Oci.CoreService.Responses.ListInstancesResponse> ListInstancesAsync(
             ListInstancesRequest request, CancellationToken cancellationToken) =>
-            Task.FromResult(new Oci.CoreService.Responses.ListInstancesResponse { Items = [] });
+            Task.FromResult(new Oci.CoreService.Responses.ListInstancesResponse { Items = ObservedInstance is { } instance ? [instance] : [] });
 
         public Task<Oci.CoreService.Responses.GetInstanceResponse> GetInstanceAsync(
             GetInstanceRequest request, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            Task.FromResult(new Oci.CoreService.Responses.GetInstanceResponse
+            {
+                Instance = DetailInstance ?? ObservedInstance,
+                Etag = "etag-1"
+            });
 
         public Task<Oci.CoreService.Responses.ListVnicAttachmentsResponse> ListVnicAttachmentsAsync(
             ListVnicAttachmentsRequest request, CancellationToken cancellationToken) =>

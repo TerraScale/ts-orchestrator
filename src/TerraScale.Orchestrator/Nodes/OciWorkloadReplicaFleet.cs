@@ -188,6 +188,9 @@ internal static class TerraScaleRegion
     };
 }
 
+/// <summary>One accepted demand snapshot; a digest is required whenever replicas are requested.</summary>
+internal sealed record WorkloadReplicaIntent(int Replicas, string? ArtifactDigest);
+
 internal sealed record OciWorkloadOperationRecord(
     int SchemaVersion,
     string Workload,
@@ -219,7 +222,7 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
     private readonly IOciCiRunnerComputeTransport transport;
     private readonly OciWorkloadFleetConfigurationFile configuration;
     private readonly INatsKVStore runtimeStore;
-    private readonly Func<string, Task<int>> desiredReplicas;
+    private readonly Func<string, CancellationToken, Task<WorkloadReplicaIntent>> desiredState;
     private readonly Func<bool> authorityStillValid;
     private readonly string cell;
     private readonly Dictionary<string, IReadOnlyList<ObservedWorkloadInstance>> last = new(StringComparer.Ordinal);
@@ -228,16 +231,18 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         IOciCiRunnerComputeTransport transport,
         OciWorkloadFleetConfigurationFile configuration,
         INatsKVStore runtimeStore,
-        Func<string, Task<int>> desiredReplicas,
+        Func<string, CancellationToken, Task<WorkloadReplicaIntent>> desiredState,
         Func<bool> authorityStillValid,
         string cell)
     {
         this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
         this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         this.runtimeStore = runtimeStore ?? throw new ArgumentNullException(nameof(runtimeStore));
-        this.desiredReplicas = desiredReplicas ?? throw new ArgumentNullException(nameof(desiredReplicas));
+        this.desiredState = desiredState ?? throw new ArgumentNullException(nameof(desiredState));
         this.authorityStillValid = authorityStillValid ?? throw new ArgumentNullException(nameof(authorityStillValid));
-        this.cell = cell is { Length: > 0 } ? cell : throw new ArgumentException("The workload fleet cell is required.", nameof(cell));
+        if (string.IsNullOrWhiteSpace(cell) || cell.ToUpperInvariant() != configuration.Region)
+            throw new ArgumentException("The workload fleet cell must match its configured region.", nameof(cell));
+        this.cell = cell.ToLowerInvariant();
     }
 
     public async Task<WorkloadScaleObservation> ObserveAsync(
@@ -245,11 +250,17 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         CancellationToken cancellationToken)
     {
         var template = configuration.TemplateFor(policy);
+        var intent = await desiredState(policy.WorkloadId, cancellationToken).ConfigureAwait(false);
+        if (intent.Replicas > 0 && (intent.ArtifactDigest is not { Length: 71 } digest ||
+            !digest.StartsWith("sha256:", StringComparison.Ordinal) ||
+            digest.AsSpan(7).ContainsAnyExcept("0123456789abcdef")))
+            throw new InvalidDataException("OCI workload readiness requires an admitted artifact digest.");
         var instances = await ListOwnedAsync(template, policy, cancellationToken).ConfigureAwait(false);
         var observations = new List<ObservedWorkloadInstance>(instances.Count);
         foreach (var instance in instances)
         {
-            var ready = await IsReadyAsync(instance.InstanceId, policy.WorkloadId, cancellationToken).ConfigureAwait(false);
+            var ready = instance.State == Instance.LifecycleStateEnum.Running && intent.ArtifactDigest is not null &&
+                await IsReadyAsync(instance.InstanceId, policy.WorkloadId, intent.ArtifactDigest, cancellationToken).ConfigureAwait(false);
             observations.Add(new(instance.InstanceId, instance.ETag, instance.State, instance.CreateKey, ready));
         }
         var snapshot = Array.AsReadOnly(observations.OrderBy(static value => value.InstanceId, StringComparer.Ordinal).ToArray());
@@ -257,9 +268,11 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         await ReconcileLatestScaleOutAsync(policy.WorkloadId, snapshot, cancellationToken).ConfigureAwait(false);
         // Preserve invalid/absent demand so the scaler can reject it. Clamping
         // here would turn a missing desired state into permission to launch.
-        var desired = await desiredReplicas(policy.WorkloadId).ConfigureAwait(false);
+        var desired = intent.Replicas;
         var readyCount = snapshot.Count(static value => value.Ready);
-        var pending = snapshot.Count(static value => value.State is not (Instance.LifecycleStateEnum.Running or Instance.LifecycleStateEnum.Stopped));
+        // A booted VM without admitted readiness is still outstanding capacity.
+        // Counting only provider provisioning would launch another VM every tick.
+        var pending = snapshot.Count(static value => !value.Ready);
         var healthy = readyCount >= policy.MinReplicas && pending == 0;
         return new WorkloadScaleObservation(policy.WorkloadId, desired, snapshot.Count, readyCount, pending, healthy);
     }
@@ -302,6 +315,8 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
                 string.Empty,
                 recovered?.Record.StartedAt ?? DateTimeOffset.UtcNow,
                 "requested"), operationKey, cancellationToken).ConfigureAwait(false);
+            if (!authorityStillValid())
+                throw new InvalidOperationException("Workload scaling authority expired while recording the OCI launch.");
             Oci.CoreService.Responses.LaunchInstanceResponse launchResponse;
             try
             {
@@ -394,11 +409,16 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
             }, cancellationToken).ConfigureAwait(false);
             foreach (var instance in response.Items ?? [])
             {
-                if (!OciWorkloadRequestCompiler.Owned(instance, policy.WorkloadId, policy.RoleKind))
+                if (!OciWorkloadRequestCompiler.Owned(instance, policy.WorkloadId, policy.RoleKind, cell))
                     continue;
                 var detail = await transport.GetInstanceAsync(new GetInstanceRequest { InstanceId = instance.Id }, cancellationToken)
                     .ConfigureAwait(false);
                 if (detail.Instance is null)
+                    continue;
+                if (detail.Instance.Id != instance.Id ||
+                    !OciWorkloadRequestCompiler.Owned(detail.Instance, policy.WorkloadId, policy.RoleKind, cell))
+                    throw new InvalidDataException("OCI workload identity or ownership changed during observation.");
+                if (detail.Instance.LifecycleState == Instance.LifecycleStateEnum.Terminated)
                     continue;
                 var etag = detail.Etag ?? string.Empty;
                 OciWorkloadRequestCompiler.RequireLaunchTemplate(detail.Instance, template, etag);
@@ -413,7 +433,7 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         return instances;
     }
 
-    private async Task<bool> IsReadyAsync(string instanceId, string workload, CancellationToken cancellationToken)
+    private async Task<bool> IsReadyAsync(string instanceId, string workload, string digest, CancellationToken cancellationToken)
     {
         try
         {
@@ -423,7 +443,12 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
             var observation = JsonSerializer.Deserialize(
                 entry.Value ?? string.Empty,
                 HostConvergenceJsonContext.Default.HostConvergenceObservation);
-            return observation is { State: "converged" } && observation.ObservedAt >= DateTimeOffset.UtcNow.AddMinutes(-10) &&
+            if (observation is null) return false;
+            observation.Validate();
+            var now = DateTimeOffset.UtcNow;
+            return observation is { State: "converged", Error: null } && observation.Instance == instanceId &&
+                observation.Cell == cell && observation.ArtifactKey == workload && observation.Digest == digest &&
+                observation.ObservedAt >= now.AddMinutes(-10) && observation.ObservedAt <= now &&
                 (workload != "terrabase-server" || observation.MemberUp == true);
         }
         catch (Exception exception) when (exception is NatsKVException or JsonException or InvalidOperationException)
@@ -642,11 +667,12 @@ internal static class OciWorkloadRequestCompiler
         };
     }
 
-    internal static bool Owned(Instance instance, string workload, string role) =>
+    internal static bool Owned(Instance instance, string workload, string role, string cell) =>
         instance.FreeformTags is { } tags &&
         tags.TryGetValue(OwnerTag, out var owner) && owner == "orchestrator" &&
         tags.TryGetValue(RoleTag, out var actualRole) && actualRole == role &&
-        tags.TryGetValue(WorkloadTag, out var actualWorkload) && actualWorkload == workload;
+        tags.TryGetValue(WorkloadTag, out var actualWorkload) && actualWorkload == workload &&
+        tags.TryGetValue(CellTag, out var actualCell) && actualCell == cell;
 
     internal static void RequireLaunchTemplate(
         Instance instance,

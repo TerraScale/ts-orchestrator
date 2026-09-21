@@ -97,7 +97,11 @@ or apply failure in one workload reports a blocked decision while the other
 continues. Generic TerraBase scale-in is blocked; retirement must use the stateful
 placement fleet with drain and retained-data proofs. The provider preserves
 invalid desired counts so the scaler can reject them instead of silently
-clamping them into permission to launch.
+clamping them into permission to launch. Generic fleet readiness also requires
+an OCI running instance and a fresh, non-future report bound to its exact
+node, regional cell and accepted artifact digest. Booted but unready VMs remain
+pending capacity, so missing admission does not trigger repeated launches.
+Conflicting artifacts for one regional workload fleet fail closed.
 
 The authenticated NATS endpoint `ts.orch.v2.<cell>.query.operator-status`
 reports workload needs, actions, progress, and configured policy limits.

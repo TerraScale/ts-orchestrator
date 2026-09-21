@@ -4,6 +4,7 @@ using System.Text.Json;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Operations;
 using TerraScale.Orchestrator.Scheduler.Autoscaling;
 
@@ -16,16 +17,83 @@ public sealed class OperatorStatusTests
     {
         var delivery = DispatchProxy.Create<INatsKVStore, StatusKv>();
         var bundles = DispatchProxy.Create<INatsObjStore, StatusObjects>();
-        var reader = new NatsWorkloadDesiredReplicaReader(delivery, bundles, "gru");
-        await Assert.That(await reader.ReadAsync("ts-auth", CancellationToken.None)).IsEqualTo(0);
+        var reader = new NatsWorkloadDesiredStateReader(delivery, bundles, "gru");
+        await Assert.That((await reader.ReadAsync("ts-auth", CancellationToken.None)).Replicas).IsEqualTo(0);
         ((StatusKv)delivery).Records["gitops.cell.test"] = """{"cell":"gru","payloadObject":"admitted"}""";
         ((StatusObjects)bundles).Payload = Encoding.UTF8.GetBytes("""
             {"generation":11,"desiredWorkloads":[
               {"role":"Authentication","cells":["gru"],"replicas":2,"suspended":true},
-              {"role":"TerraBaseMember","cells":["gru"],"replicas":5}]}
+              {"role":"TerraBaseMember","cells":["gru"],"replicas":5,"artifactDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}
             """);
-        await Assert.That(await reader.ReadAsync("ts-auth", CancellationToken.None)).IsEqualTo(0);
-        await Assert.That(await reader.ReadAsync("terrabase-server", CancellationToken.None)).IsEqualTo(5);
+        await Assert.That((await reader.ReadAsync("ts-auth", CancellationToken.None)).Replicas).IsEqualTo(0);
+        await Assert.That((await reader.ReadAsync("terrabase-server", CancellationToken.None)).Replicas).IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Desired_reader_preserves_exact_artifact_and_rejects_conflicting_or_missing_digests()
+    {
+        var delivery = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var bundles = DispatchProxy.Create<INatsObjStore, StatusObjects>();
+        ((StatusKv)delivery).Records["gitops.cell.test"] = """{"cell":"gru","payloadObject":"admitted"}""";
+        var reader = new NatsWorkloadDesiredStateReader(delivery, bundles, "gru");
+        var digest = new string('a', 64);
+        ((StatusObjects)bundles).Payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            desiredWorkloads = new[] { new { role = "Authentication", cells = new[] { "gru" }, replicas = 2, artifactDigest = digest } }
+        });
+        var state = await reader.ReadAsync("ts-auth", CancellationToken.None);
+        await Assert.That(state.Replicas).IsEqualTo(2);
+        await Assert.That(state.ArtifactDigest).IsEqualTo("sha256:" + digest);
+        ((StatusObjects)bundles).Payload = Encoding.UTF8.GetBytes("""
+            {"desiredWorkloads":[{"role":"Authentication","cells":["gru"],"replicas":2}]}
+            """);
+        await Assert.That(async () => { _ = await reader.ReadAsync("ts-auth", CancellationToken.None); }).Throws<InvalidDataException>();
+        ((StatusObjects)bundles).Payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            desiredWorkloads = new[]
+            {
+                new { role = "Authentication", cells = new[] { "gru" }, replicas = 2, artifactDigest = digest },
+                new { role = "Authentication", cells = new[] { "gru" }, replicas = 1, artifactDigest = new string('b', 64) }
+            }
+        });
+        await Assert.That(async () => { _ = await reader.ReadAsync("ts-auth", CancellationToken.None); }).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    public async Task Status_does_not_count_relocated_future_or_wrong_artifact_host_reports()
+    {
+        var delivery = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var runtime = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var bundles = DispatchProxy.Create<INatsObjStore, StatusObjects>();
+        var digest = new string('a', 64);
+        ((StatusKv)delivery).Records["gitops.cell.test"] = """{"cell":"gru","payloadObject":"admitted"}""";
+        ((StatusObjects)bundles).Payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            generation = 11,
+            desiredWorkloads = new[] { new { role = "Authentication", cells = new[] { "gru" }, replicas = 1, artifactDigest = digest } }
+        });
+        var report = new HostConvergenceObservation(2, "gru", "auth-1", "ts-auth", "sha256:" + digest,
+            "converged", "auth.service", DateTimeOffset.UtcNow);
+        var reports = new[]
+        {
+            report with { Instance = "foreign-node" },
+            report with { Cell = "fra" },
+            report with { Digest = "sha256:" + new string('b', 64) },
+            report with { ObservedAt = DateTimeOffset.UtcNow.AddHours(1) },
+            report with { ObservedAt = DateTimeOffset.UtcNow.AddMinutes(-11) },
+            report with { Error = "admission-denied" },
+            report
+        };
+        foreach (var value in reports)
+        {
+            ((StatusKv)runtime).Records["host.auth-1.ts-auth"] = JsonSerializer.Serialize(value,
+                HostConvergenceJsonContext.Default.HostConvergenceObservation);
+            var status = await NatsRuntime.BuildOperatorStatusAsync(delivery, bundles, runtime,
+                new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 1),
+                new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None);
+            await Assert.That(status.Workloads.Single(workload => workload.Workload == "ts-auth").ReadyReplicas)
+                .IsEqualTo(value == report ? 1 : 0);
+        }
     }
 
     [Test]

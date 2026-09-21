@@ -47,8 +47,8 @@ the exact release revision before deployment.
 | Orchestrator runtime/main-test dependency audit | Pass | `/tmp/ts-oci-nuget-audit.log`; exit 0 |
 | Orchestrator Release solution build, latest edits | Pass, 0 warnings/errors | `/tmp/ts-readiness-build-final3.log` |
 | Region-intent authorization tests | 19 passed | `/tmp/ts-region-intent-tests.log`; strict shape, mappings, endpoints, bounded/private file |
-| Operator-status projection tests | 5 passed | `/tmp/ts-operator-status-final.log`; independent actual policy bounds, stale-decision rejection, missing/suspended demand |
-| OCI workload fleet tests after final provider correction | 17 passed | `/tmp/ts-oci-fleet-final.log`; invalid demand remains blocked through the provider; unsafe generic TerraBase retirement denied |
+| Operator-status projection and desired-artifact tests | 7 passed | `/tmp/ts-oci-readiness-binding-status.log`; exact report key, cell, artifact and time; independent policy bounds; conflicting desired digests rejected |
+| OCI workload fleet tests after readiness correction | 19 passed | `/tmp/ts-oci-readiness-binding-tests.log`; real NATS readiness binding; non-ready VMs count as pending, expired authority prevents launch; invalid demand and unsafe TerraBase retirement denied |
 | Live local TerraBase fleet | 1 passed, no skip | `/tmp/ts-oci-local-fleet-live.log`; fresh TerraBase.Host publish, scale-out, loss/heal, drain safety and scale-in |
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
@@ -169,8 +169,10 @@ The current virtual-private Vault requires explicit resource/cost review.
 5. Qualify generic auth scaling alongside stateful TerraBase placement. The
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop
-   the other. Provider readiness still needs exact node/cell/artifact binding,
-   and generic TerraBase scale-in is explicitly denied until the stateful
+   the other. Generic provider readiness now binds the node, cell, accepted artifact,
+   report time and OCI running state. Unready VMs count as pending capacity,
+   preventing repeated launches while bootstrap is incomplete. Stateful member
+   readiness still needs the equivalent binding. Generic TerraBase scale-in is explicitly denied until the stateful
    placement fleet supplies drain and data-safety proof.
 6. Finish status and telemetry for foundation, handoff, regional enrollment,
    Vault rotation and every provider operation. Current workload aggregates and
@@ -203,8 +205,9 @@ Run at reduced local priority; CI keeps normal priority. Use TUnit, not
   artifact and least-privilege resource inventory. Applies remain CI-only.
 
 The provider demand/drain correction is committed and pushed as `5b4da8f2`.
-Forgejo verification task 493 was still running when checked; no CI pass is
-claimed for that revision. The auth navigation fix and these updated receipts
+Forgejo verification task 493 was cancelled when the Vault delivery commit
+`7e7ba778` was pushed; task 494 was still running when checked. No CI pass is
+claimed for either revision. The auth navigation fix and these updated receipts
 were verified locally.
 
 ## First live OCI qualification, after local readiness
