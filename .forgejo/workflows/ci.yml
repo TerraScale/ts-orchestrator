@@ -191,8 +191,6 @@ jobs:
             test -n "${report}"
             cp -- "${report}" "artifacts/ci/tests/${project_name}.html"
           done
-          (cd artifacts/ci/tests && sha256sum -- * ) > artifacts/ci/tests/SHA256SUMS
-          (cd artifacts/ci/tests && sha256sum --check --strict SHA256SUMS)
           jq -n \
             --arg sourceCommit "${SOURCE_SHA:?event SHA is required}" \
             --arg testLog "orchestrator-tests.log" \
@@ -200,6 +198,11 @@ jobs:
             --argjson projectCount "${#test_projects[@]}" \
             '{schemaVersion: 1, sourceCommit: $sourceCommit, projectCount: $projectCount, testLog: $testLog, digests: $digests}' \
             > artifacts/ci/tests/test-receipt.json
+          # Shell redirection creates SHA256SUMS before glob expansion. Hash only
+          # the evidence payload, including its source receipt, never this file.
+          (cd artifacts/ci/tests && sha256sum -- orchestrator-tests.log *.html test-receipt.json) \
+            > artifacts/ci/tests/SHA256SUMS
+          (cd artifacts/ci/tests && sha256sum --check --strict SHA256SUMS)
 
       - name: Upload orchestrator test evidence
         uses: https://data.forgejo.org/actions/upload-artifact@v7.0.1

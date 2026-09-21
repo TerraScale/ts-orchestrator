@@ -66,6 +66,8 @@ the exact release revision before deployment.
 | OCI member fleet after readiness binding | **21 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-provider-tests.log`; stopped-instance and owner/member/bootstrap/image drift rejection; fake OCI transport |
 | Placement with missing drain evidence | **6 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-tests.log`; missing health holds the real-NATS placement ladder before detach/retire |
 | Broader placement regression after readiness binding | **16 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-regression.log`; final Release build and style verification also passed |
+| OCI data-volume identity and attachment boundary | **33 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-provider-tests-final.log`; current attachment/ETag, boot/logical ID denial, access/identity drift, ambiguity, wrong host, repeated pagination, timeout/404 reobservation; fake OCI transport |
+| Placement with exact retained-volume evidence | **20 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-placement-tests-final.log`; real NATS plus scripted fleet; missing/different disks hold serving and removal; Release build 0 warnings/errors |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
 | Real containerd lifecycle and isolation | **2 passed, no skips**; cleanup verified | `/tmp/ts-oci-containerd-rehearsal-final.log`, `/tmp/ts-oci-containerd-f9l1t9em/receipt.json`; real pinned pull/create/start/restart/delete, kernel security/resource checks, forged-label rejection; synthetic x64 image, no ts-auth application or OCI VM |
 | Containerd adapter, runtime plans, host convergence | 8 + 7 + 18 passed | `/tmp/ts-oci-containerd-adapter-tests.log`, `/tmp/ts-oci-containerd-plan-tests.log`, `/tmp/ts-oci-containerd-host-tests.log` |
@@ -223,7 +225,10 @@ repository's main-only push rule being resolved.
    idempotent retries, rollback, drain, and retained-data protections.
 4. Prove fresh host enrollment and automatic admitted task pickup, then restart,
    credential renewal, node loss and replacement. Region support alone must
-   never authorize work or confer membership.
+   never authorize work or confer membership. The host-agent manifest grants
+   hashed observation/ack/command subjects; host convergence instead directly
+   uses private KV. A controller relay and desired-state delivery must be
+   composed and qualified under the actual restricted host credentials.
 5. Qualify generic auth scaling alongside stateful TerraBase placement. The
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop
@@ -238,9 +243,12 @@ repository's main-only push rule being resolved.
    `ProvisionAsync` returns. Requiring a healthy member before that attachment
    would prevent recovery. Bind host readiness to the exact admitted artifact
    used by host convergence, then qualify service health after volume recovery.
-   The storage audit found a concrete remaining mismatch: OCI boot-volume IDs
-   are projected into the data-volume attach/detach path, and a missing volume
-   can still become a fabricated logical ID. The drain command also has no
+   The storage audit's boot/data-volume mismatch is corrected: the fleet now
+   reads current data-volume attachments and ETags, rejects ambiguous/access
+   drift, and never substitutes boot-volume IDs. Placement no longer fabricates
+   a missing provider volume or accepts a different retained identity. Data
+   volume creation, resource ownership and guest mount/use proof still need
+   implementation. The drain command also has no
    composed production host consumer/acknowledgement. Missing health now holds
    draining, but explicit writer-stop, volume ownership/mount/retention and
    retirement proofs are still required. Details are in
@@ -285,6 +293,16 @@ job (`NatsControlR3L0cTests`, line 265). The correction uses the existing bounde
 read retry, retaining the exact revision assertion and all permission-denial
 checks. Its qualification is recorded separately; this CI run remains failed.
 The private job log is `/tmp/ts-orchestrator-ci496-job-21991.log`.
+
+Task **497**, revision `2ea613dc9f`, passed all five test projects: control
+plane **949**, model **59**, protocol **165**, scheduler **106**, and main
+**1032** (main has **5 live-lane skips**). The job failed afterward because
+the checksum glob included its own newly created `SHA256SUMS`. The workflow
+now hashes only the log, HTML reports and source receipt, then verifies that
+manifest. Local fresh/repeated packaging passed and receipt tampering failed
+verification. This corrects the packaging bug; remote upload and artifact
+jobs still need a successful run. Log:
+`/tmp/ts-orchestrator-ci497-job-21993.log`.
 
 ## First live OCI qualification, after local readiness
 
