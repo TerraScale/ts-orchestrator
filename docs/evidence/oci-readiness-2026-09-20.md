@@ -497,6 +497,18 @@ Logs: `/tmp/ts-orchestrator-ci502-job-22003.log` and
 request-authentication batch, before the durable session authority/service.
 The same artifact-retention and ARM64 execution limits still apply.
 
+Task **511**, revision `b3b9133998`, failed one recovery-process fixture:
+control plane **966**, model **59**, protocol **165**, scheduler **106**, and
+main **1,319** passed; main had **1 failure and 5 expected skips**. The artifact
+job was skipped. The stopped orphan was retained as a zombie by the runner's
+PID 1, causing the fixture's non-child `WaitForExitAsync` to time out. This was
+reproduced in a local private PID namespace. The test-only correction uses
+kernel state and stable start identity for the single-threaded orphan while
+preserving full supervisor exit/lock-release waiting. Its separate
+[receipt](host-recovery-orphan-local-2026-09-21.json) records final qualification;
+the failed CI result remains failed and requires a new run. Full log:
+`/tmp/ts-orchestrator-ci511-job-22023.log`.
+
 ## First live OCI qualification, after local readiness
 
 Start with disposable GRU staging. Prove Instance Principal allow/deny behavior,

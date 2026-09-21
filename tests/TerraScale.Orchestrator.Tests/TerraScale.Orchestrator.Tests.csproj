@@ -11,6 +11,7 @@
     <PackageReference Include="TUnit" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="../Shared/LinuxTestProcess.cs" Link="LinuxTestProcess.cs" />
     <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
   </ItemGroup>
 </Project>

@@ -92,6 +92,30 @@ marker. The restricted JWT/mTLS R3 test composes durable ownership with actual
 session revocation and owned-child shutdown. These tests do not launch
 production TerraBase, auth, systemd units or containerd.
 
+The crash-process fixture distinguishes supervisor shutdown from orphan workload
+termination. A non-reaping container PID 1 can retain a terminated orphan as a
+zombie indefinitely; `.NET Process.HasExited` and `WaitForExitAsync` do not
+reliably report that non-child as exited. The single-threaded workload fixture
+therefore uses the kernel state and recorded start ticks, rejecting PID reuse.
+It also handles the specific Linux `ESRCH` result when reaping happens between
+opening and reading `/proc/<pid>/stat`; unrelated I/O errors still fail the test.
+Direct child supervisors still require normal process-exit waiting: observing a
+zombie thread-group leader alone can precede release of its inventory lock.
+This test-only distinction does not change the production native stop evidence.
+
+Reproduce the non-reaping environment locally after a Release solution build:
+
+```bash
+nice -n 19 unshare --user --map-root-user --pid --fork --mount-proc \
+  python3 scripts/test_host_recovery_orphan_namespace.py /tmp/host-recovery.log
+```
+
+The wrapper invokes the two TUnit recovery-process tests, requires an observed
+orphan zombie and exits with the test result. It only runs as PID 1 in the
+private namespace; namespace teardown removes remaining orphans. The
+[CI correction receipt](../evidence/host-recovery-orphan-local-2026-09-21.json)
+records the reproduced failure and corrected checks.
+
 The production host entry remains disabled. It must start local recovery before
 attempting broker/session acquisition, so failed authentication cannot skip
 cleanup. Before enabling it, prove that the old supervisor's external command

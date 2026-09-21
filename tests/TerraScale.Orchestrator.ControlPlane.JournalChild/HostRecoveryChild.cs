@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Runtime;
+using TerraScale.Orchestrator.Tests;
 
 /// <summary>Test-only crash harness. No broker, report ACK, or application installation marker exists.</summary>
 internal static class HostRecoveryChild
@@ -38,21 +39,30 @@ internal static class HostRecoveryChild
         public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
             using var child = Process.Start(new ProcessStartInfo("sleep") { ArgumentList = { "120" }, UseShellExecute = false })!;
-            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new NativeRecord(child.Id, StartTicks(child.Id),
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new NativeRecord(child.Id, LinuxTestProcess.Read(child.Id)!.StartTicks,
                 CanonicalPlanFingerprint.Compute(plan), plan.AllocationId.Value)), cancellationToken);
             await File.WriteAllTextAsync(signal, "native-started-response-withheld", cancellationToken);
             await Task.Delay(Timeout.InfiniteTimeSpan); // Deliberately ignores cancellation and never responds.
         }
         public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
+            try { await StopCoreAsync(plan, cancellationToken); }
+            catch (Exception exception)
+            {
+                Console.Error.WriteLine("Native recovery fixture stop failed: " + exception);
+                throw;
+            }
+        }
+        private async Task StopCoreAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+        {
             var record = Read();
             if (record is null) return;
             if (record.Fingerprint != CanonicalPlanFingerprint.Compute(plan) || record.AllocationId != plan.AllocationId.Value)
                 throw new InvalidOperationException("The test child belongs to another plan.");
             using var process = Process.GetProcessById(record.Pid);
-            if (StartTicks(record.Pid) != record.StartedAt) throw new InvalidOperationException("Test PID reused.");
+            if (LinuxTestProcess.Read(record.Pid)?.StartTicks != record.StartedAt) throw new InvalidOperationException("Test PID reused.");
             process.Kill();
-            await process.WaitForExitAsync(cancellationToken);
+            await LinuxTestProcess.WaitForTerminationAsync(record.Pid, record.StartedAt, cancellationToken);
             File.Delete(path);
         }
         public Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
@@ -66,11 +76,6 @@ internal static class HostRecoveryChild
             var record = Read();
             return Task.FromResult(new HostNativeInventorySnapshot([RuntimeDriver.NativeSystemd, RuntimeDriver.OciContainer],
                 record is null ? [] : [new(RuntimeDriver.NativeSystemd, record.AllocationId, record.Fingerprint, SystemdAllocationState.Running, record.Pid)]));
-        }
-        private static long StartTicks(int pid)
-        {
-            var stat = File.ReadAllText($"/proc/{pid}/stat");
-            return long.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[19], System.Globalization.CultureInfo.InvariantCulture);
         }
         private NativeRecord? Read() => File.Exists(path) ? JsonSerializer.Deserialize<NativeRecord>(File.ReadAllText(path))! : null;
     }

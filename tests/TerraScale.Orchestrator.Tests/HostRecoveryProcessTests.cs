@@ -32,14 +32,16 @@ public sealed class HostRecoveryProcessTests
         var native = Path.Combine(files.Directory, "native-process.json");
         using var owner = Start("crash-after-start", files.Directory, signal, native);
         Process? workload = null;
+        long workloadStarted = 0;
         try
         {
             await WaitForFileAsync(signal, owner);
             using var record = JsonDocument.Parse(File.ReadAllText(native));
             workload = Process.GetProcessById(record.RootElement.GetProperty("Pid").GetInt32());
-            await Assert.That(workload.HasExited).IsFalse();
+            workloadStarted = record.RootElement.GetProperty("StartedAt").GetInt64();
+            await Assert.That(LinuxTestProcess.HasTerminated(workload.Id, workloadStarted)).IsFalse();
             await KillAsync(owner);
-            await Assert.That(workload.HasExited).IsFalse();
+            await Assert.That(LinuxTestProcess.HasTerminated(workload.Id, workloadStarted)).IsFalse();
             using (var inspect = HostWorkloadInventory.Open(files.Directory, files.Identity))
                 await Assert.That(inspect.Plans.Count).IsEqualTo(1);
             var recovered = Path.Combine(files.Directory, "recovered");
@@ -51,7 +53,7 @@ public sealed class HostRecoveryProcessTests
                 using var receipt = JsonDocument.Parse(File.ReadAllText(recovered));
                 await Assert.That(receipt.RootElement.GetProperty("State").GetString()).IsEqualTo("ready");
                 await Assert.That(receipt.RootElement.GetProperty("StoppedAllocations").GetInt32()).IsEqualTo(1);
-                await Assert.That(workload.HasExited).IsTrue();
+                await Assert.That(LinuxTestProcess.HasTerminated(workload.Id, workloadStarted)).IsTrue();
                 using var inventory = HostWorkloadInventory.Open(files.Directory, files.Identity);
                 await Assert.That(inventory.Plans).IsEmpty();
             }
@@ -59,8 +61,15 @@ public sealed class HostRecoveryProcessTests
         }
         finally
         {
-            await KillAsync(owner);
-            if (workload is not null) { await KillAsync(workload); workload.Dispose(); }
+            try { await KillAsync(owner); }
+            finally
+            {
+                if (workload is not null)
+                {
+                    try { await KillAsync(workload, workloadStarted); }
+                    finally { workload.Dispose(); }
+                }
+            }
         }
     }
 
@@ -93,9 +102,20 @@ public sealed class HostRecoveryProcessTests
             await Task.Delay(10, deadline.Token);
         }
     }
-    private static async Task KillAsync(Process process)
+    private static async Task KillAsync(Process process, long? expectedStart = null)
     {
+        if (expectedStart is null)
+        {
+            // Direct child supervisors must finish their whole thread group and release the
+            // inventory lock. A leader's /proc state alone can precede that final teardown.
+            if (!process.HasExited) process.Kill();
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            return;
+        }
+        var before = LinuxTestProcess.Read(process.Id);
+        if (before is null || before.Terminated || before.StartTicks != expectedStart) return;
         if (!process.HasExited) process.Kill();
-        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await LinuxTestProcess.WaitForTerminationAsync(process.Id, before.StartTicks, deadline.Token);
     }
 }

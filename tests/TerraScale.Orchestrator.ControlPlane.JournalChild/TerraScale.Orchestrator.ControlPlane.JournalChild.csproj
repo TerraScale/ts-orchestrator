@@ -5,5 +5,8 @@
     <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../Shared/LinuxTestProcess.cs" Link="LinuxTestProcess.cs" />
+    <ProjectReference Include="../../src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj" />
+  </ItemGroup>
 </Project>
