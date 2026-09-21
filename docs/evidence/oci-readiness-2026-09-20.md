@@ -60,6 +60,8 @@ the exact release revision before deployment.
 | Founding Release/style and publish | Pass; build 0 warnings/errors; x64 and ARM64 ELF verified | `/tmp/ts-oci-founding-release-build-final.log`, `/tmp/ts-oci-founding-style.log`, `/tmp/ts-oci-founding-{x64,arm64}-publish.log` |
 | Published founding CLI | Pass, offline x64 process | `/tmp/ts-oci-founding-cli-receipt.json`; actual signing verified by OpenSSL, existing grant preserved, invalid signature rejected before provider/state; ARM64 built but not executed |
 | Vault delivery after SDK endpoint correction | **18 passed**, 0 failed/skipped | `/tmp/ts-oci-founding-vault-regression.log`; no live Vault calls |
+| Full orchestrator main suite including founding and endpoint changes | **1032 passed, 0 failed, 5 live-lane skips** | `/tmp/ts-oci-founding-main-suite.log`; revision `80f9356d`, 9m56s; before the subsequent R3 assertion correction |
+| R3 authority conformance after read assertion correction | **1 passed**, 0 failed/skipped; style passed | `/tmp/ts-oci-r3-read-regression.log`, `/tmp/ts-oci-r3-read-style.log`; 33.8s, real three-server NATS with the existing account-denial checks |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
 | Real containerd lifecycle and isolation | **2 passed, no skips**; cleanup verified | `/tmp/ts-oci-containerd-rehearsal-final.log`, `/tmp/ts-oci-containerd-f9l1t9em/receipt.json`; real pinned pull/create/start/restart/delete, kernel security/resource checks, forged-label rejection; synthetic x64 image, no ts-auth application or OCI VM |
 | Containerd adapter, runtime plans, host convergence | 8 + 7 + 18 passed | `/tmp/ts-oci-containerd-adapter-tests.log`, `/tmp/ts-oci-containerd-plan-tests.log`, `/tmp/ts-oci-containerd-host-tests.log` |
@@ -74,6 +76,8 @@ the exact release revision before deployment.
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
+| OpenTofu Vault tier configuration | Pass; 9 mocked plan tests passed | `/tmp/ts-infra-vault-tier-validation.log`, `/tmp/ts-infra-vault-tier-tests.log`; shared HSM default, explicit dedicated tier and invalid-tier rejection; estate remains disabled |
+| Refreshed plan after Vault tier selection | Pass; **zero resource changes**, outputs only | `/tmp/ts-infra-vault-tier-plan-receipt.json`; no apply; saved plan remains private |
 | Refreshed read-only OCI plan, estate disabled | Pass; outputs only, no resource changes | `/tmp/ts-infra-region-plan-final.log`; passphrase available locally, never printed |
 | Auth browser context cleanup regression | 1 passed | `/tmp/ts-auth-browser-cleanup.log`; page disposal now closes its isolated context |
 | Auth admin authorization test after cleanup fix | 1 passed | `/tmp/ts-auth-admin-focused.log`; isolated pass does not establish the full-run timeout's cause |
@@ -154,7 +158,13 @@ The estate now separates the TerraScale parent compartment from the tenancy
 root used for dynamic groups and the Email Delivery compartment. Its retained
 buckets disable versioning: Oracle explicitly disallows retention rules on
 versioned buckets ([OCI retention documentation](https://docs.oracle.com/en-us/iaas/Content/Object/Tasks/usingretentionrules.htm)).
-The current virtual-private Vault requires explicit resource/cost review.
+The Vault tier is now explicit in `infra.tfvars`: `DEFAULT` uses shared HSM
+capacity and keys retain HSM protection. A dedicated `VIRTUAL_PRIVATE`
+partition requires an explicit configuration change and cost review. The
+complete enabled resource plan still needs review. Infra commits `1ac160f`
+(controller compartment binding) and `4c237a9` (Vault tier) remain local after
+Forgejo rejected the push to protected `main`; publication is pending the
+repository's main-only push rule being resolved.
 
 ## Authentication required before deployment
 
@@ -218,6 +228,11 @@ The current virtual-private Vault requires explicit resource/cost review.
    preventing repeated launches while bootstrap is incomplete. Stateful member
    readiness still needs the equivalent binding. Generic TerraBase scale-in is explicitly denied until the stateful
    placement fleet supplies drain and data-safety proof.
+   Preserve the distinction between host readiness and service health when
+   tightening the member path: placement attaches a retained volume after
+   `ProvisionAsync` returns. Requiring a healthy member before that attachment
+   would prevent recovery. Bind host readiness to the exact admitted artifact
+   used by host convergence, then qualify service health after volume recovery.
 6. Finish status and telemetry for foundation, handoff, regional enrollment,
    Vault rotation and every provider operation. Current workload aggregates and
    needs/actions/progress are useful but are not complete OCI lifecycle coverage.
@@ -251,8 +266,13 @@ Run at reduced local priority; CI keeps normal priority. Use TUnit, not
 The provider demand/drain correction is `5b4da8f2`, pinned Vault delivery is
 `7e7ba778`, and readiness binding is `c2e3ae16`; all are committed and pushed.
 Forgejo tasks 493, 494 and 495 were cancelled by subsequent pushes. Task 496 for
-`04c0b09a` was still running when checked; no CI pass is claimed for these revisions. The auth navigation fix and these updated receipts
-were verified locally.
+`04c0b09a` failed: control plane **949**, model **59**, protocol **165**, and
+scheduler **106** tests passed; main had **999 passed, 1 failed, 5 live-lane
+skips**. The failure was an immediate R3 KV read of a just-acknowledged runner
+job (`NatsControlR3L0cTests`, line 265). The correction uses the existing bounded
+read retry, retaining the exact revision assertion and all permission-denial
+checks. Its qualification is recorded separately; this CI run remains failed.
+The private job log is `/tmp/ts-orchestrator-ci496-job-21991.log`.
 
 ## First live OCI qualification, after local readiness
 

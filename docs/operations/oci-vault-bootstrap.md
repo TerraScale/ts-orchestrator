@@ -52,7 +52,11 @@ First boot therefore needs a separate journal identity with an enforceable
 OCI boundary (for example, a separately administered host/compartment), or an
 equivalent reviewed isolation mechanism. Merely installing the key under a
 different Unix user on the controller VM is insufficient. This boundary is
-still an open first-boot requirement.
+still an open first-boot requirement. A separate writer VM is also insufficient
+if the controller can replace its bootstrap, modify its instance, attach/read
+its boot volume, or otherwise obtain its principal. The policy review must
+exclude those paths as well as direct Vault access. Root IAM and signing trust
+cannot be delegated to the controller as part of the resource handoff.
 
 IAM must restrict `read secret-bundles` to the
 exact approved secret IDs and principals. The command does not create policies,

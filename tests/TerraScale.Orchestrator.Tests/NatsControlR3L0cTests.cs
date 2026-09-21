@@ -256,13 +256,15 @@ public sealed class NatsControlR3L0cTests
         var stores = jetStream.CreateKeyValueStoreContext();
         var releases = await stores.GetStoreAsync(topology.Releases.Bucket);
         var releaseRevision = await releases.CreateAsync("release.conformance", "accepted");
-        var release = await releases.GetEntryAsync<string>("release.conformance");
+        // R3 direct reads may hit a follower before the acknowledged write arrives.
+        // Retry only absence, then still require the exact acknowledged revision.
+        var release = await GetWithQuorumRetryAsync(releases, "release.conformance");
         release.EnsureSuccess();
         await Assert.That(release.Revision).IsEqualTo(releaseRevision);
 
         var runnerJobs = await stores.GetStoreAsync(topology.RunnerJobs.Bucket);
         var jobRevision = await runnerJobs.CreateAsync("ci.runner.conformance.job.1", "accepted");
-        var job = await runnerJobs.GetEntryAsync<string>("ci.runner.conformance.job.1");
+        var job = await GetWithQuorumRetryAsync(runnerJobs, "ci.runner.conformance.job.1");
         job.EnsureSuccess();
         await Assert.That(job.Revision).IsEqualTo(jobRevision);
 
