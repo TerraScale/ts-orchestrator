@@ -319,8 +319,10 @@ internal sealed class TerraBasePlacementReconciler
             // Host converged and the member serves: the ServiceHealthy evidence. The
             // retained-volume identity — the observed provider volume — is created once
             // and fenced by its writer epoch.
-            await EnsureVolumeAsync(
-                intent, member.State.MemberId, member.Observation.VolumeId, cancellationToken).ConfigureAwait(false);
+            if (!await EnsureVolumeAsync(
+                intent, member.State.MemberId, member.Observation.VolumeId, cancellationToken).ConfigureAwait(false))
+                return Result(PlacementTickObservation.StateHeld, intent.Database, member.State.MemberId,
+                    "volume-evidence", "provider-volume-missing-or-mismatched", intent.Revision);
             return await WriteMemberAsync(
                 member.State with
                 {
@@ -557,8 +559,13 @@ internal sealed class TerraBasePlacementReconciler
                     cancellationToken).ConfigureAwait(false);
 
             case PlacementMemberStateDocument.StageDeregistered:
-                await EnsureVolumeAsync(intent, state.MemberId, member.Observation?.VolumeId, cancellationToken).ConfigureAwait(false);
                 var volume = await ReadVolumeAsync(delivery, intent.Database, state.MemberId, cancellationToken).ConfigureAwait(false);
+                if (volume is null)
+                    return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId,
+                        "detach-gate", "retained-volume-missing", intent.Revision);
+                if (member.Observation?.VolumeId is { } observedVolume && observedVolume != volume.Document.ProviderVolumeId)
+                    return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId,
+                        "detach-gate", "provider-volume-mismatched", intent.Revision);
                 if (volume is { } retained)
                 {
                     // The planner must decide a provider detach of the retained volume
@@ -1102,20 +1109,20 @@ internal sealed class TerraBasePlacementReconciler
     /// <summary>
     /// Creates the member's retained-volume identity once from the observed provider volume;
     /// a second create is a no-op, so the identity survives every later host replacement.
-    /// A provider that reports no volume keeps the logical identity — the epoch fence still
-    /// holds, only the provider mutation is out of reach.
+    /// Missing or mismatched provider evidence holds placement; it never fabricates storage.
     /// </summary>
-    private async Task EnsureVolumeAsync(
+    private async Task<bool> EnsureVolumeAsync(
         PlacementIntentDocument intent,
         string member,
         string? providerVolumeId,
         CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(providerVolumeId)) return false;
         var document = new PlacementVolumeStateDocument(
             PlacementVolumeStateDocument.CurrentSchemaVersion,
             intent.Database,
             member,
-            providerVolumeId ?? $"vol-{member}",
+            providerVolumeId,
             $"attach-{member}",
             1,
             PlacementVolumeStateDocument.RetainedStateful,
@@ -1130,8 +1137,12 @@ internal sealed class TerraBasePlacementReconciler
         }
         catch (NatsKVCreateException)
         {
-            // The retained-volume identity already exists — exactly the invariant.
+            // A duplicate create is safe only when the durable identity agrees.
+            // It must never silently accept a replacement with a different disk.
+            var existing = await ReadVolumeAsync(delivery, intent.Database, member, cancellationToken).ConfigureAwait(false);
+            return existing?.Document.ProviderVolumeId == providerVolumeId;
         }
+        return true;
     }
 
     internal static async Task<PlacementVolumeRecord?> ReadVolumeAsync(

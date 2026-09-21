@@ -10,8 +10,13 @@ store, before installation or service convergence. Schema 1 records the exact
 cell, instance, environment, artifact key, admitted digest, readiness flag and
 observation time. A denied gate writes `ready: false`, replacing prior ready
 evidence. This report is not itself a signed envelope; its producer checks the
-enrollment gate, and NATS identity/subject permissions protect the store.
-Production startup still requires signed enrollment configuration.
+enrollment gate. Production startup still requires signed enrollment configuration.
+The actual host credential boundary is not qualified: the manifest's
+`host-agent` role grants only hashed agent observation/ack/command subjects,
+while host convergence directly reads/writes private KV stores. Compose and
+test the controller relay and desired-state delivery under that role before
+claiming fresh-node readiness. Giving hosts broad controller credentials would
+not satisfy host identity isolation.
 
 The member fleet's readiness reader checks that report against the exact
 `ORCH_DELIVERY` target used by host convergence. Both paths use
@@ -74,14 +79,27 @@ Provider tests verify stopped-instance handling and identity/template drift
 before accepting readiness. A real NATS placement test verifies that missing
 member evidence during draining never advances to detach or retirement.
 
+The fleet now reads data-volume attachments on every observation, together
+with the current instance identity and ETag. A boot volume cannot become a
+retained data-volume identity. It requires a single attached, exclusive,
+writable data volume in the expected compartment and on the exact instance;
+missing/transitional attachments supply no identity and ambiguity is rejected.
+Attachment pagination is bounded, including repeated empty pages. The adapter
+rejects boot/logical IDs before provider calls and requests an encrypted
+paravirtualized attachment. A volume on another instance or a new attachment
+appearing during detach cannot establish successful detachment.
+
+Placement no longer fabricates a provider volume ID. A healthy host waits when
+its volume is absent or differs from the durable retained identity. Removal
+holds when that record is absent or conflicts with the host. These outcomes
+flow through the existing placement status as `held`, with a specific error.
+
 The complete storage and drain path remains a deployment blocker:
 
-- `OciMemberHostFleet.VerifyMemberHostAsync` currently projects a boot-volume
-  OCID as the retained volume, while `OciMemberHostVolumeAdapter` uses the
-  separate data-volume attach/detach APIs. That contract must be corrected,
-  including creation, ownership, mounting, restart and retention evidence.
-- `EnsureVolumeAsync` still fabricates a logical volume ID when the provider
-  reports none. This cannot qualify a production data volume.
+- Data-volume creation, volume-resource ownership, guest mounting, restart and
+  retention evidence remain unimplemented. An attachment is not proof that
+  TerraBase uses that filesystem. A newly provisioned OCI member without a data
+  volume now correctly holds instead of becoming serving through a fake ID.
 - The OCI drain path publishes an empty host command; no production consumer
   of `HostAgentCommandSubject` is composed yet. Fresh unhealthy telemetry is
   still weaker than explicit proof that writers stopped. Implement durable,
@@ -89,7 +107,7 @@ The complete storage and drain path remains a deployment blocker:
 - Retirement currently requests boot-volume deletion. It must never execute
   against a host whose only retained data is on that boot volume.
 
-The missing-report guard closes one unsafe transition; it does not complete
-those protocols. Keep OCI deployment disabled until the storage and drain
+The readiness and volume guards do not complete those protocols. Keep OCI
+deployment disabled until the credential, storage and drain
 contracts pass real-caller qualification. See the
 [readiness record](../evidence/oci-readiness-2026-09-20.md).

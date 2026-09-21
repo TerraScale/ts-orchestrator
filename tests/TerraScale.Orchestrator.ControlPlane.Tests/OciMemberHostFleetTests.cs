@@ -90,7 +90,8 @@ public sealed class OciMemberHostFleetTests
         await Assert.That(host.Cordon).IsFalse();
         await Assert.That(host.MemberHealth.Up).IsTrue();
         await Assert.That(host.MemberHealth.Role).IsEqualTo("Follower");
-        await Assert.That(host.VolumeId).IsEqualTo("ocid1.bootvolume.oc1.sa-saopaulo-1.member-1");
+        await Assert.That(host.VolumeId).IsNull();
+        await Assert.That(transport.BootVolumeListings).IsEmpty();
         await Assert.That(transport.Calls.Count(static call => call == "list")).IsEqualTo(1);
         await Assert.That(transport.Calls.First()).IsEqualTo("list");
 
@@ -98,6 +99,98 @@ public sealed class OciMemberHostFleetTests
         var withoutHealth = await fleet.ObserveAsync(CancellationToken.None);
         await Assert.That(withoutHealth.Single().MemberHealth.Up).IsFalse();
         await Assert.That(withoutHealth.Single().MemberHealth.Role).IsEqualTo("Unknown");
+    }
+
+    [Test]
+    public async Task Observation_refreshes_data_attachment_and_etag_without_a_lifecycle_change()
+    {
+        var transport = new FakeMemberHostTransport();
+        transport.AddSeededMember(memberCordoned: false);
+        using var fleet = Fleet(transport, new FakeObservations());
+        await Assert.That((await fleet.ObserveAsync(CancellationToken.None)).Single().VolumeId).IsNull();
+
+        const string volume = "ocid1.volume.oc1.sa-saopaulo-1.member-1";
+        transport.AddVolumeAttachment(volume, InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
+        await fleet.CordonAsync(new(InstanceId), CancellationToken.None);
+        var attached = (await fleet.ObserveAsync(CancellationToken.None)).Single();
+        await Assert.That(attached.VolumeId).IsEqualTo(volume);
+        await Assert.That(attached.ETag).IsEqualTo("etag-updated-1");
+        await Assert.That(attached.Cordon).IsTrue();
+
+        await fleet.DetachVolumeAsync(volume, new(InstanceId), CancellationToken.None);
+        await Assert.That((await fleet.ObserveAsync(CancellationToken.None)).Single().VolumeId).IsNull();
+        await Assert.That(transport.BootVolumeListings).IsEmpty();
+    }
+
+    [Test]
+    public async Task Observation_rejects_multiple_data_volumes_instead_of_choosing_one()
+    {
+        var transport = new FakeMemberHostTransport();
+        transport.AddSeededMember(memberCordoned: false);
+        transport.AddVolumeAttachment("ocid1.volume.oc1..first", InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
+        transport.AddVolumeAttachment("ocid1.volume.oc1..second", InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
+        using var fleet = Fleet(transport, new FakeObservations());
+        await Assert.That(async () => await fleet.ObserveAsync(CancellationToken.None)).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    [Arguments("boot-volume")]
+    [Arguments("compartment")]
+    [Arguments("instance")]
+    [Arguments("shared")]
+    [Arguments("read-only")]
+    public async Task Observation_rejects_attachment_identity_or_access_drift(string drift)
+    {
+        var transport = new FakeMemberHostTransport
+        {
+            AttachmentReadMutation = attachment =>
+            {
+                if (drift == "boot-volume") attachment.VolumeId = "ocid1.bootvolume.oc1..wrong";
+                if (drift == "compartment") attachment.CompartmentId = "ocid1.compartment.oc1..foreign";
+                if (drift == "instance") attachment.InstanceId = "ocid1.instance.oc1..foreign";
+                if (drift == "shared") attachment.IsShareable = true;
+                if (drift == "read-only") attachment.IsReadOnly = true;
+            }
+        };
+        transport.AddSeededMember(memberCordoned: false);
+        transport.AddVolumeAttachment("ocid1.volume.oc1..first", InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
+        using var fleet = Fleet(transport, new FakeObservations());
+        await Assert.That(async () => await fleet.ObserveAsync(CancellationToken.None)).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    [Arguments("ocid1.bootvolume.oc1..wrong")]
+    [Arguments("vol-member-1")]
+    public async Task Boot_or_logical_volume_ids_never_reach_data_mutations(string volume)
+    {
+        var transport = new FakeMemberHostTransport();
+        var adapter = new OciMemberHostVolumeAdapter(transport, static () => true, TimeProvider.System, FastOptions());
+        await Assert.That(() => adapter.AttachAsync(Compartment, volume, InstanceId, "key", CancellationToken.None).AsTask())
+            .Throws<InvalidDataException>();
+        await Assert.That(() => adapter.DetachAsync(Compartment, volume, InstanceId, CancellationToken.None).AsTask())
+            .Throws<InvalidDataException>();
+        await Assert.That(transport.Calls).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_volume_on_another_instance_never_confirms_expected_detachment()
+    {
+        var transport = new FakeMemberHostTransport();
+        transport.AddVolumeAttachment("ocid1.volume.oc1..v", "ocid1.instance.oc1..other", VolumeAttachment.LifecycleStateEnum.Attached);
+        var adapter = new OciMemberHostVolumeAdapter(transport, static () => true, TimeProvider.System, FastOptions());
+        var result = await adapter.DetachAsync(Compartment, "ocid1.volume.oc1..v", InstanceId, CancellationToken.None);
+        await Assert.That(result).IsEqualTo(OciMemberHostVolumeOutcome.OutcomeUnknown);
+        await Assert.That(transport.Detaches).IsEmpty();
+    }
+
+    [Test]
+    public async Task Empty_repeated_attachment_pages_are_bounded()
+    {
+        var transport = new FakeMemberHostTransport { VolumeNextPage = "same-page" };
+        var adapter = new OciMemberHostVolumeAdapter(transport, static () => true, TimeProvider.System, FastOptions());
+        await Assert.That(async () => await adapter.ObserveDataVolumeAsync(Compartment, InstanceId, CancellationToken.None))
+            .Throws<InvalidDataException>();
+        await Assert.That(transport.Calls.Count(call => call == "volumes")).IsEqualTo(2);
     }
 
     [Test]
@@ -298,6 +391,10 @@ public sealed class OciMemberHostFleetTests
         await Assert.That(attached).IsEqualTo(MemberVolumeOutcome.Completed);
         await Assert.That(transport.Detaches.Single().VolumeAttachmentId).IsEqualTo("attachment-volume-1");
         await Assert.That(transport.Attaches.Single().OpcRetryToken).IsEqualTo("attach-key-1");
+        var details = (AttachParavirtualizedVolumeDetails)transport.Attaches.Single().AttachVolumeDetails;
+        await Assert.That(details.IsPvEncryptionInTransitEnabled).IsTrue();
+        await Assert.That(details.IsShareable).IsFalse();
+        await Assert.That(details.IsReadOnly).IsFalse();
         await Assert.That(() => fleet.DetachVolumeAsync(" ", new(InstanceId), CancellationToken.None))
             .Throws<ArgumentException>();
     }
@@ -393,11 +490,15 @@ public sealed class OciMemberHostFleetTests
     }
 
     [Test]
-    public async Task A_lost_volume_response_is_never_retried()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task An_unconfirmed_volume_response_is_never_retried(bool attachmentNotFound)
     {
         var transport = new FakeMemberHostTransport();
         transport.AddVolumeAttachment("ocid1.volume.oc1..v", InstanceId, VolumeAttachment.LifecycleStateEnum.Attached);
-        transport.DetachFailure = new TimeoutException("detach response lost");
+        transport.DetachFailure = attachmentNotFound
+            ? new OciException(HttpStatusCode.NotFound, "attachment absent", "request", "work")
+            : new TimeoutException("detach response lost");
         var adapter = new OciMemberHostVolumeAdapter(transport, static () => true, TimeProvider.System, FastOptions());
 
         var detach = await adapter.DetachAsync(Compartment, "ocid1.volume.oc1..v", InstanceId, CancellationToken.None);
@@ -523,6 +624,8 @@ public sealed class OciMemberHostFleetTests
         public string ForeignInstanceId => "ocid1.instance.oc1.sa-saopaulo-1.foreign";
         public string LaunchedInstanceId { get; private set; } = "";
         public Action<Instance>? ReadMutation { get; init; }
+        public Action<VolumeAttachment>? AttachmentReadMutation { get; init; }
+        public string? VolumeNextPage { get; init; }
 
         public void AddSeededMember(bool memberCordoned)
         {
@@ -562,7 +665,10 @@ public sealed class OciMemberHostFleetTests
             string volumeId, string instanceId, VolumeAttachment.LifecycleStateEnum state) =>
             volumeAttachments.Add(new VolumeAttachment
             {
-                Id = "attachment-volume-1",
+                Id = $"attachment-volume-{volumeAttachments.Count + 1}",
+                CompartmentId = Compartment,
+                IsReadOnly = false,
+                IsShareable = false,
                 VolumeId = volumeId,
                 InstanceId = instanceId,
                 LifecycleState = state,
@@ -732,11 +838,15 @@ public sealed class OciMemberHostFleetTests
         {
             Calls.Add("volumes");
             cancellationToken.ThrowIfCancellationRequested();
+            var selected = volumeAttachments.Where(attachment =>
+                (request.VolumeId is null || attachment.VolumeId == request.VolumeId) &&
+                (request.InstanceId is null || attachment.InstanceId == request.InstanceId) &&
+                attachment.LifecycleState != VolumeAttachment.LifecycleStateEnum.Detached).ToList();
+            foreach (var attachment in selected) AttachmentReadMutation?.Invoke(attachment);
             return Task.FromResult(new Oci.CoreService.Responses.ListVolumeAttachmentsResponse
             {
-                Items = [.. volumeAttachments.Where(attachment =>
-                    attachment.VolumeId == request.VolumeId &&
-                    attachment.LifecycleState != VolumeAttachment.LifecycleStateEnum.Detached)],
+                Items = selected,
+                OpcNextPage = VolumeNextPage,
             });
         }
 
@@ -754,6 +864,9 @@ public sealed class OciMemberHostFleetTests
             volumeAttachments.Add(new VolumeAttachment
             {
                 Id = $"attachment-{Attaches.Count}",
+                CompartmentId = Compartment,
+                IsReadOnly = false,
+                IsShareable = false,
                 VolumeId = request.AttachVolumeDetails.VolumeId,
                 InstanceId = request.AttachVolumeDetails.InstanceId,
                 LifecycleState = VolumeAttachment.LifecycleStateEnum.Attached,

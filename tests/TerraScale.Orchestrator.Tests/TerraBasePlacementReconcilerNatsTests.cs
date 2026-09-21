@@ -52,6 +52,56 @@ public sealed class TerraBasePlacementReconcilerNatsTests
     }
 
     [Test]
+    public async Task Missing_volume_holds_healthy_member_without_fabricating_storage()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var fleet = new FakeMemberHostFleet();
+        var authority = new PlacementAuthorityHolder();
+        var reconciler = PlacementTestHarness.Reconciler(server, fleet, authority);
+        await PlacementTestHarness.ApplyIntentAsync(server.Delivery, "prod-db", 1, "GRU");
+        await PlacementTestHarness.TickUntilAsync(() => reconciler.TickAsync(CancellationToken.None), result => result.Action == "provision");
+        var member = (await PlacementTestHarness.MemberStatesAsync(server.Delivery, "prod-db")).Single();
+        fleet.SetVolume(member.InstanceId!, null);
+        for (var tick = 0; tick < 3; tick++)
+        {
+            var held = await reconciler.TickAsync(CancellationToken.None);
+            await Assert.That(held.State).IsEqualTo(PlacementTickObservation.StateHeld);
+            await Assert.That(held.Error).IsEqualTo("provider-volume-missing-or-mismatched");
+        }
+        await Assert.That(await TerraBasePlacementReconciler.ReadVolumeAsync(
+            server.Delivery, "prod-db", member.MemberId, CancellationToken.None)).IsNull();
+        fleet.SetVolume(member.InstanceId!, "provider-data-volume-1");
+        await Assert.That((await reconciler.TickAsync(CancellationToken.None)).Action).IsEqualTo("healthy");
+        await Assert.That((await TerraBasePlacementReconciler.ReadVolumeAsync(
+            server.Delivery, "prod-db", member.MemberId, CancellationToken.None))!.Document.ProviderVolumeId)
+            .IsEqualTo("provider-data-volume-1");
+    }
+
+    [Test]
+    public async Task Wrong_replacement_disk_never_overwrites_the_retained_volume_or_becomes_serving()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var fleet = new FakeMemberHostFleet();
+        var authority = new PlacementAuthorityHolder();
+        var reconciler = PlacementTestHarness.Reconciler(server, fleet, authority);
+        await PlacementTestHarness.ConvergeAsync(server, fleet, authority, reconciler, "prod-db", 1, "GRU");
+        fleet.RemoveHost(fleet.Instances.Single(instance => instance.EndsWith(".2")));
+        await PlacementTestHarness.TickUntilAsync(() => reconciler.TickAsync(CancellationToken.None),
+            result => result.Action == "provision" && result.Member == "elastic-gru");
+        var member = (await PlacementTestHarness.MemberStatesAsync(server.Delivery, "prod-db"))
+            .Single(candidate => candidate.MemberId == "elastic-gru");
+        fleet.SetVolume(member.InstanceId!, "wrong-disk");
+        var held = await reconciler.TickAsync(CancellationToken.None);
+        await Assert.That(held.State).IsEqualTo(PlacementTickObservation.StateHeld);
+        await Assert.That(held.Error).IsEqualTo("provider-volume-missing-or-mismatched");
+        await Assert.That((await TerraBasePlacementReconciler.ReadVolumeAsync(
+            server.Delivery, "prod-db", member.MemberId, CancellationToken.None))!.Document.ProviderVolumeId)
+            .IsEqualTo("vol-elastic-gru");
+    }
+
+    [Test]
     public async Task ScaleDownRefusesOnLagThenCompletesOnCaughtUpEndToEnd()
     {
         if (!OperatingSystem.IsLinux()) return;
@@ -104,6 +154,33 @@ public sealed class TerraBasePlacementReconcilerNatsTests
             () => reconciler.TickAsync(CancellationToken.None),
             result => result.Member == "permanent-c" && result.State == PlacementTickObservation.StateHeld);
         await Assert.That(refused.Error).IsEqualTo(nameof(TerraBaseCode.PermanentMember));
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Drain_holds_when_retained_volume_is_missing_or_disagrees_with_the_host(bool mismatch)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var fleet = new FakeMemberHostFleet();
+        var authority = new PlacementAuthorityHolder();
+        var reconciler = PlacementTestHarness.Reconciler(server, fleet, authority);
+        await PlacementTestHarness.ConvergeAsync(server, fleet, authority, reconciler, "prod-db", 1, "GRU", "SFO", "FRA");
+        await PlacementTestHarness.ApplyIntentAsync(server.Delivery, "prod-db", 2, "GRU", "SFO");
+        await PlacementTestHarness.TickUntilAsync(() => reconciler.TickAsync(CancellationToken.None), result => result.Action == "deregister");
+        if (mismatch)
+            fleet.SetVolume(fleet.Instances.Single(instance => instance.EndsWith(".6")), "wrong-disk");
+        else
+            await server.Delivery.DeleteAsync(PlacementVolumeStateDocument.Key("prod-db", "elastic-fra"));
+        for (var tick = 0; tick < 3; tick++)
+        {
+            var held = await reconciler.TickAsync(CancellationToken.None);
+            await Assert.That(held.State).IsEqualTo(PlacementTickObservation.StateHeld);
+            await Assert.That(held.Error).IsEqualTo(mismatch ? "provider-volume-mismatched" : "retained-volume-missing");
+        }
+        await Assert.That(fleet.Calls.Any(call => call.StartsWith("detach-volume:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(fleet.Calls.Any(call => call.StartsWith("retire:", StringComparison.Ordinal))).IsFalse();
     }
 
     [Test]

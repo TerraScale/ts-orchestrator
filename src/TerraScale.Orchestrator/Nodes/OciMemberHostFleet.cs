@@ -140,14 +140,6 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
     private readonly OciMemberHostFleetOptions options;
     private readonly TimeProvider clock;
 
-    // An instance is immutable after launch except for its lifecycle state (and the ETag that
-    // rotates with it), so the first verified read of each instance is cached — including its
-    // boot volume identity — and every later observation derives from the filtered listing
-    // plus the cache.
-    private readonly Dictionary<string, VerifiedMemberHost> verified = new(StringComparer.Ordinal);
-
-    private sealed record VerifiedMemberHost(string ETag, Instance.LifecycleStateEnum? LifecycleState, string? VolumeId);
-
     internal OciMemberHostFleet(
         IOciMemberHostComputeTransport transport,
         OciMemberHostFleetConfiguration configuration,
@@ -182,24 +174,19 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
             if (!tags.TryGetValue(OciMemberHostRequestCompiler.MemberTag, out var member) ||
                 !tags.TryGetValue(OciMemberHostRequestCompiler.RegionTag, out var region))
                 throw new InvalidDataException("An owned member host has invalid identity tags.");
-            var instance = listed;
-            string etag;
-            string? volumeId;
-            if (verified.TryGetValue(listed.Id, out var cached) && cached.LifecycleState == listed.LifecycleState)
-            {
-                etag = cached.ETag;
-                volumeId = cached.VolumeId;
-            }
-            else
-            {
-                var response = await TryGetInstanceAsync(listed.Id, cancellationToken);
-                if (response is null) continue;
-                instance = response.Instance ??
-                    throw new InvalidDataException("OCI returned an empty member host observation.");
-                volumeId = await VerifyMemberHostAsync(instance, cancellationToken);
-                etag = response.Etag ?? string.Empty;
-                verified[listed.Id] = new(etag, instance.LifecycleState, volumeId);
-            }
+            var response = await TryGetInstanceAsync(listed.Id, cancellationToken);
+            if (response is null) continue;
+            var instance = response.Instance ??
+                throw new InvalidDataException("OCI returned an empty member host observation.");
+            // Ownership, ETags and attachments can change without a lifecycle transition.
+            // Never let the initial read cache authorize a later storage operation.
+            RequireOwned(instance);
+            if (instance.Id != listed.Id || instance.FreeformTags.GetValueOrDefault(OciMemberHostRequestCompiler.MemberTag) != member ||
+                instance.FreeformTags.GetValueOrDefault(OciMemberHostRequestCompiler.RegionTag) != region)
+                throw new InvalidDataException("The member host identity changed during observation.");
+            await VerifyMemberHostAsync(instance, cancellationToken);
+            var volumeId = await volumes.ObserveDataVolumeAsync(instance.CompartmentId, instance.Id, cancellationToken);
+            var etag = response.Etag ?? string.Empty;
             var health = (instance.LifecycleState == Instance.LifecycleStateEnum.Running
                 ? await observations.ObserveMemberHealthAsync(listed.Id, cancellationToken) : null) ??
                 new MemberHealth(false, 0, nameof(TerraBaseRole.Unknown), 0, 0);
@@ -209,12 +196,10 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
                 member,
                 region,
                 OciMemberHostStates.State(instance.LifecycleState),
-                tags.TryGetValue(OciMemberHostRequestCompiler.CordonTag, out var cordoned) && cordoned == "true",
+                instance.FreeformTags.TryGetValue(OciMemberHostRequestCompiler.CordonTag, out var cordoned) && cordoned == "true",
                 health,
                 volumeId));
         }
-        foreach (var id in verified.Keys.Where(id => instances.All(instance => instance.Id != id)).ToArray())
-            verified.Remove(id);
         return Array.AsReadOnly(observed.ToArray());
     }
 
@@ -441,7 +426,7 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         }
     }
 
-    private async Task<string?> VerifyMemberHostAsync(Instance instance, CancellationToken cancellationToken)
+    private async Task VerifyMemberHostAsync(Instance instance, CancellationToken cancellationToken)
     {
         var tags = instance.FreeformTags ??
             throw new InvalidDataException("An owned member host has no ownership tags.");
@@ -475,34 +460,6 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         var vnic = vnicResponse.Vnic ??
             throw new InvalidDataException("OCI returned an empty member host VNIC observation.");
         OciCiRunnerComputeAdapter.RequireLaunchTemplate(instance, attachment, vnic, template);
-        // The boot volume is this member's retained stateful volume: preserved on retire for
-        // permanent members, reattached to a replacement host. Immutable after launch, so its
-        // identity is resolved once here and rides the cached verification.
-        var bootAttachments = new List<BootVolumeAttachment>();
-        page = null;
-        do
-        {
-            var response = await transport.ListBootVolumeAttachmentsAsync(
-                new ListBootVolumeAttachmentsRequest
-                {
-                    CompartmentId = template.CompartmentId,
-                    InstanceId = instance.Id,
-                    Limit = 100,
-                    Page = page,
-                },
-                cancellationToken);
-            bootAttachments.AddRange(response.Items ?? []);
-            if (bootAttachments.Count > 8)
-                throw new InvalidDataException("The member host boot-volume observation exceeded its bound.");
-            page = response.OpcNextPage;
-        }
-        while (!string.IsNullOrEmpty(page));
-        return bootAttachments.Count switch
-        {
-            0 => null,
-            1 => bootAttachments[0].BootVolumeId,
-            _ => throw new InvalidDataException("A member host must not have more than one boot volume attachment."),
-        };
     }
 
     private static void RequireOwned(Instance instance)
@@ -511,214 +468,6 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         if (tags is null || !OciMemberHostInstances.Owned(tags))
             throw new InvalidOperationException(
                 $"The instance {instance.Id} is not an owned member host of this fleet.");
-    }
-
-    private void RequireAuthority()
-    {
-        if (!authorityStillValid())
-            throw new InvalidOperationException(
-                "Member host fleet authority was lost; the provider mutation was not issued.");
-    }
-}
-
-/// <summary>The outcome of one provider volume mutation; unknown is held for durable reconciliation.</summary>
-internal enum OciMemberHostVolumeOutcome { Completed = 1, OutcomeUnknown = 2 }
-
-/// <summary>
-/// The provider side of the storage attachment planner's decisions: idempotent detach, and
-/// attach keyed by a deterministic retry token. After a possibly-executed mutation whose response
-/// was lost, it reobserves and reports unknown — it never issues a second logical mutation, the
-/// OciBlockVolumeExpansionAdapter discipline.
-/// </summary>
-internal sealed class OciMemberHostVolumeAdapter
-{
-    private readonly IOciMemberHostComputeTransport transport;
-    private readonly Func<bool> authorityStillValid;
-    private readonly OciMemberHostFleetOptions options;
-    private readonly TimeProvider clock;
-
-    internal OciMemberHostVolumeAdapter(
-        IOciMemberHostComputeTransport transport,
-        Func<bool> authorityStillValid,
-        TimeProvider clock,
-        OciMemberHostFleetOptions? options = null)
-    {
-        this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
-        this.authorityStillValid = authorityStillValid ?? throw new ArgumentNullException(nameof(authorityStillValid));
-        this.clock = clock ?? throw new ArgumentNullException(nameof(clock));
-        this.options = options ?? OciMemberHostFleetOptions.Default;
-    }
-
-    /// <summary>
-    /// Detaches one volume from one instance exactly as the attachment planner emitted it. The
-    /// exact attachment id is the fence; a volume with no live attachment is already detached.
-    /// </summary>
-    internal async ValueTask<OciMemberHostVolumeOutcome> DetachAsync(
-        string compartmentId, string volumeId, string instanceId, CancellationToken cancellationToken)
-    {
-        RequireAuthority();
-        var attachment = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-        if (attachment is null || attachment.InstanceId != instanceId)
-            return OciMemberHostVolumeOutcome.Completed;
-        try
-        {
-            RequireAuthority();
-            _ = await transport.DetachVolumeAsync(
-                new DetachVolumeRequest { VolumeAttachmentId = attachment.Id }, cancellationToken);
-        }
-        catch (OciException failure) when (failure.StatusCode == HttpStatusCode.NotFound)
-        {
-            return OciMemberHostVolumeOutcome.Completed;
-        }
-        catch (Exception exception) when (!Fatal(exception, cancellationToken))
-        {
-            // The response was lost after a possible mutation: reobserve, never a second detach.
-            return await ReobserveDetachedAsync(compartmentId, volumeId, cancellationToken);
-        }
-        return await WaitUntilDetachedAsync(compartmentId, volumeId, attachment.Id, cancellationToken);
-    }
-
-    /// <summary>Attaches one volume to one instance; the create key is the idempotency token.</summary>
-    internal async ValueTask<OciMemberHostVolumeOutcome> AttachAsync(
-        string compartmentId, string volumeId, string instanceId, string createKey, CancellationToken cancellationToken)
-    {
-        RequireAuthority();
-        var existing = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-        if (existing is not null && existing.InstanceId != instanceId)
-            return OciMemberHostVolumeOutcome.OutcomeUnknown;
-        if (existing is null)
-        {
-            try
-            {
-                RequireAuthority();
-                _ = await transport.AttachVolumeAsync(
-                    new AttachVolumeRequest
-                    {
-                        OpcRetryToken = OciMemberHostLaunchPlan.Bounded(createKey, 256, nameof(createKey)),
-                        AttachVolumeDetails = new AttachVolumeDetails
-                        {
-                            InstanceId = instanceId,
-                            VolumeId = volumeId,
-                        },
-                    },
-                    cancellationToken);
-            }
-            catch (Exception exception) when (!Fatal(exception, cancellationToken))
-            {
-                // The response was lost after a possible mutation: reobserve, never a second attach.
-                return await ReobserveAttachedAsync(compartmentId, volumeId, instanceId, cancellationToken);
-            }
-        }
-        return await WaitUntilAttachedAsync(compartmentId, volumeId, instanceId, cancellationToken);
-    }
-
-    private async ValueTask<OciMemberHostVolumeOutcome> ReobserveDetachedAsync(
-        string compartmentId, string volumeId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Never a second logical mutation after a lost response: the reobservation either
-            // confirms the goal state or leaves the outcome held for durable reconciliation.
-            var observed = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-            return observed is null
-                ? OciMemberHostVolumeOutcome.Completed
-                : OciMemberHostVolumeOutcome.OutcomeUnknown;
-        }
-        catch (Exception exception) when (!Fatal(exception, cancellationToken))
-        {
-            return OciMemberHostVolumeOutcome.OutcomeUnknown;
-        }
-    }
-
-    private async ValueTask<OciMemberHostVolumeOutcome> ReobserveAttachedAsync(
-        string compartmentId, string volumeId, string instanceId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            // Never a second logical mutation after a lost response: the reobservation either
-            // confirms the goal state or leaves the outcome held for durable reconciliation.
-            var observed = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-            return observed is not null && observed.InstanceId == instanceId &&
-                observed.LifecycleState == VolumeAttachment.LifecycleStateEnum.Attached
-                    ? OciMemberHostVolumeOutcome.Completed
-                    : OciMemberHostVolumeOutcome.OutcomeUnknown;
-        }
-        catch (Exception exception) when (!Fatal(exception, cancellationToken))
-        {
-            return OciMemberHostVolumeOutcome.OutcomeUnknown;
-        }
-    }
-
-    /// <summary>Caller cancellation always propagates; fatal failures are never swallowed.</summary>
-    private static bool Fatal(Exception exception, CancellationToken cancellationToken) =>
-        exception is OutOfMemoryException or StackOverflowException or AccessViolationException ||
-        (exception is OperationCanceledException && cancellationToken.IsCancellationRequested);
-
-    private async ValueTask<OciMemberHostVolumeOutcome> WaitUntilDetachedAsync(
-        string compartmentId, string volumeId, string attachmentId, CancellationToken cancellationToken)
-    {
-        var deadline = clock.GetUtcNow() + options.WaitDeadline;
-        while (true)
-        {
-            var attachment = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-            if (attachment is null || attachment.Id != attachmentId ||
-                attachment.LifecycleState is VolumeAttachment.LifecycleStateEnum.Detached)
-                return OciMemberHostVolumeOutcome.Completed;
-            if (clock.GetUtcNow() >= deadline)
-                return OciMemberHostVolumeOutcome.OutcomeUnknown;
-            await Task.Delay(options.PollInterval, cancellationToken);
-        }
-    }
-
-    private async ValueTask<OciMemberHostVolumeOutcome> WaitUntilAttachedAsync(
-        string compartmentId, string volumeId, string instanceId, CancellationToken cancellationToken)
-    {
-        var deadline = clock.GetUtcNow() + options.WaitDeadline;
-        while (true)
-        {
-            var attachment = await FindAttachmentAsync(compartmentId, volumeId, cancellationToken);
-            if (attachment is not null && attachment.InstanceId != instanceId)
-                return OciMemberHostVolumeOutcome.OutcomeUnknown;
-            if (attachment?.LifecycleState == VolumeAttachment.LifecycleStateEnum.Attached)
-                return OciMemberHostVolumeOutcome.Completed;
-            if (clock.GetUtcNow() >= deadline)
-                return OciMemberHostVolumeOutcome.OutcomeUnknown;
-            await Task.Delay(options.PollInterval, cancellationToken);
-        }
-    }
-
-    private async Task<VolumeAttachment?> FindAttachmentAsync(
-        string compartmentId, string volumeId, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrWhiteSpace(compartmentId) || string.IsNullOrWhiteSpace(volumeId))
-            throw new ArgumentException("Member host volume resolution requires a compartment and volume.");
-        var attachments = new List<VolumeAttachment>();
-        string? page = null;
-        do
-        {
-            var response = await transport.ListVolumeAttachmentsAsync(
-                new ListVolumeAttachmentsRequest
-                {
-                    CompartmentId = compartmentId,
-                    VolumeId = volumeId,
-                    Limit = 100,
-                    Page = page,
-                },
-                cancellationToken);
-            attachments.AddRange(response.Items ?? []);
-            if (attachments.Count > 8)
-                throw new InvalidDataException("The member host volume observation exceeded its bound.");
-            page = response.OpcNextPage;
-        }
-        while (!string.IsNullOrEmpty(page));
-        var live = attachments.Where(static attachment =>
-            attachment.LifecycleState is not VolumeAttachment.LifecycleStateEnum.Detached).ToArray();
-        return live.Length switch
-        {
-            0 => null,
-            1 => live[0],
-            _ => throw new InvalidDataException("One member host volume has more than one live attachment."),
-        };
     }
 
     private void RequireAuthority()

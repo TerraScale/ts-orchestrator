@@ -102,6 +102,15 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
         }
     }
 
+    public void SetVolume(string instanceId, string? volumeId)
+    {
+        lock (gate)
+        {
+            if (hosts.TryGetValue(instanceId, out var host))
+                hosts[instanceId] = host with { VolumeId = volumeId };
+        }
+    }
+
     public IReadOnlyList<string> Instances
     {
         get
@@ -235,5 +244,5 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
         bool Cordon,
         string ETag,
         MemberHealth MemberHealth,
-        string VolumeId);
+        string? VolumeId);
 }
