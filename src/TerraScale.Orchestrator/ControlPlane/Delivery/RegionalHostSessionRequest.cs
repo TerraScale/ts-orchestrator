@@ -55,8 +55,7 @@ internal sealed record RegionalHostSessionRequest
     public DateTimeOffset IssuedAt { get; }
     public string Signature { get; }
 
-    internal string EnrollmentDigest => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
-        BootstrapGrantCanonical.EncodeFields([Enrollment.CanonicalUnsigned(), Enrollment.Signature]))));
+    internal string EnrollmentDigest => Enrollment.Digest;
 
     internal byte[] CanonicalBytes() => Encoding.UTF8.GetBytes(BootstrapGrantCanonical.EncodeFields([
         SignatureDomain, EnrollmentDigest, Enrollment.Region, Enrollment.NodeId,

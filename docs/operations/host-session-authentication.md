@@ -66,22 +66,23 @@ authorize any bootstrap operation or confer OCI controller permissions.
 The authority owns one `node-enrollment.<SHA-256(node)>` record in
 `ORCH_NODE_ENROLLMENTS`. This must be a non-expiring, non-evicting R3 file store
 with limits retention, acknowledgements and no message/tombstone expiry.
-The record preserves generation, enrollment digest, original admission time,
-process session and epoch, latest request digest/time, lease expiry,
+The schema-2 record preserves generation, enrollment digest, original admission
+time, server-observed process start, process session and epoch, latest request digest/time, lease expiry,
 revocation and bounded consumed-grant history. It contains no private keys.
 
 Every transition uses a single compare-and-set operation. Initial creation
 requires revision zero; it does not use the NATS client's create helper,
 which can resurrect deleted keys. Missing required fields, unknown schema
-fields and tombstones fail closed. The older one-use record and the session
-record cannot overwrite one another. There is no state-format migration
+fields and tombstones fail closed. The older one-use record and schema-1
+session record cannot replace the schema-2 session record. There is no state-format migration
 path; production must not enable the two admission implementations together.
 
 Session behavior is explicit:
 
-- An exact latest-request retry returns the same epoch, expiry and storage
-  revision. It never extends the lease. Older requests cannot replace a
-  later renewal.
+- An exact latest-request retry returns the same generation, epoch, expiry,
+  request identity and decision. It confirms the read through an unchanged CAS
+  before returning success, so stale replica reads cannot bypass revocation.
+  It never extends the lease. Older requests cannot replace a later renewal.
 - Each lease expires 30 seconds after the request's signed issue time.
   Renewal requires the current process and epoch, a newer signed timestamp
   and an unexpired lease. No lease may cross a signing key's acceptance
@@ -102,8 +103,11 @@ Session behavior is explicit:
   `ReplayCapacity`; it never evicts a still-valid replay fence.
 
 Controllers share a queue subscription, but storage CAS decides ownership.
-The host client accepts only a response bound to the exact request digest,
-generation, epoch and signed lease deadline. Requests have a five-second
+The host client accepts only a schema-2 response bound to the exact request
+digest, generation, epoch and signed lease deadline. Storage revision is not
+part of this response: an unchanged CAS can advance that internal concurrency
+fence without granting a new lease. Old response fields and schemas are
+rejected; there is no compatibility fallback. Requests have a five-second
 deadline, including an explicit bound around NATS.Net's PING/PONG wait.
 The library's cancellation token does not cover waiting for PONG in 2.7.2;
 a withheld-PONG loopback test covers this failure path.
@@ -112,6 +116,35 @@ Service snapshots count accepted acquire/renew requests (including retries),
 rejections and storage/transport failures. Bounded failure tracking prevents
 one host's success from clearing another host's pending storage retry. These
 snapshots feed the authenticated operator status and process telemetry below.
+
+## Report proof and current-session authorization
+
+`RegionalHostReportProof` signs a separate report domain, complete enrollment
+digest, process session/epoch, exact workload role, admission/runtime report
+kind, request nonce, issue time and SHA-256 of the canonical report bytes.
+Proofs and report payloads each have a 16 KiB limit. The signer reloads its
+protected NKey/JWT credentials; a changed user key is rejected.
+
+The authority's typed admission/runtime report checks derive the workload
+role from the report artifact, check node/cell/environment identity, verify
+the signature and current enrollment trust, and compare the durable generation,
+enrollment digest, process and epoch. Reports cannot predate the server's
+process admission time. Request proofs expire after ten seconds; observations
+must be less than thirty seconds old. Successful authorization ends at the
+earliest of those deadlines and the current lease expiry.
+
+An unchanged CAS confirms every accepted report authorization against renewal,
+replacement and revocation. It changes no grant/session fields and never renews
+the lease. This is authorization at that CAS point, not permission to ignore a
+subsequent revoke. A readiness consumer must check current authorization when
+making its decision. Repeated CAS conflicts fail closed after eight attempts.
+
+These report components pass direct real-R3 tests, including forced stale
+replica reads after revocation, expired bootstrap evidence, scope changes,
+renewal, process replacement and tombstones. They are not yet wired into
+`HostObservationRelay`, its stored reports or the fleet readiness readers.
+Those producer/consumer changes remain required; the existing report path
+does not become session-authorized merely because these methods exist.
 
 ## Controller configuration and observability
 

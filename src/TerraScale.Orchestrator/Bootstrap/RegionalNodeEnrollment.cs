@@ -64,6 +64,9 @@ public sealed record RegionalNodeEnrollmentEnvelope
     public ulong SignerKeyVersion { get; }
     public string Signature { get; init; }
 
+    internal string Digest => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+        BootstrapGrantCanonical.EncodeFields([CanonicalUnsigned(), Signature]))));
+
     internal string CanonicalUnsigned() => BootstrapGrantCanonical.EncodeFields([
         Version,
         Region,

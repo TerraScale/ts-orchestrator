@@ -30,6 +30,10 @@ durable revocation and generation/replay fencing. Their component tests pass.
 Controller startup now loads a public enrollment policy and starts the service
 with status/metrics. The dedicated host entry, renewal and workload fencing
 still need composition, so remote host admission/startup remains a blocker.
+Current lease retries now confirm replica reads through an unchanged CAS;
+report proof and current-session authorization components use the same fence.
+The report relay and fleet readiness readers still need to consume those
+components before session-bound reporting is qualified.
 
 The [bootstrap contract](../operations/control-bootstrap.md) defines the
 required first boot and exact-resource handoff. A tag or output does not

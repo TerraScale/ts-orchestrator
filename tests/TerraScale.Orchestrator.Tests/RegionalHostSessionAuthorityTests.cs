@@ -276,7 +276,7 @@ public sealed class RegionalHostSessionAuthorityTests
         var client = new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1");
         var retry = await client.SendAsync(request, deadline.Token);
         await Assert.That(retry.Accepted).IsTrue();
-        await Assert.That(retry.Revision).IsEqualTo(committed.Revision);
+        await Assert.That(retry.Epoch).IsEqualTo(JsonSerializer.Deserialize<RegionalHostSessionRecord>(committed.Value!, RegionalHostSessionAuthority.JsonOptions)!.Epoch);
         await Assert.That(retry.ExpiresAt).IsEqualTo(request.IssuedAt + RegionalHostSessionAuthority.LeaseLifetime);
         var renewed = await client.SendAsync(material.Request(enrollment, request.SessionId, retry.Epoch), deadline.Token);
         await Assert.That(renewed.Accepted).IsTrue();

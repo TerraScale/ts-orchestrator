@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T05:36:52.965646+00:00",
+  "sourceBase": "3f5ffa4a0c49aa5987ed37bbac77e1429c6fd855",
+  "sourceStatus": "working tree identified by sourceFiles hashes",
+  "sourceFiles": {
+    "docs/evidence/oci-readiness-2026-09-20.md": "ebfdfb9a6bc08a73863727b18d7468b06269287c0c1edc52a9bad5be169cbb4c",
+    "docs/operations/host-session-authentication.md": "6dc74a6f85d1d9129de2bc818852faa54ae7f66bb53f6bfc043894264becc69b",
+    "src/TerraScale.Orchestrator/Bootstrap/RegionalNodeEnrollment.cs": "d7bf648d12c8c6086d8b36ca5b2278cf2849659c92410055b994e235e2ad34b0",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionAuthority.cs": "9943d2585e1f6cafe54d44a4c285621060d4ae1499c5330ba7be96a1e9619657",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionRequest.cs": "1eebbdb097d5c8f09e12e891e8e704dbe998869364375ec476acfd3d23450f30",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionService.cs": "efce43a626ec560897432cc793c9bb708cb23bf6927e2830a7c2b7202459e9ad",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionAuthorityTests.cs": "edd58b3db14adc7cddacdac7fcf33c330ec9930c3842b87ab6be84987a897998",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostReportProof.cs": "bdcf857c987d91d687f17383293538f57a3d65776461d911c4a240a90a5a9157",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostReportAuthorizationTests.cs": "9381154761e54fd6cf29e45c5bc2628635e31542d896b16aec7e8323ec2b35da"
+  },
+  "checks": {
+    "releaseBuild": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "focused": {
+      "passed": 56,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "49s840ms"
+    },
+    "realControllerRuntimeR3": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "11s004ms"
+    },
+    "protocol": {
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "986ms"
+    },
+    "requiredStyle": "passed"
+  },
+  "localLogs": {
+    "/tmp/ts-host-report-authorization-final-build.log": "b171848e3683a1073f220edcdd23cb3b06d7313f88689f342db1214c9f8ed965",
+    "/tmp/ts-host-report-authorization-final-tests.log": "2e633eeaa46ec27e7ce76db82e3d9ad8824dd490ea637474017aa63dc62d8c7f",
+    "/tmp/ts-host-report-authorization-runtime-r3.log": "273632ea21349bba75e987d300a26bd97761f8eba7aec26ea92945295a6b8c3a",
+    "/tmp/ts-host-report-authorization-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-host-report-authorization-protocol.log": "bdbab91c647b4cd3f979a40d673af5773cd32bc9c7ac70e087039b5ad20e6cc9"
+  },
+  "fullCurrentMainSuiteExecuted": false,
+  "coverage": [
+    "Exact report signature binds enrollment, process epoch, role, kind and report bytes.",
+    "Unchanged CAS confirms current lease against stale replica reads without extending expiry.",
+    "Real R3 forced stale reads after revocation reject reports and exact lease retries.",
+    "Expired grants continue only their previously admitted current generation; new generation/role, trust removal and tombstones fail closed."
+  ],
+  "productionReportRelayIntegrated": false,
+  "productionReadinessConsumersIntegrated": false,
+  "workloadStopAndStorageFencingQualified": false,
+  "arm64Executed": false,
+  "liveOci": false,
+  "deploymentReady": false
+}
