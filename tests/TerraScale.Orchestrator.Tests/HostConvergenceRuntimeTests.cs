@@ -28,6 +28,89 @@ public sealed class HostConvergenceRuntimeTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task Lease_loss_stops_tracked_work_without_desired_state_or_a_runtime_report_ack(bool lostReportAck)
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, _) = server.Stores();
+        var artifact = Encoding.UTF8.GetBytes("tracked-before-report-or-marker");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+        using var admission = new ExecutionLease();
+        var native = new StoppableConverger();
+        var reports = new WithheldRuntimeReport(new TestHostObservationPublisher(runtimeStore), lostReportAck);
+        await using var runtime = HostConvergenceRuntime.Create(delivery, runtimeStore, reports,
+            new MemoryArtifactSource(("sha256-" + hex, artifact)), native,
+            new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "tracked-artifacts"), HostArchitecture.X64),
+            "gru", "test-1", admission: admission);
+        var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
+        var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, descriptor, CancellationToken.None);
+        try
+        {
+            await reports.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            if (lostReportAck)
+                await Assert.That(File.Exists(runtime.MarkerPath(descriptor))).IsFalse();
+            else
+            {
+                await attempt.WaitAsync(TimeSpan.FromSeconds(3));
+                await delivery.DeleteAsync(DirectDeliveryTargetKey.For("terrabase-server", "production", "gru"));
+                await runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, descriptor, CancellationToken.None);
+            }
+            await Assert.That(native.Running).IsTrue();
+            admission.Lost.Cancel();
+            var stopped = await runtime.ShutdownCompletion!.WaitAsync(TimeSpan.FromSeconds(2));
+            await Assert.That(stopped.State).IsEqualTo("stopped");
+            await Assert.That(stopped.StoppedAllocations).IsEqualTo(1);
+            await Assert.That(native.Running).IsFalse();
+            if (lostReportAck) await Assert.That(attempt.IsCompleted).IsFalse();
+        }
+        finally
+        {
+            reports.Release.TrySetResult();
+            try { await attempt.WaitAsync(TimeSpan.FromSeconds(3)); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    private sealed class WithheldRuntimeReport(IHostObservationPublisher inner, bool withheld) : IHostObservationPublisher
+    {
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task PublishAsync(HostAdmissionObservation report, CancellationToken cancellationToken) => inner.PublishAsync(report, cancellationToken);
+        public async Task PublishAsync(HostConvergenceObservation report, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            if (withheld) await Release.Task;
+            await inner.PublishAsync(report, cancellationToken);
+        }
+    }
+
+    private sealed class StoppableConverger : IHostRuntimeConverger
+    {
+        private int running;
+        internal Task? ConvergeBarrier { get; init; }
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal bool Running => Volatile.Read(ref running) == 1;
+        public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            if (ConvergeBarrier is { } barrier) await barrier.WaitAsync(cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Exchange(ref running, 1);
+        }
+        public Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Interlocked.Exchange(ref running, 0);
+            return Task.CompletedTask;
+        }
+        public Task<SystemdAllocationObservation> ObserveAsync(HostRuntimePlan plan, CancellationToken cancellationToken) =>
+            Task.FromResult(new SystemdAllocationObservation(plan.Systemd!.UnitName,
+                Running ? SystemdAllocationState.Running : SystemdAllocationState.Absent, Running ? 123 : null, "test"));
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Execution_lease_loss_cancels_a_stalled_desired_read_or_in_flight_convergence_and_prevents_new_work(bool stalledDesired)
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -39,7 +122,7 @@ public sealed class HostConvergenceRuntimeTests
         var read = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
         var withheld = (WithheldDesired)read;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var converger = new FakeConverger { ConvergeBarrier = release.Task };
+        var converger = new StoppableConverger { ConvergeBarrier = release.Task };
         await using var runtime = HostConvergenceRuntime.Create(stalledDesired ? read : delivery, runtimeStore,
             new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)), converger,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "lease-artifacts"), HostArchitecture.X64),
@@ -47,12 +130,12 @@ public sealed class HostConvergenceRuntimeTests
         var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
         try
         {
-            await (stalledDesired ? withheld.Started.Task : converger.FirstConvergeStarted).WaitAsync(TimeSpan.FromSeconds(3));
+            await (stalledDesired ? withheld.Started.Task : converger.Started.Task).WaitAsync(TimeSpan.FromSeconds(3));
             admission.Lost.Cancel();
             await Assert.That(() => attempt.WaitAsync(TimeSpan.FromSeconds(2))).Throws<OperationCanceledException>();
             await Assert.That(() => runtime.ReconcileOnceAsync(HostRole.TerraBaseMember,
                 AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None)).Throws<OperationCanceledException>();
-            await Assert.That(converger.ConvergedPlans).IsEmpty();
+            await Assert.That(converger.Running).IsFalse();
         }
         finally
         {

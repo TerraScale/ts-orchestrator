@@ -188,6 +188,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly IHostObservationPublisher reports;
     private readonly IHostArtifactSource artifacts;
     private readonly IHostRuntimeConverger converger;
+    private readonly HostWorkloadLifetime? workloadLifetime;
     private readonly HostConvergenceConfiguration configuration;
     private readonly TerraScale.Orchestrator.Nodes.IMemberHealthSource? memberHealth;
     private readonly string cell;
@@ -223,7 +224,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.runtimeStore = runtimeStore;
         this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
         this.artifacts = artifacts;
-        this.converger = converger;
+        if (admission is IHostExecutionLease)
+            workloadLifetime = new HostWorkloadLifetime(converger, stopping.Token);
+        this.converger = workloadLifetime ?? converger;
         this.configuration = configuration;
         memberHealth = configuration.MemberObservabilityUrl is { } url
             ? new TerraScale.Orchestrator.Nodes.MemberHealthHttpSource(url)
@@ -273,15 +276,29 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         stopping.Cancel();
+        if (workloadLifetime is not null)
+            await workloadLifetime.DisposeAsync().ConfigureAwait(false);
         try
         {
-            await Task.WhenAll(loops.ToArray()).ConfigureAwait(false);
+            var completing = Task.WhenAll(loops.ToArray());
+            if (workloadLifetime is not null)
+                await completing.WaitAsync(RegionalHostSessionLease.ShutdownReserve).ConfigureAwait(false);
+            else
+                await completing.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
         }
+        catch (TimeoutException) when (workloadLifetime is not null)
+        {
+            // The independent shutdown snapshot, not loop completion, describes
+            // whether native allocations were observed stopped inside the budget.
+        }
         stopping.Dispose();
     }
+
+    internal Task<HostWorkloadShutdownSnapshot>? ShutdownCompletion => workloadLifetime?.Completion;
+    internal HostWorkloadShutdownSnapshot? ShutdownSnapshot => workloadLifetime?.Snapshot;
 
     private async Task ReconcileLoopAsync(HostRole role, CancellationToken cancellationToken)
     {

@@ -26,7 +26,7 @@ Controller startup loads the policy and starts the service as described below.
 The independent host execution lease now uses the remote client and is tested
 with restricted host credentials. Core convergence accepts its cancellation
 token. No production host entry point is enabled; credential checks, bounded
-host control protocols and physical shutdown still need composition.
+host control protocols and restart-safe shutdown still need composition.
 
 A replaced node can retain its old credentials for the same hashed NATS
 subject. A public signed enrollment document alone therefore does not
@@ -135,7 +135,12 @@ a five-second bound. Transient failure retries after one second inside the
 existing execution window. Authoritative rejection, invalid response binding,
 missing credentials or a changed signing key cancel execution. The mandatory
 material callback must eventually validate the delivered manifest and mTLS
-certificate; the production callback is not yet composed.
+certificate; the production callback is not yet composed. Its current boolean
+result is insufficient to communicate a known certificate expiry. Production
+composition must carry the material validity deadline into the execution
+window, so a stalled later probe cannot extend work beyond certificate validity.
+Protected file validation/signing must also preserve startup and disposal
+bounds when file I/O blocks before returning an asynchronous operation.
 
 An independent 100 ms watchdog checks both UTC and monotonic elapsed time.
 The local execution budget is fourteen seconds from the signed request's
@@ -151,10 +156,12 @@ deadline and renewal/failure counts. They are not yet exported by a host status
 endpoint. Core `HostConvergenceRuntime` links every reconciliation to execution
 loss, including a desired-state read that ignores its cancellation token.
 Cancellation prevents subsequent work and reaches cooperative in-flight
-operations. It does **not** stop or prove absence of existing native workloads.
-Shutdown must use its own bounded token, run without NATS/report acknowledgement,
-recover ownership before installation markers exist, and verify physical stop
-before a replacement or writer-fencing claim is possible.
+operations. Lease-backed convergence also composes
+[`HostWorkloadLifetime`](host-workload-shutdown.md), which stops and observes
+allocations tracked in the current process with independent cleanup tokens.
+This does not recover an unrecorded allocation after a crash or establish
+storage writer fencing. Durable ownership recovery, production host startup
+and stop evidence bound to controller drain/replacement remain required.
 
 ## Report proof and current-session authorization
 

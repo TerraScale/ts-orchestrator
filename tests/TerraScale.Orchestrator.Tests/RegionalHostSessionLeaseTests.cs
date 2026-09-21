@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -233,6 +234,11 @@ public sealed class RegionalHostSessionLeaseTests
         await using var relay = await HostObservationRelay.StartAsync(controller.Connection, runtime, authority, deadline.Token);
         await using var lease = await RegionalHostSessionLease.StartAsync(new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1"),
             material.Enroll(1), authentication, _ => ValueTask.FromResult(true), deadline.Token);
+        using var native = new HostWorkloadLifetimeTests.ChildProcess();
+        await using var workloads = new HostWorkloadLifetime(native, lease.ExecutionToken);
+        await workloads.ConvergeAsync(HostRuntimePlan.Create(AdmittedRole.TerraBaseMember, RuntimeDriver.NativeSystemd,
+            new("lease-revocation-child"), new(new string('a', 64)), HostArchitecture.X64), deadline.Token);
+        await Assert.That(native.Exited).IsFalse();
         var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1", lease.GetReportSigner);
         await UntilAsync(() => lease.Snapshot.Renewals >= 2, TimeSpan.FromSeconds(12));
         var report = new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server",
@@ -244,6 +250,8 @@ public sealed class RegionalHostSessionLeaseTests
         var lost = await lease.Completion.WaitAsync(TimeSpan.FromSeconds(8), deadline.Token);
         await Assert.That(lost.Need).IsEqualTo("session-revoked");
         await Assert.That(lease.ExecutionToken.IsCancellationRequested).IsTrue();
+        await Assert.That((await workloads.Completion.WaitAsync(TimeSpan.FromSeconds(3), deadline.Token)).State).IsEqualTo("stopped");
+        await Assert.That(native.Exited).IsTrue();
         await Assert.That(await reader.ReadAsync(HostAdmissionObservation.Key("host-1", report.ArtifactKey), deadline.Token)).IsNull();
         await Assert.That(() => publisher.PublishAsync(report, deadline.Token)).Throws<InvalidOperationException>();
         await Assert.That(service.Snapshot.Renewed).IsGreaterThanOrEqualTo(2L);

@@ -31,9 +31,11 @@ Controller startup now loads a public enrollment policy and starts the service
 with status/metrics. An independent renewable host execution lease now exposes
 terminal cancellation and an immutable current report signer. Core convergence
 links work to that cancellation, including stalled desired-state reads.
-The dedicated host entry, credential-material checks and physical workload
-shutdown still need composition, so remote host admission/startup remains a
-blocker. Cancellation is not proof that a native process or storage writer stopped.
+Lease-backed convergence now stops and observes allocations tracked in the
+current process independently of desired state and report acknowledgements.
+The dedicated host entry, credential-material checks, durable restart recovery
+and writer fencing still need composition, so remote host admission/startup
+remains a blocker. A local stopped observation is not storage writer fencing.
 Current lease retries now confirm replica reads through an unchanged CAS;
 report proof and current-session authorization components use the same fence.
 TerraBase recovery/health, OCI workload readiness and operator ready counts
@@ -96,9 +98,18 @@ subsequent complete local regression.
 The [host execution lease receipt](host-execution-lease-local-2026-09-21.json)
 records independent renewal/watchdog, cancellation, authenticated R3 and
 response-deadline checks. It does not qualify physical workload shutdown.
+The [tracked workload shutdown receipt](host-workload-shutdown-local-2026-09-21.json)
+records the subsequent full regression, including actual child-process exit
+after authenticated R3 revocation and independent cleanup before report ACK.
+The [ARM64 emulation receipt](host-arm64-emulation-local-2026-09-21.json)
+records AArch64 application startup and bundled cryptography execution under
+QEMU, with exact artifact/loader hashes and isolated test-harness limitations.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Tracked workload shutdown and complete regression | **2513 passed**, 0 failed, 5 expected opt-in skips across five suites | Main1217/control966/protocol165/model59/scheduler106; `/tmp/ts-host-shutdown-{full-main,control-tests,protocol-tests,model-tests,scheduler-tests}.log`; main13m45s021ms; Release0warnings/errors, required style passed; local inventory does not establish crash recovery or writer fencing |
+| ARM64 application and bundled signing under QEMU | Offline application plan **passed**; **24 tests passed**, 0 failed/skipped | `/tmp/ts-host-shutdown-arm64-{plan.json,crypto-tests.log,loader.log}`; guest loaded the extracted bundled AArch64 libsodium; application publish had no warnings; isolated test harness retained IL3000/NETSDK1236 limitations; native ARM64 services remain unqualified |
+| CI #508 at `52276b1e` | **2499 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Main1203/control966/protocol165/model59/scheduler106; `/tmp/ts-orchestrator-ci508-job-{22017,22018}.log`; lease checkpoint before tracked-shutdown integration; verification46m3s, artifact1m37s; native ARM64 workloads were not executed |
 | Independent host execution lease and report regression | **60 passed**, 0 failed/skipped; control-plane **966 passed**; Release **0 warnings/errors**; required style passed | `/tmp/ts-host-lease-corrected-{targeted,build,style}.log`, `/tmp/ts-host-lease-control-tests.log`; prior 47-case convergence/authority/signer run also passed; see receipt for exact source chronology; no new full-main or ARM64 execution claim |
 | Signed host transport and admission/readiness regression | **2482 passed**, 0 failed, 5 expected opt-in skips across all five suites | Main1186/control966/protocol165/model59/scheduler106; `/tmp/ts-signed-host-report-{full-main,control-final,protocol-tests,model-tests,scheduler-tests}.log`; main13m43s984ms; final source, Release0warnings/errors and required style passed |
 | Real runtime, relay restart, retention correction and lease signer | **5 passed**, 0 failed/skipped | `/tmp/ts-signed-host-report-runtime-tests.log`; actual restricted JWT/mTLS host → controller relay → reader → authenticated operator status; independent current-session signing and retained ordering |
@@ -194,7 +205,10 @@ This warning must still be assessed for release packaging.
 
 ## OCI inventory and configuration
 
-Read-only OCI CLI 3.82.0 queries confirm READY subscriptions:
+Read-only OCI CLI 3.82.0 queries confirm READY subscriptions. The local API-key
+authentication check was repeated on 2026-09-21; see the
+[region subscription receipt](oci-region-subscriptions-local-2026-09-21.json).
+This does not qualify a guest Instance Principal or permission to mutate resources.
 
 | Cell | OCI region | OCI key |
 | --- | --- | --- |
@@ -272,10 +286,14 @@ repository's main-only push rule being resolved.
   that document, process session, operation, nonce, epoch and timestamp;
   the controller session authority separately checks enrollment trust and
   durable replay state. Its 30-second leases support process restart and
-  renewal without reauthorizing expired bootstrap operations. Production
-  admission still accepts a generation once and caches it for the process
-  lifetime. Compose the remote session loop and stop/fence workloads on lost
-  admission before replacing that runtime path.
+  renewal without reauthorizing expired bootstrap operations. The independent
+  host execution lease now renews remotely and triggers stop/observation of
+  tracked local workloads. The older one-use admission gate is not a replacement
+  for that session. Controller startup rejects mixed host roles; the dedicated
+  host entry, credential validation and restart-safe workload ownership remain open.
+  Credential validation must provide its known certificate/bundle expiry to
+  the execution deadline; the current uncomposed boolean material callback
+  alone cannot enforce expiry during a stalled next probe.
 - **Vault and workloads:** fetch pinned secret versions through scoped
   Instance Principals, verify digests, write restricted files, rotate and
   revoke credentials. Compose this path for NATS, TerraBase and auth secrets.
@@ -319,9 +337,10 @@ repository's main-only push rule being resolved.
    relay now requires signed session-bound ingress and atomic persistence.
    Generic OCI/operator serving readiness also pairs current admission with
    runtime evidence, so a withdrawal invalidates an older converged report.
-   These report components do not yet compose the restricted host runtime,
-   independent renewal or physical workload fencing. Controller run/check
-   now rejects mixed host roles.
+   Independent renewal and tracked-workload shutdown now have component and
+   core-convergence coverage. They do not yet compose the restricted host
+   runtime, durable crash recovery or physical writer fencing. Controller
+   run/check rejects mixed host roles.
    The controller instance-name parser rejects full OCI node IDs, while admission and fleet
    reporting require that exact identity. Host allocation names now use a
    stable cell/node/artifact hash and preserve full OCIDs in report bodies;

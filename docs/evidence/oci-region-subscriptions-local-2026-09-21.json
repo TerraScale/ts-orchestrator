@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-09-21T07:50:37.484590+00:00",
+  "cliVersion": "3.82.0",
+  "check": "read-only region subscriptions; local API-key identity, not Instance Principal",
+  "regions": [
+    {
+      "region-name": "eu-frankfurt-1",
+      "region-key": "FRA",
+      "is-home-region": false,
+      "status": "READY"
+    },
+    {
+      "region-name": "sa-saopaulo-1",
+      "region-key": "GRU",
+      "is-home-region": true,
+      "status": "READY"
+    },
+    {
+      "region-name": "us-sanjose-1",
+      "region-key": "SJC",
+      "is-home-region": false,
+      "status": "READY"
+    }
+  ],
+  "mutations": false
+}
