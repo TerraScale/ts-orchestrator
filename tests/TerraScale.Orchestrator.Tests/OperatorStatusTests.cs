@@ -123,7 +123,8 @@ public sealed class OperatorStatusTests
                 HostConvergenceJsonContext.Default.HostConvergenceObservation);
             var status = await NatsRuntime.BuildOperatorStatusAsync(delivery, bundles, runtime,
                 new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 1),
-                new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None);
+                new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None,
+                authorizedHostReports: new AssumedAuthorizedHostReportReader(runtime));
             await Assert.That(status.Workloads.Single(workload => workload.Workload == "ts-auth").ReadyReplicas)
                 .IsEqualTo(value == report ? 1 : 0);
         }

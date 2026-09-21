@@ -64,6 +64,9 @@ public sealed class NatsControlR3L0cTests
             commandSignatureVerifier: commands,
             admittedDeliveryTargets: DirectDeliveryAdmittedTargets.Parse(["authentication:development:gru"]),
             ciArtifactSignatures: artifacts, autoProvision: false, hostSessions: sessions);
+        await using var reportWriter = await fixture.ConnectAsync(fixture.Controller, cancellationToken: deadline.Token);
+        RegionalHostSessionAuthority? reportAuthority = null;
+        ulong reportEpoch = 0;
         if (sessionsEnabled)
         {
             var acquisitions = new List<long>();
@@ -84,7 +87,8 @@ public sealed class NatsControlR3L0cTests
             runtime.AttachServiceTelemetry(telemetry);
             await using var host = await fixture.ConnectAsync(fixture.HostAgent, cancellationToken: deadline.Token);
             var client = new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1");
-            var acquired = await client.SendAsync(sessionMaterial.Request(sessionMaterial.Enroll(1)), deadline.Token);
+            var request = sessionMaterial.Request(sessionMaterial.Enroll(1));
+            var acquired = await client.SendAsync(request, deadline.Token);
             await Assert.That(acquired.Accepted).IsTrue();
             while (!acquisitions.Contains(1))
             {
@@ -93,6 +97,20 @@ public sealed class NatsControlR3L0cTests
                 listener.RecordObservableInstruments();
                 if (!acquisitions.Contains(1)) await Task.Delay(10, deadline.Token);
             }
+            // Controller-side storage proves the real runtime reader composition. Signed
+            // host relay ingress remains a separate, unfinished production integration.
+            var report = new HostConvergenceObservation(2, "gru", "host-1", "terrabase-server",
+                "sha256:" + new string('a', 64), "converged", "member.service", DateTimeOffset.UtcNow, MemberUp: true);
+            var proof = RegionalHostReportProof.Sign(request.Enrollment, hostAuthentication, request.SessionId,
+                acquired.Epoch, Runtime.AdmittedRole.TerraBaseMember, RegionalHostReportKind.Runtime,
+                JsonSerializer.SerializeToUtf8Bytes(report, HostConvergenceJsonContext.Default.HostConvergenceObservation), DateTimeOffset.UtcNow);
+            var stores = reportWriter.CreateJetStreamContext().CreateKeyValueStoreContext();
+            var reportStore = await stores.GetStoreAsync("ORCH_RUNTIME", deadline.Token);
+            await reportStore.PutAsync("host.host-1.terrabase-server",
+                JsonSerializer.Serialize(new StoredHostReport(1, proof, null, report), RegionalHostSessionAuthority.JsonOptions),
+                cancellationToken: deadline.Token);
+            reportAuthority = new(await stores.GetStoreAsync("ORCH_NODE_ENROLLMENTS", deadline.Token), sessionMaterial.Policy());
+            reportEpoch = acquired.Epoch;
         }
         await using var operatorClient = await fixture.ConnectAsync(fixture.Operator, cancellationToken: deadline.Token);
         var response = await operatorClient.RequestAsync<string, string>(fixture.Topology.OperatorStatusSubject,
@@ -100,6 +118,17 @@ public sealed class NatsControlR3L0cTests
         response.EnsureSuccess();
         await Assert.That(response.Data).Contains("host-report-relay");
         await Assert.That(response.Data!.Contains("host-session-authority", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
+        var status = JsonSerializer.Deserialize(response.Data!, Operations.OperatorStatusJsonContext.Default.OperatorStatusDocument)!;
+        await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ObservedReplicas).IsEqualTo(sessionsEnabled ? 1 : 0);
+        if (reportAuthority is not null)
+        {
+            await Assert.That(await reportAuthority.RevokeAsync("host-1", 1, reportEpoch, deadline.Token)).IsTrue();
+            var revoked = await operatorClient.RequestAsync<string, string>(fixture.Topology.OperatorStatusSubject,
+                string.Empty, cancellationToken: deadline.Token);
+            revoked.EnsureSuccess();
+            status = JsonSerializer.Deserialize(revoked.Data!, Operations.OperatorStatusJsonContext.Default.OperatorStatusDocument)!;
+            await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ObservedReplicas).IsEqualTo(0);
+        }
         await Assert.That(runtime.Completion.IsCompleted).IsFalse();
         environment["TS_ORCH_NATS_CREDENTIALS_FILE"] = fixture.Operator.CredentialsFile;
         environment["TS_ORCH_NATS_TLS_CERT_FILE"] = fixture.Operator.CertificateFile;

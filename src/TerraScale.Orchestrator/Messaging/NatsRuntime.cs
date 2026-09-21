@@ -306,6 +306,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalHostAdmissionGate? hostAdmissionRuntime = null;
         HostObservationRelay? hostReportRelay = null;
         RegionalHostSessionService? hostSessionService = null;
+        IAuthorizedHostReportReader? authorizedHostReports = null;
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
         Nodes.OciMemberHostFleet? memberHostFleet = null;
         WorkloadAutoscalerService? workloadAutoscalerRuntime = null;
@@ -668,7 +669,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 workloadAutoscalerRuntime?.Latest,
                                 workloadFleet?.Policies,
                                 hostReportRelay?.Snapshot,
-                                hostSessionService?.Snapshot)
+                                hostSessionService?.Snapshot, authorizedHostReports)
                             .ConfigureAwait(false);
                         operatorStatus.Set(status);
                         await message.ReplyAsync(
@@ -693,8 +694,11 @@ public sealed class NatsRuntime : IAsyncDisposable
             hostReportRelay = await HostObservationRelay.StartAsync(
                 client.Connection, state.Runtime, options.Cell, cancellationToken);
             if (hostSessions is not null)
-                hostSessionService = await RegionalHostSessionService.StartAsync(client.Connection,
-                    new RegionalHostSessionAuthority(state.NodeEnrollments, hostSessions.Policy), cancellationToken);
+            {
+                var sessionAuthority = new RegionalHostSessionAuthority(state.NodeEnrollments, hostSessions.Policy);
+                hostSessionService = await RegionalHostSessionService.StartAsync(client.Connection, sessionAuthority, cancellationToken);
+                authorizedHostReports = new SessionAuthorizedHostReportReader(state.Runtime, sessionAuthority);
+            }
 
             if (hostConvergence is not null && (state.Delivery is null || state.Artifacts is null))
                 throw new InvalidOperationException(
@@ -738,7 +742,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 // fleet is composed here because only here do the live lease, the ORCH_RUNTIME
                 // store, and the cell connection it needs all exist; every fleet mutation
                 // re-checks the lease through the same gate direct delivery uses.
-                var seams = new Nodes.NatsMemberHostSeams(state.Runtime, state.Delivery, client.Connection,
+                var seams = new Nodes.NatsMemberHostSeams(authorizedHostReports ??
+                    throw new InvalidOperationException("The OCI member fleet requires authorized host reports."), state.Delivery, client.Connection,
                     options.Cell, memberFleet!.Environment, TimeProvider.System);
                 memberHostFleet = new Nodes.OciMemberHostFleet(
                     ControlPlane.Providers.OciMemberHostSdkTransport.CreateForInstancePrincipal(
@@ -772,7 +777,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                     state.Runtime,
                     desiredReader.ReadAsync,
                     () => ServesDirectDeliveryRequests(authority.Snapshot),
-                    options.Cell);
+                    options.Cell,
+                    authorizedHostReports);
                 workloadAutoscalerRuntime = WorkloadAutoscalerService.Start(
                     new IndependentWorkloadAutoscalerRuntime(
                         new IndependentWorkloadAutoscaler(workloadFleet.Policies),
@@ -790,7 +796,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                         decisions,
                         workloadFleet.Policies,
                         hostReportRelay.Snapshot,
-                        hostSessionService?.Snapshot);
+                        hostSessionService?.Snapshot, authorizedHostReports);
             }
 
             // Seed the projection before returning the runtime so workload gauges are useful
@@ -806,7 +812,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     workloadAutoscalerRuntime?.Latest,
                     workloadFleet?.Policies,
                     hostReportRelay?.Snapshot,
-                    hostSessionService?.Snapshot)
+                    hostSessionService?.Snapshot, authorizedHostReports)
                 .ConfigureAwait(false));
 
             return new(
@@ -868,11 +874,12 @@ public sealed class NatsRuntime : IAsyncDisposable
         IReadOnlyList<WorkloadScaleDecision>? scalingDecisions = null,
         IReadOnlyList<WorkloadScalePolicy>? scalingPolicies = null,
         HostReportRelaySnapshot? hostReportSnapshot = null,
-        RegionalHostSessionServiceSnapshot? hostSessionSnapshot = null)
+        RegionalHostSessionServiceSnapshot? hostSessionSnapshot = null,
+        IAuthorizedHostReportReader? authorizedHostReports = null)
     {
         const int maximumKeys = 512;
         var desired = new Dictionary<string, (int Replicas, long Generation, string? Digest)>(StringComparer.Ordinal);
-        var observed = new Dictionary<string, List<HostConvergenceObservation>>(StringComparer.Ordinal);
+        var observed = new Dictionary<string, List<AuthorizedHostReport>>(StringComparer.Ordinal);
         var needs = new HashSet<string>(StringComparer.Ordinal);
         var actions = new List<OperatorActionStatus>();
 
@@ -973,28 +980,34 @@ public sealed class NatsRuntime : IAsyncDisposable
         {
             try
             {
-                var entry = await runtimeStore.GetEntryAsync<string>(key, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                entry.EnsureSuccess();
                 if (key.StartsWith("host.", StringComparison.Ordinal) &&
                     !key.StartsWith("host.replace.", StringComparison.Ordinal) &&
                     !key.StartsWith("host.admission.", StringComparison.Ordinal) &&
                     !key.StartsWith("host.backoff.", StringComparison.Ordinal))
                 {
-                    var observation = JsonSerializer.Deserialize(
-                        entry.Value ?? string.Empty,
-                        ControlPlane.Delivery.HostConvergenceJsonContext.Default.HostConvergenceObservation);
-                    if (observation is null || observation.Cell != topology.Cell) continue;
-                    observation.Validate();
-                    if (key != $"host.{observation.Instance}.{observation.ArtifactKey}" ||
-                        observation.ObservedAt > DateTimeOffset.UtcNow)
+                    if (authorizedHostReports is null)
+                    {
+                        needs.Add("host-report-authorization-unavailable");
                         continue;
+                    }
+                    var report = await authorizedHostReports.ReadAsync(key, cancellationToken).ConfigureAwait(false);
+                    var observation = report?.Runtime;
+                    if (observation is null || report!.ExpiresAt <= DateTimeOffset.UtcNow)
+                    {
+                        needs.Add("host-report-not-authorized");
+                        continue;
+                    }
+                    if (observation.Cell != topology.Cell || key != $"host.{observation.Instance}.{observation.ArtifactKey}" ||
+                        observation.ObservedAt > DateTimeOffset.UtcNow) continue;
+                    observation.Validate();
                     if (!observed.TryGetValue(observation.ArtifactKey, out var list))
                         observed[observation.ArtifactKey] = list = [];
-                    if (list.Count < 256) list.Add(observation);
+                    if (list.Count < 256) list.Add(report);
                 }
                 else if (key == $"placement.reconciler.{topology.Cell}")
                 {
+                    var entry = await runtimeStore.GetEntryAsync<string>(key, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    entry.EnsureSuccess();
                     var placement = JsonSerializer.Deserialize(
                         entry.Value ?? string.Empty,
                         ControlPlane.TerraBase.TerraBasePlacementJsonContext.Default.PlacementTickObservation);
@@ -1039,9 +1052,10 @@ public sealed class NatsRuntime : IAsyncDisposable
             var desiredState = desired.GetValueOrDefault(artifact);
             var requestedReplicas = desiredState.Replicas;
             var desiredReplicas = desiredState.Replicas;
-            var list = observed.GetValueOrDefault(artifact) ?? [];
-            var freshnessCutoff = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(10);
-            list = list.Where(item => item.ObservedAt >= freshnessCutoff).ToList();
+            var now = DateTimeOffset.UtcNow;
+            var list = (observed.GetValueOrDefault(artifact) ?? [])
+                .Where(item => item.ExpiresAt > now && item.Runtime!.ObservedAt >= now.AddMinutes(-10))
+                .Select(item => item.Runtime!).ToList();
             if (desiredState.Digest is { Length: > 0 } desiredDigest)
                 list = list.Where(item => string.Equals(
                     item.Digest,
@@ -1164,7 +1178,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         IReadOnlyList<WorkloadScaleDecision> decisions,
         IReadOnlyList<WorkloadScalePolicy> policies,
         HostReportRelaySnapshot hostReportSnapshot,
-        RegionalHostSessionServiceSnapshot? hostSessionSnapshot)
+        RegionalHostSessionServiceSnapshot? hostSessionSnapshot,
+        IAuthorizedHostReportReader? authorizedHostReports)
     {
         try
         {
@@ -1179,7 +1194,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     decisions,
                     policies,
                     hostReportSnapshot,
-                    hostSessionSnapshot)
+                    hostSessionSnapshot, authorizedHostReports)
                 .ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

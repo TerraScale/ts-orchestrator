@@ -8,8 +8,8 @@ using TerraScale.Orchestrator.Protocol.Messaging;
 namespace TerraScale.Orchestrator.Tests;
 
 /// <summary>
-/// Real NATS: exact admitted identity permits volume recovery, then exact convergence
-/// and member health permit serving. Presence of an arbitrary record proves neither.
+/// Consumer policy tests use real NATS with an assumed authorized-report source. The real
+/// signature/session boundary is covered separately by SessionAuthorizedHostReportReaderTests.
 /// </summary>
 [NotInParallel("TerrabasePlacement")]
 public sealed class NatsMemberHostSeamsTests
@@ -220,11 +220,48 @@ public sealed class NatsMemberHostSeamsTests
         await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
     }
 
+    [Test]
+    public async Task Member_health_requires_one_unexpired_enrollment_generation_and_process_session()
+    {
+        await using var server = await PlacementNatsServer.StartAsync();
+        await server.Delivery.PutAsync(TargetKey(), JsonSerializer.Serialize(new { artifactDigest = Digest }));
+        var session = new HostReportSession("enrollment", 1, "process", 1);
+        var admission = new AuthorizedHostReport(Admission(), null, session, Now.AddSeconds(1));
+        var runtime = new AuthorizedHostReport(null, Observation(true, 0, "Follower", 2, 3), session, Now.AddSeconds(1));
+        var reports = new ReportPair { Admission = admission, Runtime = runtime };
+        var seams = new NatsMemberHostSeams(reports, server.Delivery, server.Connection, "gru", "production", new Clock());
+        await Assert.That((await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None))!.Up).IsTrue();
+        foreach (var changed in new[]
+                 {
+                     runtime with { Session = session with { EnrollmentDigest = "other" } },
+                     runtime with { Session = session with { Generation = 2 } },
+                     runtime with { Session = session with { Process = "other" } },
+                     runtime with { Session = session with { Epoch = 2 } },
+                     runtime with { ExpiresAt = Now }
+                 })
+        {
+            reports.Runtime = changed;
+            await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+        }
+        reports.Runtime = runtime;
+        reports.Admission = admission with { ExpiresAt = Now };
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+    }
+
+    private sealed class ReportPair : IAuthorizedHostReportReader
+    {
+        internal required AuthorizedHostReport Admission { get; set; }
+        internal required AuthorizedHostReport Runtime { get; set; }
+        public Task<AuthorizedHostReport?> ReadAsync(string key, CancellationToken cancellationToken) =>
+            Task.FromResult<AuthorizedHostReport?>(key.StartsWith("host.admission.", StringComparison.Ordinal) ? Admission : Runtime);
+    }
+
     private static async Task<NatsMemberHostSeams> CreateAsync(PlacementNatsServer server)
     {
         await server.Delivery.PutAsync(TargetKey(), JsonSerializer.Serialize(new { artifactDigest = Digest }));
         await PutAdmissionAsync(server, Admission());
-        return new(server.Runtime, server.Delivery, server.Connection, "gru", "production", new Clock());
+        return new(new AssumedAuthorizedHostReportReader(server.Runtime), server.Delivery, server.Connection, "gru", "production", new Clock());
     }
 
     private static string TargetKey() => DirectDeliveryTargetKey.For("terrabase-server", "production", "gru");

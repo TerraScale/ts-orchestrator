@@ -32,8 +32,11 @@ with status/metrics. The dedicated host entry, renewal and workload fencing
 still need composition, so remote host admission/startup remains a blocker.
 Current lease retries now confirm replica reads through an unchanged CAS;
 report proof and current-session authorization components use the same fence.
-The report relay and fleet readiness readers still need to consume those
-components before session-bound reporting is qualified.
+TerraBase recovery/health, OCI workload readiness and operator ready counts
+now require a signed report and current session, with an unchanged CAS for
+both the session and report. Plain reports fail closed. The existing publisher
+and relay still emit plain records; completing signed report production and
+persistence remains a deployment blocker.
 
 The [bootstrap contract](../operations/control-bootstrap.md) defines the
 required first boot and exact-resource handoff. A tag or output does not
@@ -76,9 +79,17 @@ records the subsequent authority, broker and request-deadline checks with
 separate source and local-log hashes.
 The [controller session composition receipt](host-session-controller-local-2026-09-21.json)
 records the policy loader, runtime service, status and telemetry checks.
+The [report authorization receipt](host-report-authorization-local-2026-09-21.json)
+records the signed report and current-session primitives. The subsequent
+[readiness-reader receipt](host-report-readiness-local-2026-09-21.json) records
+current-session/report CAS barriers, controller composition and the populated
+store permission correction, including the full local regression.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Current signed-report readiness reader regression | **1180 passed**, 0 failed, 5 expected opt-in live-lane skips | `/tmp/ts-host-report-reader-full-main.log`; 12m19s909ms; final source; no running owned test containers remained |
+| Reader, populated-store permission correction and actual runtime | **8 focused passed**, **2 actual R3 runtime tests passed**, 0 failed/skipped; **165 protocol passed**, build **0 warnings/errors**, required style passed | `/tmp/ts-host-report-reader-permissions-{tests,build,style,protocol}.log`, `/tmp/ts-host-report-reader-runtime-r3.log`; signed controller-written reports, revocation, stale report reads, strict storage, bounded read, and real operator query; publisher/relay still unsigned |
+| CI #505 at `d2fc8e94823ae7753e7cb48964bf2b029d0753bc` | **2471 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job passed | Main1175/control966/model59/protocol165/scheduler106; `/tmp/ts-orchestrator-ci505-job-{22009,22010}.log`; predates readiness-reader integration; ARM64 binaries were built, not executed |
 | Final controller startup timeout correction | **51 focused passed**, **2 real R3 runtime tests passed**, 0 failed/skipped; build **0 warnings/errors**; CI style passed | `/tmp/ts-host-session-composition-timeout-{tests,r3,build,style}.log`; internal startup deadlines report failure while explicit caller cancellation retains shutdown semantics; final source |
 | Full main regression with controller session composition | **1160 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-session-composition-main-suite.log`; 12m03s304ms; before the final internal-timeout classification correction, whose checks are recorded separately |
 | Controller policy, status/metrics and actual regional runtime | **49 focused passed**, **2 real R3 runtime tests passed**, 0 failed/skipped | `/tmp/ts-host-session-composition-tests2.log`, `/tmp/ts-host-session-runtime-r3-tests.log`; strict policy/permissions/key admission, real restricted host acquisition through `NatsRuntime`, authenticated operator query and runtime-attached acquisition metric |
@@ -289,10 +300,13 @@ repository's main-only push rule being resolved.
    and enrollment still need restricted-host protocols and dedicated host startup.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The current controller
-   report relay and provider readiness readers also lack the new durable session
-   generation/epoch binding. Require current enrollment, process lease and role
-   scope on reports and when consuming readiness; otherwise an old credential
-   on the same hashed subject can continue reporting after session revocation.
+   report relay still lacks signed session-bound ingress/persistence. Provider
+   and status readers now require signed current-session reports and reject
+   the relay's existing plain observations. Finish the publisher/relay change;
+   do not weaken those readers to restore unsigned readiness. Before closing
+   this boundary, pair admission withdrawal with generic OCI/operator serving
+   readiness even when an earlier runtime report remains fresh. TerraBase's
+   member seam already pairs the session identities of both observations.
    The controller instance-name parser rejects full OCI node IDs, while admission and fleet
    reporting require that exact identity. Host allocation names now use a
    stable cell/node/artifact hash and preserve full OCIDs in report bodies;

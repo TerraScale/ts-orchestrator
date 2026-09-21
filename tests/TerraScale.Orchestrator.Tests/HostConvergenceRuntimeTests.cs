@@ -42,7 +42,7 @@ public sealed class HostConvergenceRuntimeTests
         await convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
             AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), deadline.Token);
         await Assert.That((await ReadObservationAsync(runtimeStore, "terrabase-server"))!.State).IsEqualTo("converged");
-        await Assert.That(await new NatsMemberHostSeams(runtimeStore, delivery, host.Connection,
+        await Assert.That(await new NatsMemberHostSeams(new AssumedAuthorizedHostReportReader(runtimeStore), delivery, host.Connection,
             "gru", "production", TimeProvider.System).HasHostReportedAsync("test-1", deadline.Token)).IsTrue();
 
         // The host's report connection cannot write private KV or publish for another host.
@@ -227,7 +227,7 @@ public sealed class HostConvergenceRuntimeTests
         await Assert.That(converger.ConvergedPlans).IsEmpty();
         await Assert.That(blocked!.State).IsEqualTo("blocked-admission");
         await Assert.That(blocked.Error).IsEqualTo("enrollment-pending");
-        var seams = new NatsMemberHostSeams(runtimeStore, delivery, client, "gru", "production", TimeProvider.System);
+        var seams = new NatsMemberHostSeams(new AssumedAuthorizedHostReportReader(runtimeStore), delivery, client, "gru", "production", TimeProvider.System);
         await Assert.That(await seams.HasHostReportedAsync("test-1", CancellationToken.None)).IsFalse();
 
         admission.Authorized = true;
@@ -267,7 +267,7 @@ public sealed class HostConvergenceRuntimeTests
         try
         {
             await converger.FirstConvergeStarted.WaitAsync(timeout.Token);
-            var seams = new NatsMemberHostSeams(runtimeStore, delivery, client, "gru", "production", TimeProvider.System);
+            var seams = new NatsMemberHostSeams(new AssumedAuthorizedHostReportReader(runtimeStore), delivery, client, "gru", "production", TimeProvider.System);
             await Assert.That(converger.ConvergedPlans).IsEmpty();
             await Assert.That(await seams.HasHostReportedAsync("test-1", timeout.Token)).IsTrue();
             await Assert.That(await seams.ObserveMemberHealthAsync("test-1", timeout.Token)).IsNull();

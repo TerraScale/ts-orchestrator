@@ -1,5 +1,12 @@
 # Controller-owned host report relay
 
+**Intermediate integration boundary:** the publisher and relay described below
+still emit plain observations. Production readiness now requires an atomic
+`StoredHostReport` containing its signed process-session proof and exact report,
+so these unsigned relay records do not count as ready. Complete signed ingress
+and persistence before enabling remote hosts. See
+[host session authentication](host-session-authentication.md).
+
 Host convergence sends admission and runtime observations through
 `ts.orch.v2.<cell>.agent.<host-hash>.observation.report`. The regional controller
 stores each accepted observation in private `ORCH_RUNTIME`; hosts no longer

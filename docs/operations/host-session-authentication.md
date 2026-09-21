@@ -141,8 +141,24 @@ making its decision. Repeated CAS conflicts fail closed after eight attempts.
 
 These report components pass direct real-R3 tests, including forced stale
 replica reads after revocation, expired bootstrap evidence, scope changes,
-renewal, process replacement and tombstones. They are not yet wired into
-`HostObservationRelay`, its stored reports or the fleet readiness readers.
+renewal, process replacement and tombstones. Controller readiness now uses
+`SessionAuthorizedHostReportReader`: one strict schema-1 `StoredHostReport`
+contains its proof and exactly one admission or runtime observation. The reader
+checks the exact storage key, current session and unchanged report revision.
+It bounds reads to five seconds, rejects unsigned/unknown/duplicate/malformed
+records, and never caches successful authorization across decisions.
+
+TerraBase recovery and health, generic OCI readiness, and operator ready counts
+use this reader. Admission and member health must share enrollment digest,
+generation, process ID and epoch; both authorizations must still be unexpired.
+An unchanged report CAS prevents a stale replica from restoring an earlier
+ready observation after withdrawal. The session CAS still does not stop a
+physical writer or promise immunity against later revocation.
+
+`HostObservationRelay` and its publisher still produce plain observations.
+Those reports now fail closed in production readiness. Signed production,
+relay authorization and atomic proof persistence remain deployment blockers.
+This is an intermediate integration gate, not a deployable reporting path.
 Those producer/consumer changes remain required; the existing report path
 does not become session-authorized merely because these methods exist.
 
@@ -256,10 +272,10 @@ capacity, private-store denial and the authenticated host client/service path.
 Logical time controls expiry cases; the wire test also runs on the wall clock.
 These are component tests, not a fresh OCI guest starting real workloads.
 
-The existing report envelope and stored readiness observations do not yet
-carry session generation/epoch. Bind publication and fleet readiness reads to
-the current session, role and enrollment before enabling remote hosts; a
-valid per-node NATS subject alone does not distinguish a revoked process.
+The existing publisher and relay still lack signed session-bound reports;
+production readiness readers reject their plain records. Complete signed
+publication and relay persistence before enabling remote hosts. A valid
+per-node NATS subject alone does not distinguish a revoked process.
 
 Production first boot must deliver the reviewed controller policy. Route the dedicated host
 entry through the remote client, credential-manifest/certificate checks and

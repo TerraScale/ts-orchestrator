@@ -12,17 +12,17 @@ namespace TerraScale.Orchestrator.Nodes;
 /// </summary>
 internal sealed class NatsMemberHostSeams : IMemberHostObservationSource, IMemberHostCommandChannel
 {
-    private readonly INatsKVStore runtimeStore;
+    private readonly IAuthorizedHostReportReader reports;
     private readonly INatsKVStore deliveryStore;
     private readonly INatsConnection connection;
     private readonly string cell;
     private readonly string environment;
     private readonly TimeProvider clock;
 
-    internal NatsMemberHostSeams(INatsKVStore runtimeStore, INatsKVStore deliveryStore,
+    internal NatsMemberHostSeams(IAuthorizedHostReportReader reports, INatsKVStore deliveryStore,
         INatsConnection connection, string cell, string environment, TimeProvider clock)
     {
-        this.runtimeStore = runtimeStore ?? throw new ArgumentNullException(nameof(runtimeStore));
+        this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
         this.deliveryStore = deliveryStore ?? throw new ArgumentNullException(nameof(deliveryStore));
         this.connection = connection ?? throw new ArgumentNullException(nameof(connection));
         this.cell = cell;
@@ -31,25 +31,22 @@ internal sealed class NatsMemberHostSeams : IMemberHostObservationSource, IMembe
     }
 
     public async ValueTask<bool> HasHostReportedAsync(string instance, CancellationToken cancellationToken)
-        => await ReadAdmittedDigestAsync(instance, cancellationToken).ConfigureAwait(false) is not null;
+        => await ReadAdmissionAsync(instance, cancellationToken).ConfigureAwait(false) is not null;
 
-    private async Task<string?> ReadAdmittedDigestAsync(string instance, CancellationToken cancellationToken)
+    private async Task<AuthorizedHostReport?> ReadAdmissionAsync(string instance, CancellationToken cancellationToken)
     {
         try
         {
             var digest = await HostDesiredArtifactReader.ReadAsync(deliveryStore,
                 TerraBasePlacementReconciler.MemberArtifactKey, environment, cell, cancellationToken).ConfigureAwait(false);
             if (digest is null) return null;
-            var entry = await runtimeStore.GetEntryAsync<string>(
-                HostAdmissionObservation.Key(instance, TerraBasePlacementReconciler.MemberArtifactKey),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            entry.EnsureSuccess();
-            var observation = JsonSerializer.Deserialize(entry.Value ?? string.Empty,
-                HostAdmissionObservationJsonContext.Default.HostAdmissionObservation);
+            var report = await reports.ReadAsync(
+                HostAdmissionObservation.Key(instance, TerraBasePlacementReconciler.MemberArtifactKey), cancellationToken).ConfigureAwait(false);
+            var observation = report?.Admission;
             return observation is { SchemaVersion: HostAdmissionObservation.CurrentSchemaVersion, Ready: true } &&
                 observation.Instance == instance && observation.Cell == cell && observation.Environment == environment &&
                 observation.ArtifactKey == TerraBasePlacementReconciler.MemberArtifactKey && observation.Digest == digest &&
-                Fresh(observation.ObservedAt) ? digest : null;
+                Fresh(observation.ObservedAt) && report!.ExpiresAt > clock.GetUtcNow() ? report : null;
         }
         catch (Exception exception) when (exception is NatsKVKeyNotFoundException or NatsKVKeyDeletedException or NatsKVException or JsonException)
         {
@@ -62,18 +59,16 @@ internal sealed class NatsMemberHostSeams : IMemberHostObservationSource, IMembe
         HostConvergenceObservation? observation;
         try
         {
-            var digest = await ReadAdmittedDigestAsync(instance, cancellationToken).ConfigureAwait(false);
-            if (digest is null) return null;
-            var entry = await runtimeStore.GetEntryAsync<string>(
-                ObservationKey(instance), cancellationToken: cancellationToken).ConfigureAwait(false);
-            entry.EnsureSuccess();
-            observation = JsonSerializer.Deserialize(
-                entry.Value ?? string.Empty, HostConvergenceJsonContext.Default.HostConvergenceObservation);
-            if (observation is null) return null;
+            var admission = await ReadAdmissionAsync(instance, cancellationToken).ConfigureAwait(false);
+            if (admission is null) return null;
+            var report = await reports.ReadAsync(ObservationKey(instance), cancellationToken).ConfigureAwait(false);
+            observation = report?.Runtime;
+            if (observation is null || report!.Session != admission.Session ||
+                report.ExpiresAt <= clock.GetUtcNow() || admission.ExpiresAt <= clock.GetUtcNow()) return null;
             observation.Validate();
             if (observation is not { SchemaVersion: HostConvergenceObservation.CurrentSchemaVersion, State: "converged", Error: null } ||
                 observation.Instance != instance || observation.Cell != cell ||
-                observation.ArtifactKey != TerraBasePlacementReconciler.MemberArtifactKey || observation.Digest != digest ||
+                observation.ArtifactKey != TerraBasePlacementReconciler.MemberArtifactKey || observation.Digest != admission.Admission!.Digest ||
                 !Fresh(observation.ObservedAt)) return null;
         }
         catch (Exception exception) when (

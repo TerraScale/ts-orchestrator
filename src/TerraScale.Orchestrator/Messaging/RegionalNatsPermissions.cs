@@ -37,7 +37,7 @@ internal static class RegionalNatsPermissions
             .Concat(KeyValue(topology.Leaders.Bucket, watch: false))
             .Concat(KeyValue(topology.Runtime.Bucket, watch: true))
             .Concat(KeyValue(topology.NodeEnrollments.Bucket, watch: false))
-            .Concat(KeyValue(topology.Delivery.Bucket, watch: false))
+            .Concat(KeyValue(topology.Delivery.Bucket, watch: true))
             .Concat(Objects(topology.ProtocolPackage.Bucket, writable: false))
             .Concat(Objects(topology.Artifacts.Bucket, writable: true))
             .Concat(Objects(topology.Bundles.Bucket, writable: true))

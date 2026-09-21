@@ -36,6 +36,10 @@ runtime allowlist for an already provisioned regional NATS account. The R3
 JWT fixture uses this plan directly. It includes exact stream inspection,
 startup and per-instance CellSpec consumers, controller KV/object operations,
 service discovery, private caller replies, and the regional host report relay.
+KV watch consumers are allowed for `ORCH_RUNTIME` and `ORCH_DELIVERY`, because
+status and desired-state readers enumerate populated stores. A real populated
+R3 test exposed the missing delivery-watch permission; empty-store startup
+did not exercise it. Enrollment stores and isolated journals gain no watches.
 The immutable protocol-package object store is read-only. It grants no stream
 creation/update, isolated operation/proof journal access, another controller's
 private journal replies, or another region's control subjects. Separate NATS
@@ -58,7 +62,11 @@ Do not replace it with `$JS.API.>` to make bootstrap pass.
 `NatsControlR3L0cTests.Regional_runtime_starts_with_JWT_mTLS_credentials_and_serves_operator_status`
 starts the actual regional runtime against three real NATS servers using this
 restricted controller plan. It checks authenticated operator status and invokes
-the operator CLI with a separate read-only operator identity. Other
+the operator CLI with a separate read-only operator identity. It also
+stores a signed current-session host report through a controller handle,
+observes it through the real runtime endpoint, revokes the process and verifies
+that a fresh operator query excludes it. This checks the reader composition;
+the production publisher/relay still needs signed report support. Other
 tests exercise private-journal denial, immutable-package write denial,
 cross-region denial, host report persistence and restart. Configuration tests
 cover mixed-format identity reuse and malformed credentials.

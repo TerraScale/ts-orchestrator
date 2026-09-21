@@ -225,6 +225,7 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
     private readonly Func<string, CancellationToken, Task<WorkloadReplicaIntent>> desiredState;
     private readonly Func<bool> authorityStillValid;
     private readonly string cell;
+    private readonly IAuthorizedHostReportReader? reports;
     private readonly Dictionary<string, IReadOnlyList<ObservedWorkloadInstance>> last = new(StringComparer.Ordinal);
 
     internal OciWorkloadReplicaDriver(
@@ -233,7 +234,8 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         INatsKVStore runtimeStore,
         Func<string, CancellationToken, Task<WorkloadReplicaIntent>> desiredState,
         Func<bool> authorityStillValid,
-        string cell)
+        string cell,
+        IAuthorizedHostReportReader? reports = null)
     {
         this.transport = transport ?? throw new ArgumentNullException(nameof(transport));
         this.configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
@@ -243,6 +245,7 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
         if (string.IsNullOrWhiteSpace(cell) || cell.ToUpperInvariant() != configuration.Region)
             throw new ArgumentException("The workload fleet cell must match its configured region.", nameof(cell));
         this.cell = cell.ToLowerInvariant();
+        this.reports = reports;
     }
 
     public async Task<WorkloadScaleObservation> ObserveAsync(
@@ -437,13 +440,10 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
     {
         try
         {
-            var entry = await runtimeStore.GetEntryAsync<string>(
-                $"host.{instanceId}.{workload}", cancellationToken: cancellationToken).ConfigureAwait(false);
-            entry.EnsureSuccess();
-            var observation = JsonSerializer.Deserialize(
-                entry.Value ?? string.Empty,
-                HostConvergenceJsonContext.Default.HostConvergenceObservation);
-            if (observation is null) return false;
+            if (reports is null) return false;
+            var report = await reports.ReadAsync($"host.{instanceId}.{workload}", cancellationToken).ConfigureAwait(false);
+            var observation = report?.Runtime;
+            if (observation is null || report!.ExpiresAt <= DateTimeOffset.UtcNow) return false;
             observation.Validate();
             var now = DateTimeOffset.UtcNow;
             return observation is { State: "converged", Error: null } && observation.Instance == instanceId &&
@@ -616,7 +616,8 @@ internal static class OciWorkloadRequestCompiler
         string workload,
         string role,
         string createKey,
-        string cell)
+        string cell,
+        IAuthorizedHostReportReader? reports = null)
     {
         var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{cell}:{workload}:{createKey}")))[..16];
         return new LaunchInstanceRequest

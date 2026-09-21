@@ -2,7 +2,10 @@
 
 An enrolled host and a healthy database are different stages. A replacement
 host must be able to receive its retained volume before the database starts.
-The controller now reads separate evidence for those stages.
+The controller now reads separate evidence for those stages. Both must come
+from signed, currently authorized host reports. The existing publisher/relay
+still emits plain observations, so its records intentionally remain unready
+until signed ingress and persistence are completed.
 
 After verifying its enrollment and credential gate, host convergence publishes
 an admission observation on its own hashed NATS agent subject before installation
@@ -28,15 +31,20 @@ The member fleet's readiness reader checks that report against the exact
 `HostDesiredArtifactReader`, including the service/environment/cell key and
 canonical SHA-256 digest validation. Missing or malformed targets, another
 node/cell/environment/artifact, a different digest, a denied report, a future
-timestamp or a report older than ten minutes cannot establish readiness.
+timestamp or expired report authorization cannot establish readiness. The
+current session verifier limits proof freshness to ten seconds, observation
+freshness to thirty seconds and authorization to the remaining process lease.
 The OCI instance must also be running and retain the expected identity,
 compartment, image, bootstrap and create-key tags.
 
 This permits storage recovery without claiming the database is serving.
 Member health additionally requires a fresh schema-2 convergence report with
 the exact node, cell, artifact and digest, `state: converged`, no error and
-complete valid health gauges. A booted/stopped VM or a missing report does not
-count as healthy. Role strings from the service are normalized (`leader` and
+complete valid health gauges. Admission and health must share the exact
+enrollment digest, generation, process ID and epoch, and both authorizations
+must remain unexpired. Current session and report CAS barriers reject stale
+replica reads after revocation or withdrawal. A booted/stopped VM or a missing
+report does not count as healthy. Role strings from the service are normalized (`leader` and
 `follower` to the control-plane roles). The operator workload aggregate ignores
 the separate admission records instead of interpreting them as convergence.
 Dedicated enrollment progress projection/metrics still need implementation.
@@ -75,11 +83,14 @@ digits or hyphens. Duplicate/unknown JSON properties are rejected.
 
 ## Qualification and remaining lifecycle gaps
 
-Real NATS tests exercise the production readiness readers and host report
-producer, including publication before a deliberately blocked runtime starts,
-withdrawal on lost admission, artifact promotion/removal and identity/time
-mismatches. Native execution and the admission gate are injected in that
-producer test; it does not prove a fresh OCI node's complete enrollment.
+Real R3 tests exercise signed report storage, current-session authorization,
+TerraBase recovery/health and operator ready counts, including revocation,
+stale replica reads, malformed records and expiry. Separate producer tests
+exercise publication before runtime start and admission withdrawal; they
+inject native execution, admission and an assumed authorized-report reader.
+Those producer tests do not prove signed ingress or a fresh OCI node's
+complete enrollment. Consumer policy tests retain artifact promotion/removal
+and identity/time mismatch coverage behind the explicit report-reader seam.
 Provider tests verify stopped-instance handling and identity/template drift
 before accepting readiness. A real NATS placement test verifies that missing
 member evidence during draining never advances to detach or retirement.

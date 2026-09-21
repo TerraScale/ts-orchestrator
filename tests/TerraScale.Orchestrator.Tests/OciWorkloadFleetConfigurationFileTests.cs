@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Reflection;
 using NATS.Client.KeyValueStore;
+using NATS.Net;
+using TerraScale.Orchestrator.Runtime;
 using Oci.CoreService.Models;
 using Oci.CoreService.Requests;
 using TerraScale.Orchestrator.ControlPlane.Providers;
@@ -78,11 +80,15 @@ public sealed class OciWorkloadFleetConfigurationFileTests
     }
 
     [Test]
-    [NotInParallel("TerrabasePlacement")]
+    [NotInParallel("NatsR3")]
     public async Task Real_Nats_readiness_binds_node_cell_artifact_and_keeps_unready_vms_pending()
     {
         if (!OperatingSystem.IsLinux()) return;
-        await using var server = await PlacementNatsServer.StartAsync();
+        await using var cluster = await NatsControlR3L0cFixture.StartAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await cluster.ProvisionAsync(deadline.Token);
+        await using var controller = await cluster.ConnectAsync(cluster.Controller, cancellationToken: deadline.Token);
+        var runtime = await controller.CreateJetStreamContext().CreateKeyValueStoreContext().GetStoreAsync("ORCH_RUNTIME", deadline.Token);
         var root = Directory.CreateTempSubdirectory("ts-orch-readiness-");
         try
         {
@@ -106,8 +112,10 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             };
             var transport = new FakeWorkloadTransport { ObservedInstance = instance };
             var digest = "sha256:" + new string('a', 64);
-            using var driver = new OciWorkloadReplicaDriver(transport, fleet, server.Runtime,
-                (_, _) => Task.FromResult(new WorkloadReplicaIntent(1, digest)), () => true, "gru");
+            using var reports = await AdmittedHostReportFixture.CreateAsync(controller, runtime,
+                deadline.Token, instance.Id, AdmittedRole.Authentication, realTime: true);
+            using var driver = new OciWorkloadReplicaDriver(transport, fleet, runtime,
+                (_, _) => Task.FromResult(new WorkloadReplicaIntent(1, digest)), () => true, "gru", reports.Reader);
             var report = new HostConvergenceObservation(2, "gru", instance.Id, "ts-auth", digest,
                 "converged", "ts-auth.service", DateTimeOffset.UtcNow);
             var invalid = new[]
@@ -125,8 +133,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             var scaler = new IndependentWorkloadAutoscaler([policy]);
             foreach (var candidate in invalid)
             {
-                await server.Runtime.PutAsync($"host.{instance.Id}.ts-auth",
-                    JsonSerializer.Serialize(candidate, HostConvergenceJsonContext.Default.HostConvergenceObservation));
+                await reports.PutAsync(reports.Sign(candidate), deadline.Token, $"host.{instance.Id}.ts-auth");
                 var observation = await driver.ObserveAsync(policy, CancellationToken.None);
                 await Assert.That(observation.ReadyReplicas).IsEqualTo(0);
                 await Assert.That(observation.PendingReplicas).IsEqualTo(1);
@@ -137,8 +144,11 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             }
             await Assert.That(transport.LaunchCalls).IsEqualTo(0);
             await Assert.That(transport.TerminateCalls).IsEqualTo(0);
-            await server.Runtime.PutAsync($"host.{instance.Id}.ts-auth",
+            // A plain unproved report never qualifies, even with a currently admitted session.
+            await runtime.PutAsync($"host.{instance.Id}.ts-auth",
                 JsonSerializer.Serialize(report, HostConvergenceJsonContext.Default.HostConvergenceObservation));
+            await Assert.That((await driver.ObserveAsync(policy, deadline.Token)).ReadyReplicas).IsEqualTo(0);
+            await reports.PutAsync(reports.Sign(report), deadline.Token);
             var ready = await driver.ObserveAsync(policy, CancellationToken.None);
             await Assert.That(ready.ReadyReplicas).IsEqualTo(1);
             await Assert.That(ready.PendingReplicas).IsEqualTo(0);
@@ -150,6 +160,8 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             instance.FreeformTags[OciWorkloadRequestCompiler.CellTag] = "fra";
             await Assert.That((await driver.ObserveAsync(policy, CancellationToken.None)).ObservedReplicas).IsEqualTo(0);
             instance.FreeformTags[OciWorkloadRequestCompiler.CellTag] = "gru";
+            await Assert.That(await reports.Authority.RevokeAsync(instance.Id, 1, reports.Epoch, deadline.Token)).IsTrue();
+            await Assert.That((await driver.ObserveAsync(policy, deadline.Token)).ReadyReplicas).IsEqualTo(0);
             transport.DetailInstance = new Instance { Id = instance.Id };
             await Assert.That(async () => { _ = await driver.ObserveAsync(policy, CancellationToken.None); }).Throws<InvalidDataException>();
         }
