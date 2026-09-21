@@ -56,6 +56,20 @@ public sealed class ContainerdHostRuntimeAdapterTests
     }
 
     [Test]
+    public async Task Stop_requires_the_exact_previous_plan_not_just_a_hex_fingerprint()
+    {
+        var plan = OciPlan();
+        var client = new RecordingContainerdClient
+        {
+            Observation = new(plan.Oci!.ContainerId, ContainerdAllocationState.Running,
+                plan.Oci.ImageReference, plan.Oci.Platform, new string('a', 64), 123, "running")
+        };
+        await Assert.That(() => new ContainerdHostRuntimeAdapter(client).StopAsync(plan, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(client.Operations).IsEquivalentTo(["observe"]);
+    }
+
+    [Test]
     public async Task PulledManifestMustMatchTheRequestedImmutableDigest()
     {
         var client = new RecordingContainerdClient

@@ -42,6 +42,8 @@ the exact release revision before deployment.
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
+| Real containerd lifecycle and isolation | **2 passed, no skips**; cleanup verified | `/tmp/ts-oci-containerd-rehearsal-final.log`, `/tmp/ts-oci-containerd-f9l1t9em/receipt.json`; real pinned pull/create/start/restart/delete, kernel security/resource checks, forged-label rejection; synthetic x64 image, no ts-auth application or OCI VM |
+| Containerd adapter, runtime plans, host convergence | 8 + 7 + 18 passed | `/tmp/ts-oci-containerd-adapter-tests.log`, `/tmp/ts-oci-containerd-plan-tests.log`, `/tmp/ts-oci-containerd-host-tests.log` |
 | Published Vault bootstrap CLI | Existing private bundle verified; modified bundle rejected without overwrite | `/tmp/ts-oci-bootstrap-cli-probe.json`; actual single-file x64 process, no OCI calls |
 | Orchestrator single-file publish | x64 and ARM64 passed, including Vault delivery | `/tmp/ts-oci-bootstrap-cli-publish.log`, `/tmp/ts-oci-bootstrap-arm64-publish.log`; ELF architecture checked; ARM64 was not executed on OCI |
 | Orchestrator runtime/main-test dependency audit | Pass | `/tmp/ts-oci-nuget-audit.log`; exit 0 |
@@ -76,8 +78,9 @@ subsequent session 49559 was terminated with exit 137 and has no passing suite
 result. Do not combine these runs into a green full-suite claim.
 
 Prior focused service telemetry results: auth authenticated metrics 1 pass;
-TerraBase metrics/readiness 2 passes. Real containerd execution and the final
-external TerraBase/auth deployment remain unqualified. The VM host single-file
+TerraBase metrics/readiness 2 passes. Real local containerd execution now passes the synthetic x64 rehearsal in
+[containerd-qualification.md](../operations/containerd-qualification.md). The final
+ARM64 service images and external TerraBase/auth deployment remain unqualified. The VM host single-file
 publish succeeded with SDK warning NETSDK1236 about exclusion of the referenced
 TerraBase runtimeconfig file; the resulting guest binary passed both VM lanes.
 This warning must still be assessed for release packaging.
@@ -92,10 +95,23 @@ Read-only OCI CLI 3.82.0 queries confirm READY subscriptions:
 | SFO | `us-sanjose-1` | SJC |
 | FRA | `eu-frankfurt-1` | FRA |
 
-The read-only GRU A1 core resource-availability query reported **249 available,
-0 used** for the recorded compartment/AD. This is quota availability, not a
-reservation or proof that OCI has physical host capacity. Memory, volume and
-other regional quotas still need review.
+Read-only resource-availability queries completed for all five regional
+availability domains (`/tmp/ts-oci-quota-readiness.json`):
+
+| Region/AD | Available A1 cores | Available A1 memory (GB) | Available block storage (GB) |
+| --- | ---: | ---: | ---: |
+| GRU AD-1 | 249 | 1662 | 61340 |
+| SFO/SJC AD-1 | 250 | 1666 | 61440 |
+| FRA AD-1 | 250 | 1666 | 61440 |
+| FRA AD-2 | 250 | 1666 | 61440 |
+| FRA AD-3 | 249 | 1660 | 61440 |
+
+The service counters reported zero usage except FRA AD-3's one A1 core and
+6 GB memory. Direct instance listings of the recorded compartment still
+returned no entries in the three regions; that does not establish the scope
+or freshness of those usage counters. These are quota results, not reservations
+or evidence of physical host availability. Additional network, Vault and
+service-specific quotas and the enabled plan's cost still need review.
 
 The GRU availability domain is `YDvv:SA-SAOPAULO-1-AD-1`. The recorded TerraScale
 compartment is `ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna`.
@@ -178,8 +194,8 @@ The current virtual-private Vault requires explicit resource/cost review.
    Vault rotation and every provider operation. Current workload aggregates and
    needs/actions/progress are useful but are not complete OCI lifecycle coverage.
 7. Retain the completed green auth, orchestrator, live fleet and VM results,
-   then qualify real containerd and external TerraBase/auth on the final
-   immutable artifacts. Local VM fleet tests do not exercise the unimplemented
+   then qualify the ARM64 container runtime and external TerraBase/auth on the
+   final immutable artifacts. The local synthetic x64 containerd lane passes. Local VM fleet tests do not exercise the unimplemented
    OCI Instance Principal/Vault/bootstrap handoff.
 
 ## Final local gate
@@ -204,10 +220,10 @@ Run at reduced local priority; CI keeps normal priority. Use TUnit, not
 - Mocked OpenTofu tests and a reviewed enabled **plan**, with an exact bootstrap
   artifact and least-privilege resource inventory. Applies remain CI-only.
 
-The provider demand/drain correction is committed and pushed as `5b4da8f2`.
-Forgejo verification task 493 was cancelled when the Vault delivery commit
-`7e7ba778` was pushed; task 494 was still running when checked. No CI pass is
-claimed for either revision. The auth navigation fix and these updated receipts
+The provider demand/drain correction is `5b4da8f2`, pinned Vault delivery is
+`7e7ba778`, and readiness binding is `c2e3ae16`; all are committed and pushed.
+Forgejo tasks 493 and 494 were cancelled by subsequent pushes. Task 495 for
+`c2e3ae16` was still running when checked; no CI pass is claimed for these revisions. The auth navigation fix and these updated receipts
 were verified locally.
 
 ## First live OCI qualification, after local readiness

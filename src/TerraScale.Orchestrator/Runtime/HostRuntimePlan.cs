@@ -210,8 +210,8 @@ public sealed record HostRuntimePlan(
                 true,
                 true,
                 Array.AsReadOnly(new[] { "ALL" }),
-                "terrascale-default-v1",
-                $"terrascale/{allocation}"),
+                "builtin",
+                $"terrascale-{allocation}.slice"),
             resources);
 }
 

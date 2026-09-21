@@ -126,18 +126,12 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         var oci = RequireCanonicalOciPlan(plan);
-        // Replacements call StopAsync with the previous digest. Inspect without
-        // requiring the candidate fingerprint, then accept only an allocation
-        // carrying a valid TerraScale fingerprint; arbitrary foreign containers
-        // remain fenced.
-        var observation = await client.ObserveAsync(Namespace, oci.ContainerId, cancellationToken);
+        // Host convergence supplies the previous admitted plan for replacement.
+        // A plausible fingerprint alone does not establish ownership.
+        var observation = await ObserveAsync(plan, cancellationToken);
         if (observation.State == ContainerdAllocationState.Absent)
             return;
-        if (!string.Equals(observation.PlanFingerprint, CanonicalPlanFingerprint.Compute(plan), StringComparison.Ordinal) &&
-            !IsTerraScaleFingerprint(observation.PlanFingerprint))
-            throw new InvalidOperationException(
-                $"Existing containerd allocation '{oci.ContainerId}' is not owned by TerraScale.");
-        if (observation.State is ContainerdAllocationState.Running or ContainerdAllocationState.Created)
+        if (observation.State == ContainerdAllocationState.Running)
         {
             await client.StopAsync(Namespace, oci.ContainerId, cancellationToken);
         }
@@ -172,9 +166,6 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
                 $"Existing containerd allocation '{expected.ContainerId}' is not owned by the canonical plan.");
         }
     }
-
-    private static bool IsTerraScaleFingerprint(string? value) =>
-        value is { Length: 64 } && value.All(static character => char.IsAsciiHexDigit(character));
 
     private static OciExecutionPlan RequireCanonicalOciPlan(HostRuntimePlan plan)
     {
@@ -292,8 +283,18 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
         CancellationToken cancellationToken)
     {
         var result = await RunAsync(["--namespace", @namespace, "inspect", containerId], cancellationToken);
-        if (result.ExitCode != 0 && IsNotFound(result.Error))
-            return new(containerId, ContainerdAllocationState.Absent, null, null, null, null, "absent");
+        if (result.ExitCode != 0)
+        {
+            // nerdctl's inspect errors are human-readable aggregate messages,
+            // not a stable not-found code. Confirm absence with a successful
+            // daemon listing; never interpret a socket or permissions failure
+            // containing "not found" as permission to create a container.
+            var listing = await RunAsync(["--namespace", @namespace, "ps", "--all", "--format", "{{.Names}}"], cancellationToken);
+            EnsureSuccess(listing, "list containerd allocations");
+            if (!listing.Output.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Contains(containerId, StringComparer.Ordinal))
+                return new(containerId, ContainerdAllocationState.Absent, null, null, null, null, "absent");
+        }
         EnsureSuccess(result, "inspect containerd allocation");
         using var document = JsonDocument.Parse(result.Output);
         var root = document.RootElement.ValueKind == JsonValueKind.Array
@@ -309,8 +310,8 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
             : root.TryGetProperty("Config", out var config) && config.TryGetProperty("Labels", out var labelValue)
                 ? labelValue
                 : default;
-        var image = labels.ValueKind == JsonValueKind.Object && labels.TryGetProperty("terrascale.image", out var imageLabel)
-            ? imageLabel.GetString()
+        var image = root.TryGetProperty("Config", out config) && config.TryGetProperty("Image", out var actualImage)
+            ? actualImage.GetString()
             : root.TryGetProperty("ImageName", out var imageName) ? imageName.GetString() : null;
         var platform = labels.ValueKind == JsonValueKind.Object && labels.TryGetProperty("terrascale.platform", out var platformLabel)
             ? platformLabel.GetString()
@@ -341,7 +342,7 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
         var security = request.Security;
         var arguments = new List<string>
         {
-            "--namespace", request.Namespace, "create", "--name", request.ContainerId,
+            "--namespace", request.Namespace, "--cgroup-manager", "systemd", "create", "--name", request.ContainerId,
             "--platform", request.Platform, "--user", $"{security.RunAsUser}:{security.RunAsGroup}",
             "--label", $"terrascale.plan={request.PlanFingerprint}",
             "--label", $"terrascale.image={request.ImageReference}",
@@ -426,8 +427,6 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
         "dead" or "failed" => ContainerdAllocationState.Failed,
         _ => ContainerdAllocationState.Failed
     };
-
-    private static bool IsNotFound(string error) => error.Contains("not found", StringComparison.OrdinalIgnoreCase);
 
     private static void EnsureSuccess(CommandResult result, string operation)
     {

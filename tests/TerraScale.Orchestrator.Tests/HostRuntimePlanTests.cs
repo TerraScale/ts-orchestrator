@@ -63,7 +63,7 @@ public sealed class HostRuntimePlanTests
         await Assert.That(plan.Oci.Security.NoNewPrivileges).IsTrue();
         await Assert.That(plan.Oci.Security.ReadOnlyRootFileSystem).IsTrue();
         await Assert.That(plan.Oci.Security.DroppedCapabilities).IsEquivalentTo(["ALL"]);
-        await Assert.That(plan.Oci.Security.CgroupParent).IsEqualTo("terrascale/sfo-dashboard-1");
+        await Assert.That(plan.Oci.Security.CgroupParent).IsEqualTo("terrascale-sfo-dashboard-1.slice");
         await Assert.That(plan.Resources.MemorySwapMaxBytes).IsEqualTo(0);
     }
 

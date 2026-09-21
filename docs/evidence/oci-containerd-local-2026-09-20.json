@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T00:24:18.675582+00:00",
+  "platform": "linux-x64",
+  "scope": "Local production containerd adapter; synthetic busybox OCI image; isolated network and mount namespaces",
+  "tests": {
+    "passed": 2,
+    "failed": 0,
+    "skipped": 0
+  },
+  "cleanupVerified": true,
+  "tools": {
+    "nerdctl": "2.3.0",
+    "containerd": "2.3.3",
+    "runc": "1.4.3",
+    "cniPlugins": "1.9.0",
+    "busybox": "1.37.0"
+  },
+  "fixtureDigest": "sha256:7d7978e8a41b6e8d1bcc50eb1e622f22490f451700bb79113361b893e29201c6",
+  "sourceFiles": {
+    "src/TerraScale.Orchestrator/Runtime/HostRuntimePlan.cs": "94be42e53ef3e1836a3b44f734bc6c9926d4ec9b264d3205e1d91c7dcf461621",
+    "src/TerraScale.Orchestrator/Runtime/ContainerdHostRuntimeAdapter.cs": "3bd476ab4b00272995239c68845ed3c352427884bf0d44df526c13ee63d80ecc",
+    "tests/TerraScale.Orchestrator.Tests/ContainerdLiveTests.cs": "6df60fef25d4286adea4af9acb9bd334b11b4e0759390af58dfe5e1fd4a53ccf",
+    "scripts/qualify-containerd.py": "a4aab0432b040383aa05cedb5d1e7ab7511928aa9e47dcc6ca2ed1b324280afe"
+  },
+  "log": "/tmp/ts-oci-containerd-rehearsal-final.log",
+  "receipt": "/tmp/ts-oci-containerd-f9l1t9em/receipt.json",
+  "unqualified": [
+    "OCI Instance Principal and Vault on a real VM",
+    "ARM64 execution",
+    "Actual ts-auth and TerraBase service images",
+    "Application readiness and mounted secrets",
+    "Regional cluster formation and ownership handoff"
+  ]
+}
