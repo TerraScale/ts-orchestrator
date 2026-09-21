@@ -107,6 +107,29 @@ public sealed class TerraBasePlacementReconcilerNatsTests
     }
 
     [Test]
+    public async Task Lost_member_evidence_during_drain_never_authorizes_storage_detach_or_retirement()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var fleet = new FakeMemberHostFleet();
+        var authority = new PlacementAuthorityHolder();
+        var reconciler = PlacementTestHarness.Reconciler(server, fleet, authority);
+        await PlacementTestHarness.ConvergeAsync(server, fleet, authority, reconciler, "prod-db", 1, "GRU", "SFO", "FRA");
+        var victim = fleet.Instances.Single(instance => instance.EndsWith(".6"));
+        await PlacementTestHarness.ApplyIntentAsync(server.Delivery, "prod-db", 2, "GRU", "SFO");
+        await PlacementTestHarness.TickUntilAsync(() => reconciler.TickAsync(CancellationToken.None), result => result.Action == "drain");
+        fleet.ForgetHealth(victim);
+        for (var tick = 0; tick < 3; tick++)
+        {
+            var result = await reconciler.TickAsync(CancellationToken.None);
+            await Assert.That(result.State).IsEqualTo(PlacementTickObservation.StateHeld);
+            await Assert.That(result.Error).IsEqualTo("member-evidence-missing");
+        }
+        await Assert.That(fleet.Calls.Any(call => call.StartsWith("detach-volume:", StringComparison.Ordinal))).IsFalse();
+        await Assert.That(fleet.Calls.Any(call => call.StartsWith("retire:", StringComparison.Ordinal))).IsFalse();
+    }
+
+    [Test]
     public async Task HealsDeadHostWithVolumeReattachAtEpochPlusOneEndToEnd()
     {
         if (!OperatingSystem.IsLinux()) return;

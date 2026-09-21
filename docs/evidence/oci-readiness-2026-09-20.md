@@ -62,6 +62,10 @@ the exact release revision before deployment.
 | Vault delivery after SDK endpoint correction | **18 passed**, 0 failed/skipped | `/tmp/ts-oci-founding-vault-regression.log`; no live Vault calls |
 | Full orchestrator main suite including founding and endpoint changes | **1032 passed, 0 failed, 5 live-lane skips** | `/tmp/ts-oci-founding-main-suite.log`; revision `80f9356d`, 9m56s; before the subsequent R3 assertion correction |
 | R3 authority conformance after read assertion correction | **1 passed**, 0 failed/skipped; style passed | `/tmp/ts-oci-r3-read-regression.log`, `/tmp/ts-oci-r3-read-style.log`; 33.8s, real three-server NATS with the existing account-denial checks |
+| Stateful enrollment/readiness, host producer, configuration | **51 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-runtime-tests.log`; real NATS, exact identity/artifact/time binding, report before service startup, admission withdrawal and schema-2 fleet environment |
+| OCI member fleet after readiness binding | **21 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-provider-tests.log`; stopped-instance and owner/member/bootstrap/image drift rejection; fake OCI transport |
+| Placement with missing drain evidence | **6 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-tests.log`; missing health holds the real-NATS placement ladder before detach/retire |
+| Broader placement regression after readiness binding | **16 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-regression.log`; final Release build and style verification also passed |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
 | Real containerd lifecycle and isolation | **2 passed, no skips**; cleanup verified | `/tmp/ts-oci-containerd-rehearsal-final.log`, `/tmp/ts-oci-containerd-f9l1t9em/receipt.json`; real pinned pull/create/start/restart/delete, kernel security/resource checks, forged-label rejection; synthetic x64 image, no ts-auth application or OCI VM |
 | Containerd adapter, runtime plans, host convergence | 8 + 7 + 18 passed | `/tmp/ts-oci-containerd-adapter-tests.log`, `/tmp/ts-oci-containerd-plan-tests.log`, `/tmp/ts-oci-containerd-host-tests.log` |
@@ -226,13 +230,21 @@ repository's main-only push rule being resolved.
    the other. Generic provider readiness now binds the node, cell, accepted artifact,
    report time and OCI running state. Unready VMs count as pending capacity,
    preventing repeated launches while bootstrap is incomplete. Stateful member
-   readiness still needs the equivalent binding. Generic TerraBase scale-in is explicitly denied until the stateful
+   readiness now binds exact enrollment evidence to its delivery environment,
+   node, cell, artifact and time, separately from serving health. Generic TerraBase scale-in is explicitly denied until the stateful
    placement fleet supplies drain and data-safety proof.
    Preserve the distinction between host readiness and service health when
    tightening the member path: placement attaches a retained volume after
    `ProvisionAsync` returns. Requiring a healthy member before that attachment
    would prevent recovery. Bind host readiness to the exact admitted artifact
    used by host convergence, then qualify service health after volume recovery.
+   The storage audit found a concrete remaining mismatch: OCI boot-volume IDs
+   are projected into the data-volume attach/detach path, and a missing volume
+   can still become a fabricated logical ID. The drain command also has no
+   composed production host consumer/acknowledgement. Missing health now holds
+   draining, but explicit writer-stop, volume ownership/mount/retention and
+   retirement proofs are still required. Details are in
+   [oci-member-readiness.md](../operations/oci-member-readiness.md).
 6. Finish status and telemetry for foundation, handoff, regional enrollment,
    Vault rotation and every provider operation. Current workload aggregates and
    needs/actions/progress are useful but are not complete OCI lifecycle coverage.

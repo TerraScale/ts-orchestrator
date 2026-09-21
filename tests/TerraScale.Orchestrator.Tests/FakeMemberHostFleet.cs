@@ -93,6 +93,15 @@ internal sealed class FakeMemberHostFleet : IMemberHostFleet
         }
     }
 
+    public void ForgetHealth(string instanceId)
+    {
+        lock (gate)
+        {
+            if (hosts.TryGetValue(instanceId, out var host))
+                hosts[instanceId] = host with { MemberHealth = new(false, 0, "Unknown", 0, 0) };
+        }
+    }
+
     public IReadOnlyList<string> Instances
     {
         get

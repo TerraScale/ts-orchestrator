@@ -23,7 +23,8 @@ public sealed class OciMemberHostFleetConfigurationFileTests
             var path = Path.Combine(root.FullName, "fleet.json");
             await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
             {
-                schemaVersion = 1,
+                schemaVersion = 2,
+                environment = "production",
                 endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
                 bootstrapFile = "member.cloud-init",
                 regions = new object[]
@@ -37,6 +38,7 @@ public sealed class OciMemberHostFleetConfigurationFileTests
             var configuration = fleet.ForCell("gru");
 
             await Assert.That(fleet.Endpoint.Host).IsEqualTo("iaas.sa-saopaulo-1.oraclecloud.com");
+            await Assert.That(fleet.Environment).IsEqualTo("production");
             await Assert.That(configuration.Cell).IsEqualTo("gru");
             await Assert.That(configuration.Templates.Keys).IsEquivalentTo(["GRU", "SFO"]);
             await Assert.That(configuration.Templates["GRU"].CompartmentId)
@@ -102,13 +104,39 @@ public sealed class OciMemberHostFleetConfigurationFileTests
         await Assert.That(OciMemberHostFleetConfigurationFile.Load("  ")).IsNull();
     }
 
+    [Test]
+    [Arguments(1, "production")]
+    [Arguments(2, null)]
+    [Arguments(2, "")]
+    [Arguments(2, "prod.*")]
+    public async Task Requires_the_explicit_schema2_delivery_environment(int schema, string? environment)
+    {
+        var root = Root();
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(root.FullName, "member.cloud-init"), "#cloud-config\nruncmd: []\n");
+            var path = Path.Combine(root.FullName, "fleet.json");
+            await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
+            {
+                schemaVersion = schema,
+                environment,
+                endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
+                bootstrapFile = "member.cloud-init",
+                regions = new[] { Region("GRU", "ocid1.compartment.oc1..gru") }
+            }));
+            await Assert.That(() => OciMemberHostFleetConfigurationFile.Load(path)).Throws<InvalidDataException>();
+        }
+        finally { root.Delete(recursive: true); }
+    }
+
     private static async Task<OciMemberHostFleetConfigurationFile> LoadAsync(
         DirectoryInfo root, params object[] regions)
     {
         var path = Path.Combine(root.FullName, "fleet.json");
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new
         {
-            schemaVersion = 1,
+            schemaVersion = 2,
+            environment = "production",
             endpoint = "https://iaas.sa-saopaulo-1.oraclecloud.com/",
             bootstrapFile = "member.cloud-init",
             regions

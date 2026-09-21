@@ -23,20 +23,24 @@ public sealed class OciMemberHostFleetConfigurationFile
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
+        AllowDuplicateProperties = false,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
     private OciMemberHostFleetConfigurationFile(
         Uri endpoint,
+        string environment,
         IReadOnlyDictionary<string, OciCiRunnerLaunchTemplate> templates,
         OciMemberHostBootstrap bootstrap)
     {
         Endpoint = endpoint;
+        Environment = environment;
         Templates = templates;
         Bootstrap = bootstrap;
     }
 
     public Uri Endpoint { get; }
+    public string Environment { get; }
 
     internal IReadOnlyDictionary<string, OciCiRunnerLaunchTemplate> Templates { get; }
 
@@ -56,7 +60,9 @@ public sealed class OciMemberHostFleetConfigurationFile
         using var stream = File.OpenRead(fullPath);
         var document = JsonSerializer.Deserialize<FleetDocument>(stream, SerializerOptions)
             ?? throw new InvalidDataException("The member host fleet configuration is empty.");
-        if (document.SchemaVersion != 1 || document.Regions is not { Length: >= 1 and <= 8 })
+        if (document.SchemaVersion != 2 || document.Regions is not { Length: >= 1 and <= 8 } ||
+            document.Environment is not { Length: >= 1 and <= 64 } ||
+            document.Environment.Any(c => c is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '-')))
             throw new InvalidDataException("The member host fleet configuration has an unsupported shape.");
         if (!Uri.TryCreate(document.Endpoint, UriKind.Absolute, out var endpoint) ||
             endpoint.Scheme != Uri.UriSchemeHttps || !string.IsNullOrEmpty(endpoint.UserInfo) ||
@@ -91,7 +97,7 @@ public sealed class OciMemberHostFleetConfigurationFile
                     region.ImageId,
                     region.Generation.Value));
         }
-        return new(endpoint, templates, ReadBootstrap(baseDirectory, document.BootstrapFile!));
+        return new(endpoint, document.Environment, templates, ReadBootstrap(baseDirectory, document.BootstrapFile!));
     }
 
     private static OciMemberHostBootstrap ReadBootstrap(string baseDirectory, string bootstrapFile)
@@ -113,6 +119,7 @@ public sealed class OciMemberHostFleetConfigurationFile
     private sealed record FleetDocument(
         int? SchemaVersion,
         string? Endpoint,
+        string? Environment,
         string? BootstrapFile,
         RegionDocument[]? Regions);
 

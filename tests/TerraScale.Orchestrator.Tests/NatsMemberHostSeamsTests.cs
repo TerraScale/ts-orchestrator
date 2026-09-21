@@ -8,15 +8,15 @@ using TerraScale.Orchestrator.Protocol.Messaging;
 namespace TerraScale.Orchestrator.Tests;
 
 /// <summary>
-/// The NATS-backed member-host seams against a real containerized NATS: readiness is the
-/// presence of the host observation, health is the schema-2 projection, a schema-1 or
-/// unreadable observation reads as not reporting, and drain commands publish on the
-/// controller connection at the taxonomy's fenced subject.
+/// Real NATS: exact admitted identity permits volume recovery, then exact convergence
+/// and member health permit serving. Presence of an arbitrary record proves neither.
 /// </summary>
 [NotInParallel("TerrabasePlacement")]
 public sealed class NatsMemberHostSeamsTests
 {
     private const string Instance = "ocid1.instance.oc1.sa-saopaulo-1.member-a";
+    private static readonly string Digest = $"sha256:{new string('a', 64)}";
+    private static readonly DateTimeOffset Now = new(2026, 9, 20, 0, 0, 0, TimeSpan.Zero);
 
     [Test]
     public async Task ReadinessAndHealthProjectFromTheSchema2Observation()
@@ -24,11 +24,11 @@ public sealed class NatsMemberHostSeamsTests
         if (!OperatingSystem.IsLinux()) return;
 
         await using var server = await PlacementNatsServer.StartAsync();
-        var seams = new NatsMemberHostSeams(server.Runtime, server.Connection);
+        var seams = await CreateAsync(server);
         await server.Runtime.PutAsync(
             Key(),
             JsonSerializer.Serialize(
-                Observation(memberUp: true, lag: 5, role: "Leader", peer: 2, min: 3),
+                Observation(memberUp: true, lag: 5, role: "leader", peer: 2, min: 3),
                 HostConvergenceJsonContext.Default.HostConvergenceObservation),
             cancellationToken: CancellationToken.None);
 
@@ -49,9 +49,9 @@ public sealed class NatsMemberHostSeamsTests
         if (!OperatingSystem.IsLinux()) return;
 
         await using var server = await PlacementNatsServer.StartAsync();
-        var seams = new NatsMemberHostSeams(server.Runtime, server.Connection);
+        var seams = await CreateAsync(server);
 
-        // A schema-1 observation proves the host reported but carries no member health.
+        // Admission permits volume recovery, but schema-1 proves no member health.
         await server.Runtime.PutAsync(
             Key(),
             JsonSerializer.Serialize(
@@ -81,7 +81,7 @@ public sealed class NatsMemberHostSeamsTests
         if (!OperatingSystem.IsLinux()) return;
 
         await using var server = await PlacementNatsServer.StartAsync();
-        var seams = new NatsMemberHostSeams(server.Runtime, server.Connection);
+        var seams = await CreateAsync(server);
         var subject = NatsSubjectTaxonomy.HostAgentCommandSubject("gru", Instance, "drain");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await using var subscription = await server.Connection.SubscribeCoreAsync<string>(
@@ -107,13 +107,132 @@ public sealed class NatsMemberHostSeamsTests
             "gru",
             Instance,
             TerraBasePlacementReconciler.MemberArtifactKey,
-            $"sha256:{new string('a', 64)}",
-            "running",
+            Digest,
+            "converged",
             "terrabase-server.service",
-            DateTimeOffset.UtcNow,
+            Now,
             MemberUp: memberUp,
             MemberReplicationLagSequences: lag,
             MemberRole: role,
             MemberPeerAckCount: peer,
             MemberMinReplicas: min);
+
+    [Test]
+    public async Task Admitted_host_can_recover_storage_before_a_member_has_started()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var seams = await CreateAsync(server);
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsTrue();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+        await PutObservationAsync(server, Observation(false, 0, "Unknown", 0, 3));
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsTrue();
+        await Assert.That((await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None))!.Up).IsFalse();
+        await PutObservationAsync(server, Observation(true, 0, "Follower", 2, 3));
+        await Assert.That((await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None))!.Up).IsTrue();
+        await PutAdmissionAsync(server, Admission() with { Ready = false });
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+    }
+
+    [Test]
+    [Arguments("node")]
+    [Arguments("cell")]
+    [Arguments("environment")]
+    [Arguments("artifact")]
+    [Arguments("digest")]
+    [Arguments("stale")]
+    [Arguments("future")]
+    [Arguments("schema")]
+    public async Task Admission_must_match_the_exact_node_target_and_current_time(string mismatch)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var seams = await CreateAsync(server);
+        var record = Admission();
+        record = mismatch switch
+        {
+            "node" => record with { Instance = "other-node" },
+            "cell" => record with { Cell = "fra" },
+            "environment" => record with { Environment = "staging" },
+            "artifact" => record with { ArtifactKey = "ts-auth" },
+            "digest" => record with { Digest = "sha256:" + new string('b', 64) },
+            "stale" => record with { ObservedAt = Now.AddMinutes(-11) },
+            "future" => record with { ObservedAt = Now.AddSeconds(1) },
+            _ => record with { SchemaVersion = 99 }
+        };
+        await PutAdmissionAsync(server, record);
+        await PutObservationAsync(server, Observation(true, 0, "Follower", 2, 3));
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+    }
+
+    [Test]
+    [Arguments("node")]
+    [Arguments("cell")]
+    [Arguments("artifact")]
+    [Arguments("digest")]
+    [Arguments("stale")]
+    [Arguments("future")]
+    [Arguments("failed")]
+    [Arguments("error")]
+    [Arguments("negative-lag")]
+    [Arguments("missing-acks")]
+    [Arguments("unknown-role")]
+    public async Task Unbound_or_incomplete_service_evidence_never_reports_a_healthy_member(string mismatch)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var seams = await CreateAsync(server);
+        var record = Observation(true, 0, "Follower", 2, 3);
+        record = mismatch switch
+        {
+            "node" => record with { Instance = "other-node" },
+            "cell" => record with { Cell = "fra" },
+            "artifact" => record with { ArtifactKey = "ts-auth" },
+            "digest" => record with { Digest = "sha256:" + new string('b', 64) },
+            "stale" => record with { ObservedAt = Now.AddMinutes(-11) },
+            "future" => record with { ObservedAt = Now.AddSeconds(1) },
+            "failed" => record with { State = "failed" },
+            "error" => record with { Error = "not-serving" },
+            "negative-lag" => record with { MemberReplicationLagSequences = -1 },
+            "missing-acks" => record with { MemberPeerAckCount = null },
+            _ => record with { MemberRole = "Unknown" }
+        };
+        await PutObservationAsync(server, record);
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsTrue();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+    }
+
+    [Test]
+    public async Task Promotion_or_removal_of_the_admitted_target_invalidates_previous_readiness()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        await using var server = await PlacementNatsServer.StartAsync();
+        var seams = await CreateAsync(server);
+        await PutObservationAsync(server, Observation(true, 0, "Follower", 2, 3));
+        await server.Delivery.PutAsync(TargetKey(), JsonSerializer.Serialize(new { artifactDigest = "sha256:" + new string('b', 64) }));
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+        await Assert.That(await seams.ObserveMemberHealthAsync(Instance, CancellationToken.None)).IsNull();
+        await server.Delivery.DeleteAsync(TargetKey());
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+        await server.Delivery.PutAsync(TargetKey(), "{bad-json");
+        await Assert.That(await seams.HasHostReportedAsync(Instance, CancellationToken.None)).IsFalse();
+    }
+
+    private static async Task<NatsMemberHostSeams> CreateAsync(PlacementNatsServer server)
+    {
+        await server.Delivery.PutAsync(TargetKey(), JsonSerializer.Serialize(new { artifactDigest = Digest }));
+        await PutAdmissionAsync(server, Admission());
+        return new(server.Runtime, server.Delivery, server.Connection, "gru", "production", new Clock());
+    }
+
+    private static string TargetKey() => DirectDeliveryTargetKey.For("terrabase-server", "production", "gru");
+    private static HostAdmissionObservation Admission() => new(1, "gru", Instance, "production", "terrabase-server", Digest, true, Now);
+    private static async Task PutAdmissionAsync(PlacementNatsServer server, HostAdmissionObservation record) =>
+        _ = await server.Runtime.PutAsync(HostAdmissionObservation.Key(Instance, "terrabase-server"),
+            JsonSerializer.Serialize(record, HostAdmissionObservationJsonContext.Default.HostAdmissionObservation));
+    private static async Task PutObservationAsync(PlacementNatsServer server, HostConvergenceObservation record) =>
+        _ = await server.Runtime.PutAsync(Key(), JsonSerializer.Serialize(record, HostConvergenceJsonContext.Default.HostConvergenceObservation));
+    private sealed class Clock : TimeProvider { public override DateTimeOffset GetUtcNow() => Now; }
 }

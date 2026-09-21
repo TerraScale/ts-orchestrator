@@ -15,7 +15,7 @@ namespace TerraScale.Orchestrator.Nodes;
 /// </summary>
 internal interface IMemberHostObservationSource
 {
-    /// <summary>True once the <c>host.{instance}.terrabase-server</c> observation has appeared.</summary>
+    /// <summary>True once a fresh enrollment report binds this exact host to its admitted artifact.</summary>
     ValueTask<bool> HasHostReportedAsync(string instance, CancellationToken cancellationToken);
 
     /// <summary>The live member health from the member's own reports; null while it is not reporting.</summary>
@@ -200,7 +200,8 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
                 etag = response.Etag ?? string.Empty;
                 verified[listed.Id] = new(etag, instance.LifecycleState, volumeId);
             }
-            var health = await observations.ObserveMemberHealthAsync(listed.Id, cancellationToken) ??
+            var health = (instance.LifecycleState == Instance.LifecycleStateEnum.Running
+                ? await observations.ObserveMemberHealthAsync(listed.Id, cancellationToken) : null) ??
                 new MemberHealth(false, 0, nameof(TerraBaseRole.Unknown), 0, 0);
             observed.Add(new(
                 new(listed.Id),
@@ -233,7 +234,7 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
             instanceId = response.Instance?.Id ??
                 throw new InvalidDataException("OCI returned no launched member host instance.");
         }
-        await WaitUntilReadyAsync(instanceId, cancellationToken);
+        await WaitUntilReadyAsync(instanceId, plan, request.CreateKey, cancellationToken);
         return new(instanceId);
     }
 
@@ -316,7 +317,8 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
 
     public void Dispose() => transport.Dispose();
 
-    private async Task WaitUntilReadyAsync(string instanceId, CancellationToken cancellationToken)
+    private async Task WaitUntilReadyAsync(string instanceId, OciMemberHostLaunchPlan plan,
+        string createKey, CancellationToken cancellationToken)
     {
         var deadline = clock.GetUtcNow() + options.WaitDeadline;
         Instance.LifecycleStateEnum? lifecycle = null;
@@ -325,6 +327,12 @@ internal sealed class OciMemberHostFleet : IMemberHostFleet, IDisposable
         {
             var response = await TryGetInstanceAsync(instanceId, cancellationToken) ??
                 throw new InvalidDataException($"The member host {instanceId} vanished before it reported ready.");
+            var instance = response.Instance;
+            if (instance is null || instance.Id != instanceId || instance.CompartmentId != plan.Template.CompartmentId ||
+                instance.ImageId != plan.Template.ImageId || instance.FreeformTags is not { } tags ||
+                OciMemberHostRequestCompiler.Tags(plan, createKey).Any(pair => tags.GetValueOrDefault(pair.Key) != pair.Value) ||
+                instance.Metadata?.GetValueOrDefault("user_data") != plan.BootstrapCloudInitBase64)
+                throw new InvalidDataException("The provisioned member host does not match its exact identity and bootstrap binding.");
             lifecycle = response.Instance?.LifecycleState;
             hostReported = lifecycle == Instance.LifecycleStateEnum.Running &&
                 await observations.HasHostReportedAsync(instanceId, cancellationToken);

@@ -330,6 +330,15 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         if (admission is not null)
         {
             var gate = await admission.ObserveAsync(cancellationToken).ConfigureAwait(false);
+            // An admitted agent can receive its retained volume before the member
+            // starts. Publish enrollment independently of service convergence, and
+            // overwrite a former ready report when credentials/admission are lost.
+            await runtimeStore.PutAsync(HostAdmissionObservation.Key(instance, descriptor.ArtifactKey),
+                JsonSerializer.Serialize(new HostAdmissionObservation(
+                    HostAdmissionObservation.CurrentSchemaVersion, cell, instance, configuration.Environment,
+                    descriptor.ArtifactKey, desired, gate.Ready, DateTimeOffset.UtcNow),
+                    HostAdmissionObservationJsonContext.Default.HostAdmissionObservation),
+                cancellationToken: cancellationToken).ConfigureAwait(false);
             if (!gate.Ready)
             {
                 await ReportAsync(
@@ -643,32 +652,10 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         }
     }
 
-    private async Task<string?> ReadDesiredDigestAsync(
+    private Task<string?> ReadDesiredDigestAsync(
         AdmittedRoleDescriptor descriptor,
-        CancellationToken cancellationToken)
-    {
-        string? json;
-        try
-        {
-            var entry = await delivery.GetEntryAsync<string>(
-                DirectDeliveryTargetKey.For(descriptor.ArtifactKey, configuration.Environment, cell),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-            entry.EnsureSuccess();
-            json = entry.Value;
-        }
-        catch (Exception exception) when (
-            exception is NatsKVKeyNotFoundException or NatsKVKeyDeletedException or NatsKVException)
-        {
-            return null;
-        }
-        var state = JsonSerializer.Deserialize<DesiredArtifactState>(json ?? string.Empty, DeliveryWireCodec.JsonOptions);
-        return state?.ArtifactDigest is { Length: 71 } digest ? digest.ToLowerInvariant() : null;
-    }
-
-    private sealed record DesiredArtifactState(
-        [property: JsonPropertyName("artifactDigest")] string? ArtifactDigest,
-        [property: JsonPropertyName("manifestDigest")] string? ManifestDigest,
-        [property: JsonPropertyName("kind")] string? Kind);
+        CancellationToken cancellationToken) => HostDesiredArtifactReader.ReadAsync(
+            delivery, descriptor.ArtifactKey, configuration.Environment, cell, cancellationToken);
 
     private sealed record InstalledMarker(
         [property: JsonPropertyName("digest")] string? Digest,

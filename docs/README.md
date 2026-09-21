@@ -19,6 +19,7 @@ These documents describe the current system:
 | [`operations/control-bootstrap.md`](operations/control-bootstrap.md) | OCI first boot and seed ownership handoff contract |
 | [`operations/oci-vault-bootstrap.md`](operations/oci-vault-bootstrap.md) | Pinned Instance Principal credential delivery and identity boundaries |
 | [`operations/oci-founding-peers.md`](operations/oci-founding-peers.md) | Offline signing and bounded creation of the first two GRU peers |
+| [`operations/oci-member-readiness.md`](operations/oci-member-readiness.md) | Enrollment readiness, service health, and remaining storage/drain contracts |
 | [`evidence/oci-readiness-2026-09-20.md`](evidence/oci-readiness-2026-09-20.md) | Local verification evidence and remaining deployment gates |
 
 Deleted documents remain available through Git history when an old decision

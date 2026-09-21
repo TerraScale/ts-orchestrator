@@ -10,6 +10,7 @@ using NATS.Client.Core;
 using NATS.Net;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
+using TerraScale.Orchestrator.Nodes;
 using TerraScale.Orchestrator.Runtime;
 using TUnit.Core;
 using HostRole = TerraScale.Orchestrator.Runtime.AdmittedRole;
@@ -52,6 +53,8 @@ public sealed class HostConvergenceRuntimeTests
         await Assert.That(converger.ConvergedPlans).IsEmpty();
         await Assert.That(blocked!.State).IsEqualTo("blocked-admission");
         await Assert.That(blocked.Error).IsEqualTo("enrollment-pending");
+        var seams = new NatsMemberHostSeams(runtimeStore, delivery, client, "gru", "production", TimeProvider.System);
+        await Assert.That(await seams.HasHostReportedAsync("test-1", CancellationToken.None)).IsFalse();
 
         admission.Authorized = true;
         admission.CredentialsReady = true;
@@ -63,6 +66,43 @@ public sealed class HostConvergenceRuntimeTests
         await Assert.That(converger.ConvergedPlans).Count().IsEqualTo(1);
         await Assert.That((await ReadObservationAsync(runtimeStore, "terrabase-server"))!.State)
             .IsEqualTo("converged");
+        await Assert.That(await seams.HasHostReportedAsync("test-1", CancellationToken.None)).IsTrue();
+        admission.Authorized = false;
+        await convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(await seams.HasHostReportedAsync("test-1", CancellationToken.None)).IsFalse();
+        await Assert.That(converger.ConvergedPlans).Count().IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Enrollment_readiness_is_published_before_service_start_to_allow_volume_recovery()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var artifact = Encoding.UTF8.GetBytes("member-awaiting-volume");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var converger = new FakeConverger { ConvergeBarrier = release.Task };
+        await using var convergence = StartConvergence(delivery, runtimeStore, client,
+            Path.Combine(server.Directory, "artifacts"), new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            converger, new FakeAdmissionGate(true, true, "admitted"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var reconcile = convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), timeout.Token);
+        try
+        {
+            await converger.FirstConvergeStarted.WaitAsync(timeout.Token);
+            var seams = new NatsMemberHostSeams(runtimeStore, delivery, client, "gru", "production", TimeProvider.System);
+            await Assert.That(converger.ConvergedPlans).IsEmpty();
+            await Assert.That(await seams.HasHostReportedAsync("test-1", timeout.Token)).IsTrue();
+            await Assert.That(await seams.ObserveMemberHealthAsync("test-1", timeout.Token)).IsNull();
+        }
+        finally
+        {
+            release.TrySetResult();
+            await reconcile;
+        }
     }
 
     [Test]
@@ -749,6 +789,7 @@ public sealed class HostConvergenceRuntimeTests
 
     private sealed class FakeConverger : IHostRuntimeConverger
     {
+        public Task? ConvergeBarrier { get; init; }
         private readonly List<HostRuntimePlan> plans = [];
         private readonly List<string> actions = [];
         private readonly HashSet<string> failingHexes = [];
@@ -782,6 +823,7 @@ public sealed class HostConvergenceRuntimeTests
         public async Task ConvergeAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
         {
             firstConverge.TrySetResult();
+            if (ConvergeBarrier is { } barrier) await barrier.WaitAsync(cancellationToken);
             if (ConvergeDelay is { } delay)
                 await Task.Delay(delay, cancellationToken);
             plans.Add(plan);

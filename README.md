@@ -192,3 +192,4 @@ and the [OCI readiness record](docs/evidence/oci-readiness-2026-09-20.md).
 - [OCI bootstrap and ownership handoff](docs/operations/control-bootstrap.md)
 - [Pinned OCI Vault credential delivery](docs/operations/oci-vault-bootstrap.md)
 - [Bounded GRU founding peers](docs/operations/oci-founding-peers.md)
+- [TerraBase host admission and service readiness](docs/operations/oci-member-readiness.md)

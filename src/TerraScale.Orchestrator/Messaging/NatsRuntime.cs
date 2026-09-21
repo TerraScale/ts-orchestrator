@@ -710,7 +710,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 // fleet is composed here because only here do the live lease, the ORCH_RUNTIME
                 // store, and the cell connection it needs all exist; every fleet mutation
                 // re-checks the lease through the same gate direct delivery uses.
-                var seams = new Nodes.NatsMemberHostSeams(state.Runtime, client.Connection);
+                var seams = new Nodes.NatsMemberHostSeams(state.Runtime, state.Delivery, client.Connection,
+                    options.Cell, memberFleet!.Environment, TimeProvider.System);
                 memberHostFleet = new Nodes.OciMemberHostFleet(
                     ControlPlane.Providers.OciMemberHostSdkTransport.CreateForInstancePrincipal(
                         memberFleet!.Endpoint.ToString()),
@@ -939,6 +940,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 entry.EnsureSuccess();
                 if (key.StartsWith("host.", StringComparison.Ordinal) &&
                     !key.StartsWith("host.replace.", StringComparison.Ordinal) &&
+                    !key.StartsWith("host.admission.", StringComparison.Ordinal) &&
                     !key.StartsWith("host.backoff.", StringComparison.Ordinal))
                 {
                     var observation = JsonSerializer.Deserialize(

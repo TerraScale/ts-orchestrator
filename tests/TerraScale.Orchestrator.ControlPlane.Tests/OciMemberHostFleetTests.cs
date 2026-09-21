@@ -116,6 +116,44 @@ public sealed class OciMemberHostFleetTests
     }
 
     [Test]
+    public async Task Stopped_provider_instance_never_inherits_a_healthy_member_report()
+    {
+        var transport = new FakeMemberHostTransport
+        {
+            LifecycleSequence = [Instance.LifecycleStateEnum.Stopped]
+        };
+        transport.AddSeededMember(memberCordoned: false);
+        using var fleet = Fleet(transport, new FakeObservations { Health = new(true, 0, "Follower", 2, 3) });
+        var observed = await fleet.ObserveAsync(CancellationToken.None);
+        await Assert.That(observed.Single().State).IsEqualTo(MemberHostState.Stopped);
+        await Assert.That(observed.Single().MemberHealth.Up).IsFalse();
+    }
+
+    [Test]
+    [Arguments("owner")]
+    [Arguments("member")]
+    [Arguments("bootstrap")]
+    [Arguments("image")]
+    public async Task Provision_refuses_drift_before_accepting_an_enrollment_report(string drift)
+    {
+        var observations = new FakeObservations();
+        var transport = new FakeMemberHostTransport
+        {
+            ReadMutation = instance =>
+            {
+                if (drift == "owner") instance.FreeformTags[OciMemberHostRequestCompiler.OwnerTag] = "foreign";
+                if (drift == "member") instance.FreeformTags[OciMemberHostRequestCompiler.MemberTag] = "other-member";
+                if (drift == "bootstrap") instance.Metadata["user_data"] = "other-bootstrap";
+                if (drift == "image") instance.ImageId = "other-image";
+            }
+        };
+        using var fleet = Fleet(transport, observations);
+        await Assert.That(async () => await fleet.ProvisionAsync(Request(), CancellationToken.None))
+            .Throws<InvalidDataException>();
+        await Assert.That(observations.ReadyPolls).IsEqualTo(0);
+    }
+
+    [Test]
     public async Task Provision_waits_for_running_and_the_first_host_observation()
     {
         var transport = new FakeMemberHostTransport { LaunchedState = Instance.LifecycleStateEnum.Starting };
@@ -484,6 +522,7 @@ public sealed class OciMemberHostFleetTests
         public Exception? AttachFailure { get; set; }
         public string ForeignInstanceId => "ocid1.instance.oc1.sa-saopaulo-1.foreign";
         public string LaunchedInstanceId { get; private set; } = "";
+        public Action<Instance>? ReadMutation { get; init; }
 
         public void AddSeededMember(bool memberCordoned)
         {
@@ -552,6 +591,7 @@ public sealed class OciMemberHostFleetTests
                 instance.LifecycleState = LifecycleSequence[0];
                 LifecycleSequence.RemoveAt(0);
             }
+            ReadMutation?.Invoke(instance);
             return Task.FromResult(new Oci.CoreService.Responses.GetInstanceResponse
             {
                 Instance = instance,

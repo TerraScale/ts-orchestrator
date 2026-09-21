@@ -535,8 +535,15 @@ internal sealed class TerraBasePlacementReconciler
                     cancellationToken).ConfigureAwait(false);
 
             case PlacementMemberStateDocument.StageDraining:
-                if (member.Observation is null || !member.Observation.MemberHealth.Up ||
-                    member.Observation.State is not (MemberHostState.Running or MemberHostState.Provisioning))
+                // Missing/stale admission or health is an evidence gap, not proof
+                // that the member stopped. Never advance toward detach/retire on it.
+                if (member.Observation is null ||
+                    member.Observation.State is not (MemberHostState.Stopped or MemberHostState.Terminated) &&
+                    member.Observation.MemberHealth.MinReplicas < 1)
+                    return Result(PlacementTickObservation.StateHeld, intent.Database, state.MemberId,
+                        "draining", "member-evidence-missing", intent.Revision);
+                if (!member.Observation.MemberHealth.Up ||
+                    member.Observation.State is MemberHostState.Stopped or MemberHostState.Terminated)
                     return await WriteMemberAsync(
                         state with { Stage = PlacementMemberStateDocument.StageDrained, Trace = nameof(ComputeTraceCode.DrainReady), UpdatedAt = DateTimeOffset.UtcNow },
                         member.Revision, intent, "drained", cancellationToken).ConfigureAwait(false);

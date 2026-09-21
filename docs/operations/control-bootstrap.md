@@ -107,6 +107,14 @@ node, regional cell and accepted artifact digest. Booted but unready VMs remain
 pending capacity, so missing admission does not trigger repeated launches.
 Conflicting artifacts for one regional workload fleet fail closed.
 
+Stateful member readiness now reads a separate enrollment report, bound to the
+same admitted delivery target as host convergence, before storage recovery.
+Service health requires exact, fresh convergence and complete health gauges.
+The member fleet file is schema 2 with an explicit environment. Missing
+evidence during drain holds the placement state. Actual OCI volume lifecycle
+and a durable host drain consumer remain blockers; see
+[oci-member-readiness.md](oci-member-readiness.md).
+
 The authenticated NATS endpoint `ts.orch.v2.<cell>.query.operator-status`
 reports workload needs, actions, progress, and configured policy limits.
 Orchestrator telemetry exports the same workload aggregates. Full regional
