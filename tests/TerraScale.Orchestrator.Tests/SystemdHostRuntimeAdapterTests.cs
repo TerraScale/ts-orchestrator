@@ -7,6 +7,19 @@ public sealed class SystemdHostRuntimeAdapterTests
     private const string Digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     [Test]
+    [Arguments("MainPID=123")]
+    [Arguments("ActiveState=active")]
+    public async Task AbsentUnitWithConflictingEvidenceCannotBeAdoptedOrStopped(string evidence)
+    {
+        var observation = new HostCommandResult(1, "LoadState=not-found\n" + evidence + "\n", "");
+        var runner = new RecordingRunner(observation, observation);
+        var adapter = new SystemdHostRuntimeAdapter(runner);
+        await Assert.That(async () => { await adapter.ObserveAsync(NativePlan(), CancellationToken.None); }).Throws<InvalidOperationException>();
+        await Assert.That(() => adapter.StopAsync(NativePlan(), CancellationToken.None)).Throws<InvalidOperationException>();
+        await Assert.That(runner.Commands.All(command => command.Arguments.Contains("show"))).IsTrue();
+    }
+
+    [Test]
     public async Task AdapterRequiresACommandRunner()
     {
         await Assert.That(() => new SystemdHostRuntimeAdapter(null!))
@@ -107,12 +120,8 @@ public sealed class SystemdHostRuntimeAdapterTests
     }
 
     [Test]
-    public async Task StoppingAnExistingUnitIsFencedOnItsOwnIdentityNotTheCandidatePlan()
+    public async Task StoppingAnExistingUnitRequiresTheExactPreviousPlan()
     {
-        // A unit created by a previous digest carries THAT plan's fingerprint in its
-        // Description; the unit name is digest-invariant. Replacing the binary must stop
-        // it (stop-then-recreate) — requiring the candidate plan's fingerprint here would
-        // make every digest change throw before systemctl stop is ever reached.
         var oldPlan = NativePlan();
         var newPlan = NativePlan("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210");
         var runningUnderOldPlan = new HostCommandResult(0,
@@ -122,7 +131,11 @@ public sealed class SystemdHostRuntimeAdapterTests
         var stopping = new RecordingRunner(
             runningUnderOldPlan, new HostCommandResult(0, string.Empty, string.Empty));
 
-        await new SystemdHostRuntimeAdapter(stopping).StopAsync(newPlan, CancellationToken.None);
+        var denied = new RecordingRunner(runningUnderOldPlan);
+        await Assert.That(() => new SystemdHostRuntimeAdapter(denied).StopAsync(newPlan, CancellationToken.None))
+            .Throws<InvalidOperationException>();
+        await Assert.That(denied.Commands.Count).IsEqualTo(1);
+        await new SystemdHostRuntimeAdapter(stopping).StopAsync(oldPlan, CancellationToken.None);
 
         var stop = stopping.Commands.Last();
         await Assert.That(stop.Executable).IsEqualTo("/usr/bin/systemctl");

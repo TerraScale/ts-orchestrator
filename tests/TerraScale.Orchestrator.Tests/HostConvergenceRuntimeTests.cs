@@ -35,13 +35,14 @@ public sealed class HostConvergenceRuntimeTests
         var artifact = Encoding.UTF8.GetBytes("tracked-before-report-or-marker");
         var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
         await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+        await using var inventory = new HostInventoryFixture("test-1");
         using var admission = new ExecutionLease();
         var native = new StoppableConverger();
         var reports = new WithheldRuntimeReport(new TestHostObservationPublisher(runtimeStore), lostReportAck);
         await using var runtime = HostConvergenceRuntime.Create(delivery, runtimeStore, reports,
             new MemoryArtifactSource(("sha256-" + hex, artifact)), native,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "tracked-artifacts"), HostArchitecture.X64),
-            "gru", "test-1", admission: admission);
+            "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
         var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
         var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, descriptor, CancellationToken.None);
         try
@@ -69,6 +70,55 @@ public sealed class HostConvergenceRuntimeTests
             try { await attempt.WaitAsync(TimeSpan.FromSeconds(3)); }
             catch (OperationCanceledException) { }
         }
+    }
+
+    [Test]
+    public async Task Recovery_precedes_desired_reads_and_ready_reports_even_when_the_broker_is_unavailable()
+    {
+        await using var inventory = new HostInventoryFixture("test-1");
+        using var admission = new ExecutionLease();
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var native = new HostWorkloadRecoveryTests.Native { StopBarrier = release.Task };
+        inventory.Inventory.Record(inventory.Plan());
+        native.Seed(inventory.Plan());
+        var delivery = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
+        var withheld = (WithheldDesired)delivery;
+        var reports = new UnavailableReports();
+        await using var runtime = HostConvergenceRuntime.Create(delivery, null!, reports,
+            new MemoryArtifactSource(), native,
+            new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", inventory.Directory, HostArchitecture.X64),
+            "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: native);
+        var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        try
+        {
+            await native.Stopping.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await Assert.That(runtime.RecoverySnapshot!.State).IsEqualTo("recovering");
+            await Assert.That(withheld.Started.Task.IsCompleted).IsFalse();
+            await Assert.That(reports.Calls).IsEqualTo(0);
+            release.TrySetResult();
+            await withheld.Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await Assert.That(runtime.RecoverySnapshot.Ready).IsTrue();
+            await Assert.That(native.Entries).IsEmpty();
+            await Assert.That(reports.Calls).IsEqualTo(0);
+            admission.Lost.Cancel();
+            await Assert.That(() => attempt).Throws<OperationCanceledException>();
+        }
+        finally
+        {
+            release.TrySetResult();
+            admission.Lost.Cancel();
+            withheld.Read.TrySetResult(new("ORCH_DELIVERY", "unavailable") { Value = "{}", Revision = 1 });
+            try { await attempt.WaitAsync(TimeSpan.FromSeconds(3)); } catch (OperationCanceledException) { }
+        }
+    }
+
+    private sealed class UnavailableReports : IHostObservationPublisher
+    {
+        internal int Calls;
+        public Task PublishAsync(HostAdmissionObservation report, CancellationToken cancellationToken)
+        { Interlocked.Increment(ref Calls); throw new IOException("Broker unavailable."); }
+        public Task PublishAsync(HostConvergenceObservation report, CancellationToken cancellationToken)
+        { Interlocked.Increment(ref Calls); throw new IOException("Broker unavailable."); }
     }
 
     private sealed class WithheldRuntimeReport(IHostObservationPublisher inner, bool withheld) : IHostObservationPublisher
@@ -118,6 +168,7 @@ public sealed class HostConvergenceRuntimeTests
         var artifact = Encoding.UTF8.GetBytes("lease-cancelled-member");
         var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
         await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+        await using var inventory = new HostInventoryFixture("test-1");
         using var admission = new ExecutionLease();
         var read = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
         var withheld = (WithheldDesired)read;
@@ -126,7 +177,7 @@ public sealed class HostConvergenceRuntimeTests
         await using var runtime = HostConvergenceRuntime.Create(stalledDesired ? read : delivery, runtimeStore,
             new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)), converger,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "lease-artifacts"), HostArchitecture.X64),
-            "gru", "test-1", admission: admission);
+            "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
         var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
         try
         {

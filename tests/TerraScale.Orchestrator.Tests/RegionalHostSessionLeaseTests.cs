@@ -377,10 +377,11 @@ public sealed class RegionalHostSessionLeaseTests
         await using var relay = await HostObservationRelay.StartAsync(controller.Connection, runtime, authority, deadline.Token);
         await using var lease = await RegionalHostSessionLease.StartAsync(new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1"),
             credentials.Enrollment, files.Authentication, credentials.ObserveAsync, deadline.Token);
+        await using var inventory = new HostInventoryFixture();
         using var native = new HostWorkloadLifetimeTests.ChildProcess();
-        await using var workloads = new HostWorkloadLifetime(native, lease.ExecutionToken);
+        await using var workloads = new HostWorkloadLifetime(native, lease.ExecutionToken, inventory.Inventory, HostInventoryFixture.EmptyProbe);
         await workloads.ConvergeAsync(HostRuntimePlan.Create(AdmittedRole.TerraBaseMember, RuntimeDriver.NativeSystemd,
-            new("lease-revocation-child"), new(new string('a', 64)), HostArchitecture.X64), deadline.Token);
+            HostConvergenceRuntime.AllocationIdFor("gru", "host-1", "terrabase-server"), new(new string('a', 64)), HostArchitecture.X64), deadline.Token);
         await Assert.That(native.Exited).IsFalse();
         var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1", lease.GetReportSigner);
         await UntilAsync(() => lease.Snapshot.Renewals >= 2, TimeSpan.FromSeconds(12));

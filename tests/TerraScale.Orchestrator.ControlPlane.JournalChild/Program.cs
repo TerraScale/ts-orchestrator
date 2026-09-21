@@ -3,6 +3,8 @@ using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Operations;
 using TerraScale.Orchestrator.ControlPlane.Providers;
 
+if (args is ["host-recovery", ..]) return await HostRecoveryChild.RunAsync(args);
+
 if (args.Length != 5) return 64;
 var (directory, keyText, barrier, result, actor) = (args[0], args[1], args[2], args[3], args[4]);
 var key = Convert.FromBase64String(keyText);
@@ -59,8 +61,7 @@ internal sealed class ChildFileCreateNodeOperationJournal(
         if (!CryptographicOperations.FixedTimeEquals(tag, HMACSHA256.HashData(key, payload))) throw new InvalidDataException("Journal integrity tag is invalid.");
         var entry = JsonSerializer.Deserialize<CreateNodeOperationJournalEntry>(payload) ?? throw new InvalidDataException("Missing journal entry."); Validate(entry); return entry;
     }
-    // Mirrors InMemoryCreateNodeOperationJournal.Validate; the production helper is internal and
-    // this fixture assembly does not receive it through InternalsVisibleTo.
+    // Validate the test file journal's persisted entries before reading or writing them.
     private static void Validate(CreateNodeOperationJournalEntry entry)
     {
         if (entry.Version < 0 || string.IsNullOrWhiteSpace(entry.OperationFingerprint) || entry.RecoveryAuthority is null || !Enum.IsDefined(entry.Stage) || entry.ProviderAttempts < 0 ||

@@ -184,7 +184,7 @@ internal sealed class NativeSystemdRuntimeAdmission
     public Task StopAsync(CancellationToken cancellationToken) =>
         adapter.StopAsync(plan, cancellationToken);
 
-    private static HostRuntimePlan RequireCanonicalNativePlan(HostRuntimePlan candidate)
+    internal static HostRuntimePlan RequireCanonicalNativePlan(HostRuntimePlan candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         if (candidate.SchemaVersion != 2)
@@ -270,11 +270,12 @@ internal sealed class NativeSystemdRuntimeAdmission
     /// <summary>The state layout root the plan's absolute EnvironmentFile/Environment paths live under.</summary>
     private static string? StateRootOf(SystemdExecutionPlan? systemd)
     {
-        if (systemd?.Properties.FirstOrDefault(static value =>
-                value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal)) is not { } environmentFile)
-            return null;
-        // EnvironmentFile=-{root}/terrascale-{allocation}/environment
-        var path = environmentFile["EnvironmentFile=-".Length..];
+        var property = systemd?.Properties.FirstOrDefault(static value =>
+            value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal) ||
+            value.StartsWith("Environment=TS_ORCH_CONFIG=", StringComparison.Ordinal));
+        if (property is null) return null;
+        var path = property.StartsWith("EnvironmentFile=-", StringComparison.Ordinal)
+            ? property["EnvironmentFile=-".Length..] : property["Environment=TS_ORCH_CONFIG=".Length..];
         var allocationDirectory = Path.GetDirectoryName(path);
         return allocationDirectory is null ? null : Path.GetDirectoryName(allocationDirectory);
     }
@@ -291,4 +292,3 @@ internal sealed class NativeSystemdRuntimeAdmission
         return keyDirectory is null ? null : Path.GetDirectoryName(keyDirectory);
     }
 }
-

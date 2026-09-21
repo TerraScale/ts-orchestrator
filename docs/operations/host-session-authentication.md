@@ -187,10 +187,12 @@ loss, including a desired-state read that ignores its cancellation token.
 Cancellation prevents subsequent work and reaches cooperative in-flight
 operations. Lease-backed convergence also composes
 [`HostWorkloadLifetime`](host-workload-shutdown.md), which stops and observes
-allocations tracked in the current process with independent cleanup tokens.
-This does not recover an unrecorded allocation after a crash or establish
-storage writer fencing. Durable ownership recovery, production host startup
-and stop evidence bound to controller drain/replacement remain required.
+durably recorded allocations with independent cleanup tokens. Exclusive local
+ownership, native discovery and recovery precede new reconciliation, even when
+NATS is unavailable. Late starts, stops and recovery probes retain the owner
+lock until they settle. Production host startup, external-command cgroup
+quiescence, storage writer fencing and stop evidence bound to controller
+drain/replacement remain required.
 
 ## Report proof and current-session authorization
 

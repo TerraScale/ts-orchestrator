@@ -22,6 +22,17 @@ warnings and guest limitations described below. Its exact filter was
 `/*/*/(RegionalHostCredentialMaterialTests|NatsUserSignatureTests|NatsAuthenticationFilesTests)/*`,
 with `--minimum-expected-tests 67 --maximum-parallel-tests 2`.
 
+The host recovery qualification adds 26 inventory tests under the same ARM64
+emulator. Its first run found that the directory `open` flags had x64 values;
+ARM64 needs different `O_DIRECTORY` and `O_NOFOLLOW` bits. After correcting the
+actual architecture selection, all 26 tests passed. They exercise `statx`,
+file/directory ownership checks, durable flush/rename/fsync, interruption,
+corruption and exact plan roundtrips. Test helpers such as `mkfifo` and `ln`
+run as host utilities; this does not qualify ARM64 workload subprocesses or
+systemd/containerd. See the
+[recovery receipt](../evidence/host-recovery-local-2026-09-21.json) for the exact
+source and executable hashes. The repository dependency locks stayed unchanged.
+
 ## Reproducing the local checks
 
 Use the receipt's Nix source identity and store paths for QEMU 10.2.4, ARM64

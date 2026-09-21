@@ -151,6 +151,7 @@ internal sealed class SystemdHostRuntimeAdapter(
         var (result, values) = await ShowUnitAsync(systemd, cancellationToken);
         if (values.GetValueOrDefault("LoadState") == "not-found")
         {
+            RequireAbsentObservation(values);
             return new(systemd.UnitName, SystemdAllocationState.Absent, null, "not-found");
         }
         if (result.ExitCode != 0)
@@ -170,14 +171,12 @@ internal sealed class SystemdHostRuntimeAdapter(
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
     {
         var systemd = RequireCanonicalSystemdPlan(plan);
-        // Stopping an existing unit is fenced on the unit's OWN canonical identity — the
-        // allocation id its Description carries — not on the candidate plan's fingerprint:
-        // replacing a binary must be able to stop the unit a previous digest created
-        // (stop-then-recreate). The exact-fingerprint fence stays on adoption
-        // (converge/observe), so a foreign unit squatting on this name is still refused.
+        // Replacement and recovery must supply the actual previously recorded plan.
+        // An allocation-name prefix cannot authorize stopping an unknown generation.
         var (result, values) = await ShowUnitAsync(systemd, cancellationToken);
         if (values.GetValueOrDefault("LoadState") == "not-found")
         {
+            RequireAbsentObservation(values);
             return;
         }
         if (result.ExitCode != 0)
@@ -186,8 +185,7 @@ internal sealed class SystemdHostRuntimeAdapter(
                 $"systemd could not inspect allocation {plan.AllocationId}; exit code {result.ExitCode}.");
         }
         var description = values.GetValueOrDefault("Description");
-        if (values.GetValueOrDefault("LoadState") != "loaded" ||
-            description?.StartsWith(OwnedDescriptionPrefix(plan), StringComparison.Ordinal) != true)
+        if (values.GetValueOrDefault("LoadState") != "loaded" || description != PlanDescription(plan))
         {
             throw new InvalidOperationException(
                 $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
@@ -255,43 +253,20 @@ internal sealed class SystemdHostRuntimeAdapter(
             values.GetValueOrDefault("Result") ?? "unknown");
     }
 
+    internal static void RequireAbsentObservation(IReadOnlyDictionary<string, string> values)
+    {
+        if (values.TryGetValue("MainPID", out var pid) && pid != "0" ||
+            values.TryGetValue("ActiveState", out var state) && state != "inactive")
+            throw new InvalidOperationException("An absent systemd allocation reports conflicting process or state evidence.");
+    }
+
     private static string PlanDescription(HostRuntimePlan plan) =>
         $"TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}";
-
-    private static string OwnedDescriptionPrefix(HostRuntimePlan plan) =>
-        $"TerraScale allocation {plan.AllocationId} plan ";
 
     private IReadOnlyList<string> ManagerArguments(params string[] arguments) => userManager
         ? new[] { "--user" }.Concat(arguments).ToArray()
         : arguments;
 
     private static SystemdExecutionPlan RequireCanonicalSystemdPlan(HostRuntimePlan plan)
-    {
-        ArgumentNullException.ThrowIfNull(plan);
-        if (plan.Driver != RuntimeDriver.NativeSystemd || plan.Systemd is null || plan.Oci is not null)
-        {
-            throw new ArgumentException("The systemd adapter requires a native systemd plan.", nameof(plan));
-        }
-        var expected = HostRuntimePlan.Create(
-            plan.Role,
-            plan.Driver,
-            plan.AllocationId,
-            plan.ArtifactDigest,
-            plan.Architecture,
-            plan.Resources);
-        if (expected.Systemd is not { } expectedSystemd)
-        {
-            throw new InvalidOperationException("The systemd execution plan could not be reconstructed from the admitted role.");
-        }
-        var systemd = plan.Systemd;
-        if (systemd.UnitName != expectedSystemd.UnitName ||
-            systemd.Executable != expectedSystemd.Executable ||
-            !systemd.Arguments.SequenceEqual(expectedSystemd.Arguments) ||
-            !systemd.Properties.SequenceEqual(expectedSystemd.Properties) ||
-            plan.Resources != expected.Resources)
-        {
-            throw new InvalidOperationException("The systemd execution plan is not canonical for the admitted role.");
-        }
-        return systemd;
-    }
+        => NativeSystemdRuntimeAdmission.RequireCanonicalNativePlan(plan).Systemd!;
 }

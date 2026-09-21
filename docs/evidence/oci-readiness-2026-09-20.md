@@ -31,13 +31,16 @@ Controller startup now loads a public enrollment policy and starts the service
 with status/metrics. An independent renewable host execution lease now exposes
 terminal cancellation and an immutable current report signer. Core convergence
 links work to that cancellation, including stalled desired-state reads.
-Lease-backed convergence now stops and observes allocations tracked in the
-current process independently of desired state and report acknowledgements.
+Lease-backed convergence now requires exclusive local ownership and a durable
+canonical workload inventory. It discovers both native drivers and stops
+recorded work before new reconciliation, independently of desired state and
+report acknowledgements. Late starts, stops and recovery probes retain the
+owner lock until they actually settle.
 Protected credential validation now supplies fixed certificate/JWT/trust expiry
 to a nonrenewable monotonic material budget. The restricted R3 test composes
 these checks with session renewal and actual owned-process shutdown. The
-dedicated host entry, durable restart recovery and writer fencing still need
-composition, so remote host admission/startup remains a blocker. A local stopped observation is not storage writer fencing.
+dedicated host entry, external-command cgroup quiescence and writer fencing
+still need composition, so remote host admission/startup remains a blocker. A local stopped observation is not storage writer fencing.
 Current lease retries now confirm replica reads through an unchanged CAS;
 report proof and current-session authorization components use the same fence.
 TerraBase recovery/health, OCI workload readiness and operator ready counts
@@ -113,8 +116,20 @@ The five local suites passed **2564** tests with **5 expected opt-in skips**;
 the main suite passed **1268** in 13m45s. Its separate ARM64 run executes 67
 signing/authentication/material checks under QEMU. Neither receipt qualifies native ARM64 workloads or OCI deployment.
 
+The [durable recovery receipt](host-recovery-local-2026-09-21.json) records
+**2616 passing tests** across the five projects (main1320, five expected skips),
+plus **111 focused checks** on the final source and **26 ARM64 inventory checks**
+under QEMU. The full suites preceded the final ARM64 directory-open flag
+correction; its x64 values are unchanged, and the corrected source passed the
+focused x64 and emulated ARM64 checks. The ARM64 run caught and verified that
+correction. A killed supervisor's actual child process was recovered without
+NATS. This is local recovery qualification; production host startup and physical
+execution/storage fencing remain blocked.
+
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Durable host ownership and recovery | **2616 passed**, 0 failed, 5 expected opt-in skips across five suites; final focused **111 passed**; ARM64 inventory **26 passed** | `/tmp/ts-host-recovery-{full-main,control,protocol,model,scheduler,abi-qualified,arm64-tests-corrected}.log`; main13m53s315ms; final Release0warnings/errors and required style passed; source chronology and native qualification limits in the receipt |
+| CI #510 at `857e57de` | **2564 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Main1268/control966/protocol165/model59/scheduler106; `/tmp/ts-orchestrator-ci510-job-{22021,22022}.log`; main37m42s665ms; published credential-expiry checkpoint before the durable recovery batch |
 | Tracked workload shutdown and complete regression | **2513 passed**, 0 failed, 5 expected opt-in skips across five suites | Main1217/control966/protocol165/model59/scheduler106; `/tmp/ts-host-shutdown-{full-main,control-tests,protocol-tests,model-tests,scheduler-tests}.log`; main13m45s021ms; Release0warnings/errors, required style passed; local inventory does not establish crash recovery or writer fencing |
 | ARM64 application and bundled signing under QEMU | Offline application plan **passed**; **24 tests passed**, 0 failed/skipped | `/tmp/ts-host-shutdown-arm64-{plan.json,crypto-tests.log,loader.log}`; guest loaded the extracted bundled AArch64 libsodium; application publish had no warnings; isolated test harness retained IL3000/NETSDK1236 limitations; native ARM64 services remain unqualified |
 | CI #508 at `52276b1e` | **2499 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Main1203/control966/protocol165/model59/scheduler106; `/tmp/ts-orchestrator-ci508-job-{22017,22018}.log`; lease checkpoint before tracked-shutdown integration; verification46m3s, artifact1m37s; native ARM64 workloads were not executed |
@@ -298,7 +313,8 @@ repository's main-only push rule being resolved.
   host execution lease now renews remotely and triggers stop/observation of
   tracked local workloads. The obsolete cached one-use admission gate has been removed; host material
   validation does not access controller replay stores. Controller startup rejects mixed host roles; the dedicated
-  host entry and restart-safe workload ownership remain open. The new material
+  host entry and physical execution fencing remain open. Local durable ownership
+  and recovery now have component coverage. The new material
   validator binds protected credential files to signed enrollment, checks
   certificate chain/key/usage and JWT validity, and supplies a fixed expiry to
   the lease. A separate monotonic material deadline cannot be renewed, even
@@ -340,17 +356,19 @@ repository's main-only push rule being resolved.
    never authorize work or confer membership. The host-agent manifest grants
    hashed observation/ack/command subjects. Host reports now use an acknowledged
    controller relay; the controller's agent grants cover all hosts only in its
-   fixed region. Desired state, artifact retrieval, backoff, replacement leases
-   and enrollment still need restricted-host protocols and dedicated host startup.
+   fixed region. Desired state, artifact retrieval, backoff and replacement leases
+   still need restricted-host protocols. Session enrollment exists; its dedicated
+   host startup composition remains incomplete.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The controller report
    relay now requires signed session-bound ingress and atomic persistence.
    Generic OCI/operator serving readiness also pairs current admission with
    runtime evidence, so a withdrawal invalidates an older converged report.
-   Independent renewal and tracked-workload shutdown now have component and
-   core-convergence coverage. They do not yet compose the restricted host
-   runtime, durable crash recovery or physical writer fencing. Controller
-   run/check rejects mixed host roles.
+   Independent renewal, durable ownership, native discovery, restart recovery
+   and workload shutdown now have component and core-convergence coverage.
+   They do not yet compose the production restricted host runtime, external
+   command cgroup quiescence or physical writer fencing. Controller run/check
+   rejects mixed host roles.
    The controller instance-name parser rejects full OCI node IDs, while admission and fleet
    reporting require that exact identity. Host allocation names now use a
    stable cell/node/artifact hash and preserve full OCIDs in report bodies;

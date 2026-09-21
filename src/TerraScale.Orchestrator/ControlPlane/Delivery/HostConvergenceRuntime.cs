@@ -211,8 +211,13 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string instance,
         TimeSpan? observationTimeout = null,
         TimeSpan? replaceLeaseDuration = null,
-        IHostAdmissionGate? admission = null)
+        IHostAdmissionGate? admission = null,
+        HostWorkloadInventory? inventory = null,
+        IHostNativeInventoryProbe? nativeInventory = null)
     {
+        if (admission is IHostExecutionLease && (inventory is null || nativeInventory is null ||
+            inventory.Identity != new HostWorkloadIdentity(cell, instance, configuration.Environment)))
+            throw new InvalidOperationException("Lease-backed convergence requires this host's exclusive inventory and native discovery.");
         this.observationTimeout = observationTimeout ?? TimeSpan.FromSeconds(90);
         this.replaceLeaseDuration = replaceLeaseDuration ?? DefaultReplaceLeaseDuration;
         replaceLeaseRenewalInterval = this.replaceLeaseDuration / 3;
@@ -225,7 +230,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
         this.artifacts = artifacts;
         if (admission is IHostExecutionLease)
-            workloadLifetime = new HostWorkloadLifetime(converger, stopping.Token);
+            workloadLifetime = new HostWorkloadLifetime(converger, stopping.Token, inventory!, nativeInventory!);
         this.converger = workloadLifetime ?? converger;
         this.configuration = configuration;
         memberHealth = configuration.MemberObservabilityUrl is { } url
@@ -247,9 +252,11 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string instance,
         TimeSpan? observationTimeout = null,
         TimeSpan? replaceLeaseDuration = null,
-        IHostAdmissionGate? admission = null) =>
+        IHostAdmissionGate? admission = null,
+        HostWorkloadInventory? inventory = null,
+        IHostNativeInventoryProbe? nativeInventory = null) =>
         new(delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
-            observationTimeout, replaceLeaseDuration, admission);
+            observationTimeout, replaceLeaseDuration, admission, inventory, nativeInventory);
 
     /// <summary>Starts one reconcile loop per configured role. The loops never throw: failures are reported as observations.</summary>
     internal static HostConvergenceRuntime Start(
@@ -263,11 +270,13 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         string instance,
         TimeSpan? observationTimeout = null,
         TimeSpan? replaceLeaseDuration = null,
-        IHostAdmissionGate? admission = null)
+        IHostAdmissionGate? admission = null,
+        HostWorkloadInventory? inventory = null,
+        IHostNativeInventoryProbe? nativeInventory = null)
     {
         var runtimeLoop = Create(
             delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
-            observationTimeout, replaceLeaseDuration, admission);
+            observationTimeout, replaceLeaseDuration, admission, inventory, nativeInventory);
         runtimeLoop.loops.AddRange(configuration.Roles.Select(
             role => Task.Run(() => runtimeLoop.ReconcileLoopAsync(role, runtimeLoop.stopping.Token))));
         return runtimeLoop;
@@ -297,6 +306,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         stopping.Dispose();
     }
 
+    internal HostWorkloadRecoverySnapshot? RecoverySnapshot => workloadLifetime?.RecoverySnapshot;
+    internal Task? OwnershipReleased => workloadLifetime?.OwnershipReleased;
     internal Task<HostWorkloadShutdownSnapshot>? ShutdownCompletion => workloadLifetime?.Completion;
     internal HostWorkloadShutdownSnapshot? ShutdownSnapshot => workloadLifetime?.Snapshot;
 
@@ -340,6 +351,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         using var execution = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping.Token);
         cancellationToken = execution.Token;
         cancellationToken.ThrowIfCancellationRequested();
+        if (workloadLifetime is not null)
+            await workloadLifetime.RequireRecoveredAsync(cancellationToken).ConfigureAwait(false);
         var desired = await ReadDesiredDigestAsync(descriptor, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
         if (desired is null)
         {

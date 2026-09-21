@@ -167,7 +167,9 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         }
     }
 
-    private static OciExecutionPlan RequireCanonicalOciPlan(HostRuntimePlan plan)
+    private static OciExecutionPlan RequireCanonicalOciPlan(HostRuntimePlan plan) => RequireCanonicalPlan(plan).Oci!;
+
+    internal static HostRuntimePlan RequireCanonicalPlan(HostRuntimePlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (plan.Driver != RuntimeDriver.OciContainer || plan.Oci is null || plan.Systemd is not null)
@@ -202,7 +204,7 @@ internal sealed class ContainerdHostRuntimeAdapter(IContainerdClient client)
         {
             throw new InvalidOperationException("The OCI execution plan is not canonical for the admitted role.");
         }
-        return actualOci;
+        return expected;
     }
 }
 
@@ -456,6 +458,16 @@ internal static class CanonicalPlanFingerprint
         Add(hash, plan.Resources.CpuWeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(hash, plan.Resources.IoWeight.ToString(System.Globalization.CultureInfo.InvariantCulture));
         Add(hash, plan.Resources.Nice.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (plan.Systemd is { } systemd)
+        {
+            Add(hash, "systemd");
+            Add(hash, systemd.UnitName);
+            Add(hash, systemd.Executable);
+            Add(hash, systemd.Arguments.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            foreach (var argument in systemd.Arguments) Add(hash, argument);
+            Add(hash, systemd.Properties.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            foreach (var property in systemd.Properties) Add(hash, property);
+        }
         if (plan.Oci is { } oci)
         {
             Add(hash, oci.ContainerId);

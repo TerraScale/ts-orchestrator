@@ -10,9 +10,10 @@ public sealed class HostWorkloadLifetimeTests
     [Test]
     public async Task Lease_loss_stops_and_observes_an_actual_owned_child_process()
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         using var native = new ChildProcess();
-        await using var lifetime = new HostWorkloadLifetime(native, lease.Token);
+        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await Assert.That(native.Exited).IsFalse();
         lease.Cancel();
@@ -24,9 +25,10 @@ public sealed class HostWorkloadLifetimeTests
     [Test]
     public async Task Lease_loss_stops_both_roles_with_fresh_cleanup_tokens_and_denies_new_work()
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         var native = new Native();
-        await using var lifetime = new HostWorkloadLifetime(native, lease.Token);
+        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication), CancellationToken.None);
         lease.Cancel();
@@ -44,12 +46,13 @@ public sealed class HostWorkloadLifetimeTests
     [Arguments(true)]
     public async Task A_non_cooperative_start_holds_its_slot_until_it_finishes_then_queued_cleanup_stops_it(bool synchronous)
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseSynchronous = new ManualResetEventSlim();
         var native = new Native { StartBarrier = synchronous ? null : release.Task,
             BeforeStart = synchronous ? () => releaseSynchronous.Wait(TimeSpan.FromSeconds(5)) : null };
-        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, TimeSpan.FromMilliseconds(150));
+        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe, TimeSpan.FromMilliseconds(150));
         var start = lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await native.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
         lease.Cancel();
@@ -60,6 +63,8 @@ public sealed class HostWorkloadLifetimeTests
             await Assert.That(uncertain.State).IsEqualTo("unconfirmed");
             await Assert.That(uncertain.Need).IsEqualTo("shutdown-deadline-exceeded");
             await Assert.That(native.StopCalls).IsEmpty();
+            await Assert.That(lifetime.OwnershipReleased.IsCompleted).IsFalse();
+            await Assert.That(HostWorkloadInventoryTests.Rejected(() => HostWorkloadInventory.Open(files.Directory, files.Identity))).IsTrue();
             await lifetime.DisposeAsync();
         }
         finally { release.TrySetResult(); releaseSynchronous.Set(); }
@@ -76,9 +81,10 @@ public sealed class HostWorkloadLifetimeTests
     [Arguments((int)SystemdAllocationState.Failed, null)]
     public async Task A_stop_command_without_a_stopped_observation_never_proves_shutdown(int state, int? pid)
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         var native = new Native { ForcedObservation = new("unit", (SystemdAllocationState)state, pid, "test") };
-        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, TimeSpan.FromMilliseconds(150));
+        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe, TimeSpan.FromMilliseconds(150));
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         lease.Cancel();
         var result = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
@@ -90,9 +96,10 @@ public sealed class HostWorkloadLifetimeTests
     [Test]
     public async Task One_failed_stop_does_not_prevent_the_other_role_from_stopping()
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         var native = new Native { FailingRole = AdmittedRole.TerraBaseMember };
-        await using var lifetime = new HostWorkloadLifetime(native, lease.Token);
+        await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication), CancellationToken.None);
         lease.Cancel();
@@ -108,10 +115,11 @@ public sealed class HostWorkloadLifetimeTests
     [Arguments(true)]
     public async Task Cleanup_uses_the_exact_previous_container_plan_and_never_stops_a_foreign_allocation(bool foreign)
     {
+        await using var files = new HostInventoryFixture();
         using var lease = new CancellationTokenSource();
         var previous = Plan(AdmittedRole.Authentication);
         var client = new ExistingContainer(previous, foreign);
-        await using var lifetime = new HostWorkloadLifetime(new ContainerdHostRuntimeConverger(client), lease.Token);
+        await using var lifetime = new HostWorkloadLifetime(new ContainerdHostRuntimeConverger(client), lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe);
         if (foreign)
             await Assert.That(() => lifetime.ConvergeAsync(previous, CancellationToken.None)).Throws<InvalidOperationException>();
         else
@@ -128,20 +136,22 @@ public sealed class HostWorkloadLifetimeTests
     [Test]
     public async Task Disposal_stops_work_without_a_lease_callback_or_report_and_an_empty_runtime_is_stopped()
     {
+        await using var files = new HostInventoryFixture();
+        await using var emptyFiles = new HostInventoryFixture();
         var native = new Native();
-        var lifetime = new HostWorkloadLifetime(native, CancellationToken.None);
+        var lifetime = new HostWorkloadLifetime(native, CancellationToken.None, files.Inventory, HostInventoryFixture.EmptyProbe);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication), CancellationToken.None);
         await lifetime.DisposeAsync();
         await Assert.That((await lifetime.Completion).State).IsEqualTo("stopped");
         await Assert.That(native.StopCalls.Count).IsEqualTo(1);
-        var empty = new HostWorkloadLifetime(native, CancellationToken.None);
+        var empty = new HostWorkloadLifetime(native, CancellationToken.None, emptyFiles.Inventory, HostInventoryFixture.EmptyProbe);
         await empty.DisposeAsync();
         await Assert.That((await empty.Completion).StoppedAllocations).IsEqualTo(0);
         await Assert.That((await empty.Completion).State).IsEqualTo("stopped");
     }
 
     private static HostRuntimePlan Plan(AdmittedRole role, char digest = 'a') => HostRuntimePlan.Create(role,
-        AdmittedRoleCatalog.Get(role).DefaultDriver, new("shutdown-" + role.ToString().ToLowerInvariant()),
+        AdmittedRoleCatalog.Get(role).DefaultDriver, HostConvergenceRuntime.AllocationIdFor("gru", "host-1", AdmittedRoleCatalog.Get(role).ArtifactKey),
         new(new string(digest, 64)), HostArchitecture.X64);
 
     private static async Task UntilAsync(Func<bool> condition)
