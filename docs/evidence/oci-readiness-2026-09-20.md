@@ -46,8 +46,12 @@ requests with exact role/environment target checks. The controller streams from
 a bounded verified cache; the host checks the complete digest before installing.
 The [artifact protocol](../operations/host-artifact-delivery.md) documents its
 limits, status and metrics. Durable backoff and regional replacement protocols
-are still open; this does not enable the production host entry. The producer's
-same-digest publication retry and orphan-chunk cleanup also remain unqualified.
+are still open; this does not enable the production host entry. The
+[artifact publisher](../operations/artifact-publication.md) now snapshots input,
+conditionally resumes a digest's verified chunk prefix and creates metadata
+once. It does not require purge authority. Safe abandoned-upload and artifact
+retention/reclamation remain open; the 8 GiB store cap rejects new writes at
+capacity rather than evicting active artifacts.
 Protected credential validation now supplies fixed certificate/JWT/trust expiry
 to a nonrenewable monotonic material budget. The restricted R3 test composes
 these checks with session renewal and actual owned-process shutdown. The
@@ -147,6 +151,7 @@ execution/storage fencing remain blocked.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Immutable artifact publisher and delivery regression | **65 passed**, 0 failed/skipped; Release **0 warnings/errors**, required style passed | [Source and log receipt](artifact-publication-local-2026-09-21.json); actual restricted JWT/mTLS R3 CLI, concurrent/repeated uploads, injected lost acknowledgements, member restart, SDK/cache interoperability, poisoned data, bounded snapshots and metadata conflicts. Focused qualification only; abandoned-digest reclamation and release-sized renewing-session delivery remain open |
 | Restricted native artifact delivery | **2680 passed**, 0 failed, 5 expected skips across five suites; focused **109 passed** | [Source and log receipt](host-artifact-local-2026-09-21.json); main1384/control966/protocol165/model59/scheduler106; main16m05s527ms; Release0warnings/errors and required style passed. Real restricted R3 chunks and core convergence; backoff/replace remain controller-supplied test seams, and native ARM64 service execution is not established |
 | CI #512 at `88dec4466a` | **2638 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Published orphan-recovery fixture correction and signed desired protocol, before the artifact-delivery change; `/tmp/ts-orchestrator-ci512-job-{22025,22026}.log` |
 | Durable host ownership and recovery | **2616 passed**, 0 failed, 5 expected opt-in skips across five suites; final focused **111 passed**; ARM64 inventory **26 passed** | `/tmp/ts-host-recovery-{full-main,control,protocol,model,scheduler,abi-qualified,arm64-tests-corrected}.log`; main13m53s315ms; final Release0warnings/errors and required style passed; source chronology and native qualification limits in the receipt |

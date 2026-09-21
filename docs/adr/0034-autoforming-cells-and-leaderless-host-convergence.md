@@ -2,9 +2,27 @@
 
 | | |
 | --- | --- |
-| Status | Accepted |
+| Status | Partially superseded; historical design intent, not deployment evidence |
 | Date | 2026-09-18 |
 | Context | [ADR 0033](0033-gru-global-authority-and-regional-autonomy.md), the deploy path in `ControlPlane/Delivery`, `Runtime/AdmittedRoleCatalog` |
+
+## Current implementation status — 2026-09-21
+
+The startup and cached process-lifetime admission descriptions below are
+historical. They do not prove automatic OCI cluster formation or authorize
+deployment. `ts-infra` controls supported regions and the first GRU seed;
+signed first boot, seed ownership handoff and regional resource reconciliation
+remain open. Topology provisioning requires its separate infrastructure identity.
+Host execution now requires renewing session authority, protected credential
+expiry and local ownership/recovery; production host startup still needs
+composition. Desired state, reports and artifact delivery use restricted signed
+protocols. Durable backoff and regional replacement-lease transport remain open.
+
+Use the [readiness record](../evidence/oci-readiness-2026-09-20.md),
+[bootstrap contract](../operations/control-bootstrap.md),
+[host authentication](../operations/host-session-authentication.md) and
+[artifact publication protocol](../operations/artifact-publication.md) for the
+current constraints and qualification evidence.
 
 ## Decision
 
@@ -19,7 +37,8 @@
 2. **Deploys ship through NATS end to end.** Artifacts live in the regional
    `ORCH_ARTIFACTS` NATS object store, named `sha256-<hex>` by their own content digest.
    `operator artifact-push` publishes; every host fetches by digest with a content check on
-   install. Republishing identical bytes is a natural no-op; a name can never change meaning.
+   install. The immutable publisher now enforces same-digest retry through verified
+   prefixes and conditional writes; naming objects by digest alone is insufficient.
 
 3. **Hosts converge leaderlessly (Anna-style).** Admission of a new digest stays fenced
    behind the regional authority lease; *serving* the admitted state does not. Each host

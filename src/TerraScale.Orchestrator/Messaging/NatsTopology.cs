@@ -131,9 +131,9 @@ public sealed record NatsTopology(string Cell, int Replicas, string Instance = "
     };
 
     /// <summary>
-    /// Digest-addressed immutable first-party artifacts. Objects are named by their own
-    /// SHA-256 content digest, so the store converges like a set: republishing identical
-    /// bytes is a no-op and a name can never change meaning.
+    /// Digest-addressed first-party artifacts. The operator's immutable publisher verifies
+    /// and conditionally appends a deterministic prefix; the bucket name alone does not
+    /// enforce immutability. Infrastructure provisions bounded Discard.New storage.
     /// </summary>
     public NatsObjConfig Artifacts => new("ORCH_ARTIFACTS")
     {

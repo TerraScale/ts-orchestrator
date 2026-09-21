@@ -1,11 +1,10 @@
 using System.Globalization;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using NATS.Client.Core;
-using NATS.Client.ObjectStore;
 using NATS.Net;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.Delivery.Artifacts;
 using TerraScale.Orchestrator.Delivery.DeployHandoff;
 using TerraScale.Orchestrator.Messaging;
 
@@ -181,10 +180,8 @@ public static class OperatorCli
     }
 
     /// <summary>
-    /// Publishes one artifact into the regional digest-addressed object store. The object name
-    /// is the artifact's own SHA-256, so identical bytes are a natural no-op and a name can
-    /// never change meaning (only a SHA-256 collision could, which the content check on every
-    /// host install would still catch).
+    /// Publishes a bounded private snapshot through conditional immutable object writes.
+    /// Repeated and interrupted uploads verify and resume the same digest's stored prefix.
     /// </summary>
     private static async Task PushArtifactAsync(
         NatsClient client,
@@ -193,13 +190,12 @@ public static class OperatorCli
         CancellationToken cancellationToken)
     {
         var file = Required(values, "--file", "artifact-push --file");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromMinutes(5));
         await using var stream = File.OpenRead(file);
-        var hex = await Sha256HexAsync(stream, cancellationToken);
-        var objects = client.CreateJetStreamContext().CreateObjectStoreContext();
-        var store = await objects.GetObjectStoreAsync(topology.Artifacts.Bucket, cancellationToken);
-        stream.Position = 0;
-        await store.PutAsync($"sha256-{hex}", stream, leaveOpen: true, cancellationToken);
-        Console.WriteLine($"sha256:{hex}");
+        await using var snapshot = await ArtifactPublicationSnapshot.CaptureAsync(stream, deadline.Token);
+        var store = await NatsArtifactPublicationStore.OpenAsync(client.CreateJetStreamContext(), topology.Cell, deadline.Token);
+        Console.WriteLine(await new ImmutableArtifactPublisher(store).PublishAsync(snapshot, deadline.Token));
     }
 
     /// <summary>
@@ -354,17 +350,6 @@ public static class OperatorCli
         if (!values.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value))
             throw new ArgumentException($"{name} is required.");
         return value;
-    }
-
-    private static async Task<string> Sha256HexAsync(Stream stream, CancellationToken cancellationToken)
-    {
-        using var hashed = SHA256.Create();
-        var buffer = new byte[1024 * 1024];
-        int read;
-        while ((read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)) > 0)
-            hashed.TransformBlock(buffer, 0, read, null, 0);
-        hashed.TransformFinalBlock([], 0, 0);
-        return Convert.ToHexStringLower(hashed.Hash ?? []);
     }
 
     private static string Value(IReadOnlyDictionary<string, string> values, string key, string fallback) =>

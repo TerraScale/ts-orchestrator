@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T12:50:09.369019+00:00",
+  "sourceBase": "fc68e90c960c1920f08e701f938d8fc15dfcdb3c",
+  "sourceFiles": {
+    "src/TerraScale.Orchestrator/Delivery/Artifacts/ArtifactPublicationSnapshot.cs": "fd6f95ab1bb282949a8236bf1b4f5683c35776f0419c7a780c9838aa295feff4",
+    "src/TerraScale.Orchestrator/Delivery/Artifacts/ImmutableArtifactPublisher.cs": "205343431021491eac18e872e628c8948de14801892a9b21c22c073c2ac00c22",
+    "src/TerraScale.Orchestrator/Delivery/Artifacts/NatsArtifactPublicationStore.cs": "eb8eac7a982819cc69044d7914361b2c5b1e0bc265deb92e9ef9ab10ade1942b",
+    "src/TerraScale.Orchestrator/Messaging/NatsTopology.cs": "ad89acb518774821dd7a478c93fab993502fd63e350788bec4b81ca78b880d47",
+    "src/TerraScale.Orchestrator/Operations/OperatorCli.cs": "1b27459fc400314101d51a3413db5e5029c1b8dbaf2e4bb4a93a003dd0c83cd1",
+    "tests/TerraScale.Orchestrator.Tests/ArtifactPublisherR3Tests.cs": "cde81c8059b80a621c665de93f985beb789e0dff9cfc271e575479154bed02b3",
+    "tests/TerraScale.Orchestrator.Tests/ImmutableArtifactPublisherTests.cs": "d28d537da33c98e2e7f240fdc1974ef16f7916f7dfacb237a4c1fc2e3ea98e2e"
+  },
+  "focusedSuite": {
+    "total": 65,
+    "failed": 0,
+    "succeeded": 65,
+    "skipped": 0,
+    "duration": "1m 42s 113ms"
+  },
+  "steps": [
+    {
+      "step": "build",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "build",
+        "TerraScale.Orchestrator.slnx",
+        "-c",
+        "Release",
+        "--no-restore",
+        "--nologo"
+      ],
+      "exitCode": 0,
+      "seconds": 18.013,
+      "log": "/tmp/ts-artifact-publication-build-final.log",
+      "logSha256": "285ac8829f71bf3f1b25c4f773982ffd2bfbdd98af0aa8bc574e7d071549ae96"
+    },
+    {
+      "step": "focused",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.Tests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--treenode-filter",
+        "/*/*/(ImmutableArtifactPublisherTests|ArtifactPublisherR3Tests|OperatorCliTests|RegionalArtifactCacheTests|RegionalHostArtifactTests|RegionalNatsPermissionsTests)/*",
+        "--minimum-expected-tests",
+        "65"
+      ],
+      "exitCode": 0,
+      "seconds": 104.39,
+      "log": "/tmp/ts-artifact-publication-focused-final.log",
+      "logSha256": "88595433669d8f20359acb525d5feb3d5f6aa12c9ea4186d43e72afcb95aeae7"
+    },
+    {
+      "step": "style",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "format",
+        "style",
+        "TerraScale.Orchestrator.slnx",
+        "--verify-no-changes",
+        "--no-restore"
+      ],
+      "exitCode": 0,
+      "seconds": 31.827,
+      "log": "/tmp/ts-artifact-publication-style-final.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "qualified": [
+    "Actual operator artifact-push caller on restricted JWT/mTLS R3 with two controller identities",
+    "Identical and concurrent publication preserves one immutable chunk prefix and metadata record",
+    "SDK and controller cache read byte-exact output with both full and partial final chunks",
+    "Lost acknowledgement fault injection after real durable chunk or metadata writes, followed by disconnect and CLI retry",
+    "One NATS member restart followed by unchanged message, byte and sequence counts",
+    "Poisoned metadata/content, missing committed chunks, trailing chunks and duplicate metadata are rejected",
+    "Stale absence and in-flight metadata conflicts are bounded and retry safely",
+    "Private bounded source snapshot, source mutation, cancellation and partial resumption",
+    "Existing host artifact, cache and permission regression coverage"
+  ],
+  "limits": [
+    "Focused 65-case suite only for this candidate; prior 2680-pass full-suite receipt belongs to fc68e90c.",
+    "No OCI mutations, infrastructure apply/state edits, deployment enablement or new NATS grants.",
+    "No native ARM64 service run or release-sized renewing-session transfer qualification.",
+    "Lost acknowledgements are injected after real durable append; not every network partition or full broker outage is simulated.",
+    "One reusable partial prefix per digest and an 8 GiB Discard.New stream bound storage; abandoned different digests are not automatically reclaimed.",
+    "Raw writer authority is not broker-enforced immutability; host digest verification remains required.",
+    "Production host startup, restricted backoff/replacement protocols, resource handoff and guest OCI authentication remain deployment gates."
+  ]
+}

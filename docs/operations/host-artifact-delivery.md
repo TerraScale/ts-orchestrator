@@ -111,14 +111,11 @@ Process metrics have only the cell and bounded outcome labels:
 
 ## Remaining host and OCI gates
 
-The artifact producer also needs immutable, idempotent retry and orphan-chunk
-cleanup qualification. `OperatorCli.PushArtifactAsync` currently calls the
-SDK's `PutAsync` even for an existing digest. The SDK publishes replacement
-metadata, then requests stream purge to remove old chunks; the controller's
-permissions omit that purge API. An overwrite can therefore report failure
-after publishing metadata. The download qualification uses new immutable
-digests and does not claim that producer issue is fixed. Do not grant hosts
-private store or purge access to work around it.
+The [artifact publisher](artifact-publication.md) now snapshots input and uses
+conditional immutable chunk/metadata writes. Same-digest retries share a single
+verified prefix without metadata replacement or purge. Abandoned different
+digests still consume the bounded store: safe automated retention/reclamation
+remains a deployment gate. Hosts have no private-store or purge access.
 
 Restricted durable backoff and regional replacement-lease protocols are still
 required: core convergence still has a controller-supplied runtime KV seam in
