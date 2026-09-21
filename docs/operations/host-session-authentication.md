@@ -23,9 +23,10 @@ bootstrap grant.
 `NatsRegionalHostSessionClient` implement controller-owned admission over NATS.
 They are exercised directly against restricted JWT/mTLS R3 credentials.
 Controller startup loads the policy and starts the service as described below.
-The host renewal/workload loop is not yet wired to the remote client; the
-standalone convergence tests still inject the one-use admission gate. No
-production host entry point is enabled.
+The independent host execution lease now uses the remote client and is tested
+with restricted host credentials. Core convergence accepts its cancellation
+token. No production host entry point is enabled; credential checks, bounded
+host control protocols and physical shutdown still need composition.
 
 A replaced node can retain its old credentials for the same hashed NATS
 subject. A public signed enrollment document alone therefore does not
@@ -120,6 +121,41 @@ rejections and storage/transport failures. Bounded failure tracking prevents
 one host's success from clearing another host's pending storage retry. These
 snapshots feed the authenticated operator status and process telemetry below.
 
+## Independent host execution lease
+
+`RegionalHostSessionLease` acquires one process session, then renews the same
+enrollment, generation and epoch every three seconds. An exact lost-response
+retry retains its request nonce and original expiry. A new signed renewal is
+needed when the pending proof approaches its freshness limit. A successful
+renewal replaces the immutable report signer. Loss is terminal: the component
+never reacquires automatically or assumes an old workload has stopped.
+
+Startup is bounded to eight seconds; material and network requests each have
+a five-second bound. Transient failure retries after one second inside the
+existing execution window. Authoritative rejection, invalid response binding,
+missing credentials or a changed signing key cancel execution. The mandatory
+material callback must eventually validate the delivered manifest and mTLS
+certificate; the production callback is not yet composed.
+
+An independent 100 ms watchdog checks both UTC and monotonic elapsed time.
+The local execution budget is fourteen seconds from the signed request's
+start: the thirty-second authority lease minus ten seconds of accepted clock
+skew, five seconds reserved for shutdown and one second of scheduling slack.
+Backward UTC changes fail closed; forward jumps and frozen UTC cannot extend
+the monotonic window. This is a cooperative process watchdog, not a hard
+real-time fence against a paused guest or a stalled OS. Signing file I/O does
+not hold its state lock. A late success cannot restore lost permission.
+
+Snapshots expose state, need, generation, epoch, remote expiry, local execution
+deadline and renewal/failure counts. They are not yet exported by a host status
+endpoint. Core `HostConvergenceRuntime` links every reconciliation to execution
+loss, including a desired-state read that ignores its cancellation token.
+Cancellation prevents subsequent work and reaches cooperative in-flight
+operations. It does **not** stop or prove absence of existing native workloads.
+Shutdown must use its own bounded token, run without NATS/report acknowledgement,
+recover ownership before installation markers exist, and verify physical stop
+before a replacement or writer-fencing claim is possible.
+
 ## Report proof and current-session authorization
 
 `RegionalHostReportProof` signs a separate report domain, complete enrollment
@@ -165,7 +201,7 @@ CAS attempt and stores the proof and observation atomically. The host signer
 uses the exact accepted session response. Acknowledgements bind the nonce and
 canonical envelope digest; unsigned ingress is rejected. See
 [the signed relay contract](host-report-relay.md). The dedicated host runtime,
-independent renewal and physical workload fencing remain deployment blockers.
+renewal composition and physical workload fencing remain deployment blockers.
 
 ## Controller configuration and observability
 

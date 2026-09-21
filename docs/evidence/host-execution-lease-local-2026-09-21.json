@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T07:33:22.592299+00:00",
+  "sourceBase": "8478a6ba3175df49d483da11aed8291bd4506077",
+  "sourceStatus": "working tree: sourceFiles hashes identify this batch on sourceBase",
+  "sourceFiles": {
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/HostConvergenceRuntime.cs": "5ac98aef1a8c56ef584fb6cb20ed98d5449f9e2956d094585b7e4c76e559699c",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionAuthority.cs": "12d282bb9347d9a3d42c02d7ebb970eea86aacfabcb180156c7a2afa637c251b",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionService.cs": "301c202f80c856e5ad74252d8192c6b7fa9c5ac0005d1f9b93ec6eb4f8ec4332",
+    "tests/TerraScale.Orchestrator.Tests/HostConvergenceRuntimeTests.cs": "80f34da8e93d38a893e473e9301e0d4760a5843835b9a0383460a35641f7d8f0",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionLease.cs": "312cf3f56d745ce48ddb27dddfdb9a55f479800ccf29a01836242a3ef04fb92f",
+    "tests/TerraScale.Orchestrator.Tests/LeaseTestClock.cs": "16e3de8a60b52338e6fe6c44680f8efb8efc7fe487a865d710fd4fdeb43f714f",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionLeaseTests.cs": "753dea1f9de26b0863e1a545f85ae65471cd1c79e599d4fcdbd818556037f71c"
+  },
+  "checks": {
+    "leaseAuthorityConvergenceSigner": {
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "1m 53s 037ms",
+      "scope": "Before moving renewal signing out of watchdog lock and adding completed-reply deadline regression; convergence and authority sources unchanged afterward."
+    },
+    "finalLeaseSignedTransportRequestConfiguration": {
+      "passed": 60,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "1m 32s 995ms"
+    },
+    "controlPlane": {
+      "passed": 966,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "32s 562ms"
+    },
+    "releaseBuild": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "requiredStyle": "passed"
+  },
+  "localLogs": {
+    "/tmp/ts-host-lease-final-targeted.log": "483183decf4997542bf60769a8140683ac66a94092d96131f2dfc5be060cb483",
+    "/tmp/ts-host-lease-corrected-targeted.log": "8cde5d5b5447e45144bc0cb62e67cfbdfad2a8b254f5773d837c7c7b01b31bf7",
+    "/tmp/ts-host-lease-control-tests.log": "33c73a09808c304439b83bc4e19063d98389df5b891fbbd0cb728403cccc1214",
+    "/tmp/ts-host-lease-corrected-build.log": "31c2fb020a7b49e1ee18ab5a250fedcb66ce8555b5b53b1f7e8329ea7736642f",
+    "/tmp/ts-host-lease-corrected-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "limits": [
+    "Real JWT/mTLS R3 lease acquisition, renewal, signed report and revocation passed; no OCI mutation.",
+    "Cancellation reaches stalled desired reads and cooperative convergence, but does not prove physical workload stop or writer fencing.",
+    "Dedicated host entry, protected credential material callback, bounded host control protocols and physical shutdown are not composed.",
+    "No new full-main or architecture execution claim; prior full regression remains separate evidence.",
+    "OCI deployment remains disabled and not ready."
+  ]
+}

@@ -26,6 +26,63 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class HostConvergenceRuntimeTests
 {
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Execution_lease_loss_cancels_a_stalled_desired_read_or_in_flight_convergence_and_prevents_new_work(bool stalledDesired)
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, _) = server.Stores();
+        var artifact = Encoding.UTF8.GetBytes("lease-cancelled-member");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+        using var admission = new ExecutionLease();
+        var read = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
+        var withheld = (WithheldDesired)read;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var converger = new FakeConverger { ConvergeBarrier = release.Task };
+        await using var runtime = HostConvergenceRuntime.Create(stalledDesired ? read : delivery, runtimeStore,
+            new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)), converger,
+            new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "lease-artifacts"), HostArchitecture.X64),
+            "gru", "test-1", admission: admission);
+        var attempt = runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        try
+        {
+            await (stalledDesired ? withheld.Started.Task : converger.FirstConvergeStarted).WaitAsync(TimeSpan.FromSeconds(3));
+            admission.Lost.Cancel();
+            await Assert.That(() => attempt.WaitAsync(TimeSpan.FromSeconds(2))).Throws<OperationCanceledException>();
+            await Assert.That(() => runtime.ReconcileOnceAsync(HostRole.TerraBaseMember,
+                AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None)).Throws<OperationCanceledException>();
+            await Assert.That(converger.ConvergedPlans).IsEmpty();
+        }
+        finally
+        {
+            release.TrySetResult();
+            withheld.Read.TrySetResult(new("ORCH_DELIVERY", "withheld") { Value = "{}", Revision = 1 });
+        }
+    }
+
+    private sealed class ExecutionLease : IHostExecutionLease, IDisposable
+    {
+        internal CancellationTokenSource Lost { get; } = new();
+        public CancellationToken ExecutionToken => Lost.Token;
+        public ValueTask<HostAdmissionSnapshot> ObserveAsync(CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new HostAdmissionSnapshot(!Lost.IsCancellationRequested, true, "test-session"));
+        public void Dispose() => Lost.Dispose();
+    }
+
+    public class WithheldDesired : DispatchProxy
+    {
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<NatsKVEntry<string>> Read { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override object? Invoke(MethodInfo? method, object?[]? args)
+        {
+            if (method!.Name != nameof(INatsKVStore.GetEntryAsync)) throw new NotSupportedException(method.Name);
+            Started.TrySetResult();
+            return new ValueTask<NatsKVEntry<string>>(Read.Task);
+        }
+    }
+
+    [Test]
     public async Task Fresh_node_does_not_start_or_pick_up_work_before_regional_admission()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();

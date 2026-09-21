@@ -28,8 +28,12 @@ routed acquire/renew requests. A controller-owned R3 session authority and
 restricted NATS host client/service now implement renewable process leases,
 durable revocation and generation/replay fencing. Their component tests pass.
 Controller startup now loads a public enrollment policy and starts the service
-with status/metrics. The dedicated host entry, renewal and workload fencing
-still need composition, so remote host admission/startup remains a blocker.
+with status/metrics. An independent renewable host execution lease now exposes
+terminal cancellation and an immutable current report signer. Core convergence
+links work to that cancellation, including stalled desired-state reads.
+The dedicated host entry, credential-material checks and physical workload
+shutdown still need composition, so remote host admission/startup remains a
+blocker. Cancellation is not proof that a native process or storage writer stopped.
 Current lease retries now confirm replica reads through an unchanged CAS;
 report proof and current-session authorization components use the same fence.
 TerraBase recovery/health, OCI workload readiness and operator ready counts
@@ -89,9 +93,13 @@ store permission correction, including the full local regression.
 The [signed report transport receipt](host-report-transport-local-2026-09-21.json)
 records the real host publisher/relay path, admission/runtime pairing and the
 subsequent complete local regression.
+The [host execution lease receipt](host-execution-lease-local-2026-09-21.json)
+records independent renewal/watchdog, cancellation, authenticated R3 and
+response-deadline checks. It does not qualify physical workload shutdown.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Independent host execution lease and report regression | **60 passed**, 0 failed/skipped; control-plane **966 passed**; Release **0 warnings/errors**; required style passed | `/tmp/ts-host-lease-corrected-{targeted,build,style}.log`, `/tmp/ts-host-lease-control-tests.log`; prior 47-case convergence/authority/signer run also passed; see receipt for exact source chronology; no new full-main or ARM64 execution claim |
 | Signed host transport and admission/readiness regression | **2482 passed**, 0 failed, 5 expected opt-in skips across all five suites | Main1186/control966/protocol165/model59/scheduler106; `/tmp/ts-signed-host-report-{full-main,control-final,protocol-tests,model-tests,scheduler-tests}.log`; main13m43s984ms; final source, Release0warnings/errors and required style passed |
 | Real runtime, relay restart, retention correction and lease signer | **5 passed**, 0 failed/skipped | `/tmp/ts-signed-host-report-runtime-tests.log`; actual restricted JWT/mTLS host → controller relay → reader → authenticated operator status; independent current-session signing and retained ordering |
 | CI #506 at `6c2b58f8` | **Failed**; artifact job skipped | Delivery namespace contract rejected `HostReportSession.Process`; renamed to `SessionId` in the signed-transport batch. Final local control-plane966 and all other suites now pass. `/tmp/ts-orchestrator-ci506-job-22011.log` |

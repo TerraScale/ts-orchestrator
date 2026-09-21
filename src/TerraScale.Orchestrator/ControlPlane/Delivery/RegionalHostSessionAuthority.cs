@@ -21,6 +21,17 @@ internal sealed record RegionalHostSessionResponse(int SchemaVersion, string Req
     RegionalHostSessionDecision Decision, ulong Generation, ulong Epoch, DateTimeOffset? ExpiresAt)
 {
     [JsonIgnore] public bool Accepted => Decision == RegionalHostSessionDecision.Accepted;
+
+    internal void RequireBinding(RegionalHostSessionRequest request)
+    {
+        if (SchemaVersion != 2 || RequestId != request.RequestId || RequestDigest != request.RequestDigest ||
+            Generation != request.Enrollment.BootstrapGeneration || !Enum.IsDefined(Decision) ||
+            (Accepted
+                ? Epoch == 0 || ExpiresAt != request.IssuedAt + RegionalHostSessionAuthority.LeaseLifetime ||
+                    request.Operation == RegionalHostSessionOperation.Renew && Epoch != request.Epoch
+                : Epoch != 0 || ExpiresAt is not null))
+            throw new InvalidDataException("The controller session response is not bound to the exact request and lease.");
+    }
 }
 
 internal sealed record RegionalHostConsumedGrant(string GrantId, string Nonce, DateTimeOffset ExpiresAt);

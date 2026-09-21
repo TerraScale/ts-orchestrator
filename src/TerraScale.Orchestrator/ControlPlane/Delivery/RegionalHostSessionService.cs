@@ -5,10 +5,15 @@ using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.ControlPlane.Delivery;
 
-/// <summary>A host uses only its bounded observation/command subjects; it never opens controller stores.</summary>
-internal sealed class NatsRegionalHostSessionClient(INatsConnection connection, string cell, string nodeId)
+internal interface IRegionalHostSessionClient
 {
-    internal async Task<RegionalHostSessionResponse> SendAsync(RegionalHostSessionRequest request, CancellationToken cancellationToken)
+    Task<RegionalHostSessionResponse> SendAsync(RegionalHostSessionRequest request, CancellationToken cancellationToken);
+}
+
+/// <summary>A host uses only its bounded observation/command subjects; it never opens controller stores.</summary>
+internal sealed class NatsRegionalHostSessionClient(INatsConnection connection, string cell, string nodeId) : IRegionalHostSessionClient
+{
+    public async Task<RegionalHostSessionResponse> SendAsync(RegionalHostSessionRequest request, CancellationToken cancellationToken)
     {
         if (request.Enrollment.Region != cell.ToUpperInvariant() || request.Enrollment.NodeId != nodeId)
             throw new InvalidOperationException("The host session request does not match this client identity.");
@@ -25,14 +30,9 @@ internal sealed class NatsRegionalHostSessionClient(INatsConnection connection, 
         if (message.Data is not { Length: > 0 and <= 4096 } json || Encoding.UTF8.GetByteCount(json) > 4096)
             throw new InvalidDataException("The controller session response exceeds its bounds.");
         var response = JsonSerializer.Deserialize<RegionalHostSessionResponse>(json, RegionalHostSessionAuthority.JsonOptions);
-        if (response is null || response.SchemaVersion != 2 || response.RequestId != request.RequestId ||
-            response.RequestDigest != request.RequestDigest || response.Generation != request.Enrollment.BootstrapGeneration ||
-            !Enum.IsDefined(response.Decision) ||
-            (response.Accepted
-                ? response.Epoch == 0 || response.ExpiresAt != request.IssuedAt + RegionalHostSessionAuthority.LeaseLifetime ||
-                    (request.Operation == RegionalHostSessionOperation.Renew && response.Epoch != request.Epoch)
-                : response.Epoch != 0 || response.ExpiresAt is not null))
+        if (response is null)
             throw new InvalidDataException("The controller session response is not bound to the exact request and lease.");
+        response.RequireBinding(request);
         return response;
     }
 }

@@ -196,7 +196,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly TimeSpan replaceLeaseDuration;
     private readonly TimeSpan replaceLeaseRenewalInterval;
     private readonly IHostAdmissionGate? admission;
-    private readonly CancellationTokenSource stopping = new();
+    private readonly CancellationTokenSource stopping;
     private readonly List<Task> loops = [];
 
     private HostConvergenceRuntime(
@@ -216,6 +216,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.replaceLeaseDuration = replaceLeaseDuration ?? DefaultReplaceLeaseDuration;
         replaceLeaseRenewalInterval = this.replaceLeaseDuration / 3;
         this.admission = admission;
+        stopping = admission is IHostExecutionLease lease
+            ? CancellationTokenSource.CreateLinkedTokenSource(lease.ExecutionToken)
+            : new CancellationTokenSource();
         this.delivery = delivery;
         this.runtimeStore = runtimeStore;
         this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
@@ -317,7 +320,10 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         AdmittedRoleDescriptor descriptor,
         CancellationToken cancellationToken)
     {
-        var desired = await ReadDesiredDigestAsync(descriptor, cancellationToken).ConfigureAwait(false);
+        using var execution = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, stopping.Token);
+        cancellationToken = execution.Token;
+        cancellationToken.ThrowIfCancellationRequested();
+        var desired = await ReadDesiredDigestAsync(descriptor, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
         if (desired is null)
         {
             // No admitted desired state for this service yet: nothing to converge, and never
