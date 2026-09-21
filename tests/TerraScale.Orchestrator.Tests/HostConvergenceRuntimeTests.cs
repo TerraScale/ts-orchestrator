@@ -491,6 +491,72 @@ public sealed class HostConvergenceRuntimeTests
     }
 
     [Test]
+    public async Task Stale_handle_cannot_release_a_new_claim_from_the_same_host()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (_, runtimeStore, _) = server.Stores();
+        var descriptor = AdmittedRoleCatalog.Get(HostRole.TerraBaseMember);
+        await using var oldProcess = StartConvergence(server);
+        await using var restartedProcess = StartConvergence(server);
+        var oldHandle = await oldProcess.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
+        await Assert.That(oldHandle).IsNotNull();
+        var key = "host.replace.terrabase-server";
+        var oldClaim = JsonSerializer.Deserialize<HostConvergenceReplaceLease>((await runtimeStore.GetEntryAsync<string>(key)).Value!)!;
+        await runtimeStore.PutAsync(key, JsonSerializer.Serialize(oldClaim with { ExpiresAt = DateTimeOffset.UtcNow.AddSeconds(-1) },
+            HostConvergenceJsonContext.Default.HostConvergenceReplaceLease));
+        await using var newHandle = await restartedProcess.AcquireReplaceLeaseAsync(descriptor, CancellationToken.None);
+        await Assert.That(newHandle).IsNotNull();
+        var newEntry = await runtimeStore.GetEntryAsync<string>(key);
+        await oldHandle!.DisposeAsync();
+        var afterCleanup = await runtimeStore.GetEntryAsync<string>(key);
+        await Assert.That(afterCleanup.Revision).IsEqualTo(newEntry.Revision);
+        await Assert.That(JsonSerializer.Deserialize<HostConvergenceReplaceLease>(afterCleanup.Value!)!.Holder)
+            .IsNotEqualTo(oldClaim.Holder);
+    }
+
+    [Test]
+    public async Task Lease_release_cannot_delete_a_takeover_between_its_read_and_delete()
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, connection) = server.Stores();
+        var proxy = DispatchProxy.Create<INatsKVStore, TakeoverBeforeLeaseDeleteStore>();
+        var takeover = (TakeoverBeforeLeaseDeleteStore)(object)proxy;
+        takeover.Inner = runtimeStore;
+        await using var convergence = StartConvergence(delivery, proxy, connection,
+            Path.Combine(server.Directory, "artifacts"), new MemoryArtifactSource(), new FakeConverger());
+        var handle = await convergence.AcquireReplaceLeaseAsync(AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(handle).IsNotNull();
+        takeover.TakeOverOnDelete = true;
+        await handle!.DisposeAsync();
+        var current = await runtimeStore.GetEntryAsync<string>("host.replace.terrabase-server");
+        await Assert.That(JsonSerializer.Deserialize<HostConvergenceReplaceLease>(current.Value!)!.Holder).IsEqualTo("peer-new-claim");
+    }
+
+    private class TakeoverBeforeLeaseDeleteStore : DispatchProxy
+    {
+        public INatsKVStore? Inner { get; set; }
+        public bool TakeOverOnDelete { get; set; }
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            if (targetMethod!.Name == "DeleteAsync" && TakeOverOnDelete)
+            {
+                TakeOverOnDelete = false;
+                return DeleteAfterTakeoverAsync((string)args![0]!, (NatsKVDeleteOpts?)args[1], (CancellationToken)args[2]!);
+            }
+            return targetMethod.Invoke(Inner, args);
+        }
+
+        private async ValueTask DeleteAfterTakeoverAsync(string key, NatsKVDeleteOpts? options, CancellationToken cancellationToken)
+        {
+            await Inner!.PutAsync(key, JsonSerializer.Serialize(
+                new HostConvergenceReplaceLease("peer-new-claim", DateTimeOffset.UtcNow.AddMinutes(1)),
+                HostConvergenceJsonContext.Default.HostConvergenceReplaceLease), cancellationToken: cancellationToken);
+            await Inner.DeleteAsync(key, options, cancellationToken);
+        }
+    }
+
+    [Test]
     public async Task TheReplaceLeaseIsRenewedWhileItsHolderWorksSoAPeerCannotStealItMidAttempt()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();

@@ -752,7 +752,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var key = $"host.replace.{descriptor.ArtifactKey}";
-        var holder = $"{cell}.{instance}";
+        // A restarted process on the same host is a different claimant. A stale
+        // handle must never renew or release that process's new acquisition.
+        var holder = $"{cell}.{instance}.{Guid.NewGuid():N}";
         var leaseJson = JsonSerializer.Serialize(
             new HostConvergenceReplaceLease(holder, DateTimeOffset.UtcNow + replaceLeaseDuration),
             HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
@@ -812,7 +814,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             var existing = JsonSerializer.Deserialize(
                 entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceReplaceLease);
             if (existing?.Holder == holder)
-                await runtimeStore.DeleteAsync(key, cancellationToken: stopping.Token).ConfigureAwait(false);
+                await runtimeStore.DeleteAsync(key, new NatsKVDeleteOpts { Revision = entry.Revision },
+                    cancellationToken: stopping.Token).ConfigureAwait(false);
         }
         catch (Exception exception) when (exception is NatsKVException or JsonException or OperationCanceledException)
         {

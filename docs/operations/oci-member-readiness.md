@@ -99,6 +99,13 @@ its volume is absent or differs from the durable retained identity. Removal
 holds when that record is absent or conflicts with the host. These outcomes
 flow through the existing placement status as `held`, with a specific error.
 
+Host replacement leases now use a unique claimant per acquisition, including
+restarts on the same node. Cleanup checks both that claimant and the observed
+KV revision, so stale cleanup cannot delete a lease taken over between its
+read and delete. Real NATS regressions reproduce both failures on the former
+implementation and pass with the correction. This does not replace the
+missing controller-mediated host lease protocol or writer-stop proof.
+
 The complete storage and drain path remains a deployment blocker:
 
 - Data-volume creation, volume-resource ownership, guest mounting, restart and

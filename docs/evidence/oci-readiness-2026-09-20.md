@@ -70,6 +70,8 @@ the exact release revision before deployment.
 | Report permission model | **165 passed**, 0 failed/skipped | `/tmp/ts-host-report-protocol-tests.log`; regional agent wildcard remains region/direction bounded, host scopes retain exact hashes, publisher kinds remain disjoint |
 | Status, telemetry, endpoint/security and R3 regressions | **29 passed**, 0 failed/skipped | `/tmp/ts-host-report-regression-tests.log`; authenticated three-server NATS plus bounded status/metrics assertions |
 | Report persistence with the controller's own R3 credentials | **1 passed**, 0 failed/skipped | `/tmp/ts-host-report-r3-relay-test.log`; real JWT/mTLS host, private store opened by restricted controller, withdrawal/order preserved across relay restart; not full `NatsRuntime.StartAsync` qualification |
+| Full orchestrator main suite with report relay | **1074 passed, 0 failed, 5 live-lane skips** | `/tmp/ts-host-report-main-suite.log`; compiled revision `f29b19ae`, 10m56s; before the subsequent replacement-lease correction |
+| Replacement lease restart/release races | **28 host tests passed**, 0 failed/skipped; Release build 0 warnings/errors; style passed | `/tmp/ts-lease-fixed-host-tests.log`, `/tmp/ts-lease-fixed-build.log`, `/tmp/ts-lease-fixed-style.log`; both new real-NATS regressions first failed against the old implementation with deletion of the newer lease (`/tmp/ts-lease-regression-red.log`) |
 | Report relay Release build and style | Pass; **0 warnings/errors** | `/tmp/ts-host-report-relay-build.log`, `/tmp/ts-host-report-relay-style.log` |
 | OCI data-volume identity and attachment boundary | **33 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-provider-tests-final.log`; current attachment/ETag, boot/logical ID denial, access/identity drift, ambiguity, wrong host, repeated pagination, timeout/404 reobservation; fake OCI transport |
 | Placement with exact retained-volume evidence | **20 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-placement-tests-final.log`; real NATS plus scripted fleet; missing/different disks hold serving and removal; Release build 0 warnings/errors |
@@ -236,7 +238,11 @@ repository's main-only push rule being resolved.
    fixed region. Desired state, artifact retrieval, backoff, replacement leases
    and enrollment still need restricted-host protocols and dedicated host startup.
    The report tests inject separate controller store handles and are not proof
-   of a complete host runtime under host credentials.
+   of a complete host runtime under host credentials. The current controller
+   instance-name parser rejects full OCI node IDs, while admission and fleet
+   reporting require that exact identity. Host allocation names also need a
+   stable derived token instead of embedding the raw OCID. Fix these in the
+   dedicated host path without widening the controller/subject grammar.
 5. Qualify generic auth scaling alongside stateful TerraBase placement. The
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop
