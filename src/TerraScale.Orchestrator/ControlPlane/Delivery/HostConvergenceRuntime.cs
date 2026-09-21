@@ -183,7 +183,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     /// <summary>How long a readiness poll waits before re-observing a starting unit. Tests shrink it.</summary>
     internal TimeSpan ObservationPollInterval { get; set; } = TimeSpan.FromSeconds(2);
 
-    private readonly INatsKVStore delivery;
+    private readonly IHostDesiredArtifactSource desiredArtifacts;
     private readonly INatsKVStore runtimeStore;
     private readonly IHostObservationPublisher reports;
     private readonly IHostArtifactSource artifacts;
@@ -201,7 +201,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private readonly List<Task> loops = [];
 
     private HostConvergenceRuntime(
-        INatsKVStore delivery,
+        IHostDesiredArtifactSource desiredArtifacts,
         INatsKVStore runtimeStore,
         IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
@@ -225,7 +225,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         stopping = admission is IHostExecutionLease lease
             ? CancellationTokenSource.CreateLinkedTokenSource(lease.ExecutionToken)
             : new CancellationTokenSource();
-        this.delivery = delivery;
+        this.desiredArtifacts = desiredArtifacts;
         this.runtimeStore = runtimeStore;
         this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
         this.artifacts = artifacts;
@@ -242,7 +242,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 
     /// <summary>Constructs the runtime without starting any background loops; tests drive reconcile passes directly.</summary>
     internal static HostConvergenceRuntime Create(
-        INatsKVStore delivery,
+        IHostDesiredArtifactSource desiredArtifacts,
         INatsKVStore runtimeStore,
         IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
@@ -255,12 +255,12 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         IHostAdmissionGate? admission = null,
         HostWorkloadInventory? inventory = null,
         IHostNativeInventoryProbe? nativeInventory = null) =>
-        new(delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
+        new(desiredArtifacts, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
             observationTimeout, replaceLeaseDuration, admission, inventory, nativeInventory);
 
     /// <summary>Starts one reconcile loop per configured role. The loops never throw: failures are reported as observations.</summary>
     internal static HostConvergenceRuntime Start(
-        INatsKVStore delivery,
+        IHostDesiredArtifactSource desiredArtifacts,
         INatsKVStore runtimeStore,
         IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
@@ -275,7 +275,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         IHostNativeInventoryProbe? nativeInventory = null)
     {
         var runtimeLoop = Create(
-            delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
+            desiredArtifacts, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
             observationTimeout, replaceLeaseDuration, admission, inventory, nativeInventory);
         runtimeLoop.loops.AddRange(configuration.Roles.Select(
             role => Task.Run(() => runtimeLoop.ReconcileLoopAsync(role, runtimeLoop.stopping.Token))));
@@ -693,8 +693,8 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 
     private Task<string?> ReadDesiredDigestAsync(
         AdmittedRoleDescriptor descriptor,
-        CancellationToken cancellationToken) => HostDesiredArtifactReader.ReadAsync(
-            delivery, descriptor.ArtifactKey, configuration.Environment, cell, cancellationToken);
+        CancellationToken cancellationToken) => desiredArtifacts.ReadAsync(
+            descriptor.Role, configuration.Environment, cell, cancellationToken);
 
     private sealed record InstalledMarker(
         [property: JsonPropertyName("digest")] string? Digest,

@@ -15,6 +15,23 @@ public sealed class OperatorStatusTests
     [Test]
     [Arguments(false)]
     [Arguments(true)]
+    public async Task Host_desired_status_exposes_retry_need_and_progress(bool retryPending)
+    {
+        var runtime = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var status = await NatsRuntime.BuildOperatorStatusAsync(null, null, runtime,
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 1),
+            new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None,
+            hostDesiredSnapshot: new(5, 7, 2, 1, retryPending, false));
+        var action = status.Actions.Single(value => value.Kind == "host-desired");
+        await Assert.That(action.State).IsEqualTo(retryPending ? "retrying" : "listening");
+        await Assert.That(action.ProgressPercent).IsEqualTo(retryPending ? 0 : 100);
+        await Assert.That(status.Needs.Contains("host-desired:retry-request")).IsEqualTo(retryPending);
+        if (retryPending) await Assert.That(status.Healthy).IsFalse();
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
     public async Task Host_session_status_exposes_retry_need_and_progress(bool retryPending)
     {
         var runtime = DispatchProxy.Create<INatsKVStore, StatusKv>();

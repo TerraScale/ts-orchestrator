@@ -41,7 +41,7 @@ internal sealed record RegionalHostSessionRecord(int SchemaVersion, string Cell,
     string RequestDigest, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt, bool Revoked,
     IReadOnlyList<RegionalHostConsumedGrant> ConsumedGrants);
 
-internal sealed record RegionalHostReportAuthorization(RegionalHostSessionDecision Decision, DateTimeOffset? ExpiresAt)
+internal sealed record RegionalHostActionAuthorization(RegionalHostSessionDecision Decision, DateTimeOffset? ExpiresAt)
 {
     internal bool Authorized => Decision == RegionalHostSessionDecision.Accepted;
 }
@@ -199,29 +199,29 @@ internal sealed class RegionalHostSessionAuthority(INatsKVStore store, RegionalH
         return false;
     }
 
-    internal Task<RegionalHostReportAuthorization> AuthorizeAdmissionReportAsync(RegionalHostReportProof proof,
+    internal Task<RegionalHostActionAuthorization> AuthorizeAdmissionReportAsync(RegionalHostReportProof proof,
         HostAdmissionObservation report, CancellationToken cancellationToken) =>
         report.SchemaVersion != HostAdmissionObservation.CurrentSchemaVersion ||
         report.Environment != proof.Enrollment.Scope.Environment
-            ? Task.FromResult(DenyReport(RegionalHostSessionDecision.InvalidRequest))
+            ? Task.FromResult(DenyAction(RegionalHostSessionDecision.InvalidRequest))
             : AuthorizeReportAsync(proof, RegionalHostReportKind.Admission, report.Cell, report.Instance,
                 report.ArtifactKey, report.Digest, report.ObservedAt,
                 JsonSerializer.SerializeToUtf8Bytes(report, HostAdmissionObservationJsonContext.Default.HostAdmissionObservation), cancellationToken);
 
-    internal Task<RegionalHostReportAuthorization> AuthorizeRuntimeReportAsync(RegionalHostReportProof proof,
+    internal Task<RegionalHostActionAuthorization> AuthorizeRuntimeReportAsync(RegionalHostReportProof proof,
         HostConvergenceObservation report, CancellationToken cancellationToken)
     {
         try { report.Validate(); }
-        catch (InvalidOperationException) { return Task.FromResult(DenyReport(RegionalHostSessionDecision.InvalidRequest)); }
+        catch (InvalidOperationException) { return Task.FromResult(DenyAction(RegionalHostSessionDecision.InvalidRequest)); }
         return report.SchemaVersion != HostConvergenceObservation.CurrentSchemaVersion ||
             report.State.Length > 64 || report.UnitName?.Length > 256 || report.Error?.Length > 1024 || report.MemberRole?.Length > 32
-                ? Task.FromResult(DenyReport(RegionalHostSessionDecision.InvalidRequest))
+                ? Task.FromResult(DenyAction(RegionalHostSessionDecision.InvalidRequest))
                 : AuthorizeReportAsync(proof, RegionalHostReportKind.Runtime, report.Cell, report.Instance,
                     report.ArtifactKey, report.Digest, report.ObservedAt,
                     JsonSerializer.SerializeToUtf8Bytes(report, HostConvergenceJsonContext.Default.HostConvergenceObservation), cancellationToken);
     }
 
-    private async Task<RegionalHostReportAuthorization> AuthorizeReportAsync(RegionalHostReportProof proof,
+    private async Task<RegionalHostActionAuthorization> AuthorizeReportAsync(RegionalHostReportProof proof,
         RegionalHostReportKind kind, string cell, string nodeId, string artifact, string digest,
         DateTimeOffset observedAt, byte[] payload, CancellationToken cancellationToken)
     {
@@ -234,58 +234,82 @@ internal sealed class RegionalHostSessionAuthority(INatsKVStore store, RegionalH
                 observedAt == default || observedAt.Offset != TimeSpan.Zero || observedAt > proof.IssuedAt ||
                 proof.IssuedAt - observedAt >= HostObservationRelay.MaximumReportAge ||
                 !proof.Verifies(Cell, role.Role, kind, payload, time.GetUtcNow()))
-                return DenyReport(RegionalHostSessionDecision.InvalidRequest);
+                return DenyAction(RegionalHostSessionDecision.InvalidRequest);
 
+            var freshnessDeadline = proof.IssuedAt + RegionalHostSessionRequest.MaximumAge;
+            var observationDeadline = observedAt + HostObservationRelay.MaximumReportAge;
+            if (observationDeadline < freshnessDeadline) freshnessDeadline = observationDeadline;
+            return await AuthorizeActionAsync(proof.Enrollment, proof.SessionId, proof.Epoch, observedAt,
+                freshnessDeadline, now => proof.Verifies(Cell, role.Role, kind, payload, now) &&
+                    now - observedAt < HostObservationRelay.MaximumReportAge, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is ArgumentException or FormatException or OverflowException or InvalidOperationException)
+        { return DenyAction(RegionalHostSessionDecision.InvalidRequest); }
+    }
+
+    internal Task<RegionalHostActionAuthorization> AuthorizeDesiredAsync(RegionalHostDesiredRequest request,
+        CancellationToken cancellationToken)
+    {
+        try { _ = request.Serialize(); }
+        catch (InvalidOperationException) { return Task.FromResult(DenyAction(RegionalHostSessionDecision.InvalidRequest)); }
+        return AuthorizeActionAsync(request.Enrollment, request.SessionId, request.Epoch, request.IssuedAt,
+            request.IssuedAt + RegionalHostSessionRequest.MaximumAge, now => request.HasValidProof(Cell, now), cancellationToken);
+    }
+
+    private async Task<RegionalHostActionAuthorization> AuthorizeActionAsync(RegionalNodeEnrollmentEnvelope enrollment,
+        string sessionId, ulong epoch, DateTimeOffset actionAt, DateTimeOffset freshnessDeadline,
+        Func<DateTimeOffset, bool> verify, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (!verify(time.GetUtcNow())) return DenyAction(RegionalHostSessionDecision.InvalidRequest);
             await ValidateStoreAsync(cancellationToken).ConfigureAwait(false);
             for (var attempt = 0; attempt < 8; attempt++)
             {
-                var (current, revision) = await ReadAsync(nodeId, cancellationToken).ConfigureAwait(false);
+                var (current, revision) = await ReadAsync(enrollment.NodeId, cancellationToken).ConfigureAwait(false);
                 var now = time.GetUtcNow();
-                if (!proof.Verifies(Cell, role.Role, kind, payload, now) || now - observedAt >= HostObservationRelay.MaximumReportAge)
-                    return DenyReport(RegionalHostSessionDecision.InvalidRequest);
-                if (current is null || current.Generation != proof.Enrollment.BootstrapGeneration ||
-                    current.EnrollmentDigest != proof.Enrollment.Digest)
-                    return DenyReport(RegionalHostSessionDecision.EnrollmentDenied);
-                if (current.Revoked) return DenyReport(RegionalHostSessionDecision.Revoked);
-                if (current.SessionId != proof.SessionId || current.Epoch != proof.Epoch)
-                    return DenyReport(RegionalHostSessionDecision.SessionMismatch);
-                if (current.ExpiresAt <= now) return DenyReport(RegionalHostSessionDecision.LeaseExpired);
-                if (observedAt < current.SessionStartedAt || now < current.SessionStartedAt)
-                    return DenyReport(RegionalHostSessionDecision.StaleRequest);
-                if (!policy.AllowsContinuingEnrollment(proof.Enrollment, now, current.ExpiresAt))
-                    return DenyReport(RegionalHostSessionDecision.EnrollmentDenied);
-                var grant = proof.Enrollment.Grant.ParsePayload();
+                if (!verify(now))
+                    return DenyAction(RegionalHostSessionDecision.InvalidRequest);
+                if (current is null || current.Generation != enrollment.BootstrapGeneration ||
+                    current.EnrollmentDigest != enrollment.Digest)
+                    return DenyAction(RegionalHostSessionDecision.EnrollmentDenied);
+                if (current.Revoked) return DenyAction(RegionalHostSessionDecision.Revoked);
+                if (current.SessionId != sessionId || current.Epoch != epoch)
+                    return DenyAction(RegionalHostSessionDecision.SessionMismatch);
+                if (current.ExpiresAt <= now) return DenyAction(RegionalHostSessionDecision.LeaseExpired);
+                if (actionAt < current.SessionStartedAt || now < current.SessionStartedAt)
+                    return DenyAction(RegionalHostSessionDecision.StaleRequest);
+                if (!policy.AllowsContinuingEnrollment(enrollment, now, current.ExpiresAt))
+                    return DenyAction(RegionalHostSessionDecision.EnrollmentDenied);
+                var grant = enrollment.Grant.ParsePayload();
                 if (current.EnrolledAt < grant.IssuedAt || current.EnrolledAt >= grant.ExpiresAt)
-                    return DenyReport(RegionalHostSessionDecision.InvalidStore);
+                    return DenyAction(RegionalHostSessionDecision.InvalidStore);
                 try
                 {
                     await ConfirmCurrentAsync(current, revision, cancellationToken).ConfigureAwait(false);
                     // A successful CAS linearizes against renewal, replacement and revocation.
                     // Its result is an instant authorization, not a promise against future revoke.
                     now = time.GetUtcNow();
-                    if (current.ExpiresAt <= now) return DenyReport(RegionalHostSessionDecision.LeaseExpired);
-                    if (!proof.Verifies(Cell, role.Role, kind, payload, now) || now - observedAt >= HostObservationRelay.MaximumReportAge)
-                        return DenyReport(RegionalHostSessionDecision.InvalidRequest);
-                    var freshnessDeadline = proof.IssuedAt + RegionalHostSessionRequest.MaximumAge;
-                    var observationDeadline = observedAt + HostObservationRelay.MaximumReportAge;
-                    if (observationDeadline < freshnessDeadline) freshnessDeadline = observationDeadline;
+                    if (current.ExpiresAt <= now) return DenyAction(RegionalHostSessionDecision.LeaseExpired);
+                    if (!verify(now))
+                        return DenyAction(RegionalHostSessionDecision.InvalidRequest);
                     return new(RegionalHostSessionDecision.Accepted,
                         current.ExpiresAt < freshnessDeadline ? current.ExpiresAt : freshnessDeadline);
                 }
                 catch (NatsKVWrongLastRevisionException) { }
             }
-            return DenyReport(RegionalHostSessionDecision.Contention);
+            return DenyAction(RegionalHostSessionDecision.Contention);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception exception) when (exception is InvalidDataException or JsonException or NatsKVKeyDeletedException)
-        { return DenyReport(RegionalHostSessionDecision.InvalidStore); }
+        { return DenyAction(RegionalHostSessionDecision.InvalidStore); }
         catch (Exception exception) when (exception is NatsException or IOException or TimeoutException)
-        { return DenyReport(RegionalHostSessionDecision.StoreUnavailable); }
+        { return DenyAction(RegionalHostSessionDecision.StoreUnavailable); }
         catch (Exception exception) when (exception is ArgumentException or FormatException or OverflowException or InvalidOperationException)
-        { return DenyReport(RegionalHostSessionDecision.InvalidRequest); }
+        { return DenyAction(RegionalHostSessionDecision.InvalidRequest); }
     }
 
-    private static RegionalHostReportAuthorization DenyReport(RegionalHostSessionDecision decision) => new(decision, null);
+    private static RegionalHostActionAuthorization DenyAction(RegionalHostSessionDecision decision) => new(decision, null);
 
     private async Task<(RegionalHostSessionRecord? Record, ulong Revision)> ReadAsync(string nodeId, CancellationToken cancellationToken)
     {

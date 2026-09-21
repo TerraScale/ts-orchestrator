@@ -107,7 +107,7 @@ internal sealed class SignedHostReportHarness : IAsyncDisposable
         internal RegionalHostSessionRequest Request { get; }
         internal RegionalHostSessionResponse Lease { get; }
         internal AdmittedRole Role { get; }
-        internal RegionalHostReportSigner Signer { get; }
+        internal RegionalHostSessionSigner Signer { get; }
         internal NatsHostObservationPublisher Publisher { get; }
         internal string Node => Request.Enrollment.NodeId;
         internal string Artifact => AdmittedRoleCatalog.Get(Role).ArtifactKey;

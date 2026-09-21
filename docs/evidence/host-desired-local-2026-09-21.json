@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T10:52:05.677875+00:00",
+  "sourceBase": "b3b91339982b92f881d8f94bd2cabe7ec74b1e77",
+  "sourceStatus": "working tree before commit; exact C# source/test hashes were captured before the final regression and confirmed afterward",
+  "sourceFiles": {
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/HostConvergenceRuntime.cs": "fbb279fd5d0e72077dae169e2e155df9c5f66d5ac845eda51e18bc46409974e7",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/NatsHostObservationPublisher.cs": "b552a178fb8b2e24b9c00775f20841007d63e84e24378be28037394caba3d1d0",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostDesiredAuthority.cs": "ca58fbdc0825cdc7f8158189e05bca4493c6af1a549cb9d5ee8fa779ddb4beda",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostDesiredRequest.cs": "7f7eab6eedf5a88a8e79e99e6d7b8359118d6ab9285057fc574394e75bec3e2f",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostDesiredService.cs": "77a69129688542eb682957ffbc09e86e20e8d36bf34d9bbfef941c185e96f241",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionAuthority.cs": "9476af51e9b2e314b71b0fbd4240cfeacfd70ac348effd7857f90f828bb3e69c",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionLease.cs": "bbdc83ce9188c442af2355c90b5c0ddfaf0e4cc0748564f842bdadeef59a01a5",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionSigner.cs": "f6f3e14efa886873f615853d9e747c5f3fb7819065cc157d4320a33c4a276f31",
+    "src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs": "b2e5ae5ce0b34b6f66978f96f1b82b4d0cab6e913762e240499a719e0ac45497",
+    "src/TerraScale.Orchestrator/Observability/OrchestratorTelemetry.cs": "2752e64cf809a57a15da0215a28556149f0f93e4a41974a4edb96f14f728d9ae",
+    "tests/TerraScale.Orchestrator.Tests/HostConvergenceRuntimeTests.cs": "df1a42944953d69a0342f23e86a0b0ab823b2e3a5ad232db18673cd8a0db882a",
+    "tests/TerraScale.Orchestrator.Tests/NatsControlR3L0cTests.cs": "0f1b48d00e088afb8b967759a30e1bcdf93130ff72573c29d6dabcf168877e83",
+    "tests/TerraScale.Orchestrator.Tests/OperatorStatusTests.cs": "9ef8ce75fbae4f63646a8699ab7bf0014e13bd0c8d70ad905e746eef952bb2b9",
+    "tests/TerraScale.Orchestrator.Tests/OrchestratorTelemetryTests.cs": "28704426a6d15a7bf15d312637a7fa0e9c0a3e0abda873efa24f5adbe1779d85",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostDesiredTests.cs": "3f07ae0b88abe45f86e695762dba1b5f2e6d21e8517605db7df0e3bc82091631",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionLeaseTests.cs": "531bb00143f4cbc64e9f00dc90134ec831f6b77b78014f203abcec1d26d90b97",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionSignerTests.cs": "e6880107567762719db06054d6a5acaafeeb2f9c467dfd55bf659a97721d5963",
+    "tests/TerraScale.Orchestrator.Tests/SignedHostReportHarness.cs": "673fc9587d675a48a027fcbd8782e0734168c084defedd23a413e3679ee879af",
+    "tests/TerraScale.Orchestrator.Tests/SignedHostReportTransportTests.cs": "bcb761ada873da56cdbac22d1e43a942c02eb7f6743c3ef8eeb47123e8afd9d8"
+  },
+  "removedSourceFiles": [
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostReportSignerTests.cs"
+  ],
+  "checks": {
+    "full-main": {
+      "passed": 1342,
+      "failed": 0,
+      "skipped": 5,
+      "duration": "15m 04s 477ms"
+    },
+    "controlplane": {
+      "passed": 966,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "33s 531ms"
+    },
+    "protocol": {
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "1s 357ms"
+    },
+    "scheduler": {
+      "passed": 106,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "4s 844ms"
+    },
+    "modeltests": {
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "1s 345ms"
+    }
+  },
+  "totalPassedAcrossFiveProjects": 2638,
+  "releaseBuild": {
+    "warnings": 0,
+    "errors": 0,
+    "log": "/tmp/ts-host-desired-build-final.log"
+  },
+  "requiredStyle": {
+    "result": "passed",
+    "log": "/tmp/ts-host-desired-style-final.log"
+  },
+  "repositoryLocksChanged": false,
+  "localLogs": {
+    "/tmp/ts-host-desired-full-main.log": "031f01cbed3a4746dccecb074d0fd0902e0cc4ce2ded14276a33d14aaaccb633",
+    "/tmp/ts-host-desired-controlplane.log": "488be7af2c3dc81f08aef17bdcdfb9901237fe09d3b5e96f4d43b53289fda8ad",
+    "/tmp/ts-host-desired-protocol.log": "8c0e4e0d426bc6626fbfdaa04d7fb4b815e08e89991fa65a62ceece714e16ff4",
+    "/tmp/ts-host-desired-scheduler.log": "b87d3a3516bd88cb10fd73e5cbd9754349c9fa1525a99c61c458ecce4b12ef19",
+    "/tmp/ts-host-desired-modeltests.log": "8f4d2a818f516a7c75d0149c9b073706f8a85c022bcb8d96e7654eee9e78718e",
+    "/tmp/ts-host-desired-build-final.log": "3c0b3368137037edff966cfb0cf47d4bd7e582560e2c8efa3da49f460dd122c8",
+    "/tmp/ts-host-desired-style-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "qualification": [
+    "Dedicated signed desired request domain and exact hashed host request/reply subjects; strict missing/duplicate/unknown-field rejection and bounded wire sizes.",
+    "Enrollment role/environment/node/region, session epoch/generation and request freshness are checked against current durable sessions; report authorization retains its own proof domain.",
+    "Positive desired reads use unchanged CAS; concurrent deletion/replacement and stale session replicas cannot authorize stale positives. Session authority is rechecked before returning desired data.",
+    "Missing/deleted desired is clean absence; invalid producer records, unknown artifact kinds, unavailable stores and contention are distinct failures.",
+    "Actual restricted JWT/mTLS R3 hosts read different roles and cannot access controller KV or object stores. Production controller startup and actual core convergence consume the protocol.",
+    "Bounded asynchronous/synchronous stalled storage, renewal independence, one unfinished store operation, cross-host retry status, wrong/expired/malformed/cancelled replies and revocation during reads.",
+    "Authenticated operator status and bounded outcome/in-flight/retry telemetry; typed convergence source and immutable current session signer."
+  ],
+  "limitations": [
+    "Five normal-suite opt-in skips: two containerd, one live TerraBase fleet, two Firecracker VM lanes; earlier rehearsal receipts are separate.",
+    "An early main-suite run was interrupted to tighten the artifact-kind validation. Its log is not a passing qualification; this receipt uses the completed rerun.",
+    "Desired selection is an instant read, not an execution lease, artifact capability, OCI grant or guarantee against a future target update/revocation.",
+    "No production host entry is enabled. Artifact retrieval, durable backoff and regional replacement leases still require restricted protocols.",
+    "Supervisor recovery before authentication, external-command and daemon-job quiescence, storage writer fencing and controller drain receipts remain open.",
+    "First boot, founding peer delivery/quorum, seed ownership transfer, regional resource lifecycle, retained-volume lifecycle and complete fleet status remain open.",
+    "No OCI mutations or OpenTofu apply/state edits; no live guest Instance Principal or native ARM64 service qualification in this batch."
+  ],
+  "localCleanup": {
+    "interruptedRunPod": "ts-orch-test-nats-45afe83b1efb4272b638c1b1c0e01beb",
+    "result": "Removed exact abandoned test pod after confirming no test process remained. Final completed run left no active test containers; unrelated services and older inactive pods were preserved."
+  }
+}

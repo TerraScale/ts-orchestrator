@@ -153,7 +153,7 @@ public sealed class RegionalHostSessionLeaseTests
         var client = new Client();
         await using var lease = await StartAsync(material, clock, client);
         var initial = lease.Snapshot;
-        var signer = lease.GetReportSigner();
+        var signer = lease.GetSessionSigner();
         for (var renewal = 1; renewal <= 5; renewal++)
         {
             clock.Advance(TimeSpan.FromSeconds(3));
@@ -162,7 +162,7 @@ public sealed class RegionalHostSessionLeaseTests
             await Assert.That((await lease.ObserveAsync(CancellationToken.None)).Ready).IsTrue();
         }
         await Assert.That(lease.Snapshot.ExecuteUntil).IsGreaterThan(initial.ExpiresAt - RegionalHostSessionLease.ShutdownReserve);
-        await Assert.That(ReferenceEquals(signer, lease.GetReportSigner())).IsFalse();
+        await Assert.That(ReferenceEquals(signer, lease.GetSessionSigner())).IsFalse();
         var requests = client.Requests.ToArray();
         await Assert.That(requests.Count(value => value.Operation == RegionalHostSessionOperation.Acquire)).IsEqualTo(1);
         await Assert.That(requests.Select(value => value.SessionId).Distinct().Count()).IsEqualTo(1);
@@ -194,7 +194,7 @@ public sealed class RegionalHostSessionLeaseTests
         await lease.DisposeAsync();
         await Assert.That(lease.Snapshot.Renewals).IsEqualTo(0);
         await Assert.That((await lease.ObserveAsync(CancellationToken.None)).Ready).IsFalse();
-        await Assert.That(() => lease.GetReportSigner()).Throws<InvalidOperationException>();
+        await Assert.That(() => lease.GetSessionSigner()).Throws<InvalidOperationException>();
     }
 
     [Test]
@@ -383,7 +383,7 @@ public sealed class RegionalHostSessionLeaseTests
         await workloads.ConvergeAsync(HostRuntimePlan.Create(AdmittedRole.TerraBaseMember, RuntimeDriver.NativeSystemd,
             HostConvergenceRuntime.AllocationIdFor("gru", "host-1", "terrabase-server"), new(new string('a', 64)), HostArchitecture.X64), deadline.Token);
         await Assert.That(native.Exited).IsFalse();
-        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1", lease.GetReportSigner);
+        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1", lease.GetSessionSigner);
         await UntilAsync(() => lease.Snapshot.Renewals >= 2, TimeSpan.FromSeconds(12));
         var report = new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server",
             "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow);

@@ -29,13 +29,20 @@ restricted NATS host client/service now implement renewable process leases,
 durable revocation and generation/replay fencing. Their component tests pass.
 Controller startup now loads a public enrollment policy and starts the service
 with status/metrics. An independent renewable host execution lease now exposes
-terminal cancellation and an immutable current report signer. Core convergence
+terminal cancellation and an immutable current session signer. Core convergence
 links work to that cancellation, including stalled desired-state reads.
 Lease-backed convergence now requires exclusive local ownership and a durable
 canonical workload inventory. It discovers both native drivers and stops
 recorded work before new reconciliation, independently of desired state and
 report acknowledgements. Late starts, stops and recovery probes retain the
 owner lock until they actually settle.
+Convergence now takes a typed desired source. The controller's separate signed
+desired service derives role/environment from enrollment, checks current sessions
+before and after storage access, confirms positive reads through CAS, and binds
+replies to the exact request and expiry. Missing desired state is distinct from
+malformed or unavailable storage. Status and metrics expose its retry needs.
+Restricted artifact, backoff and regional replacement protocols are still open;
+this does not enable the production host entry.
 Protected credential validation now supplies fixed certificate/JWT/trust expiry
 to a nonrenewable monotonic material budget. The restricted R3 test composes
 these checks with session renewal and actual owned-process shutdown. The
@@ -83,6 +90,13 @@ use synthetic test credentials and do not qualify Instance Principal.
 These are working-tree results, not qualification of an immutable release.
 Other changes are present in the shared checkouts. Rerun the final gates against
 the exact release revision before deployment.
+
+The [restricted desired-state receipt](host-desired-local-2026-09-21.json)
+records **2,638 passed** across all five projects, zero failures and five expected
+opt-in skips. It covers signed desired selection, controller and convergence
+callers, stale-read/revocation fences, bounded stalled storage, and status/metrics.
+Release build and required style passed. This receipt does not qualify the
+remaining host protocols, production first boot, native ARM64 services or OCI.
 
 The [host session authentication receipt](host-session-authentication-local-2026-09-21.json)
 records source hashes, dependency and test evidence, native-library bundle
@@ -356,8 +370,9 @@ repository's main-only push rule being resolved.
    never authorize work or confer membership. The host-agent manifest grants
    hashed observation/ack/command subjects. Host reports now use an acknowledged
    controller relay; the controller's agent grants cover all hosts only in its
-   fixed region. Desired state, artifact retrieval, backoff and replacement leases
-   still need restricted-host protocols. Session enrollment exists; its dedicated
+   fixed region. Desired selection now has a signed restricted-host protocol and
+   core-convergence caller coverage. Artifact retrieval, backoff and replacement
+   leases still need restricted-host protocols. Session enrollment exists; its dedicated
    host startup composition remains incomplete.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The controller report

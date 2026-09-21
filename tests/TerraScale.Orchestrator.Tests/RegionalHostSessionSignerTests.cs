@@ -1,8 +1,9 @@
 using TerraScale.Orchestrator.ControlPlane.Delivery;
+using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Tests;
 
-public sealed class RegionalHostReportSignerTests
+public sealed class RegionalHostSessionSignerTests
 {
     [Test]
     public async Task Only_the_exact_accepted_lease_can_sign_and_renewal_requires_replacing_the_snapshot()
@@ -18,26 +19,30 @@ public sealed class RegionalHostReportSignerTests
                      lease with { Generation = 2 }, lease with { Epoch = 0 }, lease with { ExpiresAt = null },
                      lease with { ExpiresAt = lease.ExpiresAt!.Value.AddSeconds(1) }
                  })
-            await Assert.That(() => new RegionalHostReportSigner(request, invalid, material.Authentication, material.Clock)).Throws<ArgumentException>();
+            await Assert.That(() => new RegionalHostSessionSigner(request, invalid, material.Authentication, material.Clock)).Throws<ArgumentException>();
         using var unrelated = new SessionMaterial();
-        await Assert.That(() => new RegionalHostReportSigner(request, lease, unrelated.Authentication, material.Clock)).Throws<ArgumentException>();
-        var original = new RegionalHostReportSigner(request, lease, material.Authentication, material.Clock);
+        await Assert.That(() => new RegionalHostSessionSigner(request, lease, unrelated.Authentication, material.Clock)).Throws<ArgumentException>();
+        var original = new RegionalHostSessionSigner(request, lease, material.Authentication, material.Clock);
         var report = new HostAdmissionObservation(1, "gru", request.Enrollment.NodeId, "production", "terrabase-server",
             "sha256:" + new string('a', 64), true, material.Clock.GetUtcNow());
         await Assert.That(original.Sign(report).Proof.Epoch).IsEqualTo(1UL);
+        await Assert.That(original.SignDesired(AdmittedRole.TerraBaseMember).Epoch).IsEqualTo(1UL);
         await Assert.That(() => original.Sign(report with { Cell = "fra" })).Throws<InvalidOperationException>();
         await Assert.That(() => original.Sign(report with { Instance = "another-node" })).Throws<InvalidOperationException>();
         material.Clock.Advance(TimeSpan.FromSeconds(20));
         var renewal = material.Request(request.Enrollment, request.SessionId, lease.Epoch);
         var renewedLease = new RegionalHostSessionResponse(2, renewal.RequestId, renewal.RequestDigest,
             RegionalHostSessionDecision.Accepted, 1, 1, renewal.IssuedAt + RegionalHostSessionAuthority.LeaseLifetime);
-        await Assert.That(() => new RegionalHostReportSigner(renewal, renewedLease with { Epoch = 2 }, material.Authentication, material.Clock))
+        await Assert.That(() => new RegionalHostSessionSigner(renewal, renewedLease with { Epoch = 2 }, material.Authentication, material.Clock))
             .Throws<ArgumentException>();
-        var renewed = new RegionalHostReportSigner(renewal, renewedLease, material.Authentication, material.Clock);
+        var renewed = new RegionalHostSessionSigner(renewal, renewedLease, material.Authentication, material.Clock);
         material.Clock.Advance(TimeSpan.FromSeconds(10));
         await Assert.That(() => original.Sign(report with { ObservedAt = material.Clock.GetUtcNow() })).Throws<InvalidOperationException>();
         await Assert.That(renewed.Sign(report with { ObservedAt = material.Clock.GetUtcNow() }).Proof.Epoch).IsEqualTo(lease.Epoch);
+        await Assert.That(() => original.SignDesired(AdmittedRole.TerraBaseMember)).Throws<InvalidOperationException>();
+        await Assert.That(renewed.SignDesired(AdmittedRole.TerraBaseMember).Epoch).IsEqualTo(1UL);
         material.Clock.Advance(TimeSpan.FromSeconds(20));
+        await Assert.That(() => renewed.SignDesired(AdmittedRole.TerraBaseMember)).Throws<InvalidOperationException>();
         await Assert.That(() => renewed.Sign(report with { ObservedAt = material.Clock.GetUtcNow() })).Throws<InvalidOperationException>();
     }
 }

@@ -34,6 +34,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
     private readonly HostObservationRelay? hostReports;
     private readonly RegionalHostSessionService? hostSessions;
+    private readonly RegionalHostDesiredService? hostDesired;
     private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
     private readonly Nodes.OciMemberHostFleet? memberHostFleet;
     private readonly WorkloadAutoscalerService? workloadAutoscaler;
@@ -60,7 +61,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         WorkloadAutoscalerService? workloadAutoscaler,
         IDisposable? workloadReplicaDriver,
         OperatorStatusCache operatorStatus,
-        RegionalHostSessionService? hostSessions)
+        RegionalHostSessionService? hostSessions,
+        RegionalHostDesiredService? hostDesired)
     {
         this.client = client;
         this.service = service;
@@ -82,10 +84,12 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.workloadReplicaDriver = workloadReplicaDriver;
         this.operatorStatus = operatorStatus ?? throw new ArgumentNullException(nameof(operatorStatus));
         this.hostSessions = hostSessions;
+        this.hostDesired = hostDesired;
     }
 
     public Task Completion => Task.WhenAny(new[] { authority.Completion, membership.Completion }
         .Concat(hostReports is null ? [] : new[] { hostReports.Completion })
+        .Concat(hostDesired is null ? [] : new[] { hostDesired.Completion })
         .Concat(hostSessions is null ? [] : new[] { hostSessions.Completion })).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
@@ -154,6 +158,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         serviceInstrumentation.Telemetry = telemetry;
         if (hostReports is not null) telemetry.ObserveHostReports(() => hostReports.Snapshot);
         if (hostSessions is not null) telemetry.ObserveHostSessions(() => hostSessions.Snapshot);
+        if (hostDesired is not null) telemetry.ObserveHostDesired(() => hostDesired.Snapshot);
     }
 
     /// <summary>
@@ -281,6 +286,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator? authority = null;
         HostObservationRelay? hostReportRelay = null;
         RegionalHostSessionService? hostSessionService = null;
+        RegionalHostDesiredService? hostDesiredService = null;
         IAuthorizedHostReportReader? authorizedHostReports = null;
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
         Nodes.OciMemberHostFleet? memberHostFleet = null;
@@ -644,7 +650,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 workloadAutoscalerRuntime?.Latest,
                                 workloadFleet?.Policies,
                                 hostReportRelay?.Snapshot,
-                                hostSessionService?.Snapshot, authorizedHostReports)
+                                hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot)
                             .ConfigureAwait(false);
                         operatorStatus.Set(status);
                         await message.ReplyAsync(
@@ -670,6 +676,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             {
                 var sessionAuthority = new RegionalHostSessionAuthority(state.NodeEnrollments, hostSessions.Policy);
                 hostSessionService = await RegionalHostSessionService.StartAsync(client.Connection, sessionAuthority, cancellationToken);
+                hostDesiredService = await RegionalHostDesiredService.StartAsync(client.Connection, new(state.Delivery ?? throw new InvalidOperationException("Host sessions require the regional delivery store."), sessionAuthority), cancellationToken);
                 hostReportRelay = await HostObservationRelay.StartAsync(client.Connection, state.Runtime, sessionAuthority, cancellationToken);
                 authorizedHostReports = new SessionAuthorizedHostReportReader(state.Runtime, sessionAuthority);
             }
@@ -735,7 +742,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                         decisions,
                         workloadFleet.Policies,
                         hostReportRelay?.Snapshot,
-                        hostSessionService?.Snapshot, authorizedHostReports);
+                        hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot);
             }
 
             // Seed the projection before returning the runtime so workload gauges are useful
@@ -751,7 +758,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     workloadAutoscalerRuntime?.Latest,
                     workloadFleet?.Policies,
                     hostReportRelay?.Snapshot,
-                    hostSessionService?.Snapshot, authorizedHostReports)
+                    hostSessionService?.Snapshot, authorizedHostReports, hostDesiredService?.Snapshot)
                 .ConfigureAwait(false));
 
             return new(
@@ -774,7 +781,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 workloadAutoscalerRuntime,
                 workloadReplicaDriver,
                 operatorStatus,
-                hostSessionService);
+                hostSessionService,
+                hostDesiredService);
         }
         catch
         {
@@ -790,6 +798,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (workloadAutoscalerRuntime is not null)
                 await workloadAutoscalerRuntime.DisposeAsync();
             workloadReplicaDriver?.Dispose();
+            if (hostDesiredService is not null) await hostDesiredService.DisposeAsync();
             if (hostSessionService is not null) await hostSessionService.DisposeAsync();
             if (hostReportRelay is not null) await hostReportRelay.DisposeAsync();
             await client.DisposeAsync();
@@ -809,7 +818,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         IReadOnlyList<WorkloadScalePolicy>? scalingPolicies = null,
         HostReportRelaySnapshot? hostReportSnapshot = null,
         RegionalHostSessionServiceSnapshot? hostSessionSnapshot = null,
-        IAuthorizedHostReportReader? authorizedHostReports = null)
+        IAuthorizedHostReportReader? authorizedHostReports = null,
+        RegionalHostDesiredSnapshot? hostDesiredSnapshot = null)
     {
         const int maximumKeys = 512;
         var desired = new Dictionary<string, (int Replicas, long Generation, string? Digest)>(StringComparer.Ordinal);
@@ -1092,6 +1102,13 @@ public sealed class NatsRuntime : IAsyncDisposable
                 sessionSnapshot.RetryPending ? "session-storage-or-response-failed" : null));
             if (sessionSnapshot.RetryPending) needs.Add("host-session-authority:retry-request");
         }
+        if (hostDesiredSnapshot is { } desiredSnapshot)
+        {
+            actions.Add(new("host-desired", desiredSnapshot.RetryPending ? "retrying" : desiredSnapshot.InFlight ? "reading" : "listening",
+                desiredSnapshot.RetryPending || desiredSnapshot.InFlight ? 0 : 100, DateTimeOffset.UtcNow,
+                desiredSnapshot.RetryPending ? "desired-storage-or-response-failed" : null));
+            if (desiredSnapshot.RetryPending) needs.Add("host-desired:retry-request");
+        }
         var healthy = workloadStatuses.All(static workload => workload.State == "ready") && needs.Count == 0;
         var status = new OperatorStatusDocument(
             1,
@@ -1119,7 +1136,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         IReadOnlyList<WorkloadScalePolicy> policies,
         HostReportRelaySnapshot? hostReportSnapshot,
         RegionalHostSessionServiceSnapshot? hostSessionSnapshot,
-        IAuthorizedHostReportReader? authorizedHostReports)
+        IAuthorizedHostReportReader? authorizedHostReports,
+        RegionalHostDesiredSnapshot? hostDesiredSnapshot)
     {
         try
         {
@@ -1134,7 +1152,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                     decisions,
                     policies,
                     hostReportSnapshot,
-                    hostSessionSnapshot, authorizedHostReports)
+                    hostSessionSnapshot, authorizedHostReports, hostDesiredSnapshot)
                 .ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1339,7 +1357,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                     {
                         try
                         {
-                            if (hostSessions is not null) await hostSessions.DisposeAsync();
+                            try { if (hostDesired is not null) await hostDesired.DisposeAsync(); }
+                            finally { if (hostSessions is not null) await hostSessions.DisposeAsync(); }
                         }
                         finally
                         {

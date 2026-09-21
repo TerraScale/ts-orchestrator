@@ -134,7 +134,7 @@ internal sealed class RegionalHostSessionLease : IHostExecutionLease, IAsyncDisp
         }
     }
 
-    internal RegionalHostReportSigner GetReportSigner()
+    internal RegionalHostSessionSigner GetSessionSigner()
     {
         lock (gate)
         {
@@ -305,7 +305,7 @@ internal sealed class RegionalHostSessionLease : IHostExecutionLease, IAsyncDisp
     }
 
     private sealed record AcceptedSession(RegionalHostSessionRequest Request, RegionalHostSessionResponse Lease,
-        RegionalHostReportSigner Signer, long Stamp, HostExecutionMaterial Material, DateTimeOffset ExecuteUntil, TimeSpan LocalLifetime);
+        RegionalHostSessionSigner Signer, long Stamp, HostExecutionMaterial Material, DateTimeOffset ExecuteUntil, TimeSpan LocalLifetime);
 
     // Anchored before the first probe; successful session renewals never replenish this budget.
     private sealed record MaterialWindow(long Stamp, TimeSpan Lifetime);

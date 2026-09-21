@@ -99,11 +99,18 @@ public sealed class NatsControlR3L0cTests
             }
             var report = new HostConvergenceObservation(2, "gru", "host-1", "terrabase-server",
                 "sha256:" + new string('a', 64), "converged", "member.service", DateTimeOffset.UtcNow, MemberUp: true);
-            var signer = new RegionalHostReportSigner(request, acquired, hostAuthentication);
+            var signer = new RegionalHostSessionSigner(request, acquired, hostAuthentication);
             await new NatsHostObservationPublisher(host.Connection, "gru", "host-1", () => signer).PublishAsync(
                 new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server", report.Digest, true, report.ObservedAt), deadline.Token);
             await new NatsHostObservationPublisher(host.Connection, "gru", "host-1", () => signer).PublishAsync(report, deadline.Token);
             var stores = reportWriter.CreateJetStreamContext().CreateKeyValueStoreContext();
+            var desiredStore = await stores.GetStoreAsync("ORCH_DELIVERY", deadline.Token);
+            await desiredStore.PutAsync(DirectDeliveryTargetKey.For("terrabase-server", "production", "gru"),
+                JsonSerializer.Serialize(new { artifactDigest = report.Digest, manifestDigest = report.Digest, kind = "service" }),
+                cancellationToken: deadline.Token);
+            var desiredSource = new NatsHostDesiredArtifactSource(host.Connection, "gru", "host-1", () => signer);
+            await Assert.That(await desiredSource.ReadAsync(Runtime.AdmittedRole.TerraBaseMember, "production", "gru", deadline.Token))
+                .IsEqualTo(report.Digest);
             reportAuthority = new(await stores.GetStoreAsync("ORCH_NODE_ENROLLMENTS", deadline.Token), sessionMaterial.Policy());
             reportEpoch = acquired.Epoch;
         }
@@ -113,6 +120,7 @@ public sealed class NatsControlR3L0cTests
         response.EnsureSuccess();
         await Assert.That(response.Data!.Contains("host-report-relay", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         await Assert.That(response.Data!.Contains("host-session-authority", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
+        await Assert.That(response.Data!.Contains("host-desired", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         var status = JsonSerializer.Deserialize(response.Data!, Operations.OperatorStatusJsonContext.Default.OperatorStatusDocument)!;
         await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ObservedReplicas).IsEqualTo(sessionsEnabled ? 1 : 0);
         if (reportAuthority is not null)

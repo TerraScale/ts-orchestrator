@@ -305,6 +305,53 @@ cell and `acquired`, `renewed`, `rejected` or `failed`, and
 `terrascale.orchestrator.host.session.retry_pending`, labeled only by cell.
 Counters count requests, including retries, rather than active hosts or leases.
 
+## Restricted desired selection
+
+Controllers with the session policy also start a separate `host-desired` service.
+`HostConvergenceRuntime` consumes `IHostDesiredArtifactSource`; its production
+NATS implementation uses only the enrolled host's hashed observation/command
+subjects. It cannot select an arbitrary store key, environment, node or region.
+The controller derives the target key from the signed role and enrollment scope.
+
+The desired request has its own Ed25519 signature domain and a 16 KiB limit.
+It binds enrollment digest, region, node, session, epoch, role, nonce and UTC
+time. Strict JSON rejects missing, duplicate and unknown fields. Session/report
+signatures cannot substitute for this request. Authorization confirms the current
+session through unchanged CAS before and after reading desired state. The response
+binds the exact request digest, nonce, generation and epoch, expires within ten
+seconds of issue and never outlives the checked session. The host rejects expired,
+misbound or cancelled responses. This is an instant desired selection, not an
+execution lease, resource-operation grant or promise against future revocation.
+
+Positive desired reads require an unchanged CAS to reject stale replica data.
+A concurrent target replacement/delete forces a retry, capped at eight attempts.
+A missing or deleted target returns accepted absence with null digest and revision
+zero; it only delays convergence and never stops existing allocations. Malformed
+records, unavailable storage and exhausted contention are explicit failures.
+All three producer fields (artifact digest, manifest digest and kind) are required.
+Kind must be one of the producer's `service`, `package` or `site` values. Only the
+normalized artifact digest and confirmed revision leave the controller.
+
+The separate service queue gives storage three seconds, including dependencies
+that block synchronously or ignore cancellation. It retains at most one unfinished
+store operation per service and returns failure to later requests until that
+operation settles. Session renewal remains on its own queue. The host exchange
+has a five-second deadline. Failures are tracked per node, bounded to 1,024 entries;
+overflow keeps retry status set until restart. Another host's success cannot clear
+an outstanding failure. One host's subsequent non-storage-failure response clears
+that host's retry need.
+
+Authenticated operator status adds `host-desired`, with `listening`/100, `reading`/0 or
+`retrying`/0 and `host-desired:retry-request`. This describes the desired service,
+not workload readiness. Metrics are `terrascale.orchestrator.host.desired.requests`
+with only cell and `present`, `absent`, `rejected`, `failed` labels, and
+`terrascale.orchestrator.host.desired.retry_pending` and `.in_flight` with only cell.
+The in-flight gauge stays set while an uncooperative store operation remains unfinished.
+
+The host entry is still disabled. Artifact retrieval, durable backoff and regional
+replacement leases still need their own restricted protocols. This service does
+not make the remaining direct runtime/object-store accesses safe for host credentials.
+
 ## Cryptography and packaging
 
 Signing uses the NATS client's public NKey API. The signer re-reads protected
@@ -361,7 +408,7 @@ does not distinguish a revoked process; proof and current authority are mandator
 
 Production first boot must deliver the reviewed controller policy. Route the dedicated host
 entry through the remote client, credential-manifest/certificate checks and
-bounded desired/artifact/replacement-lease exchanges. The renewal loop must
+the restricted desired client and bounded artifact/backoff/replacement-lease exchanges. The renewal loop must
 distinguish original enrollment evidence from permission to execute bootstrap
 operations. Admission loss must stop and fence work before safe replacement
 or drain can be qualified. A KV lease alone does not stop a guest process or

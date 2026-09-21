@@ -175,7 +175,7 @@ public sealed class SignedHostReportTransportTests
         var lease = await new NatsRegionalHostSessionClient(host.Client.Connection, "gru", host.Node).SendAsync(request, deadline.Token);
         await Assert.That(lease.Accepted).IsTrue();
         await Assert.That(lease.Epoch).IsGreaterThan(host.Lease.Epoch);
-        var signer = new RegionalHostReportSigner(request, lease, host.Authentication, harness.Material.Clock);
+        var signer = new RegionalHostSessionSigner(request, lease, host.Authentication, harness.Material.Clock);
         var replacement = signer.Sign(Admission(harness, host));
         await host.Publisher.PublishAsync(replacement, deadline.Token);
         await Assert.That(() => host.Publisher.PublishAsync(original, deadline.Token)).Throws<InvalidOperationException>();
@@ -299,7 +299,7 @@ public sealed class SignedHostReportTransportTests
             var request = material.Request(material.Enroll(1));
             var lease = new RegionalHostSessionResponse(2, request.RequestId, request.RequestDigest, RegionalHostSessionDecision.Accepted,
                 1, 1, request.IssuedAt + RegionalHostSessionAuthority.LeaseLifetime);
-            var signer = new RegionalHostReportSigner(request, lease, material.Authentication, material.Clock);
+            var signer = new RegionalHostSessionSigner(request, lease, material.Authentication, material.Clock);
             var publisher = new NatsHostObservationPublisher(connection, "gru", request.Enrollment.NodeId, () => signer);
             var report = new HostAdmissionObservation(1, "gru", request.Enrollment.NodeId, "production", "terrabase-server", Digest, true, material.Clock.GetUtcNow());
             await Assert.That(() => publisher.PublishAsync(report, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(8)))

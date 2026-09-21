@@ -124,6 +124,7 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private Func<RegionalRuntimeMembershipHealth>? membershipHealth;
     private Func<HostReportRelaySnapshot>? hostReportObserver;
     private Func<RegionalHostSessionServiceSnapshot>? hostSessionObserver;
+    private Func<RegionalHostDesiredSnapshot>? hostDesiredObserver;
     private Func<GlobalCellDirectorySnapshot>? globalCellDirectory;
     private Func<NatsMonitoringAggregate>? natsMonitoring;
     private Func<Operations.OperatorStatusDocument?>? operatorStatusObserver;
@@ -344,6 +345,9 @@ internal sealed class OrchestratorTelemetry : IDisposable
             unit: "{boolean}");
         hostReports = meter.CreateObservableCounter("terrascale.orchestrator.host.reports",
             ObserveHostReports, unit: "{report}");
+        _ = meter.CreateObservableCounter("terrascale.orchestrator.host.desired.requests", ObserveHostDesired, unit: "{request}");
+        _ = meter.CreateObservableGauge("terrascale.orchestrator.host.desired.retry_pending", ObserveHostDesiredRetryPending, unit: "{boolean}");
+        _ = meter.CreateObservableGauge("terrascale.orchestrator.host.desired.in_flight", ObserveHostDesiredInFlight, unit: "{boolean}");
         hostSessions = meter.CreateObservableCounter("terrascale.orchestrator.host.session.requests",
             ObserveHostSessions, unit: "{request}");
         hostSessionRetryPending = meter.CreateObservableGauge("terrascale.orchestrator.host.session.retry_pending",
@@ -413,6 +417,36 @@ internal sealed class OrchestratorTelemetry : IDisposable
         if (report is null) yield break;
         foreach (var (result, count) in new[] { ("accepted", report.Accepted), ("rejected", report.Rejected), ("failed", report.Failed) })
             yield return new(count, new TagList { { "cell", cell }, { "result", result } });
+    }
+
+    internal void ObserveHostDesired(Func<RegionalHostDesiredSnapshot> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref hostDesiredObserver, observe, null) is not null)
+            throw new InvalidOperationException("Host desired telemetry is already attached.");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostDesired()
+    {
+        var snapshot = Volatile.Read(ref hostDesiredObserver)?.Invoke();
+        if (snapshot is null) yield break;
+        foreach (var (result, count) in new[] { ("present", snapshot.Present), ("absent", snapshot.Absent),
+                     ("rejected", snapshot.Rejected), ("failed", snapshot.Failed) })
+            yield return new(count, new TagList { { "cell", cell }, { "result", result } });
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostDesiredInFlight()
+    {
+        var snapshot = Volatile.Read(ref hostDesiredObserver)?.Invoke();
+        if (snapshot is not null)
+            yield return new(snapshot.InFlight ? 1 : 0, new TagList { { "cell", cell } });
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostDesiredRetryPending()
+    {
+        var snapshot = Volatile.Read(ref hostDesiredObserver)?.Invoke();
+        if (snapshot is not null)
+            yield return new(snapshot.RetryPending ? 1 : 0, new TagList { { "cell", cell } });
     }
 
     internal void ObserveHostSessions(Func<RegionalHostSessionServiceSnapshot> observe)

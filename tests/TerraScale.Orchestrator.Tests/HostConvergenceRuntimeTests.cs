@@ -39,7 +39,7 @@ public sealed class HostConvergenceRuntimeTests
         using var admission = new ExecutionLease();
         var native = new StoppableConverger();
         var reports = new WithheldRuntimeReport(new TestHostObservationPublisher(runtimeStore), lostReportAck);
-        await using var runtime = HostConvergenceRuntime.Create(delivery, runtimeStore, reports,
+        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), runtimeStore, reports,
             new MemoryArtifactSource(("sha256-" + hex, artifact)), native,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "tracked-artifacts"), HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
@@ -84,7 +84,7 @@ public sealed class HostConvergenceRuntimeTests
         var delivery = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
         var withheld = (WithheldDesired)delivery;
         var reports = new UnavailableReports();
-        await using var runtime = HostConvergenceRuntime.Create(delivery, null!, reports,
+        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), null!, reports,
             new MemoryArtifactSource(), native,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", inventory.Directory, HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: native);
@@ -174,7 +174,7 @@ public sealed class HostConvergenceRuntimeTests
         var withheld = (WithheldDesired)read;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var converger = new StoppableConverger { ConvergeBarrier = release.Task };
-        await using var runtime = HostConvergenceRuntime.Create(stalledDesired ? read : delivery, runtimeStore,
+        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(stalledDesired ? read : delivery), runtimeStore,
             new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)), converger,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "lease-artifacts"), HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
@@ -311,7 +311,7 @@ public sealed class HostConvergenceRuntimeTests
         var converger = new FakeConverger();
         // This exercises allocation/report identity with controller-owned stores.
         // The dedicated restricted host entry point has its own remaining gate.
-        await using var convergence = HostConvergenceRuntime.Create(delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore),
+        await using var convergence = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore),
             new MemoryArtifactSource(("sha256-" + firstHex, first), ("sha256-" + secondHex, second)),
             converger, new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", installRoot,
                 HostArchitecture.Arm64), "gru", node);
@@ -493,7 +493,7 @@ public sealed class HostConvergenceRuntimeTests
             EnvironmentDirectory: environmentDirectory,
             StateDirectoryRoot: stateDirectoryRoot);
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(
                 ("sha256-" + v1Hex, v1), ("sha256-" + v2Hex, v2)), converger, configuration,
             "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
         await convergence.ReconcileOnceAsync(
@@ -632,7 +632,7 @@ public sealed class HostConvergenceRuntimeTests
         var configuration = new HostConvergenceConfiguration(
             [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64);
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, configuration, "gru", "test-1",
             observationTimeout: TimeSpan.FromSeconds(3),
             replaceLeaseDuration: TimeSpan.FromSeconds(3));
@@ -643,7 +643,7 @@ public sealed class HostConvergenceRuntimeTests
         // probing starts only once the holder demonstrably holds it (first converge underway).
         await converger.FirstConvergeStarted;
         await using var peer = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             configuration, "gru", "test-2", observationTimeout: TimeSpan.FromSeconds(3));
         while (!pass.IsCompleted)
         {
@@ -671,7 +671,7 @@ public sealed class HostConvergenceRuntimeTests
 
         var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(5) };
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
             "gru", "test-1",
@@ -944,7 +944,7 @@ public sealed class HostConvergenceRuntimeTests
 
         // TUnit captures Console.Error per test, including the background loop's writes.
         await using var convergence = HostConvergenceRuntime.Start(
-            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production",
                 Path.Combine(server.Directory, "artifacts"), HostArchitecture.Arm64),
@@ -974,7 +974,7 @@ public sealed class HostConvergenceRuntimeTests
 
         var converger = new FakeConverger();
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, new TestHostObservationPublisher(failing), new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(failing), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
             "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
@@ -1028,7 +1028,7 @@ public sealed class HostConvergenceRuntimeTests
         IHostRuntimeConverger converger)
     {
         var convergence = HostConvergenceRuntime.Create(
-            delivery,
+            new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),
             source,
@@ -1054,7 +1054,7 @@ public sealed class HostConvergenceRuntimeTests
         IHostRuntimeConverger converger,
         IHostAdmissionGate? admission = null) =>
         HostConvergenceRuntime.Create(
-            delivery,
+            new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),
             source,
@@ -1068,6 +1068,12 @@ public sealed class HostConvergenceRuntimeTests
             "test-1",
             observationTimeout: TimeSpan.FromSeconds(3),
             admission: admission);
+
+    private sealed class TestDesiredArtifactSource(INatsKVStore store) : IHostDesiredArtifactSource
+    {
+        public Task<string?> ReadAsync(HostRole role, string environment, string cell, CancellationToken cancellationToken) =>
+            HostDesiredArtifactReader.ReadAsync(store, AdmittedRoleCatalog.Get(role).ArtifactKey, environment, cell, cancellationToken);
+    }
 
     internal static async Task<HostConvergenceObservation?> ReadObservationAsync(
         INatsKVStore runtimeStore,
@@ -1170,7 +1176,7 @@ public sealed class HostConvergenceRuntimeTests
         await using var member = await MemberHealthListener.StartAsync();
 
         var convergence = HostConvergenceRuntime.Create(
-            delivery,
+            new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),
             new MemoryArtifactSource(("sha256-" + hex, artifact)),
