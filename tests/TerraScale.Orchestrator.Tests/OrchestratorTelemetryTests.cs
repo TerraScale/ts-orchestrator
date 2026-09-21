@@ -11,6 +11,34 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OrchestratorTelemetryTests
 {
     [Test]
+    public async Task Host_report_metrics_are_bounded_outcomes_without_node_labels()
+    {
+        var measurements = new List<MetricMeasurement>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == OrchestratorTelemetry.InstrumentationName &&
+                instrument.Name == "terrascale.orchestrator.host.reports")
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            var copiedTags = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var tag in tags) copiedTags.Add(tag.Key, tag.Value);
+            measurements.Add(new(instrument.Name, value, copiedTags));
+        });
+        listener.Start();
+        using var telemetry = OrchestratorTelemetry.Start(
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 3), _ => null);
+        telemetry.ObserveHostReports(() => new(5, 2, 1, true));
+        listener.RecordObservableInstruments();
+        await Assert.That(measurements.ToDictionary(value => (string)value.Tags["result"]!, value => value.Value))
+            .IsEquivalentTo(new Dictionary<string, long> { ["accepted"] = 5, ["rejected"] = 2, ["failed"] = 1 });
+        await Assert.That(measurements.SelectMany(value => value.Tags.Keys).Distinct().Order().ToArray())
+            .IsEquivalentTo(new[] { "cell", "result" });
+    }
+
+    [Test]
     public async Task OtlpConfigurationAllowsOnlySupportedSecureOrLoopbackEndpoints()
     {
         await Assert.That(OtlpExporterConfiguration.Resolve(_ => null)).IsNull();

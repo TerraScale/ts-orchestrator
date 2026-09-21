@@ -13,6 +13,22 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OperatorStatusTests
 {
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Host_report_relay_status_exposes_retry_need_without_host_identity(bool retryPending)
+    {
+        var runtime = DispatchProxy.Create<INatsKVStore, StatusKv>();
+        var status = await NatsRuntime.BuildOperatorStatusAsync(null, null, runtime,
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 1),
+            new("gru", 1, "local"), DateTimeOffset.UtcNow, CancellationToken.None,
+            hostReportSnapshot: new(5, 2, 1, retryPending));
+        var action = status.Actions.Single(value => value.Kind == "host-report-relay");
+        await Assert.That(action.State).IsEqualTo(retryPending ? "retrying" : "listening");
+        await Assert.That(action.ProgressPercent).IsEqualTo(retryPending ? 0 : 100);
+        await Assert.That(status.Needs.Contains("host-report-relay:retry-report")).IsEqualTo(retryPending);
+    }
+
+    [Test]
     public async Task Missing_or_suspended_desired_state_cannot_provision_a_policy_minimum()
     {
         var delivery = DispatchProxy.Create<INatsKVStore, StatusKv>();

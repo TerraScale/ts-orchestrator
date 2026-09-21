@@ -5,7 +5,6 @@ using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 using NATS.Client.ObjectStore;
 using TerraScale.Orchestrator.Messaging;
-using TerraScale.Orchestrator.Protocol.Messaging;
 using TerraScale.Orchestrator.Runtime;
 using HostArchitecture = TerraScale.Orchestrator.Runtime.HostArchitecture;
 using HostRole = TerraScale.Orchestrator.Runtime.AdmittedRole;
@@ -186,14 +185,13 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 
     private readonly INatsKVStore delivery;
     private readonly INatsKVStore runtimeStore;
-    private readonly INatsConnection connection;
+    private readonly NatsHostObservationPublisher reports;
     private readonly IHostArtifactSource artifacts;
     private readonly IHostRuntimeConverger converger;
     private readonly HostConvergenceConfiguration configuration;
     private readonly TerraScale.Orchestrator.Nodes.IMemberHealthSource? memberHealth;
     private readonly string cell;
     private readonly string instance;
-    private readonly string agentObservationSubject;
     private readonly TimeSpan observationTimeout;
     private readonly TimeSpan replaceLeaseDuration;
     private readonly TimeSpan replaceLeaseRenewalInterval;
@@ -220,7 +218,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.admission = admission;
         this.delivery = delivery;
         this.runtimeStore = runtimeStore;
-        this.connection = connection;
+        reports = new NatsHostObservationPublisher(connection, cell, instance);
         this.artifacts = artifacts;
         this.converger = converger;
         this.configuration = configuration;
@@ -229,7 +227,6 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             : null;
         this.cell = cell;
         this.instance = instance;
-        agentObservationSubject = NatsSubjectTaxonomy.HostAgentObservationSubject(cell, instance, "runtime");
     }
 
     /// <summary>Constructs the runtime without starting any background loops; tests drive reconcile passes directly.</summary>
@@ -333,12 +330,9 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             // An admitted agent can receive its retained volume before the member
             // starts. Publish enrollment independently of service convergence, and
             // overwrite a former ready report when credentials/admission are lost.
-            await runtimeStore.PutAsync(HostAdmissionObservation.Key(instance, descriptor.ArtifactKey),
-                JsonSerializer.Serialize(new HostAdmissionObservation(
-                    HostAdmissionObservation.CurrentSchemaVersion, cell, instance, configuration.Environment,
-                    descriptor.ArtifactKey, desired, gate.Ready, DateTimeOffset.UtcNow),
-                    HostAdmissionObservationJsonContext.Default.HostAdmissionObservation),
-                cancellationToken: cancellationToken).ConfigureAwait(false);
+            await reports.PublishAsync(new HostAdmissionObservation(
+                HostAdmissionObservation.CurrentSchemaVersion, cell, instance, configuration.Environment,
+                descriptor.ArtifactKey, desired, gate.Ready, DateTimeOffset.UtcNow), cancellationToken).ConfigureAwait(false);
             if (!gate.Ready)
             {
                 await ReportAsync(
@@ -744,19 +738,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
             member?.PeerAckCount,
             member?.MinReplicas);
         observation.Validate();
-        var json = JsonSerializer.Serialize(observation, HostConvergenceJsonContext.Default.HostConvergenceObservation);
-        await runtimeStore.PutAsync($"host.{instance}.{descriptor.ArtifactKey}", json, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
-        try
-        {
-            await connection.PublishAsync(agentObservationSubject, json, cancellationToken: cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (NatsException)
-        {
-            // The durable KV observation above is the truth; the agent subject publish is
-            // best-effort telemetry for live watchers.
-        }
+        await reports.PublishAsync(observation, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -104,7 +104,7 @@
         "ts.orch.v2.<region>.operation.>",
         "ts.orch.v2.<region>.audit.>",
         "ts.orch.v2.<region>.observation.>",
-        "ts.orch.v2.<region>.agent.<agent-hash>.command.>",
+        "ts.orch.v2.<region>.agent.*.command.>",
         "_INBOX.>"
       ],
       "subscribe": [
@@ -114,8 +114,8 @@
         "ts.orch.v2.<region>.query.>",
         "ts.orch.v2.<region>.audit.>",
         "ts.orch.v2.<region>.observation.>",
-        "ts.orch.v2.<region>.agent.<agent-hash>.observation.>",
-        "ts.orch.v2.<region>.agent.<agent-hash>.ack.>"
+        "ts.orch.v2.<region>.agent.*.observation.>",
+        "ts.orch.v2.<region>.agent.*.ack.>"
       ]
     },
     {

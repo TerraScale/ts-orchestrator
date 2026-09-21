@@ -34,6 +34,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
     private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
     private readonly RegionalHostAdmissionGate? hostAdmission;
+    private readonly HostObservationRelay hostReports;
     private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
     private readonly Nodes.OciMemberHostFleet? memberHostFleet;
     private readonly WorkloadAutoscalerService? workloadAutoscaler;
@@ -56,6 +57,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         ServiceEndpointInstrumentation serviceInstrumentation,
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence,
         RegionalHostAdmissionGate? hostAdmission,
+        HostObservationRelay hostReports,
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement,
         Nodes.OciMemberHostFleet? memberHostFleet,
         WorkloadAutoscalerService? workloadAutoscaler,
@@ -77,6 +79,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.serviceInstrumentation = serviceInstrumentation;
         this.hostConvergence = hostConvergence;
         this.hostAdmission = hostAdmission;
+        this.hostReports = hostReports;
         this.terrabasePlacement = terrabasePlacement;
         this.memberHostFleet = memberHostFleet;
         this.workloadAutoscaler = workloadAutoscaler;
@@ -84,7 +87,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.operatorStatus = operatorStatus ?? throw new ArgumentNullException(nameof(operatorStatus));
     }
 
-    public Task Completion => Task.WhenAny(authority.Completion, membership.Completion).Unwrap();
+    public Task Completion => Task.WhenAny(authority.Completion, membership.Completion, hostReports.Completion).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
     internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
@@ -150,6 +153,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(telemetry);
         serviceTelemetry = telemetry;
         serviceInstrumentation.Telemetry = telemetry;
+        telemetry.ObserveHostReports(() => hostReports.Snapshot);
     }
 
     /// <summary>
@@ -285,6 +289,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         RegionalAuthorityCoordinator? authority = null;
         ControlPlane.Delivery.HostConvergenceRuntime? hostConvergenceRuntime = null;
         RegionalHostAdmissionGate? hostAdmissionRuntime = null;
+        HostObservationRelay? hostReportRelay = null;
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacementRuntime = null;
         Nodes.OciMemberHostFleet? memberHostFleet = null;
         WorkloadAutoscalerService? workloadAutoscalerRuntime = null;
@@ -645,7 +650,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                                 startedAt,
                                 cancellationToken,
                                 workloadAutoscalerRuntime?.Latest,
-                                workloadFleet?.Policies)
+                                workloadFleet?.Policies,
+                                hostReportRelay?.Snapshot)
                             .ConfigureAwait(false);
                         operatorStatus.Set(status);
                         await message.ReplyAsync(
@@ -667,6 +673,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken: cancellationToken);
 
             await VerifyServiceAsync(client, topology, cancellationToken);
+            hostReportRelay = await HostObservationRelay.StartAsync(
+                client.Connection, state.Runtime, options.Cell, cancellationToken);
 
             if (hostConvergence is not null && (state.Delivery is null || state.Artifacts is null))
                 throw new InvalidOperationException(
@@ -760,7 +768,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                         startedAt,
                         cancellationToken,
                         decisions,
-                        workloadFleet.Policies);
+                        workloadFleet.Policies,
+                        hostReportRelay.Snapshot);
             }
 
             // Seed the projection before returning the runtime so workload gauges are useful
@@ -774,7 +783,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                     startedAt,
                     cancellationToken,
                     workloadAutoscalerRuntime?.Latest,
-                    workloadFleet?.Policies)
+                    workloadFleet?.Policies,
+                    hostReportRelay?.Snapshot)
                 .ConfigureAwait(false));
 
             return new(
@@ -793,6 +803,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 endpointInstrumentation,
                 hostConvergenceRuntime,
                 hostAdmissionRuntime,
+                hostReportRelay!,
                 terrabasePlacementRuntime,
                 memberHostFleet,
                 workloadAutoscalerRuntime,
@@ -816,6 +827,7 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (hostConvergenceRuntime is not null)
                 await hostConvergenceRuntime.DisposeAsync();
             hostAdmissionRuntime?.Dispose();
+            if (hostReportRelay is not null) await hostReportRelay.DisposeAsync();
             await client.DisposeAsync();
             throw;
         }
@@ -830,7 +842,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         DateTimeOffset startedAt,
         CancellationToken cancellationToken,
         IReadOnlyList<WorkloadScaleDecision>? scalingDecisions = null,
-        IReadOnlyList<WorkloadScalePolicy>? scalingPolicies = null)
+        IReadOnlyList<WorkloadScalePolicy>? scalingPolicies = null,
+        HostReportRelaySnapshot? hostReportSnapshot = null)
     {
         const int maximumKeys = 512;
         var desired = new Dictionary<string, (int Replicas, long Generation, string? Digest)>(StringComparer.Ordinal);
@@ -1086,6 +1099,13 @@ public sealed class NatsRuntime : IAsyncDisposable
                 null));
         }
 
+        if (hostReportSnapshot is { } reportSnapshot)
+        {
+            actions.Add(new("host-report-relay", reportSnapshot.RetryPending ? "retrying" : "listening",
+                reportSnapshot.RetryPending ? 0 : 100, DateTimeOffset.UtcNow,
+                reportSnapshot.RetryPending ? "report-persistence-or-acknowledgement-failed" : null));
+            if (reportSnapshot.RetryPending) needs.Add("host-report-relay:retry-report");
+        }
         var healthy = workloadStatuses.All(static workload => workload.State == "ready") && needs.Count == 0;
         var status = new OperatorStatusDocument(
             1,
@@ -1110,7 +1130,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         DateTimeOffset startedAt,
         CancellationToken cancellationToken,
         IReadOnlyList<WorkloadScaleDecision> decisions,
-        IReadOnlyList<WorkloadScalePolicy> policies)
+        IReadOnlyList<WorkloadScalePolicy> policies,
+        HostReportRelaySnapshot hostReportSnapshot)
     {
         try
         {
@@ -1123,7 +1144,8 @@ public sealed class NatsRuntime : IAsyncDisposable
                     startedAt,
                     cancellationToken,
                     decisions,
-                    policies)
+                    policies,
+                    hostReportSnapshot)
                 .ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1346,6 +1368,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                             try
                             {
                                 hostAdmission?.Dispose();
+                                await hostReports.DisposeAsync();
                             }
                             finally
                             {

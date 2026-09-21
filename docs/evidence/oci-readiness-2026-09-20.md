@@ -66,6 +66,11 @@ the exact release revision before deployment.
 | OCI member fleet after readiness binding | **21 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-provider-tests.log`; stopped-instance and owner/member/bootstrap/image drift rejection; fake OCI transport |
 | Placement with missing drain evidence | **6 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-tests.log`; missing health holds the real-NATS placement ladder before detach/retire |
 | Broader placement regression after readiness binding | **16 passed**, 0 failed/skipped | `/tmp/ts-oci-member-admission-placement-regression.log`; final Release build and style verification also passed |
+| Restricted host report producer and relay | **26 passed**, 0 failed/skipped | `/tmp/ts-host-report-relay-tests.log`; real NATS, multiple manifest-pinned hosts/controllers, explicit denial, malformed/replayed reports, bounded retention, reserved-key collision rejection and persistence retry |
+| Report permission model | **165 passed**, 0 failed/skipped | `/tmp/ts-host-report-protocol-tests.log`; regional agent wildcard remains region/direction bounded, host scopes retain exact hashes, publisher kinds remain disjoint |
+| Status, telemetry, endpoint/security and R3 regressions | **29 passed**, 0 failed/skipped | `/tmp/ts-host-report-regression-tests.log`; authenticated three-server NATS plus bounded status/metrics assertions |
+| Report persistence with the controller's own R3 credentials | **1 passed**, 0 failed/skipped | `/tmp/ts-host-report-r3-relay-test.log`; real JWT/mTLS host, private store opened by restricted controller, withdrawal/order preserved across relay restart; not full `NatsRuntime.StartAsync` qualification |
+| Report relay Release build and style | Pass; **0 warnings/errors** | `/tmp/ts-host-report-relay-build.log`, `/tmp/ts-host-report-relay-style.log` |
 | OCI data-volume identity and attachment boundary | **33 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-provider-tests-final.log`; current attachment/ETag, boot/logical ID denial, access/identity drift, ambiguity, wrong host, repeated pagination, timeout/404 reobservation; fake OCI transport |
 | Placement with exact retained-volume evidence | **20 passed**, 0 failed/skipped | `/tmp/ts-oci-data-volume-placement-tests-final.log`; real NATS plus scripted fleet; missing/different disks hold serving and removal; Release build 0 warnings/errors |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
@@ -226,9 +231,12 @@ repository's main-only push rule being resolved.
 4. Prove fresh host enrollment and automatic admitted task pickup, then restart,
    credential renewal, node loss and replacement. Region support alone must
    never authorize work or confer membership. The host-agent manifest grants
-   hashed observation/ack/command subjects; host convergence instead directly
-   uses private KV. A controller relay and desired-state delivery must be
-   composed and qualified under the actual restricted host credentials.
+   hashed observation/ack/command subjects. Host reports now use an acknowledged
+   controller relay; the controller's agent grants cover all hosts only in its
+   fixed region. Desired state, artifact retrieval, backoff, replacement leases
+   and enrollment still need restricted-host protocols and dedicated host startup.
+   The report tests inject separate controller store handles and are not proof
+   of a complete host runtime under host credentials.
 5. Qualify generic auth scaling alongside stateful TerraBase placement. The
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop

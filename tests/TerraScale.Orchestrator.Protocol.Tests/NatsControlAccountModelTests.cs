@@ -113,8 +113,8 @@ public sealed class NatsControlAccountModelTests
     [Test]
     public async Task Regional_scopes_are_pinned_to_exactly_one_region()
     {
-        var gru = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "gru", "host/gru/agent-07");
-        var sfo = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "sfo", "host/sfo/agent-07");
+        var gru = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "gru");
+        var sfo = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "sfo");
 
         foreach (var pattern in gru.Publish.Concat(gru.Subscribe))
         {
@@ -162,11 +162,17 @@ public sealed class NatsControlAccountModelTests
 
         // The regional controller commands the agent; the agent answers on its own hashed branch.
         var controller = NatsControlAccountScope.Create(
-            NatsControlAccountKind.RegionalController, "gru", GruAgent);
-        await Assert.That(controller.Publish).Contains(
-            "ts.orch.v2.gru.agent." + token + ".command.>");
-        await Assert.That(controller.Subscribe).Contains(
-            "ts.orch.v2.gru.agent." + token + ".observation.>");
+            NatsControlAccountKind.RegionalController, "gru");
+        await Assert.That(controller.AgentHash).IsNull();
+        await Assert.That(controller.Publish).Contains("ts.orch.v2.gru.agent.*.command.>");
+        await Assert.That(controller.Subscribe).Contains("ts.orch.v2.gru.agent.*.observation.>");
+        foreach (var identity in new[] { GruAgent, "newly-admitted-host" })
+        {
+            var report = NatsSubjectTaxonomy.HostAgentObservationSubject("gru", identity, "report");
+            await Assert.That(controller.Subscribe.Any(pattern => Matches(pattern, report))).IsTrue();
+            await Assert.That(controller.Publish.Any(pattern => Matches(pattern, report))).IsFalse();
+            await Assert.That(agent.Publish.Any(pattern => Matches(pattern, report))).IsEqualTo(identity == GruAgent);
+        }
     }
 
     [Test]
@@ -177,6 +183,8 @@ public sealed class NatsControlAccountModelTests
         await Assert.That(() => NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "GRU"))
             .Throws<ArgumentException>();
         await Assert.That(() => NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "global"))
+            .Throws<ArgumentException>();
+        await Assert.That(() => NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "gru", GruAgent))
             .Throws<ArgumentException>();
         await Assert.That(() => NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, "gru"))
             .Throws<ArgumentException>();
@@ -200,7 +208,7 @@ public sealed class NatsControlAccountModelTests
         foreach (var region in Regions)
         {
             yield return NatsControlAccountScope.Create(
-                NatsControlAccountKind.RegionalController, region, "host/" + region + "/agent-07");
+                NatsControlAccountKind.RegionalController, region);
             yield return NatsControlAccountScope.Create(NatsControlAccountKind.OperatorQuery, region);
             yield return NatsControlAccountScope.Create(
                 NatsControlAccountKind.HostAgent, region, "host/" + region + "/agent-07");

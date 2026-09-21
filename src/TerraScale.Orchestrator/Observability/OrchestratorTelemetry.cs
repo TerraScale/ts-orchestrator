@@ -10,6 +10,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Runtime;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 
 namespace TerraScale.Orchestrator.Observability;
 
@@ -113,11 +114,13 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private readonly ObservableGauge<long> operatorMaxReplicas;
     private readonly ObservableGauge<long> operatorNeeds;
     private readonly ObservableGauge<long> operatorHealthy;
+    private readonly ObservableCounter<long> hostReports;
     private readonly OpenTelemetrySdk sdk;
     private readonly ILogger logger;
     private readonly string cell;
     private readonly string instance;
     private Func<RegionalRuntimeMembershipHealth>? membershipHealth;
+    private Func<HostReportRelaySnapshot>? hostReportObserver;
     private Func<GlobalCellDirectorySnapshot>? globalCellDirectory;
     private Func<NatsMonitoringAggregate>? natsMonitoring;
     private Func<Operations.OperatorStatusDocument?>? operatorStatusObserver;
@@ -336,6 +339,8 @@ internal sealed class OrchestratorTelemetry : IDisposable
             "terrascale.orchestrator.workload.healthy",
             () => ObserveOperatorWorkloads(static workload => workload.State == "ready" ? 1 : 0),
             unit: "{boolean}");
+        hostReports = meter.CreateObservableCounter("terrascale.orchestrator.host.reports",
+            ObserveHostReports, unit: "{report}");
         logger = sdk.GetLoggerFactory().CreateLogger(InstrumentationName);
     }
 
@@ -386,6 +391,21 @@ internal sealed class OrchestratorTelemetry : IDisposable
         ArgumentNullException.ThrowIfNull(observe);
         if (Interlocked.CompareExchange(ref operatorStatusObserver, observe, null) is not null)
             throw new InvalidOperationException("Operator status telemetry is already attached.");
+    }
+
+    internal void ObserveHostReports(Func<HostReportRelaySnapshot> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref hostReportObserver, observe, null) is not null)
+            throw new InvalidOperationException("Host report telemetry is already attached.");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostReports()
+    {
+        var report = Volatile.Read(ref hostReportObserver)?.Invoke();
+        if (report is null) yield break;
+        foreach (var (result, count) in new[] { ("accepted", report.Accepted), ("rejected", report.Rejected), ("failed", report.Failed) })
+            yield return new(count, new TagList { { "cell", cell }, { "result", result } });
     }
 
     /// <summary>

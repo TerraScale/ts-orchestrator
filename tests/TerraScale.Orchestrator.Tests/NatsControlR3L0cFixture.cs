@@ -12,6 +12,7 @@ using NATS.Client.KeyValueStore;
 using NATS.Net;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol.Messaging;
+using TerraScale.Orchestrator.Protocol.Subjects;
 
 namespace TerraScale.Orchestrator.Tests;
 
@@ -53,6 +54,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         string regionalControlSfoAccountJwt,
         NatsControlR3L0cIdentity controller,
         NatsControlR3L0cIdentity controllerTwo,
+        NatsControlR3L0cIdentity hostAgent,
         NatsControlR3L0cIdentity infrastructure,
         NatsControlR3L0cIdentity globalDirectoryInfrastructure,
         NatsControlR3L0cIdentity journalWriter,
@@ -79,6 +81,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         RegionalControlSfoAccountJwt = regionalControlSfoAccountJwt;
         Controller = controller;
         ControllerTwo = controllerTwo;
+        HostAgent = hostAgent;
         Infrastructure = infrastructure;
         GlobalDirectoryInfrastructure = globalDirectoryInfrastructure;
         JournalWriter = journalWriter;
@@ -114,6 +117,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     public NatsControlR3L0cIdentity Controller { get; }
 
     public NatsControlR3L0cIdentity ControllerTwo { get; }
+
+    public NatsControlR3L0cIdentity HostAgent { get; }
 
     public NatsControlR3L0cIdentity Infrastructure { get; }
 
@@ -232,6 +237,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.RegionalControlSfoAccountJwt,
                 identities.Controller,
                 identities.ControllerTwo,
+                identities.HostAgent,
                 identities.Infrastructure,
                 identities.GlobalDirectoryInfrastructure,
                 identities.JournalWriter,
@@ -834,6 +840,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             Role.Controller,
             2,
             now);
+        var hostAgent = CreateUser(
+            credentials, pki, regionalControlGruAccountSeed, regionalControlGruAccountPublicKey,
+            "host-1", Role.HostAgent, 0, now);
         var infrastructure = CreateUser(
             credentials,
             pki,
@@ -931,6 +940,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             wrongAccountJwt,
             controller,
             controllerTwo,
+            hostAgent,
             infrastructure,
             globalDirectoryInfrastructure,
             journalWriter,
@@ -1079,10 +1089,14 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var journalUpdate = NatsSubjectTaxonomy.OperationJournalUpdateSubject(Cell);
         var runtimeLifecycleRead = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "read");
         var runtimeLifecycleWrite = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "write");
+        var controllerAgents = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, Cell);
+        var hostAgent = NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, Cell, "host-1");
         return role switch
         {
+            Role.HostAgent => new(hostAgent.Publish, hostAgent.Subscribe),
             Role.Controller => new(
                 [
+                    .. controllerAgents.Publish.Where(pattern => pattern.StartsWith(root + ".agent.", StringComparison.Ordinal)),
                     desired,
                     observation,
                     operation,
@@ -1131,6 +1145,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                     "$O.ORCH_ARTIFACTS.M.>",
                 ],
                 [
+                    .. controllerAgents.Subscribe.Where(pattern => pattern.StartsWith(root + ".agent.", StringComparison.Ordinal)),
                     "_INBOX.>",
                     desired,
                     observation,
@@ -1354,7 +1369,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var clients = new Dictionary<string, NatsControlR3L0cCertificate>(StringComparer.Ordinal);
         foreach (var name in new[]
                  {
-                     "controller-1", "controller-2", "infrastructure", "journal-writer",
+                     "controller-1", "controller-2", "host-1", "infrastructure", "journal-writer",
                      "global-directory-infrastructure",
                      "cell-directory-publisher-sfo", "cell-directory-reader-sfo",
                      "cell-directory-service-gru", "global-authority", "operator-read", "wrong-account"
@@ -1582,6 +1597,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         string WrongAccountJwt,
         NatsControlR3L0cIdentity Controller,
         NatsControlR3L0cIdentity ControllerTwo,
+        NatsControlR3L0cIdentity HostAgent,
         NatsControlR3L0cIdentity Infrastructure,
         NatsControlR3L0cIdentity GlobalDirectoryInfrastructure,
         NatsControlR3L0cIdentity JournalWriter,
@@ -1599,6 +1615,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     private enum Role
     {
         Controller,
+        HostAgent,
         Infrastructure,
         GlobalDirectoryInfrastructure,
         JournalWriter,

@@ -4,19 +4,24 @@ An enrolled host and a healthy database are different stages. A replacement
 host must be able to receive its retained volume before the database starts.
 The controller now reads separate evidence for those stages.
 
-After verifying its enrollment and credential gate, host convergence writes
-`host.admission.<instance>.terrabase-server` to the private `ORCH_RUNTIME`
-store, before installation or service convergence. Schema 1 records the exact
-cell, instance, environment, artifact key, admitted digest, readiness flag and
-observation time. A denied gate writes `ready: false`, replacing prior ready
-evidence. This report is not itself a signed envelope; its producer checks the
-enrollment gate. Production startup still requires signed enrollment configuration.
-The actual host credential boundary is not qualified: the manifest's
-`host-agent` role grants only hashed agent observation/ack/command subjects,
-while host convergence directly reads/writes private KV stores. Compose and
-test the controller relay and desired-state delivery under that role before
-claiming fresh-node readiness. Giving hosts broad controller credentials would
-not satisfy host identity isolation.
+After verifying its enrollment and credential gate, host convergence publishes
+an admission observation on its own hashed NATS agent subject before installation
+or service convergence. The controller report relay derives
+`host.admission.<instance>.terrabase-server` and persists it to private
+`ORCH_RUNTIME`. Schema 1 records the exact cell, instance, environment,
+artifact key, admitted digest, readiness flag and observation time. A denied
+gate reports `ready: false`, replacing prior ready evidence through a timestamp
+CAS fence. Hosts require an acknowledgement of the exact request and stored
+revision before proceeding. See [host-report-relay.md](host-report-relay.md).
+
+Reports are observations, not signed enrollment authorization. Production
+startup still requires signed enrollment configuration. Real NATS tests now
+qualify the report transport with the manifest's exact host credentials and
+regional controller agent grants. Remaining private KV dependencies include
+desired state, retry backoff, replacement leases and enrollment fencing. The
+host process also still enters controller startup. A dedicated host runtime
+and authenticated desired/artifact/enrollment/lease protocols remain required;
+report qualification does not establish fresh-node readiness.
 
 The member fleet's readiness reader checks that report against the exact
 `ORCH_DELIVERY` target used by host convergence. Both paths use

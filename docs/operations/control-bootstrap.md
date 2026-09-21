@@ -110,6 +110,11 @@ Conflicting artifacts for one regional workload fleet fail closed.
 Stateful member readiness now reads a separate enrollment report, bound to the
 same admitted delivery target as host convergence, before storage recovery.
 Service health requires exact, fresh convergence and complete health gauges.
+Host reports now cross a controller-owned relay using only hashed host subjects,
+with exact acknowledgements, timestamp ordering and bounded freshness. Regional
+controllers receive all host reports within their fixed region; host grants
+remain pinned to one identity. Dedicated host startup and the remaining
+private-store protocols are still required; see [host-report-relay.md](host-report-relay.md).
 The member fleet file is schema 2 with an explicit environment. Missing
 evidence during drain holds the placement state. Actual OCI volume lifecycle
 and a durable host drain consumer remain blockers; see
@@ -117,7 +122,10 @@ and a durable host drain consumer remain blockers; see
 
 The authenticated NATS endpoint `ts.orch.v2.<cell>.query.operator-status`
 reports workload needs, actions, progress, and configured policy limits.
-Orchestrator telemetry exports the same workload aggregates. Full regional
+Orchestrator telemetry exports the same workload aggregates. The report relay
+adds a listening/retrying action, a retry need on persistence/acknowledgement
+failure, and accepted/rejected/failed report counters without per-host labels.
+Full regional
 foundation, handoff, Vault, and resource-operation status must be added with
 those lifecycle implementations; the current endpoint is not evidence of
 complete OCI coverage. See the [readiness record](../evidence/oci-readiness-2026-09-20.md)

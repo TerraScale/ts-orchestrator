@@ -38,7 +38,8 @@ public enum NatsControlAccountKind
 /// One instantiated account scope. Grant patterns are generated from the checked-in protocol
 /// manifest: the <c>&lt;region&gt;</c> placeholder is replaced with one strict lowercase Region
 /// token and the <c>&lt;agent-hash&gt;</c> placeholder with the fixed hash of the admitted
-/// agent identity, so no scope can ever widen past its Region or its agent.
+/// agent identity. Regional controllers address all agents in their fixed Region; host
+/// agents remain pinned to exactly one identity.
 /// </summary>
 public sealed class NatsControlAccountScope
 {

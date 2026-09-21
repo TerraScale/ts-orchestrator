@@ -461,7 +461,11 @@ public static class NatsSubjectTaxonomy
         if (!isGlobal && string.Equals(family, RegionalAgentPrefixSegment, StringComparison.Ordinal) &&
             tokens.Length > 5)
         {
-            if (tokens[5] is "*" or ">" || !IsAgentHashToken(tokens[5]))
+            // Regional controllers may address every agent in their fixed region, but
+            // only within an explicit direction. Host credentials still pin one hash.
+            var regionalAgentFamily = tokens[5] == "*" && tokens.Length >= 8 &&
+                tokens[6] is "command" or "observation" or "ack";
+            if (!regionalAgentFamily && !IsAgentHashToken(tokens[5]))
             {
                 error = NatsSubjectPermissionError.InvalidAgentHashToken;
                 return false;

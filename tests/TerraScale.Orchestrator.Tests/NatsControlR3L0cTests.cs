@@ -10,6 +10,7 @@ using NATS.Client.KeyValueStore;
 using NATS.Client.Services;
 using NATS.Net;
 using TerraScale.Orchestrator.Delivery;
+using TerraScale.Orchestrator.ControlPlane.Delivery;
 using TerraScale.Orchestrator.Messaging;
 using TerraScale.Orchestrator.Protocol;
 using TerraScale.Orchestrator.Protocol.Messaging;
@@ -21,6 +22,34 @@ namespace TerraScale.Orchestrator.Tests;
 [NotInParallel("NatsR3")]
 public sealed class NatsControlR3L0cTests
 {
+    [Test]
+    public async Task Host_report_relay_persists_under_controller_credentials_across_relay_restart()
+    {
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        await using var first = await fixture.ConnectAsync(fixture.Controller, cancellationToken: deadline.Token);
+        await using var second = await fixture.ConnectAsync(fixture.ControllerTwo, cancellationToken: deadline.Token);
+        await using var host = await fixture.ConnectAsync(fixture.HostAgent, cancellationToken: deadline.Token);
+        var firstStore = await first.CreateJetStreamContext().CreateKeyValueStoreContext().GetStoreAsync("ORCH_RUNTIME", deadline.Token);
+        var secondStore = await second.CreateJetStreamContext().CreateKeyValueStoreContext().GetStoreAsync("ORCH_RUNTIME", deadline.Token);
+        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1");
+        var ready = new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server",
+            "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow.AddSeconds(-1));
+        await using (var relay = await HostObservationRelay.StartAsync(first.Connection, firstStore, "gru", deadline.Token))
+        {
+            await publisher.PublishAsync(ready, deadline.Token);
+        }
+        // No privileged storage handle is injected. A new controller reads the R3
+        // ordering record and continues this host's report protocol after restart.
+        await using var replacement = await HostObservationRelay.StartAsync(second.Connection, secondStore, "gru", deadline.Token);
+        var withdrawn = ready with { Ready = false, ObservedAt = DateTimeOffset.UtcNow };
+        await publisher.PublishAsync(withdrawn, deadline.Token);
+        await Assert.That(() => publisher.PublishAsync(ready, deadline.Token)).Throws<InvalidOperationException>();
+        var current = await GetWithQuorumRetryAsync(secondStore, HostAdmissionObservation.Key("host-1", "terrabase-server"));
+        await Assert.That(JsonSerializer.Deserialize<HostAdmissionObservation>(current.Value!)!.Ready).IsFalse();
+    }
+
     [Test]
     public async Task FixtureAccountJwtClaimsAreExactAndCrossAccountServiceSurvivesReconnect()
     {
