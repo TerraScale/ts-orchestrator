@@ -1,3 +1,4 @@
+using TerraScale.Orchestrator.Runtime;
 using HostArchitecture = TerraScale.Orchestrator.Runtime.HostArchitecture;
 using HostRuntimeDriver = TerraScale.Orchestrator.Runtime.RuntimeDriver;
 using HostRuntimePlan = TerraScale.Orchestrator.Runtime.HostRuntimePlan;
@@ -58,6 +59,33 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
             await Assert.That(observed.Fingerprint.Value).Length().IsEqualTo(64);
             await Assert.That(admission.ObserveCalls).IsEqualTo(1);
         }
+    }
+
+    [Test]
+    public async Task Contradictory_process_evidence_never_completes_the_durable_lifecycle()
+    {
+        var cases = new[]
+        {
+            (LifecycleAction.Stop, new SystemdAllocationObservation("unit", SystemdAllocationState.Stopped, 9123, "success")),
+            (LifecycleAction.Drain, new SystemdAllocationObservation("unit", SystemdAllocationState.Absent, 9123, "not-found")),
+            (LifecycleAction.Converge, new SystemdAllocationObservation("unit", SystemdAllocationState.Running, null, "success")),
+        };
+        foreach (var (action, observation) in cases)
+        {
+            var executor = new NativeSystemdRuntimeLifecycleExecutor(new Factory(new Admission { Observation = observation }));
+            var result = RequireObservation(await executor.ObserveAsync(ObservationRequest(action), CancellationToken.None));
+            await Assert.That(result.Status).IsEqualTo(RuntimeLifecycleObservationStatus.Unknown);
+        }
+    }
+
+    [Test]
+    [Arguments("Job=41\nControlPID=0\n")]
+    [Arguments("Job=\nControlPID=72\n")]
+    public async Task Real_adapter_observation_keeps_durable_stop_pending_while_manager_work_remains(string activity)
+    {
+        var executor = new NativeSystemdRuntimeLifecycleExecutor(new AdapterFactory(activity));
+        var result = RequireObservation(await executor.ObserveAsync(ObservationRequest(LifecycleAction.Stop), CancellationToken.None));
+        await Assert.That(result.Status).IsEqualTo(RuntimeLifecycleObservationStatus.NotObserved);
     }
 
     [Test]
@@ -193,7 +221,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
         HostRuntimeDriver.NativeSystemd, new("terrabase-a"), new(Digest("artifact")), HostArchitecture.Arm64);
 
     private static SystemdAllocationObservation Observation(SystemdAllocationState state) =>
-        new("terrascale-terrabase-a.service", state, 9123, "private-result");
+        new("terrascale-terrabase-a.service", state, state == SystemdAllocationState.Running ? 9123 : null, "private-result");
 
     private static string Digest(string input) => RuntimeLifecycleFingerprint.Hash(input);
 
@@ -202,6 +230,29 @@ public sealed class NativeSystemdRuntimeLifecycleExecutorTests
 
     private static RuntimeLifecycleObservation RequireObservation(RuntimeLifecycleObservation? observation) =>
         observation ?? throw new InvalidOperationException("The executor must return an observation for this test.");
+
+    private sealed class AdapterFactory(string activity) : INativeSystemdRuntimeLifecycleAdmissionFactory
+    {
+        public INativeSystemdRuntimeLifecycleAdmission Admit(HostRuntimePlan plan) =>
+            new NativeSystemdRuntimeLifecycleAdmissionAdapter(NativeSystemdRuntimeAdmission.Create(plan, new HostProbe(), new UnitCommands(plan, activity)));
+    }
+
+    private sealed class HostProbe : ISystemdHostProbe
+    {
+        public SystemdHostProbeResult Probe() => new(true, true, true, true, true);
+    }
+
+    private sealed class UnitCommands(HostRuntimePlan plan, string activity) : IHostCommandRunner
+    {
+        public Task<HostCommandResult> RunAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+        {
+            if (executable != "/usr/bin/systemctl" || arguments[0] != "show" || arguments[1] != plan.Systemd!.UnitName)
+                throw new InvalidOperationException("Only the exact read-only unit observation is admitted in this test.");
+            return Task.FromResult(new HostCommandResult(0,
+                "LoadState=loaded\nActiveState=inactive\nMainPID=0\nResult=success\n" + activity +
+                $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}\n", ""));
+        }
+    }
 
     private sealed class Factory(Admission admission) : INativeSystemdRuntimeLifecycleAdmissionFactory
     {

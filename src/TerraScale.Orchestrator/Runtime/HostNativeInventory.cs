@@ -37,15 +37,24 @@ internal sealed class HostNativeInventoryProbe(IContainerdClient containerd, IHo
             if (driver == RuntimeDriver.NativeSystemd)
             {
                 var result = await commands.RunAsync(LinuxSystemdHostProbe.SystemctlPath,
-                    ["show", $"terrascale-{id}.service", "--property=LoadState", "--property=ActiveState", "--property=MainPID", "--property=Description"],
+                    ["show", $"terrascale-{id}.service", "--property=LoadState", "--property=ActiveState", "--property=MainPID", "--property=ControlPID", "--property=Job", "--property=Description"],
                     cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
-                if (result.StandardOutput.Length > 16_384) throw new InvalidDataException("The native inventory response exceeds its bounds.");
-                var values = result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => line.Split('=', 2))
-                    .ToDictionary(parts => parts[0], parts => parts.Length == 2 ? parts[1] : throw new InvalidDataException("Invalid systemd inventory."), StringComparer.Ordinal);
+                Dictionary<string, string> values;
+                SystemdUnitActivity activity;
+                try
+                {
+                    values = SystemdUnitActivity.Properties(result.StandardOutput);
+                    activity = SystemdUnitActivity.Read(values);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    throw new InvalidDataException("The native inventory has invalid manager activity evidence.", exception);
+                }
                 if (values.GetValueOrDefault("LoadState") == "not-found")
                 {
-                    SystemdHostRuntimeAdapter.RequireAbsentObservation(values);
+                    if (!activity.HasNoManagerWork)
+                        throw new InvalidDataException("An absent native allocation still reports manager work.");
                     continue;
                 }
                 var prefix = $"TerraScale allocation {id} plan ";
@@ -53,19 +62,7 @@ internal sealed class HostNativeInventoryProbe(IContainerdClient containerd, IHo
                 if (result.ExitCode != 0 || values.GetValueOrDefault("LoadState") != "loaded" ||
                     description?.StartsWith(prefix, StringComparison.Ordinal) != true || !Fingerprint(description[prefix.Length..]))
                     throw new InvalidDataException("A native allocation cannot be attributed to a canonical host plan.");
-                var state = values.GetValueOrDefault("ActiveState") switch
-                {
-                    "active" => SystemdAllocationState.Running,
-                    "activating" or "reloading" => SystemdAllocationState.Starting,
-                    "deactivating" => SystemdAllocationState.Stopping,
-                    "inactive" => SystemdAllocationState.Stopped,
-                    "failed" => SystemdAllocationState.Failed,
-                    _ => throw new InvalidDataException("A native allocation has an unknown state.")
-                };
-                if (!int.TryParse(values.GetValueOrDefault("MainPID"), System.Globalization.NumberStyles.None,
-                        System.Globalization.CultureInfo.InvariantCulture, out var pid) || pid < 0)
-                    throw new InvalidDataException("A native allocation has an invalid process observation.");
-                observed.Add(new(driver, id, description[prefix.Length..], state, pid == 0 ? null : pid));
+                observed.Add(new(driver, id, description[prefix.Length..], activity.State, activity.MainProcessId));
             }
             else
             {

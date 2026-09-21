@@ -18,7 +18,7 @@ public sealed class NativeSystemdRuntimeAdmissionTests
         })
         {
             var runner = new RecordingRunner(
-                new HostCommandResult(1, "LoadState=not-found\n", "Unit not found"),
+                new HostCommandResult(1, "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlPID=0\nJob=\n", "Unit not found"),
                 new HostCommandResult(0, string.Empty, string.Empty));
             var admission = NativeSystemdRuntimeAdmission.Create(
                 NativePlan(role, allocation),
@@ -155,7 +155,7 @@ public sealed class NativeSystemdRuntimeAdmissionTests
     {
         var plan = NativePlan(AdmittedRole.ControlNatsServer, "gru-control-nats-1");
         var runner = new RecordingRunner(
-            new HostCommandResult(1, "LoadState=not-found\n", "Unit not found"),
+            new HostCommandResult(1, "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlPID=0\nJob=\n", "Unit not found"),
             new HostCommandResult(0, string.Empty, string.Empty));
         var admission = NativeSystemdRuntimeAdmission.Create(
             plan,
@@ -202,7 +202,7 @@ public sealed class NativeSystemdRuntimeAdmissionTests
     {
         var plan = NativePlan(AdmittedRole.Orchestrator, "gru-orchestrator-1");
         var runner = new RecordingRunner(
-            new HostCommandResult(1, "LoadState=not-found\n", string.Empty),
+            new HostCommandResult(1, "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlPID=0\nJob=\n", string.Empty),
             new HostCommandResult(0, string.Empty, string.Empty));
         var admission = NativeSystemdRuntimeAdmission.Create(
             plan,

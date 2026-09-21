@@ -11,7 +11,8 @@ public sealed class SystemdHostRuntimeAdapterTests
     [Arguments("ActiveState=active")]
     public async Task AbsentUnitWithConflictingEvidenceCannotBeAdoptedOrStopped(string evidence)
     {
-        var observation = new HostCommandResult(1, "LoadState=not-found\n" + evidence + "\n", "");
+        var observation = new HostCommandResult(1, "LoadState=not-found\nControlPID=0\nJob=\n" +
+            (evidence.StartsWith("MainPID", StringComparison.Ordinal) ? "ActiveState=inactive\n" : "MainPID=0\n") + evidence + "\n", "");
         var runner = new RecordingRunner(observation, observation);
         var adapter = new SystemdHostRuntimeAdapter(runner);
         await Assert.That(async () => { await adapter.ObserveAsync(NativePlan(), CancellationToken.None); }).Throws<InvalidOperationException>();
@@ -30,7 +31,7 @@ public sealed class SystemdHostRuntimeAdapterTests
     public async Task ConvergeUsesArgumentListsAndEveryCatalogSecurityProperty()
     {
         var runner = new RecordingRunner(
-            new HostCommandResult(1, "LoadState=not-found\n", "Unit not found"),
+            new HostCommandResult(1, "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlPID=0\nJob=\n", "Unit not found"),
             new HostCommandResult(0, string.Empty, string.Empty));
         var adapter = new SystemdHostRuntimeAdapter(runner, userManager: false);
         var plan = NativePlan();
@@ -58,7 +59,7 @@ public sealed class SystemdHostRuntimeAdapterTests
     {
         var plan = NativePlan();
         var runner = new RecordingRunner(new HostCommandResult(0,
-            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nResult=success\n" +
+            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nControlPID=0\nJob=\nResult=success\n" +
             $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}\n",
             string.Empty));
         var adapter = new SystemdHostRuntimeAdapter(runner, userManager: true);
@@ -76,7 +77,7 @@ public sealed class SystemdHostRuntimeAdapterTests
         var plan = NativePlan();
         var description = $"Description=TerraScale allocation {plan.AllocationId} plan {CanonicalPlanFingerprint.Compute(plan)}";
         var running = new RecordingRunner(new HostCommandResult(0,
-            $"LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\n{description}\n",
+            $"LoadState=loaded\nActiveState=active\nMainPID=481\nControlPID=0\nJob=\nResult=success\n{description}\n",
             string.Empty));
 
         await new SystemdHostRuntimeAdapter(running).ConvergeAsync(plan, CancellationToken.None);
@@ -92,7 +93,7 @@ public sealed class SystemdHostRuntimeAdapterTests
         await Assert.That(unavailable.Commands).Count().IsEqualTo(1);
 
         var foreign = new RecordingRunner(new HostCommandResult(0,
-            "LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\nDescription=foreign\n",
+            "LoadState=loaded\nActiveState=active\nMainPID=481\nControlPID=0\nJob=\nResult=success\nDescription=foreign\n",
             string.Empty));
         await Assert.That(() => new SystemdHostRuntimeAdapter(foreign)
                 .ConvergeAsync(plan, CancellationToken.None))
@@ -125,7 +126,7 @@ public sealed class SystemdHostRuntimeAdapterTests
         var oldPlan = NativePlan();
         var newPlan = NativePlan("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210");
         var runningUnderOldPlan = new HostCommandResult(0,
-            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nResult=success\n" +
+            $"LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=481\nControlPID=0\nJob=\nResult=success\n" +
             $"Description=TerraScale allocation {oldPlan.AllocationId} plan {CanonicalPlanFingerprint.Compute(oldPlan)}\n",
             string.Empty);
         var stopping = new RecordingRunner(
@@ -152,7 +153,7 @@ public sealed class SystemdHostRuntimeAdapterTests
 
         // A foreign unit squatting on the name is never stopped, let alone adopted.
         var foreign = new RecordingRunner(new HostCommandResult(0,
-            "LoadState=loaded\nActiveState=active\nMainPID=481\nResult=success\nDescription=foreign\n",
+            "LoadState=loaded\nActiveState=active\nMainPID=481\nControlPID=0\nJob=\nResult=success\nDescription=foreign\n",
             string.Empty));
         await Assert.That(() => new SystemdHostRuntimeAdapter(foreign)
                 .StopAsync(newPlan, CancellationToken.None))

@@ -105,7 +105,7 @@ public sealed class NativeSystemdRuntimeLifecycleExecutor : IRuntimeLifecycleHos
             state = observation?.State;
             status = observation is null
                 ? RuntimeLifecycleObservationStatus.Unknown
-                : MapObservation(request.Action, observation.State);
+                : MapObservation(request.Action, observation);
         }
         catch (OperationCanceledException)
         {
@@ -153,12 +153,14 @@ public sealed class NativeSystemdRuntimeLifecycleExecutor : IRuntimeLifecycleHos
 
     private static RuntimeLifecycleObservationStatus MapObservation(
         LifecycleAction action,
-        SystemdAllocationState state) => action switch
+        SystemdAllocationObservation observation) => action switch
         {
-            LifecycleAction.Converge when state == SystemdAllocationState.Running => RuntimeLifecycleObservationStatus.Converged,
-            LifecycleAction.Drain or LifecycleAction.Stop when state is SystemdAllocationState.Absent or SystemdAllocationState.Stopped => RuntimeLifecycleObservationStatus.Stopped,
+            LifecycleAction.Converge when observation.State == SystemdAllocationState.Running && observation.MainProcessId > 0 => RuntimeLifecycleObservationStatus.Converged,
+            LifecycleAction.Drain or LifecycleAction.Stop when
+                observation.State is SystemdAllocationState.Absent or SystemdAllocationState.Stopped &&
+                observation.MainProcessId is null => RuntimeLifecycleObservationStatus.Stopped,
             LifecycleAction.Converge or LifecycleAction.Drain or LifecycleAction.Stop
-                when state is SystemdAllocationState.Starting or SystemdAllocationState.Stopping => RuntimeLifecycleObservationStatus.NotObserved,
+                when observation.State is SystemdAllocationState.Starting or SystemdAllocationState.Stopping => RuntimeLifecycleObservationStatus.NotObserved,
             _ => RuntimeLifecycleObservationStatus.Unknown
         };
 

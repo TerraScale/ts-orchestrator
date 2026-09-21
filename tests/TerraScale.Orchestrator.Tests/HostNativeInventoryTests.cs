@@ -28,6 +28,8 @@ public sealed class HostNativeInventoryTests
     [Test]
     [Arguments("foreign-description")]
     [Arguments("invalid-pid")]
+    [Arguments("invalid-control")]
+    [Arguments("missing-job")]
     [Arguments("unknown-state")]
     [Arguments("wrong-container")]
     [Arguments("missing-fingerprint")]
@@ -37,6 +39,20 @@ public sealed class HostNativeInventoryTests
         var probe = new HostNativeInventoryProbe(new Containers(files.Plan(AdmittedRole.Authentication), fault),
             new Commands(files.Plan(), fault), new HostProbe());
         await Assert.That(async () => { await probe.ReadAsync(files.Identity, CancellationToken.None); }).Throws<InvalidDataException>();
+    }
+
+    [Test]
+    [Arguments("queued-start")]
+    [Arguments("control-process")]
+    public async Task Recovery_inventory_does_not_report_queued_or_control_work_as_stopped(string fault)
+    {
+        await using var files = new HostInventoryFixture();
+        var probe = new HostNativeInventoryProbe(new Containers(files.Plan(AdmittedRole.Authentication)),
+            new Commands(files.Plan(), fault), new HostProbe());
+        var found = await probe.ReadAsync(files.Identity, CancellationToken.None);
+        var allocation = found.Allocations.Single(value => value.Driver == RuntimeDriver.NativeSystemd);
+        await Assert.That(allocation.MainProcessId).IsNull();
+        await Assert.That(allocation.State).IsEqualTo(fault == "queued-start" ? SystemdAllocationState.Starting : SystemdAllocationState.Stopping);
     }
 
     private sealed class HostProbe : ISystemdHostProbe
@@ -50,11 +66,13 @@ public sealed class HostNativeInventoryTests
         {
             if (executable != "/usr/bin/systemctl" || arguments[0] != "show") throw new InvalidOperationException("Unexpected discovery command.");
             Ids.Add(arguments[1]);
-            if (arguments[1] != member.Systemd!.UnitName) return Task.FromResult(new HostCommandResult(1, "LoadState=not-found\n", ""));
+            if (arguments[1] != member.Systemd!.UnitName) return Task.FromResult(new HostCommandResult(1, "LoadState=not-found\nActiveState=inactive\nMainPID=0\nControlPID=0\nJob=\n", ""));
             var description = fault == "foreign-description" ? "unowned" : $"TerraScale allocation {member.AllocationId} plan {CanonicalPlanFingerprint.Compute(member)}";
-            var pid = fault == "invalid-pid" ? "invalid" : "123";
-            var state = fault == "unknown-state" ? "unknown" : "active";
-            return Task.FromResult(new HostCommandResult(0, $"LoadState=loaded\nActiveState={state}\nMainPID={pid}\nDescription={description}\n", ""));
+            var pid = fault == "invalid-pid" ? "invalid" : fault is "queued-start" or "control-process" ? "0" : "123";
+            var state = fault == "unknown-state" ? "unknown" : fault is "queued-start" or "control-process" ? "inactive" : "active";
+            var job = fault == "missing-job" ? "" : fault == "queued-start" ? "Job=41\n" : "Job=\n";
+            var control = fault == "invalid-control" ? "invalid" : fault == "control-process" ? "72" : "0";
+            return Task.FromResult(new HostCommandResult(0, $"LoadState=loaded\nActiveState={state}\nMainPID={pid}\nControlPID={control}\n{job}Description={description}\n", ""));
         }
     }
     private sealed class Containers(HostRuntimePlan auth, string? fault = null) : IContainerdClient

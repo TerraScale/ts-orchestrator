@@ -165,7 +165,7 @@ internal sealed class SystemdHostRuntimeAdapter(
             throw new InvalidOperationException(
                 $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
         }
-        return MapObservation(systemd, plan, values);
+        return MapObservation(systemd, values);
     }
 
     public async Task StopAsync(HostRuntimePlan plan, CancellationToken cancellationToken)
@@ -190,12 +190,9 @@ internal sealed class SystemdHostRuntimeAdapter(
             throw new InvalidOperationException(
                 $"Existing systemd allocation '{systemd.UnitName}' is not owned by the canonical plan.");
         }
-        if (MapObservation(systemd, plan, values).State is SystemdAllocationState.Absent or
-            SystemdAllocationState.Stopped or SystemdAllocationState.Failed or
-            SystemdAllocationState.Stopping)
-        {
-            return;
-        }
+        _ = MapObservation(systemd, values);
+        // Stop is idempotent for an inactive unit and cancels any queued start.
+        // A zero MainPID alone cannot authorize skipping the manager operation.
         var stop = await commandRunner.RunAsync(
             "/usr/bin/systemctl",
             ManagerArguments("stop", systemd.UnitName),
@@ -218,46 +215,29 @@ internal sealed class SystemdHostRuntimeAdapter(
             "--property=ActiveState",
             "--property=SubState",
             "--property=MainPID",
+            "--property=ControlPID",
+            "--property=Job",
             "--property=Result",
             "--property=Description");
         var result = await commandRunner.RunAsync("/usr/bin/systemctl", arguments, cancellationToken);
-        var values = result.StandardOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => line.Split('=', 2))
-            .Where(parts => parts.Length == 2)
-            .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
+        var values = SystemdUnitActivity.Properties(result.StandardOutput);
         return (result, values);
     }
 
     private static SystemdAllocationObservation MapObservation(
         SystemdExecutionPlan systemd,
-        HostRuntimePlan plan,
         Dictionary<string, string> values)
     {
-        var state = values.GetValueOrDefault("ActiveState") switch
-        {
-            "active" => SystemdAllocationState.Running,
-            "activating" or "reloading" => SystemdAllocationState.Starting,
-            "deactivating" => SystemdAllocationState.Stopping,
-            "inactive" => SystemdAllocationState.Stopped,
-            "failed" => SystemdAllocationState.Failed,
-            _ => throw new InvalidOperationException(
-                $"systemd returned an unknown state for allocation {plan.AllocationId}.")
-        };
-        int? pid = int.TryParse(values.GetValueOrDefault("MainPID"), out var parsedPid) && parsedPid > 0
-            ? parsedPid
-            : null;
-        return new(
-            systemd.UnitName,
-            state,
-            pid,
+        var activity = SystemdUnitActivity.Read(values);
+        return new(systemd.UnitName, activity.State, activity.MainProcessId,
             values.GetValueOrDefault("Result") ?? "unknown");
     }
 
     internal static void RequireAbsentObservation(IReadOnlyDictionary<string, string> values)
     {
-        if (values.TryGetValue("MainPID", out var pid) && pid != "0" ||
-            values.TryGetValue("ActiveState", out var state) && state != "inactive")
-            throw new InvalidOperationException("An absent systemd allocation reports conflicting process or state evidence.");
+        var activity = SystemdUnitActivity.Read(values);
+        if (!activity.HasNoManagerWork)
+            throw new InvalidOperationException("An absent systemd allocation reports conflicting process, job or state evidence.");
     }
 
     private static string PlanDescription(HostRuntimePlan plan) =>
