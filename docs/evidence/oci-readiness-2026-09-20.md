@@ -24,8 +24,11 @@ Host enrollment now signs the exact workload roles and environment, with
 scope mismatches rejected before replay consumption or runtime connection.
 The [host session request component](../operations/host-session-authentication.md)
 also verifies possession of the enrolled NATS user key on bounded, exactly
-routed acquire/renew requests. This component has no broker or durable session
-authority yet; it does not close the remote host admission/startup blocker.
+routed acquire/renew requests. A controller-owned R3 session authority and
+restricted NATS host client/service now implement renewable process leases,
+durable revocation and generation/replay fencing. Their component tests pass;
+production startup and workload fencing still need composition, so remote
+host admission/startup remains a deployment blocker.
 
 The [bootstrap contract](../operations/control-bootstrap.md) defines the
 required first boot and exact-resource handoff. A tag or output does not
@@ -63,9 +66,16 @@ the exact release revision before deployment.
 The [host session authentication receipt](host-session-authentication-local-2026-09-21.json)
 records source hashes, dependency and test evidence, native-library bundle
 hashes and the scope of local single-file execution.
+The [durable session authority receipt](host-session-authority-local-2026-09-21.json)
+records the subsequent authority, broker and request-deadline checks with
+separate source and local-log hashes.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Full main regression with durable host sessions | **1140 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-session-main-suite.log`; 12m04s708ms; final source, no owned test containers remained |
+| Durable host session authority and authenticated broker | **57 passed**, 0 failed/skipped; final wall-clock broker test **1 passed** | `/tmp/ts-host-session-qualified-tests3.log`, `/tmp/ts-host-session-wall-clock-r3.log`; R3 races, lost response, epochs, restart, expired-grant continuation, revocation after actual stream-leader kill/restart, trust/scope/lease deadline, replay capacity, restricted JWT/mTLS and private-KV denial; production startup remains uncomposed |
+| Session request PONG deadline | **1 passed**, 0 failed/skipped | `/tmp/ts-host-session-ping-deadline-test.log`; loopback server withholds PONG after handshake; explicit `WaitAsync` bounds the upstream NATS.Net 2.7.2 cancellation gap; original `/tmp/ts-host-session-authority-tests.log` was aborted, not green |
+| Session authority Release/style and protocol | **165 passed**, 0 failed/skipped; build **0 warnings/errors**; style passed | `/tmp/ts-host-session-protocol-tests.log`, `/tmp/ts-host-session-final-build4.log`, `/tmp/ts-host-session-final-style2.log`; no new dependencies or new single-file packaging claims |
 | Full main regression with signed scope and session request authentication | **1132 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-request-main-suite.log`; 11m02s; real regional JWT/mTLS R3 startup and gateway regressions included; no owned test containers remained |
 | Signed role/environment scope and NKey session request proof | **49 passed**, 0 failed/skipped | `/tmp/ts-host-request-tests2.log`; scope tampering, pre-connection execution mismatch, RFC 8032, actual seed/JWT signing, noncanonical/small-order rejection, replaced-key denial, routing/freshness/wire bounds; no remote session authority |
 | Same focused checks from an isolated single-file test executable | **49 passed**, 0 failed/skipped | `/tmp/ts-host-proof-bundle-tests.log`, `/tmp/ts-host-proof-bundle-receipt.json`, `/tmp/ts-host-proof-bundle-loader.log`; loader used the bundled libsodium; test-harness publish emitted NETSDK1236 for its runtimeconfig/coverage configuration |
@@ -222,10 +232,12 @@ repository's main-only push rule being resolved.
   records. Version-2 node enrollment now signs and enforces the exact workload
   roles and environment. Session request proofs bind the enrolled user key to
   that document, process session, operation, nonce, epoch and timestamp;
-  they are not enrollment authorization or durable replay handling.
-  Production admission currently accepts a generation once and
-  caches it for the process lifetime. Restart and credential renewal need a
-  complete protocol; do not weaken the replay fence to bypass this gap.
+  the controller session authority separately checks enrollment trust and
+  durable replay state. Its 30-second leases support process restart and
+  renewal without reauthorizing expired bootstrap operations. Production
+  admission still accepts a generation once and caches it for the process
+  lifetime. Compose the remote session loop and stop/fence workloads on lost
+  admission before replacing that runtime path.
 - **Vault and workloads:** fetch pinned secret versions through scoped
   Instance Principals, verify digests, write restricted files, rotate and
   revoke credentials. Compose this path for NATS, TerraBase and auth secrets.
@@ -366,6 +378,18 @@ This confirms the CI fallback works; it does not provide durable binary/HTML
 artifact storage or OCI deployment evidence. Logs:
 `/tmp/ts-orchestrator-ci500-job-21999.log` and
 `/tmp/ts-orchestrator-ci500-job-22000.log`.
+
+Task **502**, revision `7923e82bf1`, also passed both jobs. All five test
+projects passed: control plane **966**, model **59**, protocol **165**,
+scheduler **106**, and main **1132**, with **5 expected live-lane skips**
+(**2428 passed** total). The artifact job verified both single-file ELF
+architectures and source-bound hashes: x64
+`874f59a7328b7ffdb2082b0a1e31f3bfbbc0cab1d32fdc464b9be258a284ec2f`, ARM64
+`bff3ad20b7555fe608b940bea3b0fd406bd0053b95cfd5014a19b52612d46dee`.
+Logs: `/tmp/ts-orchestrator-ci502-job-22003.log` and
+`/tmp/ts-orchestrator-ci502-job-22004.log`. These checks cover the published
+request-authentication batch, before the durable session authority/service.
+The same artifact-retention and ARM64 execution limits still apply.
 
 ## First live OCI qualification, after local readiness
 

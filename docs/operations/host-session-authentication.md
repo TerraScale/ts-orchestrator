@@ -16,10 +16,12 @@ key, cluster, credential manifest digest and bootstrap grant.
 
 ## Request proof component
 
-`RegionalHostSessionRequest` defines bounded acquire and renew messages for
-the future controller-owned session service. It is a tested codec and proof
-verifier; the broker, durable session authority and host renewal loop are
-not yet composed. It does not replace the current one-use admission gate.
+`RegionalHostSessionRequest` defines bounded acquire and renew messages.
+`RegionalHostSessionAuthority`, `RegionalHostSessionService` and
+`NatsRegionalHostSessionClient` implement controller-owned admission over NATS.
+They are exercised directly against restricted JWT/mTLS R3 credentials.
+Production startup and the host renewal/workload loop are not yet wired to
+these components; the current runtime still uses its one-use admission gate.
 
 A replaced node can retain its old credentials for the same hashed NATS
 subject. A public signed enrollment document alone therefore does not
@@ -34,9 +36,9 @@ in that exact document. The length-framed signature covers:
 Acquire requires epoch zero; renew requires a nonzero epoch. Process session
 identifiers and request nonces are 32 lowercase hexadecimal characters.
 Receivers accept only requests less than ten seconds old and never accept a
-future timestamp. Deployment must provide synchronized clocks. Repeated
-requests within that window still require durable idempotency and replay
-checks; freshness alone does not implement them.
+future timestamp. Deployment must provide synchronized clocks. The durable
+authority performs the idempotency and replay checks described below;
+freshness alone does not implement them.
 
 The receiver derives the allowed request subject with
 `NatsSubjectTaxonomy.HostAgentObservationSubject(cell, node, "enrollment")`
@@ -50,6 +52,65 @@ The proof binds the NATS user key. It does not establish issuer trust, grant
 authorization, revocation state, workload readiness, or which client TLS
 certificate the broker observed. Controller-side grant verification and the
 host's credential-manifest and certificate checks remain required.
+
+## Durable controller authority
+
+`RegionalHostEnrollmentPolicy` pins region, NATS account, cluster, environment,
+allowed role set, enrollment signer and bootstrap trust bundle. The signed
+scope may contain only roles in that configured set. It verifies both P-256
+signatures, exact system-project identity, grant audience/purpose/operations
+and the grant lifetime. A session is a workload admission lease; it does not
+authorize any bootstrap operation or confer OCI controller permissions.
+
+The authority owns one `node-enrollment.<SHA-256(node)>` record in
+`ORCH_NODE_ENROLLMENTS`. This must be a non-expiring, non-evicting R3 file store
+with limits retention, acknowledgements and no message/tombstone expiry.
+The record preserves generation, enrollment digest, original admission time,
+process session and epoch, latest request digest/time, lease expiry,
+revocation and bounded consumed-grant history. It contains no private keys.
+
+Every transition uses a single compare-and-set operation. Initial creation
+requires revision zero; it does not use the NATS client's create helper,
+which can resurrect deleted keys. Missing required fields, unknown schema
+fields and tombstones fail closed. The older one-use record and the session
+record cannot overwrite one another. There is no state-format migration
+path; production must not enable the two admission implementations together.
+
+Session behavior is explicit:
+
+- An exact latest-request retry returns the same epoch, expiry and storage
+  revision. It never extends the lease. Older requests cannot replace a
+  later renewal.
+- Each lease expires 30 seconds after the request's signed issue time.
+  Renewal requires the current process and epoch, a newer signed timestamp
+  and an unexpired lease. No lease may cross a signing key's acceptance
+  deadline.
+- A different process waits for the current lease to expire, then acquires
+  a larger epoch. Restart can resume an expired bootstrap grant only for
+  the exact durably admitted enrollment, with its admission time inside
+  that grant's original validity and its current signer trust still valid.
+- A higher bootstrap generation needs a fresh, trusted enrollment and grant.
+  It waits for the old lease even if that lease has been revoked. The old
+  generation and a different envelope at the same generation are rejected.
+- Revocation is durable and names the observed generation and process epoch.
+  A stale revoke cannot hit a replacement. A revoked enrollment cannot renew
+  or resume. Only a freshly signed higher generation can supersede it.
+- Up to 16 consumed grants are retained per node. Reusing any retained grant
+  identifier or nonce is rejected. History can be pruned only after expiry
+  at the new request's signed time. Full history holds new enrollment with
+  `ReplayCapacity`; it never evicts a still-valid replay fence.
+
+Controllers share a queue subscription, but storage CAS decides ownership.
+The host client accepts only a response bound to the exact request digest,
+generation, epoch and signed lease deadline. Requests have a five-second
+deadline, including an explicit bound around NATS.Net's PING/PONG wait.
+The library's cancellation token does not cover waiting for PONG in 2.7.2;
+a withheld-PONG loopback test covers this failure path.
+
+Service snapshots count accepted acquire/renew requests (including retries),
+rejections and storage/transport failures. Bounded failure tracking prevents
+one host's success from clearing another host's pending storage retry. These
+snapshots still need production status/metrics endpoint composition.
 
 ## Cryptography and packaging
 
@@ -74,33 +135,36 @@ From the repository root, run the focused local checks with:
 nice -n 19 dotnet build TerraScale.Orchestrator.slnx -c Release --no-restore
 nice -n 19 dotnet run --project tests/TerraScale.Orchestrator.Tests \
   -c Release --no-build -- \
-  --treenode-filter '/*/*/(NatsUserSignatureTests|NatsAuthenticationFilesTests|RegionalNodeEnrollmentTests|RegionalHostAdmissionTests|RegionalHostSessionRequestTests)/*' \
-  --minimum-expected-tests 49 --maximum-parallel-tests 2
+  --treenode-filter '/*/*/(NatsUserSignatureTests|NatsAuthenticationFilesTests|RegionalNodeEnrollmentTests|RegionalHostAdmissionTests|RegionalHostSessionRequestTests|RegionalHostSessionAuthorityTests)/*' \
+  --minimum-expected-tests 57 --maximum-parallel-tests 2
 ```
 
-The local packaging check additionally published those tests as a single file,
-copied only the executable into an isolated directory and ran the same 49
-checks. Loader evidence confirms that it loaded the extracted bundled
+The preceding request-authentication batch's packaging check published its
+tests as a single file, copied only the executable into an isolated directory
+and ran its 49 checks. That evidence predates the session authority/service.
+Loader evidence confirms that it loaded the extracted bundled
 libsodium. Publishing the test harness produced NETSDK1236 for its referenced
 application runtimeconfig and coverage configuration; application publishes
 produced no warning. Both application ELF architectures and their embedded
 libsodium bytes were checked. The x64 application's offline runtime-plan
 command ran successfully. ARM64 execution remains unqualified.
 
-## Remaining session qualification
+## Remaining runtime qualification
 
-Before enabling remote host execution, compose and test the durable authority
-over non-expiring `ORCH_NODE_ENROLLMENTS`, with exact retry results, generation
-supersession, process epochs, renewal deadlines and persistent revocation.
-An expired bootstrap grant must not reauthorize bootstrap operations. A
-previously admitted enrollment may resume only under explicit continuing
-session policy, and an old request must never extend a lease or revive a
-superseded or revoked node.
+Local R3 tests cover acquisition races, exact retry, lost response, process
+epochs, authority recreation, generation replacement, expired bootstrap
+grants, durable revocation after stream-leader kill/restart, replay-history
+capacity, private-store denial and the authenticated host client/service path.
+Logical time controls expiry cases; the wire test also runs on the wall clock.
+These are component tests, not a fresh OCI guest starting real workloads.
 
-Real R3 tests must cover concurrent acquisition, lost replies, controller and
-host restarts, stale keys, cross-host/region denial and revoked generations.
-Then route the dedicated host executable path through those services and
-bounded desired/artifact/replacement-lease exchanges. Admission loss must
-stop and fence work before safe replacement or drain can be qualified.
+Production controller configuration must load the reviewed policy and start
+the service with its status/metrics projection. Then route the dedicated host
+entry through the remote client, credential-manifest/certificate checks and
+bounded desired/artifact/replacement-lease exchanges. The renewal loop must
+distinguish original enrollment evidence from permission to execute bootstrap
+operations. Admission loss must stop and fence work before safe replacement
+or drain can be qualified. A KV lease alone does not stop a guest process or
+fence a storage writer.
 The [OCI readiness record](../evidence/oci-readiness-2026-09-20.md) remains
 the deployment gate.

@@ -308,6 +308,7 @@ public sealed class NatsRegionalNodeEnrollmentReplayStore : IRegionalNodeEnrollm
     }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 internal sealed record RegionalNodeEnrollmentReplayRecord(ulong Generation, string GrantId, string Nonce);
 
 [JsonSerializable(typeof(RegionalNodeEnrollmentReplayRecord))]

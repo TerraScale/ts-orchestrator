@@ -472,6 +472,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             {
                 await using var infrastructure = await ConnectAsync(
                     Infrastructure,
+                    member: Array.FindIndex(processes, static process => process is { HasExited: false }),
                     cancellationToken: cancellationToken);
                 var stream = await infrastructure.CreateJetStreamContext()
                     .GetStreamAsync("KV_ORCH_OPERATIONS", cancellationToken: cancellationToken);

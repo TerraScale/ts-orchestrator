@@ -95,7 +95,10 @@ After Vault retrieval, each node needs a signed enrollment envelope bound to
 its OCI node identity, region, NATS account/user, certificate, credential-bundle
 digest, and bootstrap generation. The production host gate verifies this before
 installing or claiming work. Its current replay fence accepts a node generation
-once and caches admission in memory; restart/renewal needs a complete protocol
+once and caches admission in memory. A controller-owned
+[session authority and restricted host client](host-session-authentication.md)
+now pass local R3 restart, renewal and revocation tests. Production must compose
+that protocol with host credential checks and workload stop/storage fencing
 before deployment. Reusing a consumed grant is not that protocol.
 
 `ts-auth` and TerraBase have independent desired counts and bounds. If the

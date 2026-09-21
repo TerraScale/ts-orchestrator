@@ -63,6 +63,13 @@ internal sealed record RegionalHostSessionRequest
         Operation.ToString(), SessionId, Epoch.ToString(CultureInfo.InvariantCulture),
         RequestId, IssuedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)]));
 
+    internal string RequestDigest => Convert.ToHexStringLower(SHA256.HashData(CanonicalBytes()));
+
+    internal bool HasValidProof(string cell, DateTimeOffset now) =>
+        cell is "gru" or "sfo" or "fra" && Enrollment.Region == cell.ToUpperInvariant() &&
+        now != default && IssuedAt <= now && now - IssuedAt < MaximumAge &&
+        NatsUserSignature.Verify(Enrollment.NatsUserPublicKey, CanonicalBytes(), Signature);
+
     internal static RegionalHostSessionRequest Sign(RegionalNodeEnrollmentEnvelope enrollment,
         NatsAuthenticationFiles authentication, RegionalHostSessionOperation operation, string sessionId,
         ulong epoch, DateTimeOffset issuedAt)
@@ -99,11 +106,10 @@ internal sealed record RegionalHostSessionRequest
             if (json is not { Length: > 0 and <= MaximumBytes } || Encoding.UTF8.GetByteCount(json) > MaximumBytes ||
                 cell is not ("gru" or "sfo" or "fra") || now == default) return false;
             var value = JsonSerializer.Deserialize<RegionalHostSessionRequest>(json, JsonOptions);
-            if (value is null || value.Enrollment.Region != cell.ToUpperInvariant() ||
+            if (value is null ||
                 subject != Subject(cell, value.Enrollment.NodeId) ||
                 reply != ReplySubject(cell, value.Enrollment.NodeId, value.RequestId) ||
-                value.IssuedAt > now || now - value.IssuedAt >= MaximumAge ||
-                !NatsUserSignature.Verify(value.Enrollment.NatsUserPublicKey, value.CanonicalBytes(), value.Signature)) return false;
+                !value.HasValidProof(cell, now)) return false;
             request = value;
             return true;
         }
