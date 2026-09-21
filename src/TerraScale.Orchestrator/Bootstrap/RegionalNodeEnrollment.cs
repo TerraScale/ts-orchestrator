@@ -14,7 +14,7 @@ namespace TerraScale.Orchestrator.Bootstrap;
 /// </summary>
 public sealed record RegionalNodeEnrollmentEnvelope
 {
-    public const string Version = "terrascale-regional-node-enrollment-v1";
+    public const string Version = "terrascale-regional-node-enrollment-v2";
 
     public RegionalNodeEnrollmentEnvelope(
         string region,
@@ -24,6 +24,7 @@ public sealed record RegionalNodeEnrollmentEnvelope
         string natsUserPublicKey,
         string credentialBundleSha256,
         string clusterName,
+        RegionalNodeEnrollmentScope scope,
         SignedBootstrapGrant grant,
         string signerKeyId,
         ulong signerKeyVersion,
@@ -39,6 +40,7 @@ public sealed record RegionalNodeEnrollmentEnvelope
         CredentialBundleSha256 = BootstrapGrantCanonical.ValidateLowercaseHex(
             credentialBundleSha256, 64, nameof(credentialBundleSha256));
         ClusterName = ValidateToken(clusterName, nameof(clusterName));
+        Scope = scope ?? throw new ArgumentNullException(nameof(scope));
         Grant = grant ?? throw new ArgumentNullException(nameof(grant));
         SignerKeyId = BootstrapGrantCanonical.ValidateToken(signerKeyId, nameof(signerKeyId));
         if (signerKeyVersion == 0)
@@ -56,6 +58,7 @@ public sealed record RegionalNodeEnrollmentEnvelope
     public string NatsUserPublicKey { get; }
     public string CredentialBundleSha256 { get; }
     public string ClusterName { get; }
+    public RegionalNodeEnrollmentScope Scope { get; }
     public SignedBootstrapGrant Grant { get; }
     public string SignerKeyId { get; }
     public ulong SignerKeyVersion { get; }
@@ -70,6 +73,7 @@ public sealed record RegionalNodeEnrollmentEnvelope
         NatsUserPublicKey,
         CredentialBundleSha256,
         ClusterName,
+        Scope.Canonical(),
         Grant.PayloadText,
         Grant.Algorithm,
         Grant.Signature,
@@ -130,6 +134,7 @@ public sealed class RegionalNodeEnrollmentSigner : IDisposable
         string natsUserPublicKey,
         string credentialBundleSha256,
         string clusterName,
+        RegionalNodeEnrollmentScope scope,
         SignedBootstrapGrant grant)
     {
         var unsigned = new RegionalNodeEnrollmentEnvelope(
@@ -140,6 +145,7 @@ public sealed class RegionalNodeEnrollmentSigner : IDisposable
             natsUserPublicKey,
             credentialBundleSha256,
             clusterName,
+            scope,
             grant,
             KeyId,
             KeyVersion,
@@ -167,6 +173,7 @@ public enum RegionalNodeEnrollmentDecision
     UserIdentityMismatch = 10,
     ReplayDetected = 11,
     ReplayJournalUnavailable = 12,
+    ScopeMismatch = 13,
 }
 
 public sealed record RegionalNodeEnrollmentVerification(
@@ -317,6 +324,7 @@ public static class RegionalNodeEnrollmentVerifier
         string expectedNatsUserPublicKey,
         string expectedSignerKeyId,
         ulong expectedSignerKeyVersion,
+        RegionalNodeEnrollmentScope expectedScope,
         SignedBootstrapGrantVerification grantVerification,
         IRegionalNodeEnrollmentReplayStore replayStore)
     {
@@ -334,6 +342,7 @@ public static class RegionalNodeEnrollmentVerifier
             expectedNatsUserPublicKey,
             expectedSignerKeyId,
             expectedSignerKeyVersion,
+            expectedScope,
             grantVerification);
         if (preliminary.Decision is not null)
             return preliminary.Decision;
@@ -353,6 +362,7 @@ public static class RegionalNodeEnrollmentVerifier
         string expectedNatsUserPublicKey,
         string expectedSignerKeyId,
         ulong expectedSignerKeyVersion,
+        RegionalNodeEnrollmentScope expectedScope,
         SignedBootstrapGrantVerification grantVerification,
         IRegionalNodeEnrollmentDurableReplayStore replayStore,
         CancellationToken cancellationToken)
@@ -371,6 +381,7 @@ public static class RegionalNodeEnrollmentVerifier
             expectedNatsUserPublicKey,
             expectedSignerKeyId,
             expectedSignerKeyVersion,
+            expectedScope,
             grantVerification);
         if (preliminary.Decision is not null)
             return preliminary.Decision;
@@ -402,6 +413,7 @@ public static class RegionalNodeEnrollmentVerifier
         string expectedNatsUserPublicKey,
         string expectedSignerKeyId,
         ulong expectedSignerKeyVersion,
+        RegionalNodeEnrollmentScope expectedScope,
         SignedBootstrapGrantVerification grantVerification)
     {
         if (expectedRegion is not ("GRU" or "SFO" or "FRA") || envelope.Region != expectedRegion)
@@ -415,6 +427,9 @@ public static class RegionalNodeEnrollmentVerifier
         if (!string.Equals(envelope.SignerKeyId, expectedSignerKeyId, StringComparison.Ordinal) ||
             envelope.SignerKeyVersion != expectedSignerKeyVersion)
             return (new(RegionalNodeEnrollmentDecision.UnknownSigner, envelope.SignerKeyId, envelope.SignerKeyVersion), null);
+        ArgumentNullException.ThrowIfNull(expectedScope);
+        if (!envelope.Scope.Matches(expectedScope))
+            return (new(RegionalNodeEnrollmentDecision.ScopeMismatch, envelope.SignerKeyId, envelope.SignerKeyVersion), null);
         if (!grantVerification.Authorized)
             return (new(RegionalNodeEnrollmentDecision.GrantDenied, envelope.SignerKeyId, envelope.SignerKeyVersion), null);
         BootstrapGrantPayload payload;

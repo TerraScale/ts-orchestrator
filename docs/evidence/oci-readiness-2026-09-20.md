@@ -20,6 +20,13 @@ It does not create SFO/FRA infrastructure. Runtime OCI fleet startup consumes
 endpoints/templates. This is startup validation; it neither distributes intent
 updates nor creates regional clusters. OpenTofu still owns the seed resources.
 
+Host enrollment now signs the exact workload roles and environment, with
+scope mismatches rejected before replay consumption or runtime connection.
+The [host session request component](../operations/host-session-authentication.md)
+also verifies possession of the enrolled NATS user key on bounded, exactly
+routed acquire/renew requests. This component has no broker or durable session
+authority yet; it does not close the remote host admission/startup blocker.
+
 The [bootstrap contract](../operations/control-bootstrap.md) defines the
 required first boot and exact-resource handoff. A tag or output does not
 transfer ownership. A signed adoption request, CI relinquishment without
@@ -53,8 +60,17 @@ These are working-tree results, not qualification of an immutable release.
 Other changes are present in the shared checkouts. Rerun the final gates against
 the exact release revision before deployment.
 
+The [host session authentication receipt](host-session-authentication-local-2026-09-21.json)
+records source hashes, dependency and test evidence, native-library bundle
+hashes and the scope of local single-file execution.
+
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Full main regression with signed scope and session request authentication | **1132 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-request-main-suite.log`; 11m02s; real regional JWT/mTLS R3 startup and gateway regressions included; no owned test containers remained |
+| Signed role/environment scope and NKey session request proof | **49 passed**, 0 failed/skipped | `/tmp/ts-host-request-tests2.log`; scope tampering, pre-connection execution mismatch, RFC 8032, actual seed/JWT signing, noncanonical/small-order rejection, replaced-key denial, routing/freshness/wire bounds; no remote session authority |
+| Same focused checks from an isolated single-file test executable | **49 passed**, 0 failed/skipped | `/tmp/ts-host-proof-bundle-tests.log`, `/tmp/ts-host-proof-bundle-receipt.json`, `/tmp/ts-host-proof-bundle-loader.log`; loader used the bundled libsodium; test-harness publish emitted NETSDK1236 for its runtimeconfig/coverage configuration |
+| Host request dependency, Release/style and protocol checks | **165 protocol tests passed**, 0 failed/skipped; solution build **0 warnings/errors**; locked restore/style/audit passed | `/tmp/ts-host-request-protocol-tests.log`, `/tmp/ts-host-request-final-build.log`, `/tmp/ts-host-request-final-style.log`, `/tmp/ts-host-request-locked-restore.log`, `/tmp/ts-host-proof-audit.log`; NSec 26.4.0 and libsodium 1.0.22 locked |
+| Application publish with host request crypto | **x64/ARM64 passed**, no publish warnings; offline x64 runtime plan passed | `/tmp/ts-host-request-publish-{x64,arm64}.log`, `/tmp/ts-host-proof-app-receipt.json`; ELF architectures and exact embedded libsodium bytes checked; ARM64 was not executed |
 | Regional JWT, configuration, admission, OCI node allocation, R3 grants and host convergence | **113 passed**, 0 failed/skipped | `/tmp/ts-regional-jwt-qualified-tests.log`; actual controller startup against restricted JWT/mTLS R3; before the operator CLI addition |
 | Full main regression with regional JWT and operator CLI | **1106 passed, 2 failed, 5 live-lane skips** | `/tmp/ts-regional-jwt-main-suite.log`; 13m07s; actual regional startup and CLI passed; failures were the duplicated source-subject literals and immediate directory freshness assertion after gateway reconnection; correction evidence recorded separately |
 | Corrections after the regional JWT main run | **8 passed**, 0 failed/skipped | `/tmp/ts-regional-jwt-corrections-tests.log`; canonical subject source checks plus real gateway heal requiring a fresh advertisement, advancing sequence and unchanged epoch; 42.7s; publisher cleanup also runs on assertion failure |
@@ -203,7 +219,11 @@ repository's main-only push rule being resolved.
   the writer. Separate credential directories alone do not establish it.
 - **Command and enrollment trust:** pinned signing keys, grant audience,
   certificate/node/region binding, fixed system project, and durable replay
-  records. Production admission currently accepts a generation once and
+  records. Version-2 node enrollment now signs and enforces the exact workload
+  roles and environment. Session request proofs bind the enrolled user key to
+  that document, process session, operation, nonce, epoch and timestamp;
+  they are not enrollment authorization or durable replay handling.
+  Production admission currently accepts a generation once and
   caches it for the process lifetime. Restart and credential renewal need a
   complete protocol; do not weaken the replay fence to bypass this gap.
 - **Vault and workloads:** fetch pinned secret versions through scoped

@@ -61,10 +61,11 @@ public sealed class RegionalHostAdmissionTests
                 now.AddSeconds(-1),
                 now.AddMinutes(5),
                 [BootstrapGrantOperation.EnsureSystemProjectConfiguration]));
+            var scope = new RegionalNodeEnrollmentScope("production", [Runtime.AdmittedRole.TerraBaseMember]);
             var enrollment = enrollmentSigner.Sign(
                 "GRU", "node-1", 1, "A-account", natsUser,
                 new string('0', 64),
-                "gru-cluster", grant);
+                "gru-cluster", scope, grant);
 
             var enrollmentPath = Path.Combine(directory.FullName, "enrollment.json");
             var signerPath = Path.Combine(directory.FullName, "enrollment-signer.pem");
@@ -97,7 +98,7 @@ public sealed class RegionalHostAdmissionTests
             var credentialDigest = Convert.ToHexStringLower(SHA256.HashData(credentialBytes));
             enrollment = enrollmentSigner.Sign(
                 "GRU", "node-1", 1, "A-account", natsUser, credentialDigest,
-                "gru-cluster", grant);
+                "gru-cluster", scope, grant);
             await File.WriteAllTextAsync(enrollmentPath, JsonSerializer.Serialize(enrollment));
             await File.WriteAllBytesAsync(credentialsPath, credentialBytes);
             await File.WriteAllTextAsync(trustPath, JsonSerializer.Serialize(new
@@ -140,7 +141,7 @@ public sealed class RegionalHostAdmissionTests
                 2,
                 project,
                 BootstrapGrantOperation.EnsureSystemProjectConfiguration,
-                TimeSpan.FromMinutes(15));
+                TimeSpan.FromMinutes(15), scope);
 
             File.Delete(credentialsPath);
             var pendingReplay = new FakeReplayStore();
@@ -171,6 +172,34 @@ public sealed class RegionalHostAdmissionTests
                 await Assert.That(wrongAccount.Reason).IsEqualTo("regional-enrollment-AccountMismatch");
                 await Assert.That(wrongAccountReplay.Calls).IsEqualTo(0);
             }
+
+            foreach (var wrongScope in new[]
+                     {
+                         new RegionalNodeEnrollmentScope("staging", [Runtime.AdmittedRole.TerraBaseMember]),
+                         new RegionalNodeEnrollmentScope("production", [Runtime.AdmittedRole.Authentication]),
+                         new RegionalNodeEnrollmentScope("production", [Runtime.AdmittedRole.TerraBaseMember, Runtime.AdmittedRole.Authentication]),
+                     })
+            {
+                var wrongScopeReplay = new FakeReplayStore();
+                using var wrongScopeGate = RegionalHostAdmissionGate.LoadForTests(
+                    configuration with { Scope = wrongScope }, wrongScopeReplay, Authentication(),
+                    new NatsTlsFiles(caPath, certificatePath, certificateKeyPath));
+                var wrongScopeResult = await wrongScopeGate.ObserveAsync(CancellationToken.None);
+                await Assert.That(wrongScopeResult.Ready).IsFalse();
+                await Assert.That(wrongScopeResult.Reason).IsEqualTo("regional-enrollment-ScopeMismatch");
+                await Assert.That(wrongScopeReplay.Calls).IsEqualTo(0);
+            }
+            using var startupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            var runtimeError = await Assert.That(async () =>
+            {
+                await using var runtime = await NatsRuntime.StartAsync(
+                    new OrchestratorOptions(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:1", 1, "node-1"),
+                    startupDeadline.Token,
+                    hostConvergence: new HostConvergenceConfiguration([Runtime.AdmittedRole.Authentication],
+                        "production", directory.FullName, Runtime.HostArchitecture.Arm64),
+                    hostAdmission: configuration);
+            }).Throws<InvalidOperationException>();
+            await Assert.That(runtimeError!.Message).Contains("roles and environment");
 
             var replay = new FakeReplayStore();
             using var gate = RegionalHostAdmissionGate.LoadForTests(

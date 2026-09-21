@@ -253,6 +253,10 @@ public sealed class NatsRuntime : IAsyncDisposable
             (hostAdmission.Region != options.Cell.ToUpperInvariant() || hostAdmission.NodeId != options.Instance))
             throw new InvalidOperationException("Host enrollment identity must match the regional runtime cell and instance.");
 
+        if (hostAdmission is not null && !hostAdmission.Scope.Matches(
+                new Bootstrap.RegionalNodeEnrollmentScope(hostConvergence!.Environment, hostConvergence.Roles)))
+            throw new InvalidOperationException("Host execution roles and environment must match signed admission configuration.");
+
         var natsUrl = OrchestratorOptions.ParseRegionalNatsUrl(options.NatsUrl, "TS_ORCH_NATS_URL");
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var clientOptions = new NatsOpts

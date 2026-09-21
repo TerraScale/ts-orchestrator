@@ -21,6 +21,23 @@ internal sealed record NatsAuthenticationFiles
         ? new NatsAuthOpts { CredsFile = CredentialsFile }
         : new NatsAuthOpts { NKeyFile = NKeyFile };
 
+    /// <summary>Signs with the user key pinned when these authentication files were resolved.</summary>
+    internal byte[] SignUserRequest(byte[] canonicalRequest)
+    {
+        if (canonicalRequest.Length is < 1 or > 16_384)
+            throw new ArgumentException("The user request exceeds its signature bounds.", nameof(canonicalRequest));
+        var current = Resolve(NKeyFile, CredentialsFile, "host request NATS")!;
+        if (current.PublicKey != PublicKey || !PublicKey.StartsWith('U'))
+            throw new InvalidOperationException("The NATS user identity changed after connection admission.");
+        var seed = CredentialsFile is not null
+            ? ReadCredentialsSeed(current.CredentialsFile!, "host request NATS")
+            : NatsCredentialFile.Seed(current.NKeyFile!);
+        if (NKeys.PublicKeyFromSeed(seed) != PublicKey)
+            throw new InvalidOperationException("The NATS user identity changed while loading its signing key.");
+        using var key = NKeys.FromSeed(seed);
+        return key.Sign(canonicalRequest);
+    }
+
     internal static NatsAuthenticationFiles? Resolve(
         string? nkeyFile,
         string? credentialsFile,

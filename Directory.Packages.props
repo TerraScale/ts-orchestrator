@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="NATS.Net" Version="2.7.2" />
+    <PackageVersion Include="NSec.Cryptography" Version="26.4.0" />
     <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageVersion Include="OCI.DotNetSDK.Core" Version="142.0.0" />
     <PackageVersion Include="OCI.DotNetSDK.Secrets" Version="142.0.0" />

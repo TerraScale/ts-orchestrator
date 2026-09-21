@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T03:59:55.641172+00:00",
+  "state": "component-checks-passed",
+  "sourceBase": "f0c249ba10fe1a6b3c243969c90455211108f856",
+  "sourceStatus": "working-tree: source hashes identify this batch on sourceBase",
+  "sourceFiles": {
+    "Directory.Packages.props": "97257db0736b75d382eba9c6e3bd6b0dc014dba37faffd3c1c06f30ad2ea62d6",
+    "src/TerraScale.Orchestrator/Bootstrap/RegionalNodeEnrollment.cs": "b6528b54d047212b9ac97cd3bc961744fd130925ea54a3972102504256dbd744",
+    "src/TerraScale.Orchestrator/Bootstrap/RegionalNodeEnrollmentScope.cs": "ca51c6eaaae8e7e1e254f697bd035b6c7a54597c3c79d67b4e4dad92aeb3fb73",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostAdmission.cs": "72f950372419f22026bedb856a4a99c75bac8cacd49cb7d33e3b4c08437a79b2",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionRequest.cs": "372e822aaa8e0747a4f52e056396b0e8e9a18a8c85ee40b9c71fe89300bb2d39",
+    "src/TerraScale.Orchestrator/Messaging/NatsAuthenticationFiles.cs": "aab36d48b4fa0626284fa79bcca04463cfd7ca9270d64b1236f637a482556ca0",
+    "src/TerraScale.Orchestrator/Messaging/NatsCredentialFile.cs": "909d432d8d3130eac3fa7bd423a2b2aa0a2b1954d5e044ecd0c807f233749477",
+    "src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs": "29ef4b4447a9e84e84bb3a8a9bbf7c2b4a178a962e43674cd95a0ee762006d87",
+    "src/TerraScale.Orchestrator/Messaging/NatsUserSignature.cs": "566405a542477f1f6e9ff2ab2fd627d92f57a27c7be7a87fe7138e54f652987d",
+    "src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj": "ce957022edab275a5463b0c5523186f4a9ade8327ba8c04dbf3b9741af958d4c",
+    "src/TerraScale.Orchestrator/packages.lock.json": "59ba9efa1b709c281ef78266ff9e4fc6dcc1f749dbb748dbfab37a85141cc2de",
+    "tests/TerraScale.Orchestrator.ControlPlane.JournalChild/packages.lock.json": "42ce51ee843abb6efbe84b0b097a8c972bd0194ee485c8e67309548ad14210b4",
+    "tests/TerraScale.Orchestrator.ControlPlane.Tests/packages.lock.json": "aef5c34123856adedf0e177f6e48206e072c4a1995408461b52bd339fba41c57",
+    "tests/TerraScale.Orchestrator.ModelTests/packages.lock.json": "b8d51d0a2f3dee0f8bd5daa2e3d41f641b083b45c0c500e837817e94b92f43ee",
+    "tests/TerraScale.Orchestrator.Protocol.Tests/packages.lock.json": "b8d51d0a2f3dee0f8bd5daa2e3d41f641b083b45c0c500e837817e94b92f43ee",
+    "tests/TerraScale.Orchestrator.Scheduler.Tests/packages.lock.json": "b8d51d0a2f3dee0f8bd5daa2e3d41f641b083b45c0c500e837817e94b92f43ee",
+    "tests/TerraScale.Orchestrator.Tests/NatsUserSignatureTests.cs": "4a69dbd1927ccf89fc373c645e023e8003c2298792a4ba791fb45c41eb79232a",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostAdmissionTests.cs": "e1ff69bb6fb49fbee6e0984e366e827786c553348c91f030bd80672def38b3b8",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionRequestTests.cs": "75caab9e890b0a79ef338f99fea3d22318b2f199fb21fa2a924aec92d445da30",
+    "tests/TerraScale.Orchestrator.Tests/RegionalNodeEnrollmentTests.cs": "3d3fbcb73858380018e7c867dd6d56123e9e55721672efe3a38c8efb66b5e6b4",
+    "tests/TerraScale.Orchestrator.Tests/packages.lock.json": "45b94ba16eb96dc6432d49c91c58168680b8a9ea3d77d6cff3c4b925546d33ad"
+  },
+  "tests": {
+    "focused": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    "singleFileFocused": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0
+    },
+    "protocol": {
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0
+    },
+    "fullMain": {
+      "passed": 1132,
+      "failed": 0,
+      "skipped": 5,
+      "duration": "11m02s459ms"
+    }
+  },
+  "releaseBuild": {
+    "warnings": 0,
+    "errors": 0
+  },
+  "dependencyAudit": "passed: 0 known vulnerable packages in runtime and main tests",
+  "style": "passed",
+  "lockedRestore": "passed",
+  "testBundlePublishWarnings": [
+    "NETSDK1236: referenced runtimeconfig and coverage configuration excluded from test harness bundle"
+  ],
+  "applicationPublishWarnings": [],
+  "applicationArtifacts": [
+    {
+      "rid": "linux-x64",
+      "path": "/tmp/ts-host-request-publish-x64/terrascale-orchestrator",
+      "bytes": 96460343,
+      "sha256": "263387ae17ce16b657c801e0571a8c329cf325cca4e11d25c0ac868da23460a3",
+      "sodiumSha256": "963416833246938fd6983e4aa96248dbccb2f95b30095c4a94678d6fb903404b",
+      "sodiumBundleOffset": 95812224,
+      "machine": "Advanced Micro Devices X86-64"
+    },
+    {
+      "rid": "linux-arm64",
+      "path": "/tmp/ts-host-request-publish-arm64/terrascale-orchestrator",
+      "bytes": 103359283,
+      "sha256": "40ee590b8197f172fab59bab815e2dbe71b2fac90a694ecec713cd9074bf6961",
+      "sodiumSha256": "54f416a70e0d982a63e7f2402ff6f2a8666bf0a430404a4205ed8eee1868b9db",
+      "sodiumBundleOffset": 102871040,
+      "machine": "AArch64"
+    }
+  ],
+  "singleFileRuntimeProof": {
+    "root": "/tmp/ts-host-proof-bundle-u291jh31",
+    "exitCode": 0,
+    "binarySha256": "b3354a00cd5b82404081b85898cfdd8aff54c85ad358a3fc918e27e91648db87",
+    "sodium": [
+      {
+        "file": "/tmp/ts-host-proof-bundle-u291jh31/extracted/TerraScale.Orchestrator.Tests/N2gDrhOKDF7P/libsodium.so",
+        "sha256": "963416833246938fd6983e4aa96248dbccb2f95b30095c4a94678d6fb903404b"
+      }
+    ]
+  },
+  "offlineX64PlanExitCode": 0,
+  "arm64Executed": false,
+  "liveOci": false,
+  "remoteSessionAuthorityComposed": false,
+  "deploymentReady": false,
+  "localLogs": {
+    "/tmp/ts-host-request-tests2.log": "cc3f35452b4f060a5da0df3fe4852aad63199d4343328a538cd0a451a229329d",
+    "/tmp/ts-host-proof-bundle-tests.log": "067521b9f0671b99b0b8eb0ce43c6bef523fae3ab2a10b60c21bb528e418453a",
+    "/tmp/ts-host-proof-bundle-loader.log": "985f92f0194062e719ec8311b84e0fb365918392c88e295b3a93d7bf2c920619",
+    "/tmp/ts-host-proof-bundle-receipt.json": "cff798d92f3ba8f5750798a2b5df4e132b1cb54d2facd9d3683b37263da6ccce",
+    "/tmp/ts-host-proof-singlefile-publish.log": "9889c41b80666be6860aefebb9ed72255c7976d06d43383a0b6ce0354a393f38",
+    "/tmp/ts-host-request-final-build.log": "f657efb59ce2aaad3d86fc78319936b79a198e736b952e9ad581e4429bd96f30",
+    "/tmp/ts-host-request-final-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-host-request-locked-restore.log": "cef47cf2f780e7bc25fc939dbb290d006d15d469bef3eb488399efd2ae9fc73f",
+    "/tmp/ts-host-proof-audit.log": "04872e0cabd81d10b4d4e185365bc9a1e40ef59dbce6902355b881ea33616df8",
+    "/tmp/ts-host-request-protocol-tests.log": "6de7d630fa5bf8634c1466036d4322bbca9701ad55569eac564ca64d855104e0",
+    "/tmp/ts-host-request-publish-x64.log": "ebb897d36ed4a7362855191ad89a7445b5c3b347b5d80a8d2c20474b705cab95",
+    "/tmp/ts-host-request-publish-arm64.log": "cfdfb886dca16d49427cd7635c3b0c49d78e06f8acaf8a15000a224affc538dc",
+    "/tmp/ts-host-proof-app-receipt.json": "5ad3b61a4c24df8c5ad8f083283d6fca89dfa3710d2edd8cfc7e362373e4f6a8",
+    "/tmp/ts-host-proof-app-plan.json": "eedd8af532474eab05383614b99d93e7c3ada0001f8aef2def5fd2431c1bf555",
+    "/tmp/ts-host-request-main-suite.log": "48b2302dff2988fcbc5cc26b5f73191b420c17b7b131c6a75df9d35de7beabcc"
+  },
+  "ownedTestContainersAfterRun": 0
+}

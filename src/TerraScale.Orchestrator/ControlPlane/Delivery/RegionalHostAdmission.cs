@@ -27,7 +27,8 @@ public sealed record RegionalHostAdmissionConfiguration(
     ulong EnrollmentSignerKeyVersion,
     BootstrapSystemProjectUlds ExpectedSystemProject,
     string RequestedOperation,
-    TimeSpan MaximumGrantLifetime)
+    TimeSpan MaximumGrantLifetime,
+    RegionalNodeEnrollmentScope Scope)
 {
     private const string DefaultOperation = BootstrapGrantOperation.EnsureSystemProjectConfiguration;
     private static readonly TimeSpan DefaultMaximumGrantLifetime = TimeSpan.FromMinutes(15);
@@ -94,7 +95,11 @@ public sealed record RegionalHostAdmissionConfiguration(
             signerVersion,
             new BootstrapSystemProjectUlds(organization, project, database),
             operation,
-            lifetime);
+            lifetime,
+            new RegionalNodeEnrollmentScope(environment("TS_ORCH_HOST_ENVIRONMENT") is { Length: > 0 } hostEnvironment
+                    ? hostEnvironment : "production",
+                Required(environment, "TS_ORCH_HOST_ROLES").Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                    .Select(TerraScale.Orchestrator.Runtime.HostRuntimeCli.ParseRole).ToArray()));
     }
 
     internal RegionalHostAdmissionGate Create(
@@ -271,6 +276,7 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
                     natsUserPublicKey,
                     configuration.EnrollmentSignerKeyId,
                     configuration.EnrollmentSignerKeyVersion,
+                    configuration.Scope,
                     crypto.Crypto,
                     replayStore,
                     cancellationToken)

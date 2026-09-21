@@ -71,6 +71,10 @@ entry point.
 
 Fresh host startup remains blocked on a dedicated host role, bounded remote
 enrollment/desired/artifact/lease protocols, restart/renewal, and durable drain.
+Signed enrollment now binds the exact environment and workload roles. The
+[host session authentication component](host-session-authentication.md)
+adds proof of possession for the enrolled user key; durable session authority
+and its broker/runtime callers are still pending.
 OCI Instance Principal, Vault policy, first boot, region formation and seed
 ownership handoff still require their own qualification. See the
 [OCI readiness record](../evidence/oci-readiness-2026-09-20.md).
