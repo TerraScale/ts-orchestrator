@@ -30,6 +30,16 @@ try
         return await TerraScale.Orchestrator.Bootstrap.Secrets.OciBootstrapSecretsCli.ExecuteAsync(
             args.Skip(1).ToArray(), shutdown.Token);
     }
+    if (args.FirstOrDefault() is "oci-founding-peers")
+    {
+        return await TerraScale.Orchestrator.Bootstrap.Founding.OciFoundingPeersCli.ExecuteAsync(
+            args.Skip(1).ToArray(), shutdown.Token);
+    }
+    if (args.FirstOrDefault() is "oci-sign-founding")
+    {
+        return await TerraScale.Orchestrator.Bootstrap.Founding.OciFoundingGrantCli.ExecuteAsync(
+            args.Skip(1).ToArray(), shutdown.Token);
+    }
     if (args.FirstOrDefault() is "operator")
     {
         return await OperatorCli.ExecuteAsync(

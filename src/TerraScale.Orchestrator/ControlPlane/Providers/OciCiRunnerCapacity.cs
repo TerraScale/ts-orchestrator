@@ -493,13 +493,13 @@ internal sealed class OciCiRunnerComputeAdapter : IOciCiRunnerCapacityAdapter
         var provider = new InstancePrincipalsAuthenticationDetailsProvider();
         var configuration = new ClientConfiguration { TimeoutMillis = 30_000 };
         var endpointUri = uri.ToString().TrimEnd('/');
-        var compute = new ComputeClient(provider, configuration, endpointUri);
+        var compute = OciSdkEndpoint.Pin(new ComputeClient(provider, configuration, endpointUri));
         try
         {
             return new(new OciCiRunnerSdkTransport(
                 compute,
-                new(provider, configuration, endpointUri),
-                new WorkRequestClient(provider, configuration, endpointUri)));
+                OciSdkEndpoint.Pin(new VirtualNetworkClient(provider, configuration, endpointUri)),
+                OciSdkEndpoint.Pin(new WorkRequestClient(provider, configuration, endpointUri))));
         }
         catch
         {

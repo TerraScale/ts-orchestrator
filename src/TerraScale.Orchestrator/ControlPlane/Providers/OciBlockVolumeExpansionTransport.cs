@@ -97,7 +97,7 @@ internal static class OciBlockVolumeExpansionTransportFactory
         BlockstorageClient? client = null;
         try
         {
-            client = new BlockstorageClient(provider, clientConfiguration, configuration.EndpointText);
+            client = OciSdkEndpoint.Pin(new BlockstorageClient(provider, clientConfiguration, configuration.EndpointText));
             return new OciBlockVolumeExpansionTransport(client);
         }
         catch
@@ -315,4 +315,3 @@ internal static class OciBlockVolumeExpansionTransportMapping
         !string.IsNullOrWhiteSpace(value) &&
         value.All(static character => !char.IsControl(character));
 }
-

@@ -49,8 +49,12 @@ must be separate states in status.
    its initial peers before regional R3 exists. Normal provider mutation is
    fenced by NATS authority and cannot bootstrap its own absent quorum. Do not
    silently downgrade production streams to R1 or treat the current system
-   project bootstrap grants as OCI provisioning authority. This founding-quorum
-   path still needs implementation and crash/retry tests.
+   project bootstrap grants as OCI provisioning authority. The bounded
+   [`oci-founding-peers`](oci-founding-peers.md) command now creates only two
+   signed peers, with retry/restart tests. First-boot composition, quorum
+   formation, and signed recovery after a partial grant expires remain open.
+   Separate Unix users alone do not isolate the journal key when sharing a VM
+   Instance Principal; OCI permissions must deny that key to the controller.
 3. The controller records a signed, durable adoption request containing the
    region-intent generation, source revision, exact resource OCIDs, types,
    compartments, current ownership, and observed provider revisions. It must

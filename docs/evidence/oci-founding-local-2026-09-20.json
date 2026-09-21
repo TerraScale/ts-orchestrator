@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "state": "passed",
+  "artifacts": {
+    "linux-x64": {
+      "sha256": "9bff9fd8de8dcb42c5c6038b4a095360e226bb7619bb2a9343982e4dfb5b391f",
+      "bytes": 95699326,
+      "elfMachine": 62
+    },
+    "linux-arm64": {
+      "sha256": "d46ef84d3173a6ed5ce6b9e13b6cc26ab5b2f5dddecdf5952429fab83f592120",
+      "bytes": 102755104,
+      "elfMachine": 183
+    }
+  },
+  "checks": [
+    "x64-offline-signing",
+    "openssl-signature-verification",
+    "existing-grant-preserved",
+    "invalid-grant-rejected-before-state-or-provider",
+    "elf-architecture"
+  ],
+  "liveOci": false,
+  "arm64Executed": false,
+  "recordedAt": "2026-09-21T00:57:50.986951+00:00",
+  "sourceBase": "04c0b09a6c5e11c45471cf42f87dc3882853a941",
+  "sourceStatus": "working-tree: source files below are changes on sourceBase",
+  "sourceFiles": {
+    "scripts/qualify-founding-cli.py": "d7342b7d11057585f3f35356cc6750ab40f9d4f1e789c1c2f3fca1f4d0da3b16",
+    "src/TerraScale.Orchestrator/Bootstrap/Founding/OciFoundingGrantCli.cs": "cb3049ce2856caef0792fb5726bfc21d003e82363a3cbf494afb833a1ceacee1",
+    "src/TerraScale.Orchestrator/Bootstrap/Founding/OciFoundingPeerReconciler.cs": "b2d5e6fca62c215eba62ce6f8f3b3f4380e436285e4b2c024ab2284ec89c3350",
+    "src/TerraScale.Orchestrator/Bootstrap/Founding/OciFoundingPeersCli.cs": "1163b4385139206eeb989bfeeb715f60864b85beca868c733b72324f2b472d81",
+    "src/TerraScale.Orchestrator/Bootstrap/Founding/OciFoundingPlan.cs": "2856190d153cfdd87b4f03b6452b5ccd5845799c3ca0f30443f12becc8487400",
+    "src/TerraScale.Orchestrator/Bootstrap/Founding/OciFoundingState.cs": "f2afad0968db8086e764674d8a4ee3cb5eda30cf7c67e79717f69d04c43f50e1",
+    "src/TerraScale.Orchestrator/Bootstrap/Secrets/OciVaultSecretSource.cs": "58b28c9d2177e5dc77f36c4b474ec50564a716e470b3b587eeac88175b1d88f5",
+    "src/TerraScale.Orchestrator/ControlPlane/Providers/OciBlockVolumeExpansionTransport.cs": "38a979d8d8d64799ed09c9232bbad03755c266fd1e62639dd38edb02f91a3ec0",
+    "src/TerraScale.Orchestrator/ControlPlane/Providers/OciCiRunnerCapacity.cs": "9f25943ecfc12679f845ef4f90909e44b5ca876ea5ebf179cf782c84d7f74a21",
+    "src/TerraScale.Orchestrator/ControlPlane/Providers/OciCreateNodeClient.cs": "21f16c6b7fefb0f8af1833e9ebbdd26bf348a17fa39951fb2265db21d765d0a2",
+    "src/TerraScale.Orchestrator/ControlPlane/Providers/OciSdkEndpoint.cs": "5ba8bae0f11a0641b79bbe7e19cf2a0c7d275568c8cc8c2ec89f83109598335c",
+    "src/TerraScale.Orchestrator/Nodes/OciWorkloadReplicaFleet.cs": "b2cfb3ae1a70f3ef0b02c9f435fcba6d7db1bea862377482126c7cd5c4d660bd",
+    "src/TerraScale.Orchestrator/Program.cs": "2c28ad007701796bd894445037fab76b95763da805fe77389b7f01bc1cca49f0",
+    "tests/TerraScale.Orchestrator.Tests/OciFoundingPeersTests.cs": "e5773ac9b10a5c11b83758f81d5e409c1b9309a9849d69ce7efac3cb86c0c648",
+    "tests/TerraScale.Orchestrator.Tests/OciSdkEndpointTests.cs": "d202b7c5a36e8dd6adbcf330c60370cec861f12f07ca877cfc3d11881e73b540"
+  },
+  "tests": {
+    "founding": {
+      "passed": 27,
+      "failed": 0,
+      "skipped": 0
+    },
+    "sdkEndpoints": {
+      "passed": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    "vaultRegression": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "localLogs": {
+    "/tmp/ts-oci-founding-tests-final.log": "99e507a062c1606cf2da58ec73fc88ca72c99812214814ac12cf7929e84da246",
+    "/tmp/ts-oci-founding-release-build-final.log": "60a3cce02b43e3ad9145d19f2f38be13459850d786b7fb6fc8bdb2a9e999159b",
+    "/tmp/ts-oci-founding-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-oci-founding-x64-publish.log": "8d1ba9c2822a2033d3960ceb74ff9e2e2b51e585b58ec6047943a54225ec7c4b",
+    "/tmp/ts-oci-founding-arm64-publish.log": "156cf4e940b90fe159633aafe0a6328089aba2a9d04a54e2c404f67ce0df3855",
+    "/tmp/ts-oci-founding-vault-regression.log": "55eb42cfdb438fe715c2119af35f809e1ce181336c57794d577640614d5c6968",
+    "/tmp/ts-oci-sdk-endpoint-tests.log": "676bc96104d2c1513d12e0f8d786a370e18deacf3570d31c5669c85d06af78e9"
+  }
+}

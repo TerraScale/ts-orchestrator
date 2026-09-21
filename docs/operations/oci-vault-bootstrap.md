@@ -44,7 +44,17 @@ terrascale-orchestrator oci-bootstrap-secrets \
 
 Use separate bundles and OS identities for controllers, journal provisioners,
 journal writers, NATS, and workloads. A controller bundle must not contain the
-journal writer's signing key. IAM must restrict `read secret-bundles` to the
+journal writer's signing key. Separate Unix users on one VM do not create
+separate Instance Principals: every process able to use that instance identity
+can request the same Vault secrets. The controller's principal must be denied
+the journal writer key, including permission to grant itself that access.
+First boot therefore needs a separate journal identity with an enforceable
+OCI boundary (for example, a separately administered host/compartment), or an
+equivalent reviewed isolation mechanism. Merely installing the key under a
+different Unix user on the controller VM is insufficient. This boundary is
+still an open first-boot requirement.
+
+IAM must restrict `read secret-bundles` to the
 exact approved secret IDs and principals. The command does not create policies,
 Vaults, keys or secret versions.
 

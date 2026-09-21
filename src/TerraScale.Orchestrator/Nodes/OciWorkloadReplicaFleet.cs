@@ -706,13 +706,13 @@ internal static class OciWorkloadComputeTransport
         var provider = new InstancePrincipalsAuthenticationDetailsProvider();
         var clientConfiguration = new ClientConfiguration { TimeoutMillis = 30_000 };
         var endpointUri = uri.ToString().TrimEnd('/');
-        var compute = new ComputeClient(provider, clientConfiguration, endpointUri);
+        var compute = OciSdkEndpoint.Pin(new ComputeClient(provider, clientConfiguration, endpointUri));
         try
         {
             return new OciCiRunnerSdkTransport(
                 compute,
-                new VirtualNetworkClient(provider, clientConfiguration, endpointUri),
-                new Oci.WorkrequestsService.WorkRequestClient(provider, clientConfiguration, endpointUri));
+                OciSdkEndpoint.Pin(new VirtualNetworkClient(provider, clientConfiguration, endpointUri)),
+                OciSdkEndpoint.Pin(new Oci.WorkrequestsService.WorkRequestClient(provider, clientConfiguration, endpointUri)));
         }
         catch
         {

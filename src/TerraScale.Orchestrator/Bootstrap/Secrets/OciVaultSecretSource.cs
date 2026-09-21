@@ -6,6 +6,7 @@ using Oci.SecretsService.Requests;
 using Oci.SecretsService.Responses;
 using System.Security.Cryptography;
 using TerraScale.Orchestrator.Nodes;
+using TerraScale.Orchestrator.ControlPlane.Providers;
 
 namespace TerraScale.Orchestrator.Bootstrap.Secrets;
 
@@ -24,8 +25,8 @@ internal sealed class OciVaultSecretSource(
         if (!TerraScaleRegion.IsValid(region))
             throw new InvalidDataException("The OCI Vault region is unsupported.");
         var endpoint = $"https://secrets.vaults.{TerraScaleRegion.OciName(region)}.oci.oraclecloud.com";
-        var client = new SecretsClient(new InstancePrincipalsAuthenticationDetailsProvider(),
-            new ClientConfiguration { TimeoutMillis = 30_000 }, endpoint);
+        var client = OciSdkEndpoint.Pin(new SecretsClient(new InstancePrincipalsAuthenticationDetailsProvider(),
+            new ClientConfiguration { TimeoutMillis = 30_000 }, endpoint));
         return new((request, token) => client.GetSecretBundle(request, cancellationToken: token), client.Dispose);
     }
 

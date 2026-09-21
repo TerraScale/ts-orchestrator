@@ -16,6 +16,10 @@ These documents describe the current system:
 | [`contracts/deploy-orchestrator-handoff.md`](contracts/deploy-orchestrator-handoff.md) | Lean candidate handoff and authority separation |
 | [`runbooks/nats-gateway-operations.md`](runbooks/nats-gateway-operations.md) | Gateway rotation and failure handling |
 | [`runbooks/nats-monitoring.md`](runbooks/nats-monitoring.md) | NATS alert interpretation and remediation |
+| [`operations/control-bootstrap.md`](operations/control-bootstrap.md) | OCI first boot and seed ownership handoff contract |
+| [`operations/oci-vault-bootstrap.md`](operations/oci-vault-bootstrap.md) | Pinned Instance Principal credential delivery and identity boundaries |
+| [`operations/oci-founding-peers.md`](operations/oci-founding-peers.md) | Offline signing and bounded creation of the first two GRU peers |
+| [`evidence/oci-readiness-2026-09-20.md`](evidence/oci-readiness-2026-09-20.md) | Local verification evidence and remaining deployment gates |
 
 Deleted documents remain available through Git history when an old decision
 must be inspected.

@@ -33,6 +33,20 @@ normal runtime startup. This closes the materialization component; live
 Instance Principal checks, bootstrap supervisor composition, enrollment
 renewal and admission remain open.
 
+The bounded [`oci-founding-peers`](../operations/oci-founding-peers.md) command
+now creates the seed's two signed GRU peers before NATS exists. Its offline
+`oci-sign-founding` companion keeps the signing key in CI. Retry/restart and
+expiry behavior are covered locally; `peers-running` still explicitly requires
+regional NATS quorum, admission and seed handoff. Expired partial bootstraps
+have no signed renewal/recovery protocol yet.
+
+The real SDK launch test exposed an endpoint-routing bug: the OCI client
+retained the credential region's template after receiving an explicit
+endpoint. The compute, network, block-storage, work-request and Vault factories
+now clear that template, preserving the reviewed explicit regional endpoint.
+Five signed loopback HTTP tests cover those service clients. These checks
+use synthetic test credentials and do not qualify Instance Principal.
+
 ## Verification evidence
 
 These are working-tree results, not qualification of an immutable release.
@@ -41,6 +55,11 @@ the exact release revision before deployment.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Founding peer grant and reconciliation | **27 passed**, 0 failed/skipped | `/tmp/ts-oci-founding-tests-final.log`; offline signing, exact bounds, retries/lost responses and receipts, restart, drift, expiry, lock and redaction; includes real SDK signed launch serialization against loopback |
+| Explicit OCI SDK endpoint routing | **5 passed**, 0 failed/skipped | `/tmp/ts-oci-sdk-endpoint-tests.log`; compute, network, block storage, work requests and Vault use the supplied endpoint despite a stale template |
+| Founding Release/style and publish | Pass; build 0 warnings/errors; x64 and ARM64 ELF verified | `/tmp/ts-oci-founding-release-build-final.log`, `/tmp/ts-oci-founding-style.log`, `/tmp/ts-oci-founding-{x64,arm64}-publish.log` |
+| Published founding CLI | Pass, offline x64 process | `/tmp/ts-oci-founding-cli-receipt.json`; actual signing verified by OpenSSL, existing grant preserved, invalid signature rejected before provider/state; ARM64 built but not executed |
+| Vault delivery after SDK endpoint correction | **18 passed**, 0 failed/skipped | `/tmp/ts-oci-founding-vault-regression.log`; no live Vault calls |
 | Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
 | Real containerd lifecycle and isolation | **2 passed, no skips**; cleanup verified | `/tmp/ts-oci-containerd-rehearsal-final.log`, `/tmp/ts-oci-containerd-f9l1t9em/receipt.json`; real pinned pull/create/start/restart/delete, kernel security/resource checks, forged-label rejection; synthetic x64 image, no ts-auth application or OCI VM |
 | Containerd adapter, runtime plans, host convergence | 8 + 7 + 18 passed | `/tmp/ts-oci-containerd-adapter-tests.log`, `/tmp/ts-oci-containerd-plan-tests.log`, `/tmp/ts-oci-containerd-host-tests.log` |
@@ -63,6 +82,9 @@ the exact release revision before deployment.
 | Admin portal after navigation assertion fix | 5 passed | `/tmp/ts-auth-admin-navigation.log`; observes navigation before submit and checks the rendered account heading |
 | Full auth run after navigation assertion fix | **381 passed, 0 failed, 0 skipped** | `/tmp/tsauth-ci-navigation-rerun.log`; 2m40s, CI-equivalent serial execution |
 | Full orchestrator main suite after region/status/scaler changes | 974 passed, 0 failed, 3 skipped | `/tmp/ts-orchestrator-main-final.log`; 10m14s; final provider demand/drain correction was then verified by the 17 focused fleet tests |
+
+The [founding component receipt](oci-founding-local-2026-09-20.json) records
+source file hashes, local log hashes, test totals and both published artifacts.
 
 Earlier completed orchestrator results, before the latest region/status/scaler
 edits: main **952 passed, 3 live-test skips**; control plane **949 passed**;
@@ -145,6 +167,10 @@ The current virtual-private Vault requires explicit resource/cost review.
   material and exact regional subject permissions. The production regional
   runtime uses NKey files; existing JWT-based test fixtures do not by
   themselves prove its first-boot connection configuration.
+  Separate Unix users on a VM share its Instance Principal. The controller
+  principal must be denied the journal writer key, including self-granted
+  access; first boot still needs an enforceable OCI identity boundary for
+  the writer. Separate credential directories alone do not establish it.
 - **Command and enrollment trust:** pinned signing keys, grant audience,
   certificate/node/region binding, fixed system project, and durable replay
   records. Production admission currently accepts a generation once and
@@ -169,9 +195,11 @@ The current virtual-private Vault requires explicit resource/cost review.
    scoped Vault retrieval, NATS startup, isolated journal, controller admission,
    and recovery after interruption at each stage.
    The initial controller must create its founding peers before an R3 authority
-   quorum exists; the current normal runtime depends on that quorum. A bounded
-   bootstrap authority must solve this without downgrading production stores
-   or granting general unfenced mutation.
+   quorum exists; the current normal runtime depends on that quorum. The new
+   signed founding path creates only two peers without downgrading production
+   stores. Its supervisor, peer artifact delivery, authenticated NATS quorum,
+   isolated journal identity and partial-bootstrap grant recovery are still
+   required.
 2. Implement and qualify the CI/controller seed ownership transfer. The
    dynamic-group rule now binds to the newly created controller compartment
    automatically. Bootstrap policies must still be reviewed and must not
@@ -222,8 +250,8 @@ Run at reduced local priority; CI keeps normal priority. Use TUnit, not
 
 The provider demand/drain correction is `5b4da8f2`, pinned Vault delivery is
 `7e7ba778`, and readiness binding is `c2e3ae16`; all are committed and pushed.
-Forgejo tasks 493 and 494 were cancelled by subsequent pushes. Task 495 for
-`c2e3ae16` was still running when checked; no CI pass is claimed for these revisions. The auth navigation fix and these updated receipts
+Forgejo tasks 493, 494 and 495 were cancelled by subsequent pushes. Task 496 for
+`04c0b09a` was still running when checked; no CI pass is claimed for these revisions. The auth navigation fix and these updated receipts
 were verified locally.
 
 ## First live OCI qualification, after local readiness

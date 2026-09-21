@@ -173,7 +173,8 @@ each supported region's cluster. OCI fleet startup now requires the public
 and endpoints or templates belonging to a different region. Supported regions
 are not automatically admitted by this file.
 
-The complete first boot, Vault delivery, seed ownership transfer, and regional
+Pinned Vault delivery and the bounded two-peer GRU founding commands are
+implemented. The complete first boot, seed ownership transfer, and regional
 estate reconciliation remain deployment blockers. The current C# bootstrap
 contract and exact gaps are documented in
 [`docs/operations/control-bootstrap.md`](docs/operations/control-bootstrap.md)
@@ -190,3 +191,4 @@ and the [OCI readiness record](docs/evidence/oci-readiness-2026-09-20.md).
 - [NATS monitoring](docs/runbooks/nats-monitoring.md)
 - [OCI bootstrap and ownership handoff](docs/operations/control-bootstrap.md)
 - [Pinned OCI Vault credential delivery](docs/operations/oci-vault-bootstrap.md)
+- [Bounded GRU founding peers](docs/operations/oci-founding-peers.md)
