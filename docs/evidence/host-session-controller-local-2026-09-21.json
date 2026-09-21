@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T05:10:22.561239+00:00",
+  "state": "controller-composition-and-final-correction-checks-passed",
+  "sourceBase": "ba0e51c988936894e1168b80efa65b3bb065a279",
+  "sourceStatus": "working-tree: source hashes identify this batch on sourceBase",
+  "sourceFiles": {
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionConfiguration.cs": "593ab62c9ec02c9db81fa28e4a1284b01eaa7d68393a1c63fead59d28cdfa64f",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionService.cs": "344d321b036ce08a3eeb9943ac065fa5d71761b46b63237cb8f687aeb581729f",
+    "src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs": "c6f6b6a9adbbb65d4461247043b49ea567afe25de80b2c7e677c4b6965edd695",
+    "src/TerraScale.Orchestrator/Observability/OrchestratorTelemetry.cs": "aecf37d1f643ab0b164a17115c006cb8dcc6ed4768530fe9175f21c1e69bbf63",
+    "src/TerraScale.Orchestrator/OrchestratorRuntimeConfiguration.cs": "bbc91330dfa21043b93e05adbbb18656c35783fb7befbc8570a52ac15ce94e39",
+    "src/TerraScale.Orchestrator/Program.cs": "826c5e9aab12a313326c3ad5a9c1fb0aded6c27976e27f80ed007ec33d6dcc6f",
+    "tests/TerraScale.Orchestrator.Tests/NatsControlR3L0cTests.cs": "f5ac9704bd880776e0698b6ab017811d10c03c4ec6659e8b64ed307fff487a09",
+    "tests/TerraScale.Orchestrator.Tests/OperatorStatusTests.cs": "f1028fd922668ac50029a500b4f9ad077f80c3fa11a5df865d7ee81f97f72ce6",
+    "tests/TerraScale.Orchestrator.Tests/OrchestratorTelemetryTests.cs": "80a649215b0c60eb827d664204258b94ba4859f63434f70ba8ac255b68d99ac9",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionAuthorityTests.cs": "eacf7b2a97050539935220342376cca19d6f15671d5a6206aaf23a72ddd6c690",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionConfigurationTests.cs": "fccd84d904065639a4993b1d19a6e3ad3339d6816df93afbb53971a8418949ee"
+  },
+  "checks": {
+    "focused": {
+      "passed": 49,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "31s585ms"
+    },
+    "realControllerRuntimeR3": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "10s834ms",
+      "scope": "Restricted JWT/mTLS controller startup with/without session policy; actual host acquisition, authenticated operator query and runtime-attached acquisition metric."
+    },
+    "protocol": {
+      "passed": 165,
+      "failed": 0,
+      "skipped": 0
+    },
+    "releaseBuild": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "requiredStyle": "passed: dotnet format style, matching CI",
+    "cliPolicyDenial": {
+      "exitCode": 1,
+      "expected": true,
+      "scope": "Actual Release CLI check loads and rejects malformed controller policy before NATS startup."
+    },
+    "fullMain": {
+      "passed": 1160,
+      "failed": 0,
+      "skipped": 5,
+      "duration": "12m03s304ms",
+      "scope": "Snapshot before the final service-start timeout classification correction; that correction will be qualified separately."
+    },
+    "finalCorrectionFocused": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "31s110ms",
+      "scope": "Final source; includes internal startup timeout versus caller cancellation."
+    },
+    "finalCorrectionRealControllerRuntimeR3": {
+      "passed": 2,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "13s967ms"
+    },
+    "finalCorrectionBuild": {
+      "warnings": 0,
+      "errors": 0
+    },
+    "finalCorrectionRequiredStyle": "passed"
+  },
+  "localLogs": {
+    "/tmp/ts-host-session-composition-tests2.log": "4ab0c7bf2404a4c036e6dcafb9b346039b2474fa7c2fc8c0461dc83c754b03cd",
+    "/tmp/ts-host-session-runtime-r3-tests.log": "ecaa8e3f3171384efea1f813a39cfe2179109e7ea4201af4d27456e6bb750580",
+    "/tmp/ts-host-session-composition-final-build.log": "1860c71abf1d2e6c8546d0cdd5e61e162bbf6a9c46d3625535ac763f63377590",
+    "/tmp/ts-host-session-composition-required-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-host-session-composition-whitespace.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-host-session-composition-protocol.log": "1bcc553733234c55d8f059f24d35d9800efc49e0e8035d0daeeccf42f69eef7f",
+    "/tmp/ts-host-session-composition-cli-policy.log": "f2e1ba3c2d420bcdb22a0b4798ae62b53f740067aa92a6706ba711e5df505840",
+    "/tmp/ts-host-session-composition-main-suite.log": "3d69937b116385c21deb5882e448edf5147d8d5f4f6860c7ee3657b7efe8c78d",
+    "/tmp/ts-host-session-composition-timeout-build.log": "36a53aff1533ded86ff99ad61c4c3799e27f2db64a20eaa77f153e843f8edac9",
+    "/tmp/ts-host-session-composition-timeout-tests.log": "5b550de9fbe4a9636a2215e52b01f7d24e34325e9bcaf9566b10e2080dd53e89",
+    "/tmp/ts-host-session-composition-timeout-r3.log": "4762278c847827c4d76f1de690a031d8913a163cc0533171c65f52a968bd660f",
+    "/tmp/ts-host-session-composition-timeout-style.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "supersededAttempts": [
+    {
+      "log": "/tmp/ts-host-session-composition-tests.log",
+      "passed": 48,
+      "failed": 1,
+      "reason": "New typed-config test fixture omitted schemaVersion; corrected fixture to1 and reran49green."
+    },
+    {
+      "log": "/tmp/ts-host-session-composition-style.log",
+      "state": "failed",
+      "reason": "Generic dotnet format found existing whitespace in six unrelated files and newly added anonymous test document; formatted only the changed helper. Required CI style check passed separately."
+    }
+  ],
+  "productionControllerStartupComposed": true,
+  "productionHostStartupComposed": false,
+  "hostReportsBoundToSession": false,
+  "workloadStopAndStorageFencingQualified": false,
+  "arm64Executed": false,
+  "liveOci": false,
+  "deploymentReady": false,
+  "limits": [
+    "Policy is pinned for process lifetime; coordinated regional issuance/rotation is still required.",
+    "Session counters count requests including retries; they are not active-host or lease counts.",
+    "Status progress reflects admission-service listening/retry state, not global deployment progress.",
+    "Host report relay and fleet readiness readers still require session-generation/epoch/role binding.",
+    "No new release artifact hashes or ARM64 execution evidence in this receipt."
+  ],
+  "fullMainSourceFiles": {
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionConfiguration.cs": "593ab62c9ec02c9db81fa28e4a1284b01eaa7d68393a1c63fead59d28cdfa64f",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionService.cs": "36bf7f61923db351d91e95f90db9d8f8f7b99d923feea9a472b6746bbf7e1e00",
+    "src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs": "c6f6b6a9adbbb65d4461247043b49ea567afe25de80b2c7e677c4b6965edd695",
+    "src/TerraScale.Orchestrator/Observability/OrchestratorTelemetry.cs": "aecf37d1f643ab0b164a17115c006cb8dcc6ed4768530fe9175f21c1e69bbf63",
+    "src/TerraScale.Orchestrator/OrchestratorRuntimeConfiguration.cs": "bbc91330dfa21043b93e05adbbb18656c35783fb7befbc8570a52ac15ce94e39",
+    "src/TerraScale.Orchestrator/Program.cs": "826c5e9aab12a313326c3ad5a9c1fb0aded6c27976e27f80ed007ec33d6dcc6f",
+    "tests/TerraScale.Orchestrator.Tests/NatsControlR3L0cTests.cs": "f5ac9704bd880776e0698b6ab017811d10c03c4ec6659e8b64ed307fff487a09",
+    "tests/TerraScale.Orchestrator.Tests/OperatorStatusTests.cs": "f1028fd922668ac50029a500b4f9ad077f80c3fa11a5df865d7ee81f97f72ce6",
+    "tests/TerraScale.Orchestrator.Tests/OrchestratorTelemetryTests.cs": "80a649215b0c60eb827d664204258b94ba4859f63434f70ba8ac255b68d99ac9",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionAuthorityTests.cs": "eacf7b2a97050539935220342376cca19d6f15671d5a6206aaf23a72ddd6c690",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostSessionConfigurationTests.cs": "0edee59e632ec86f11faace533e892c406b118f7c333df3cf67e95b011d3e672"
+  },
+  "fullMainScope": "Snapshot before the final service-start timeout classification correction; that correction will be qualified separately.",
+  "ownedTestContainersAfterRun": 0,
+  "cleanup": {
+    "abortedAttemptPodRemoved": "ts-orch-test-nats-0d56cd25cfa14a29b6cc61a0d439110a",
+    "reason": "Earlier aborted host-session run removed its three NATS servers but left its infra-only pod. Matched pod creation04:16:35UTC to aborted log creation04:16:17UTC, confirmed no active test process and only infra container before removal.",
+    "otherPreExistingPodsUntouched": true
+  }
+}

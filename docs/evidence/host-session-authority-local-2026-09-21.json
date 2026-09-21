@@ -101,5 +101,6 @@
     "expectedLiveSkips": 5,
     "arm64Executed": false,
     "durableArtifactUploads": false
-  }
+  },
+  "cleanupCorrection": "The post-run zero count covered NATS test servers. An infra-only pod from the earlier aborted attempt remained; it was identified and removed during controller-composition qualification. See host-session-controller-local-2026-09-21.json."
 }

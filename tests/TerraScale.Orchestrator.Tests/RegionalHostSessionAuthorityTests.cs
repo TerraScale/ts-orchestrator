@@ -53,7 +53,7 @@ public sealed class RegionalHostSessionAuthorityTests
             await using var stream = peer.GetStream();
             using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
             await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: true)
-                { AutoFlush = true, NewLine = "\r\n" };
+            { AutoFlush = true, NewLine = "\r\n" };
             await writer.WriteLineAsync("INFO {\"server_id\":\"deadline-test\",\"version\":\"2.14.0\",\"proto\":1,\"max_payload\":1048576}".AsMemory(), cancellationToken);
             var handshaken = false;
             while (await reader.ReadLineAsync(cancellationToken) is { } line)
@@ -178,7 +178,9 @@ public sealed class RegionalHostSessionAuthorityTests
         await Assert.That(await authority.RevokeAsync(oldEnrollment.NodeId, 1, initial.Epoch, deadline.Token)).IsTrue();
         var leader = (await store.GetStatusAsync(deadline.Token)).Info.Cluster?.Leader switch
         {
-            "r3-l0c-1" => 0, "r3-l0c-2" => 1, "r3-l0c-3" => 2,
+            "r3-l0c-1" => 0,
+            "r3-l0c-2" => 1,
+            "r3-l0c-3" => 2,
             _ => throw new InvalidOperationException("The R3 enrollment store did not report its leader.")
         };
         await fixture.KillMemberAsync(leader, deadline.Token);
@@ -388,6 +390,33 @@ internal sealed class SessionMaterial : IDisposable
         NatsAuthenticationFiles? authentication = null) => RegionalHostSessionRequest.Sign(enrollment, authentication ?? Authentication,
         epoch == 0 ? RegionalHostSessionOperation.Acquire : RegionalHostSessionOperation.Renew,
         session ?? Guid.NewGuid().ToString("N"), epoch, Clock.GetUtcNow());
+
+    internal string ConfigurationJson() => JsonSerializer.Serialize(new
+    {
+        schemaVersion = 1,
+        cell = "gru",
+        natsAccountPublicKey = account,
+        clusterName = "gru-cluster",
+        environment = "production",
+        roles = new[] { "terrabase-member", "authentication" },
+        enrollmentSignerKeyId = "enrollment-key",
+        enrollmentSignerKeyVersion = 1,
+        enrollmentSignerPublicKey = Convert.ToBase64String(enrollmentKey.ExportSubjectPublicKeyInfo()),
+        systemOrganizationUlid = Project.OrganizationUlid.Value,
+        systemProjectUlid = Project.ProjectUlid.Value,
+        systemDatabaseUlid = Project.DatabaseUlid.Value,
+        bootstrapOperation = BootstrapGrantOperation.EnsureSystemProjectConfiguration,
+        maximumGrantLifetimeSeconds = 900,
+        bootstrapTrust = new
+        {
+            bundleVersion = 1,
+            currentGrantSigningKeyId = "grant-key",
+            currentGrantSigningKeyVersion = 1,
+            keys = new[] { new { keyId = "grant-key", keyVersion = 1, purpose = BootstrapTrustKeyPurpose.GrantSigning,
+                subjectPublicKeyInfo = Convert.ToBase64String(GrantIssuer.ExportPublicKey().SubjectPublicKeyInfoCopy()),
+                acceptedUntil = (DateTimeOffset?)null } }
+        }
+    });
 
     public void Dispose() { signer.Dispose(); GrantIssuer.Dispose(); seed.Dispose(); }
 }

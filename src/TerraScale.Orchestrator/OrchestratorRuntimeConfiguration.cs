@@ -94,7 +94,8 @@ internal sealed record OrchestratorRuntimeConfiguration(
     string? BootstrapSystemProjectUlid = null,
     string? BootstrapSystemDatabaseUlid = null,
     string? HostBootstrapOperation = null,
-    int? HostBootstrapMaximumLifetimeSeconds = null)
+    int? HostBootstrapMaximumLifetimeSeconds = null,
+    string? HostSessionPolicyFile = null)
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web)
     {
@@ -199,6 +200,7 @@ internal sealed record OrchestratorRuntimeConfiguration(
         "TS_ORCH_FORGEJO_API_URL" => ForgejoApiUrl,
         "TS_ORCH_FORGEJO_API_TOKEN_FILE" => ForgejoApiTokenFile,
         "TS_ORCH_FORGEJO_CI_SOURCE_GRAPH_FILE" => ForgejoCiSourceGraphFile,
+        "TS_ORCH_HOST_SESSION_POLICY_FILE" => HostSessionPolicyFile,
         "TS_ORCH_HOST_ENROLLMENT_FILE" => HostEnrollmentFile,
         "TS_ORCH_HOST_ENROLLMENT_SIGNER_PUBLIC_KEY_FILE" => HostEnrollmentSignerPublicKeyFile,
         "TS_ORCH_HOST_BOOTSTRAP_TRUST_BUNDLE_FILE" => HostBootstrapTrustBundleFile,

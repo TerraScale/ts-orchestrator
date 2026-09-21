@@ -89,6 +89,8 @@ try
         autoProvisionValue is not ("0" or "false");
     TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null;
     TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostAdmissionConfiguration? hostAdmission = null;
+    var hostSessions = TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostSessionConfiguration.Load(
+        ResolvedEnvironment("TS_ORCH_HOST_SESSION_POLICY_FILE"), options.Cell);
     var hostRoleNames = ResolvedEnvironment("TS_ORCH_HOST_ROLES");
     if (options.Command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
         !string.IsNullOrWhiteSpace(hostRoleNames))
@@ -217,7 +219,8 @@ try
             hostAdmission,
             terrabasePlacement,
             memberFleet,
-            workloadFleet);
+            workloadFleet,
+            hostSessions);
         if (startupPlan.StartsDirectDelivery && runtime.DirectDelivery is null)
             throw new InvalidOperationException("The direct delivery mutation path was not composed with durable regional adapters.");
         var observedRuntime = runtime;

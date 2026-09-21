@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -23,7 +24,9 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsControlR3L0cTests
 {
     [Test]
-    public async Task Regional_runtime_starts_with_JWT_mTLS_credentials_and_serves_operator_status()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Regional_runtime_starts_with_JWT_mTLS_credentials_and_serves_operator_status(bool sessionsEnabled)
     {
         await using var fixture = await NatsControlR3L0cFixture.StartAsync();
         await fixture.ProvisionAsync();
@@ -47,16 +50,56 @@ public sealed class NatsControlR3L0cTests
         await File.WriteAllTextAsync(artifactPath, artifactKey.ExportSubjectPublicKeyInfoPem());
         using var commands = EcdsaCommandSignatureVerifier.LoadPublicPem([commandPath]);
         using var artifacts = EcdsaCommandSignatureVerifier.LoadPublicPem([artifactPath]);
+        var hostAuthentication = NatsAuthenticationFiles.FromCredentialsFile(fixture.HostAgent.CredentialsFile, "host-session test");
+        using var sessionMaterial = new SessionMaterial(hostAuthentication, fixture.HostAgent.AccountPublicKey, "host-1", realTime: true);
+        RegionalHostSessionConfiguration? sessions = null;
+        if (sessionsEnabled)
+        {
+            var policyPath = Path.Combine(fixture.DirectoryPath, "host-session-policy.json");
+            await File.WriteAllTextAsync(policyPath, sessionMaterial.ConfigurationJson());
+            sessions = RegionalHostSessionConfiguration.Load(policyPath, "gru");
+        }
         var options = OrchestratorOptions.Parse(["run"], environment.GetValueOrDefault);
         await using var runtime = await NatsRuntime.StartAsync(options, deadline.Token,
             commandSignatureVerifier: commands,
             admittedDeliveryTargets: DirectDeliveryAdmittedTargets.Parse(["authentication:development:gru"]),
-            ciArtifactSignatures: artifacts, autoProvision: false);
+            ciArtifactSignatures: artifacts, autoProvision: false, hostSessions: sessions);
+        if (sessionsEnabled)
+        {
+            var acquisitions = new List<long>();
+            using var listener = new MeterListener();
+            listener.InstrumentPublished = (instrument, meterListener) =>
+            {
+                if (instrument.Meter.Name == Observability.OrchestratorTelemetry.InstrumentationName &&
+                    instrument.Name == "terrascale.orchestrator.host.session.requests")
+                    meterListener.EnableMeasurementEvents(instrument);
+            };
+            listener.SetMeasurementEventCallback<long>((_, count, tags, _) =>
+            {
+                foreach (var tag in tags)
+                    if (tag.Key == "result" && Equals(tag.Value, "acquired")) acquisitions.Add(count);
+            });
+            listener.Start();
+            using var telemetry = Observability.OrchestratorTelemetry.Start(options, _ => null);
+            runtime.AttachServiceTelemetry(telemetry);
+            await using var host = await fixture.ConnectAsync(fixture.HostAgent, cancellationToken: deadline.Token);
+            var client = new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1");
+            var acquired = await client.SendAsync(sessionMaterial.Request(sessionMaterial.Enroll(1)), deadline.Token);
+            await Assert.That(acquired.Accepted).IsTrue();
+            while (!acquisitions.Contains(1))
+            {
+                deadline.Token.ThrowIfCancellationRequested();
+                acquisitions.Clear();
+                listener.RecordObservableInstruments();
+                if (!acquisitions.Contains(1)) await Task.Delay(10, deadline.Token);
+            }
+        }
         await using var operatorClient = await fixture.ConnectAsync(fixture.Operator, cancellationToken: deadline.Token);
         var response = await operatorClient.RequestAsync<string, string>(fixture.Topology.OperatorStatusSubject,
             string.Empty, cancellationToken: deadline.Token);
         response.EnsureSuccess();
         await Assert.That(response.Data).Contains("host-report-relay");
+        await Assert.That(response.Data!.Contains("host-session-authority", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         await Assert.That(runtime.Completion.IsCompleted).IsFalse();
         environment["TS_ORCH_NATS_CREDENTIALS_FILE"] = fixture.Operator.CredentialsFile;
         environment["TS_ORCH_NATS_TLS_CERT_FILE"] = fixture.Operator.CertificateFile;

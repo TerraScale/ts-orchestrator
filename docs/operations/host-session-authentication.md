@@ -20,8 +20,9 @@ key, cluster, credential manifest digest and bootstrap grant.
 `RegionalHostSessionAuthority`, `RegionalHostSessionService` and
 `NatsRegionalHostSessionClient` implement controller-owned admission over NATS.
 They are exercised directly against restricted JWT/mTLS R3 credentials.
-Production startup and the host renewal/workload loop are not yet wired to
-these components; the current runtime still uses its one-use admission gate.
+Controller startup loads the policy and starts the service as described below.
+The host renewal/workload loop is not yet wired to the remote client; the
+current local host path still uses its one-use admission gate.
 
 A replaced node can retain its old credentials for the same hashed NATS
 subject. A public signed enrollment document alone therefore does not
@@ -110,7 +111,71 @@ a withheld-PONG loopback test covers this failure path.
 Service snapshots count accepted acquire/renew requests (including retries),
 rejections and storage/transport failures. Bounded failure tracking prevents
 one host's success from clearing another host's pending storage retry. These
-snapshots still need production status/metrics endpoint composition.
+snapshots feed the authenticated operator status and process telemetry below.
+
+## Controller configuration and observability
+
+Set `TS_ORCH_HOST_SESSION_POLICY_FILE`, or `hostSessionPolicyFile` in the typed
+runtime configuration. The file contains public trust material, must be a
+regular file without symlink traversal or group/other write permissions, and
+must not exceed 32 KiB. Duplicate/unknown/missing fields, malformed public
+keys, a foreign cell and invalid roles fail before connecting to NATS.
+Both enrollment and bootstrap signing keys must be exact P-256 DER
+SubjectPublicKeyInfo, encoded as base64. No private signing key belongs here.
+
+The following schema template needs the actual reviewed account and public
+keys, fixed system-project identities and cluster name:
+
+```json
+{
+  "schemaVersion": 1,
+  "cell": "gru",
+  "natsAccountPublicKey": "<regional account public NKey>",
+  "clusterName": "gru-cluster",
+  "environment": "production",
+  "roles": ["terrabase-member", "authentication"],
+  "enrollmentSignerKeyId": "enrollment-key",
+  "enrollmentSignerKeyVersion": 1,
+  "enrollmentSignerPublicKey": "<base64 DER SPKI>",
+  "systemOrganizationUlid": "<fixed system organization ULID>",
+  "systemProjectUlid": "<fixed system project ULID>",
+  "systemDatabaseUlid": "<fixed system database ULID>",
+  "bootstrapOperation": "ensure-system-project-configuration",
+  "maximumGrantLifetimeSeconds": 900,
+  "bootstrapTrust": {
+    "bundleVersion": 1,
+    "currentGrantSigningKeyId": "grant-key",
+    "currentGrantSigningKeyVersion": 1,
+    "keys": [{
+      "keyId": "grant-key",
+      "keyVersion": 1,
+      "purpose": 1,
+      "subjectPublicKeyInfo": "<base64 DER SPKI>",
+      "acceptedUntil": null
+    }]
+  }
+}
+```
+
+The service requires R3 and regional NKey/JWT plus mTLS credentials. A
+controller with this policy cannot also enable local host convergence/admission:
+the old and new replay formats must not run together. `run` with either OCI
+workload fleet requires the policy before opening any provider. Startup checks
+the actual session store and has a five-second service-start deadline. Internal
+timeout is a startup failure; caller cancellation retains shutdown semantics. Service
+failure joins runtime completion monitoring; shutdown disposes the service.
+Policy is immutable for the process lifetime. Provision the same reviewed
+policy across the regional controllers; coordinated policy/key rotation still
+belongs to first-boot and credential-lifecycle qualification.
+
+The existing authenticated operator-status query includes a
+`host-session-authority` action, with `listening`/100 or `retrying`/0. A storage
+or response failure adds `host-session-authority:retry-request` to needs.
+This progress describes the admission service, not the readiness of all hosts.
+OTLP exposes `terrascale.orchestrator.host.session.requests`, labeled only by
+cell and `acquired`, `renewed`, `rejected` or `failed`, and
+`terrascale.orchestrator.host.session.retry_pending`, labeled only by cell.
+Counters count requests, including retries, rather than active hosts or leases.
 
 ## Cryptography and packaging
 
@@ -158,8 +223,12 @@ capacity, private-store denial and the authenticated host client/service path.
 Logical time controls expiry cases; the wire test also runs on the wall clock.
 These are component tests, not a fresh OCI guest starting real workloads.
 
-Production controller configuration must load the reviewed policy and start
-the service with its status/metrics projection. Then route the dedicated host
+The existing report envelope and stored readiness observations do not yet
+carry session generation/epoch. Bind publication and fleet readiness reads to
+the current session, role and enrollment before enabling remote hosts; a
+valid per-node NATS subject alone does not distinguish a revoked process.
+
+Production first boot must deliver the reviewed controller policy. Route the dedicated host
 entry through the remote client, credential-manifest/certificate checks and
 bounded desired/artifact/replacement-lease exchanges. The renewal loop must
 distinguish original enrollment evidence from permission to execute bootstrap

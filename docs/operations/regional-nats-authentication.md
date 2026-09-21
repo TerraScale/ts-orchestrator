@@ -74,8 +74,9 @@ enrollment/desired/artifact/lease protocols, restart/renewal, and durable drain.
 Signed enrollment now binds the exact environment and workload roles. The
 [host session authentication component](host-session-authentication.md)
 adds proof of possession for the enrolled user key. The durable R3 session
-authority and restricted broker client/service now pass component tests;
-controller startup, host renewal and workload fencing remain to be composed.
+authority and restricted broker client/service now pass component tests.
+Controller startup loads `TS_ORCH_HOST_SESSION_POLICY_FILE` and composes the
+service with status/metrics. Host renewal and workload fencing remain open.
 OCI Instance Principal, Vault policy, first boot, region formation and seed
 ownership handoff still require their own qualification. See the
 [OCI readiness record](../evidence/oci-readiness-2026-09-20.md).

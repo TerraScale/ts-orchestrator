@@ -70,19 +70,26 @@ internal sealed class RegionalHostSessionService : IAsyncDisposable
     internal static async Task<RegionalHostSessionService> StartAsync(INatsConnection connection,
         RegionalHostSessionAuthority authority, CancellationToken cancellationToken)
     {
-        await authority.ValidateStoreAsync(cancellationToken).ConfigureAwait(false);
-        var pattern = NatsSubjectTaxonomy.RegionalRoot(authority.Cell) + "." + NatsSubjectTaxonomy.RegionalAgentPrefixSegment +
-            ".*." + NatsSubjectTaxonomy.ObservationFamilySegment + ".enrollment";
-        var subscription = await connection.SubscribeCoreAsync<string>(pattern, queueGroup: "host-session-authority",
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        INatsSub<string>? subscription = null;
         try
         {
-            await connection.PingAsync(cancellationToken).AsTask().WaitAsync(cancellationToken).ConfigureAwait(false);
+            await authority.ValidateStoreAsync(deadline.Token).ConfigureAwait(false);
+            var pattern = NatsSubjectTaxonomy.RegionalRoot(authority.Cell) + "." + NatsSubjectTaxonomy.RegionalAgentPrefixSegment +
+                ".*." + NatsSubjectTaxonomy.ObservationFamilySegment + ".enrollment";
+            subscription = await connection.SubscribeCoreAsync<string>(pattern, queueGroup: "host-session-authority",
+                cancellationToken: deadline.Token).ConfigureAwait(false);
+            await connection.PingAsync(deadline.Token).AsTask().WaitAsync(deadline.Token).ConfigureAwait(false);
             return new(connection, authority, subscription);
         }
-        catch
+        catch (Exception exception)
         {
-            await subscription.DisposeAsync().ConfigureAwait(false);
+            if (subscription is not null) await subscription.DisposeAsync().ConfigureAwait(false);
+            // Program treats caller cancellation as a clean shutdown. An internal startup
+            // deadline is a failed start and must not escape through that success path.
+            if (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+                throw new TimeoutException("The regional host-session service startup timed out.", exception);
             throw;
         }
     }

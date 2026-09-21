@@ -11,6 +11,36 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class OrchestratorTelemetryTests
 {
     [Test]
+    public async Task Host_session_metrics_count_bounded_request_outcomes_and_pending_retry()
+    {
+        var measurements = new List<MetricMeasurement>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == OrchestratorTelemetry.InstrumentationName &&
+                instrument.Name.StartsWith("terrascale.orchestrator.host.session.", StringComparison.Ordinal))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            var copiedTags = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var tag in tags) copiedTags.Add(tag.Key, tag.Value);
+            measurements.Add(new(instrument.Name, value, copiedTags));
+        });
+        listener.Start();
+        using var telemetry = OrchestratorTelemetry.Start(
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 3), _ => null);
+        telemetry.ObserveHostSessions(() => new(5, 7, 2, 1, true));
+        listener.RecordObservableInstruments();
+        await Assert.That(measurements.Where(value => value.Name.EndsWith(".requests", StringComparison.Ordinal))
+            .ToDictionary(value => (string)value.Tags["result"]!, value => value.Value))
+            .IsEquivalentTo(new Dictionary<string, long> { ["acquired"] = 5, ["renewed"] = 7, ["rejected"] = 2, ["failed"] = 1 });
+        await Assert.That(measurements.Single(value => value.Name.EndsWith(".retry_pending", StringComparison.Ordinal)).Value).IsEqualTo(1);
+        await Assert.That(measurements.SelectMany(value => value.Tags.Keys).Distinct().Order().ToArray())
+            .IsEquivalentTo(new[] { "cell", "result" });
+    }
+
+    [Test]
     public async Task Host_report_metrics_are_bounded_outcomes_without_node_labels()
     {
         var measurements = new List<MetricMeasurement>();

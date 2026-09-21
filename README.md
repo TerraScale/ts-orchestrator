@@ -159,6 +159,14 @@ must hash to the digest in the signed envelope. A successful admission is cached
 process lifetime, while the durable regional NATS KV replay/generation fence accepts each
 node generation once.
 
+Regional controllers can load `TS_ORCH_HOST_SESSION_POLICY_FILE` to serve
+durable remote host sessions through restricted NATS subjects, with admission
+status and OTLP metrics. OCI workload controllers require this policy and
+cannot also use the local host path above. The dedicated host startup/renewal
+loop and workload fencing remain deployment blockers. See
+[host session authentication](docs/operations/host-session-authentication.md)
+for the policy schema and exact qualification limits.
+
 ## Auto-forming cells
 
 `run` converges the regional controller topology idempotently at startup (streams, KV,

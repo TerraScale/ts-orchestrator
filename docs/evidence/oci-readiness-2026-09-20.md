@@ -26,9 +26,10 @@ The [host session request component](../operations/host-session-authentication.m
 also verifies possession of the enrolled NATS user key on bounded, exactly
 routed acquire/renew requests. A controller-owned R3 session authority and
 restricted NATS host client/service now implement renewable process leases,
-durable revocation and generation/replay fencing. Their component tests pass;
-production startup and workload fencing still need composition, so remote
-host admission/startup remains a deployment blocker.
+durable revocation and generation/replay fencing. Their component tests pass.
+Controller startup now loads a public enrollment policy and starts the service
+with status/metrics. The dedicated host entry, renewal and workload fencing
+still need composition, so remote host admission/startup remains a blocker.
 
 The [bootstrap contract](../operations/control-bootstrap.md) defines the
 required first boot and exact-resource handoff. A tag or output does not
@@ -69,11 +70,17 @@ hashes and the scope of local single-file execution.
 The [durable session authority receipt](host-session-authority-local-2026-09-21.json)
 records the subsequent authority, broker and request-deadline checks with
 separate source and local-log hashes.
+The [controller session composition receipt](host-session-controller-local-2026-09-21.json)
+records the policy loader, runtime service, status and telemetry checks.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
-| Full main regression with durable host sessions | **1140 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-session-main-suite.log`; 12m04s708ms; final source, no owned test containers remained |
-| Durable host session authority and authenticated broker | **57 passed**, 0 failed/skipped; final wall-clock broker test **1 passed** | `/tmp/ts-host-session-qualified-tests3.log`, `/tmp/ts-host-session-wall-clock-r3.log`; R3 races, lost response, epochs, restart, expired-grant continuation, revocation after actual stream-leader kill/restart, trust/scope/lease deadline, replay capacity, restricted JWT/mTLS and private-KV denial; production startup remains uncomposed |
+| Final controller startup timeout correction | **51 focused passed**, **2 real R3 runtime tests passed**, 0 failed/skipped; build **0 warnings/errors**; CI style passed | `/tmp/ts-host-session-composition-timeout-{tests,r3,build,style}.log`; internal startup deadlines report failure while explicit caller cancellation retains shutdown semantics; final source |
+| Full main regression with controller session composition | **1160 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-session-composition-main-suite.log`; 12m03s304ms; before the final internal-timeout classification correction, whose checks are recorded separately |
+| Controller policy, status/metrics and actual regional runtime | **49 focused passed**, **2 real R3 runtime tests passed**, 0 failed/skipped | `/tmp/ts-host-session-composition-tests2.log`, `/tmp/ts-host-session-runtime-r3-tests.log`; strict policy/permissions/key admission, real restricted host acquisition through `NatsRuntime`, authenticated operator query and runtime-attached acquisition metric |
+| Controller composition Release, required style, protocol and CLI | **165 protocol passed**; build **0 warnings/errors**; CI style passed; expected CLI policy denial | `/tmp/ts-host-session-composition-final-build.log`, `/tmp/ts-host-session-composition-required-style.log`, `/tmp/ts-host-session-composition-protocol.log`, `/tmp/ts-host-session-composition-cli-policy.log`; actual CLI exits 1 before NATS on invalid policy |
+| Full main regression with durable host sessions | **1140 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-session-main-suite.log`; 12m04s708ms; final source for that batch, no NATS test servers remained; an infra-only pod from the aborted attempt was removed during subsequent controller qualification |
+| Durable host session authority and authenticated broker | **57 passed**, 0 failed/skipped; final wall-clock broker test **1 passed** | `/tmp/ts-host-session-qualified-tests3.log`, `/tmp/ts-host-session-wall-clock-r3.log`; R3 races, lost response, epochs, restart, expired-grant continuation, revocation after actual stream-leader kill/restart, trust/scope/lease deadline, replay capacity, restricted JWT/mTLS and private-KV denial; before the subsequent controller composition |
 | Session request PONG deadline | **1 passed**, 0 failed/skipped | `/tmp/ts-host-session-ping-deadline-test.log`; loopback server withholds PONG after handshake; explicit `WaitAsync` bounds the upstream NATS.Net 2.7.2 cancellation gap; original `/tmp/ts-host-session-authority-tests.log` was aborted, not green |
 | Session authority Release/style and protocol | **165 passed**, 0 failed/skipped; build **0 warnings/errors**; style passed | `/tmp/ts-host-session-protocol-tests.log`, `/tmp/ts-host-session-final-build4.log`, `/tmp/ts-host-session-final-style2.log`; no new dependencies or new single-file packaging claims |
 | Full main regression with signed scope and session request authentication | **1132 passed**, 0 failed, 5 expected live-lane skips | `/tmp/ts-host-request-main-suite.log`; 11m02s; real regional JWT/mTLS R3 startup and gateway regressions included; no owned test containers remained |
@@ -278,7 +285,11 @@ repository's main-only push rule being resolved.
    and enrollment still need restricted-host protocols and dedicated host startup.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The current controller
-   instance-name parser rejects full OCI node IDs, while admission and fleet
+   report relay and provider readiness readers also lack the new durable session
+   generation/epoch binding. Require current enrollment, process lease and role
+   scope on reports and when consuming readiness; otherwise an old credential
+   on the same hashed subject can continue reporting after session revocation.
+   The controller instance-name parser rejects full OCI node IDs, while admission and fleet
    reporting require that exact identity. Host allocation names now use a
    stable cell/node/artifact hash and preserve full OCIDs in report bodies;
    a real NATS convergence/upgrade test covers this component. Finish the
