@@ -104,26 +104,41 @@ the exact release revision before deployment.
 
 ### Final candidate evidence — 2026-09-21
 
-The final local candidate is based on `ts-orchestrator@503bb363`, with the
-qualification harness and evidence changes recorded by this document's commit,
-and `ts-auth@5075c89`. The clean orchestrator rerun passed **1,459 tests**, with
+The final local qualification source uses `ts-orchestrator@28b5a2e9`,
+`ts-auth@ae4d099`, and the isolated TerraBase correction `af610d00`. The clean
+orchestrator rerun passed **1,459 tests**, with
 zero failures and seven expected live-lane skips; its supporting suites passed
 **969 control-plane**, **59 model**, **165 protocol**, and **106 scheduler**
 tests. Locked restore, required format, Release build (zero warnings/errors),
 and dependency audit also passed. The main-suite log is
 `/tmp/ts-goal-orchestrator-main-after-gateway-20260921.log`.
 
-The auth release run at `ts-auth@2e98d0e` passed **381/381 tests**, with zero
-failures or skips. The current `ts-auth@5075c89` member-mode gateway change was
-then used in the Firecracker lane below. The release payload's
-single-file payload SHA-256 is
-`f3f3d877b5f9a339064e035a7947f0bbd7c435a5d0cc27086f8980001e189171`.
-The locally built image is
-`localhost/terrascale/ts-auth:a82c42474804bcd6922e75fb388f2106c1fb285d`,
-with image digest
-`sha256:d8fe574566629aaae4db34f79a3837cbcdf7b1c739da2511cc4106e2f5dea75a`.
-The green test log is `/tmp/ts-goal-auth-full-20260921.log`; the corrected
-restore, publish, and image gate is `/tmp/ts-goal-auth-publish-fixed-20260921.log`.
+The current endpoint-refactor auth candidate passed **381/381 tests**, with
+zero failures or skips, after a Playwright redirect race was corrected by
+starting the URL waiter before the click and asserting the rendered account
+heading. That correction is committed as `ae4d099`. The focused
+hostile-user-agent browser test passed ten consecutive runs. The green logs are
+`/tmp/ts-goal-auth-endpoints-head-full-fixed-20260921.log` and
+`/tmp/ts-goal-auth-hostile-ua-repeat-{1..10}-20260921.log`. The current
+dependency-audit harness passed **13/13 tests**, and the production plus test
+projects report zero vulnerable packages in
+`/tmp/ts-goal-auth-endpoints-head-vuln-{helper,audit}-20260921.log`.
+The CI-equivalent self-contained publish at `ae4d099` produced payload SHA-256
+`2cf1246a145b6d86331be773be06e72acdf9d42c55376d3731baa9c81411ec1a`.
+The resulting amd64 distroless image is
+`localhost/terrascale/ts-auth:ae4d0995fa008a8ef71ca56ddc320bbd3d4fc643`,
+with digest
+`sha256:e98e9bbf8e51dc7640c56fb76416755911d0bd8ffb036c26e31d496b65f4a4e0`;
+the publish and image inspection are in
+`/tmp/ts-goal-auth-ae4d099-container-20260921.log`.
+
+That exact image also passed a local process-level container smoke against the
+dev TerraBase gateway: `/healthz` and `/readyz` returned 200, instance creation
+returned 200, a graceful container stop/restart preserved the instance, the
+duplicate returned 409, and the final stop exited zero. The sanitized log is
+`/tmp/ts-goal-auth-container-smoke-ae4d099-final-20260921.log`. This qualifies
+the x64 image packaging and local gateway integration, not the production
+gateway or ARM64 runtime.
 
 The external auth smoke exercised the real process against the local
 `TerraBaseDevMember` and passed **22/22 checks**, including account/session,
@@ -147,26 +162,49 @@ duplicate rejection after a hard VM restart, graceful drain, and retirement.
 The complete serialized Firecracker run then passed **3/3 tests**: the
 single-region boot/heal/drain lane, this auth/restart lane, and the three-region
 GRU/SFO/FRA loss-and-replacement lane. Its log is
-`/tmp/ts-goal-orchestrator-vm-all-live-20260921.log`; the focused auth log is
-`/tmp/ts-goal-orchestrator-vm-auth-live-local-gateway-20260921.log`.
+`/tmp/ts-goal-orchestrator-vm-all-final-payload-20260921.log`. After the
+endpoint-refactor auth commit landed, its freshly published payload passed the
+focused hard-restart/duplicate/drain lane again in **1m10s**; that log is
+`/tmp/ts-goal-orchestrator-vm-auth-endpoints-head-20260921.log`. After the
+browser fix was committed, the new revision-stamped payload passed the same
+focused lane again in **1m07s**; its log is
+`/tmp/ts-goal-orchestrator-vm-auth-ae4d099-20260921.log`. The final payload
+hashes are auth
+`2cf1246a145b6d86331be773be06e72acdf9d42c55376d3731baa9c81411ec1a`,
+dev gateway `64e7424f9e25c7494711dc2d11759baeceab1cbf68a16b4da1da1754c822ed01`,
+and raw host `c023dd3a70c2498118f8898afbb1056fa7e073f5ec2552d389de8d49b9c06e97`.
 This is local gateway qualification only; it does not qualify the production
 project-key gateway, durable credential issuance, tenant policy service, or
 the raw `TerraBase.Host` deployment path. The raw-host failure above remains a
 production blocker.
 
-The current TerraBase Release build was exercised with **1,192 API tests**,
+The point-seek correction is committed as `af610d00`. The shared TerraBase
+working tree containing it was exercised with **1,203 API tests**,
 **480 core tests plus four expected Windows skips**, **20 schema-generator
 tests**, **73 full-text tests**, **28 ZoneTree tests**, and **14 recovery tests
 with two expected Windows skips**; every executed test passed. Replication and
 transport evidence includes the three-member leaderless convergence test,
 SIGKILL crash-resume, MagicOnion resumable/partition/network-fault suites,
 native gRPC, durable Q3 integration, and the two upstream-derived replicator
-tests; all passed. The API log is
-`/tmp/ts-goal-terrabase-api-full-20260921.log`, with focused evidence in the
-other `/tmp/ts-goal-terrabase-*20260921.log` files. The complete upstream
+tests; all passed. The auth suite exposed a cached-plan point-seek defect: its
+`limit + 1` continuation probe returned all 101 rows to a 100-row caller. The
+fast path now trims the public page while retaining `HasMore`; its deterministic
+regression passed five consecutive runs, and the full API suite passed afterward.
+The API log is `/tmp/ts-goal-terrabase-api-after-fastpath-fixes-20260921.log`,
+and the strict Release solution build passed with zero warnings/errors in
+`/tmp/ts-goal-terrabase-final-solution-build-20260921.log`. The complete upstream
 ZoneTree stress project remains time-prohibitive locally: its WAL-heavy atomic
 update cases were stopped after more than 40 minutes without a failure, so it
 is not represented as a green deployment gate.
+
+The TerraBase solution-wide `dotnet format style --verify-no-changes` gate is
+currently red with approximately 300 existing `IDE0005` unused-using findings
+across ZoneTree, schema-generator, API, and test sources. The three files changed
+for the point-seek correction pass a scoped style verification. The shared
+TerraBase checkout still contains substantial concurrent uncommitted indexing,
+files, transport, and replication work outside `af610d00`. A clean immutable
+release checkout must pass the full style gate and the recorded suites before
+deployment.
 
 The current `ts-infra` working tree also passed its **28** encrypted-state
 publication tests, OpenTofu formatting, configuration validation, and **9**
@@ -303,7 +341,8 @@ execution/storage fencing remain blocked.
 | OCI workload fleet tests after readiness correction | 19 passed | `/tmp/ts-oci-readiness-binding-tests.log`; real NATS readiness binding; non-ready VMs count as pending, expired authority prevents launch; invalid demand and unsafe TerraBase retirement denied |
 | Live local TerraBase fleet | 1 passed, no skip | `/tmp/ts-oci-local-fleet-live.log`; fresh TerraBase.Host publish, scale-out, loss/heal, drain safety and scale-in |
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
-| Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed** | `/tmp/ts-goal-orchestrator-vm-all-live-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth |
+| Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed**, plus committed auth focused **1 passed** | `/tmp/ts-goal-orchestrator-vm-all-final-payload-20260921.log` and `/tmp/ts-goal-orchestrator-vm-auth-ae4d099-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth |
+| Exact ts-auth x64 distroless image and local TerraBase gateway | Pass; health/readiness 200, create 200, graceful restart, durable duplicate 409, final exit 0 | `/tmp/ts-goal-auth-ae4d099-container-20260921.log`, `/tmp/ts-goal-auth-container-smoke-ae4d099-final-20260921.log`; image digest `sha256:e98e9bbf8e51dc7640c56fb76416755911d0bd8ffb036c26e31d496b65f4a4e0`; dev gateway only |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
 | OpenTofu Vault tier configuration | Pass; 9 mocked plan tests passed | `/tmp/ts-infra-vault-tier-validation.log`, `/tmp/ts-infra-vault-tier-tests.log`; shared HSM default, explicit dedicated tier and invalid-tier rejection; estate remains disabled |
@@ -522,9 +561,13 @@ deployment enablement; no apply or state edit was performed.
    Vault rotation and every provider operation. Current workload aggregates and
    needs/actions/progress are useful but are not complete OCI lifecycle coverage.
 7. Retain the completed green auth, orchestrator, live fleet and VM results,
-   then qualify the ARM64 container runtime and external TerraBase/auth on the
-   final immutable artifacts. The local synthetic x64 containerd lane passes. Local VM fleet tests do not exercise the unimplemented
-   OCI Instance Principal/Vault/bootstrap handoff.
+   then qualify the ARM64 container runtime and production TerraBase/auth on the
+   final immutable artifacts. The exact x64 auth image now passes against the
+   local gateway, and the synthetic x64 containerd lane passes. Local VM fleet tests do not exercise the unimplemented
+   OCI Instance Principal/Vault/bootstrap handoff. Before producing those
+   artifacts, publish or otherwise select the isolated `af610d00` and `ae4d099`
+   corrections, rebuild from a clean release revision, and make the full
+   TerraBase style gate green.
 
 ## Final local gate
 
