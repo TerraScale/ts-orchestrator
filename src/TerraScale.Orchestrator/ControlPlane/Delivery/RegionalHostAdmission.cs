@@ -99,13 +99,13 @@ public sealed record RegionalHostAdmissionConfiguration(
 
     internal RegionalHostAdmissionGate Create(
         INatsKVStore enrollmentStore,
-        string natsSeedFile,
+        NatsAuthenticationFiles authentication,
         NatsTlsFiles tls)
     {
         ArgumentNullException.ThrowIfNull(enrollmentStore);
-        ArgumentException.ThrowIfNullOrWhiteSpace(natsSeedFile);
+        ArgumentNullException.ThrowIfNull(authentication);
         ArgumentNullException.ThrowIfNull(tls);
-        return RegionalHostAdmissionGate.Load(this, enrollmentStore, natsSeedFile, tls);
+        return RegionalHostAdmissionGate.Load(this, enrollmentStore, authentication, tls);
     }
 
     private static string Required(Func<string, string?> environment, string name) =>
@@ -157,7 +157,7 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
     private readonly RotatedBootstrapTrustBundle trustBundle;
     private readonly RegionalNodeEnrollmentEnvelope enrollment;
     private readonly string certificateFingerprint;
-    private readonly string natsSeedFile;
+    private readonly NatsAuthenticationFiles authentication;
     private readonly NatsTlsFiles tls;
     private readonly SemaphoreSlim admissionLock = new(1, 1);
     private HostAdmissionSnapshot? admitted;
@@ -170,7 +170,7 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
         RotatedBootstrapTrustBundle trustBundle,
         RegionalNodeEnrollmentEnvelope enrollment,
         string certificateFingerprint,
-        string natsSeedFile,
+        NatsAuthenticationFiles authentication,
         NatsTlsFiles tls)
     {
         this.configuration = configuration;
@@ -180,38 +180,39 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
         this.trustBundle = trustBundle;
         this.enrollment = enrollment;
         this.certificateFingerprint = certificateFingerprint;
-        this.natsSeedFile = natsSeedFile;
+        this.authentication = authentication;
         this.tls = tls;
     }
 
     public static RegionalHostAdmissionGate Load(
         RegionalHostAdmissionConfiguration configuration,
         INatsKVStore enrollmentStore,
-        string natsSeedFile,
+        NatsAuthenticationFiles authentication,
         NatsTlsFiles tls)
     {
         ArgumentNullException.ThrowIfNull(enrollmentStore);
-        return LoadCore(configuration, new NatsRegionalNodeEnrollmentReplayStore(enrollmentStore), natsSeedFile, tls);
+        return LoadCore(configuration, new NatsRegionalNodeEnrollmentReplayStore(enrollmentStore), authentication, tls);
     }
 
     internal static RegionalHostAdmissionGate LoadForTests(
         RegionalHostAdmissionConfiguration configuration,
         IRegionalNodeEnrollmentDurableReplayStore replayStore,
-        string natsSeedFile,
-        NatsTlsFiles tls) => LoadCore(configuration, replayStore, natsSeedFile, tls);
+        NatsAuthenticationFiles authentication,
+        NatsTlsFiles tls) => LoadCore(configuration, replayStore, authentication, tls);
 
     private static RegionalHostAdmissionGate LoadCore(
         RegionalHostAdmissionConfiguration configuration,
         IRegionalNodeEnrollmentDurableReplayStore replayStore,
-        string natsSeedFile,
+        NatsAuthenticationFiles authentication,
         NatsTlsFiles tls)
     {
         ArgumentNullException.ThrowIfNull(replayStore);
         var enrollment = ReadJson<RegionalNodeEnrollmentEnvelope>(configuration.EnrollmentFile,
             "regional node enrollment");
         var trustBundle = ReadTrustBundle(configuration.BootstrapTrustBundleFile);
-        var resolvedSeed = NatsCredentialFile.Resolve(natsSeedFile, "host admission NKey")
-            ?? throw new InvalidDataException("Host admission requires a private NKey seed.");
+        var resolvedAuthentication = NatsAuthenticationFiles.Resolve(
+            authentication.NKeyFile, authentication.CredentialsFile, "host admission NATS")
+            ?? throw new InvalidDataException("Host admission requires private NATS authentication.");
         var resolvedTls = NatsTlsFiles.Resolve(tls.CaFile, tls.CertificateFile, tls.KeyFile, "host admission mTLS")!;
         using var certificate = X509CertificateLoader.LoadCertificateFromFile(resolvedTls.CertificateFile);
         var fingerprint = BootstrapWorkloadIdentity.CertificateFingerprint(
@@ -222,8 +223,8 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
             throw new InvalidOperationException("The enrollment envelope does not match the host admission identity.");
 
         var enrollmentSignerKey = LoadPublicKey(configuration.EnrollmentSignerPublicKeyFile, "enrollment signer");
-        return new(configuration, replayStore, NatsCredentialFile.PublicKey(resolvedSeed), enrollmentSignerKey,
-            trustBundle, enrollment, fingerprint, resolvedSeed, resolvedTls);
+        return new(configuration, replayStore, resolvedAuthentication.PublicKey, enrollmentSignerKey,
+            trustBundle, enrollment, fingerprint, resolvedAuthentication, resolvedTls);
     }
 
     public async ValueTask<HostAdmissionSnapshot> ObserveAsync(CancellationToken cancellationToken)
@@ -337,9 +338,9 @@ internal sealed class RegionalHostAdmissionGate : IHostAdmissionGate, IDisposabl
                 CryptographicOperations.ZeroMemory(material);
             }
         }
-        return paths.Contains(natsSeedFile) && paths.Contains(tls.CaFile) &&
+        return paths.Contains(authentication.CredentialsFile ?? authentication.NKeyFile!) && paths.Contains(tls.CaFile) &&
             paths.Contains(tls.CertificateFile) && paths.Contains(tls.KeyFile) &&
-            NatsCredentialFile.PublicKey(natsSeedFile) == natsUserPublicKey;
+            NatsAuthenticationFiles.Resolve(authentication.NKeyFile, authentication.CredentialsFile, "host admission NATS")?.PublicKey == natsUserPublicKey;
     }
 
     private static T ReadJson<T>(string path, string description) =>

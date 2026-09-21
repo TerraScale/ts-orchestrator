@@ -35,6 +35,11 @@ to drain workloads, retain data, and tear down safely. It must never implicitly
 authorize deletion. Supported, provisioning, admitted, draining, and retired
 must be separate states in status.
 
+Regional runtime JWT/mTLS consumption and the bounded controller permission
+plan are documented in [regional-nats-authentication.md](regional-nats-authentication.md).
+This qualifies runtime authentication against real R3 NATS; issuance, rotation
+and first-boot composition still belong to the bootstrap work below.
+
 ## Seed and handoff contract
 
 1. CI validates region intent and the exact seed plan, then `ts-infra` creates

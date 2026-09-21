@@ -65,10 +65,11 @@ public sealed class GlobalDirectoryEndpointsConfigurationTests
         var member = MembershipRecord("sfo", identity, observedAt);
         var membership = new RegionalRuntimeMembershipSnapshot(2, "sfo", observedAt, health, [member]);
 
+        using var seed = new NatsAuthenticationFilesTests.SeedFile();
         // A watch-only composition may legitimately carry no endpoints.
         var watchOnly = new GlobalDirectoryNatsConfiguration(
             "tls://global-directory.internal:4222",
-            NatsAuthenticationFiles.FromNKeyFile("unused-seed"),
+            NatsAuthenticationFiles.FromNKeyFile(seed.Path),
             new NatsTlsFiles("ca.pem", "cert.pem", "key.pem"),
             3,
             "sfo");

@@ -87,6 +87,16 @@ public sealed class NatsControlAccountModelTests
                 .Distinct()
                 .ToArray();
 
+            if (subject.EndsWith(".query.status", StringComparison.Ordinal) ||
+                subject.EndsWith(".query.members", StringComparison.Ordinal))
+            {
+                await Assert.That(publisherKinds).IsEquivalentTo(new[]
+                {
+                    NatsControlAccountKind.RegionalController, NatsControlAccountKind.OperatorQuery,
+                });
+                continue;
+            }
+
             await Assert.That(publisherKinds.Length).IsEqualTo(1)
                 .Because(
                     $"exactly one account kind may publish '{subject}', but {publisherKinds.Length} do " +
@@ -224,6 +234,11 @@ public sealed class NatsControlAccountModelTests
             yield return "ts.orch.v2." + region + ".command.delivery";
             yield return "ts.orch.v2." + region + ".command.journal.create";
             yield return "ts.orch.v2." + region + ".query.health";
+            yield return "ts.orch.v2." + region + ".query.health.controller-1";
+            yield return "ts.orch.v2." + region + ".query.status";
+            yield return "ts.orch.v2." + region + ".query.members";
+            yield return "ts.orch.v2." + region + ".query.stats";
+            yield return "ts.orch.v2." + region + ".query.operator-status";
             yield return "ts.orch.v2." + region + ".audit.event.7";
             yield return "ts.orch.v2." + region + ".observation.runtime.started.controller-1";
 

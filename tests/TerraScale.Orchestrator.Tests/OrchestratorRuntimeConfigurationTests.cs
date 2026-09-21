@@ -48,7 +48,9 @@ public sealed class OrchestratorRuntimeConfigurationTests
     }
 
     [Test]
-    public async Task TypedConfigurationFeedsRunWithRegionalCredentials()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task TypedConfigurationFeedsRunWithRegionalCredentials(bool jwtCredentials)
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -63,7 +65,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
             var tls = await WriteCertificateAsync(directory, "regional", tlsKey);
             var nkey = Path.Combine(directory, "regional.nk");
-            await File.WriteAllTextAsync(nkey, NATS.Client.Core.NKeys.CreateUserSeed());
+            var seed = NATS.Client.Core.NKeys.CreateUserSeed();
+            await File.WriteAllTextAsync(nkey, jwtCredentials ? NatsAuthenticationFilesTests.Credentials(seed) : seed);
             File.SetUnixFileMode(nkey, UnixFileMode.UserRead | UnixFileMode.UserWrite);
 
             var path = Path.Combine(directory, "config.json");
@@ -74,7 +77,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
                 natsUrl = "tls://control-nats.fra.internal:4222",
                 replicas = 3,
                 instance = "2",
-                natsNKeyFile = nkey,
+                natsNKeyFile = jwtCredentials ? null : nkey,
+                natsCredentialsFile = jwtCredentials ? nkey : null,
                 natsTlsCaFile = tls.Certificate,
                 natsTlsCertificateFile = tls.Certificate,
                 natsTlsKeyFile = tls.PrivateKey
@@ -83,7 +87,8 @@ public sealed class OrchestratorRuntimeConfigurationTests
             var configuration = OrchestratorRuntimeConfiguration.Load(path)!;
             var options = OrchestratorOptions.Parse(["run"], configuration.GetEnvironmentValue);
 
-            await Assert.That(options.NatsNKeyFile).IsEqualTo(nkey);
+            await Assert.That(options.NatsNKeyFile).IsEqualTo(jwtCredentials ? null : nkey);
+            await Assert.That(options.NatsCredentialsFile).IsEqualTo(jwtCredentials ? nkey : null);
             await Assert.That(options.NatsTls).IsNotNull();
             await Assert.That(options.NatsTls!.CaFile).IsEqualTo(tls.Certificate);
             await Assert.That(options.NatsTls.CertificateFile).IsEqualTo(tls.Certificate);

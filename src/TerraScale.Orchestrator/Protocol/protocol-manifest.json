@@ -99,6 +99,9 @@
       "regionScoped": true,
       "publish": [
         "ts.orch.v2.global.query.cells",
+        "ts.orch.v2.<region>.query.health.*",
+        "ts.orch.v2.<region>.query.status",
+        "ts.orch.v2.<region>.query.members",
         "ts.orch.v2.<region>.desired.>",
         "ts.orch.v2.<region>.command.>",
         "ts.orch.v2.<region>.operation.>",

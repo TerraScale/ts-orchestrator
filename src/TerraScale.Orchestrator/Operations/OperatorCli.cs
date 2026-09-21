@@ -38,17 +38,18 @@ public static class OperatorCli
             values,
             "--nkey-file",
             environment("TS_ORCH_NATS_NKEY_FILE"));
-        nkeyFile = NatsCredentialFile.Resolve(nkeyFile, "operator --nkey-file");
+        var credentialsFile = ValueOrNull(values, "--credentials-file", environment("TS_ORCH_NATS_CREDENTIALS_FILE"));
+        var authentication = NatsAuthenticationFiles.Resolve(nkeyFile, credentialsFile, "operator NATS");
         var tls = NatsTlsFiles.Resolve(
             ValueOrNull(values, "--tls-ca-file", environment("TS_ORCH_NATS_TLS_CA_FILE")),
             ValueOrNull(values, "--tls-cert-file", environment("TS_ORCH_NATS_TLS_CERT_FILE")),
             ValueOrNull(values, "--tls-key-file", environment("TS_ORCH_NATS_TLS_KEY_FILE")),
             "operator TLS");
         if (!Uri.TryCreate(url, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "tls" ||
-            nkeyFile is null || tls is null)
+            authentication is null || tls is null)
         {
             throw new ArgumentException(
-                $"operator {command} requires a tls:// NATS URL, a private NKey seed, and complete mTLS credentials.");
+                $"operator {command} requires a tls:// NATS URL, a private NKey seed or JWT credentials file, and complete mTLS credentials.");
         }
         _ = OrchestratorOptions.Parse(
             ["check"],
@@ -57,7 +58,8 @@ public static class OperatorCli
                 "TS_ORCH_CELL" => cell,
                 "TS_ORCH_NATS_URL" => url,
                 "TS_ORCH_REPLICAS" => "1",
-                "TS_ORCH_NATS_NKEY_FILE" => nkeyFile,
+                "TS_ORCH_NATS_NKEY_FILE" => authentication.NKeyFile,
+                "TS_ORCH_NATS_CREDENTIALS_FILE" => authentication.CredentialsFile,
                 "TS_ORCH_NATS_TLS_CA_FILE" => tls.CaFile,
                 "TS_ORCH_NATS_TLS_CERT_FILE" => tls.CertificateFile,
                 "TS_ORCH_NATS_TLS_KEY_FILE" => tls.KeyFile,
@@ -70,28 +72,19 @@ public static class OperatorCli
             RetryOnInitialConnect = false,
             RequestTimeout = command is "deploy" ? TimeSpan.FromSeconds(30) : TimeSpan.FromSeconds(10)
         };
-        if (nkeyFile is not null)
+        clientOptions = clientOptions with
         {
-            clientOptions = clientOptions with
+            AuthOpts = authentication.Options,
+            TlsOpts = new NatsTlsOpts
             {
-                AuthOpts = new NatsAuthOpts { NKeyFile = nkeyFile }
-            };
-        }
-        if (tls is not null)
-        {
-            clientOptions = clientOptions with
-            {
-                TlsOpts = new NatsTlsOpts
-                {
-                    Mode = TlsMode.Require,
-                    CaFile = tls.CaFile,
-                    CertFile = tls.CertificateFile,
-                    KeyFile = tls.KeyFile
-                }
-            };
-        }
+                Mode = TlsMode.Require,
+                CaFile = tls.CaFile,
+                CertFile = tls.CertificateFile,
+                KeyFile = tls.KeyFile
+            }
+        };
         await using var client = new NatsClient(clientOptions);
-        await client.ConnectAsync();
+        await client.ConnectAsync().AsTask().WaitAsync(cancellationToken);
         var topology = new NatsTopology(cell, 1);
         if (command is "status" or "members" or "operator-status" or "stats")
         {
@@ -336,7 +329,7 @@ public static class OperatorCli
         for (var index = 0; index < arguments.Count; index += 2)
         {
             if (index + 1 >= arguments.Count ||
-                arguments[index] is not ("--cell" or "--nats-url" or "--nkey-file" or
+                arguments[index] is not ("--cell" or "--nats-url" or "--nkey-file" or "--credentials-file" or
                     "--tls-ca-file" or "--tls-cert-file" or "--tls-key-file" or
                     "--key-file" or "--file" or "--service" or "--digest" or
                     "--manifest-digest" or "--kind" or "--architecture" or

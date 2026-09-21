@@ -375,7 +375,7 @@ public static class NatsCapabilityMatrix
         Defer(
             NatsCapability.Jwts,
             NatsCapabilityOwner.SecurityAndIdentity,
-            "Operator/account/user JWT issuance and the JWT/NKey administration toolchain are unselected (phase1-nats-l0c-foundation outcome); adopt only after the L0C lane pins the toolchain and rotating account-signing-key procedure."),
+            "Regional/global controller and operator JWT credential consumption is implemented and tested against real NATS. Production operator/account/user issuance and account-signing-key rotation remain deferred until the bootstrap toolchain and rotation procedure are pinned."),
         Accept(
             NatsCapability.NKeys,
             NatsCapabilityOwner.SecurityAndIdentity,
@@ -383,9 +383,9 @@ public static class NatsCapabilityMatrix
             NatsDurabilityClass.Ephemeral,
             NatsOrderingClass.Unordered,
             "NKey authentication for controllers, writer, infrastructure, directory, and operator identities; every command rejects every NATS credential family it does not own before file resolution.",
-            "Anonymous connections must be denied (startup verifies); a missing NKey fails closed.",
+            "Anonymous connections must be denied (startup verifies); missing NKey/JWT authentication fails closed.",
             "Authentication failure counts by identity family; anonymous-denial verification at startup.",
-            "OrchestratorOptions.NatsNKeyFile, NatsRuntime.VerifyAnonymousDeniedAsync, CiRunnerNatsCredentialIssuer, GlobalNatsAccessContract identity separation."),
+            "NatsAuthenticationFiles, OrchestratorOptions, NatsRuntime.VerifyAnonymousDeniedAsync, CiRunnerNatsCredentialIssuer, GlobalNatsAccessContract identity separation."),
         Accept(
             NatsCapability.Mtls,
             NatsCapabilityOwner.SecurityAndIdentity,

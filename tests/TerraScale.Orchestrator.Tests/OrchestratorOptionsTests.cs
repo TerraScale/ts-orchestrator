@@ -91,6 +91,57 @@ public sealed class OrchestratorOptionsTests
         await Assert.That(OrchestratorOptions.Parse(["catalog"], _ => null).Replicas).IsEqualTo(1);
     }
 
+    [Test]
+    public async Task Regional_JWT_configuration_accepts_run_and_rejects_shared_global_identity()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var directory = Directory.CreateTempSubdirectory("ts-regional-jwt-options-");
+        try
+        {
+            var values = await RunEnvironmentAsync(directory.FullName);
+            values["TS_ORCH_REPLICAS"] = "3";
+            var seedPath = values["TS_ORCH_NATS_NKEY_FILE"];
+            var credentials = Path.Combine(directory.FullName, "regional.creds");
+            await NatsAuthenticationFilesTests.WritePrivateAsync(credentials,
+                NatsAuthenticationFilesTests.Credentials(await File.ReadAllTextAsync(seedPath)));
+            values.Remove("TS_ORCH_NATS_NKEY_FILE");
+            values["TS_ORCH_NATS_CREDENTIALS_FILE"] = credentials;
+            var options = OrchestratorOptions.Parse(["run"], values.GetValueOrDefault);
+            await Assert.That(options.NatsCredentialsFile).IsEqualTo(credentials);
+            await Assert.That(options.NatsNKeyFile).IsNull();
+            var configuration = new OrchestratorRuntimeConfiguration(1, "gru", options.NatsUrl, 3,
+                "controller-1", NatsCredentialsFile: credentials);
+            await Assert.That(configuration.GetEnvironmentValue("TS_ORCH_NATS_CREDENTIALS_FILE")).IsEqualTo(credentials);
+
+            using var globalKey = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var tls = await WriteCertificateAsync(directory.FullName, "global", globalKey, isAuthority: true);
+            values["TS_ORCH_GLOBAL_NATS_URL"] = "tls://global.example:4222";
+            values["TS_ORCH_GLOBAL_NATS_NKEY_FILE"] = seedPath;
+            values["TS_ORCH_GLOBAL_NATS_TLS_CA_FILE"] = tls.Certificate;
+            values["TS_ORCH_GLOBAL_NATS_TLS_CERT_FILE"] = tls.Certificate;
+            values["TS_ORCH_GLOBAL_NATS_TLS_KEY_FILE"] = tls.PrivateKey;
+            var error = await Assert.That(() => OrchestratorOptions.Parse(["run"], values.GetValueOrDefault))
+                .Throws<ArgumentException>();
+            await Assert.That(error!.Message).Contains("distinct");
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Test]
+    [Arguments("catalog")]
+    [Arguments("journal-writer")]
+    [Arguments("provision-journal")]
+    public async Task Foreign_roles_reject_regional_JWT_credentials_before_reading_them(string command)
+    {
+        var error = await Assert.That(() => OrchestratorOptions.Parse([command],
+                name => name == "TS_ORCH_NATS_CREDENTIALS_FILE" ? "/unmounted/private-material" : null))
+            .Throws<ArgumentException>();
+        await Assert.That(error!.Message).Contains("controller");
+    }
+
     private static async Task<Dictionary<string, string>> RunEnvironmentAsync(string directory)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();

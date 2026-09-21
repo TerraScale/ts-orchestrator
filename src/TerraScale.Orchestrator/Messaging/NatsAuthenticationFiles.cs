@@ -1,4 +1,6 @@
 using NATS.Client.Core;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace TerraScale.Orchestrator.Messaging;
 
@@ -52,29 +54,65 @@ internal sealed record NatsAuthenticationFiles
         Resolve(null, credentialsFile, optionPrefix)
         ?? throw new ArgumentException($"{optionPrefix}_CREDENTIALS_FILE is required.");
 
-    internal static NatsAuthenticationFiles FromNKeyFile(string nkeyFile)
-    {
-        if (string.IsNullOrWhiteSpace(nkeyFile))
-            throw new ArgumentException("The NKey file path is required.", nameof(nkeyFile));
-        return new(nkeyFile, null, nkeyFile);
-    }
+    internal static NatsAuthenticationFiles FromNKeyFile(string nkeyFile) =>
+        Resolve(nkeyFile, null, "TS_ORCH_NATS")
+        ?? throw new ArgumentException("The NKey file path is required.", nameof(nkeyFile));
 
     private static string ResolvePrivateFile(string value, string optionName)
     {
         return NatsFileResolver.Resolve(value, optionName, 16_384, ownerPrivate: true);
     }
 
+    private static readonly JsonSerializerOptions JsonOptions = new() { AllowDuplicateProperties = false };
+
     private static string ReadCredentialsSeed(string path, string optionPrefix)
     {
-        var lines = File.ReadAllLines(path);
-        var begin = Array.FindIndex(lines, static line =>
-            line.Trim().Equals("-----BEGIN USER NKEY SEED-----", StringComparison.Ordinal));
-        var end = Array.FindIndex(lines, static line =>
-            line.Trim().Equals("------END USER NKEY SEED------", StringComparison.Ordinal));
-        if (begin < 0 || end <= begin + 1)
-            throw new ArgumentException($"{optionPrefix}_CREDENTIALS_FILE is not a valid NATS user credentials file.");
-        return lines[(begin + 1)..end]
-            .FirstOrDefault(static line => !string.IsNullOrWhiteSpace(line))?.Trim()
-            ?? throw new ArgumentException($"{optionPrefix}_CREDENTIALS_FILE contains no user NKey seed.");
+        try
+        {
+            var lines = File.ReadAllLines(path).Select(static line => line.Trim()).ToArray();
+            var seed = SingleBlock(lines, "-----BEGIN USER NKEY SEED-----", "------END USER NKEY SEED------");
+            var jwt = SingleBlock(lines, "-----BEGIN NATS USER JWT-----", "------END NATS USER JWT------");
+            var publicKey = NKeys.PublicKeyFromSeed(seed);
+            var parts = jwt.Split('.');
+            if (!publicKey.StartsWith('U') || parts.Length != 3 || Decode(parts[2]).Length != 64)
+                throw new FormatException();
+            var header = JsonSerializer.Deserialize<JwtHeader>(Decode(parts[0]), JsonOptions);
+            var claims = JsonSerializer.Deserialize<JwtIdentity>(Decode(parts[1]), JsonOptions);
+            if (header is not { Algorithm: "ed25519-nkey", Type: "JWT" } ||
+                claims is not { Nats.Type: "user", Nats.Version: 2 } || claims.Subject != publicKey)
+                throw new FormatException();
+            // The server verifies issuer trust, signature, expiry and grants. This parser
+            // only ensures the runtime's bound identity matches the supplied credentials.
+            return seed;
+        }
+        catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException)
+        {
+            throw new ArgumentException($"{optionPrefix}_CREDENTIALS_FILE must contain one matching user JWT and NKey seed.");
+        }
     }
+
+    private static string SingleBlock(string[] lines, string begin, string end)
+    {
+        if (lines.Count(line => line == begin) != 1 || lines.Count(line => line == end) != 1)
+            throw new FormatException();
+        var start = Array.IndexOf(lines, begin);
+        var finish = Array.IndexOf(lines, end);
+        if (finish != start + 2 || lines[start + 1].Length == 0)
+            throw new FormatException();
+        return lines[start + 1];
+    }
+
+    private static byte[] Decode(string value)
+    {
+        if (value.Length == 0 || value.Any(static c => c is not (>= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '-' or '_')))
+            throw new FormatException();
+        var bytes = Convert.FromBase64String(value.Replace('-', '+').Replace('_', '/') + new string('=', (4 - value.Length % 4) % 4));
+        if (Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_') != value)
+            throw new FormatException();
+        return bytes;
+    }
+
+    private sealed record JwtHeader([property: JsonPropertyName("alg")] string Algorithm, [property: JsonPropertyName("typ")] string Type);
+    private sealed record JwtIdentity([property: JsonPropertyName("sub")] string Subject, [property: JsonPropertyName("nats")] JwtKind Nats);
+    private sealed record JwtKind([property: JsonPropertyName("type")] string Type, [property: JsonPropertyName("version")] int Version);
 }

@@ -53,7 +53,9 @@ store handles and native execution are injected in the host convergence tests.
 An additional three-server test uses JWT/mTLS host credentials and each
 restricted controller's own private-store connection, then restarts the relay
 and verifies that a stale ready report cannot replace a withdrawal. That test
-starts the relay directly, not the complete regional runtime.
+starts the relay directly. A separate [regional startup test](regional-nats-authentication.md)
+now starts the complete controller runtime under its restricted JWT/mTLS plan
+and queries operator status. Neither test starts the dedicated OCI host path.
 
 The full OCI host path is still incomplete. It currently enters controller
 startup and depends on private desired/artifact stores, enrollment replay

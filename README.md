@@ -190,6 +190,7 @@ and the [OCI readiness record](docs/evidence/oci-readiness-2026-09-20.md).
 - [NATS gateway operations](docs/runbooks/nats-gateway-operations.md)
 - [NATS monitoring](docs/runbooks/nats-monitoring.md)
 - [OCI bootstrap and ownership handoff](docs/operations/control-bootstrap.md)
+- [Regional JWT/mTLS authentication and runtime permissions](docs/operations/regional-nats-authentication.md)
 - [Pinned OCI Vault credential delivery](docs/operations/oci-vault-bootstrap.md)
 - [Bounded GRU founding peers](docs/operations/oci-founding-peers.md)
 - [TerraBase host admission and service readiness](docs/operations/oci-member-readiness.md)

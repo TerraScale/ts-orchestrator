@@ -23,6 +23,51 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class NatsControlR3L0cTests
 {
     [Test]
+    public async Task Regional_runtime_starts_with_JWT_mTLS_credentials_and_serves_operator_status()
+    {
+        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
+        await fixture.ProvisionAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var environment = new Dictionary<string, string>
+        {
+            ["TS_ORCH_CELL"] = "gru",
+            ["TS_ORCH_INSTANCE"] = "controller-1",
+            ["TS_ORCH_REPLICAS"] = "3",
+            ["TS_ORCH_NATS_URL"] = $"tls://127.0.0.1:{fixture.ClientPorts[0]}",
+            ["TS_ORCH_NATS_CREDENTIALS_FILE"] = fixture.Controller.CredentialsFile,
+            ["TS_ORCH_NATS_TLS_CA_FILE"] = fixture.CaFile,
+            ["TS_ORCH_NATS_TLS_CERT_FILE"] = fixture.Controller.CertificateFile,
+            ["TS_ORCH_NATS_TLS_KEY_FILE"] = fixture.Controller.KeyFile,
+        };
+        using var commandKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var artifactKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var commandPath = Path.Combine(fixture.DirectoryPath, "command-trust.pem");
+        var artifactPath = Path.Combine(fixture.DirectoryPath, "artifact-trust.pem");
+        await File.WriteAllTextAsync(commandPath, commandKey.ExportSubjectPublicKeyInfoPem());
+        await File.WriteAllTextAsync(artifactPath, artifactKey.ExportSubjectPublicKeyInfoPem());
+        using var commands = EcdsaCommandSignatureVerifier.LoadPublicPem([commandPath]);
+        using var artifacts = EcdsaCommandSignatureVerifier.LoadPublicPem([artifactPath]);
+        var options = OrchestratorOptions.Parse(["run"], environment.GetValueOrDefault);
+        await using var runtime = await NatsRuntime.StartAsync(options, deadline.Token,
+            commandSignatureVerifier: commands,
+            admittedDeliveryTargets: DirectDeliveryAdmittedTargets.Parse(["authentication:development:gru"]),
+            ciArtifactSignatures: artifacts, autoProvision: false);
+        await using var operatorClient = await fixture.ConnectAsync(fixture.Operator, cancellationToken: deadline.Token);
+        var response = await operatorClient.RequestAsync<string, string>(fixture.Topology.OperatorStatusSubject,
+            string.Empty, cancellationToken: deadline.Token);
+        response.EnsureSuccess();
+        await Assert.That(response.Data).Contains("host-report-relay");
+        await Assert.That(runtime.Completion.IsCompleted).IsFalse();
+        environment["TS_ORCH_NATS_CREDENTIALS_FILE"] = fixture.Operator.CredentialsFile;
+        environment["TS_ORCH_NATS_TLS_CERT_FILE"] = fixture.Operator.CertificateFile;
+        environment["TS_ORCH_NATS_TLS_KEY_FILE"] = fixture.Operator.KeyFile;
+        var exitCode = await Operations.OperatorCli.ExecuteAsync(["operator-status"],
+            environment.GetValueOrDefault, deadline.Token);
+        await Assert.That(exitCode).IsEqualTo(0);
+
+    }
+
+    [Test]
     public async Task Host_report_relay_persists_under_controller_credentials_across_relay_restart()
     {
         await using var fixture = await NatsControlR3L0cFixture.StartAsync();
@@ -545,6 +590,11 @@ public sealed class NatsControlR3L0cTests
 
         foreach (var subject in new[]
                  {
+                     "$JS.API.STREAM.CREATE.CELL_EVENTS",
+                     "$JS.API.STREAM.UPDATE.KV_ORCH_RUNTIME",
+                     "$O.ORCH_PROTOCOL_PACKAGE.M.tampered",
+                     "$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-2",
+                     "ts.orch.v2.fra.desired.cross-region",
                      "$JS.API.DIRECT.GET.KV_ORCH_OPERATIONS",
                      "$JS.API.STREAM.MSG.GET.KV_ORCH_OPERATIONS",
                      "$JS.API.CONSUMER.DURABLE.CREATE.KV_ORCH_OPERATIONS.exfiltration",

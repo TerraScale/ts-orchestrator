@@ -1077,85 +1077,15 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     private static PermissionSet Permissions(Role role, string publicKey, int controllerNumber)
     {
         var root = NatsSubjectTaxonomy.RegionalRoot(Cell);
-        var desired = NatsSubjectTaxonomy.RegionalFamilyPattern(
-            Cell, NatsSubjectTaxonomy.DesiredFamilySegment);
-        var observation = NatsSubjectTaxonomy.RegionalFamilyPattern(
-            Cell, NatsSubjectTaxonomy.ObservationFamilySegment);
-        var operation = NatsSubjectTaxonomy.RegionalFamilyPattern(
-            Cell, NatsSubjectTaxonomy.OperationFamilySegment);
-        var query = NatsSubjectTaxonomy.RegionalFamilyPattern(
-            Cell, NatsSubjectTaxonomy.QueryFamilySegment);
         var journalCreate = NatsSubjectTaxonomy.OperationJournalCreateSubject(Cell);
         var journalUpdate = NatsSubjectTaxonomy.OperationJournalUpdateSubject(Cell);
         var runtimeLifecycleRead = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "read");
         var runtimeLifecycleWrite = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "write");
-        var controllerAgents = NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, Cell);
         var hostAgent = NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, Cell, "host-1");
         return role switch
         {
             Role.HostAgent => new(hostAgent.Publish, hostAgent.Subscribe),
-            Role.Controller => new(
-                [
-                    .. controllerAgents.Publish.Where(pattern => pattern.StartsWith(root + ".agent.", StringComparison.Ordinal)),
-                    desired,
-                    observation,
-                    operation,
-                    query,
-                    journalCreate,
-                    journalUpdate,
-                    runtimeLifecycleRead,
-                    runtimeLifecycleWrite,
-                    $"$JS.API.CONSUMER.INFO.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
-                    $"$JS.API.CONSUMER.MSG.NEXT.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}",
-                    $"$JS.ACK.CELL_SPEC.gitops_cell_spec_controller-{controllerNumber}.>",
-                    "$JS.API.STREAM.INFO.KV_ORCH_DELIVERY",
-                    "$JS.API.DIRECT.GET.KV_ORCH_DELIVERY",
-                    "$KV.ORCH_DELIVERY.>",
-                    // Membership heartbeat/watch surface — the same regional
-                    // grants the production development cluster renders for a
-                    // controller over the bounded ORCH_RUNTIME KV bucket — and
-                    // the fenced authority lease key the coordinator CASes.
-                    "$JS.API.STREAM.INFO.KV_ORCH_LEADERS",
-                    "$JS.API.DIRECT.GET.KV_ORCH_LEADERS",
-                    "$JS.API.DIRECT.GET.KV_ORCH_LEADERS.>",
-                    "$KV.ORCH_LEADERS.>",
-                    "$JS.API.STREAM.INFO.KV_ORCH_RUNTIME",
-                    "$JS.API.DIRECT.GET.KV_ORCH_RUNTIME",
-                    "$JS.API.DIRECT.GET.KV_ORCH_RUNTIME.>",
-                    "$JS.API.CONSUMER.CREATE.KV_ORCH_RUNTIME.>",
-                    "$JS.FC.KV_ORCH_RUNTIME.>",
-                    "$KV.ORCH_RUNTIME.>",
-                    "$JS.API.STREAM.INFO.KV_ORCH_NODE_ENROLLMENTS",
-                    "$JS.API.DIRECT.GET.KV_ORCH_NODE_ENROLLMENTS",
-                    "$JS.API.DIRECT.GET.KV_ORCH_NODE_ENROLLMENTS.>",
-                    "$KV.ORCH_NODE_ENROLLMENTS.>",
-                    "$JS.API.STREAM.INFO.OBJ_CELL_BUNDLES",
-                    "$JS.API.STREAM.MSG.GET.OBJ_CELL_BUNDLES",
-                    "$JS.API.CONSUMER.CREATE.OBJ_CELL_BUNDLES.>",
-                    "$JS.API.CONSUMER.DELETE.OBJ_CELL_BUNDLES.>",
-                    "$JS.FC.OBJ_CELL_BUNDLES.>",
-                    "$O.CELL_BUNDLES.C.>",
-                    "$O.CELL_BUNDLES.M.>",
-                    "$JS.API.STREAM.INFO.OBJ_ORCH_ARTIFACTS",
-                    "$JS.API.STREAM.MSG.GET.OBJ_ORCH_ARTIFACTS",
-                    "$JS.API.CONSUMER.CREATE.OBJ_ORCH_ARTIFACTS.>",
-                    "$JS.API.CONSUMER.DELETE.OBJ_ORCH_ARTIFACTS.>",
-                    "$JS.FC.OBJ_ORCH_ARTIFACTS.>",
-                    "$O.ORCH_ARTIFACTS.C.>",
-                    "$O.ORCH_ARTIFACTS.M.>",
-                ],
-                [
-                    .. controllerAgents.Subscribe.Where(pattern => pattern.StartsWith(root + ".agent.", StringComparison.Ordinal)),
-                    "_INBOX.>",
-                    desired,
-                    observation,
-                    operation,
-                    query,
-                    $"{root}.command.journal.reply.{publicKey}.>",
-                    $"{root}.command.runtime-lifecycle.reply.{publicKey}.>",
-                    "$KV.ORCH_RUNTIME.>",
-                    "$KV.ORCH_NODE_ENROLLMENTS.>",
-                ]),
+            Role.Controller => From(RegionalNatsPermissions.Create(Cell, $"controller-{controllerNumber}", publicKey)),
             Role.Infrastructure => new(
                 [
                     "$JS.API.STREAM.CREATE.CELL_SPEC",
@@ -1277,6 +1207,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(role), role, "Unknown L0C role."),
         };
     }
+
+    private static PermissionSet From(RegionalNatsPermissionPlan plan) =>
+        new(plan.Publish, plan.Subscribe);
 
     private static PermissionSet From(GlobalNatsPermissionPlan plan) =>
         new(plan.Publish, plan.Subscribe);

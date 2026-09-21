@@ -23,7 +23,9 @@ public sealed class RegionalHostAdmissionTests
     }
 
     [Test]
-    public async Task Authorized_enrollment_is_cached_after_durable_replay_acceptance()
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Authorized_enrollment_is_cached_after_durable_replay_acceptance(bool jwtCredentials)
     {
         var directory = Directory.CreateTempSubdirectory("ts-host-admission-");
         try
@@ -72,7 +74,10 @@ public sealed class RegionalHostAdmissionTests
             var certificateKeyPath = Path.Combine(directory.FullName, "host.key");
             var caPath = Path.Combine(directory.FullName, "host-ca.cer");
             var natsSeedPath = Path.Combine(directory.FullName, "nats.seed");
-            await File.WriteAllTextAsync(natsSeedPath, natsSeed);
+            var natsContents = jwtCredentials ? NatsAuthenticationFilesTests.Credentials(natsSeed) : natsSeed;
+            await File.WriteAllTextAsync(natsSeedPath, natsContents);
+            NatsAuthenticationFiles Authentication() => NatsAuthenticationFiles.Resolve(
+                jwtCredentials ? null : natsSeedPath, jwtCredentials ? natsSeedPath : null, "test")!;
             await File.WriteAllTextAsync(signerPath, enrollmentKey.ExportSubjectPublicKeyInfoPem());
             await File.WriteAllTextAsync(certificatePath, certificate.ExportCertificatePem());
             await File.WriteAllTextAsync(certificateKeyPath, workloadKey.ExportPkcs8PrivateKeyPem());
@@ -82,7 +87,7 @@ public sealed class RegionalHostAdmissionTests
                 schemaVersion = 1,
                 files = new[]
                 {
-                    new { path = natsSeedPath, sha256 = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(natsSeed))) },
+                    new { path = natsSeedPath, sha256 = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(natsContents))) },
                     new { path = caPath, sha256 = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(certificate.ExportCertificatePem()))) },
                     new { path = certificatePath, sha256 = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(certificate.ExportCertificatePem()))) },
                     new { path = certificateKeyPath, sha256 = Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(workloadKey.ExportPkcs8PrivateKeyPem()))) }
@@ -142,7 +147,7 @@ public sealed class RegionalHostAdmissionTests
             using (var pendingGate = RegionalHostAdmissionGate.LoadForTests(
                        configuration,
                        pendingReplay,
-                       natsSeedPath,
+                       Authentication(),
                        new NatsTlsFiles(caPath, certificatePath, certificateKeyPath)))
             {
                 var pending = await pendingGate.ObserveAsync(CancellationToken.None);
@@ -158,7 +163,7 @@ public sealed class RegionalHostAdmissionTests
             using (var wrongAccountGate = RegionalHostAdmissionGate.LoadForTests(
                        configuration with { NatsAccountPublicKey = "A-other" },
                        wrongAccountReplay,
-                       natsSeedPath,
+                       Authentication(),
                        new NatsTlsFiles(caPath, certificatePath, certificateKeyPath)))
             {
                 var wrongAccount = await wrongAccountGate.ObserveAsync(CancellationToken.None);
@@ -171,7 +176,7 @@ public sealed class RegionalHostAdmissionTests
             using var gate = RegionalHostAdmissionGate.LoadForTests(
                 configuration,
                 replay,
-                natsSeedPath,
+                Authentication(),
                 new NatsTlsFiles(caPath, certificatePath, certificateKeyPath));
 
             var first = await gate.ObserveAsync(CancellationToken.None);

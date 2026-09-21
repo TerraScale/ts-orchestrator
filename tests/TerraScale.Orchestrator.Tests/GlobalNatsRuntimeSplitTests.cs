@@ -7,9 +7,10 @@ public sealed class GlobalNatsRuntimeSplitTests
     [Test]
     public async Task DirectoryConfigurationSelectsOnlyTheGlobalCellsCapability()
     {
+        using var seed = new NatsAuthenticationFilesTests.SeedFile();
         var configuration = new GlobalDirectoryNatsConfiguration(
             "tls://global.internal:4222",
-            "directory.nk",
+            seed.Path,
             new("ca.pem", "directory-cert.pem", "directory-key.pem"),
             "sfo");
 
@@ -32,9 +33,10 @@ public sealed class GlobalNatsRuntimeSplitTests
     [Test]
     public async Task AuthorityConfigurationCannotBeCreatedForANonGruCell()
     {
+        using var seed = new NatsAuthenticationFilesTests.SeedFile();
         await Assert.That(() => new GlobalAuthorityNatsConfiguration(
                 "tls://global.internal:4222",
-                "authority.nk",
+                seed.Path,
                 new("ca.pem", "authority-cert.pem", "authority-key.pem"),
                 3,
                 "sfo"))
@@ -44,9 +46,10 @@ public sealed class GlobalNatsRuntimeSplitTests
     [Test]
     public async Task DirectoryServiceConfigurationCannotBeCreatedForANonGruCell()
     {
+        using var seed = new NatsAuthenticationFilesTests.SeedFile();
         await Assert.That(() => new GlobalDirectoryServiceNatsConfiguration(
                 "tls://global.internal:4222",
-                "service.nk",
+                seed.Path,
                 new("ca.pem", "service-cert.pem", "service-key.pem"),
                 3,
                 "sfo"))

@@ -280,6 +280,47 @@ public sealed class HostConvergenceRuntimeTests
     }
 
     [Test]
+    public async Task Oci_node_identity_survives_convergence_and_keeps_one_allocation_across_upgrades()
+    {
+        const string node = "ocid1.instance.oc1.sa-saopaulo-1.aaaaaaaaabcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmn";
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var installRoot = Path.Combine(server.Directory, "oci-artifacts");
+        var first = Encoding.UTF8.GetBytes("oci-member-v1");
+        var second = Encoding.UTF8.GetBytes("oci-member-v2");
+        var firstHex = Convert.ToHexStringLower(SHA256.HashData(first));
+        var secondHex = Convert.ToHexStringLower(SHA256.HashData(second));
+        var converger = new FakeConverger();
+        // This exercises allocation/report identity with controller-owned stores.
+        // The dedicated restricted host entry point has its own remaining gate.
+        await using var convergence = HostConvergenceRuntime.Create(delivery, runtimeStore, client,
+            new MemoryArtifactSource(("sha256-" + firstHex, first), ("sha256-" + secondHex, second)),
+            converger, new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", installRoot,
+                HostArchitecture.Arm64), "gru", node);
+        foreach (var hex in new[] { firstHex, secondHex })
+        {
+            await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+            await convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
+                AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+            var entry = await runtimeStore.GetEntryAsync<string>($"host.{node}.terrabase-server");
+            entry.EnsureSuccess();
+            var report = JsonSerializer.Deserialize<HostConvergenceObservation>(entry.Value!);
+            await Assert.That(report!.Instance).IsEqualTo(node);
+            await Assert.That(report.Digest).IsEqualTo("sha256:" + hex);
+            await Assert.That(report.State).IsEqualTo("converged");
+        }
+        await Assert.That(converger.ConvergedPlans.Count).IsEqualTo(2);
+        await Assert.That(converger.ConvergedPlans[0].AllocationId).IsEqualTo(converger.ConvergedPlans[1].AllocationId);
+        var allocation = converger.ConvergedPlans[0].AllocationId;
+        await Assert.That(allocation.Value.Length).IsLessThanOrEqualTo(63);
+        await Assert.That(allocation).IsNotEqualTo(HostConvergenceRuntime.AllocationIdFor("sfo", node, "terrabase-server"));
+        await Assert.That(allocation).IsNotEqualTo(HostConvergenceRuntime.AllocationIdFor("gru", node + "2", "terrabase-server"));
+        await Assert.That(allocation).IsNotEqualTo(HostConvergenceRuntime.AllocationIdFor("gru", node, "ts-auth"));
+        await Assert.That(HostConvergenceRuntime.AllocationIdFor("ab", "c", "d"))
+            .IsNotEqualTo(HostConvergenceRuntime.AllocationIdFor("a", "bc", "d"));
+    }
+
+    [Test]
     public async Task ConvergesDesiredDigestInstallsVerifiedArtifactAndReportsObservation()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -448,7 +489,7 @@ public sealed class HostConvergenceRuntimeTests
             value.StartsWith("EnvironmentFile=-", StringComparison.Ordinal));
         var environmentFile = environmentProperty["EnvironmentFile=-".Length..];
         await Assert.That(environmentFile).IsEqualTo(
-            Path.Combine(stateDirectoryRoot, "terrascale-host-terrabase-server-test-1", "environment"));
+            Path.Combine(stateDirectoryRoot, "terrascale-" + HostConvergenceRuntime.AllocationIdFor("gru", "test-1", "terrabase-server").Value, "environment"));
         await Assert.That(File.Exists(environmentFile)).IsTrue();
         await Assert.That(await File.ReadAllTextAsync(environmentFile)).Contains("TERRABASE_REGION=GRU");
 

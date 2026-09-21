@@ -7,7 +7,8 @@ namespace TerraScale.Orchestrator.Protocol.Subjects;
 /// administration, global authority, the global directory read service, one regional
 /// controller scope per Region, per-host-agent scopes, CI coordinators, isolated CI runners,
 /// read-only monitoring, and break-glass recovery. Standing write permissions are disjoint:
-/// no control subject may be published by two different account kinds.
+/// mutation subjects have one owning kind. Controllers and operators share only the closed
+/// read-only status and membership requests.
 /// </summary>
 public enum NatsControlAccountKind
 {
@@ -140,7 +141,7 @@ public sealed class NatsControlAccountScope
 /// manifest. Completeness proves: every manifest kind maps to one account kind in both
 /// directions, every standing grant is a closed control-family permission (or, for the
 /// infrastructure kind, platform-reserved surface), write grants are pairwise disjoint across
-/// kinds, read-only kinds hold no write grants, and break-glass recovery holds no standing
+/// kinds except closed read-only status/membership requests, read-only kinds hold no write grants, and break-glass recovery holds no standing
 /// grants at all.
 /// </summary>
 public static class NatsControlAccountModel
@@ -220,7 +221,9 @@ public static class NatsControlAccountModel
                 }
             }
 
-            foreach (var pattern in grants.Publish.Where(pattern => !publishOwners.TryAdd(pattern, kindName)))
+            foreach (var pattern in grants.Publish.Where(pattern =>
+                         !publishOwners.TryAdd(pattern, kindName) &&
+                         !IsSharedControllerQuery(pattern, publishOwners[pattern], kindName)))
             {
                 violations.Add(
                     $"The write permission '{pattern}' is granted to both '{publishOwners[pattern]}' and '{kindName}'.");
@@ -228,6 +231,16 @@ public static class NatsControlAccountModel
         }
 
         return violations;
+    }
+
+    private static bool IsSharedControllerQuery(string pattern, string first, string second)
+    {
+        if (!((first == "regional-controller" && second == "operator-query") ||
+              (first == "operator-query" && second == "regional-controller")))
+            return false;
+        var subject = Materialize(pattern, SampleRegionToken, SampleAgentHashToken);
+        return subject == NatsSubjectTaxonomy.ControllerStatusSubject(SampleRegionToken) ||
+               subject == NatsSubjectTaxonomy.ControllerMembersSubject(SampleRegionToken);
     }
 
     internal const string SampleRegionToken = "gru";

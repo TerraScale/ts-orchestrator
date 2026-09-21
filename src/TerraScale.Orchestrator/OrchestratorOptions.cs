@@ -28,7 +28,8 @@ public sealed record OrchestratorOptions(
     ControlPlane.Providers.OciCiRunnerPoolConfiguration? OciCiRunnerPool = null,
     string? InfrastructureNatsNKeyFile = null,
     Messaging.NatsTlsFiles? InfrastructureNatsTls = null,
-    Messaging.NatsAuthoritativeJournalConfiguration? AuthoritativeJournal = null)
+    Messaging.NatsAuthoritativeJournalConfiguration? AuthoritativeJournal = null,
+    string? NatsCredentialsFile = null)
 {
     public static OrchestratorOptions Parse(
         IReadOnlyList<string> args,
@@ -52,6 +53,7 @@ public sealed record OrchestratorOptions(
         var globalDirectoryUrl = environment("TS_ORCH_GLOBAL_DIRECTORY_NATS_URL");
         var globalDirectoryServiceUrl = environment("TS_ORCH_GLOBAL_DIRECTORY_SERVICE_NATS_URL");
         var controllerNkey = environment("TS_ORCH_NATS_NKEY_FILE");
+        var controllerCredentials = environment("TS_ORCH_NATS_CREDENTIALS_FILE");
         var controllerTlsValues = new[]
         {
             environment("TS_ORCH_NATS_TLS_CA_FILE"),
@@ -100,15 +102,16 @@ public sealed record OrchestratorOptions(
             environment("TS_ORCH_JOURNAL_CONTROLLER_NKEYS")
         };
         RejectUnownedCredentials(
-            command, controllerNkey, controllerTlsValues,
+            command, controllerNkey, controllerCredentials, controllerTlsValues,
             globalUrl, globalNkey, globalCredentials, globalTlsValues,
             globalDirectoryUrl, globalDirectoryNkey, globalDirectoryCredentials, globalDirectoryTlsValues,
             globalDirectoryServiceUrl, globalDirectoryServiceNkey, globalDirectoryServiceCredentials, globalDirectoryServiceTlsValues,
             infrastructureNkey, infrastructureTlsValues, journalValues);
         var controllerCredentialsRequired = command is OrchestratorCommand.Run or OrchestratorCommand.Check;
-        var natsNKeyFile = controllerCredentialsRequired
-            ? Messaging.NatsCredentialFile.Resolve(controllerNkey, "TS_ORCH_NATS_NKEY_FILE")
+        var regionalAuthentication = controllerCredentialsRequired
+            ? Messaging.NatsAuthenticationFiles.Resolve(controllerNkey, controllerCredentials, "TS_ORCH_NATS")
             : null;
+        var natsNKeyFile = regionalAuthentication?.NKeyFile;
         var natsTls = controllerCredentialsRequired
             ? Messaging.NatsTlsFiles.Resolve(controllerTlsValues[0], controllerTlsValues[1], controllerTlsValues[2], "TS_ORCH_NATS_TLS")
             : null;
@@ -148,10 +151,10 @@ public sealed record OrchestratorOptions(
             throw new ArgumentException("TS_ORCH_INSTANCE must contain only lowercase letters, digits, or hyphens.");
         }
         if (command == OrchestratorCommand.Run &&
-            (uri.Scheme != "tls" || natsNKeyFile is null || natsTls is null))
+            (uri.Scheme != "tls" || regionalAuthentication is null || natsTls is null))
         {
             throw new ArgumentException(
-                "The run command requires a tls:// regional control NATS URL, a private NKey seed, and complete mTLS credentials.");
+                "The run command requires a tls:// regional control NATS URL, a private NKey seed or JWT credentials file, and complete mTLS credentials.");
         }
         var infrastructureNatsNKeyFile = command == OrchestratorCommand.ProvisionJournal
             ? Messaging.NatsCredentialFile.Resolve(
@@ -171,8 +174,8 @@ public sealed record OrchestratorOptions(
             throw new ArgumentException(
                 "The provision-journal command requires a tls:// regional control NATS URL and complete TS_ORCH_INFRA_NATS NKey and mTLS credentials.");
         }
-        if (infrastructureNatsNKeyFile is not null && natsNKeyFile is not null &&
-            Messaging.NatsCredentialFile.SameIdentity(infrastructureNatsNKeyFile, natsNKeyFile))
+        if (infrastructureNatsNKeyFile is not null && regionalAuthentication is not null &&
+            Messaging.NatsCredentialFile.PublicKey(infrastructureNatsNKeyFile) == regionalAuthentication.PublicKey)
         {
             throw new ArgumentException("Infrastructure and controller NATS identities must be distinct.");
         }
@@ -207,11 +210,11 @@ public sealed record OrchestratorOptions(
             throw new ArgumentException(
                 "The global directory service requires complete global directory publisher/watch credentials.");
         if ((globalNats is not null || globalDirectoryNats is not null) &&
-            (natsNKeyFile is null || natsTls is null))
+            (regionalAuthentication is null || natsTls is null))
             throw new ArgumentException(
                 "Global authority and directory roles require complete regional control credentials.");
         ValidateDistinctNatsIdentities(
-            natsNKeyFile,
+            regionalAuthentication,
             natsTls,
             globalNats,
             globalDirectoryNats,
@@ -298,12 +301,14 @@ public sealed record OrchestratorOptions(
             OciCiRunnerPool: ociCiRunnerPool,
             InfrastructureNatsNKeyFile: infrastructureNatsNKeyFile,
             InfrastructureNatsTls: infrastructureNatsTls,
-            AuthoritativeJournal: authoritativeJournal);
+            AuthoritativeJournal: authoritativeJournal,
+            NatsCredentialsFile: regionalAuthentication?.CredentialsFile);
     }
 
     private static void RejectUnownedCredentials(
         OrchestratorCommand command,
         string? controllerNkey,
+        string? controllerCredentials,
         IReadOnlyList<string?> controllerTls,
         string? globalUrl,
         string? globalNkey,
@@ -322,6 +327,7 @@ public sealed record OrchestratorOptions(
         IReadOnlyList<string?> journal)
     {
         var hasController = !string.IsNullOrWhiteSpace(controllerNkey) ||
+            !string.IsNullOrWhiteSpace(controllerCredentials) ||
             controllerTls.Any(static value => !string.IsNullOrWhiteSpace(value)) ||
             !string.IsNullOrWhiteSpace(globalUrl) ||
             !string.IsNullOrWhiteSpace(globalNkey) ||
@@ -401,15 +407,15 @@ public sealed record OrchestratorOptions(
     }
 
     private static void ValidateDistinctNatsIdentities(
-        string? regionalNkey,
+        Messaging.NatsAuthenticationFiles? regionalAuthentication,
         Messaging.NatsTlsFiles? regionalTls,
         Messaging.GlobalNatsConfiguration? authority,
         Messaging.GlobalDirectoryNatsConfiguration? directory,
         Messaging.GlobalDirectoryServiceNatsConfiguration? service)
     {
         var identities = new List<(string Name, string PublicKey, Messaging.NatsTlsFiles Tls)>();
-        if (regionalNkey is not null && regionalTls is not null)
-            identities.Add(("regional control", Messaging.NatsCredentialFile.PublicKey(regionalNkey), regionalTls));
+        if (regionalAuthentication is not null && regionalTls is not null)
+            identities.Add(("regional control", regionalAuthentication.PublicKey, regionalTls));
         if (authority is not null)
             identities.Add(("global authority", authority.Authentication.PublicKey, authority.Tls));
         if (directory is not null)

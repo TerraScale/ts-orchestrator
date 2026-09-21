@@ -55,6 +55,10 @@ the exact release revision before deployment.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Regional JWT, configuration, admission, OCI node allocation, R3 grants and host convergence | **113 passed**, 0 failed/skipped | `/tmp/ts-regional-jwt-qualified-tests.log`; actual controller startup against restricted JWT/mTLS R3; before the operator CLI addition |
+| Full main regression with regional JWT and operator CLI | **1106 passed, 2 failed, 5 live-lane skips** | `/tmp/ts-regional-jwt-main-suite.log`; 13m07s; actual regional startup and CLI passed; failures were the duplicated source-subject literals and immediate directory freshness assertion after gateway reconnection; correction evidence recorded separately |
+| Corrections after the regional JWT main run | **8 passed**, 0 failed/skipped | `/tmp/ts-regional-jwt-corrections-tests.log`; canonical subject source checks plus real gateway heal requiring a fresh advertisement, advancing sequence and unchanged epoch; 42.7s; publisher cleanup also runs on assertion failure |
+| Final regional JWT protocol, Release and style | **165 passed**, 0 failed/skipped; build **0 warnings/errors**; style passed | `/tmp/ts-regional-jwt-final-protocol-tests.log`, `/tmp/ts-regional-jwt-corrections-build.log`, `/tmp/ts-regional-jwt-corrections-style.log`; includes explicit shared read-only query cases and mutation-owner invariants; no owned test containers remained |
 | Founding peer grant and reconciliation | **27 passed**, 0 failed/skipped | `/tmp/ts-oci-founding-tests-final.log`; offline signing, exact bounds, retries/lost responses and receipts, restart, drift, expiry, lock and redaction; includes real SDK signed launch serialization against loopback |
 | Explicit OCI SDK endpoint routing | **5 passed**, 0 failed/skipped | `/tmp/ts-oci-sdk-endpoint-tests.log`; compute, network, block storage, work requests and Vault use the supplied endpoint despite a stale template |
 | Founding Release/style and publish | Pass; build 0 warnings/errors; x64 and ARM64 ELF verified | `/tmp/ts-oci-founding-release-build-final.log`, `/tmp/ts-oci-founding-style.log`, `/tmp/ts-oci-founding-{x64,arm64}-publish.log` |
@@ -186,10 +190,13 @@ repository's main-only push rule being resolved.
   Workstation API keys must not be installed on controllers. Prove allowed
   operations and denial outside the owned compartments/resources from OCI.
 - **Regional NATS:** distinct controller, operator, infrastructure journal
-  provisioner, journal writer, and host identities, with private NKey/mTLS
-  material and exact regional subject permissions. The production regional
-  runtime uses NKey files; existing JWT-based test fixtures do not by
-  themselves prove its first-boot connection configuration.
+  provisioner, journal writer, and host identities, with private NKey/JWT and
+  mTLS material and exact regional subject permissions. Regional runtime and
+  operator CLI now accept JWT credentials, bind the JWT to its actual user
+  seed, and reject reused regional/global identities. The actual regional
+  startup has passed against restricted JWT/mTLS R3 NATS using the shared
+  runtime permission plan. First-boot issuance and rotation remain open; see
+  [regional-nats-authentication.md](../operations/regional-nats-authentication.md).
   Separate Unix users on a VM share its Instance Principal. The controller
   principal must be denied the journal writer key, including self-granted
   access; first boot still needs an enforceable OCI identity boundary for
@@ -240,9 +247,10 @@ repository's main-only push rule being resolved.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The current controller
    instance-name parser rejects full OCI node IDs, while admission and fleet
-   reporting require that exact identity. Host allocation names also need a
-   stable derived token instead of embedding the raw OCID. Fix these in the
-   dedicated host path without widening the controller/subject grammar.
+   reporting require that exact identity. Host allocation names now use a
+   stable cell/node/artifact hash and preserve full OCIDs in report bodies;
+   a real NATS convergence/upgrade test covers this component. Finish the
+   dedicated host entry point without widening the controller/subject grammar.
 5. Qualify generic auth scaling alongside stateful TerraBase placement. The
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop
@@ -328,6 +336,16 @@ fallback; HTML reports are not uploaded or durably retained by that fallback.
 The unsupported upload step is removed without changing test failure handling.
 Log: `/tmp/ts-orchestrator-ci498-job-21995.log`. A successful pipeline and a
 working immutable artifact-delivery path are still required.
+
+Task **500**, revision `4ebda9caec`, passed both jobs. All five test projects
+passed: control plane **966**, model **59**, protocol **165**, scheduler **106**,
+and main **1076**, with **5 live-lane skips** (**2372 passed** total). The job
+retained the source receipt and checksums in its logs. The artifact job verified
+both x64 and ARM64 single-file binaries and their source-bound SHA-256 digests.
+This confirms the CI fallback works; it does not provide durable binary/HTML
+artifact storage or OCI deployment evidence. Logs:
+`/tmp/ts-orchestrator-ci500-job-21999.log` and
+`/tmp/ts-orchestrator-ci500-job-22000.log`.
 
 ## First live OCI qualification, after local readiness
 

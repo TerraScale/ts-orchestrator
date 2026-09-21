@@ -57,6 +57,16 @@ public sealed class OperatorCliTests
     }
 
     [Test]
+    public async Task Operator_rejects_ambiguous_authentication_before_connecting()
+    {
+        var error = await Assert.That(() => OperatorCli.ExecuteAsync(
+                ["operator-status", "--nkey-file", "/unmounted/seed", "--credentials-file", "/unmounted/user.creds"],
+                _ => null, CancellationToken.None))
+            .Throws<ArgumentException>();
+        await Assert.That(error!.Message).Contains("not both");
+    }
+
+    [Test]
     public async Task RegionalStatusRejectsWrongCellAndUnqualifiedCapabilities()
     {
         var status = new RegionalControllerStatus(

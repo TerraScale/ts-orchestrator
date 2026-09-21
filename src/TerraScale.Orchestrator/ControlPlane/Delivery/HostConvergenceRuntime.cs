@@ -498,11 +498,20 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         HostRuntimePlan.Create(
             role,
             descriptor.DefaultDriver,
-            new($"host-{descriptor.ArtifactKey}-{instance}"),
+            AllocationIdFor(cell, instance, descriptor.ArtifactKey),
             new(hex),
             configuration.Architecture,
             installRoot: configuration.InstallRoot,
             stateRoot: configuration.StateDirectoryRoot);
+
+    internal static RuntimeAllocationId AllocationIdFor(string cell, string instance, string artifactKey)
+    {
+        // Keep provider identity in enrollment/report bodies. Allocation names are
+        // fixed DNS tokens and must not embed long, dotted OCI OCIDs. Length framing
+        // preserves field boundaries; the same node/role remains stable across upgrades.
+        var identity = $"{cell.Length}:{cell}{instance.Length}:{instance}{artifactKey.Length}:{artifactKey}";
+        return new("host-" + Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)))[..48]);
+    }
 
     /// <summary>Fetches the artifact from the object store and installs it under its digest path after verifying the hash.</summary>
     private async Task InstallArtifactAsync(

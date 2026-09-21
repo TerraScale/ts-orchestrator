@@ -135,7 +135,7 @@ public sealed class NatsGatewayR1DirectoryTests
             // Healthy: the publisher advertises, the projection serves it, and
             // both queue-grouped service instances answer.
             // -----------------------------------------------------------------
-            var publisher = await StartPublisherAsync(fixture, endpoint, SfoMembership, Authority);
+            await using var publisher = await StartPublisherAsync(fixture, endpoint, SfoMembership, Authority);
             var established = await WaitForSnapshotAsync(
                 () => directory.Snapshot,
                 snapshot => snapshot is { ActiveCells: 1 } &&
@@ -193,7 +193,7 @@ public sealed class NatsGatewayR1DirectoryTests
             // healthy without cross-cell KV access and without authority loss.
             // -----------------------------------------------------------------
             var recoveryStart = Stopwatch.GetTimestamp();
-            var restarted = await StartPublisherWithRetryAsync(fixture, endpoint, SfoMembership, Authority);
+            await using var restarted = await StartPublisherWithRetryAsync(fixture, endpoint, SfoMembership, Authority);
             var recovered = await WaitForSnapshotAsync(
                 () => directory.Snapshot,
                 snapshot => snapshot is { ActiveCells: 1, Condition: GlobalCellDirectoryCondition.Healthy } &&
@@ -228,10 +228,10 @@ public sealed class NatsGatewayR1DirectoryTests
             // while its cross-mesh request fails, and the rest of the mesh keeps
             // querying the directory — the durable directory rides its own
             // client-network path, not the gateway. After the heal the same
-            // client resumes cross-mesh traffic. (No JetStream assertion depends
-            // on post-heal state: this fixture's single-server self-route can
-            // fail its TLS redial after netns churn, which would wedge the
-            // region's JetStream meta layer for the window.)
+            // client resumes cross-mesh traffic. Mesh connectivity alone is not
+            // directory readiness: the publisher and supervised watch may still
+            // be recovering, and stale advertisements must remain stale until a
+            // fresh post-heal publication has actually converged.
             // -----------------------------------------------------------------
             await fixture.SeverGatewayLinksAsync("sfo");
             await Assert.That(fixture.ServerIsRunning("sfo")).IsTrue();
@@ -251,21 +251,22 @@ public sealed class NatsGatewayR1DirectoryTests
 
             await fixture.HealGatewayLinksAsync("sfo");
             await WaitForMeshAsync(fixture);
+            var healedAt = DateTimeOffset.UtcNow;
+            var healed = await WaitForSnapshotAsync(
+                () => directory.Snapshot,
+                snapshot => snapshot is { ActiveCells: 1, Condition: GlobalCellDirectoryCondition.Healthy } &&
+                            snapshot.Cells is [{ Cell: "sfo", IsStale: false } cell] &&
+                            cell.ObservedAt >= healedAt && cell.Sequence > recovered.Cells.Single().Sequence,
+                RecoveryWindow,
+                "a fresh post-heal SFO advertisement to converge");
+            healed.Validate();
+            await Assert.That(healed.Cells.Single().AuthorityEpoch).IsEqualTo(authorityEpoch);
             var after = await sfoProbe.RequestAsync<string, string>(
                 GlobalNatsTopology.CellDirectorySubject, "after");
             after.EnsureSuccess();
             await Assert.That(ParseActiveCells(after.Data)).IsEqualTo(1);
 
-            // The publisher outlives the assertions (its advertisement must stay
-            // active through the gateway phase); its teardown is guarded because
-            // the fixture's post-heal JetStream state is not asserted.
-            try
-            {
-                await restarted.DisposeAsync();
-            }
-            catch (NatsException)
-            {
-            }
+
         }
         finally
         {

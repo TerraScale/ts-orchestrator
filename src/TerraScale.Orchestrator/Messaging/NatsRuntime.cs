@@ -261,13 +261,14 @@ public sealed class NatsRuntime : IAsyncDisposable
             RetryOnInitialConnect = true,
             RequestTimeout = TimeSpan.FromSeconds(15)
         };
-        if (options.NatsNKeyFile is not null)
+        var authentication = NatsAuthenticationFiles.Resolve(options.NatsNKeyFile, options.NatsCredentialsFile, "TS_ORCH_NATS");
+        if (authentication is not null)
         {
             clientOptions = clientOptions with
             {
-                AuthOpts = new NatsAuthOpts { NKeyFile = options.NatsNKeyFile },
+                AuthOpts = authentication.Options,
                 InboxPrefix = TerraScale.Orchestrator.Protocol.Messaging.NatsSubjectTaxonomy.ControllerInboxPrefix(
-                    options.Cell, NatsCredentialFile.PublicKey(options.NatsNKeyFile))
+                    options.Cell, authentication.PublicKey)
             };
         }
         if (options.NatsTls is not null)
@@ -296,8 +297,8 @@ public sealed class NatsRuntime : IAsyncDisposable
         Nodes.OciWorkloadReplicaDriver? workloadReplicaDriver = null;
         try
         {
-            await client.ConnectAsync();
-            if (options.NatsNKeyFile is not null || options.NatsTls is not null)
+            await client.ConnectAsync().AsTask().WaitAsync(cancellationToken);
+            if (authentication is not null || options.NatsTls is not null)
             {
                 await VerifyAnonymousDeniedAsync(natsUrl.ToString(), options.NatsTls, cancellationToken);
             }
@@ -344,9 +345,9 @@ public sealed class NatsRuntime : IAsyncDisposable
                 "storage",
                 "terrabase"
             };
-            if (options.NatsNKeyFile is not null)
+            if (authentication is not null)
             {
-                capabilities.Add("nats-nkey-authenticated");
+                capabilities.Add(authentication.CredentialsFile is null ? "nats-nkey-authenticated" : "nats-jwt-authenticated");
             }
             if (options.NatsTls is not null)
             {
@@ -687,7 +688,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 {
                     hostAdmissionRuntime = hostAdmission.Create(
                         state.NodeEnrollments,
-                        options.NatsNKeyFile ?? throw new InvalidOperationException("Host admission requires a regional NATS NKey."),
+                        authentication ?? throw new InvalidOperationException("Host admission requires regional NATS authentication."),
                         options.NatsTls ?? throw new InvalidOperationException("Host admission requires regional NATS mTLS."));
                 }
                 // Leaderless host convergence: every host process converges its configured
