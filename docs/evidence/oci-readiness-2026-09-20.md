@@ -98,14 +98,18 @@ use synthetic test credentials and do not qualify Instance Principal.
 
 ## Verification evidence
 
-These are working-tree results, not qualification of an immutable release.
-Other changes are present in the shared checkouts. Rerun the final gates against
-the exact release revision before deployment.
+Some earlier results below were produced from shared working trees. The final
+candidate section identifies the immutable revisions qualified on 2026-09-21.
+Rerun the final gates after those revisions are combined into the selected
+release branches and artifacts.
 
 ### Final candidate evidence — 2026-09-21
 
 The final local qualification source uses `ts-orchestrator@28b5a2e9`,
-`ts-auth@ae4d099`, and the isolated TerraBase correction `af610d00`. The clean
+`ts-auth@ae4d099`, and the isolated TerraBase candidate `8250a8a9`. The
+TerraBase candidate contains the point-seek correction from `af610d00`, the
+solution-wide unused-import cleanup in `03365bd8`, and the peer-host message
+limit assertion correction. The clean
 orchestrator rerun passed **1,459 tests**, with
 zero failures and seven expected live-lane skips; its supporting suites passed
 **969 control-plane**, **59 model**, **165 protocol**, and **106 scheduler**
@@ -178,6 +182,13 @@ project-key gateway, durable credential issuance, tenant policy service, or
 the raw `TerraBase.Host` deployment path. The raw-host failure above remains a
 production blocker.
 
+The three-region Firecracker lane qualifies orchestrator formation, VM loss,
+and replacement across the simulated GRU/SFO/FRA cells. It does not send
+TerraBase records between those guests. Data convergence is qualified
+separately by the three-member loopback mTLS replication, partition,
+crash-resume, and network-fault tests below. Cross-region guest data
+convergence and real OCI regional formation therefore remain deployment gates.
+
 The point-seek correction is committed as `af610d00`. The shared TerraBase
 working tree containing it was exercised with **1,203 API tests**,
 **480 core tests plus four expected Windows skips**, **20 schema-generator
@@ -194,23 +205,39 @@ The API log is `/tmp/ts-goal-terrabase-api-after-fastpath-fixes-20260921.log`,
 and the strict Release solution build passed with zero warnings/errors in
 `/tmp/ts-goal-terrabase-final-solution-build-20260921.log`.
 
-The full upstream-derived ZoneTree suite was enumerated at **314 tests** and
-passed completely with zero failures or skips. The assembly is intentionally
-nonparallel, so the run used seven non-overlapping TUnit UID partitions with
-separate storage and result roots, all at niceness 19 and idle I/O priority:
-32 SafeBTree, 269 other non-atomic cases, and all 13 WAL-heavy atomic cases.
-The longest partition finished in 34m45s. The enumeration is
-`/tmp/ts-goal-terrabase-upstream-list-20260921.json`; result logs are
-`/tmp/ts-goal-terrabase-upstream-{safebtree,atomic_increment,atomic_btree,atomic_mutable,atomic_upserts,group_a,group_b,group_c}-20260921.log`.
+The isolated `oci-readiness-style` worktree at `8250a8a9` provides the clean
+TerraBase candidate. `03365bd8` removes 382 unused imports from 251 files with
+no other source deletions. The exact candidate passed the strict Release
+solution build with zero warnings/errors and the solution-wide
+`dotnet format style --verify-no-changes` gate. The first exact-candidate API
+run caught a stale host assertion that still expected the payload-only frame
+bound after native gRPC added its five-byte protobuf allowance. `8250a8a9`
+checks the configured bounded wire-message limit; its focused mTLS host test
+passed before the complete rerun. Build and style evidence is
+`/tmp/ts-goal-terrabase-8250a8a9-build-style-20260921.log`.
 
-The TerraBase solution-wide `dotnet format style --verify-no-changes` gate is
-currently red with approximately 300 existing `IDE0005` unused-using findings
-across ZoneTree, schema-generator, API, and test sources. The three files changed
-for the point-seek correction pass a scoped style verification. The shared
-TerraBase checkout still contains substantial concurrent uncommitted indexing,
-files, transport, and replication work outside `af610d00`. A clean immutable
-release checkout must pass the full style gate and the recorded suites before
-deployment.
+The six standard TUnit executables at `8250a8a9` passed **1,802 tests**, with
+zero failures and six expected Windows-only skips: **1,189 API**, **480 core**,
+**20 schema-generator**, **73 full-text**, **28 ZoneTree**, and **12 recovery**.
+The CI-equivalent aggregate and per-project logs are
+`/tmp/ts-goal-terrabase-8250a8a9-ci-tests-20260921.log` and
+`/tmp/ts-goal-terrabase-8250a8a9-*-20260921.log`.
+
+The full upstream-derived ZoneTree suite was enumerated at **314 tests** and
+passed completely with zero failures or skips on the same commit. The assembly
+is intentionally nonparallel, so the run used eight non-overlapping TUnit UID
+partitions with isolated storage and result roots, all at niceness 19 and idle
+I/O priority: 32 SafeBTree, 269 other non-atomic cases, and all 13 WAL-heavy
+atomic cases. Exact discovered-versus-reported UID comparison passed; the
+longest partition finished in 35m30s. The enumeration, aggregate validation,
+and result logs are
+`/tmp/ts-goal-terrabase-8250a8a9-upstream-list-20260921.json`,
+`/tmp/ts-goal-terrabase-8250a8a9-upstream-validation-20260921.log`, and
+`/tmp/ts-goal-terrabase-8250a8a9-upstream-*-20260921.log`.
+
+The shared primary TerraBase checkout still contains substantial concurrent
+uncommitted indexing, files, transport, and replication work outside the
+isolated candidate. It was not modified for the style cleanup or final rerun.
 
 The current `ts-infra` working tree also passed its **28** encrypted-state
 publication tests, OpenTofu formatting, configuration validation, and **9**
@@ -347,9 +374,9 @@ execution/storage fencing remain blocked.
 | OCI workload fleet tests after readiness correction | 19 passed | `/tmp/ts-oci-readiness-binding-tests.log`; real NATS readiness binding; non-ready VMs count as pending, expired authority prevents launch; invalid demand and unsafe TerraBase retirement denied |
 | Live local TerraBase fleet | 1 passed, no skip | `/tmp/ts-oci-local-fleet-live.log`; fresh TerraBase.Host publish, scale-out, loss/heal, drain safety and scale-in |
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
-| Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed**, plus committed auth focused **1 passed** | `/tmp/ts-goal-orchestrator-vm-all-final-payload-20260921.log` and `/tmp/ts-goal-orchestrator-vm-auth-ae4d099-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth |
+| Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed**, plus committed auth focused **1 passed** | `/tmp/ts-goal-orchestrator-vm-all-final-payload-20260921.log` and `/tmp/ts-goal-orchestrator-vm-auth-ae4d099-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth; three-region lane does not carry TerraBase replication traffic |
 | Exact ts-auth x64 distroless image and local TerraBase gateway | Pass; health/readiness 200, create 200, graceful restart, durable duplicate 409, final exit 0 | `/tmp/ts-goal-auth-ae4d099-container-20260921.log`, `/tmp/ts-goal-auth-container-smoke-ae4d099-final-20260921.log`; image digest `sha256:e98e9bbf8e51dc7640c56fb76416755911d0bd8ffb036c26e31d496b65f4a4e0`; dev gateway only |
-| Full upstream-derived ZoneTree suite | **314 passed, 0 failed/skipped** | `/tmp/ts-goal-terrabase-upstream-list-20260921.json` plus `/tmp/ts-goal-terrabase-upstream-*-20260921.log`; all 13 WAL-heavy atomic cases included; longest partition 34m45s |
+| Clean TerraBase candidate | **1,802 standard + 314 upstream passed**, 0 failed, 6 expected Windows skips | `8250a8a9`; `/tmp/ts-goal-terrabase-8250a8a9-{build-style,ci-tests,upstream-validation}-20260921.log`; strict Release build and full style gate passed; exact coverage of all 314 upstream UIDs, including 13 WAL-heavy atomic cases |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
 | OpenTofu Vault tier configuration | Pass; 9 mocked plan tests passed | `/tmp/ts-infra-vault-tier-validation.log`, `/tmp/ts-infra-vault-tier-tests.log`; shared HSM default, explicit dedicated tier and invalid-tier rejection; estate remains disabled |
@@ -572,9 +599,9 @@ deployment enablement; no apply or state edit was performed.
    final immutable artifacts. The exact x64 auth image now passes against the
    local gateway, and the synthetic x64 containerd lane passes. Local VM fleet tests do not exercise the unimplemented
    OCI Instance Principal/Vault/bootstrap handoff. Before producing those
-   artifacts, publish or otherwise select the isolated `af610d00` and `ae4d099`
-   corrections, rebuild from a clean release revision, and make the full
-   TerraBase style gate green.
+   artifacts, publish or otherwise select the isolated `8250a8a9` and
+   `ae4d099` corrections, then rebuild from the selected clean release
+   revisions. The isolated TerraBase candidate's full style gate is green.
 
 ## Final local gate
 
