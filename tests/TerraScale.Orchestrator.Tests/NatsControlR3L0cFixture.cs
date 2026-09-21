@@ -31,7 +31,9 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     private readonly string directory;
     private readonly string[] configurations;
     private readonly Process?[] processes;
-    private readonly Task<string>?[] processOutput;
+    private readonly Task?[] processOutput;
+    private readonly NatsFixtureDiagnostics[] diagnostics = Enumerable.Range(0, MemberCount)
+        .Select(static _ => new NatsFixtureDiagnostics()).ToArray();
     private readonly ContainerizedNatsCluster containerCluster;
     private readonly LocalNatsServerLease.Handle lease;
     private int disposed;
@@ -40,7 +42,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         string directory,
         string[] configurations,
         Process?[] processes,
-        Task<string>?[] processOutput,
+        Task?[] processOutput,
         ContainerizedNatsCluster containerCluster,
         LocalNatsServerLease.Handle lease,
         IReadOnlyList<int> clientPorts,
@@ -171,7 +173,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             var identities = CreateIdentities(directory, pki);
             var configurations = new string[MemberCount];
             var processes = new Process?[MemberCount];
-            var processOutput = new Task<string>?[MemberCount];
+            var processOutput = new Task?[MemberCount];
             int[] clientPorts;
             int[] routePorts;
 
@@ -256,7 +258,16 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             for (var member = 0; member < MemberCount; member++)
                 fixture.StartMember(member);
 
-            await fixture.WaitForClusterAsync(cancellationToken);
+            try
+            {
+                await fixture.WaitForClusterAsync(cancellationToken);
+            }
+            catch (Exception exception) when (exception is NatsException or TimeoutException)
+            {
+                var states = Enumerable.Range(0, MemberCount).Select(fixture.GetMemberDiagnostic);
+                throw new InvalidOperationException(
+                    $"The NATS R3 cluster failed its startup probes. {string.Join("; ", states)}", exception);
+            }
             return fixture;
         }
         catch (Exception startupFailure)
@@ -537,7 +548,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             for (var member = 0; member < processes.Length; member++)
             {
                 if (processes[member] is { HasExited: true })
-                    throw new InvalidOperationException(GetMemberExitDiagnostic(member));
+                    throw new InvalidOperationException(GetMemberDiagnostic(member));
             }
             try
             {
@@ -553,27 +564,19 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
         }
-        throw new TimeoutException("The three-member NATS R3 cluster did not become ready within 12 seconds.");
+        throw new TimeoutException("The three-member NATS R3 cluster did not become ready after 120 connection probes.");
     }
 
     private void StartMember(int member)
     {
         var process = containerCluster.Start(configurations[member]);
         processes[member] = process;
-        processOutput[member] = DrainProcessOutputAsync(process);
+        processOutput[member] = Task.WhenAll(
+            diagnostics[member].DrainAsync(process.StandardOutput),
+            diagnostics[member].DrainAsync(process.StandardError));
     }
 
-    private static async Task<string> DrainProcessOutputAsync(Process process)
-    {
-        var standardOutput = process.StandardOutput.ReadToEndAsync();
-        var standardError = process.StandardError.ReadToEndAsync();
-        await Task.WhenAll(standardOutput, standardError);
-        // Never expose process output: it can contain server diagnostics or credential
-        // context. The result is retained only to keep the pipes drained.
-        return string.Concat(await standardOutput, await standardError);
-    }
-
-    private string GetMemberExitDiagnostic(int member)
+    private string GetMemberDiagnostic(int member)
     {
         var process = processes[member];
         var state = process is null
@@ -581,39 +584,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             : process.HasExited
                 ? $"exit-code={process.ExitCode}"
                 : "running";
-        var output = processOutput[member];
-        if (output is null || !output.IsCompletedSuccessfully)
-            return $"NATS R3 member {member + 1} exited before cluster readiness ({state}).";
-
-        var diagnostics = output.Result
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(IsDiagnosticLine)
-            .OrderByDescending(IsPriorityDiagnosticLine)
-            .Select(SanitizeDiagnosticLine)
-            .Take(8)
-            .ToArray();
-        var suffix = diagnostics.Length == 0
-            ? string.Empty
-            : $" diagnostics={string.Join(" | ", diagnostics)}";
-        return $"NATS R3 member {member + 1} exited before cluster readiness ({state}).{suffix}";
+        return $"NATS R3 member {member + 1} ({state}): {diagnostics[member].Snapshot()}";
     }
-
-    private static bool IsDiagnosticLine(string line) =>
-        IsPriorityDiagnosticLine(line) ||
-        line.Contains("tls", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("resolver", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("jetstream", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsPriorityDiagnosticLine(string line) =>
-        line.Contains("error", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("fatal", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("invalid", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("panic", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("parse", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("address", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("listen", StringComparison.OrdinalIgnoreCase) ||
-        line.Contains("bind", StringComparison.OrdinalIgnoreCase);
 
     private static string SanitizeDiagnosticLine(string line)
     {

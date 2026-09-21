@@ -19,11 +19,13 @@ digest before proceeding. See [host-report-relay.md](host-report-relay.md).
 Reports carry proof of the current enrollment session. They do not replace
 the signed enrollment configuration or physical workload fencing. Real NATS tests now
 qualify the report transport with the manifest's exact host credentials and
-regional controller agent grants. Remaining private KV dependencies include
-desired state, retry backoff, replacement leases and enrollment fencing. The
-controller run/check path now rejects host roles. A dedicated host runtime
-and authenticated desired/artifact/lease protocols remain required;
-report qualification does not establish fresh-node readiness.
+regional controller agent grants. Desired state, artifact delivery, process
+sessions and durable cycle/backoff now use restricted signed exchanges with
+controller-owned storage. The remaining raw host KV dependency is replacement
+coordination. The controller run/check path rejects host roles. A dedicated
+host runtime, restricted replacement protocol and native quiescence/writer
+fencing remain required; report qualification does not establish fresh-node
+readiness.
 
 The member fleet's readiness reader checks that report against the exact
 `ORCH_DELIVERY` target used by host convergence. Both paths use

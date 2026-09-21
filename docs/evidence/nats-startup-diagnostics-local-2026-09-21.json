@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-21",
+  "sourceBase": "5e490e00172ac2c8b4887a516a0beb3dc98fff38",
+  "scope": "Test-fixture startup diagnostics; no production source, retry count or operation deadline changes",
+  "sourceSha256": {
+    "tests/TerraScale.Orchestrator.Tests/NatsControlR3L0cFixture.cs": "7a379c9e90dda066fd2c59944a73b71ae948d16a27c5347808851f8cf704064e",
+    "tests/TerraScale.Orchestrator.Tests/NatsFixtureDiagnostics.cs": "be06e523ca84b52899d2d6d76199f6db6e963dba34bae807c17ff0d7a4a9b209",
+    "tests/TerraScale.Orchestrator.Tests/NatsFixtureDiagnosticsTests.cs": "609aab715d75113aa3a05f7d4ffc926207c2a7a689f52b72c57886d1488dea82"
+  },
+  "logSha256": {
+    "/tmp/ts-nats-startup-diagnostics-build.log": "8c1dcdb47a9f63e558a6c6c3806e966267f607c4ac01fae5af23680910125c4d",
+    "/tmp/ts-nats-startup-diagnostics-tests.log": "fdcfd01301d39225583f305d571f92906dc1f52017b01f743de32e58b5e9db19",
+    "/tmp/ts-nats-startup-diagnostics-format-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/ts-orchestrator-ci516-job-22058.log": "69961430c0f63e84180d72c2120249bb6de30e86a01ecdc93544d09182f8a409"
+  },
+  "verification": {
+    "releaseSolutionBuild": {
+      "warnings": 0,
+      "errors": 0,
+      "note": "Final test cleanup adjustment was then rebuilt by the focused dotnet run."
+    },
+    "focused": {
+      "command": "nice -n 19 dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-restore -- --treenode-filter '/*/*/(NatsFixtureDiagnosticsTests|NatsControlR3L0cTests|RegionalHostReportAuthorizationTests)/*' --minimum-expected-tests 14",
+      "passed": 30,
+      "failed": 0,
+      "skipped": 0,
+      "duration": "3m 30s 099ms"
+    },
+    "requiredStyle": "passed"
+  },
+  "ci516": {
+    "source": "5e490e00172ac2c8b4887a516a0beb3dc98fff38",
+    "observedFailure": "CellDirectoryPublisherJwtIsEnforcedByAuthenticatedR3Servers fails in WaitForClusterAsync with a closed socket",
+    "runStatusAtObservation": "running",
+    "rootCause": "unconfirmed; local authenticated R3 tests passed"
+  },
+  "limitations": [
+    "A bounded classifier improves failure evidence; it does not fix or explain the CI startup failure by itself.",
+    "Full CI with the diagnostic change is pending.",
+    "Guest OCI authentication, production host recovery/fencing and first-boot/regional handoff remain unqualified."
+  ]
+}
