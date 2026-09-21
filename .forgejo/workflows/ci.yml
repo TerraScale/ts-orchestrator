@@ -44,8 +44,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s scripts -p 'test_check_nuget_vulnerabilities.py'
-          python3 scripts/check_nuget_vulnerabilities.py \
+          dotnet run scripts/check-nuget-vulnerabilities.tests.cs -- --minimum-expected-tests 13
+          dotnet run scripts/check-nuget-vulnerabilities.cs \
             src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj \
             tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj
 
@@ -60,85 +60,14 @@ jobs:
           --configuration Release --no-restore --nologo
           -p:ContinuousIntegrationBuild=true
 
-      - name: Install the container init the NATS fixtures require
+      - name: Configure the container init the NATS fixtures require
         shell: bash
         run: |
           set -euo pipefail
-          # The job image ships no container-init binary, and podman needs one
-          # (catatonit-compatible) to start any container: it execs the
-          # entrypoint, forwards signals, reaps orphans, and pauses bare as the
-          # pod's infra container (-P). Compile a minimal static stand-in and
-          # register it via containers.conf.d; the test-side
-          # CONTAINERS_CONF_OVERRIDE layers cgroup settings on top.
-          cat > /tmp/ts-podman-init.c <<'EOF'
-          #define _GNU_SOURCE
-          #include <signal.h>
-          #include <stdio.h>
-          #include <stdlib.h>
-          #include <string.h>
-          #include <sys/types.h>
-          #include <sys/wait.h>
-          #include <unistd.h>
-
-          static volatile sig_atomic_t terminate;
-          static volatile pid_t forwarded_pid;
-
-          static void pause_handler(int signal_number)
-          {
-              (void)signal_number;
-              terminate = 1;
-          }
-
-          static void forward_handler(int signal_number)
-          {
-              if (forwarded_pid > 0)
-                  kill(forwarded_pid, signal_number);
-          }
-
-          int main(int argc, char **argv)
-          {
-              if (argc <= 1 || (argc == 2 && strcmp(argv[1], "-P") == 0))
-              {
-                  struct sigaction pause_action = {0};
-                  pause_action.sa_handler = pause_handler;
-                  sigaction(SIGTERM, &pause_action, NULL);
-                  sigaction(SIGINT, &pause_action, NULL);
-                  sigaction(SIGHUP, &pause_action, NULL);
-                  sigaction(SIGPIPE, &pause_action, NULL);
-                  while (!terminate)
-                      pause();
-                  return 0;
-              }
-
-              pid_t child = fork();
-              if (child < 0)
-              {
-                  perror("fork");
-                  return 1;
-              }
-              if (child == 0)
-              {
-                  execvp(argv[1], &argv[1]);
-                  perror("execvp");
-                  _exit(127);
-              }
-
-              forwarded_pid = child;
-              struct sigaction forward_action = {0};
-              forward_action.sa_handler = forward_handler;
-              sigaction(SIGTERM, &forward_action, NULL);
-              sigaction(SIGINT, &forward_action, NULL);
-
-              int status = 0;
-              while (wait(&status) != child)
-              {
-                  // Reap reparented zombies until our own child reports.
-              }
-              return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-          }
-          EOF
-          gcc -O2 -static -o /usr/local/bin/ts-podman-init /tmp/ts-podman-init.c
-          strip /usr/local/bin/ts-podman-init
+          # ts-podman-init, fuse-overlayfs, and aardvark-dns ship in the job
+          # image (verify.sh-asserted); smoke the init binary and register it
+          # via containers.conf.d. The test-side CONTAINERS_CONF_OVERRIDE
+          # layers cgroup settings on top.
           /usr/local/bin/ts-podman-init -P &
           init_pid=$!
           sleep 0.3
@@ -154,13 +83,6 @@ jobs:
           if [ ! -e /etc/containers/storage.conf ]; then
             printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
               > /etc/containers/storage.conf
-          fi
-          # netavark needs aardvark-dns to serve container names on the gateway
-          # fixture network; the image does not ship it. Best effort: without
-          # it only the DNS-backed gateway plane fixtures fail, and the apt
-          # error lands in the log instead of hiding the test results.
-          if ! { apt-get update -qq && apt-get install -y --no-install-recommends aardvark-dns; }; then
-            echo "warning: aardvark-dns install failed; gateway plane fixtures will fail" >&2
           fi
 
       - name: Run every TUnit test project
