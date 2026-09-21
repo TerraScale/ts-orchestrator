@@ -120,6 +120,17 @@ read and delete. Real NATS regressions reproduce both failures on the former
 implementation and pass with the correction. This does not replace the
 missing controller-mediated host lease protocol or writer-stop proof.
 
+Systemd observations now require explicit `MainPID`, `ControlPID` and `Job`
+fields. An inactive unit with a queued job or control process is not stopped;
+malformed or missing activity evidence cannot establish absence. Stop always
+issues the manager operation for an exactly attributed loaded unit, including
+an inactive unit, so it cancels a queued start. The durable native lifecycle
+reader also rejects a stopped/absent report that still carries a PID and a
+running report without a PID. These are manager observations, not cgroup-empty,
+external-command containment or storage-writer proof. An already-submitted
+manager job and an external command that has not yet submitted its job are
+separate recovery obligations.
+
 The complete storage and drain path remains a deployment blocker:
 
 - Data-volume creation, volume-resource ownership, guest mounting, restart and
