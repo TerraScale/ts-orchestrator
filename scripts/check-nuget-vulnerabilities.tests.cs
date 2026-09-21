@@ -1,4 +1,5 @@
 #!/usr/bin/env dotnet run
+#:property ManagePackageVersionsCentrally=false
 #:package TUnit@1.56.18
 #:include check-nuget-vulnerabilities.lib.cs
 
