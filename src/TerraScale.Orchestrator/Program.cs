@@ -25,6 +25,11 @@ try
     }
     using var shutdown = new CancellationTokenSource();
     using var shutdownSignals = ShutdownSignals.Wire(shutdown);
+    if (args.FirstOrDefault() is "oci-bootstrap-secrets")
+    {
+        return await TerraScale.Orchestrator.Bootstrap.Secrets.OciBootstrapSecretsCli.ExecuteAsync(
+            args.Skip(1).ToArray(), shutdown.Token);
+    }
     if (args.FirstOrDefault() is "operator")
     {
         return await OperatorCli.ExecuteAsync(

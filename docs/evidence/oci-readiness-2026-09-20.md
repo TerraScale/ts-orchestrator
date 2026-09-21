@@ -26,6 +26,13 @@ transfer ownership. A signed adoption request, CI relinquishment without
 destruction, durable state publication, and signed release receipt are still
 needed before the controller may mutate the seed foundation.
 
+The executable now includes a pinned OCI Vault delivery command,
+[`oci-bootstrap-secrets`](../operations/oci-vault-bootstrap.md). It verifies
+exact secret versions/digests and publishes private files atomically before
+normal runtime startup. This closes the materialization component; live
+Instance Principal checks, bootstrap supervisor composition, enrollment
+renewal and admission remain open.
+
 ## Verification evidence
 
 These are working-tree results, not qualification of an immutable release.
@@ -34,17 +41,26 @@ the exact release revision before deployment.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
-| Orchestrator Release solution build, latest edits | Pass, 0 warnings/errors | `/tmp/ts-readiness-build-final2.log` |
+| Vault bootstrap component | 18 passed; Release build 0 warnings/errors; locked restore and dependency audit passed | `/tmp/ts-oci-vault-tests-sdk.log`, `/tmp/ts-oci-vault-final-build.log`, `/tmp/ts-oci-vault-audit.log`; includes real OCI SDK signing/version serialization/response decoding against loopback HTTP, no live OCI access |
+| Published Vault bootstrap CLI | Existing private bundle verified; modified bundle rejected without overwrite | `/tmp/ts-oci-bootstrap-cli-probe.json`; actual single-file x64 process, no OCI calls |
+| Orchestrator single-file publish | x64 and ARM64 passed, including Vault delivery | `/tmp/ts-oci-bootstrap-cli-publish.log`, `/tmp/ts-oci-bootstrap-arm64-publish.log`; ELF architecture checked; ARM64 was not executed on OCI |
+| Orchestrator runtime/main-test dependency audit | Pass | `/tmp/ts-oci-nuget-audit.log`; exit 0 |
+| Orchestrator Release solution build, latest edits | Pass, 0 warnings/errors | `/tmp/ts-readiness-build-final3.log` |
 | Region-intent authorization tests | 19 passed | `/tmp/ts-region-intent-tests.log`; strict shape, mappings, endpoints, bounded/private file |
-| Operator-status projection tests | 4 passed before the additional missing-desired test | `/tmp/ts-operator-status-tests.log`; independent actual policy bounds and stale-decision rejection |
+| Operator-status projection tests | 5 passed | `/tmp/ts-operator-status-final.log`; independent actual policy bounds, stale-decision rejection, missing/suspended demand |
+| OCI workload fleet tests after final provider correction | 17 passed | `/tmp/ts-oci-fleet-final.log`; invalid demand remains blocked through the provider; unsafe generic TerraBase retirement denied |
+| Live local TerraBase fleet | 1 passed, no skip | `/tmp/ts-oci-local-fleet-live.log`; fresh TerraBase.Host publish, scale-out, loss/heal, drain safety and scale-in |
+| Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
-| Refreshed read-only OCI plan, estate disabled | Pass; outputs only, no resource changes | `/tmp/ts-infra-region-plan.log`; passphrase available locally, never printed |
+| Refreshed read-only OCI plan, estate disabled | Pass; outputs only, no resource changes | `/tmp/ts-infra-region-plan-final.log`; passphrase available locally, never printed |
 | Auth browser context cleanup regression | 1 passed | `/tmp/ts-auth-browser-cleanup.log`; page disposal now closes its isolated context |
 | Auth admin authorization test after cleanup fix | 1 passed | `/tmp/ts-auth-admin-focused.log`; isolated pass does not establish the full-run timeout's cause |
 | Full auth CI-equivalent run before cleanup fix | Incomplete, interrupted after approximately 29 minutes | `/tmp/tsauth-ci-equivalent.log`; one admin browser timeout recorded; exit 1, no completed totals |
-| New full auth run after cleanup fix | Pending | `/tmp/tsauth-ci-cleanup-rerun.log`; bounded to 10 minutes, same serial concurrency as CI |
-| Latest full orchestrator main suite | Pending | `/tmp/ts-orchestrator-main-final.log`; three opt-in live fleet/VM tests skipped |
+| Full auth run after browser cleanup fix | 380 passed, 1 failed | `/tmp/tsauth-ci-cleanup-rerun.log`; completed in 3 minutes; same admin navigation timeout |
+| Admin portal after navigation assertion fix | 5 passed | `/tmp/ts-auth-admin-navigation.log`; observes navigation before submit and checks the rendered account heading |
+| Full auth run after navigation assertion fix | **381 passed, 0 failed, 0 skipped** | `/tmp/tsauth-ci-navigation-rerun.log`; 2m40s, CI-equivalent serial execution |
+| Full orchestrator main suite after region/status/scaler changes | 974 passed, 0 failed, 3 skipped | `/tmp/ts-orchestrator-main-final.log`; 10m14s; final provider demand/drain correction was then verified by the 17 focused fleet tests |
 
 Earlier completed orchestrator results, before the latest region/status/scaler
 edits: main **952 passed, 3 live-test skips**; control plane **949 passed**;
@@ -61,7 +77,10 @@ result. Do not combine these runs into a green full-suite claim.
 
 Prior focused service telemetry results: auth authenticated metrics 1 pass;
 TerraBase metrics/readiness 2 passes. Real containerd execution and the final
-external TerraBase/auth deployment remain unqualified.
+external TerraBase/auth deployment remain unqualified. The VM host single-file
+publish succeeded with SDK warning NETSDK1236 about exclusion of the referenced
+TerraBase runtimeconfig file; the resulting guest binary passed both VM lanes.
+This warning must still be assessed for release packaging.
 
 ## OCI inventory and configuration
 
@@ -72,6 +91,11 @@ Read-only OCI CLI 3.82.0 queries confirm READY subscriptions:
 | GRU | `sa-saopaulo-1` (home) | GRU |
 | SFO | `us-sanjose-1` | SJC |
 | FRA | `eu-frankfurt-1` | FRA |
+
+The read-only GRU A1 core resource-availability query reported **249 available,
+0 used** for the recorded compartment/AD. This is quota availability, not a
+reservation or proof that OCI has physical host capacity. Memory, volume and
+other regional quotas still need review.
 
 The GRU availability domain is `YDvv:SA-SAOPAULO-1-AD-1`. The recorded TerraScale
 compartment is `ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna`.
@@ -113,7 +137,11 @@ The current virtual-private Vault requires explicit resource/cost review.
 - **Vault and workloads:** fetch pinned secret versions through scoped
   Instance Principals, verify digests, write restricted files, rotate and
   revoke credentials. Compose this path for NATS, TerraBase and auth secrets.
-  The existing Infisical/file seam is not OCI Vault qualification.
+  The new `oci-bootstrap-secrets` CLI materializes pinned Vault references
+  through the OCI SDK and Instance Principal into private generation
+  directories. Its local transport tests and published-binary probe are not
+  live Vault qualification. The supervisor still needs to compose it with
+  signed host admission, rotation and renewal.
 - **Operator:** use authenticated
   `ts.orch.v2.<cell>.query.operator-status` through a read-only operator
   identity. Auth `/metrics` uses its dedicated `TS_AUTH_METRICS_KEY` in
@@ -124,9 +152,14 @@ The current virtual-private Vault requires explicit resource/cost review.
 1. Complete the seed first boot: artifact verification, Instance Principal,
    scoped Vault retrieval, NATS startup, isolated journal, controller admission,
    and recovery after interruption at each stage.
-2. Implement and qualify the CI/controller seed ownership transfer. Bootstrap
-   IAM must not require an unknown new compartment ID in a manually supplied
-   rule or allow the controller to widen its own tenancy permissions.
+   The initial controller must create its founding peers before an R3 authority
+   quorum exists; the current normal runtime depends on that quorum. A bounded
+   bootstrap authority must solve this without downgrading production stores
+   or granting general unfenced mutation.
+2. Implement and qualify the CI/controller seed ownership transfer. The
+   dynamic-group rule now binds to the newly created controller compartment
+   automatically. Bootstrap policies must still be reviewed and must not
+   allow the controller to widen its own tenancy permissions.
 3. Compose regional network/storage/Vault/IAM and controller formation from
    supported-region intent, with durable generation fencing, resource ownership,
    idempotent retries, rollback, drain, and retained-data protections.
@@ -137,12 +170,15 @@ The current virtual-private Vault requires explicit resource/cost review.
    status projection now uses configured fleet limits, absent/suspended desired
    state blocks allocation, and one workload's provider failure does not stop
    the other. Provider readiness still needs exact node/cell/artifact binding,
-   and stateful retirement must prove drain and data safety.
+   and generic TerraBase scale-in is explicitly denied until the stateful
+   placement fleet supplies drain and data-safety proof.
 6. Finish status and telemetry for foundation, handoff, regional enrollment,
    Vault rotation and every provider operation. Current workload aggregates and
    needs/actions/progress are useful but are not complete OCI lifecycle coverage.
-7. Obtain completed green auth and orchestrator runs, then real containerd,
-   external TerraBase/auth and multi-region VM receipts on the final artifacts.
+7. Retain the completed green auth, orchestrator, live fleet and VM results,
+   then qualify real containerd and external TerraBase/auth on the final
+   immutable artifacts. Local VM fleet tests do not exercise the unimplemented
+   OCI Instance Principal/Vault/bootstrap handoff.
 
 ## Final local gate
 
@@ -165,6 +201,11 @@ Run at reduced local priority; CI keeps normal priority. Use TUnit, not
   backup/restore and the controller restart path.
 - Mocked OpenTofu tests and a reviewed enabled **plan**, with an exact bootstrap
   artifact and least-privilege resource inventory. Applies remain CI-only.
+
+The provider demand/drain correction is committed and pushed as `5b4da8f2`.
+Forgejo verification task 493 was still running when checked; no CI pass is
+claimed for that revision. The auth navigation fix and these updated receipts
+were verified locally.
 
 ## First live OCI qualification, after local readiness
 

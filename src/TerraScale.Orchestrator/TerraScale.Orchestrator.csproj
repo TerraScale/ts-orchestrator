@@ -12,6 +12,7 @@
   <ItemGroup>
     <PackageReference Include="NATS.Net" />
     <PackageReference Include="OCI.DotNetSDK.Core" />
+    <PackageReference Include="OCI.DotNetSDK.Secrets" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="ZString" />
   </ItemGroup>
@@ -20,4 +21,3 @@
                       LogicalName="TerraScale.Orchestrator.Protocol.protocol-manifest.json" />
   </ItemGroup>
 </Project>
-

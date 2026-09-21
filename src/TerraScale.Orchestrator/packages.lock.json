@@ -34,6 +34,15 @@
           "OCI.DotNetSDK.Workrequests": "142.0.0"
         }
       },
+      "OCI.DotNetSDK.Secrets": {
+        "type": "Direct",
+        "requested": "[142.0.0, )",
+        "resolved": "142.0.0",
+        "contentHash": "a2S0BYma+kjxz63kGDY0dophdymdrgeSNo1PZXf9xEUIUvvuVKj57Rj3pqP9DCEK2r6Ps8BcyHSNmACzxxr8pw==",
+        "dependencies": {
+          "OCI.DotNetSDK.Common": "142.0.0"
+        }
+      },
       "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
         "type": "Direct",
         "requested": "[1.16.0, )",

@@ -8,7 +8,10 @@ the complete first-boot and ownership handoff are not implemented yet.
 The former Go `bootstrap`, `add-region`, and `ts-node` instructions do not apply
 to the current C# executable. Its runtime commands are `run`, `check`, `catalog`,
 `provision-journal`, and `journal-writer`, plus the operator/CI commands listed
-in the main README. Do not use historical command names as deployment evidence.
+in the main README. The new `oci-bootstrap-secrets` command implements pinned
+Vault materialization before normal runtime startup; its contract and limits
+are in [oci-vault-bootstrap.md](oci-vault-bootstrap.md). Do not use historical
+command names as deployment evidence.
 
 ## Region intent
 
@@ -42,6 +45,12 @@ must be separate states in status.
    versions. Bootstrap must verify artifact digests, install restrictive file
    permissions, start authenticated regional NATS, provision the isolated
    journal identity, and start the controller with the reviewed trust bundle.
+   The first seed also needs a separately bounded bootstrap authority to create
+   its initial peers before regional R3 exists. Normal provider mutation is
+   fenced by NATS authority and cannot bootstrap its own absent quorum. Do not
+   silently downgrade production streams to R1 or treat the current system
+   project bootstrap grants as OCI provisioning authority. This founding-quorum
+   path still needs implementation and crash/retry tests.
 3. The controller records a signed, durable adoption request containing the
    region-intent generation, source revision, exact resource OCIDs, types,
    compartments, current ownership, and observed provider revisions. It must
@@ -85,7 +94,10 @@ stateful TerraBase placement reconciler owns member instances, the generic
 workload fleet must contain only `ts-auth`; duplicate ownership is rejected.
 Missing or suspended desired state blocks generic allocation. An observation
 or apply failure in one workload reports a blocked decision while the other
-continues. Stateful scale-in still requires drain and retained-data proofs.
+continues. Generic TerraBase scale-in is blocked; retirement must use the stateful
+placement fleet with drain and retained-data proofs. The provider preserves
+invalid desired counts so the scaler can reject them instead of silently
+clamping them into permission to launch.
 
 The authenticated NATS endpoint `ts.orch.v2.<cell>.query.operator-status`
 reports workload needs, actions, progress, and configured policy limits.

@@ -337,6 +337,7 @@
         "dependencies": {
           "NATS.Net": "[2.7.2, )",
           "OCI.DotNetSDK.Core": "[142.0.0, )",
+          "OCI.DotNetSDK.Secrets": "[142.0.0, )",
           "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.16.0, )",
           "ZString": "[2.6.0, )"
         }
@@ -362,6 +363,15 @@
         "requested": "[13.0.4, )",
         "resolved": "13.0.4",
         "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
+      },
+      "OCI.DotNetSDK.Secrets": {
+        "type": "CentralTransitive",
+        "requested": "[142.0.0, )",
+        "resolved": "142.0.0",
+        "contentHash": "a2S0BYma+kjxz63kGDY0dophdymdrgeSNo1PZXf9xEUIUvvuVKj57Rj3pqP9DCEK2r6Ps8BcyHSNmACzxxr8pw==",
+        "dependencies": {
+          "OCI.DotNetSDK.Common": "142.0.0"
+        }
       },
       "OpenTelemetry.Exporter.OpenTelemetryProtocol": {
         "type": "CentralTransitive",
