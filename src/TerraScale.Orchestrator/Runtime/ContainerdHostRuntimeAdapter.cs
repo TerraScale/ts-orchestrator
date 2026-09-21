@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using TerraScale.Orchestrator.ControlPlane.Delivery;
@@ -273,6 +272,7 @@ internal sealed class CompositeHostRuntimeConverger(
 internal sealed class NerdctlContainerdClient : IContainerdClient
 {
     private readonly string executable;
+    private readonly IHostCommandRunner commands = new ProcessHostCommandRunner(rejectOutputOverflow: true);
 
     internal NerdctlContainerdClient(string executable = "nerdctl") =>
         this.executable = string.IsNullOrWhiteSpace(executable)
@@ -293,12 +293,12 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
             // containing "not found" as permission to create a container.
             var listing = await RunAsync(["--namespace", @namespace, "ps", "--all", "--format", "{{.Names}}"], cancellationToken);
             EnsureSuccess(listing, "list containerd allocations");
-            if (!listing.Output.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            if (!listing.StandardOutput.Split(['\r', '\n', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                     .Contains(containerId, StringComparer.Ordinal))
                 return new(containerId, ContainerdAllocationState.Absent, null, null, null, null, "absent");
         }
         EnsureSuccess(result, "inspect containerd allocation");
-        using var document = JsonDocument.Parse(result.Output);
+        using var document = JsonDocument.Parse(result.StandardOutput);
         var root = document.RootElement.ValueKind == JsonValueKind.Array
             ? document.RootElement.EnumerateArray().FirstOrDefault()
             : document.RootElement;
@@ -376,50 +376,8 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
         EnsureSuccess(result, operation);
     }
 
-    private async Task<CommandResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken)
-    {
-        var startInfo = new ProcessStartInfo(executable)
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
-        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("The containerd command could not be started.");
-        var output = ReadBoundedAsync(process.StandardOutput, cancellationToken);
-        var error = ReadBoundedAsync(process.StandardError, cancellationToken);
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            try
-            {
-                if (!process.HasExited) process.Kill(entireProcessTree: true);
-            }
-            catch (InvalidOperationException) { }
-            await process.WaitForExitAsync().ConfigureAwait(false);
-            throw;
-        }
-        return new(process.ExitCode, await output.ConfigureAwait(false), await error.ConfigureAwait(false));
-    }
-
-    private static async Task<string> ReadBoundedAsync(StreamReader reader, CancellationToken cancellationToken)
-    {
-        const int maximumCharacters = 64 * 1024;
-        var buffer = new char[4096];
-        var builder = new StringBuilder();
-        while (true)
-        {
-            var count = await reader.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
-            if (count == 0) return builder.ToString();
-            if (builder.Length + count > maximumCharacters)
-                throw new InvalidOperationException("The containerd command produced too much output.");
-            builder.Append(buffer, 0, count);
-        }
-    }
+    private Task<HostCommandResult> RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
+        commands.RunAsync(executable, arguments, cancellationToken);
 
     private static ContainerdAllocationState ParseState(string? value) => value?.ToLowerInvariant() switch
     {
@@ -430,13 +388,11 @@ internal sealed class NerdctlContainerdClient : IContainerdClient
         _ => ContainerdAllocationState.Failed
     };
 
-    private static void EnsureSuccess(CommandResult result, string operation)
+    private static void EnsureSuccess(HostCommandResult result, string operation)
     {
         if (result.ExitCode != 0)
             throw new InvalidOperationException($"The containerd client could not {operation}; exit code {result.ExitCode}.");
     }
-
-    private sealed record CommandResult(int ExitCode, string Output, string Error);
 }
 
 internal static class CanonicalPlanFingerprint
