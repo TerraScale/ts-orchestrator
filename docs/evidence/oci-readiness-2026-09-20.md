@@ -119,7 +119,8 @@ The locally built image is
 `localhost/terrascale/ts-auth:a82c42474804bcd6922e75fb388f2106c1fb285d`,
 with image digest
 `sha256:d8fe574566629aaae4db34f79a3837cbcdf7b1c739da2511cc4106e2f5dea75a`.
-The full auth log is `/tmp/ts-goal-auth-full-20260921.log`.
+The green test log is `/tmp/ts-goal-auth-full-20260921.log`; the corrected
+restore, publish, and image gate is `/tmp/ts-goal-auth-publish-fixed-20260921.log`.
 
 The external auth smoke exercised the real process against the local
 `TerraBaseDevMember` and passed **22/22 checks**, including account/session,
