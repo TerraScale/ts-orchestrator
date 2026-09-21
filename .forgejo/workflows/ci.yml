@@ -204,13 +204,11 @@ jobs:
             > artifacts/ci/tests/SHA256SUMS
           (cd artifacts/ci/tests && sha256sum --check --strict SHA256SUMS)
 
-      - name: Upload orchestrator test evidence
-        uses: https://data.forgejo.org/actions/upload-artifact@v7.0.1
-        with:
-          name: ts-orchestrator-tests-${{ forgejo.sha }}
-          path: artifacts/ci/tests
-          if-no-files-found: error
-          retention-days: 30
+          # This runner rejects upload-artifact's boolean inputs (also documented
+          # below for binary artifacts). Retain the source receipt and payload
+          # digests in the job log; HTML files remain local to this job until the
+          # runner supports artifact upload. Do not claim uploaded reports.
+          cat artifacts/ci/tests/test-receipt.json artifacts/ci/tests/SHA256SUMS
 
   artifact:
     name: artifact/linux-amd64-arm64

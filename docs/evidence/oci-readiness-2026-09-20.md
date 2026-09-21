@@ -312,6 +312,17 @@ verification. This corrects the packaging bug; remote upload and artifact
 jobs still need a successful run. Log:
 `/tmp/ts-orchestrator-ci497-job-21993.log`.
 
+Task **498**, revision `5cfd56552c`, passed control plane **966**, model
+**59**, protocol **165**, scheduler **106**, and main **1063**, with **5
+live-lane skips**. Its checksum packaging and verification passed. The job
+then failed in `upload-artifact` on the runner's known `include-hidden-files`
+boolean-input handling bug. The test step now writes its source receipt and
+checksums to the retained job log, matching the existing binary-artifact
+fallback; HTML reports are not uploaded or durably retained by that fallback.
+The unsupported upload step is removed without changing test failure handling.
+Log: `/tmp/ts-orchestrator-ci498-job-21995.log`. A successful pipeline and a
+working immutable artifact-delivery path are still required.
+
 ## First live OCI qualification, after local readiness
 
 Start with disposable GRU staging. Prove Instance Principal allow/deny behavior,
