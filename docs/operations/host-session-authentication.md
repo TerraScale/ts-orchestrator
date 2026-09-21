@@ -348,9 +348,10 @@ with only cell and `present`, `absent`, `rejected`, `failed` labels, and
 `terrascale.orchestrator.host.desired.retry_pending` and `.in_flight` with only cell.
 The in-flight gauge stays set while an uncooperative store operation remains unfinished.
 
-The host entry is still disabled. Artifact retrieval, durable backoff and regional
-replacement leases still need their own restricted protocols. This service does
-not make the remaining direct runtime/object-store accesses safe for host credentials.
+The host entry is still disabled. [Artifact retrieval](host-artifact-delivery.md)
+and [durable cycle/backoff](host-convergence-cycles.md) now have restricted signed
+protocols. Regional replacement leases still need one; the remaining direct
+runtime-KV access is not safe for host credentials.
 
 ## Cryptography and packaging
 

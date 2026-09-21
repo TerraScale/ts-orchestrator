@@ -39,7 +39,7 @@ public sealed class HostConvergenceRuntimeTests
         using var admission = new ExecutionLease();
         var native = new StoppableConverger();
         var reports = new WithheldRuntimeReport(new TestHostObservationPublisher(runtimeStore), lostReportAck);
-        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), runtimeStore, reports,
+        await using var runtime = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(), new TestDesiredArtifactSource(delivery), runtimeStore, reports,
             new MemoryArtifactSource(("sha256-" + hex, artifact)), native,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "tracked-artifacts"), HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
@@ -84,7 +84,7 @@ public sealed class HostConvergenceRuntimeTests
         var delivery = DispatchProxy.Create<INatsKVStore, WithheldDesired>();
         var withheld = (WithheldDesired)delivery;
         var reports = new UnavailableReports();
-        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), null!, reports,
+        await using var runtime = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(), new TestDesiredArtifactSource(delivery), null!, reports,
             new MemoryArtifactSource(), native,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", inventory.Directory, HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: native);
@@ -174,7 +174,7 @@ public sealed class HostConvergenceRuntimeTests
         var withheld = (WithheldDesired)read;
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var converger = new StoppableConverger { ConvergeBarrier = release.Task };
-        await using var runtime = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(stalledDesired ? read : delivery), runtimeStore,
+        await using var runtime = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(), new TestDesiredArtifactSource(stalledDesired ? read : delivery), runtimeStore,
             new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)), converger,
             new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", Path.Combine(server.Directory, "lease-artifacts"), HostArchitecture.X64),
             "gru", "test-1", admission: admission, inventory: inventory.Inventory, nativeInventory: HostInventoryFixture.EmptyProbe);
@@ -311,7 +311,7 @@ public sealed class HostConvergenceRuntimeTests
         var converger = new FakeConverger();
         // This exercises allocation/report identity with controller-owned stores.
         // The dedicated restricted host entry point has its own remaining gate.
-        await using var convergence = HostConvergenceRuntime.Create(new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore),
+        await using var convergence = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(), new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore),
             new MemoryArtifactSource(("sha256-" + firstHex, first), ("sha256-" + secondHex, second)),
             converger, new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", installRoot,
                 HostArchitecture.Arm64), "gru", node);
@@ -492,7 +492,7 @@ public sealed class HostConvergenceRuntimeTests
             HostArchitecture.Arm64,
             EnvironmentDirectory: environmentDirectory,
             StateDirectoryRoot: stateDirectoryRoot);
-        await using var convergence = HostConvergenceRuntime.Create(
+        await using var convergence = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(
                 ("sha256-" + v1Hex, v1), ("sha256-" + v2Hex, v2)), converger, configuration,
             "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
@@ -631,7 +631,7 @@ public sealed class HostConvergenceRuntimeTests
         var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(4) };
         var configuration = new HostConvergenceConfiguration(
             [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64);
-        await using var convergence = HostConvergenceRuntime.Create(
+        await using var convergence = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, configuration, "gru", "test-1",
             observationTimeout: TimeSpan.FromSeconds(3),
@@ -642,7 +642,7 @@ public sealed class HostConvergenceRuntimeTests
         // A peer host must never acquire the lease while the holder is alive and renewing;
         // probing starts only once the holder demonstrably holds it (first converge underway).
         await converger.FirstConvergeStarted;
-        await using var peer = HostConvergenceRuntime.Create(
+        await using var peer = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             configuration, "gru", "test-2", observationTimeout: TimeSpan.FromSeconds(3));
         while (!pass.IsCompleted)
@@ -670,7 +670,7 @@ public sealed class HostConvergenceRuntimeTests
         await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
 
         var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(5) };
-        await using var convergence = HostConvergenceRuntime.Create(
+        await using var convergence = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
@@ -828,109 +828,68 @@ public sealed class HostConvergenceRuntimeTests
     }
 
     [Test]
-    public async Task AFailedConvergeAndRollbackCycleBacksOffTheNextAttemptDurably()
+    public async Task Failed_cycle_is_recorded_and_a_denied_cycle_never_touches_native_work()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
         var (delivery, runtimeStore, client) = server.Stores();
-        var installRoot = Path.Combine(server.Directory, "artifacts");
-        var good = Encoding.UTF8.GetBytes("known-good-binary");
-        var broken = Encoding.UTF8.GetBytes("crash-looping-binary");
-        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
-        var brokenHex = Convert.ToHexStringLower(SHA256.HashData(broken));
-        var source = new MemoryArtifactSource(
-            ("sha256-" + goodHex, good),
-            ("sha256-" + brokenHex, broken));
-
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var bytes = Encoding.UTF8.GetBytes("crash-looping");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
         var converger = new FakeConverger();
-        await using var convergence = FastConvergence(delivery, runtimeStore, client, installRoot, source, converger);
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-
-        // The poisoned digest fails its cycle and the healthy previous unit is restored.
-        converger.FailWhenRunning(brokenHex);
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{brokenHex}");
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-        var actionsAfterFailedCycle = converger.Actions.Count;
-
-        // The very next pass must NOT re-stop the restored unit for the same poisoned
-        // digest: the failed cycle left a durable backoff.
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-        await Assert.That(converger.Actions.Count).IsEqualTo(actionsAfterFailedCycle);
-
-        var entry = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
-        entry.EnsureSuccess();
-        var backoff = JsonSerializer.Deserialize<HostConvergenceBackoff>(
-            entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
-        await Assert.That(backoff!.Failures).IsEqualTo(1);
-        await Assert.That(backoff.Digest).IsEqualTo($"sha256:{brokenHex}");
-        await Assert.That(backoff.NotBefore).IsGreaterThan(DateTimeOffset.UtcNow);
+        converger.FailWhenRunning(hex);
+        var cycles = new TestHostCycleCoordinator();
+        await using var runtime = FastConvergence(delivery, runtimeStore, client, Path.Combine(server.Directory, "artifacts"),
+            new MemoryArtifactSource(("sha256-" + hex, bytes)), converger, cycles);
+        await runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(cycles.Outcomes.Count).IsEqualTo(1);
+        await Assert.That(cycles.Outcomes[0].Succeeded).IsFalse();
+        await Assert.That(cycles.Outcomes[0].Cycle.Digest).IsEqualTo("sha256:" + hex);
+        var actions = converger.Actions.Count;
+        cycles.AllowBegin = false;
+        await runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await Assert.That(converger.Actions.Count).IsEqualTo(actions);
+        await Assert.That(cycles.Outcomes.Count).IsEqualTo(1);
     }
 
     [Test]
-    public async Task BackoffEscalatesAcrossFailedCyclesAndAConvergingCycleResets()
+    public async Task Unavailable_cycle_bookkeeping_fails_closed_before_native_changes()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
         var (delivery, runtimeStore, client) = server.Stores();
-        var installRoot = Path.Combine(server.Directory, "artifacts");
-        var good = Encoding.UTF8.GetBytes("known-good-binary");
-        var broken = Encoding.UTF8.GetBytes("crash-looping-binary");
-        var repaired = Encoding.UTF8.GetBytes("repaired-binary");
-        var goodHex = Convert.ToHexStringLower(SHA256.HashData(good));
-        var brokenHex = Convert.ToHexStringLower(SHA256.HashData(broken));
-        var repairedHex = Convert.ToHexStringLower(SHA256.HashData(repaired));
-        var source = new MemoryArtifactSource(
-            ("sha256-" + goodHex, good),
-            ("sha256-" + brokenHex, broken),
-            ("sha256-" + repairedHex, repaired));
-
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{goodHex}");
+        var bytes = Encoding.UTF8.GetBytes("healthy-artifact");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
         var converger = new FakeConverger();
-        await using var convergence = FastConvergence(delivery, runtimeStore, client, installRoot, source, converger);
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        await using var runtime = FastConvergence(delivery, runtimeStore, client, Path.Combine(server.Directory, "artifacts"),
+            new MemoryArtifactSource(("sha256-" + hex, bytes)), converger, new TestHostCycleCoordinator { Unavailable = true });
+        await Assert.That(() => runtime.ReconcileOnceAsync(HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None)).Throws<IOException>();
+        await Assert.That(converger.Actions).IsEmpty();
+    }
 
-        // A backoff ladder persisted by a previous process: three failures against the
-        // broken digest, already expired, so the next pass goes through and escalates it.
-        await runtimeStore.PutAsync("host.backoff.test-1.terrabase-server", JsonSerializer.Serialize(
-            new HostConvergenceBackoff(
-                $"sha256:{brokenHex}", 3, DateTimeOffset.UtcNow - TimeSpan.FromSeconds(1)),
-            HostConvergenceJsonContext.Default.HostConvergenceBackoff));
-        converger.FailWhenRunning(brokenHex);
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{brokenHex}");
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-
-        var entry = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
-        entry.EnsureSuccess();
-        var backoff = JsonSerializer.Deserialize<HostConvergenceBackoff>(
-            entry.Value!, HostConvergenceJsonContext.Default.HostConvergenceBackoff);
-        await Assert.That(backoff!.Failures).IsEqualTo(4);
-        // 30s doubled three times = 4 minutes, well under the 15-minute cap.
-        await Assert.That(backoff.NotBefore - DateTimeOffset.UtcNow).IsGreaterThan(TimeSpan.FromMinutes(3));
-        await Assert.That(backoff.NotBefore - DateTimeOffset.UtcNow).IsLessThan(TimeSpan.FromMinutes(5));
-        var actionsAfterCycle = converger.Actions.Count;
-
-        // The escalated window actually gates the next pass.
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-        await Assert.That(converger.Actions.Count).IsEqualTo(actionsAfterCycle);
-
-        // A different admitted digest (the operator's remedy) is not the broken digest's
-        // backoff, and a cycle that converges clears the ladder entirely.
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{repairedHex}");
-        await convergence.ReconcileOnceAsync(
-            HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
-        var observation = await ReadObservationAsync(runtimeStore, "terrabase-server");
-        await Assert.That(observation!.State).IsEqualTo("converged");
-        await Assert.That(observation.Digest).IsEqualTo($"sha256:{repairedHex}");
-        await Assert.That(async () =>
-        {
-            var cleared = await runtimeStore.GetEntryAsync<string>("host.backoff.test-1.terrabase-server");
-            cleared.EnsureSuccess();
-        }).Throws<Exception>();
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Pending_outcome_is_flushed_before_healthy_marker_or_withdrawn_target_shortcuts(bool withdraw)
+    {
+        await using var server = await ConvergenceNatsServer.StartAsync();
+        var (delivery, runtimeStore, client) = server.Stores();
+        var bytes = Encoding.UTF8.GetBytes("healthy-artifact");
+        var hex = Convert.ToHexStringLower(SHA256.HashData(bytes));
+        await server.PutDesiredDigest("terrabase-server", "production", "gru", "sha256:" + hex);
+        var converger = new FakeConverger();
+        var cycles = new TestHostCycleCoordinator();
+        await using var runtime = FastConvergence(delivery, runtimeStore, client, Path.Combine(server.Directory, "artifacts"),
+            new MemoryArtifactSource(("sha256-" + hex, bytes)), converger, cycles);
+        await runtime.ReconcileOnceAsync(HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
+        if (withdraw) await delivery.DeleteAsync(DirectDeliveryTargetKey.For("terrabase-server", "production", "gru"));
+        cycles.FailFlush = true;
+        var actions = converger.Actions.Count;
+        await Assert.That(() => runtime.ReconcileOnceAsync(HostRole.TerraBaseMember,
+            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None)).Throws<IOException>();
+        await Assert.That(cycles.Flushed).IsEqualTo(2);
+        await Assert.That(converger.Actions.Count).IsEqualTo(actions);
+        await Assert.That(cycles.Outcomes.Count).IsEqualTo(1);
     }
 
     [Test]
@@ -943,7 +902,7 @@ public sealed class HostConvergenceRuntimeTests
             DirectDeliveryTargetKey.For("terrabase-server", "production", "gru"), "not-json");
 
         // TUnit captures Console.Error per test, including the background loop's writes.
-        await using var convergence = HostConvergenceRuntime.Start(
+        await using var convergence = HostConvergenceRuntime.Start(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production",
@@ -973,7 +932,8 @@ public sealed class HostConvergenceRuntimeTests
         store.FailNextWrite = true;
 
         var converger = new FakeConverger();
-        await using var convergence = HostConvergenceRuntime.Create(
+        var cycles = new TestHostCycleCoordinator();
+        await using var convergence = HostConvergenceRuntime.Create(cycles,
             new TestDesiredArtifactSource(delivery), runtimeStore, new TestHostObservationPublisher(failing), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
@@ -987,6 +947,8 @@ public sealed class HostConvergenceRuntimeTests
                 HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
         }).Throws<Exception>();
         await Assert.That(File.Exists(Path.Combine(installRoot, "terrabase-server", "current.json"))).IsFalse();
+        await Assert.That(cycles.Outcomes.Count).IsEqualTo(1);
+        await Assert.That(cycles.Outcomes[0].Succeeded).IsTrue();
 
         await convergence.ReconcileOnceAsync(
             HostRole.TerraBaseMember, AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), CancellationToken.None);
@@ -1025,9 +987,10 @@ public sealed class HostConvergenceRuntimeTests
         NATS.Client.Core.INatsConnection connection,
         string installRoot,
         IHostArtifactSource source,
-        IHostRuntimeConverger converger)
+        IHostRuntimeConverger converger,
+        IHostCycleCoordinator? cycles = null)
     {
-        var convergence = HostConvergenceRuntime.Create(
+        var convergence = HostConvergenceRuntime.Create(cycles ?? new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),
@@ -1053,7 +1016,7 @@ public sealed class HostConvergenceRuntimeTests
         IHostArtifactSource source,
         IHostRuntimeConverger converger,
         IHostAdmissionGate? admission = null) =>
-        HostConvergenceRuntime.Create(
+        HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),
@@ -1175,7 +1138,7 @@ public sealed class HostConvergenceRuntimeTests
         await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
         await using var member = await MemberHealthListener.StartAsync();
 
-        var convergence = HostConvergenceRuntime.Create(
+        var convergence = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(),
             new TestDesiredArtifactSource(delivery),
             runtimeStore,
             new TestHostObservationPublisher(runtimeStore),

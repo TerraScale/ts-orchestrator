@@ -1,0 +1,308 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-09-21T13:50:33.072049+00:00",
+  "sourceBase": "0568af028ba2546467c219ac6774dd8557ea79a1",
+  "sourceFiles": {
+    "Directory.Build.props": "929d2a91a6d83924bc8d350e9871a9acb013fd21123c8168558e018405d9c874",
+    "global.json": "d81504597aa893df81e8e78342ab6241a5fd69e67a3bc198fb267a0ef1aae364",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/HostConvergenceRuntime.cs": "b9be028620110704fe4b727b1fca6ea672c196b97d7394dc3d33462770e5bf77",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/NatsHostCycleCoordinator.cs": "a94c2b442cc8c7287db035585ac76a91e4e34457b94aa56cdd381b0acb4aacfa",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostCycleAuthority.cs": "080ffe872e3f834236302ac99b76b02721db2653cf105c14327beba18e9ff6b8",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostCycleRequest.cs": "3c647dc585f55ea18e3c2f01e8f06c86cbf610bd53ae936ba1466a2c80446f0c",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostCycleService.cs": "505245218a9f0e7f811b3843a9043833878e2d94aa1d88b7d8760f6bfb2839bd",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionAuthority.cs": "7610e77ab2593458d0761d7e03da3a378c5e90a37592fce583dd51f6b91df497",
+    "src/TerraScale.Orchestrator/ControlPlane/Delivery/RegionalHostSessionSigner.cs": "c5cfb8d63fd09f42869de4c9d1c2ff8d091924ef42fce466399648e535163d22",
+    "src/TerraScale.Orchestrator/Messaging/NatsRuntime.cs": "460e4a6e7f10d06ce97feda5e2c84c068c4ac6478aecf0b102bfac05cf221ef3",
+    "src/TerraScale.Orchestrator/Observability/OrchestratorTelemetry.cs": "944a283a8398e1c2085f48f6bbf2dd6a4c178276ece15900f69fa6b3fbc7a7ab",
+    "src/TerraScale.Orchestrator/packages.lock.json": "59ba9efa1b709c281ef78266ff9e4fc6dcc1f749dbb748dbfab37a85141cc2de",
+    "tests/TerraScale.Orchestrator.Tests/HostConvergenceRuntimeTests.cs": "564ecd6e279e28c9cac7d17260b90b16454115a9616ef266cbe20309902bbc16",
+    "tests/TerraScale.Orchestrator.Tests/NatsControlR3L0cTests.cs": "660a8b99007fe0f53d1e7ab07eb3070fba4403795f9f700e138a91aa94adab5e",
+    "tests/TerraScale.Orchestrator.Tests/OperatorStatusTests.cs": "a6f5eb445574fad133d14d1adf8cdbe8c1a4956703b1a723168e02232bb134b2",
+    "tests/TerraScale.Orchestrator.Tests/OrchestratorTelemetryTests.cs": "87661433deaf51ffa16db11b3bd3b5256ea1c46505e4cb490604d81fa1e0b20f",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostArtifactTests.cs": "e77513d6c82d0697ea565de7da7ca9677ec8f8d4ad7c8af254862db3f94eccbe",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostCycleTests.cs": "442b1e5fe68fcc3d4eb28f28edf3531371634963e4f4118ff0d80b005a747e1e",
+    "tests/TerraScale.Orchestrator.Tests/RegionalHostDesiredTests.cs": "41f3efd7ba5f008552a28c9d3ef14aef06e67d28e0516f48b97161467c9eb792",
+    "tests/TerraScale.Orchestrator.Tests/TestHostCycleCoordinator.cs": "295d4143a22fe13574ab88db488a16beaeb66252115e3db34237ca42a3679d76",
+    "tests/TerraScale.Orchestrator.Tests/packages.lock.json": "45b94ba16eb96dc6432d49c91c58168680b8a9ea3d77d6cff3c4b925546d33ad"
+  },
+  "steps": [
+    {
+      "step": "build",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "build",
+        "TerraScale.Orchestrator.slnx",
+        "-c",
+        "Release",
+        "--no-restore",
+        "--nologo"
+      ],
+      "exitCode": 0,
+      "seconds": 14.119,
+      "log": "/tmp/ts-host-cycle-final-build.log",
+      "logSha256": "4280eb446b371bae3f3ba864ddc8e86032eaa8ca1eb572e48386bbe380bac540"
+    },
+    {
+      "step": "model",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.ModelTests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--minimum-expected-tests",
+        "59"
+      ],
+      "exitCode": 0,
+      "seconds": 3.83,
+      "log": "/tmp/ts-host-cycle-final-model.log",
+      "logSha256": "15167044dd080a52635a42fdd4a486b8042f5720bfa3acd784a71678b84b5d4b"
+    },
+    {
+      "step": "protocol",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.Protocol.Tests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--minimum-expected-tests",
+        "165"
+      ],
+      "exitCode": 0,
+      "seconds": 4.0,
+      "log": "/tmp/ts-host-cycle-final-protocol.log",
+      "logSha256": "df1fa264dcd046b80c8a9361855861ab38719ac5d79b23baf9791d5220ed66d9"
+    },
+    {
+      "step": "scheduler",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.Scheduler.Tests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--minimum-expected-tests",
+        "106"
+      ],
+      "exitCode": 0,
+      "seconds": 7.682,
+      "log": "/tmp/ts-host-cycle-final-scheduler.log",
+      "logSha256": "d2550058492a1463e904d60e278e01970c7b5dcc7763c850d1589b8cf9ecba80"
+    },
+    {
+      "step": "control",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.ControlPlane.Tests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--minimum-expected-tests",
+        "966"
+      ],
+      "exitCode": 0,
+      "seconds": 39.584,
+      "log": "/tmp/ts-host-cycle-final-control.log",
+      "logSha256": "f6056fc19284e24e5650857f2e7960f4a6b8b4cde9759e835159e1bf90639c48"
+    },
+    {
+      "step": "style",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "format",
+        "style",
+        "TerraScale.Orchestrator.slnx",
+        "--verify-no-changes",
+        "--no-restore"
+      ],
+      "exitCode": 0,
+      "seconds": 46.625,
+      "log": "/tmp/ts-host-cycle-final-style.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "step": "main",
+      "command": [
+        "nice",
+        "-n",
+        "19",
+        "dotnet",
+        "run",
+        "--project",
+        "tests/TerraScale.Orchestrator.Tests",
+        "-c",
+        "Release",
+        "--no-build",
+        "--no-restore",
+        "--",
+        "--minimum-expected-tests",
+        "1390"
+      ],
+      "exitCode": 0,
+      "seconds": 1111.102,
+      "log": "/tmp/ts-host-cycle-final-main.log",
+      "logSha256": "0a941c7d6548c62df9fec009a047201836f025fc8aeb9a9e3cb2fc440f82d567"
+    }
+  ],
+  "fullSuites": {
+    "main": {
+      "total": 1443,
+      "failed": 0,
+      "succeeded": 1438,
+      "skipped": 5,
+      "duration": "18m 27s 506ms"
+    },
+    "control": {
+      "total": 966,
+      "failed": 0,
+      "succeeded": 966,
+      "skipped": 0,
+      "duration": "36s 031ms"
+    },
+    "model": {
+      "total": 59,
+      "failed": 0,
+      "succeeded": 59,
+      "skipped": 0,
+      "duration": "1s 189ms"
+    },
+    "protocol": {
+      "total": 165,
+      "failed": 0,
+      "succeeded": 165,
+      "skipped": 0,
+      "duration": "1s 272ms"
+    },
+    "scheduler": {
+      "total": 106,
+      "failed": 0,
+      "succeeded": 106,
+      "skipped": 0,
+      "duration": "4s 980ms"
+    }
+  },
+  "passed": 2734,
+  "failed": 0,
+  "skipped": 5,
+  "focusedSuite": {
+    "total": 144,
+    "failed": 0,
+    "succeeded": 144,
+    "skipped": 0,
+    "duration": "7m 59s 909ms",
+    "log": "/tmp/ts-host-cycle-focused-qualified.log",
+    "logSha256": "30fc8e06877b97f7a87454987642eb670c408ca76f3175c4b9307d15fa6a631e",
+    "command": "nice -n 19 dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build --no-restore -- --treenode-filter '/*/*/(RegionalHostCycleTests|HostConvergenceRuntimeTests|RegionalHostArtifactTests|RegionalHostDesiredTests|OperatorStatusTests|OrchestratorTelemetryTests|NatsControlR3L0cTests)/*' --minimum-expected-tests 120",
+    "sourceChronology": "The 144 focused cases preceded removal of the obsolete host.backoff status filter. The Release build, style and all five full suites then ran on the final unchanged source pinned above."
+  },
+  "qualified": [
+    "Independent signed cycle domain binds role, digest, enrollment/session/epoch, stable attempt, controller cycle/fence and request nonce/time.",
+    "Real restricted JWT/mTLS R3 host client and controller service; private host KV access remains denied.",
+    "Concurrent controller CAS, same-attempt replay, busy attempts, desired changes and stale outcome fencing.",
+    "Failure retries preserve the counter/deadline; abandoned sessions count once; the ladder caps at 900 seconds and successful same-digest completion clears it.",
+    "Controller service restart retains retry state; TerraBase/auth cycles and failure status remain independent, including roles on the same enrolled host.",
+    "Dropped Begin and Fail replies with caller cancellation retain stable operation identity and do not double-count.",
+    "Stale positive reads and stale absence over tombstones fail closed; corrupt and cross-scope records are not overwritten.",
+    "Post-write target change, revocation and session expiry deny an active receipt.",
+    "Synchronous/asynchronous stalled storage occupies only one operation while session renewal continues; a late cancelled read makes zero writes.",
+    "Malformed, misbound, expired and inconsistent replies are rejected by the actual restricted client.",
+    "Core convergence flushes pending outcomes before early returns and records native success before reporting; denied/unavailable cycle state prevents native mutation.",
+    "Actual NatsRuntime exposes the service only with configured host sessions; operator actions/needs and bounded-label metrics are exercised."
+  ],
+  "limits": [
+    "Cycle receipts are bookkeeping only; they do not grant execution, replacement exclusivity, quiescence or storage writer fencing.",
+    "HostConvergenceRuntime still receives controller runtime KV in tests solely for the regional replacement lease. Restricted production host startup remains disabled.",
+    "Some time/failure scenarios use injected clocks and KV proxies over actual R3; dropped replies are responder fault injection, not exhaustive physical network partition tests.",
+    "One cycle record per node/environment/role plus the finite delivery bucket bounds storage, but safe retired-node record reclamation is not implemented.",
+    "Five expected opt-in skips cover two real containerd, one TerraBase fleet and two VM lanes. These suites do not qualify those lanes on this revision.",
+    "No native ARM64 service execution or release-sized renewing-session artifact transfer is established by this receipt.",
+    "No OCI mutations, OpenTofu apply/state changes or deployment enablement. Guest Instance Principal/Vault authentication remains unqualified."
+  ],
+  "infraPublication": {
+    "pullRequest": "https://git.terrascale.tech/TerraScale/ts-infra/pulls/13",
+    "head": "4c237a9c93b1f9aafae113fd1c4f5b237210f44b",
+    "commits": [
+      "1ac160fa474123bdf432147a3c0eda25ec1263e5",
+      "4c237a9c93b1f9aafae113fd1c4f5b237210f44b"
+    ],
+    "publicationAuthorizedByUser": true,
+    "estateEnabled": false,
+    "observedChecks": "PR check and ts-reviewer successful; pull request open."
+  },
+  "ociReadOnlyCheck": {
+    "schemaVersion": 1,
+    "checkedAt": "2026-09-21T13:30:30.204340+00:00",
+    "ociCliVersion": "3.82.0",
+    "authentication": "workstation API key",
+    "command": "oci iam region-subscription list --auth api_key",
+    "exitCode": 0,
+    "subscriptions": [
+      {
+        "isHome": false,
+        "region": "eu-frankfurt-1",
+        "status": "READY"
+      },
+      {
+        "isHome": true,
+        "region": "sa-saopaulo-1",
+        "status": "READY"
+      },
+      {
+        "isHome": false,
+        "region": "us-sanjose-1",
+        "status": "READY"
+      }
+    ],
+    "mutationsPerformed": false,
+    "provesGuestInstancePrincipal": false
+  },
+  "readyToDeploy": false,
+  "previousCi": {
+    "run": 514,
+    "revision": "0568af028ba2546467c219ac6774dd8557ea79a1",
+    "status": "failure",
+    "log": "/tmp/ts-orchestrator-ci514-job-22029.log",
+    "logSha256": "25d6849fffbe6387ea0ceafe1ab7e6e931c3a38aae5fac619eaffcfdef695c90",
+    "main": {
+      "passed": 1401,
+      "failed": 3,
+      "skipped": 5
+    },
+    "details": "Two artifact tests expired waiting for shared local NATS fixture ownership; one report authorization test failed during broker startup. All four smaller suites passed; artifact job skipped. Local cycle qualification does not erase this CI failure."
+  }
+}

@@ -45,8 +45,10 @@ Native artifact retrieval now uses independently signed, current-session chunk
 requests with exact role/environment target checks. The controller streams from
 a bounded verified cache; the host checks the complete digest before installing.
 The [artifact protocol](../operations/host-artifact-delivery.md) documents its
-limits, status and metrics. Durable backoff and regional replacement protocols
-are still open; this does not enable the production host entry. The
+limits, status and metrics. [Durable cycle/backoff](../operations/host-convergence-cycles.md)
+now uses signed requests, non-expiring controller-owned records and replay-safe
+outcomes. Regional replacement leases still require a restricted protocol; this
+does not enable the production host entry. The
 [artifact publisher](../operations/artifact-publication.md) now snapshots input,
 conditionally resumes a digest's verified chunk prefix and creates metadata
 once. It does not require purge authority. Safe abandoned-upload and artifact
@@ -151,6 +153,8 @@ execution/storage fencing remain blocked.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
+| Restricted durable host cycle/backoff | **2734 passed**, 0 failed, 5 expected skips across five suites; focused **144 passed** | [Source and log receipt](host-cycle-local-2026-09-21.json); main1438/control966/protocol165/model59/scheduler106; final main18m27s506ms, Release0warnings/errors and required style passed. Restricted R3 replay/restart/stall/role isolation and actual controller status; replacement lease, production startup and native fencing remain open |
+| CI #514 at `0568af028b` | **Failed**: main1401 passed, 3 failed, 5 expected skips; four smaller suites passed | `/tmp/ts-orchestrator-ci514-job-22029.log`; two artifact tests expired while waiting for the shared fixture slot; one report-authorization test failed during broker startup. Main51m14s532ms; artifact job did not run. This is the previous artifact-publication revision, not the locally qualified cycle candidate; fixture scheduling/startup needs correction |
 | Immutable artifact publisher and delivery regression | **65 passed**, 0 failed/skipped; Release **0 warnings/errors**, required style passed | [Source and log receipt](artifact-publication-local-2026-09-21.json); actual restricted JWT/mTLS R3 CLI, concurrent/repeated uploads, injected lost acknowledgements, member restart, SDK/cache interoperability, poisoned data, bounded snapshots and metadata conflicts. Focused qualification only; abandoned-digest reclamation and release-sized renewing-session delivery remain open |
 | Restricted native artifact delivery | **2680 passed**, 0 failed, 5 expected skips across five suites; focused **109 passed** | [Source and log receipt](host-artifact-local-2026-09-21.json); main1384/control966/protocol165/model59/scheduler106; main16m05s527ms; Release0warnings/errors and required style passed. Real restricted R3 chunks and core convergence; backoff/replace remain controller-supplied test seams, and native ARM64 service execution is not established |
 | CI #512 at `88dec4466a` | **2638 passed**, 0 failed, 5 expected skips; x64/ARM64 artifact job **passed** | Published orphan-recovery fixture correction and signed desired protocol, before the artifact-delivery change; `/tmp/ts-orchestrator-ci512-job-{22025,22026}.log` |
@@ -306,9 +310,10 @@ The Vault tier is now explicit in `infra.tfvars`: `DEFAULT` uses shared HSM
 capacity and keys retain HSM protection. A dedicated `VIRTUAL_PRIVATE`
 partition requires an explicit configuration change and cost review. The
 complete enabled resource plan still needs review. Infra commits `1ac160f`
-(controller compartment binding) and `4c237a9` (Vault tier) remain local after
-Forgejo rejected the push to protected `main`; publication is pending the
-repository's main-only push rule being resolved.
+(controller compartment binding) and `4c237a9` (Vault tier) are published in
+[ts-infra PR #13](https://git.terrascale.tech/TerraScale/ts-infra/pulls/13) under
+the user's explicit pull-request authorization. The PR remains separate from
+deployment enablement; no apply or state edit was performed.
 
 ## Authentication required before deployment
 
@@ -384,8 +389,10 @@ repository's main-only push rule being resolved.
    controller relay; the controller's agent grants cover all hosts only in its
    fixed region. Desired selection now has a signed restricted-host protocol and
    core-convergence caller coverage. Native artifact retrieval now has a separate
-   signed protocol, bounded cache and core-convergence coverage. Backoff and replacement
-   leases still need restricted-host protocols. Session enrollment exists; its dedicated
+   signed protocol, bounded cache and core-convergence coverage. Durable cycle/backoff
+   now has its own signed protocol and controller-owned non-expiring state.
+   Regional replacement leases still need a restricted protocol, expiry/watchdog
+   handling and exact quiescence evidence. Session enrollment exists; its dedicated
    host startup composition remains incomplete.
    The report tests inject separate controller store handles and are not proof
    of a complete host runtime under host credentials. The controller report

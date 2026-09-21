@@ -93,13 +93,16 @@ must not grant unbounded tenancy administration to implement the handoff.
 
 After Vault retrieval, each node needs a signed enrollment envelope bound to
 its OCI node identity, region, NATS account/user, certificate, credential-bundle
-digest, and bootstrap generation. The production host gate verifies this before
-installing or claiming work. Its current replay fence accepts a node generation
-once and caches admission in memory. A controller-owned
+digest, and bootstrap generation. Protected host-material validation binds those
+files and their fixed expiry to enrollment. The former cached one-use admission
+gate has been removed. A controller-owned
 [session authority and restricted host client](host-session-authentication.md)
-now pass local R3 restart, renewal and revocation tests. Production must compose
-that protocol with host credential checks and workload stop/storage fencing
-before deployment. Reusing a consumed grant is not that protocol.
+provide durable process epochs, renewal and revocation; the independent host
+execution lease supplies terminal cancellation. Local workload inventory and
+recovery retain ownership until native calls settle. The dedicated production
+host entry is still disabled: recovery before broker/session acquisition,
+native queued-job quiescence and storage-writer fencing must be composed before
+deployment. Reusing a consumed grant is not a renewal protocol.
 
 `ts-auth` and TerraBase have independent desired counts and bounds. If the
 stateful TerraBase placement reconciler owns member instances, the generic
@@ -122,7 +125,9 @@ Host reports now cross a controller-owned relay using only hashed host subjects,
 with exact acknowledgements, timestamp ordering and bounded freshness. Regional
 controllers receive all host reports within their fixed region; host grants
 remain pinned to one identity. Dedicated host startup and the remaining
-private-store protocols are still required; see [host-report-relay.md](host-report-relay.md).
+replacement-lease protocol are still required; desired state, reports, artifacts
+and [cycle/backoff](host-convergence-cycles.md) already use restricted signed
+exchanges. See [host-report-relay.md](host-report-relay.md).
 The member fleet file is schema 2 with an explicit environment. Missing
 evidence during drain holds the placement state. Actual OCI volume lifecycle
 and a durable host drain consumer remain blockers; see

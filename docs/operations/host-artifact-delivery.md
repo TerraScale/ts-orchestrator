@@ -117,9 +117,10 @@ verified prefix without metadata replacement or purge. Abandoned different
 digests still consume the bounded store: safe automated retention/reclamation
 remains a deployment gate. Hosts have no private-store or purge access.
 
-Restricted durable backoff and regional replacement-lease protocols are still
-required: core convergence still has a controller-supplied runtime KV seam in
-tests. Production host startup must recover local workloads before obtaining
+[Durable cycle/backoff bookkeeping](host-convergence-cycles.md) now uses a
+restricted signed protocol. Regional replacement leases still require one:
+core convergence retains a controller-supplied runtime KV seam for replacement
+in tests. Production host startup must recover local workloads before obtaining
 broker credentials or an execution lease. Native queued-job quiescence,
 external-command cgroups, storage-writer fencing and exact drain receipts
 remain separate requirements.

@@ -144,7 +144,7 @@ public sealed class RegionalHostDesiredTests
         var host = harness.First;
         await Put(store, host.Artifact, "production", Digest, deadline.Token);
         // Every unused execution/storage seam is absent: this pass must reach only signed selection and reports.
-        await using var runtime = HostConvergenceRuntime.Create(Source(harness, host), null!, host.Publisher, null!, null!,
+        await using var runtime = HostConvergenceRuntime.Create(new TestHostCycleCoordinator(), Source(harness, host), null!, host.Publisher, null!, null!,
             new([host.Role], "production", Path.Combine(harness.Cluster.DirectoryPath, "artifacts"), HostArchitecture.X64),
             "gru", host.Node, admission: new BlockedAdmission());
         await runtime.ReconcileOnceAsync(host.Role, AdmittedRoleCatalog.Get(host.Role), deadline.Token);

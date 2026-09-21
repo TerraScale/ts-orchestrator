@@ -121,6 +121,7 @@ public sealed class NatsControlR3L0cTests
         await Assert.That(response.Data!.Contains("host-report-relay", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         await Assert.That(response.Data!.Contains("host-session-authority", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         await Assert.That(response.Data!.Contains("host-desired", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
+        await Assert.That(response.Data!.Contains("host-cycle", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         var status = JsonSerializer.Deserialize(response.Data!, Operations.OperatorStatusJsonContext.Default.OperatorStatusDocument)!;
         await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ObservedReplicas).IsEqualTo(sessionsEnabled ? 1 : 0);
         if (reportAuthority is not null)

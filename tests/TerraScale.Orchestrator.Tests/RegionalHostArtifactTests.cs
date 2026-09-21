@@ -169,8 +169,10 @@ public sealed class RegionalHostArtifactTests
         await Put(store, host, digest, deadline.Token);
         var root = Path.Combine(harness.Cluster.DirectoryPath, "artifact-convergence");
         var native = new Native();
-        // Runtime KV is deliberately controller-supplied here: its restricted backoff/replace protocol is a separate gate.
-        await using var runtime = HostConvergenceRuntime.Create(
+        await using var cycleService = await RegionalHostCycleService.StartAsync(harness.Controller.Connection, new(store, harness.Authority), deadline.Token);
+        var cycles = new NatsHostCycleCoordinator(host.Client.Connection, "gru", host.Node, () => host.Signer, harness.Material.Clock);
+        // Runtime KV is still controller-supplied for the remaining restricted replacement-lease gate.
+        await using var runtime = HostConvergenceRuntime.Create(cycles,
             new NatsHostDesiredArtifactSource(host.Client.Connection, "gru", host.Node, () => host.Signer, harness.Material.Clock),
             harness.Runtime, host.Publisher, Source(harness, host), native, new([host.Role], "production", root, HostArchitecture.X64),
             "gru", host.Node, admission: new Admission());

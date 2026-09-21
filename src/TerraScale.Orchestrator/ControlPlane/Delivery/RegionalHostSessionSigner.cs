@@ -51,6 +51,16 @@ internal sealed class RegionalHostSessionSigner
         return RegionalHostArtifactRequest.Sign(request.Enrollment, authentication, request.SessionId, lease.Epoch, role, digest, offset, length, now);
     }
 
+    internal RegionalHostCycleRequest SignCycle(AdmittedRole role, string digest, RegionalHostCycleOperation operation,
+        string attemptId, string? cycleId = null, ulong fence = 0)
+    {
+        var now = clock.GetUtcNow();
+        if (now < request.IssuedAt || lease.ExpiresAt <= now)
+            throw new InvalidOperationException("The cycle request is outside this current host session.");
+        return RegionalHostCycleRequest.Sign(request.Enrollment, authentication, request.SessionId, lease.Epoch, role,
+            digest, operation, attemptId, cycleId, fence, now);
+    }
+
     private RegionalHostReportProof Sign(string cell, string node, string artifact, RegionalHostReportKind kind, byte[] payload)
     {
         var now = clock.GetUtcNow();
@@ -62,4 +72,3 @@ internal sealed class RegionalHostSessionSigner
         return RegionalHostReportProof.Sign(request.Enrollment, authentication, request.SessionId, lease.Epoch, role.Role, kind, payload, now);
     }
 }
-

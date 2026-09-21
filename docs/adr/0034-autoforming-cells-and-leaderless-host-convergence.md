@@ -15,8 +15,8 @@ signed first boot, seed ownership handoff and regional resource reconciliation
 remain open. Topology provisioning requires its separate infrastructure identity.
 Host execution now requires renewing session authority, protected credential
 expiry and local ownership/recovery; production host startup still needs
-composition. Desired state, reports and artifact delivery use restricted signed
-protocols. Durable backoff and regional replacement-lease transport remain open.
+composition. Desired state, reports, artifact delivery and durable cycle/backoff
+use restricted signed protocols. Regional replacement-lease transport remains open.
 
 Use the [readiness record](../evidence/oci-readiness-2026-09-20.md),
 [bootstrap contract](../operations/control-bootstrap.md),

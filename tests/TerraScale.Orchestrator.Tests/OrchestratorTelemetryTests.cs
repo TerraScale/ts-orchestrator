@@ -45,6 +45,38 @@ public sealed class OrchestratorTelemetryTests
     }
 
     [Test]
+    public async Task Host_cycle_metrics_count_bounded_request_outcomes_and_pending_retry()
+    {
+        var measurements = new List<MetricMeasurement>();
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, meterListener) =>
+        {
+            if (instrument.Meter.Name == OrchestratorTelemetry.InstrumentationName &&
+                instrument.Name.StartsWith("terrascale.orchestrator.host.cycle.", StringComparison.Ordinal))
+                meterListener.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+        {
+            var copiedTags = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var tag in tags) copiedTags.Add(tag.Key, tag.Value);
+            measurements.Add(new(instrument.Name, value, copiedTags));
+        });
+        listener.Start();
+        using var telemetry = OrchestratorTelemetry.Start(
+            new(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:4222", 3), _ => null);
+        telemetry.ObserveHostCycles(() => new(5, 7, 3, 4, 2, 1, true, true));
+        await Assert.That(() => telemetry.ObserveHostCycles(() => new(0, 0, 0, 0, 0, 0, false, false))).Throws<InvalidOperationException>();
+        listener.RecordObservableInstruments();
+        await Assert.That(measurements.Where(value => value.Name.EndsWith(".requests", StringComparison.Ordinal))
+            .ToDictionary(value => (string)value.Tags["result"]!, value => value.Value))
+            .IsEquivalentTo(new Dictionary<string, long> { ["active"] = 5, ["backoff"] = 7, ["busy"] = 3, ["settled"] = 4, ["rejected"] = 2, ["failed"] = 1 });
+        await Assert.That(measurements.Single(value => value.Name.EndsWith(".retry_pending", StringComparison.Ordinal)).Value).IsEqualTo(1);
+        await Assert.That(measurements.Single(value => value.Name.EndsWith(".in_flight", StringComparison.Ordinal)).Value).IsEqualTo(1);
+        await Assert.That(measurements.SelectMany(value => value.Tags.Keys).Distinct().Order().ToArray())
+            .IsEquivalentTo(new[] { "cell", "result" });
+    }
+
+    [Test]
     public async Task Host_desired_metrics_count_bounded_request_outcomes_and_pending_retry()
     {
         var measurements = new List<MetricMeasurement>();

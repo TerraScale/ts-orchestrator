@@ -126,6 +126,7 @@ internal sealed class OrchestratorTelemetry : IDisposable
     private Func<RegionalHostSessionServiceSnapshot>? hostSessionObserver;
     private Func<RegionalHostDesiredSnapshot>? hostDesiredObserver;
     private Func<RegionalHostArtifactSnapshot>? hostArtifactObserver;
+    private Func<RegionalHostCycleSnapshot>? hostCycleObserver;
     private Func<GlobalCellDirectorySnapshot>? globalCellDirectory;
     private Func<NatsMonitoringAggregate>? natsMonitoring;
     private Func<Operations.OperatorStatusDocument?>? operatorStatusObserver;
@@ -346,6 +347,9 @@ internal sealed class OrchestratorTelemetry : IDisposable
             unit: "{boolean}");
         hostReports = meter.CreateObservableCounter("terrascale.orchestrator.host.reports",
             ObserveHostReports, unit: "{report}");
+        _ = meter.CreateObservableCounter("terrascale.orchestrator.host.cycle.requests", ObserveHostCycles, unit: "{request}");
+        _ = meter.CreateObservableGauge("terrascale.orchestrator.host.cycle.retry_pending", () => ObserveHostCycleValue(value => value.RetryPending ? 1 : 0), unit: "{boolean}");
+        _ = meter.CreateObservableGauge("terrascale.orchestrator.host.cycle.in_flight", () => ObserveHostCycleValue(value => value.InFlight ? 1 : 0), unit: "{boolean}");
         _ = meter.CreateObservableCounter("terrascale.orchestrator.host.artifact.requests", ObserveHostArtifacts, unit: "{request}");
         _ = meter.CreateObservableCounter("terrascale.orchestrator.host.artifact.bytes", () => ObserveHostArtifactValue(value => value.Bytes), unit: "By");
         _ = meter.CreateObservableGauge("terrascale.orchestrator.host.artifact.retry_pending", () => ObserveHostArtifactValue(value => value.RetryPending ? 1 : 0), unit: "{boolean}");
@@ -425,6 +429,28 @@ internal sealed class OrchestratorTelemetry : IDisposable
         if (report is null) yield break;
         foreach (var (result, count) in new[] { ("accepted", report.Accepted), ("rejected", report.Rejected), ("failed", report.Failed) })
             yield return new(count, new TagList { { "cell", cell }, { "result", result } });
+    }
+
+    internal void ObserveHostCycles(Func<RegionalHostCycleSnapshot> observe)
+    {
+        ArgumentNullException.ThrowIfNull(observe);
+        if (Interlocked.CompareExchange(ref hostCycleObserver, observe, null) is not null)
+            throw new InvalidOperationException("Host cycle telemetry is already attached.");
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostCycles()
+    {
+        var snapshot = Volatile.Read(ref hostCycleObserver)?.Invoke();
+        if (snapshot is null) yield break;
+        foreach (var (result, count) in new[] { ("active", snapshot.Active), ("backoff", snapshot.Backoff), ("busy", snapshot.Busy),
+                     ("settled", snapshot.Settled), ("rejected", snapshot.Rejected), ("failed", snapshot.Failed) })
+            yield return new(count, new TagList { { "cell", cell }, { "result", result } });
+    }
+
+    private IEnumerable<Measurement<long>> ObserveHostCycleValue(Func<RegionalHostCycleSnapshot, long> select)
+    {
+        var snapshot = Volatile.Read(ref hostCycleObserver)?.Invoke();
+        if (snapshot is not null) yield return new(select(snapshot), new TagList { { "cell", cell } });
     }
 
     internal void ObserveHostArtifacts(Func<RegionalHostArtifactSnapshot> observe)
