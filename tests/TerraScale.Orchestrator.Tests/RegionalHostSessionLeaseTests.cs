@@ -9,6 +9,143 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class RegionalHostSessionLeaseTests
 {
     [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Successful_renewals_never_extend_the_initial_material_deadline_even_when_UTC_freezes(bool frozenUtc)
+    {
+        using var material = new SessionMaterial();
+        var clock = new LeaseTestClock(material.Clock.GetUtcNow());
+        var evidence = new HostExecutionMaterial(clock.GetUtcNow() + RegionalHostSessionLease.ExecutionReserve + TimeSpan.FromSeconds(10));
+        await using var lease = await StartAsync(material, clock, new Client(), _ => ValueTask.FromResult<HostExecutionMaterial?>(evidence));
+        await Assert.That(lease.Snapshot.MaterialExpiresAt).IsEqualTo(evidence.ExpiresAt);
+        await Assert.That(lease.Snapshot.ExecuteUntil).IsEqualTo(evidence.ExpiresAt - RegionalHostSessionLease.ExecutionReserve);
+        for (var renewal = 1; renewal <= 3; renewal++)
+        {
+            clock.Advance(TimeSpan.FromSeconds(3), advanceUtc: !frozenUtc);
+            await UntilAsync(() => lease.Snapshot.Renewals == renewal);
+            await Assert.That(lease.ExecutionToken.IsCancellationRequested).IsFalse();
+        }
+        clock.Advance(TimeSpan.FromSeconds(1), advanceUtc: !frozenUtc);
+        var lost = await lease.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        await Assert.That(lost.Need).IsEqualTo("credential-material-expired");
+        await Assert.That(lost.Renewals).IsEqualTo(3);
+        await Assert.That(lease.ExecutionToken.IsCancellationRequested).IsTrue();
+    }
+
+    [Test]
+    [Arguments("missing")]
+    [Arguments("expired")]
+    [Arguments("reserve")]
+    [Arguments("non-utc")]
+    public async Task Invalid_initial_material_never_sends_an_acquisition(string invalid)
+    {
+        using var material = new SessionMaterial();
+        var clock = new LeaseTestClock(material.Clock.GetUtcNow());
+        HostExecutionMaterial? evidence = invalid switch
+        {
+            "missing" => null,
+            "expired" => new(clock.GetUtcNow().AddSeconds(-1)),
+            "reserve" => new(clock.GetUtcNow() + RegionalHostSessionLease.ExecutionReserve),
+            "non-utc" => new(clock.GetUtcNow().AddHours(1).ToOffset(TimeSpan.FromHours(1))),
+            _ => throw new ArgumentOutOfRangeException(nameof(invalid))
+        };
+        var client = new Client();
+        await Assert.That(async () => { _ = await StartAsync(material, clock, client, _ => ValueTask.FromResult(evidence)); })
+            .Throws<InvalidOperationException>();
+        await Assert.That(client.Requests.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Changed_or_non_UTC_material_is_rejected_before_a_renewal_request(bool nonUtc)
+    {
+        using var material = new SessionMaterial();
+        var clock = new LeaseTestClock(material.Clock.GetUtcNow());
+        var evidence = new HostExecutionMaterial(clock.GetUtcNow().AddHours(1));
+        var client = new Client();
+        await using var lease = await StartAsync(material, clock, client, _ => ValueTask.FromResult<HostExecutionMaterial?>(evidence));
+        evidence = new(nonUtc ? evidence.ExpiresAt.ToOffset(TimeSpan.FromHours(1)) : evidence.ExpiresAt.AddHours(1));
+        clock.Advance(TimeSpan.FromSeconds(3));
+        var lost = await lease.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        await Assert.That(lost.Need).IsEqualTo(nonUtc ? "session-material-or-response-invalid" : "credential-material-changed");
+        await Assert.That(client.Requests.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("probe")]
+    [Arguments("client")]
+    public async Task Synchronous_startup_blocks_cannot_hold_cancellation_hostage(string blocked)
+    {
+        using var material = new SessionMaterial();
+        var clock = new LeaseTestClock(material.Clock.GetUtcNow());
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var caller = new CancellationTokenSource();
+        var client = new Client { Acquisition = request =>
+        {
+            if (blocked == "client") Block();
+            return Task.FromResult(Accept(request));
+        } };
+        try
+        {
+            var starting = StartAsync(material, clock, client, _ =>
+            {
+                if (blocked == "probe") Block();
+                return ValueTask.FromResult<HostExecutionMaterial?>(new(clock.GetUtcNow().AddHours(1)));
+            }, caller.Token);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await caller.CancelAsync();
+            await Assert.That(async () => { _ = await starting.WaitAsync(TimeSpan.FromSeconds(2)); }).Throws<OperationCanceledException>();
+            await Assert.That(client.Requests.Count).IsEqualTo(blocked == "probe" ? 0 : 1);
+        }
+        finally
+        {
+            release.Set();
+            if (entered.Task.IsCompleted) await exited.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        void Block() { entered.TrySetResult(); release.Wait(); exited.TrySetResult(); }
+    }
+
+    [Test]
+    public async Task A_synchronous_renewal_probe_cannot_outlive_known_material_or_block_disposal()
+    {
+        using var material = new SessionMaterial();
+        var clock = new LeaseTestClock(material.Clock.GetUtcNow());
+        var evidence = new HostExecutionMaterial(clock.GetUtcNow() + RegionalHostSessionLease.ExecutionReserve + TimeSpan.FromSeconds(4));
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        await using var lease = await StartAsync(material, clock, new Client(), _ =>
+        {
+            if (Interlocked.Increment(ref calls) > 1)
+            {
+                entered.TrySetResult();
+                release.Wait();
+                exited.TrySetResult();
+            }
+            return ValueTask.FromResult<HostExecutionMaterial?>(evidence);
+        });
+        try
+        {
+            clock.Advance(TimeSpan.FromSeconds(3));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            clock.Advance(TimeSpan.FromSeconds(1));
+            var lost = await lease.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+            await Assert.That(lost.Need).IsEqualTo("credential-material-expired");
+            await lease.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+            await Assert.That(lease.ExecutionToken.IsCancellationRequested).IsTrue();
+        }
+        finally
+        {
+            release.Set();
+            if (entered.Task.IsCompleted) await exited.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Test]
     public async Task Renewal_replaces_the_signer_without_changing_session_epoch_or_replaying_bootstrap()
     {
         using var material = new SessionMaterial();
@@ -70,7 +207,7 @@ public sealed class RegionalHostSessionLeaseTests
             ? Task.FromException<RegionalHostSessionResponse>(new TimeoutException("Injected lost acknowledgement."))
             : Task.FromResult(Accept(request)) };
         var starting = StartAsync(material, clock, client);
-        await Assert.That(client.Requests.Count).IsEqualTo(1);
+        await UntilAsync(() => client.Requests.Count == 1 && clock.PendingOneSecondDelay);
         clock.Advance(TimeSpan.FromSeconds(1));
         await using var lease = await starting.WaitAsync(TimeSpan.FromSeconds(2));
         var requests = client.Requests.ToArray();
@@ -103,10 +240,10 @@ public sealed class RegionalHostSessionLeaseTests
     {
         using var material = new SessionMaterial();
         var clock = new LeaseTestClock(material.Clock.GetUtcNow());
-        var ready = true;
+        HostExecutionMaterial? ready = new(clock.GetUtcNow().AddHours(1));
         var client = new Client();
-        await using var lease = await StartAsync(material, clock, client, _ => ValueTask.FromResult(ready));
-        ready = false;
+        await using var lease = await StartAsync(material, clock, client, _ => ValueTask.FromResult<HostExecutionMaterial?>(ready));
+        ready = null;
         clock.Advance(TimeSpan.FromSeconds(3));
         var ended = await lease.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         await Assert.That(ended.Need).IsEqualTo("credential-material-not-ready");
@@ -136,15 +273,15 @@ public sealed class RegionalHostSessionLeaseTests
         using var material = new SessionMaterial();
         var clock = new LeaseTestClock(material.Clock.GetUtcNow());
         var calls = 0;
-        var withheld = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var withheld = new TaskCompletionSource<HostExecutionMaterial?>(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var lease = await StartAsync(material, clock, new Client(), _ => ++calls == 1
-            ? ValueTask.FromResult(true) : new(withheld.Task));
+            ? ValueTask.FromResult<HostExecutionMaterial?>(new(clock.GetUtcNow().AddHours(1))) : new(withheld.Task));
         clock.Advance(TimeSpan.FromSeconds(3));
         await UntilAsync(() => calls == 2);
         clock.Advance(RegionalHostSessionLease.ExecutionLifetime - TimeSpan.FromSeconds(3));
         await lease.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         await Assert.That(lease.ExecutionToken.IsCancellationRequested).IsTrue();
-        withheld.SetResult(true);
+        withheld.SetResult(new(clock.GetUtcNow().AddHours(1)));
         await lease.DisposeAsync();
         await Assert.That(lease.Snapshot.Renewals).IsEqualTo(0);
     }
@@ -177,10 +314,12 @@ public sealed class RegionalHostSessionLeaseTests
         var withheld = new TaskCompletionSource<RegionalHostSessionResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         var client = new Client { Acquisition = _ => withheld.Task };
         var attempt = StartAsync(material, clock, client);
+        await UntilAsync(() => client.Requests.Count == 1);
         clock.Advance(TimeSpan.FromSeconds(8));
         await Assert.That(async () => { _ = await attempt.WaitAsync(TimeSpan.FromSeconds(2)); }).Throws<TimeoutException>();
         using var caller = new CancellationTokenSource();
         attempt = StartAsync(material, clock, client, cancellationToken: caller.Token);
+        await UntilAsync(() => client.Requests.Count == 2);
         caller.Cancel();
         await Assert.That(async () => { _ = await attempt.WaitAsync(TimeSpan.FromSeconds(2)); }).Throws<OperationCanceledException>();
         withheld.SetResult(Accept(client.Requests.First()));
@@ -225,15 +364,19 @@ public sealed class RegionalHostSessionLeaseTests
         await cluster.ProvisionAsync(deadline.Token);
         await using var controller = await cluster.ConnectAsync(cluster.Controller, cancellationToken: deadline.Token);
         await using var host = await cluster.ConnectAsync(cluster.HostAgent, cancellationToken: deadline.Token);
-        var authentication = NatsAuthenticationFiles.FromCredentialsFile(cluster.HostAgent.CredentialsFile, "host lease test");
-        using var material = new SessionMaterial(authentication, cluster.HostAgent.AccountPublicKey, "host-1", realTime: true);
+        using var files = new HostCredentialMaterialFixture(authentication:
+            NatsAuthenticationFiles.FromCredentialsFile(cluster.HostAgent.CredentialsFile, "host lease test"),
+            tls: new(cluster.CaFile, cluster.HostAgent.CertificateFile, cluster.HostAgent.KeyFile),
+            account: cluster.HostAgent.AccountPublicKey, node: "host-1");
+        var material = files.Session;
+        var credentials = files.Load();
         var stores = controller.CreateJetStreamContext().CreateKeyValueStoreContext();
         var authority = new RegionalHostSessionAuthority(await stores.GetStoreAsync("ORCH_NODE_ENROLLMENTS", deadline.Token), material.Policy());
         var runtime = await stores.GetStoreAsync("ORCH_RUNTIME", deadline.Token);
         await using var service = await RegionalHostSessionService.StartAsync(controller.Connection, authority, deadline.Token);
         await using var relay = await HostObservationRelay.StartAsync(controller.Connection, runtime, authority, deadline.Token);
         await using var lease = await RegionalHostSessionLease.StartAsync(new NatsRegionalHostSessionClient(host.Connection, "gru", "host-1"),
-            material.Enroll(1), authentication, _ => ValueTask.FromResult(true), deadline.Token);
+            credentials.Enrollment, files.Authentication, credentials.ObserveAsync, deadline.Token);
         using var native = new HostWorkloadLifetimeTests.ChildProcess();
         await using var workloads = new HostWorkloadLifetime(native, lease.ExecutionToken);
         await workloads.ConvergeAsync(HostRuntimePlan.Create(AdmittedRole.TerraBaseMember, RuntimeDriver.NativeSystemd,
@@ -258,9 +401,12 @@ public sealed class RegionalHostSessionLeaseTests
     }
 
     private static Task<RegionalHostSessionLease> StartAsync(SessionMaterial material, LeaseTestClock clock, Client client,
-        Func<CancellationToken, ValueTask<bool>>? materialReady = null, CancellationToken cancellationToken = default) =>
-        RegionalHostSessionLease.StartAsync(client, material.Enroll(1), material.Authentication,
-            materialReady ?? (_ => ValueTask.FromResult(true)), cancellationToken, clock);
+        Func<CancellationToken, ValueTask<HostExecutionMaterial?>>? materialReady = null, CancellationToken cancellationToken = default)
+    {
+        var evidence = new HostExecutionMaterial(clock.GetUtcNow().AddHours(1));
+        return RegionalHostSessionLease.StartAsync(client, material.Enroll(1), material.Authentication,
+            materialReady ?? (_ => ValueTask.FromResult<HostExecutionMaterial?>(evidence)), cancellationToken, clock);
+    }
 
     private static RegionalHostSessionResponse Accept(RegionalHostSessionRequest request) =>
         new(2, request.RequestId, request.RequestDigest, RegionalHostSessionDecision.Accepted,

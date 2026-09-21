@@ -13,6 +13,15 @@ systemd/containerd, cgroups, Instance Principal and OCI networking still need
 their own qualification. Guest globalization was invariant and diagnostics
 disabled; neither normal globalization nor diagnostic attachment was tested.
 
+The subsequent [credential material receipt](../evidence/host-credential-material-local-2026-09-21.json)
+adds 67 successful emulated tests from the new source: the same 24 signing/auth
+checks plus 43 protected-material tests. These exercise guest OpenSSL through
+certificate creation, chain/key/usage validation, certificate/JWT expiry and
+manifest/permission checks. The isolated harness retained the same publish
+warnings and guest limitations described below. Its exact filter was
+`/*/*/(RegionalHostCredentialMaterialTests|NatsUserSignatureTests|NatsAuthenticationFilesTests)/*`,
+with `--minimum-expected-tests 67 --maximum-parallel-tests 2`.
+
 ## Reproducing the local checks
 
 Use the receipt's Nix source identity and store paths for QEMU 10.2.4, ARM64

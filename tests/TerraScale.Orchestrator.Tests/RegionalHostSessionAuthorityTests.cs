@@ -373,17 +373,39 @@ internal sealed class SessionMaterial : IDisposable
             BootstrapGrantOperation.EnsureSystemProjectConfiguration, TimeSpan.FromMinutes(15));
 
     internal RegionalNodeEnrollmentEnvelope Enroll(ulong generation, SignedBootstrapGrant? grant = null,
-        NatsAuthenticationFiles? authentication = null, RegionalNodeEnrollmentScope? scope = null, string? node = null, TimeSpan? lifetime = null)
+        NatsAuthenticationFiles? authentication = null, RegionalNodeEnrollmentScope? scope = null, string? node = null, TimeSpan? lifetime = null,
+        string? credentialBundleSha256 = null, BootstrapCertificateFingerprint? certificateFingerprint = null)
     {
         node ??= this.node;
         var serial = ++nextGrant;
         grant ??= GrantIssuer.Sign(new BootstrapGrantPayload(serial.ToString("D26", System.Globalization.CultureInfo.InvariantCulture),
             serial.ToString("x64", System.Globalization.CultureInfo.InvariantCulture), "grant-key", 1,
-            BootstrapKeyPurposeCodes.GrantSigning, Project, node, new BootstrapCertificateFingerprint(new string('b', 64)),
+            BootstrapKeyPurposeCodes.GrantSigning, Project, node, certificateFingerprint ?? new BootstrapCertificateFingerprint(new string('b', 64)),
             Clock.GetUtcNow().AddSeconds(-1), Clock.GetUtcNow() + (lifetime ?? TimeSpan.FromMinutes(5)),
             [BootstrapGrantOperation.EnsureSystemProjectConfiguration]));
         return signer.Sign("GRU", node, generation, account, (authentication ?? Authentication).PublicKey,
-            new string('c', 64), "gru-cluster", scope ?? Scope, grant);
+            credentialBundleSha256 ?? new string('c', 64), "gru-cluster", scope ?? Scope, grant);
+    }
+
+    internal RegionalHostAdmissionConfiguration WriteHostConfiguration(string directory, RegionalNodeEnrollmentEnvelope enrollment, string bundleFile)
+    {
+        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Host credentials require Linux permissions.");
+        var enrollmentFile = Path.Combine(directory, "enrollment.json");
+        var signerFile = Path.Combine(directory, "enrollment-signer.pem");
+        var trustFile = Path.Combine(directory, "trust.json");
+        File.WriteAllText(enrollmentFile, JsonSerializer.Serialize(enrollment, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        File.WriteAllText(signerFile, enrollmentKey.ExportSubjectPublicKeyInfoPem());
+        File.WriteAllText(trustFile, JsonSerializer.Serialize(new
+        {
+            schemaVersion = 1, bundleVersion = 1, currentGrantSigningKeyId = "grant-key", currentGrantSigningKeyVersion = 1,
+            keys = new[] { new { keyId = "grant-key", keyVersion = 1, purpose = BootstrapTrustKeyPurpose.GrantSigning,
+                subjectPublicKeyInfo = Convert.ToBase64String(GrantIssuer.ExportPublicKey().SubjectPublicKeyInfoCopy()),
+                acceptedUntil = (DateTimeOffset?)null } }
+        }));
+        foreach (var path in new[] { enrollmentFile, signerFile, trustFile })
+            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return new(enrollmentFile, signerFile, trustFile, bundleFile, node, "GRU", account, "gru-cluster", "enrollment-key", 1,
+            Project, BootstrapGrantOperation.EnsureSystemProjectConfiguration, TimeSpan.FromMinutes(15), Scope);
     }
 
     internal RegionalHostSessionRequest Request(RegionalNodeEnrollmentEnvelope enrollment, string? session = null, ulong epoch = 0,

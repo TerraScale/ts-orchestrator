@@ -33,9 +33,11 @@ terminal cancellation and an immutable current report signer. Core convergence
 links work to that cancellation, including stalled desired-state reads.
 Lease-backed convergence now stops and observes allocations tracked in the
 current process independently of desired state and report acknowledgements.
-The dedicated host entry, credential-material checks, durable restart recovery
-and writer fencing still need composition, so remote host admission/startup
-remains a blocker. A local stopped observation is not storage writer fencing.
+Protected credential validation now supplies fixed certificate/JWT/trust expiry
+to a nonrenewable monotonic material budget. The restricted R3 test composes
+these checks with session renewal and actual owned-process shutdown. The
+dedicated host entry, durable restart recovery and writer fencing still need
+composition, so remote host admission/startup remains a blocker. A local stopped observation is not storage writer fencing.
 Current lease retries now confirm replica reads through an unchanged CAS;
 report proof and current-session authorization components use the same fence.
 TerraBase recovery/health, OCI workload readiness and operator ready counts
@@ -104,6 +106,12 @@ after authenticated R3 revocation and independent cleanup before report ACK.
 The [ARM64 emulation receipt](host-arm64-emulation-local-2026-09-21.json)
 records AArch64 application startup and bundled cryptography execution under
 QEMU, with exact artifact/loader hashes and isolated test-harness limitations.
+The [credential material receipt](host-credential-material-local-2026-09-21.json)
+records manifest, certificate-chain/key/usage and JWT validation, the immutable
+material deadline, synchronous-block cancellation and the composed R3 path.
+The five local suites passed **2564** tests with **5 expected opt-in skips**;
+the main suite passed **1268** in 13m45s. Its separate ARM64 run executes 67
+signing/authentication/material checks under QEMU. Neither receipt qualifies native ARM64 workloads or OCI deployment.
 
 | Check | Result | Evidence/limit |
 | --- | --- | --- |
@@ -288,12 +296,14 @@ repository's main-only push rule being resolved.
   durable replay state. Its 30-second leases support process restart and
   renewal without reauthorizing expired bootstrap operations. The independent
   host execution lease now renews remotely and triggers stop/observation of
-  tracked local workloads. The older one-use admission gate is not a replacement
-  for that session. Controller startup rejects mixed host roles; the dedicated
-  host entry, credential validation and restart-safe workload ownership remain open.
-  Credential validation must provide its known certificate/bundle expiry to
-  the execution deadline; the current uncomposed boolean material callback
-  alone cannot enforce expiry during a stalled next probe.
+  tracked local workloads. The obsolete cached one-use admission gate has been removed; host material
+  validation does not access controller replay stores. Controller startup rejects mixed host roles; the dedicated
+  host entry and restart-safe workload ownership remain open. The new material
+  validator binds protected credential files to signed enrollment, checks
+  certificate chain/key/usage and JWT validity, and supplies a fixed expiry to
+  the lease. A separate monotonic material deadline cannot be renewed, even
+  with frozen UTC. The restricted R3 test composes this validator; production
+  host startup, immutable credential delivery and rotation are still required.
 - **Vault and workloads:** fetch pinned secret versions through scoped
   Instance Principals, verify digests, write restricted files, rotate and
   revoke credentials. Compose this path for NATS, TerraBase and auth secrets.

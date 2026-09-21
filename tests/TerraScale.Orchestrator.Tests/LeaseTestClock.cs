@@ -7,6 +7,7 @@ internal sealed class LeaseTestClock(DateTimeOffset initial) : TimeProvider
     private readonly List<ClockTimer> timers = [];
     private DateTimeOffset utc = initial;
     private long elapsed;
+    internal bool PendingOneSecondDelay { get { lock (gate) return timers.Any(timer => timer.Due == elapsed + TimeSpan.TicksPerSecond && timer.Period is null); } }
     public override long TimestampFrequency => TimeSpan.TicksPerSecond;
     public override DateTimeOffset GetUtcNow() { lock (gate) return utc; }
     public override long GetTimestamp() { lock (gate) return elapsed; }

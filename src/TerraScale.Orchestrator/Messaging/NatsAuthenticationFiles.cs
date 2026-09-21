@@ -30,7 +30,7 @@ internal sealed record NatsAuthenticationFiles
         if (current.PublicKey != PublicKey || !PublicKey.StartsWith('U'))
             throw new InvalidOperationException("The NATS user identity changed after connection admission.");
         var seed = CredentialsFile is not null
-            ? ReadCredentialsSeed(current.CredentialsFile!, "host request NATS")
+            ? ReadCredentials(current.CredentialsFile!, "host request NATS").Seed
             : NatsCredentialFile.Seed(current.NKeyFile!);
         if (NKeys.PublicKeyFromSeed(seed) != PublicKey)
             throw new InvalidOperationException("The NATS user identity changed while loading its signing key.");
@@ -56,7 +56,7 @@ internal sealed record NatsAuthenticationFiles
         }
 
         var resolvedCredentials = ResolvePrivateFile(credentialsFile!, $"{optionPrefix}_CREDENTIALS_FILE");
-        var seed = ReadCredentialsSeed(resolvedCredentials, optionPrefix);
+        var seed = ReadCredentials(resolvedCredentials, optionPrefix).Seed;
         try
         {
             return new(null, resolvedCredentials, NKeys.PublicKeyFromSeed(seed));
@@ -82,7 +82,20 @@ internal sealed record NatsAuthenticationFiles
 
     private static readonly JsonSerializerOptions JsonOptions = new() { AllowDuplicateProperties = false };
 
-    private static string ReadCredentialsSeed(string path, string optionPrefix)
+    internal DateTimeOffset ExecutionExpiresAt(DateTimeOffset now)
+    {
+        var current = Resolve(NKeyFile, CredentialsFile, "host execution NATS")!;
+        if (current.PublicKey != PublicKey)
+            throw new InvalidDataException("The pinned NATS user identity changed.");
+        if (CredentialsFile is null) return DateTimeOffset.MaxValue;
+        var claims = ReadCredentials(current.CredentialsFile!, "host execution NATS").Identity;
+        var expires = claims.Expires is null or 0 ? DateTimeOffset.MaxValue : DateTimeOffset.FromUnixTimeSeconds(claims.Expires.Value);
+        if (expires <= now || claims.NotBefore is { } start && DateTimeOffset.FromUnixTimeSeconds(start) > now)
+            throw new InvalidDataException("The pinned NATS user credential is outside its validity window.");
+        return expires;
+    }
+
+    private static (string Seed, JwtIdentity Identity) ReadCredentials(string path, string optionPrefix)
     {
         try
         {
@@ -100,7 +113,7 @@ internal sealed record NatsAuthenticationFiles
                 throw new FormatException();
             // The server verifies issuer trust, signature, expiry and grants. This parser
             // only ensures the runtime's bound identity matches the supplied credentials.
-            return seed;
+            return (seed, claims);
         }
         catch (Exception exception) when (exception is FormatException or JsonException or ArgumentException)
         {
@@ -130,6 +143,7 @@ internal sealed record NatsAuthenticationFiles
     }
 
     private sealed record JwtHeader([property: JsonPropertyName("alg")] string Algorithm, [property: JsonPropertyName("typ")] string Type);
-    private sealed record JwtIdentity([property: JsonPropertyName("sub")] string Subject, [property: JsonPropertyName("nats")] JwtKind Nats);
+    private sealed record JwtIdentity([property: JsonPropertyName("sub")] string Subject, [property: JsonPropertyName("nats")] JwtKind Nats,
+        [property: JsonPropertyName("exp")] long? Expires, [property: JsonPropertyName("nbf")] long? NotBefore);
     private sealed record JwtKind([property: JsonPropertyName("type")] string Type, [property: JsonPropertyName("version")] int Version);
 }

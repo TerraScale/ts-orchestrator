@@ -133,14 +133,43 @@ never reacquires automatically or assumes an old workload has stopped.
 Startup is bounded to eight seconds; material and network requests each have
 a five-second bound. Transient failure retries after one second inside the
 existing execution window. Authoritative rejection, invalid response binding,
-missing credentials or a changed signing key cancel execution. The mandatory
-material callback must eventually validate the delivered manifest and mTLS
-certificate; the production callback is not yet composed. Its current boolean
-result is insufficient to communicate a known certificate expiry. Production
-composition must carry the material validity deadline into the execution
-window, so a stalled later probe cannot extend work beyond certificate validity.
-Protected file validation/signing must also preserve startup and disposal
-bounds when file I/O blocks before returning an asynchronous operation.
+missing credentials or changed material cancel execution. The callback returns
+the immutable expiry of the pinned credential generation. Local execution ends
+at the earlier of the remote lease and material expiry, minus the execution
+reserve. A separate monotonic material budget is anchored before the first
+probe and survives every renewal, including when UTC is frozen. A changed
+expiry or non-UTC deadline fails closed.
+
+`RegionalHostCredentialMaterial` supplies that evidence from the signed
+enrollment and exactly four distinct manifest files: NATS authentication, CA,
+client certificate and private key. It checks exact node/region/account/cluster
+and workload scope, signer/grant trust, manifest SHA-256 and individual file
+hashes, pinned user identity, matching private key, client-auth usage and an
+offline pinned certificate chain. The expiry is the earliest chain, JWT or
+known signing-trust deadline. A JWT without an expiry remains bounded by the
+certificate; NATS verifies its issuer signature and subject permissions. Local
+validation never fetches CRLs or AIA certificates. Regional durable revocation
+is enforced by session renewal.
+
+Every probe rechecks pinned public files, protected transport files and their
+validity. The manifest requires canonical absolute paths, unique exact entries
+and owner-private files; the shared NATS resolver rejects symlink traversal and
+unbounded files. Delivered generation directories must remain immutable and
+protected by the supervisor: path-based transport APIs are not an atomic
+filesystem snapshot or a defense against a compromised credential owner.
+
+The older cached one-use admission gate is removed. Material validation does
+not consume replay state or authorize bootstrap operations. Only the controller
+may accept a fresh enrollment or resume one already committed. Consequently,
+expiry of an already consumed bootstrap grant does not invalidate otherwise
+valid transport material or authorize a new bootstrap. The validator is
+composed in the restricted R3 lease/report/shutdown test; the dedicated
+production host entry remains disabled pending ownership/recovery protocols.
+
+Protected reads, signing and client calls execute behind explicit cancellation
+bounds, including synchronous blocking before an implementation returns its
+Task. An abandoned OS read cannot be forcibly canceled, but cannot hold lease
+startup/disposal or the watchdog state lock.
 
 An independent 100 ms watchdog checks both UTC and monotonic elapsed time.
 The local execution budget is fourteen seconds from the signed request's
@@ -152,7 +181,7 @@ real-time fence against a paused guest or a stalled OS. Signing file I/O does
 not hold its state lock. A late success cannot restore lost permission.
 
 Snapshots expose state, need, generation, epoch, remote expiry, local execution
-deadline and renewal/failure counts. They are not yet exported by a host status
+deadline, pinned material expiry and renewal/failure counts. They are not yet exported by a host status
 endpoint. Core `HostConvergenceRuntime` links every reconciliation to execution
 loss, including a desired-state read that ignores its cancellation token.
 Cancellation prevents subsequent work and reaches cooperative in-flight
@@ -256,7 +285,7 @@ keys, fixed system-project identities and cluster name:
 
 The service requires R3 and regional NKey/JWT plus mTLS credentials. A
 controller with this policy cannot also enable local host convergence/admission:
-the old and new replay formats must not run together. `run` with either OCI
+hosts acquire remote sessions and must never consume the controller replay store directly. `run` with either OCI
 workload fleet requires the policy before opening any provider. Startup checks
 the actual session store and has a five-second service-start deadline. Internal
 timeout is a startup failure; caller cancellation retains shutdown semantics. Service
@@ -297,7 +326,7 @@ From the repository root, run the focused local checks with:
 nice -n 19 dotnet build TerraScale.Orchestrator.slnx -c Release --no-restore
 nice -n 19 dotnet run --project tests/TerraScale.Orchestrator.Tests \
   -c Release --no-build -- \
-  --treenode-filter '/*/*/(NatsUserSignatureTests|NatsAuthenticationFilesTests|RegionalNodeEnrollmentTests|RegionalHostAdmissionTests|RegionalHostSessionRequestTests|RegionalHostSessionAuthorityTests)/*' \
+  --treenode-filter '/*/*/(NatsUserSignatureTests|NatsAuthenticationFilesTests|RegionalNodeEnrollmentTests|RegionalHostCredentialMaterialTests|RegionalHostSessionLeaseTests|RegionalHostSessionRequestTests|RegionalHostSessionAuthorityTests)/*' \
   --minimum-expected-tests 57 --maximum-parallel-tests 2
 ```
 
@@ -309,7 +338,10 @@ libsodium. Publishing the test harness produced NETSDK1236 for its referenced
 application runtimeconfig and coverage configuration; application publishes
 produced no warning. Both application ELF architectures and their embedded
 libsodium bytes were checked. The x64 application's offline runtime-plan
-command ran successfully. ARM64 execution remains unqualified.
+command ran successfully. Subsequent [QEMU ARM64 checks](arm64-qualification.md)
+executed the application runtime-plan command and 24 signature/authentication
+tests with bundled AArch64 libsodium. Native ARM64 service/OCI qualification
+remains open; this emulation receipt predates the current material validator.
 
 ## Remaining runtime qualification
 

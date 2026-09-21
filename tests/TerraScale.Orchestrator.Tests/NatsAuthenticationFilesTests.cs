@@ -99,13 +99,14 @@ public sealed class NatsAuthenticationFilesTests
 
     // Real signatures for file/configuration tests. Trust is established by the
     // server; these disposable issuers are never deployed to a NATS account.
-    internal static string Credentials(string seed)
+    internal static string Credentials(string seed, long? expires = null, long? notBefore = null)
     {
         var issuer = NKeys.CreateAccountSeed();
         var header = Encode("{\"alg\":\"ed25519-nkey\",\"typ\":\"JWT\"}");
         var body = Encode(JsonSerializer.Serialize(new
         {
             iss = NKeys.PublicKeyFromSeed(issuer), sub = NKeys.PublicKeyFromSeed(seed),
+            exp = expires, nbf = notBefore,
             nats = new { type = "user", version = 2 },
         }));
         using var key = NKeys.FromSeed(issuer);
