@@ -5,14 +5,16 @@ The signed regional node enrollment uses canonical version
 exact environment and a nonempty, unique set of admitted roles. Roles are
 copied and sorted before signing. An enrollment for TerraBase in production
 cannot authorize auth, an expanded role set, or another environment. The
-host admission gate checks scope before consuming a generation; runtime
-startup also checks the configured execution roles against admission scope.
+host admission component checks scope before consuming a generation. The
+future dedicated host startup must bind its configured roles to that scope.
 There is no scope-less enrollment fallback.
 
-`TS_ORCH_HOST_ROLES` supplies the required role set. The environment comes
-from `TS_ORCH_HOST_ENVIRONMENT`, defaulting to `production`. The enrollment
-issuer must sign that same scope along with the region, node, account, user
-key, cluster, credential manifest digest and bootstrap grant.
+`TS_ORCH_HOST_ROLES` is rejected by controller run/check; it cannot enable a
+host workload under controller credentials. The standalone convergence
+configuration still describes its role set and environment (default
+`production`). The enrollment issuer must sign that same scope along with the
+region, node, account, user key, cluster, credential manifest digest and
+bootstrap grant.
 
 ## Request proof component
 
@@ -22,7 +24,8 @@ key, cluster, credential manifest digest and bootstrap grant.
 They are exercised directly against restricted JWT/mTLS R3 credentials.
 Controller startup loads the policy and starts the service as described below.
 The host renewal/workload loop is not yet wired to the remote client; the
-current local host path still uses its one-use admission gate.
+standalone convergence tests still inject the one-use admission gate. No
+production host entry point is enabled.
 
 A replaced node can retain its old credentials for the same hashed NATS
 subject. A public signed enrollment document alone therefore does not
@@ -149,18 +152,20 @@ It bounds reads to five seconds, rejects unsigned/unknown/duplicate/malformed
 records, and never caches successful authorization across decisions.
 
 TerraBase recovery and health, generic OCI readiness, and operator ready counts
-use this reader. Admission and member health must share enrollment digest,
-generation, process ID and epoch; both authorizations must still be unexpired.
+use this reader. Admission and serving health must share enrollment digest,
+generation, session ID, epoch and artifact digest; both authorizations must
+still be unexpired. OCI and operator readiness read admission after runtime,
+so an already committed withdrawal invalidates an older converged report.
 An unchanged report CAS prevents a stale replica from restoring an earlier
 ready observation after withdrawal. The session CAS still does not stop a
 physical writer or promise immunity against later revocation.
 
-`HostObservationRelay` and its publisher still produce plain observations.
-Those reports now fail closed in production readiness. Signed production,
-relay authorization and atomic proof persistence remain deployment blockers.
-This is an intermediate integration gate, not a deployable reporting path.
-Those producer/consumer changes remain required; the existing report path
-does not become session-authorized merely because these methods exist.
+`HostObservationRelay` now requires schema-2 signed envelopes, authorizes each
+CAS attempt and stores the proof and observation atomically. The host signer
+uses the exact accepted session response. Acknowledgements bind the nonce and
+canonical envelope digest; unsigned ingress is rejected. See
+[the signed relay contract](host-report-relay.md). The dedicated host runtime,
+independent renewal and physical workload fencing remain deployment blockers.
 
 ## Controller configuration and observability
 
@@ -272,10 +277,10 @@ capacity, private-store denial and the authenticated host client/service path.
 Logical time controls expiry cases; the wire test also runs on the wall clock.
 These are component tests, not a fresh OCI guest starting real workloads.
 
-The existing publisher and relay still lack signed session-bound reports;
-production readiness readers reject their plain records. Complete signed
-publication and relay persistence before enabling remote hosts. A valid
-per-node NATS subject alone does not distinguish a revoked process.
+The publisher and relay now authorize signed session-bound reports and persist
+their proofs atomically. Production readiness also rechecks the current session
+and pairs admission with runtime health. A valid per-node NATS subject alone
+does not distinguish a revoked process; proof and current authority are mandatory.
 
 Production first boot must deliver the reviewed controller policy. Route the dedicated host
 entry through the remote client, credential-manifest/certificate checks and

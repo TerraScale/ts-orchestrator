@@ -189,18 +189,6 @@ public sealed class RegionalHostAdmissionTests
                 await Assert.That(wrongScopeResult.Reason).IsEqualTo("regional-enrollment-ScopeMismatch");
                 await Assert.That(wrongScopeReplay.Calls).IsEqualTo(0);
             }
-            using var startupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            var runtimeError = await Assert.That(async () =>
-            {
-                await using var runtime = await NatsRuntime.StartAsync(
-                    new OrchestratorOptions(OrchestratorCommand.Check, "gru", "nats://127.0.0.1:1", 1, "node-1"),
-                    startupDeadline.Token,
-                    hostConvergence: new HostConvergenceConfiguration([Runtime.AdmittedRole.Authentication],
-                        "production", directory.FullName, Runtime.HostArchitecture.Arm64),
-                    hostAdmission: configuration);
-            }).Throws<InvalidOperationException>();
-            await Assert.That(runtimeError!.Message).Contains("roles and environment");
-
             var replay = new FakeReplayStore();
             using var gate = RegionalHostAdmissionGate.LoadForTests(
                 configuration,

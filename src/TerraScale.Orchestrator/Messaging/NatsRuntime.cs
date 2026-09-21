@@ -32,9 +32,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     private readonly INatsSvcServer? directDeliveryService;
     private readonly CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission;
     private readonly ServiceEndpointInstrumentation serviceInstrumentation;
-    private readonly ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence;
-    private readonly RegionalHostAdmissionGate? hostAdmission;
-    private readonly HostObservationRelay hostReports;
+    private readonly HostObservationRelay? hostReports;
     private readonly RegionalHostSessionService? hostSessions;
     private readonly ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement;
     private readonly Nodes.OciMemberHostFleet? memberHostFleet;
@@ -56,9 +54,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         INatsSvcServer? directDeliveryService,
         CandidateEvidenceHandoffV2AdmissionRuntime? candidateHandoffV2Admission,
         ServiceEndpointInstrumentation serviceInstrumentation,
-        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergence,
-        RegionalHostAdmissionGate? hostAdmission,
-        HostObservationRelay hostReports,
+        HostObservationRelay? hostReports,
         ControlPlane.TerraBase.TerraBasePlacementReconcilerRuntime? terrabasePlacement,
         Nodes.OciMemberHostFleet? memberHostFleet,
         WorkloadAutoscalerService? workloadAutoscaler,
@@ -79,8 +75,6 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.directDeliveryService = directDeliveryService;
         this.candidateHandoffV2Admission = candidateHandoffV2Admission;
         this.serviceInstrumentation = serviceInstrumentation;
-        this.hostConvergence = hostConvergence;
-        this.hostAdmission = hostAdmission;
         this.hostReports = hostReports;
         this.terrabasePlacement = terrabasePlacement;
         this.memberHostFleet = memberHostFleet;
@@ -90,9 +84,9 @@ public sealed class NatsRuntime : IAsyncDisposable
         this.hostSessions = hostSessions;
     }
 
-    public Task Completion => hostSessions is null
-        ? Task.WhenAny(authority.Completion, membership.Completion, hostReports.Completion).Unwrap()
-        : Task.WhenAny(authority.Completion, membership.Completion, hostReports.Completion, hostSessions.Completion).Unwrap();
+    public Task Completion => Task.WhenAny(new[] { authority.Completion, membership.Completion }
+        .Concat(hostReports is null ? [] : new[] { hostReports.Completion })
+        .Concat(hostSessions is null ? [] : new[] { hostSessions.Completion })).Unwrap();
     internal RegionalAuthoritySnapshot AuthoritySnapshot => authority.Snapshot;
     internal RegionalRuntimeMembershipSnapshot MembershipSnapshot => membership.Snapshot;
     internal RegionalRuntimeMembershipHealth MembershipHealth => membership.Health;
@@ -158,7 +152,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(telemetry);
         serviceTelemetry = telemetry;
         serviceInstrumentation.Telemetry = telemetry;
-        telemetry.ObserveHostReports(() => hostReports.Snapshot);
+        if (hostReports is not null) telemetry.ObserveHostReports(() => hostReports.Snapshot);
         if (hostSessions is not null) telemetry.ObserveHostSessions(() => hostSessions.Snapshot);
     }
 
@@ -235,8 +229,6 @@ public sealed class NatsRuntime : IAsyncDisposable
         Protocol.ICommandSignatureVerifier? ciArtifactSignatures = null,
         CandidateEvidenceHandoffV2AdmissionPolicyCatalog? candidateHandoffV2Policies = null,
         bool autoProvision = true,
-        ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null,
-        ControlPlane.Delivery.RegionalHostAdmissionConfiguration? hostAdmission = null,
         ControlPlane.TerraBase.TerraBaseReconcilerConfiguration? terrabaseConfiguration = null,
         Nodes.OciMemberHostFleetConfigurationFile? memberFleet = null,
         Nodes.OciWorkloadFleetConfigurationFile? workloadFleet = null,
@@ -244,7 +236,7 @@ public sealed class NatsRuntime : IAsyncDisposable
     {
         if (options.Command is not (OrchestratorCommand.Run or OrchestratorCommand.Check))
             throw new InvalidOperationException("Only controller run/check roles can start the regional controller runtime.");
-        hostSessions?.ValidateStartup(options, hostConvergence is not null || hostAdmission is not null);
+        hostSessions?.ValidateStartup(options, hasHostRoles: false);
         if (options.Command == OrchestratorCommand.Run && (memberFleet is not null || workloadFleet is not null) && hostSessions is null)
             throw new InvalidOperationException("OCI workload controllers require TS_ORCH_HOST_SESSION_POLICY_FILE before creating hosts.");
         if ((terrabaseConfiguration is null) != (memberFleet is null))
@@ -252,21 +244,6 @@ public sealed class NatsRuntime : IAsyncDisposable
                 "TS_ORCH_TERRABASE_RECONCILER and TS_ORCH_MEMBER_FLEET_FILE must be configured together: " +
                 "the placement reconciler never runs without its member-host fleet.");
         Nodes.OciWorkloadFleetComposition.Validate(terrabaseConfiguration is not null, workloadFleet);
-        if (hostAdmission is not null && hostConvergence is null)
-            throw new InvalidOperationException("Host admission cannot be configured without host convergence roles.");
-        if (hostConvergence is not null &&
-            (options.Command == OrchestratorCommand.Run ||
-             hostConvergence.Environment.Equals("production", StringComparison.OrdinalIgnoreCase)) &&
-            hostAdmission is null)
-            throw new InvalidOperationException("Production host roles require signed regional host admission configuration.");
-        if (hostAdmission is not null &&
-            (hostAdmission.Region != options.Cell.ToUpperInvariant() || hostAdmission.NodeId != options.Instance))
-            throw new InvalidOperationException("Host enrollment identity must match the regional runtime cell and instance.");
-
-        if (hostAdmission is not null && !hostAdmission.Scope.Matches(
-                new Bootstrap.RegionalNodeEnrollmentScope(hostConvergence!.Environment, hostConvergence.Roles)))
-            throw new InvalidOperationException("Host execution roles and environment must match signed admission configuration.");
-
         var natsUrl = OrchestratorOptions.ParseRegionalNatsUrl(options.NatsUrl, "TS_ORCH_NATS_URL");
         var topology = new NatsTopology(options.Cell, options.Replicas, options.Instance);
         var clientOptions = new NatsOpts
@@ -302,8 +279,6 @@ public sealed class NatsRuntime : IAsyncDisposable
 
         RegionalRuntimeMembership? membership = null;
         RegionalAuthorityCoordinator? authority = null;
-        ControlPlane.Delivery.HostConvergenceRuntime? hostConvergenceRuntime = null;
-        RegionalHostAdmissionGate? hostAdmissionRuntime = null;
         HostObservationRelay? hostReportRelay = null;
         RegionalHostSessionService? hostSessionService = null;
         IAuthorizedHostReportReader? authorizedHostReports = null;
@@ -691,48 +666,12 @@ public sealed class NatsRuntime : IAsyncDisposable
                 cancellationToken: cancellationToken);
 
             await VerifyServiceAsync(client, topology, cancellationToken);
-            hostReportRelay = await HostObservationRelay.StartAsync(
-                client.Connection, state.Runtime, options.Cell, cancellationToken);
             if (hostSessions is not null)
             {
                 var sessionAuthority = new RegionalHostSessionAuthority(state.NodeEnrollments, hostSessions.Policy);
                 hostSessionService = await RegionalHostSessionService.StartAsync(client.Connection, sessionAuthority, cancellationToken);
+                hostReportRelay = await HostObservationRelay.StartAsync(client.Connection, state.Runtime, sessionAuthority, cancellationToken);
                 authorizedHostReports = new SessionAuthorizedHostReportReader(state.Runtime, sessionAuthority);
-            }
-
-            if (hostConvergence is not null && (state.Delivery is null || state.Artifacts is null))
-                throw new InvalidOperationException(
-                    "Host convergence requires the durable regional delivery and artifact stores.");
-            if (hostConvergence is not null)
-            {
-                var hostDelivery = state.Delivery!;
-                var hostArtifacts = state.Artifacts!;
-                if (hostAdmission is not null)
-                {
-                    hostAdmissionRuntime = hostAdmission.Create(
-                        state.NodeEnrollments,
-                        authentication ?? throw new InvalidOperationException("Host admission requires regional NATS authentication."),
-                        options.NatsTls ?? throw new InvalidOperationException("Host admission requires regional NATS mTLS."));
-                }
-                // Leaderless host convergence: every host process converges its configured
-                // roles from the durable admitted desired digest, independent of leadership.
-                hostConvergenceRuntime = ControlPlane.Delivery.HostConvergenceRuntime.Start(
-                    hostDelivery,
-                    state.Runtime,
-                    client.Connection,
-                    new ControlPlane.Delivery.NatsObjectArtifactSource(hostArtifacts),
-                    new CompositeHostRuntimeConverger(
-                        new ControlPlane.Delivery.SystemdHostConverger(),
-                        hostConvergence.Roles.Any(static role => AdmittedRoleCatalog.Get(role).DefaultDriver == RuntimeDriver.OciContainer)
-                            ? hostConvergence.ContainerdCliPath is { } command
-                                ? new ContainerdHostRuntimeConverger(new NerdctlContainerdClient(command))
-                                : throw new InvalidOperationException(
-                                    "TS_ORCH_CONTAINERD_CLI is required when an OCI host role is configured.")
-                            : null),
-                    hostConvergence,
-                    options.Cell,
-                    options.Instance,
-                    admission: hostAdmissionRuntime);
             }
 
             if (terrabaseConfiguration is not null && state.Delivery is not null)
@@ -795,7 +734,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                         cancellationToken,
                         decisions,
                         workloadFleet.Policies,
-                        hostReportRelay.Snapshot,
+                        hostReportRelay?.Snapshot,
                         hostSessionService?.Snapshot, authorizedHostReports);
             }
 
@@ -829,9 +768,7 @@ public sealed class NatsRuntime : IAsyncDisposable
                 directDeliveryService,
                 candidateHandoffV2Admission,
                 endpointInstrumentation,
-                hostConvergenceRuntime,
-                hostAdmissionRuntime,
-                hostReportRelay!,
+                hostReportRelay,
                 terrabasePlacementRuntime,
                 memberHostFleet,
                 workloadAutoscalerRuntime,
@@ -853,9 +790,6 @@ public sealed class NatsRuntime : IAsyncDisposable
             if (workloadAutoscalerRuntime is not null)
                 await workloadAutoscalerRuntime.DisposeAsync();
             workloadReplicaDriver?.Dispose();
-            if (hostConvergenceRuntime is not null)
-                await hostConvergenceRuntime.DisposeAsync();
-            hostAdmissionRuntime?.Dispose();
             if (hostSessionService is not null) await hostSessionService.DisposeAsync();
             if (hostReportRelay is not null) await hostReportRelay.DisposeAsync();
             await client.DisposeAsync();
@@ -880,6 +814,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         const int maximumKeys = 512;
         var desired = new Dictionary<string, (int Replicas, long Generation, string? Digest)>(StringComparer.Ordinal);
         var observed = new Dictionary<string, List<AuthorizedHostReport>>(StringComparer.Ordinal);
+        var admittedUntil = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         var needs = new HashSet<string>(StringComparer.Ordinal);
         var actions = new List<OperatorActionStatus>();
 
@@ -1000,6 +935,10 @@ public sealed class NatsRuntime : IAsyncDisposable
                     if (observation.Cell != topology.Cell || key != $"host.{observation.Instance}.{observation.ArtifactKey}" ||
                         observation.ObservedAt > DateTimeOffset.UtcNow) continue;
                     observation.Validate();
+                    var admissionExpiry = await HostReportReadiness.ConfirmAdmissionAsync(authorizedHostReports, report,
+                        TimeProvider.System, cancellationToken).ConfigureAwait(false);
+                    if (admissionExpiry is { } expiry) admittedUntil[key] = expiry;
+                    else needs.Add("host-admission-not-ready");
                     if (!observed.TryGetValue(observation.ArtifactKey, out var list))
                         observed[observation.ArtifactKey] = list = [];
                     if (list.Count < 256) list.Add(report);
@@ -1064,10 +1003,11 @@ public sealed class NatsRuntime : IAsyncDisposable
                         : "sha256:" + desiredDigest,
                     StringComparison.OrdinalIgnoreCase)).ToList();
             var observedGeneration = desiredState.Generation > 0 && desiredState.Digest is not null && list.Any(item =>
-                item.State == "converged" && item.Error is null)
+                item.State == "converged" && item.Error is null && admittedUntil.GetValueOrDefault($"host.{item.Instance}.{item.ArtifactKey}") > now)
                 ? desiredState.Generation
                 : (long?)null;
             var ready = list.Count(item => desiredState.Digest is not null && item.State == "converged" && item.Error is null &&
+                admittedUntil.GetValueOrDefault($"host.{item.Instance}.{item.ArtifactKey}") > now &&
                 (descriptor.Role != AdmittedRole.TerraBaseMember || item.MemberUp == true));
             var progress = desiredReplicas == 0 ? 0 : Math.Min(100, ready * 100 / desiredReplicas);
             var workloadNeeds = new List<string>();
@@ -1177,7 +1117,7 @@ public sealed class NatsRuntime : IAsyncDisposable
         CancellationToken cancellationToken,
         IReadOnlyList<WorkloadScaleDecision> decisions,
         IReadOnlyList<WorkloadScalePolicy> policies,
-        HostReportRelaySnapshot hostReportSnapshot,
+        HostReportRelaySnapshot? hostReportSnapshot,
         RegionalHostSessionServiceSnapshot? hostSessionSnapshot,
         IAuthorizedHostReportReader? authorizedHostReports)
     {
@@ -1384,56 +1324,38 @@ public sealed class NatsRuntime : IAsyncDisposable
     {
         try
         {
-            if (directDeliveryService is not null)
-                await directDeliveryService.DisposeAsync();
+            if (directDeliveryService is not null) await directDeliveryService.DisposeAsync();
         }
         finally
         {
-            try
-            {
-                await service.DisposeAsync();
-            }
+            try { await service.DisposeAsync(); }
             finally
             {
-                try
-                {
-                    await authority.DisposeAsync();
-                }
+                try { await authority.DisposeAsync(); }
                 finally
                 {
-                    try
-                    {
-                        await membership.DisposeAsync();
-                    }
+                    try { await membership.DisposeAsync(); }
                     finally
                     {
                         try
                         {
-                            if (hostConvergence is not null)
-                                await hostConvergence.DisposeAsync();
+                            if (hostSessions is not null) await hostSessions.DisposeAsync();
                         }
                         finally
                         {
                             try
                             {
-                                hostAdmission?.Dispose();
-                                try
-                                {
-                                    if (hostSessions is not null) await hostSessions.DisposeAsync();
-                                }
-                                finally { await hostReports.DisposeAsync(); }
+                                if (hostReports is not null) await hostReports.DisposeAsync();
                             }
                             finally
                             {
                                 try
                                 {
-                                    if (terrabasePlacement is not null)
-                                        await terrabasePlacement.DisposeAsync();
+                                    if (terrabasePlacement is not null) await terrabasePlacement.DisposeAsync();
                                 }
                                 finally
                                 {
-                                    if (workloadAutoscaler is not null)
-                                        await workloadAutoscaler.DisposeAsync();
+                                    if (workloadAutoscaler is not null) await workloadAutoscaler.DisposeAsync();
                                     workloadReplicaDriver?.Dispose();
                                     memberHostFleet?.Dispose();
                                     await client.DisposeAsync();

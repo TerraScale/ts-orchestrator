@@ -63,10 +63,11 @@ Do not replace it with `$JS.API.>` to make bootstrap pass.
 starts the actual regional runtime against three real NATS servers using this
 restricted controller plan. It checks authenticated operator status and invokes
 the operator CLI with a separate read-only operator identity. It also
-stores a signed current-session host report through a controller handle,
-observes it through the real runtime endpoint, revokes the process and verifies
-that a fresh operator query excludes it. This checks the reader composition;
-the production publisher/relay still needs signed report support. Other
+admits a host through its restricted JWT/mTLS connection, publishes signed
+admission/runtime reports through the production relay, observes them through
+the real runtime endpoint, revokes the session and verifies that a fresh
+operator query excludes it. This checks the complete report transport and
+reader composition. Other
 tests exercise private-journal denial, immutable-package write denial,
 cross-region denial, host report persistence and restart. Configuration tests
 cover mixed-format identity reuse and malformed credentials.

@@ -78,43 +78,16 @@ try
             throw new PlatformNotSupportedException("CI runners require Linux isolation.");
         return await CiRunnerProcess.ExecuteAsync(ResolvedEnvironment, shutdown.Token);
     }
+    if (!string.IsNullOrWhiteSpace(ResolvedEnvironment("TS_ORCH_HOST_ROLES")))
+        throw new InvalidOperationException("Controller run/check cannot execute host roles; a dedicated restricted host runtime is required.");
     var options = OrchestratorOptions.Parse(
         args,
         ResolvedEnvironment);
     var startupPlan = OrchestratorRuntimeComposition.Plan(options);
-    // Auto-forming cells: `run` converges its own controller topology at startup unless an
-    // operator explicitly pins provisioning to the infrastructure identity. Host roles turn
-    // the same process into a deploying host that converges admitted digests leaderlessly.
     var autoProvision = ResolvedEnvironment("TS_ORCH_AUTO_PROVISION") is not { } autoProvisionValue ||
         autoProvisionValue is not ("0" or "false");
-    TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration? hostConvergence = null;
-    TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostAdmissionConfiguration? hostAdmission = null;
     var hostSessions = TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostSessionConfiguration.Load(
         ResolvedEnvironment("TS_ORCH_HOST_SESSION_POLICY_FILE"), options.Cell);
-    var hostRoleNames = ResolvedEnvironment("TS_ORCH_HOST_ROLES");
-    if (options.Command is OrchestratorCommand.Run or OrchestratorCommand.Check &&
-        !string.IsNullOrWhiteSpace(hostRoleNames))
-    {
-        hostConvergence = TerraScale.Orchestrator.ControlPlane.Delivery.HostConvergenceConfiguration.Parse(
-            hostRoleNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            ResolvedEnvironment("TS_ORCH_HOST_ENVIRONMENT"),
-            ResolvedEnvironment("TS_ORCH_HOST_INSTALL_ROOT"),
-            ResolvedEnvironment("TS_ORCH_HOST_ENV_DIR"),
-            ResolvedEnvironment("TS_ORCH_HOST_STATE_ROOT"),
-            memberObservabilityUrl: ResolvedEnvironment("TS_ORCH_HOST_MEMBER_OBSERVABILITY_URL"),
-            containerdCliPath: ResolvedEnvironment("TS_ORCH_CONTAINERD_CLI"));
-        if (options.Command == OrchestratorCommand.Run ||
-            string.Equals(hostConvergence.Environment, "production", StringComparison.OrdinalIgnoreCase))
-        {
-            // Production host roles are never allowed to converge without a
-            // signed regional enrollment and a durable replay fence. The
-            // loader intentionally throws here, before NATS or any provider
-            // mutation starts, when the admission material is incomplete.
-            hostAdmission = TerraScale.Orchestrator.ControlPlane.Delivery.RegionalHostAdmissionConfiguration.Load(
-                ResolvedEnvironment,
-                options.Cell);
-        }
-    }
     // The TerraBase placement reconciler turns on with its bounded configuration file and
     // its member-host fleet file together: the runtime builds the OCI fleet where the
     // authority lease and the NATS stores live, and refuses to run with only one of the
@@ -215,8 +188,6 @@ try
             ciRoleIdentities?.CiArtifactSignatures ?? commandIdentity?.Verifier,
             candidateHandoffV2Policies,
             autoProvision,
-            hostConvergence,
-            hostAdmission,
             terrabasePlacement,
             memberFleet,
             workloadFleet,

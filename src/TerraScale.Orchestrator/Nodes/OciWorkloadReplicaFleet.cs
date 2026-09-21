@@ -445,8 +445,10 @@ internal sealed class OciWorkloadReplicaDriver : IWorkloadReplicaDriver, IDispos
             var observation = report?.Runtime;
             if (observation is null || report!.ExpiresAt <= DateTimeOffset.UtcNow) return false;
             observation.Validate();
+            var admissionExpiry = await HostReportReadiness.ConfirmAdmissionAsync(reports, report,
+                TimeProvider.System, cancellationToken).ConfigureAwait(false);
             var now = DateTimeOffset.UtcNow;
-            return observation is { State: "converged", Error: null } && observation.Instance == instanceId &&
+            return admissionExpiry > now && observation is { State: "converged", Error: null } && observation.Instance == instanceId &&
                 observation.Cell == cell && observation.ArtifactKey == workload && observation.Digest == digest &&
                 observation.ObservedAt >= now.AddMinutes(-10) && observation.ObservedAt <= now &&
                 (workload != "terrabase-server" || observation.MemberUp == true);

@@ -235,7 +235,7 @@ public sealed class NatsMemberHostSeamsTests
                  {
                      runtime with { Session = session with { EnrollmentDigest = "other" } },
                      runtime with { Session = session with { Generation = 2 } },
-                     runtime with { Session = session with { Process = "other" } },
+                     runtime with { Session = session with { SessionId = "other" } },
                      runtime with { Session = session with { Epoch = 2 } },
                      runtime with { ExpiresAt = Now }
                  })

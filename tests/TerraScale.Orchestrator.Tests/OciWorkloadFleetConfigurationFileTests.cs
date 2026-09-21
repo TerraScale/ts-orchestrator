@@ -118,6 +118,8 @@ public sealed class OciWorkloadFleetConfigurationFileTests
                 (_, _) => Task.FromResult(new WorkloadReplicaIntent(1, digest)), () => true, "gru", reports.Reader);
             var report = new HostConvergenceObservation(2, "gru", instance.Id, "ts-auth", digest,
                 "converged", "ts-auth.service", DateTimeOffset.UtcNow);
+            var admission = new HostAdmissionObservation(1, "gru", instance.Id, "production", "ts-auth", digest, true, report.ObservedAt);
+            await reports.PutAsync(reports.Sign(admission), deadline.Token);
             var invalid = new[]
             {
                 report with { Instance = "another-node" },
@@ -152,6 +154,10 @@ public sealed class OciWorkloadFleetConfigurationFileTests
             var ready = await driver.ObserveAsync(policy, CancellationToken.None);
             await Assert.That(ready.ReadyReplicas).IsEqualTo(1);
             await Assert.That(ready.PendingReplicas).IsEqualTo(0);
+            await reports.PutAsync(reports.Sign(admission with { Ready = false, ObservedAt = DateTimeOffset.UtcNow }), deadline.Token);
+            await Assert.That((await driver.ObserveAsync(policy, deadline.Token)).ReadyReplicas).IsEqualTo(0);
+            await reports.PutAsync(reports.Sign(admission with { ObservedAt = DateTimeOffset.UtcNow }), deadline.Token);
+            await Assert.That((await driver.ObserveAsync(policy, deadline.Token)).ReadyReplicas).IsEqualTo(1);
             instance.LifecycleState = Instance.LifecycleStateEnum.Stopped;
             await Assert.That((await driver.ObserveAsync(policy, CancellationToken.None)).ReadyReplicas).IsEqualTo(0);
             instance.LifecycleState = Instance.LifecycleStateEnum.Terminated;

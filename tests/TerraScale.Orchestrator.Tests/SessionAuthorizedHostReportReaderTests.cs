@@ -63,6 +63,13 @@ public sealed class SessionAuthorizedHostReportReaderTests
         var status = await NatsRuntime.BuildOperatorStatusAsync(delivery, bundles, runtime, options,
             new("gru", 3, "local"), DateTimeOffset.UtcNow, deadline.Token, authorizedHostReports: reports.Reader);
         await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ReadyReplicas).IsEqualTo(1);
+        await reports.PutAsync(reports.Sign(admission with { Ready = false, ObservedAt = DateTimeOffset.UtcNow }), deadline.Token);
+        status = await NatsRuntime.BuildOperatorStatusAsync(delivery, bundles, runtime, options,
+            new("gru", 3, "local"), DateTimeOffset.UtcNow, deadline.Token, authorizedHostReports: reports.Reader);
+        await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ReadyReplicas).IsEqualTo(0);
+        await Assert.That(status.Needs.Contains("host-admission-not-ready")).IsTrue();
+        await Assert.That(await seams.ObserveMemberHealthAsync(reports.Node, deadline.Token)).IsNull();
+        await reports.PutAsync(reports.Sign(admission with { ObservedAt = DateTimeOffset.UtcNow }), deadline.Token);
         // A controller without configured authorization cannot reuse the same valid signed record.
         status = await NatsRuntime.BuildOperatorStatusAsync(delivery, bundles, runtime, options,
             new("gru", 3, "local"), DateTimeOffset.UtcNow, deadline.Token);

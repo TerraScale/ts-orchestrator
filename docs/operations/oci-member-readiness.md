@@ -3,9 +3,8 @@
 An enrolled host and a healthy database are different stages. A replacement
 host must be able to receive its retained volume before the database starts.
 The controller now reads separate evidence for those stages. Both must come
-from signed, currently authorized host reports. The existing publisher/relay
-still emits plain observations, so its records intentionally remain unready
-until signed ingress and persistence are completed.
+from signed, currently authorized host reports. The publisher/relay requires
+signed session-bound envelopes and persists each proof with its exact report.
 
 After verifying its enrollment and credential gate, host convergence publishes
 an admission observation on its own hashed NATS agent subject before installation
@@ -14,16 +13,16 @@ or service convergence. The controller report relay derives
 `ORCH_RUNTIME`. Schema 1 records the exact cell, instance, environment,
 artifact key, admitted digest, readiness flag and observation time. A denied
 gate reports `ready: false`, replacing prior ready evidence through a timestamp
-CAS fence. Hosts require an acknowledgement of the exact request and stored
-revision before proceeding. See [host-report-relay.md](host-report-relay.md).
+CAS fence. Hosts require an acknowledgement of the exact nonce and envelope
+digest before proceeding. See [host-report-relay.md](host-report-relay.md).
 
-Reports are observations, not signed enrollment authorization. Production
-startup still requires signed enrollment configuration. Real NATS tests now
+Reports carry proof of the current enrollment session. They do not replace
+the signed enrollment configuration or physical workload fencing. Real NATS tests now
 qualify the report transport with the manifest's exact host credentials and
 regional controller agent grants. Remaining private KV dependencies include
 desired state, retry backoff, replacement leases and enrollment fencing. The
-host process also still enters controller startup. A dedicated host runtime
-and authenticated desired/artifact/enrollment/lease protocols remain required;
+controller run/check path now rejects host roles. A dedicated host runtime
+and authenticated desired/artifact/lease protocols remain required;
 report qualification does not establish fresh-node readiness.
 
 The member fleet's readiness reader checks that report against the exact
@@ -41,13 +40,15 @@ This permits storage recovery without claiming the database is serving.
 Member health additionally requires a fresh schema-2 convergence report with
 the exact node, cell, artifact and digest, `state: converged`, no error and
 complete valid health gauges. Admission and health must share the exact
-enrollment digest, generation, process ID and epoch, and both authorizations
+enrollment digest, generation, session ID and epoch, and both authorizations
 must remain unexpired. Current session and report CAS barriers reject stale
 replica reads after revocation or withdrawal. A booted/stopped VM or a missing
 report does not count as healthy. Role strings from the service are normalized (`leader` and
-`follower` to the control-plane roles). The operator workload aggregate ignores
-the separate admission records instead of interpreting them as convergence.
-Dedicated enrollment progress projection/metrics still need implementation.
+`follower` to the control-plane roles). The operator aggregate counts runtime observations
+separately, but its ready count also requires current matching admission.
+It reports `host-admission-not-ready` when that condition fails. Enrollment
+and report services expose their request outcomes; complete lifecycle progress
+still needs implementation.
 
 ## Member fleet configuration
 

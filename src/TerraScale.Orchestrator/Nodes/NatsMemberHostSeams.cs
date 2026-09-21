@@ -59,9 +59,9 @@ internal sealed class NatsMemberHostSeams : IMemberHostObservationSource, IMembe
         HostConvergenceObservation? observation;
         try
         {
+            var report = await reports.ReadAsync(ObservationKey(instance), cancellationToken).ConfigureAwait(false);
             var admission = await ReadAdmissionAsync(instance, cancellationToken).ConfigureAwait(false);
             if (admission is null) return null;
-            var report = await reports.ReadAsync(ObservationKey(instance), cancellationToken).ConfigureAwait(false);
             observation = report?.Runtime;
             if (observation is null || report!.Session != admission.Session ||
                 report.ExpiresAt <= clock.GetUtcNow() || admission.ExpiresAt <= clock.GetUtcNow()) return null;

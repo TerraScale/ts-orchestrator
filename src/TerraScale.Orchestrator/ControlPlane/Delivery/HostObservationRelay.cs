@@ -1,65 +1,22 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using NATS.Client.Core;
 using NATS.Client.KeyValueStore;
 using NATS.Client.JetStream.Models;
 using TerraScale.Orchestrator.Protocol.Messaging;
-using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.ControlPlane.Delivery;
 
-internal sealed record HostReportEnvelope(int SchemaVersion, string RequestId,
-    HostAdmissionObservation? Admission, HostConvergenceObservation? Runtime);
-internal sealed record HostReportAcknowledgement(string RequestId, bool Accepted, ulong Revision, string? Error);
 internal sealed record HostReportRelaySnapshot(long Accepted, long Rejected, long Failed, bool RetryPending);
 
-/// <summary>Hosts publish only on their own agent subject and receive controller acknowledgements.</summary>
-internal sealed class NatsHostObservationPublisher(INatsConnection connection, string cell, string instance)
-{
-    internal Task PublishAsync(HostAdmissionObservation report, CancellationToken cancellationToken) =>
-        PublishAsync(new HostReportEnvelope(1, Guid.NewGuid().ToString("N"), report, null), cancellationToken);
-
-    internal Task PublishAsync(HostConvergenceObservation report, CancellationToken cancellationToken) =>
-        PublishAsync(new HostReportEnvelope(1, Guid.NewGuid().ToString("N"), null, report), cancellationToken);
-
-    private async Task PublishAsync(HostReportEnvelope report, CancellationToken cancellationToken)
-    {
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(10));
-        var reply = HostObservationRelay.ReplySubject(cell, instance, report.RequestId);
-        await using var subscription = await connection.SubscribeCoreAsync<string>(reply,
-            opts: new NatsSubOpts { MaxMsgs = 1 }, cancellationToken: deadline.Token).ConfigureAwait(false);
-        await connection.PingAsync(deadline.Token).ConfigureAwait(false);
-        await connection.PublishAsync(HostObservationRelay.ReportSubject(cell, instance),
-            JsonSerializer.Serialize(report, HostObservationRelay.JsonOptions), replyTo: reply,
-            cancellationToken: deadline.Token).ConfigureAwait(false);
-        var message = await subscription.Msgs.ReadAsync(deadline.Token).ConfigureAwait(false);
-        var acknowledgement = JsonSerializer.Deserialize<HostReportAcknowledgement>(
-            message.Data ?? string.Empty, HostObservationRelay.JsonOptions);
-        if (acknowledgement is not { Accepted: true, Revision: > 0, Error: null } ||
-            acknowledgement.RequestId != report.RequestId)
-            throw new InvalidOperationException("The controller did not acknowledge the exact host report.");
-    }
-}
-
-/// <summary>
-/// Only controllers write host reports to private KV. NATS maps each enrolled credential to
-/// its hashed agent subject; the relay derives the storage key from that exact subject/body
-/// binding. Reports are observations, never a substitute for signed enrollment authorization.
-/// </summary>
+/// <summary>Only controllers authorize and atomically persist session proofs with host observations.</summary>
 internal sealed class HostObservationRelay : IAsyncDisposable
 {
     internal static readonly TimeSpan MaximumReportAge = TimeSpan.FromSeconds(30);
-    internal static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        AllowDuplicateProperties = false,
-        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow
-    };
+    internal static JsonSerializerOptions JsonOptions => RegionalHostSessionAuthority.JsonOptions;
     private readonly INatsConnection connection;
     private readonly INatsKVStore runtime;
-    private readonly string cell;
-    private readonly TimeProvider clock;
+    private readonly RegionalHostSessionAuthority authority;
     private readonly INatsSub<string> subscription;
     private readonly CancellationTokenSource stopping = new();
     private readonly Task loop;
@@ -70,13 +27,12 @@ internal sealed class HostObservationRelay : IAsyncDisposable
     private readonly HashSet<string> failedKeys = new(StringComparer.Ordinal);
     private bool failureTrackingOverflow;
 
-    private HostObservationRelay(INatsConnection connection, INatsKVStore runtime, string cell,
-        TimeProvider clock, INatsSub<string> subscription)
+    private HostObservationRelay(INatsConnection connection, INatsKVStore runtime,
+        RegionalHostSessionAuthority authority, INatsSub<string> subscription)
     {
         this.connection = connection;
         this.runtime = runtime;
-        this.cell = cell;
-        this.clock = clock;
+        this.authority = authority;
         this.subscription = subscription;
         loop = RunAsync();
     }
@@ -90,27 +46,40 @@ internal sealed class HostObservationRelay : IAsyncDisposable
         NatsSubjectTaxonomy.HostAgentCommandSubject(cell, instance, "report-" + requestId);
 
     internal static async Task<HostObservationRelay> StartAsync(INatsConnection connection,
-        INatsKVStore runtime, string cell, CancellationToken cancellationToken, TimeProvider? clock = null)
+        INatsKVStore runtime, RegionalHostSessionAuthority authority, CancellationToken cancellationToken)
     {
-        // The timestamp ordering fence must outlive every acceptable replay. A report
-        // older than this window cannot recreate readiness after its stored withdrawal expires.
-        var configuration = (await runtime.GetStatusAsync(cancellationToken).ConfigureAwait(false)).Info.Config;
-        if ((configuration.MaxAge != TimeSpan.Zero && configuration.MaxAge <= MaximumReportAge) ||
-            configuration.Discard != StreamConfigDiscard.New || configuration.MaxMsgs != -1 || configuration.AllowMsgTTL)
-            throw new InvalidOperationException("Host report retention must preserve ordering beyond the accepted report age.");
-        var pattern = NatsSubjectTaxonomy.RegionalRoot(cell) + ".agent.*.observation.report";
-        var subscription = await connection.SubscribeCoreAsync<string>(pattern, queueGroup: "host-report-relay",
-            cancellationToken: cancellationToken).ConfigureAwait(false);
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        INatsSub<string>? subscription = null;
         try
         {
-            await connection.PingAsync(cancellationToken).ConfigureAwait(false);
-            return new(connection, runtime, cell, clock ?? TimeProvider.System, subscription);
+            await authority.ValidateStoreAsync(deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
+            var status = await runtime.GetStatusAsync(deadline.Token).AsTask().WaitAsync(deadline.Token).ConfigureAwait(false);
+            ValidateStoreConfiguration(status.Info.Config);
+            var pattern = NatsSubjectTaxonomy.RegionalRoot(authority.Cell) + ".agent.*.observation.report";
+            subscription = await connection.SubscribeCoreAsync<string>(pattern, queueGroup: "host-report-relay",
+                cancellationToken: deadline.Token).ConfigureAwait(false);
+            await connection.PingAsync(deadline.Token).AsTask().WaitAsync(deadline.Token).ConfigureAwait(false);
+            return new(connection, runtime, authority, subscription);
         }
-        catch
+        catch (Exception exception)
         {
-            await subscription.DisposeAsync().ConfigureAwait(false);
+            if (subscription is not null) await subscription.DisposeAsync().ConfigureAwait(false);
+            if (exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
+                throw new TimeoutException("The regional host-report relay startup timed out.", exception);
             throw;
         }
+    }
+
+    internal static void ValidateStoreConfiguration(StreamConfig configuration)
+    {
+        // The ordering fence must outlive every acceptable report replay and survive one server loss.
+        if (configuration.Name != "KV_ORCH_RUNTIME" || configuration.NumReplicas != 3 || configuration.NoAck ||
+            configuration.Storage != StreamConfigStorage.File || configuration.Retention != StreamConfigRetention.Limits ||
+            (configuration.MaxAge != TimeSpan.Zero && configuration.MaxAge <= MaximumReportAge) ||
+            configuration.Discard != StreamConfigDiscard.New || configuration.MaxMsgs != -1 || configuration.AllowMsgTTL ||
+            configuration.SubjectDeleteMarkerTTL != TimeSpan.Zero)
+            throw new InvalidOperationException("Host report retention must preserve acknowledged R3 ordering beyond the accepted report age.");
     }
 
     private async Task RunAsync()
@@ -119,49 +88,41 @@ internal sealed class HostObservationRelay : IAsyncDisposable
         {
             await foreach (var message in subscription.Msgs.ReadAllAsync(stopping.Token).ConfigureAwait(false))
             {
-                HostReportEnvelope? report;
                 string? reportKey = null;
                 try
                 {
-                    if (message.Data is not { Length: > 0 and <= 16_384 } json || Encoding.UTF8.GetByteCount(json) > 16_384)
+                    if (message.Data is not { Length: > 0 and <= StoredHostReport.MaximumBytes } json ||
+                        Encoding.UTF8.GetByteCount(json) > StoredHostReport.MaximumBytes)
                     {
                         Interlocked.Increment(ref rejected);
                         continue;
                     }
-                    report = JsonSerializer.Deserialize<HostReportEnvelope>(json, JsonOptions);
-                    if (report is null || !TryValidate(report, message.Subject, message.ReplyTo, out var key, out var value, out var observedAt))
+                    var report = JsonSerializer.Deserialize<HostReportEnvelope>(json, JsonOptions);
+                    if (report is null || !TryValidate(report, message.Subject, message.ReplyTo))
                     {
                         Interlocked.Increment(ref rejected);
                         continue;
                     }
-                    reportKey = key;
-                    var acknowledgement = await StoreAsync(report, key, value, observedAt, stopping.Token).ConfigureAwait(false);
+                    reportKey = report.Stored.Key;
+                    using var deadline = CancellationTokenSource.CreateLinkedTokenSource(stopping.Token);
+                    deadline.CancelAfter(TimeSpan.FromSeconds(5));
+                    var acknowledgement = await StoreAsync(report, deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
                     await connection.PublishAsync(message.ReplyTo!, JsonSerializer.Serialize(acknowledgement, JsonOptions),
-                        cancellationToken: stopping.Token).ConfigureAwait(false);
+                        cancellationToken: deadline.Token).ConfigureAwait(false);
                     if (acknowledgement.Accepted)
                     {
                         Interlocked.Increment(ref accepted);
-                        failedKeys.Remove(key);
+                        failedKeys.Remove(reportKey);
                         Volatile.Write(ref retryPending, failureTrackingOverflow || failedKeys.Count > 0 ? 1 : 0);
                     }
+                    else if (acknowledgement.Error is "authorization-unavailable" or "report-contention" or "report-store-invalid")
+                        RecordFailure(reportKey);
                     else Interlocked.Increment(ref rejected);
                 }
-                catch (NatsException)
-                {
-                    Interlocked.Increment(ref failed);
-                    // Bounded process-local failure tracking: another host's success cannot
-                    // clear this host's need to retry. Overflow stays degraded until restart.
-                    if (reportKey is not null && !failedKeys.Contains(reportKey))
-                    {
-                        if (failedKeys.Count < 512) failedKeys.Add(reportKey);
-                        else failureTrackingOverflow = true;
-                    }
-                    Volatile.Write(ref retryPending, 1);
-                }
+                catch (OperationCanceledException) when (!stopping.IsCancellationRequested) { RecordFailure(reportKey); }
+                catch (Exception exception) when (exception is NatsException or IOException or TimeoutException) { RecordFailure(reportKey); }
                 catch (Exception exception) when (exception is JsonException or InvalidOperationException or ArgumentException)
                 {
-                    // Malformed reports or failed stores receive no success acknowledgement.
-                    // The host retries on its next convergence pass; a bad message never kills ingress.
                     Interlocked.Increment(ref rejected);
                 }
             }
@@ -169,82 +130,78 @@ internal sealed class HostObservationRelay : IAsyncDisposable
         catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
     }
 
-    private bool TryValidate(HostReportEnvelope report, string subject, string? reply,
-        out string key, out string value, out DateTimeOffset observedAt)
+    private bool TryValidate(HostReportEnvelope report, string subject, string? reply)
     {
-        key = value = string.Empty;
-        observedAt = default;
-        if (report.SchemaVersion != 1 || report.RequestId is not { Length: 32 } ||
-            report.RequestId.AsSpan().ContainsAnyExcept("0123456789abcdef") ||
+        if (report is not { SchemaVersion: 2, Proof: not null } ||
             (report.Admission is null) == (report.Runtime is null)) return false;
-        var instance = report.Admission?.Instance ?? report.Runtime!.Instance;
-        var reportCell = report.Admission?.Cell ?? report.Runtime!.Cell;
-        var artifact = report.Admission?.ArtifactKey ?? report.Runtime!.ArtifactKey;
-        var digest = report.Admission?.Digest ?? report.Runtime!.Digest;
-        observedAt = report.Admission?.ObservedAt ?? report.Runtime!.ObservedAt;
-        var now = clock.GetUtcNow();
-        if (instance is not { Length: > 0 and <= 512 } || instance.Any(static c =>
-                c is not (>= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '.' or '-' or '_')) ||
-            instance.Split('.')[0] is "admission" or "backoff" or "replace" ||
-            reportCell != cell || subject != ReportSubject(cell, instance) ||
-            reply != ReplySubject(cell, instance, report.RequestId) ||
-            !AdmittedRoleCatalog.All.Any(role => role.ArtifactKey == artifact) ||
-            !HostDesiredArtifactReader.ValidDigest(digest) || digest != digest.ToLowerInvariant() ||
-            observedAt < now - MaximumReportAge || observedAt > now) return false;
-        if (report.Admission is { } admission)
-        {
-            if (admission.SchemaVersion != HostAdmissionObservation.CurrentSchemaVersion ||
-                admission.Environment is not { Length: >= 1 and <= 64 } || admission.Environment.Any(static c =>
-                    c is not (>= 'a' and <= 'z' or >= '0' and <= '9' or '-'))) return false;
-            key = HostAdmissionObservation.Key(instance, artifact);
-            value = JsonSerializer.Serialize(admission, HostAdmissionObservationJsonContext.Default.HostAdmissionObservation);
-        }
-        else
-        {
-            var observation = report.Runtime!;
-            observation.Validate();
-            if (observation.SchemaVersion != HostConvergenceObservation.CurrentSchemaVersion ||
-                observation.State.Length > 64 || observation.Error?.Length > 1024 || observation.UnitName?.Length > 256)
-                return false;
-            key = $"host.{instance}.{artifact}";
-            value = JsonSerializer.Serialize(observation, HostConvergenceJsonContext.Default.HostConvergenceObservation);
-        }
-        return true;
+        var node = report.Admission is { } admissionValue ? admissionValue.Instance : report.Runtime!.Instance;
+        var cell = report.Admission is { } admissionCell ? admissionCell.Cell : report.Runtime!.Cell;
+        return node is not null && node == report.Proof.Enrollment.NodeId && cell == authority.Cell &&
+            node.Split('.')[0] is not ("admission" or "backoff" or "replace") &&
+            subject == ReportSubject(authority.Cell, node) && reply == ReplySubject(authority.Cell, node, report.RequestId);
     }
 
-    private async Task<HostReportAcknowledgement> StoreAsync(HostReportEnvelope report, string key, string value,
-        DateTimeOffset observedAt, CancellationToken cancellationToken)
+    private async Task<HostReportAcknowledgement> StoreAsync(HostReportEnvelope report, CancellationToken cancellationToken)
     {
-        // Multiple controllers can receive reports over time. CAS prevents an older report
-        // from replacing a newer withdrawal/health observation after retries or leadership churn.
+        var stored = report.Stored;
+        var key = stored.Key;
+        var value = JsonSerializer.Serialize(stored, JsonOptions);
+        var digest = report.Digest;
+        var observedAt = stored.Admission?.ObservedAt ?? stored.Runtime!.ObservedAt;
+        HostReportAcknowledgement Deny(string error) => new(2, report.RequestId, digest, false, error);
         for (var attempt = 0; attempt < 8; attempt++)
         {
+            var authorization = stored.Admission is { } admission
+                ? await authority.AuthorizeAdmissionReportAsync(stored.Proof, admission, cancellationToken).ConfigureAwait(false)
+                : await authority.AuthorizeRuntimeReportAsync(stored.Proof, stored.Runtime!, cancellationToken).ConfigureAwait(false);
+            if (!authorization.Authorized || authorization.ExpiresAt is not { } expiresAt)
+                return Deny(authorization.Decision is RegionalHostSessionDecision.InvalidStore or RegionalHostSessionDecision.StoreUnavailable or
+                    RegionalHostSessionDecision.Contention ? "authorization-unavailable" : "session-denied");
+            ulong revision;
             try
             {
                 var current = await runtime.GetEntryAsync<string>(key, cancellationToken: cancellationToken).ConfigureAwait(false);
                 current.EnsureSuccess();
-                if (current.Value == value) return new(report.RequestId, true, current.Revision, null);
-                var previousTime = report.Admission is not null
-                    ? JsonSerializer.Deserialize<HostAdmissionObservation>(current.Value!, JsonOptions)?.ObservedAt
-                    : JsonSerializer.Deserialize<HostConvergenceObservation>(current.Value!, JsonOptions)?.ObservedAt;
-                if (previousTime is null || previousTime >= observedAt)
-                    return new(report.RequestId, false, 0, "stale-report");
-                var revision = await runtime.UpdateAsync(key, value, current.Revision,
-                    cancellationToken: cancellationToken).ConfigureAwait(false);
-                return new(report.RequestId, true, revision, null);
-            }
-            catch (Exception exception) when (exception is NatsKVKeyNotFoundException or NatsKVKeyDeletedException)
-            {
-                try
+                revision = current.Revision;
+                if (current.Value != value)
                 {
-                    var revision = await runtime.CreateAsync(key, value, cancellationToken: cancellationToken).ConfigureAwait(false);
-                    return new(report.RequestId, true, revision, null);
+                    if (current.Value is not { Length: > 0 and <= StoredHostReport.MaximumBytes } json ||
+                        Encoding.UTF8.GetByteCount(json) > StoredHostReport.MaximumBytes) return Deny("report-store-invalid");
+                    var previous = JsonSerializer.Deserialize<StoredHostReport>(json, JsonOptions);
+                    if (previous is not { SchemaVersion: 1, Proof: not null } ||
+                        (previous.Admission is null) == (previous.Runtime is null) || previous.Key != key)
+                        return Deny("report-store-invalid");
+                    var previousTime = previous.Admission?.ObservedAt ?? previous.Runtime!.ObservedAt;
+                    if (previousTime == default || previousTime.Offset != TimeSpan.Zero) return Deny("report-store-invalid");
+                    if (previousTime >= observedAt) return Deny("stale-report");
                 }
-                catch (NatsKVCreateException) { }
+            }
+            catch (NatsKVKeyNotFoundException) { revision = 0; }
+            catch (NatsKVKeyDeletedException) { return Deny("report-store-invalid"); }
+            catch (JsonException) { return Deny("report-store-invalid"); }
+            try
+            {
+                // Exact retries also CAS: a stale replica must not ACK pre-withdrawal readiness.
+                // Revision zero cannot resurrect an explicitly deleted ordering fence.
+                await runtime.UpdateAsync(key, value, revision, cancellationToken: cancellationToken).ConfigureAwait(false);
+                return expiresAt > authority.Now
+                    ? new(2, report.RequestId, digest, true, null)
+                    : Deny("session-denied");
             }
             catch (NatsKVWrongLastRevisionException) { }
         }
-        return new(report.RequestId, false, 0, "report-contention");
+        return Deny("report-contention");
+    }
+
+    private void RecordFailure(string? key)
+    {
+        Interlocked.Increment(ref failed);
+        if (key is not null && !failedKeys.Contains(key))
+        {
+            if (failedKeys.Count < 512) failedKeys.Add(key);
+            else failureTrackingOverflow = true;
+        }
+        Volatile.Write(ref retryPending, 1);
     }
 
     public async ValueTask DisposeAsync()

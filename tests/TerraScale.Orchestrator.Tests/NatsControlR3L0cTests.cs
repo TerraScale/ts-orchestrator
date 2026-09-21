@@ -97,18 +97,13 @@ public sealed class NatsControlR3L0cTests
                 listener.RecordObservableInstruments();
                 if (!acquisitions.Contains(1)) await Task.Delay(10, deadline.Token);
             }
-            // Controller-side storage proves the real runtime reader composition. Signed
-            // host relay ingress remains a separate, unfinished production integration.
             var report = new HostConvergenceObservation(2, "gru", "host-1", "terrabase-server",
                 "sha256:" + new string('a', 64), "converged", "member.service", DateTimeOffset.UtcNow, MemberUp: true);
-            var proof = RegionalHostReportProof.Sign(request.Enrollment, hostAuthentication, request.SessionId,
-                acquired.Epoch, Runtime.AdmittedRole.TerraBaseMember, RegionalHostReportKind.Runtime,
-                JsonSerializer.SerializeToUtf8Bytes(report, HostConvergenceJsonContext.Default.HostConvergenceObservation), DateTimeOffset.UtcNow);
+            var signer = new RegionalHostReportSigner(request, acquired, hostAuthentication);
+            await new NatsHostObservationPublisher(host.Connection, "gru", "host-1", () => signer).PublishAsync(
+                new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server", report.Digest, true, report.ObservedAt), deadline.Token);
+            await new NatsHostObservationPublisher(host.Connection, "gru", "host-1", () => signer).PublishAsync(report, deadline.Token);
             var stores = reportWriter.CreateJetStreamContext().CreateKeyValueStoreContext();
-            var reportStore = await stores.GetStoreAsync("ORCH_RUNTIME", deadline.Token);
-            await reportStore.PutAsync("host.host-1.terrabase-server",
-                JsonSerializer.Serialize(new StoredHostReport(1, proof, null, report), RegionalHostSessionAuthority.JsonOptions),
-                cancellationToken: deadline.Token);
             reportAuthority = new(await stores.GetStoreAsync("ORCH_NODE_ENROLLMENTS", deadline.Token), sessionMaterial.Policy());
             reportEpoch = acquired.Epoch;
         }
@@ -116,7 +111,7 @@ public sealed class NatsControlR3L0cTests
         var response = await operatorClient.RequestAsync<string, string>(fixture.Topology.OperatorStatusSubject,
             string.Empty, cancellationToken: deadline.Token);
         response.EnsureSuccess();
-        await Assert.That(response.Data).Contains("host-report-relay");
+        await Assert.That(response.Data!.Contains("host-report-relay", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         await Assert.That(response.Data!.Contains("host-session-authority", StringComparison.Ordinal)).IsEqualTo(sessionsEnabled);
         var status = JsonSerializer.Deserialize(response.Data!, Operations.OperatorStatusJsonContext.Default.OperatorStatusDocument)!;
         await Assert.That(status.Workloads.Single(value => value.Workload == "terrabase-server").ObservedReplicas).IsEqualTo(sessionsEnabled ? 1 : 0);
@@ -142,29 +137,25 @@ public sealed class NatsControlR3L0cTests
     [Test]
     public async Task Host_report_relay_persists_under_controller_credentials_across_relay_restart()
     {
-        await using var fixture = await NatsControlR3L0cFixture.StartAsync();
-        await fixture.ProvisionAsync();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        await using var first = await fixture.ConnectAsync(fixture.Controller, cancellationToken: deadline.Token);
-        await using var second = await fixture.ConnectAsync(fixture.ControllerTwo, cancellationToken: deadline.Token);
-        await using var host = await fixture.ConnectAsync(fixture.HostAgent, cancellationToken: deadline.Token);
-        var firstStore = await first.CreateJetStreamContext().CreateKeyValueStoreContext().GetStoreAsync("ORCH_RUNTIME", deadline.Token);
-        var secondStore = await second.CreateJetStreamContext().CreateKeyValueStoreContext().GetStoreAsync("ORCH_RUNTIME", deadline.Token);
-        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "host-1");
-        var ready = new HostAdmissionObservation(1, "gru", "host-1", "production", "terrabase-server",
-            "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow.AddSeconds(-1));
-        await using (var relay = await HostObservationRelay.StartAsync(first.Connection, firstStore, "gru", deadline.Token))
-        {
-            await publisher.PublishAsync(ready, deadline.Token);
-        }
-        // No privileged storage handle is injected. A new controller reads the R3
-        // ordering record and continues this host's report protocol after restart.
-        await using var replacement = await HostObservationRelay.StartAsync(second.Connection, secondStore, "gru", deadline.Token);
-        var withdrawn = ready with { Ready = false, ObservedAt = DateTimeOffset.UtcNow };
-        await publisher.PublishAsync(withdrawn, deadline.Token);
-        await Assert.That(() => publisher.PublishAsync(ready, deadline.Token)).Throws<InvalidOperationException>();
-        var current = await GetWithQuorumRetryAsync(secondStore, HostAdmissionObservation.Key("host-1", "terrabase-server"));
-        await Assert.That(JsonSerializer.Deserialize<HostAdmissionObservation>(current.Value!)!.Ready).IsFalse();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await using var harness = await SignedHostReportHarness.StartAsync(deadline.Token);
+        var host = harness.First;
+        var ready = new HostAdmissionObservation(1, "gru", host.Node, "production", host.Artifact,
+            "sha256:" + new string('a', 64), true, harness.Material.Clock.GetUtcNow());
+        var original = host.Signer.Sign(ready);
+        await host.Publisher.PublishAsync(original, deadline.Token);
+        await harness.StopRelayAsync();
+        await using var second = await harness.Cluster.ConnectAsync(harness.Cluster.ControllerTwo, cancellationToken: deadline.Token);
+        var stores = second.CreateJetStreamContext().CreateKeyValueStoreContext();
+        var reports = await stores.GetStoreAsync("ORCH_RUNTIME", deadline.Token);
+        var authority = new RegionalHostSessionAuthority(await stores.GetStoreAsync("ORCH_NODE_ENROLLMENTS", deadline.Token),
+            harness.Material.Policy(), harness.Material.Clock);
+        await using var replacement = await HostObservationRelay.StartAsync(second.Connection, reports, authority, deadline.Token);
+        harness.Material.Clock.Advance(TimeSpan.FromSeconds(1));
+        await host.Publisher.PublishAsync(ready with { Ready = false, ObservedAt = harness.Material.Clock.GetUtcNow() }, deadline.Token);
+        await Assert.That(() => host.Publisher.PublishAsync(original, deadline.Token)).Throws<InvalidOperationException>();
+        var current = await GetWithQuorumRetryAsync(reports, HostAdmissionObservation.Key(host.Node, host.Artifact));
+        await Assert.That(JsonSerializer.Deserialize<StoredHostReport>(current.Value!, HostObservationRelay.JsonOptions)!.Admission!.Ready).IsFalse();
     }
 
     [Test]

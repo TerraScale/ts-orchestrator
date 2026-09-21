@@ -185,7 +185,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
 
     private readonly INatsKVStore delivery;
     private readonly INatsKVStore runtimeStore;
-    private readonly NatsHostObservationPublisher reports;
+    private readonly IHostObservationPublisher reports;
     private readonly IHostArtifactSource artifacts;
     private readonly IHostRuntimeConverger converger;
     private readonly HostConvergenceConfiguration configuration;
@@ -202,7 +202,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     private HostConvergenceRuntime(
         INatsKVStore delivery,
         INatsKVStore runtimeStore,
-        INatsConnection connection,
+        IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
         IHostRuntimeConverger converger,
         HostConvergenceConfiguration configuration,
@@ -218,7 +218,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         this.admission = admission;
         this.delivery = delivery;
         this.runtimeStore = runtimeStore;
-        reports = new NatsHostObservationPublisher(connection, cell, instance);
+        this.reports = reports ?? throw new ArgumentNullException(nameof(reports));
         this.artifacts = artifacts;
         this.converger = converger;
         this.configuration = configuration;
@@ -233,7 +233,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
     internal static HostConvergenceRuntime Create(
         INatsKVStore delivery,
         INatsKVStore runtimeStore,
-        INatsConnection connection,
+        IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
         IHostRuntimeConverger converger,
         HostConvergenceConfiguration configuration,
@@ -242,14 +242,14 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         TimeSpan? observationTimeout = null,
         TimeSpan? replaceLeaseDuration = null,
         IHostAdmissionGate? admission = null) =>
-        new(delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
+        new(delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
             observationTimeout, replaceLeaseDuration, admission);
 
     /// <summary>Starts one reconcile loop per configured role. The loops never throw: failures are reported as observations.</summary>
     internal static HostConvergenceRuntime Start(
         INatsKVStore delivery,
         INatsKVStore runtimeStore,
-        INatsConnection connection,
+        IHostObservationPublisher reports,
         IHostArtifactSource artifacts,
         IHostRuntimeConverger converger,
         HostConvergenceConfiguration configuration,
@@ -260,7 +260,7 @@ internal sealed class HostConvergenceRuntime : IAsyncDisposable
         IHostAdmissionGate? admission = null)
     {
         var runtimeLoop = Create(
-            delivery, runtimeStore, connection, artifacts, converger, configuration, cell, instance,
+            delivery, runtimeStore, reports, artifacts, converger, configuration, cell, instance,
             observationTimeout, replaceLeaseDuration, admission);
         runtimeLoop.loops.AddRange(configuration.Roles.Select(
             role => Task.Run(() => runtimeLoop.ReconcileLoopAsync(role, runtimeLoop.stopping.Token))));

@@ -26,179 +26,6 @@ namespace TerraScale.Orchestrator.Tests;
 public sealed class HostConvergenceRuntimeTests
 {
     [Test]
-    public async Task Production_host_report_publisher_uses_only_its_manifest_agent_permissions()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var (delivery, runtimeStore, _) = server.Stores();
-        await using var host = server.RestrictedHost();
-        await host.ConnectAsync();
-        var artifact = Encoding.UTF8.GetBytes("scoped-report-binary");
-        var hex = Convert.ToHexStringLower(SHA256.HashData(artifact));
-        await server.PutDesiredDigest("terrabase-server", "production", "gru", $"sha256:{hex}");
-        await using var convergence = StartConvergence(delivery, runtimeStore, host.Connection,
-            Path.Combine(server.Directory, "artifacts"), new MemoryArtifactSource(("sha256-" + hex, artifact)),
-            new FakeConverger(), new FakeAdmissionGate(true, true, "admitted"));
-        await convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
-            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), deadline.Token);
-        await Assert.That((await ReadObservationAsync(runtimeStore, "terrabase-server"))!.State).IsEqualTo("converged");
-        await Assert.That(await new NatsMemberHostSeams(new AssumedAuthorizedHostReportReader(runtimeStore), delivery, host.Connection,
-            "gru", "production", TimeProvider.System).HasHostReportedAsync("test-1", deadline.Token)).IsTrue();
-
-        // The host's report connection cannot write private KV or publish for another host.
-        await server.RequireHostPublishDeniedAsync("$KV.ORCH_RUNTIME.host.test-2.terrabase-server", deadline.Token);
-        await server.RequireHostPublishDeniedAsync(HostObservationRelay.ReportSubject("gru", "test-2"), deadline.Token);
-        await Assert.That(async () => await runtimeStore.GetEntryAsync<string>("host.test-2.terrabase-server", cancellationToken: deadline.Token))
-            .Throws<NatsKVKeyNotFoundException>();
-        // Positive control after denial: this identity is still connected and can report itself.
-        await convergence.ReconcileOnceAsync(HostRole.TerraBaseMember,
-            AdmittedRoleCatalog.Get(HostRole.TerraBaseMember), deadline.Token);
-        await Assert.That((await ReadObservationAsync(runtimeStore, "terrabase-server"))!.State).IsEqualTo("converged");
-    }
-
-    [Test]
-    public async Task Report_transport_uses_manifest_scopes_for_controller_and_multiple_hosts()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, runtimeStore, _) = server.Stores();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        foreach (var instance in new[] { "test-1", "test-2" })
-        {
-            await using var host = server.RestrictedHost(instance);
-            await host.ConnectAsync();
-            await new NatsHostObservationPublisher(host.Connection, "gru", instance).PublishAsync(
-                new HostAdmissionObservation(1, "gru", instance, "production", "terrabase-server",
-                    "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow), deadline.Token);
-            await Assert.That((await runtimeStore.GetEntryAsync<string>(
-                HostAdmissionObservation.Key(instance, "terrabase-server"))).Revision).IsGreaterThan(0UL);
-        }
-        // A regional controller cannot impersonate a host report or cross the region boundary.
-        await server.RequirePublishDeniedAsync("relay", HostObservationRelay.ReportSubject("gru", "test-1"), deadline.Token);
-        await server.RequirePublishDeniedAsync("relay", HostObservationRelay.ReplySubject("fra", "test-1", new string('a', 32)), deadline.Token);
-    }
-
-    [Test]
-    public async Task Relay_refuses_store_retention_that_allows_accepted_reports_to_outlive_ordering()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, _, connection) = server.Stores();
-        var keyValue = new NatsKVContext(new NATS.Client.JetStream.NatsJSContext(connection));
-        var shortStore = await keyValue.CreateStoreAsync(new NatsKVConfig("SHORT_REPORTS")
-        {
-            MaxAge = HostObservationRelay.MaximumReportAge
-        });
-        await Assert.That(async () =>
-        {
-            await using var unexpected = await HostObservationRelay.StartAsync(connection, shortStore, "gru", CancellationToken.None);
-        }).Throws<InvalidOperationException>();
-    }
-
-    [Test]
-    public async Task Relay_rejects_forged_subject_identity_reply_schema_time_and_duplicate_fields()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, runtimeStore, _) = server.Stores();
-        await using var host = server.RestrictedHost();
-        await host.ConnectAsync();
-        var now = DateTimeOffset.UtcNow.AddSeconds(-1);
-        var admission = new HostAdmissionObservation(1, "gru", "test-1", "production", "terrabase-server",
-            "sha256:" + new string('a', 64), true, now);
-        foreach (var mutation in new[] { "identity", "cell", "reply", "schema", "future", "old", "duplicate" })
-        {
-            var candidate = admission with
-            {
-                Instance = mutation == "identity" ? "test-2" : admission.Instance,
-                Cell = mutation == "cell" ? "fra" : admission.Cell,
-                SchemaVersion = mutation == "schema" ? 99 : 1,
-                ObservedAt = mutation == "future" ? now.AddHours(1) : mutation == "old" ? now.AddSeconds(-31) : now
-            };
-            var envelope = new HostReportEnvelope(1, Guid.NewGuid().ToString("N"), candidate, null);
-            var json = JsonSerializer.Serialize(envelope, HostObservationRelay.JsonOptions);
-            if (mutation == "duplicate") json = json[..^1] + ",\"SchemaVersion\":1}";
-            await host.Connection.PublishAsync(HostObservationRelay.ReportSubject("gru", "test-1"), json,
-                replyTo: HostObservationRelay.ReplySubject("gru", mutation == "reply" ? "test-2" : "test-1", envelope.RequestId));
-        }
-        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "test-1");
-        await publisher.PublishAsync(admission with { Ready = false }, CancellationToken.None);
-        var stored = await runtimeStore.GetEntryAsync<string>(HostAdmissionObservation.Key("test-1", "terrabase-server"));
-        await Assert.That(JsonSerializer.Deserialize<HostAdmissionObservation>(stored.Value!)!.Ready).IsFalse();
-        await Assert.That(server.ReportSnapshot.Rejected).IsEqualTo(7);
-        await Assert.That(async () => await runtimeStore.GetEntryAsync<string>(HostAdmissionObservation.Key("test-2", "terrabase-server")))
-            .Throws<NatsKVKeyNotFoundException>();
-    }
-
-    [Test]
-    public async Task Relay_does_not_allow_host_runtime_keys_to_alias_admission_backoff_or_replace_state()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, runtimeStore, connection) = server.Stores();
-        foreach (var instance in new[] { "admission.test-1", "backoff.test-1", "replace" })
-        {
-            var observation = new HostConvergenceObservation(2, "gru", instance, "terrabase-server",
-                "sha256:" + new string('a', 64), "converged", null, DateTimeOffset.UtcNow);
-            var envelope = new HostReportEnvelope(1, Guid.NewGuid().ToString("N"), null, observation);
-            await connection.PublishAsync(HostObservationRelay.ReportSubject("gru", instance),
-                JsonSerializer.Serialize(envelope, HostObservationRelay.JsonOptions),
-                replyTo: HostObservationRelay.ReplySubject("gru", instance, envelope.RequestId));
-        }
-        // An acknowledged valid report fences processing of the three queued invalid reports.
-        await new NatsHostObservationPublisher(connection, "gru", "test-1").PublishAsync(
-            new HostAdmissionObservation(1, "gru", "test-1", "production", "terrabase-server",
-                "sha256:" + new string('b', 64), false, DateTimeOffset.UtcNow), CancellationToken.None);
-        await Assert.That(server.ReportSnapshot.Rejected).IsEqualTo(3);
-        await Assert.That(async () => await runtimeStore.GetEntryAsync<string>("host.replace.terrabase-server"))
-            .Throws<NatsKVKeyNotFoundException>();
-    }
-
-    [Test]
-    public async Task Another_hosts_success_does_not_hide_a_failed_report_until_the_failed_host_retries()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, runtimeStore, connection) = server.Stores();
-        var failing = DispatchProxy.Create<INatsKVStore, FailingReportRuntimeStore>();
-        var store = (FailingReportRuntimeStore)(object)failing;
-        store.Inner = runtimeStore;
-        store.FailNextWrite = true;
-        await server.UseReportStoreAsync(failing);
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        var admission = new HostAdmissionObservation(1, "gru", "test-1", "production", "terrabase-server",
-            "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow);
-        var envelope = new HostReportEnvelope(1, Guid.NewGuid().ToString("N"), admission, null);
-        await connection.PublishAsync(HostObservationRelay.ReportSubject("gru", "test-1"),
-            JsonSerializer.Serialize(envelope, HostObservationRelay.JsonOptions),
-            replyTo: HostObservationRelay.ReplySubject("gru", "test-1", envelope.RequestId), cancellationToken: deadline.Token);
-        while (server.ReportSnapshot.Failed == 0) await Task.Delay(10, deadline.Token);
-        await new NatsHostObservationPublisher(connection, "gru", "test-2").PublishAsync(
-            admission with { Instance = "test-2" }, deadline.Token);
-        await Assert.That(server.ReportSnapshot.RetryPending).IsTrue();
-        await new NatsHostObservationPublisher(connection, "gru", "test-1").PublishAsync(admission, deadline.Token);
-        await Assert.That(server.ReportSnapshot.RetryPending).IsFalse();
-        await Assert.That(server.ReportSnapshot.Failed).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task Old_report_cannot_restore_admission_after_withdrawal_and_exact_retry_is_idempotent()
-    {
-        await using var server = await ConvergenceNatsServer.StartAsync();
-        var (_, runtimeStore, _) = server.Stores();
-        await using var host = server.RestrictedHost();
-        await host.ConnectAsync();
-        var publisher = new NatsHostObservationPublisher(host.Connection, "gru", "test-1");
-        var admission = new HostAdmissionObservation(1, "gru", "test-1", "production", "terrabase-server",
-            "sha256:" + new string('a', 64), true, DateTimeOffset.UtcNow.AddSeconds(-2));
-        await publisher.PublishAsync(admission, CancellationToken.None);
-        var withdrawn = admission with { Ready = false, ObservedAt = admission.ObservedAt.AddSeconds(1) };
-        await publisher.PublishAsync(withdrawn, CancellationToken.None);
-        var key = HostAdmissionObservation.Key("test-1", "terrabase-server");
-        var revision = (await runtimeStore.GetEntryAsync<string>(key)).Revision;
-        await Assert.That(() => publisher.PublishAsync(admission, CancellationToken.None)).Throws<InvalidOperationException>();
-        await publisher.PublishAsync(withdrawn, CancellationToken.None);
-        var current = await runtimeStore.GetEntryAsync<string>(key);
-        await Assert.That(current.Revision).IsEqualTo(revision);
-        await Assert.That(JsonSerializer.Deserialize<HostAdmissionObservation>(current.Value!)!.Ready).IsFalse();
-    }
-
-    [Test]
     public async Task Fresh_node_does_not_start_or_pick_up_work_before_regional_admission()
     {
         await using var server = await ConvergenceNatsServer.StartAsync();
@@ -293,7 +120,7 @@ public sealed class HostConvergenceRuntimeTests
         var converger = new FakeConverger();
         // This exercises allocation/report identity with controller-owned stores.
         // The dedicated restricted host entry point has its own remaining gate.
-        await using var convergence = HostConvergenceRuntime.Create(delivery, runtimeStore, client,
+        await using var convergence = HostConvergenceRuntime.Create(delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore),
             new MemoryArtifactSource(("sha256-" + firstHex, first), ("sha256-" + secondHex, second)),
             converger, new HostConvergenceConfiguration([HostRole.TerraBaseMember], "production", installRoot,
                 HostArchitecture.Arm64), "gru", node);
@@ -475,7 +302,7 @@ public sealed class HostConvergenceRuntimeTests
             EnvironmentDirectory: environmentDirectory,
             StateDirectoryRoot: stateDirectoryRoot);
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, client, new MemoryArtifactSource(
+            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(
                 ("sha256-" + v1Hex, v1), ("sha256-" + v2Hex, v2)), converger, configuration,
             "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
         await convergence.ReconcileOnceAsync(
@@ -614,7 +441,7 @@ public sealed class HostConvergenceRuntimeTests
         var configuration = new HostConvergenceConfiguration(
             [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64);
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, configuration, "gru", "test-1",
             observationTimeout: TimeSpan.FromSeconds(3),
             replaceLeaseDuration: TimeSpan.FromSeconds(3));
@@ -625,7 +452,7 @@ public sealed class HostConvergenceRuntimeTests
         // probing starts only once the holder demonstrably holds it (first converge underway).
         await converger.FirstConvergeStarted;
         await using var peer = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, client, new MemoryArtifactSource(), new FakeConverger(),
+            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             configuration, "gru", "test-2", observationTimeout: TimeSpan.FromSeconds(3));
         while (!pass.IsCompleted)
         {
@@ -653,7 +480,7 @@ public sealed class HostConvergenceRuntimeTests
 
         var converger = new FakeConverger { ConvergeDelay = TimeSpan.FromSeconds(5) };
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
             "gru", "test-1",
@@ -926,7 +753,7 @@ public sealed class HostConvergenceRuntimeTests
 
         // TUnit captures Console.Error per test, including the background loop's writes.
         await using var convergence = HostConvergenceRuntime.Start(
-            delivery, runtimeStore, client, new MemoryArtifactSource(), new FakeConverger(),
+            delivery, runtimeStore, new TestHostObservationPublisher(runtimeStore), new MemoryArtifactSource(), new FakeConverger(),
             new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production",
                 Path.Combine(server.Directory, "artifacts"), HostArchitecture.Arm64),
@@ -953,11 +780,10 @@ public sealed class HostConvergenceRuntimeTests
         var store = (FailingReportRuntimeStore)(object)failing;
         store.Inner = runtimeStore;
         store.FailNextWrite = true;
-        await server.UseReportStoreAsync(failing);
 
         var converger = new FakeConverger();
         await using var convergence = HostConvergenceRuntime.Create(
-            delivery, runtimeStore, client, new MemoryArtifactSource(("sha256-" + hex, artifact)),
+            delivery, runtimeStore, new TestHostObservationPublisher(failing), new MemoryArtifactSource(("sha256-" + hex, artifact)),
             converger, new HostConvergenceConfiguration(
                 [HostRole.TerraBaseMember], "production", installRoot, HostArchitecture.Arm64),
             "gru", "test-1", observationTimeout: TimeSpan.FromSeconds(3));
@@ -988,7 +814,7 @@ public sealed class HostConvergenceRuntimeTests
 
         protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
         {
-            if (targetMethod!.Name is "CreateAsync" or "UpdateAsync" && FailNextWrite)
+            if (targetMethod!.Name is "CreateAsync" or "UpdateAsync" or "PutAsync" && FailNextWrite)
             {
                 FailNextWrite = false;
                 throw new NatsKVException("The runtime observation store is unavailable.");
@@ -1013,7 +839,7 @@ public sealed class HostConvergenceRuntimeTests
         var convergence = HostConvergenceRuntime.Create(
             delivery,
             runtimeStore,
-            connection,
+            new TestHostObservationPublisher(runtimeStore),
             source,
             converger,
             new HostConvergenceConfiguration(
@@ -1039,7 +865,7 @@ public sealed class HostConvergenceRuntimeTests
         HostConvergenceRuntime.Create(
             delivery,
             runtimeStore,
-            connection,
+            new TestHostObservationPublisher(runtimeStore),
             source,
             converger,
             new HostConvergenceConfiguration(
@@ -1155,7 +981,7 @@ public sealed class HostConvergenceRuntimeTests
         var convergence = HostConvergenceRuntime.Create(
             delivery,
             runtimeStore,
-            client,
+            new TestHostObservationPublisher(runtimeStore),
             new MemoryArtifactSource(("sha256-" + hex, artifact)),
             new FakeConverger(),
             new HostConvergenceConfiguration(
@@ -1313,10 +1139,8 @@ public sealed class HostConvergenceRuntimeTests
         private readonly LocalNatsServerLease.Handle lease;
         private Process? nats;
         private NatsClient? client;
-        private NatsClient? relayClient;
         private NATS.Client.KeyValueStore.INatsKVStore? delivery;
         private NATS.Client.KeyValueStore.INatsKVStore? runtimeStore;
-        private HostObservationRelay? reports;
         private string url = string.Empty;
 
         private ConvergenceNatsServer(string directory, LocalNatsServerLease.Handle lease)
@@ -1340,20 +1164,8 @@ public sealed class HostConvergenceRuntimeTests
                 var port = ((IPEndPoint)listener.LocalEndpoint).Port;
                 listener.Stop();
                 var configuration = Path.Combine(directory, "nats.conf");
-                static string Permissions(NatsControlAccountScope scope) => JsonSerializer.Serialize(new
-                {
-                    publish = new { allow = scope.Publish }, subscribe = new { allow = scope.Subscribe }
-                }, new JsonSerializerOptions { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-                var hostPermissions = Permissions(NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, "gru", "test-1"));
-                var secondHostPermissions = Permissions(NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, "gru", "test-2"));
-                var controllerPermissions = Permissions(NatsControlAccountScope.Create(NatsControlAccountKind.RegionalController, "gru"));
                 await File.WriteAllTextAsync(configuration,
-                    $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n" +
-                    "authorization { users: [" +
-                    "{user: \"controller\", password: \"synthetic-controller\"}," +
-                    "{user: \"relay\", password: \"synthetic-relay\", permissions: " + controllerPermissions + "}," +
-                    "{user: \"host-2\", password: \"synthetic-host-2\", permissions: " + secondHostPermissions + "}," +
-                    "{user: \"host\", password: \"synthetic-host\", permissions: " + hostPermissions + "}] }\n");
+                    $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
                 var containers = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
                 server = new ConvergenceNatsServer(directory, lease) { Containers = containers };
                 server.nats = containers.Start(configuration);
@@ -1361,7 +1173,6 @@ public sealed class HostConvergenceRuntimeTests
                 server.client = new NatsClient(new NatsOpts
                 {
                     Url = server.url,
-                    AuthOpts = new NatsAuthOpts { Username = "controller", Password = "synthetic-controller" },
                     ConnectTimeout = TimeSpan.FromSeconds(5),
                     RequestTimeout = TimeSpan.FromSeconds(5)
                 });
@@ -1384,11 +1195,6 @@ public sealed class HostConvergenceRuntimeTests
                 var keyValue = server.client.CreateJetStreamContext().CreateKeyValueStoreContext();
                 server.delivery = await keyValue.GetStoreAsync("ORCH_DELIVERY");
                 server.runtimeStore = await keyValue.GetStoreAsync("ORCH_RUNTIME");
-                // Control traffic uses the real controller manifest; the private store is
-                // a separate injected controller handle. This is not full host-startup qualification.
-                server.relayClient = server.RestrictedClient("relay");
-                await server.relayClient.ConnectAsync();
-                server.reports = await HostObservationRelay.StartAsync(server.relayClient.Connection, server.runtimeStore, "gru", CancellationToken.None);
                 return server;
             }
             catch
@@ -1402,51 +1208,6 @@ public sealed class HostConvergenceRuntimeTests
         }
 
         private ContainerizedNatsCluster? Containers { get; set; }
-
-        internal NatsClient RestrictedHost(string instance = "test-1") => RestrictedClient(instance == "test-1" ? "host" : "host-2");
-
-        private NatsClient RestrictedClient(string user) => new(new NatsOpts
-        {
-            Url = url,
-            AuthOpts = new NatsAuthOpts { Username = user, Password = "synthetic-" + user },
-            ConnectTimeout = TimeSpan.FromSeconds(5),
-            RequestTimeout = TimeSpan.FromSeconds(2)
-        });
-
-        internal Task RequireHostPublishDeniedAsync(string subject, CancellationToken cancellationToken) =>
-            RequirePublishDeniedAsync("host", subject, cancellationToken);
-
-        internal async Task RequirePublishDeniedAsync(string user, string subject, CancellationToken cancellationToken)
-        {
-            using var socket = new TcpClient();
-            await socket.ConnectAsync("127.0.0.1", new Uri(url).Port, cancellationToken);
-            await using var stream = socket.GetStream();
-            using var reader = new StreamReader(stream, Encoding.ASCII, leaveOpen: true);
-            await Assert.That(await reader.ReadLineAsync(cancellationToken)).StartsWith("INFO ");
-            await stream.WriteAsync(Encoding.ASCII.GetBytes(
-                $"CONNECT {{\"user\":\"{user}\",\"pass\":\"synthetic-{user}\"}}\r\n" +
-                $"PUB {subject} 6\r\nforged\r\nPING\r\n"), cancellationToken);
-            for (var line = 0; line < 8; line++)
-            {
-                var response = await reader.ReadLineAsync(cancellationToken);
-                if (response?.StartsWith("-ERR", StringComparison.Ordinal) == true)
-                {
-                    await Assert.That(response).Contains("Permissions Violation");
-                    await Assert.That(response).Contains(subject);
-                    return;
-                }
-                if (response is null or "PONG") break;
-            }
-            throw new InvalidOperationException("NATS did not explicitly deny the host's forbidden publish.");
-        }
-
-        internal async Task UseReportStoreAsync(INatsKVStore store)
-        {
-            if (reports is not null) await reports.DisposeAsync();
-            reports = await HostObservationRelay.StartAsync(relayClient!.Connection, store, "gru", CancellationToken.None);
-        }
-
-        internal HostReportRelaySnapshot ReportSnapshot => reports!.Snapshot;
 
         public (INatsKVStore, INatsKVStore, NATS.Client.Core.INatsConnection) Stores()
         {
@@ -1467,8 +1228,6 @@ public sealed class HostConvergenceRuntimeTests
 
         public async ValueTask DisposeAsync()
         {
-            if (reports is not null) await reports.DisposeAsync();
-            if (relayClient is not null) await relayClient.DisposeAsync();
             if (client is not null) await client.DisposeAsync();
             if (nats is not null && Containers is not null) await Containers.StopAsync(nats);
             if (Containers is not null) await Containers.DisposeAsync();

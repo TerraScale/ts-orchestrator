@@ -107,6 +107,8 @@ public sealed class OperatorStatusTests
         });
         var report = new HostConvergenceObservation(2, "gru", "auth-1", "ts-auth", "sha256:" + digest,
             "converged", "auth.service", DateTimeOffset.UtcNow);
+        ((StatusKv)runtime).Records[HostAdmissionObservation.Key("auth-1", "ts-auth")] = JsonSerializer.Serialize(
+            new HostAdmissionObservation(1, "gru", "auth-1", "production", "ts-auth", report.Digest, true, report.ObservedAt));
         var reports = new[]
         {
             report with { Instance = "foreign-node" },

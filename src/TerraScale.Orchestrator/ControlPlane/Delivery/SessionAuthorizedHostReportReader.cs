@@ -16,7 +16,7 @@ internal sealed record StoredHostReport(int SchemaVersion, RegionalHostReportPro
         : $"host.{Runtime!.Instance}.{Runtime.ArtifactKey}";
 }
 
-internal sealed record HostReportSession(string EnrollmentDigest, ulong Generation, string Process, ulong Epoch);
+internal sealed record HostReportSession(string EnrollmentDigest, ulong Generation, string SessionId, ulong Epoch);
 
 internal sealed record AuthorizedHostReport(HostAdmissionObservation? Admission, HostConvergenceObservation? Runtime,
     HostReportSession Session, DateTimeOffset ExpiresAt);
@@ -57,7 +57,7 @@ internal sealed class SessionAuthorizedHostReportReader(INatsKVStore runtime,
                 var stored = JsonSerializer.Deserialize<StoredHostReport>(json, RegionalHostSessionAuthority.JsonOptions);
                 if (stored is not { SchemaVersion: 1, Proof: not null } ||
                     (stored.Admission is null) == (stored.Runtime is null) || stored.Key != key) return null;
-                var node = stored.Admission?.Instance ?? stored.Runtime!.Instance;
+                var node = stored.Admission is { } admissionValue ? admissionValue.Instance : stored.Runtime!.Instance;
                 if (node is null || node.Split('.')[0] is "admission" or "backoff" or "replace") return null;
                 var authorization = stored.Admission is { } admission
                     ? await authority.AuthorizeAdmissionReportAsync(stored.Proof, admission, cancellationToken).ConfigureAwait(false)

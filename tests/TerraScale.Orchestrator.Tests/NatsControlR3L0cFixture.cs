@@ -55,6 +55,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity controller,
         NatsControlR3L0cIdentity controllerTwo,
         NatsControlR3L0cIdentity hostAgent,
+        NatsControlR3L0cIdentity hostAgentTwo,
         NatsControlR3L0cIdentity infrastructure,
         NatsControlR3L0cIdentity globalDirectoryInfrastructure,
         NatsControlR3L0cIdentity journalWriter,
@@ -82,6 +83,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         Controller = controller;
         ControllerTwo = controllerTwo;
         HostAgent = hostAgent;
+        HostAgentTwo = hostAgentTwo;
         Infrastructure = infrastructure;
         GlobalDirectoryInfrastructure = globalDirectoryInfrastructure;
         JournalWriter = journalWriter;
@@ -119,6 +121,8 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
     public NatsControlR3L0cIdentity ControllerTwo { get; }
 
     public NatsControlR3L0cIdentity HostAgent { get; }
+
+    public NatsControlR3L0cIdentity HostAgentTwo { get; }
 
     public NatsControlR3L0cIdentity Infrastructure { get; }
 
@@ -238,6 +242,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.Controller,
                 identities.ControllerTwo,
                 identities.HostAgent,
+                identities.HostAgentTwo,
                 identities.Infrastructure,
                 identities.GlobalDirectoryInfrastructure,
                 identities.JournalWriter,
@@ -843,7 +848,10 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             now);
         var hostAgent = CreateUser(
             credentials, pki, regionalControlGruAccountSeed, regionalControlGruAccountPublicKey,
-            "host-1", Role.HostAgent, 0, now);
+            "host-1", Role.HostAgent, 1, now);
+        var hostAgentTwo = CreateUser(
+            credentials, pki, regionalControlGruAccountSeed, regionalControlGruAccountPublicKey,
+            "host-2", Role.HostAgent, 2, now);
         var infrastructure = CreateUser(
             credentials,
             pki,
@@ -942,6 +950,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             controller,
             controllerTwo,
             hostAgent,
+            hostAgentTwo,
             infrastructure,
             globalDirectoryInfrastructure,
             journalWriter,
@@ -1082,7 +1091,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var journalUpdate = NatsSubjectTaxonomy.OperationJournalUpdateSubject(Cell);
         var runtimeLifecycleRead = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "read");
         var runtimeLifecycleWrite = NatsSubjectTaxonomy.RuntimeLifecycleJournalSubject(Cell, "write");
-        var hostAgent = NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, Cell, "host-1");
+        var hostAgent = NatsControlAccountScope.Create(NatsControlAccountKind.HostAgent, Cell, $"host-{controllerNumber}");
         return role switch
         {
             Role.HostAgent => new(hostAgent.Publish, hostAgent.Subscribe),
@@ -1303,7 +1312,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         var clients = new Dictionary<string, NatsControlR3L0cCertificate>(StringComparer.Ordinal);
         foreach (var name in new[]
                  {
-                     "controller-1", "controller-2", "host-1", "infrastructure", "journal-writer",
+                     "controller-1", "controller-2", "host-1", "host-2", "infrastructure", "journal-writer",
                      "global-directory-infrastructure",
                      "cell-directory-publisher-sfo", "cell-directory-reader-sfo",
                      "cell-directory-service-gru", "global-authority", "operator-read", "wrong-account"
@@ -1532,6 +1541,7 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         NatsControlR3L0cIdentity Controller,
         NatsControlR3L0cIdentity ControllerTwo,
         NatsControlR3L0cIdentity HostAgent,
+        NatsControlR3L0cIdentity HostAgentTwo,
         NatsControlR3L0cIdentity Infrastructure,
         NatsControlR3L0cIdentity GlobalDirectoryInfrastructure,
         NatsControlR3L0cIdentity JournalWriter,

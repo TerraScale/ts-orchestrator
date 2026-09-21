@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using TerraScale.Orchestrator;
@@ -9,19 +10,59 @@ namespace TerraScale.Orchestrator.Tests;
 
 /// <summary>
 /// Composition-root startup behavior: run admission without CI signing material for
-/// verifier-only roles (member hosts), SIGINT/SIGTERM shutdown triggers, bounded global control
+/// verifier-only regional controllers, SIGINT/SIGTERM shutdown triggers, bounded global control
 /// boot retry, and fail-stop observation of the unobserved WAN/global completions.
 /// </summary>
 public sealed class ProgramStartupTests
 {
     [Test]
-    public async Task MemberHostRunCompositionAdmitsWithoutTheCiArtifactPrivateKey()
+    [Arguments("run")]
+    [Arguments("check")]
+    public async Task Controller_entry_point_rejects_host_execution_before_loading_controller_credentials(string command)
+    {
+        var start = new ProcessStartInfo("dotnet")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        start.ArgumentList.Add(typeof(OrchestratorOptions).Assembly.Location);
+        start.ArgumentList.Add(command);
+        foreach (var key in start.Environment.Keys.Where(key => key.StartsWith("TS_ORCH_", StringComparison.Ordinal)).ToArray())
+            start.Environment.Remove(key);
+        start.Environment["TS_ORCH_HOST_ROLES"] = "terrabase-member";
+        start.Environment["TS_ORCH_CELL"] = "gru";
+        start.Environment["TS_ORCH_INSTANCE"] = "controller-1";
+        start.Environment["TS_ORCH_NATS_URL"] = "tls://127.0.0.1:1";
+        using var child = Process.Start(start) ?? throw new InvalidOperationException("Failed to start the controller boundary test.");
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var output = child.StandardOutput.ReadToEndAsync(deadline.Token);
+            var error = child.StandardError.ReadToEndAsync(deadline.Token);
+            await child.WaitForExitAsync(deadline.Token);
+            await Assert.That(child.ExitCode).IsEqualTo(1);
+            await Assert.That(await error).Contains("Controller run/check cannot execute host roles");
+            await Assert.That(await output).IsEmpty();
+        }
+        finally
+        {
+            if (!child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                await child.WaitForExitAsync();
+            }
+        }
+    }
+
+    [Test]
+    public async Task VerifierControllerCompositionAdmitsWithoutTheCiArtifactPrivateKey()
     {
         if (!OperatingSystem.IsLinux()) return;
         var root = Root();
         try
         {
-            // A bare member host: `run` with regional control only — no global NATS, no CI pool.
+            // A regional verifier controller: `run` with regional control only — no global NATS, no CI pool.
             var options = new OrchestratorOptions(
                 OrchestratorCommand.Run, "gru", "tls://regional-control.internal:4222", 3);
             var roles = ProductionRoleComposition.ProductionCiRoles(

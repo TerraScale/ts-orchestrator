@@ -45,7 +45,7 @@ public sealed class RegionalHostSessionAuthorityTests
         }
     }
 
-    private static async Task ServeHandshakeOnlyAsync(TcpListener listener, CancellationToken cancellationToken)
+    internal static async Task ServeHandshakeOnlyAsync(TcpListener listener, CancellationToken cancellationToken)
     {
         try
         {
