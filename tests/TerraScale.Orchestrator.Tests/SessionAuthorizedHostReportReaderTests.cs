@@ -8,7 +8,7 @@ using TerraScale.Orchestrator.Nodes;
 
 namespace TerraScale.Orchestrator.Tests;
 
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class SessionAuthorizedHostReportReaderTests
 {
     private static readonly string Digest = "sha256:" + new string('a', 64);

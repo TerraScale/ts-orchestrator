@@ -12,7 +12,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// refusal gate, and the edge projection — against a real NATS KV with the scripted
 /// fake fleet.
 /// </summary>
-[NotInParallel("TerrabasePlacement")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class TerraBasePlacementReconcilerTests
 {
     [Test]

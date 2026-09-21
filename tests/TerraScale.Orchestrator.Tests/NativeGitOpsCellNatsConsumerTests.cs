@@ -7,6 +7,7 @@ using TerraScale.Orchestrator.Protocol.Messaging;
 
 namespace TerraScale.Orchestrator.Tests;
 
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NativeGitOpsCellNatsConsumerTests
 {
     [Test]

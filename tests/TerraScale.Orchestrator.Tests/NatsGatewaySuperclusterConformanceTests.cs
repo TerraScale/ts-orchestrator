@@ -18,7 +18,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// proves gateway handshakes, TLS, authorization, and domain isolation — it is
 /// not R3 quorum evidence (that stays with <see cref="NatsControlR3L0cTests"/>).
 /// </summary>
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsGatewaySuperclusterConformanceTests
 {
     [Test]

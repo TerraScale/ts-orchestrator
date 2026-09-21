@@ -7,6 +7,9 @@ namespace TerraScale.Orchestrator.Tests;
 /// </summary>
 internal static class LocalNatsServerLease
 {
+    // Use this TUnit constraint before a test body starts its operation deadline.
+    // Different scheduler groups still contend on the same physical fixture lease.
+    internal const string SchedulingConstraint = "LocalNatsServer";
     private static readonly SemaphoreSlim Gate = new(1, 1);
     private static readonly object RetentionSync = new();
     private static IAsyncDisposable? retainedOwner;
@@ -139,4 +142,3 @@ internal static class LocalNatsServerLease
         }
     }
 }
-

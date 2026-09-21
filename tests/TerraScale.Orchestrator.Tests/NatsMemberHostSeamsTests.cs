@@ -11,7 +11,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// Consumer policy tests use real NATS with an assumed authorized-report source. The real
 /// signature/session boundary is covered separately by SessionAuthorizedHostReportReaderTests.
 /// </summary>
-[NotInParallel("TerrabasePlacement")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsMemberHostSeamsTests
 {
     private const string Instance = "ocid1.instance.oc1.sa-saopaulo-1.member-a";

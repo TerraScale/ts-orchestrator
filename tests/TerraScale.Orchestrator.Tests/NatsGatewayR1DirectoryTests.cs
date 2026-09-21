@@ -16,7 +16,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// without losing local authority. This is regional-development (RF1) evidence,
 /// not production R3/quorum evidence.
 /// </summary>
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsGatewayR1DirectoryTests
 {
     private static readonly TimeSpan StalenessWindow =

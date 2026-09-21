@@ -14,7 +14,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// after the member returns. This is R3 component evidence for regional
 /// membership, not gateway, systemd, host-failure, or production qualification.
 /// </summary>
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsControlR3MembershipTests
 {
     private static readonly TimeSpan ConvergenceTimeout = TimeSpan.FromSeconds(20);

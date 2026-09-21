@@ -35,7 +35,7 @@ public sealed class NatsOperationJournalAuthorityDigestTests
     }
 
     [Test]
-    [NotInParallel("NatsR3")]
+    [NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
     public async Task OneWriterReplyBindsTheExactTransportedAuthority()
     {
         await using var fixture = await NatsControlR3L0cFixture.StartAsync();
@@ -76,7 +76,7 @@ public sealed class NatsOperationJournalAuthorityDigestTests
     }
 
     [Test]
-    [NotInParallel("NatsR3")]
+    [NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
     public async Task ConcurrentWritersReturnOnlyTheirCallersExactAuthorityDigest()
     {
         await using var fixture = await NatsControlR3L0cFixture.StartAsync();

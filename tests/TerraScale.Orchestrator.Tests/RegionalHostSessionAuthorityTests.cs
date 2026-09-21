@@ -14,6 +14,7 @@ using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Tests;
 
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class RegionalHostSessionAuthorityTests
 {
     [Test]

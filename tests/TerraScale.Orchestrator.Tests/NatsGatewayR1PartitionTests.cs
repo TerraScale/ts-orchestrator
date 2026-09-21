@@ -23,7 +23,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// bounded heal window. This is regional-development evidence, never R3
 /// quorum, host-failure, or production qualification evidence.
 /// </summary>
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsGatewayR1PartitionTests
 {
     private const int MutationsPerPhase = 4;

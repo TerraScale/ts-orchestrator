@@ -15,7 +15,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// End-to-end placement reconciliation against a real containerized NATS: durable
 /// intent in, one member action per tick out, through the scripted fake fleet.
 /// </summary>
-[NotInParallel("TerrabasePlacement")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class TerraBasePlacementReconcilerNatsTests
 {
     [Test]

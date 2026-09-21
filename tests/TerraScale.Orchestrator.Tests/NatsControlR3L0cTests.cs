@@ -20,7 +20,7 @@ namespace TerraScale.Orchestrator.Tests;
 
 // Each test owns three containerized NATS servers, three JetStream stores, and an
 // ephemeral mTLS/JWT identity tree. Keep this lane serial with every R3 test.
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsControlR3L0cTests
 {
     [Test]

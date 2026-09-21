@@ -23,6 +23,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// artifact installed, systemd plan converged, observation reported — with rollback on a
 /// failed post-converge observation and replace-lease serialization for stateful roles.
 /// </summary>
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class HostConvergenceRuntimeTests
 {
     [Test]

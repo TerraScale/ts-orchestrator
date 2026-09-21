@@ -80,7 +80,7 @@ public sealed class OciWorkloadFleetConfigurationFileTests
     }
 
     [Test]
-    [NotInParallel("NatsR3")]
+    [NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
     public async Task Real_Nats_readiness_binds_node_cell_artifact_and_keeps_unready_vms_pending()
     {
         if (!OperatingSystem.IsLinux()) return;

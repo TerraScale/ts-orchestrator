@@ -356,7 +356,7 @@ public sealed class RegionalHostSessionLeaseTests
     }
 
     [Test]
-    [NotInParallel("NatsR3")]
+    [NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
     public async Task Real_restricted_host_renews_reports_and_loses_execution_after_authoritative_revocation()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));

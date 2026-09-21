@@ -10,7 +10,7 @@ using TerraScale.Orchestrator.Runtime;
 
 namespace TerraScale.Orchestrator.Tests;
 
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class RegionalHostArtifactTests
 {
     private static readonly string Digest = "sha256:" + new string('a', 64);

@@ -16,7 +16,7 @@ namespace TerraScale.Orchestrator.Tests;
 /// a dead endpoint fails fast while the control plane keeps serving. This is
 /// regional-development (RF1) evidence, not production R3/quorum evidence.
 /// </summary>
-[NotInParallel("NatsR3")]
+[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
 public sealed class NatsGatewayR1MonitoringTests
 {
     private static readonly TimeSpan ObservationWindow = TimeSpan.FromSeconds(30);
