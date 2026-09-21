@@ -100,6 +100,13 @@ public sealed class VmNodeFleetScaleHealTests
             throw new InvalidOperationException(
                 $"The Firecracker auth lane requires a published ts-auth payload at {authBinary}.");
         }
+        var gatewayBinary = Path.Combine(inputs, "gateway", "TerraBaseDevMember");
+        if (!File.Exists(gatewayBinary))
+        {
+            throw new InvalidOperationException(
+                $"The Firecracker auth lane requires the local gateway qualification payload at {gatewayBinary}. "
+                + "Publish ts-auth/tools/TerraBaseDevMember self-contained into the gateway directory.");
+        }
 
         await using var lane = await VmLane.PrepareAsync(inputs, "GRU", subnetThirdOctet: 80, includeAuth: true);
         await using var fleet = new VmNodeFleet(lane.Options, lane.DescribeMember);
@@ -113,10 +120,13 @@ public sealed class VmNodeFleetScaleHealTests
         };
         await WaitForAuthReadinessAsync(auth);
 
-        using (var create = CreateAuthInstanceRequest())
+        var instanceSlug = "vm-auth-" + Guid.NewGuid().ToString("N")[..12];
+        using (var create = CreateAuthInstanceRequest(instanceSlug))
         using (var created = await auth.SendAsync(create))
         {
-            await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.Created);
+            // The operator onboarding endpoint returns the instance and its
+            // one-time API key in a successful 200 response.
+            await Assert.That(created.StatusCode).IsEqualTo(HttpStatusCode.OK);
         }
 
         // A hard VM stop takes both processes down without giving either
@@ -128,7 +138,7 @@ public sealed class VmNodeFleetScaleHealTests
         await Assert.That(fleet.IsMemberAlive("vm-node-1")).IsTrue();
         await WaitForAuthReadinessAsync(auth);
 
-        using (var duplicate = CreateAuthInstanceRequest())
+        using (var duplicate = CreateAuthInstanceRequest(instanceSlug))
         using (var conflict = await auth.SendAsync(duplicate))
         {
             await Assert.That(conflict.StatusCode).IsEqualTo(HttpStatusCode.Conflict);
@@ -140,11 +150,11 @@ public sealed class VmNodeFleetScaleHealTests
         lane.Succeeded = true;
     }
 
-    private static HttpRequestMessage CreateAuthInstanceRequest()
+    private static HttpRequestMessage CreateAuthInstanceRequest(string slug)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/instances")
         {
-            Content = JsonContent.Create(new { slug = "vm-auth", name = "Firecracker Auth" }),
+            Content = JsonContent.Create(new { slug, name = "Firecracker Auth" }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "vm-auth-operator-key");
         return request;
@@ -334,6 +344,7 @@ public sealed class VmNodeFleetScaleHealTests
             if (includeAuth)
             {
                 CopyDirectory(Path.Combine(inputs, "auth"), Path.Combine(root, "payload", "auth"));
+                CopyDirectory(Path.Combine(inputs, "gateway"), Path.Combine(root, "payload", "gateway"));
             }
 
             var certs = Path.Combine(root, "payload", "certs");
@@ -360,7 +371,13 @@ public sealed class VmNodeFleetScaleHealTests
                 """);
             units.Add((payloadUnit, "terrabase-payload.service"));
             var memberUnit = Path.Combine(root, "terrabase-member.service");
-            await File.WriteAllTextAsync(memberUnit, """
+            var memberExecutable = includeAuth
+                ? "/opt/payload/gateway/TerraBaseDevMember"
+                : "/opt/payload/host/TerraBase.Host";
+            var devGatewayEnvironment = includeAuth
+                ? "Environment=TERRABASE_DEV_API_KEY=vm-auth-api-key\n"
+                : string.Empty;
+            await File.WriteAllTextAsync(memberUnit, $$"""
                 [Unit]
                 Description=TerraBase cluster member
                 After=terrabase-payload.service systemd-networkd.service
@@ -370,10 +387,10 @@ public sealed class VmNodeFleetScaleHealTests
                 [Service]
                 Type=simple
                 EnvironmentFile=/opt/member.env
-                # The peer listener binds the static eth0 address, so wait for
+                {{devGatewayEnvironment}}# The peer listener binds the static eth0 address, so wait for
                 # networkd to configure it before the member starts.
                 ExecStartPre=/bin/sh -c 'for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do ip -4 addr show eth0 | grep -q " inet " && exec /bin/mkdir -p /var/lib/terrabase; sleep 1; done; exit 1'
-                ExecStart=/opt/payload/host/TerraBase.Host
+                ExecStart={{memberExecutable}}
                 StandardOutput=journal+console
                 StandardError=journal+console
                 Restart=on-failure

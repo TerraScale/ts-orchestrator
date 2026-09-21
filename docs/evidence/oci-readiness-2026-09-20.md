@@ -104,15 +104,18 @@ the exact release revision before deployment.
 
 ### Final candidate evidence — 2026-09-21
 
-The final local candidate revisions are `ts-orchestrator@4f97f005` and
-`ts-auth@2e98d0e`. The clean orchestrator rerun passed **1,459 tests**, with
+The final local candidate is based on `ts-orchestrator@503bb363`, with the
+qualification harness and evidence changes recorded by this document's commit,
+and `ts-auth@5075c89`. The clean orchestrator rerun passed **1,459 tests**, with
 zero failures and seven expected live-lane skips; its supporting suites passed
 **969 control-plane**, **59 model**, **165 protocol**, and **106 scheduler**
 tests. Locked restore, required format, Release build (zero warnings/errors),
 and dependency audit also passed. The main-suite log is
-`/tmp/ts-goal-orchestrator-main-post-contamination-20260921.log`.
+`/tmp/ts-goal-orchestrator-main-after-gateway-20260921.log`.
 
-The auth release run passed **381/381 tests**, with zero failures or skips. Its
+The auth release run at `ts-auth@2e98d0e` passed **381/381 tests**, with zero
+failures or skips. The current `ts-auth@5075c89` member-mode gateway change was
+then used in the Firecracker lane below. The release payload's
 single-file payload SHA-256 is
 `f3f3d877b5f9a339064e035a7947f0bbd7c435a5d0cc27086f8980001e189171`.
 The locally built image is
@@ -135,6 +138,41 @@ lanes (**2 passed**). The auth lane failed at instance creation because the raw
 host returned HTTP **503 Service Unavailable**; it is a deployment blocker, not
 a passing VM result. The failure and cleanup evidence are in
 `/tmp/ts-goal-orchestrator-vm-auth-live-serialized-20260921.log`.
+
+A follow-up serialized auth lane passed **1/1 test** after the VM harness was
+given an explicitly local `TerraBaseDevMember` payload in member mode. That
+payload composes the dev API-key middleware and allow-all tenant hook with the
+real TerraBase engine, and the test covered readiness, instance creation,
+duplicate rejection after a hard VM restart, graceful drain, and retirement.
+The complete serialized Firecracker run then passed **3/3 tests**: the
+single-region boot/heal/drain lane, this auth/restart lane, and the three-region
+GRU/SFO/FRA loss-and-replacement lane. Its log is
+`/tmp/ts-goal-orchestrator-vm-all-live-20260921.log`; the focused auth log is
+`/tmp/ts-goal-orchestrator-vm-auth-live-local-gateway-20260921.log`.
+This is local gateway qualification only; it does not qualify the production
+project-key gateway, durable credential issuance, tenant policy service, or
+the raw `TerraBase.Host` deployment path. The raw-host failure above remains a
+production blocker.
+
+The current TerraBase Release build was exercised with **1,192 API tests**,
+**480 core tests plus four expected Windows skips**, **20 schema-generator
+tests**, **73 full-text tests**, **28 ZoneTree tests**, and **14 recovery tests
+with two expected Windows skips**; every executed test passed. Replication and
+transport evidence includes the three-member leaderless convergence test,
+SIGKILL crash-resume, MagicOnion resumable/partition/network-fault suites,
+native gRPC, durable Q3 integration, and the two upstream-derived replicator
+tests; all passed. The API log is
+`/tmp/ts-goal-terrabase-api-full-20260921.log`, with focused evidence in the
+other `/tmp/ts-goal-terrabase-*20260921.log` files. The complete upstream
+ZoneTree stress project remains time-prohibitive locally: its WAL-heavy atomic
+update cases were stopped after more than 40 minutes without a failure, so it
+is not represented as a green deployment gate.
+
+The current `ts-infra` working tree also passed its **28** encrypted-state
+publication tests, OpenTofu formatting, configuration validation, and **9**
+mocked plan tests. A local `tofu init` cannot refresh the checked-in encrypted
+state without the deployment state's passphrase; no cloud credentials or
+apply were used.
 
 These results are local release and integration evidence only. They do **not**
 qualify OCI deployment, production first boot, raw-host TerraBase/auth
@@ -265,6 +303,7 @@ execution/storage fencing remain blocked.
 | OCI workload fleet tests after readiness correction | 19 passed | `/tmp/ts-oci-readiness-binding-tests.log`; real NATS readiness binding; non-ready VMs count as pending, expired authority prevents launch; invalid demand and unsafe TerraBase retirement denied |
 | Live local TerraBase fleet | 1 passed, no skip | `/tmp/ts-oci-local-fleet-live.log`; fresh TerraBase.Host publish, scale-out, loss/heal, drain safety and scale-in |
 | Live single-region and three-region VM lanes | **2 passed, no skips** | `/tmp/ts-oci-vm-live.log`; 2m22s; fresh self-contained host with prepared kernel/rootfs; no remaining Firecracker processes or br-fc/tap-fc devices for lanes 77/78/79 |
+| Live Firecracker VM qualification, including ts-auth with local gateway stand-in | **3 passed, 0 failed** | `/tmp/ts-goal-orchestrator-vm-all-live-20260921.log`; single-region boot/heal/drain, auth hard-restart/duplicate/drain, and GRU/SFO/FRA loss/replacement; local gateway stand-in only for auth |
 | Scheduler suite, latest edits | 106 passed, 0 failed | `/tmp/ts-scheduler-final.log`; provider failure isolation, cancellation, confirmation reset |
 | OpenTofu format, validation, mocked plans | Pass; 7 tests passed | `/tmp/ts-infra-bootstrap-tests-final.log`; all test runs use mocked providers and `command = plan` |
 | OpenTofu Vault tier configuration | Pass; 9 mocked plan tests passed | `/tmp/ts-infra-vault-tier-validation.log`, `/tmp/ts-infra-vault-tier-tests.log`; shared HSM default, explicit dedicated tier and invalid-tier rejection; estate remains disabled |
