@@ -70,7 +70,6 @@ jobs:
           if [ ! -x /usr/local/bin/ts-podman-init ]; then
             cat > /tmp/ts-podman-init.c <<'EOF'
           #include <signal.h>
-          #include <stdio.h>
           #include <string.h>
           #include <sys/types.h>
           #include <sys/wait.h>
