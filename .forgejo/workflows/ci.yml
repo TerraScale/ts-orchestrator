@@ -162,7 +162,8 @@ jobs:
             test -f "${project}"
             dotnet run --project "${project}" \
               --configuration Release --no-build --no-restore -- \
-              --minimum-expected-tests 1 2>&1 | tee -a "${test_log}"
+              --minimum-expected-tests 1 \
+              --maximum-parallel-tests 2 2>&1 | tee -a "${test_log}"
           done
           grep -Fq 'Test run summary: Passed!' "${test_log}"
           grep -Eq 'failed: 0' "${test_log}"
