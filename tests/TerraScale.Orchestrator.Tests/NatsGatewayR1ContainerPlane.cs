@@ -57,12 +57,13 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
     /// <summary>The per-container memory limit; three servers admit exactly 768 MiB.</summary>
     internal const int ServerMemoryLimitMiB = 256;
 
-    // Fixed fixture subnets far outside rootless Podman's default 10.88/16
-    // bridge range. The NATS fixture lease serializes runs, so one stable
-    // pair is safe; a leaked network from a quarantined run surfaces as a
-    // startup failure with a clear exit code instead of silent cross-talk.
+    // The gateway fixture subnet is far outside rootless Podman's default
+    // 10.88/16 bridge range. The NATS fixture lease serializes runs, so one
+    // stable gateway range is safe; a leaked network from a quarantined run
+    // surfaces as a startup failure with a clear exit code instead of silent
+    // cross-talk. The client network uses Podman's dynamic allocation because
+    // it carries no fixed-address traffic.
     private const string GatewayNetworkSubnet = "10.213.62.0/24";
-    private const string ClientNetworkSubnet = "10.213.61.0/24";
 
     private readonly string gatewayNetwork;
     private readonly string clientNetwork;
@@ -124,7 +125,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             // forwarder on a network that is never severed.
             await CreateNetworkAsync(
                 plane.clientNetwork,
-                ["--disable-dns", "--subnet", ClientNetworkSubnet],
+                ["--disable-dns"],
                 cancellationToken);
             return plane;
         }
@@ -255,7 +256,11 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (!containers.TryGetValue(serverName, out var container))
             throw new InvalidOperationException($"The server '{serverName}' is not running.");
-        await RequireSuccessAsync(["network", "disconnect", gatewayNetwork, container], cancellationToken);
+        // Force makes this operation idempotent when netavark has already
+        // dropped the container's resolver entry after a prior link fault.
+        await RequireSuccessAsync(
+            ["network", "disconnect", "--force", gatewayNetwork, container],
+            cancellationToken);
         // Give the removed interface's TCP fallout time to reach the servers'
         // gateway reconnect logic before the caller asserts link state.
         await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
