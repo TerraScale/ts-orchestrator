@@ -153,7 +153,7 @@ jobs:
           # left by an interrupted job even when the old resource has no
           # ownership label and netavark therefore cannot find its metadata.
           mapfile -t stale_pods < <(
-            podman pod ps -a --format '{{.Name}}' \
+            podman pod ps --all --format '{{.Name}}' \
               | awk '/^ts-orch-test-nats-/ { print }'
           )
           for pod in "${stale_pods[@]}"; do
@@ -173,7 +173,7 @@ jobs:
           for network in "${stale_networks[@]}"; do
             podman network rm --force "${network}"
           done
-          test -z "$(podman pod ps -a --format '{{.Name}}' | awk '/^ts-orch-test-nats-/ { print }')"
+          test -z "$(podman pod ps --all --format '{{.Name}}' | awk '/^ts-orch-test-nats-/ { print }')"
           test -z "$(podman ps -a --format '{{.Names}}' | awk '/^ts-r1-/ { print }')"
           test -z "$(podman network ls --format '{{.Name}}' | awk '/^ts-r1-/ { print }')"
 
