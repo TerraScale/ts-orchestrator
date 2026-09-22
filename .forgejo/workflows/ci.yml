@@ -64,10 +64,70 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # ts-podman-init, fuse-overlayfs, and aardvark-dns ship in the job
-          # image (verify.sh-asserted); smoke the init binary and register it
-          # via containers.conf.d. The test-side CONTAINERS_CONF_OVERRIDE
-          # layers cgroup settings on top.
+          # Current ts-builder images ship this helper. Keep a source-level
+          # fallback for runners that still have the previous cached image so
+          # the test lane remains self-contained while the image is re-warmed.
+          if [ ! -x /usr/local/bin/ts-podman-init ]; then
+            cat > /tmp/ts-podman-init.c <<'EOF'
+          #include <signal.h>
+          #include <string.h>
+          #include <sys/types.h>
+          #include <sys/wait.h>
+          #include <unistd.h>
+
+          static volatile sig_atomic_t terminate;
+          static volatile pid_t child_pid;
+
+          static void stop_handler(int signal_number)
+          {
+              (void)signal_number;
+              terminate = 1;
+          }
+
+          static void forward_handler(int signal_number)
+          {
+              if (child_pid > 0)
+                  kill(child_pid, signal_number);
+          }
+
+          int main(int argc, char **argv)
+          {
+              if (argc <= 1 || (argc == 2 && strcmp(argv[1], "-P") == 0))
+              {
+                  struct sigaction action = {0};
+                  action.sa_handler = stop_handler;
+                  sigaction(SIGTERM, &action, NULL);
+                  sigaction(SIGINT, &action, NULL);
+                  sigaction(SIGHUP, &action, NULL);
+                  sigaction(SIGPIPE, &action, NULL);
+                  while (!terminate)
+                      pause();
+                  return 0;
+              }
+
+              child_pid = fork();
+              if (child_pid < 0)
+                  return 1;
+              if (child_pid == 0)
+              {
+                  execvp(argv[1], &argv[1]);
+                  _exit(127);
+              }
+
+              struct sigaction action = {0};
+              action.sa_handler = forward_handler;
+              sigaction(SIGTERM, &action, NULL);
+              sigaction(SIGINT, &action, NULL);
+              int status = 0;
+              while (wait(&status) != child_pid) { }
+              return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+          }
+          EOF
+            cc -O2 -static -o /usr/local/bin/ts-podman-init /tmp/ts-podman-init.c
+            chmod 0755 /usr/local/bin/ts-podman-init
+          fi
+          # Smoke the init binary and register it via containers.conf.d. The
+          # test-side CONTAINERS_CONF_OVERRIDE layers cgroup settings on top.
           /usr/local/bin/ts-podman-init -P &
           init_pid=$!
           sleep 0.3
