@@ -334,7 +334,7 @@ public sealed class VmNodeFleetScaleHealTests
     {
         var client = new HttpClient
         {
-            BaseAddress = new Uri($"http://{address}:8420"),
+            BaseAddress = new Uri($"http://{address}:8421"),
             Timeout = TimeSpan.FromSeconds(5),
         };
         client.DefaultRequestHeaders.Authorization =
@@ -419,8 +419,7 @@ public sealed class VmNodeFleetScaleHealTests
             string observerKey,
             string observerAuthority,
             bool regionFromCell,
-            string selectedRegions,
-            bool exposeDataPlane)
+            string selectedRegions)
         {
             Root = root;
             Region = region;
@@ -432,7 +431,6 @@ public sealed class VmNodeFleetScaleHealTests
             ObserverAuthority = observerAuthority;
             RegionFromCell = regionFromCell;
             SelectedRegions = selectedRegions;
-            ExposeDataPlane = exposeDataPlane;
         }
 
         public string Root { get; }
@@ -454,8 +452,6 @@ public sealed class VmNodeFleetScaleHealTests
         private bool RegionFromCell { get; }
 
         private string SelectedRegions { get; }
-
-        private bool ExposeDataPlane { get; }
 
         public VmMemberDescription DescribeMember(NodeProvisionRequest request)
         {
@@ -485,11 +481,6 @@ public sealed class VmNodeFleetScaleHealTests
                 ["TERRABASE_DATABASE_HOME_REGION"] = Region,
                 ["TERRABASE_DATABASE_SELECTED_REGIONS"] = SelectedRegions,
             };
-            if (ExposeDataPlane)
-            {
-                environment["TERRABASE_OBSERVABILITY_URL"] = "http://0.0.0.0:8420";
-            }
-
             return new VmMemberDescription(8422, environment);
         }
 
@@ -536,7 +527,7 @@ public sealed class VmNodeFleetScaleHealTests
 
             var databaseId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();
             var tenantId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();
-            var units = new List<(string UnitPath, string GuestName)>();
+            var units = new List<VmGuestUnit>();
             var payloadUnit = Path.Combine(root, "terrabase-payload.service");
             await File.WriteAllTextAsync(payloadUnit, """
                 [Unit]
@@ -553,7 +544,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Install]
                 WantedBy=multi-user.target
                 """);
-            units.Add((payloadUnit, "terrabase-payload.service"));
+            units.Add(new VmGuestUnit(payloadUnit, "terrabase-payload.service"));
             var memberUnit = Path.Combine(root, "terrabase-member.service");
             var memberExecutable = useGatewayMember
                 ? "/opt/payload/gateway/TerraBaseDevMember"
@@ -571,6 +562,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Service]
                 Type=simple
                 EnvironmentFile=/opt/member.env
+                Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/run/terrabase-bundle
                 {{devGatewayEnvironment}}# The peer listener binds the static eth0 address, so wait for
                 # networkd to configure it before the member starts.
                 ExecStartPre=/bin/sh -c 'for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do ip -4 addr show eth0 | grep -q " inet " && exec /bin/mkdir -p /var/lib/terrabase; sleep 1; done; exit 1'
@@ -584,7 +576,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Install]
                 WantedBy=multi-user.target
                 """);
-            units.Add((memberUnit, "terrabase-member.service"));
+            units.Add(new VmGuestUnit(memberUnit, "terrabase-member.service"));
             if (includeAuth)
             {
                 var authUnit = Path.Combine(root, "ts-auth.service");
@@ -597,7 +589,7 @@ public sealed class VmNodeFleetScaleHealTests
                     [Service]
                     Type=simple
                     Environment=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-                    Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/tmp/ts-auth-bundle
+                    Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/run/ts-auth-bundle
                     Environment=ASPNETCORE_ENVIRONMENT=Production
                     Environment=TS_AUTH_LISTEN=http://0.0.0.0:8080
                     Environment=TS_AUTH_PUBLIC_ORIGIN=http://10.{{subnetThirdOctet}}.0.10:8080
@@ -618,7 +610,37 @@ public sealed class VmNodeFleetScaleHealTests
                     [Install]
                     WantedBy=multi-user.target
                     """);
-                units.Add((authUnit, "ts-auth.service"));
+                units.Add(new VmGuestUnit(authUnit, "ts-auth.service"));
+            }
+            if (gatewayMember)
+            {
+                var proxySocket = Path.Combine(root, "terrabase-data-proxy.socket");
+                await File.WriteAllTextAsync(proxySocket, """
+                    [Unit]
+                    Description=Expose the loopback TerraBase development API to the VM test network
+                    After=systemd-networkd.service
+
+                    [Socket]
+                    ListenStream=0.0.0.0:8421
+                    NoDelay=true
+
+                    [Install]
+                    WantedBy=multi-user.target
+                    """);
+                units.Add(new VmGuestUnit(proxySocket, "terrabase-data-proxy.socket"));
+
+                var proxyService = Path.Combine(root, "terrabase-data-proxy.service");
+                await File.WriteAllTextAsync(proxyService, """
+                    [Unit]
+                    Description=Proxy the VM test network to TerraBase's loopback-only development API
+                    Requires=terrabase-member.service
+                    After=terrabase-member.service
+
+                    [Service]
+                    ExecStart=/usr/lib/systemd/systemd-socket-proxyd 127.0.0.1:8420
+                    PrivateTmp=true
+                    """);
+                units.Add(new VmGuestUnit(proxyService, "terrabase-data-proxy.service", Enable: false));
             }
 
             var disabledMarker = Path.Combine(root, "cloud-init.disabled");
@@ -655,8 +677,7 @@ public sealed class VmNodeFleetScaleHealTests
                 Path.Combine(certs, "observer.key"),
                 Path.Combine(certs, "ca.crt"),
                 regionFromCell,
-                selectedRegions ?? region,
-                gatewayMember);
+                selectedRegions ?? region);
         }
 
         public bool Succeeded { get; set; }
