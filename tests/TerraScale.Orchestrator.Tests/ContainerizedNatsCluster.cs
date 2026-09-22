@@ -162,30 +162,35 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
         string resource,
         CancellationToken cancellationToken)
     {
-        string removalDiagnostic;
-        try
+        string removalDiagnostic = "removal was not attempted";
+        string probeDiagnostic = "absence was not probed";
+        for (var attempt = 1; attempt <= 3; attempt++)
         {
-            var removal = await RunBoundedAsync(removeArguments, cancellationToken);
-            removalDiagnostic = removal.ExitCode == 0
-                ? "removal command succeeded"
-                : $"removal exit code {removal.ExitCode}: {removal.Diagnostics}";
-        }
-        catch (TimeoutException exception)
-        {
-            removalDiagnostic = exception.Message;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var removal = await RunBoundedAsync(removeArguments, cancellationToken);
+                removalDiagnostic = removal.ExitCode == 0
+                    ? $"removal attempt {attempt} succeeded"
+                    : $"removal attempt {attempt} exit code {removal.ExitCode}: {removal.Diagnostics}";
+            }
+            catch (TimeoutException exception)
+            {
+                removalDiagnostic = $"removal attempt {attempt}: {exception.Message}";
+            }
 
-        var probe = await RunBoundedAsync(existsArguments, cancellationToken);
-        if (probe.ExitCode == 1)
-            return;
-        if (probe.ExitCode == 0)
-        {
-            throw new InvalidOperationException(
-                $"{resource} still exists after bounded cleanup; {removalDiagnostic}.");
+            var probe = await RunBoundedAsync(existsArguments, cancellationToken);
+            if (probe.ExitCode == 1)
+                return;
+            probeDiagnostic = probe.ExitCode == 0
+                ? $"{resource} still exists"
+                : $"absence probe exit code {probe.ExitCode}: {probe.Diagnostics}";
+            if (attempt < 3)
+                await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
         }
         throw new InvalidOperationException(
-            $"Podman could not verify cleanup of {resource}; probe exit code {probe.ExitCode}: " +
-            $"{probe.Diagnostics}; {removalDiagnostic}.");
+            $"Podman could not verify cleanup of {resource} after three bounded attempts; " +
+            $"{probeDiagnostic}; {removalDiagnostic}.");
     }
 
     private static async Task<(int ExitCode, string Diagnostics)> RunBoundedAsync(
