@@ -1,9 +1,12 @@
-# OCI deployment readiness — 2026-09-20
+# OCI deployment readiness — 2026-09-22
 
-**Do not start OCI deployment yet.** Local tests cover useful components, but
-the production first-boot, resource ownership handoff, automatic regional
-formation, and complete runtime qualification are not finished. No OCI
-mutation or local OpenTofu apply was performed for this readiness work.
+**Decision: GO for one disposable, private GRU OCI staging canary; NO-GO for
+production or customer traffic.** The final local release, container, real
+TerraBase/auth, Firecracker recovery, and three-region replication gates pass.
+The first OCI boot, resource-ownership handoff, automatic regional formation,
+native ARM64 execution, and production credential/storage boundaries can only
+be qualified in OCI and must produce passing receipts before production. No
+OCI mutation or local OpenTofu apply was performed for this readiness work.
 
 ## Required ownership model
 
@@ -98,10 +101,129 @@ use synthetic test credentials and do not qualify Instance Principal.
 
 ## Verification evidence
 
-Some earlier results below were produced from shared working trees. The final
-candidate section identifies the immutable revisions qualified on 2026-09-21.
-Rerun the final gates after those revisions are combined into the selected
-release branches and artifacts.
+The consolidated section immediately below supersedes the older candidate
+snapshots retained later in this document. It identifies the clean immutable
+revisions and final local evidence qualified on 2026-09-21 and 2026-09-22.
+
+### Consolidated final local qualification — 2026-09-22
+
+The selected local candidates are:
+
+- `ts-orchestrator@5f103a8fb123083567a973a8a52ae623b8e952ac`;
+- `TerraBase@a4500b1c332b60fd819571ce06f82c3acb47b36a`;
+- `ts-auth@05cd59f6731e266f4c90b03050a180f6554bf754`.
+- `ts-infra@4b718c02df20033ceca04b06d72fb7aed8ba629b`.
+
+The auth production change is
+`7f0504898dfe05f4bfe12b5c8a60468682e7844a`; the following `05cd59f` commit
+only formats two test fixtures. The immutable Firecracker payload therefore
+uses auth `7f05048`, while the final container is built from exact auth HEAD
+`05cd59f`. All four selected source trees were clean when their final gates
+ran.
+
+This qualification fixed four defects found by the local integration work:
+
+- public document commits now enter TerraBase's durable regional replication
+  journal and converged winners materialize into the normal document store;
+- a dead replication peer can no longer hold fan-out indefinitely: each peer
+  attempt is bounded to ten seconds and retries after the peer returns;
+- `TerraBaseDevMember` now registers the configured regional fan-out instance
+  in its service container;
+- Firecracker guest services extract single-file native libraries into
+  boot-volatile `/run` directories, so a hard power loss cannot leave a
+  zero-byte retained-disk extraction that breaks restart.
+
+The final validation results are:
+
+| Gate | Result |
+| --- | --- |
+| Orchestrator ordinary TUnit suites | **2,758 passed**, zero failed, eight expected opt-in live-lane skips: main 1,459, control-plane 969, model 59, protocol 165, scheduler 106 |
+| Firecracker integration | **4/4 passed** in 4m53s: boot/autoscale/heal/drain, retained-disk restart, auth against real TerraBase, three-region loss/heal, and cross-region data convergence/catch-up |
+| TerraBase standard suites | **1,838 passed**, zero failed, six expected Windows-only skips; the exact final API suite then passed **1,223/1,223** |
+| TerraBase upstream ZoneTree stress | all **314** uniquely assigned tests passed across eight isolated partitions |
+| ts-auth TUnit suite | **381/381 passed**, zero failed or skipped |
+| External auth/real TerraBase smoke | **22/22 passed**, covering hosted UI, management API, OAuth/OIDC, JWKS, SCIM, webhooks/HMAC, billing guard, passcodes, and audit |
+| Dependency security | auth and orchestrator vulnerability harnesses **13/13** each; both NuGet audits found zero vulnerable packages across two audited projects each |
+| Build and style | strict Release builds and required format gates passed; final TerraBase and orchestrator builds had zero warnings/errors |
+| ts-infra exact-head gates | state publication **28/28**, `tofu fmt -check`, `tofu validate`, and mocked OpenTofu plans **9/9** passed; no apply or cloud mutation |
+
+The ordinary orchestrator run is recorded in
+`/tmp/ts-goal-final-orchestrator-five-suites-5f103a8f-20260921.log`. The
+serialized four-lane Firecracker run is
+`/tmp/ts-goal-final-vm-four-lanes-5f103a8f-a4500b1c-7f05048-20260921.log`.
+The focused replication rerun is
+`/tmp/ts-goal-final-vm-regional-replication-a4500b1c-7f05048-20260921.log`.
+The external auth smoke is
+`/tmp/ts-goal-final-auth-external-smoke-a4500b1c-7f05048-20260921.log`.
+The auth and TerraBase suites are
+`/tmp/ts-goal-final-auth-tests-7f05048-a4500b1c-20260921.log` and
+`/tmp/ts-goal-terrabase-final-api-a4500b1c-20260921.log`. The exact-head
+TerraBase build/style log is
+`/tmp/ts-goal-final-terrabase-build-format-a4500b1c-20260922.log`; the complete
+upstream partition evidence is under
+`/tmp/ts-goal-terrabase-upstream-v2-20260921.RKYAGW`.
+The exact-head infrastructure gates are recorded in
+`/tmp/ts-goal-final-infra-local-gates-4b718c02-20260922.log`.
+
+The Firecracker replication lane performed concurrent public document writes
+in GRU, SFO, and FRA, waited for all three winners to converge, hard-stopped
+SFO, wrote while it was unavailable, then restarted SFO from its retained disk
+and verified catch-up. The guest's real data API remained loopback-only on
+port 8420; a systemd socket proxy exposed the qualification-only port 8421.
+The matrix also proved that a failed peer attempt is bounded and retried after
+recovery. This is strong local three-region evidence, but it does not replace
+real OCI routing, IAM, network, and regional-formation evidence.
+
+The VM inputs are immutable under
+`/tmp/ts-oci-readiness-20260921/vm-inputs-v8-a4500b1c-7f05048` with SHA-256:
+
+- TerraBase host:
+  `8a5cc1d88030f7160de370898953fa9b270c1ec0b84a821af50be386f94775f6`;
+- TerraBase development gateway:
+  `6742e9f995a4011d2cd80258f360011007d293163d181568ca2129aa75517e96`;
+- ts-auth:
+  `68c8ddb639ef9a398b3f1e6ad7b78a80a71a05a891b68dc10e0b47bd5fcd26cc`.
+
+The CI-equivalent orchestrator artifact contract passed for both architectures.
+The source-bound artifacts and metadata are under
+`/tmp/ts-goal-final-orchestrator-artifacts-5f103a8f-20260922/artifacts`:
+
+- linux-x64, `Advanced Micro Devices X86-64`, 96,791,607 bytes,
+  SHA-256 `2efeed5405a6c00f690b2fdb841e4ad88c1399dce97ddc0f2ce59b8537aaca9f`;
+- linux-arm64, `AArch64`, 103,691,059 bytes,
+  SHA-256 `3e7d987eb3273c982f6c2f9fdd481591909f94346afe4c006e53cc0436cb25dd`.
+
+The exact-head auth distroless image is
+`localhost/terrascale/ts-auth:05cd59f6731e266f4c90b03050a180f6554bf754`,
+digest
+`sha256:82aa0e9b516fdcbf03489d46648e904976a8fd88e7c64db8acb8b87e46dbea6e`.
+Its 109,784,671-byte single-file payload has SHA-256
+`7507f6f291267cd4f685aac139d98990a05110d763a8632ed4b652d7927219c7`.
+It passed Linux/amd64 image inspection and a real-container smoke against the
+final TerraBase development member: health/readiness, instance creation,
+graceful stop, restart, durable recovery, and duplicate rejection all passed.
+Evidence is in `/tmp/ts-goal-final-auth-container-05cd59f-20260922.log` and
+`/tmp/ts-goal-final-auth-container-smoke-05cd59f-a4500b1c-20260922.log`.
+
+The local gate authorizes only a disposable staging canary. Production remains
+blocked until OCI evidence passes for all of the following:
+
+1. actual first boot with Instance Principal and least-privilege Vault access;
+2. automatic regional formation and supported-region intent distribution;
+3. native execution of the ARM64 artifacts on OCI;
+4. credential rotation, renewal, expiry, and revocation;
+5. physical storage-writer fencing plus retained-volume ownership and handoff;
+6. production project-key authentication and tenant authorization around the
+   raw TerraBase host;
+7. real OCI cross-region convergence, regional loss, and catch-up;
+8. strict-schema replication. The tested auth and Firecracker gateway path
+   explicitly uses `TERRABASE_ALLOW_SCHEMALESS=true`.
+
+Start with one private, disposable GRU canary and no customer traffic. Retain
+receipts for allow/deny IAM behavior, bootstrap and ownership handoff, restart,
+drain, backup/restore, and cleanup. Do not form SFO/FRA or approve production
+until the GRU receipt is reviewed; then exercise real cross-region loss and
+catch-up before a production decision.
 
 ### Final candidate evidence — 2026-09-21
 
