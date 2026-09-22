@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 using TerraScale.Orchestrator.Nodes;
 using TerraScale.Orchestrator.Scheduler;
 using TerraScale.Orchestrator.Scheduler.Autoscaling;
@@ -258,9 +259,168 @@ public sealed class VmNodeFleetScaleHealTests
         fra.Succeeded = true;
     }
 
+    /// <summary>
+    /// Runs one three-member TerraBase membership across GRU, SFO, and FRA
+    /// Firecracker guests. Each region accepts a local document write, every
+    /// write converges to every other region, and a hard-lost SFO member
+    /// catches up the write it missed after booting from its retained disk.
+    /// </summary>
+    [Test]
+    public async Task VmFleetReplicatesAcrossRegionsAndCatchesUpAfterLoss()
+    {
+        Skip.Unless(
+            Environment.GetEnvironmentVariable("TS_ORCH_LIVE_VM") == "1",
+            "Set TS_ORCH_LIVE_VM=1 and TS_ORCH_VM_INPUTS=<prepared vm inputs directory> to run the Firecracker replication lane.");
+        var inputs = RequirePreparedInputs();
+        var gatewayBinary = Path.Combine(inputs, "gateway", "TerraBaseDevMember");
+        if (!File.Exists(gatewayBinary))
+        {
+            throw new InvalidOperationException(
+                $"The Firecracker replication lane requires the local gateway qualification payload at {gatewayBinary}.");
+        }
+
+        await using var lane = await VmLane.PrepareAsync(
+            inputs,
+            "GRU",
+            subnetThirdOctet: 81,
+            gatewayMember: true,
+            regionFromCell: true,
+            selectedRegions: "GRU,SFO,FRA");
+        await using var fleet = new VmNodeFleet(lane.Options, lane.DescribeMember);
+
+        await fleet.ProvisionAsync(new NodeProvisionRequest(
+            "vm-node-1", "gru", lane.Options.NodeCapacity, "cross-region replication"));
+        await fleet.ProvisionAsync(new NodeProvisionRequest(
+            "as-node-1", "sfo", lane.Options.NodeCapacity, "cross-region replication"));
+        await fleet.ProvisionAsync(new NodeProvisionRequest(
+            "as-node-2", "fra", lane.Options.NodeCapacity, "cross-region replication"));
+
+        using var gru = CreateDataClient(lane.Options.AddressFor(1));
+        using var sfo = CreateDataClient(lane.Options.AddressFor(2));
+        using var fra = CreateDataClient(lane.Options.AddressFor(3));
+        var clients = new[] { gru, sfo, fra };
+
+        await Task.WhenAll(
+            PutRegionalDocumentAsync(gru, "from-gru", "GRU", "initial"),
+            PutRegionalDocumentAsync(sfo, "from-sfo", "SFO", "initial"),
+            PutRegionalDocumentAsync(fra, "from-fra", "FRA", "initial"));
+        var initial = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["from-gru"] = "GRU",
+            ["from-sfo"] = "SFO",
+            ["from-fra"] = "FRA",
+        };
+        await Task.WhenAll(clients.Select(client => WaitForDocumentsAsync(client, initial)));
+
+        fleet.KillMember("as-node-1");
+        await Assert.That(fleet.IsMemberAlive("as-node-1")).IsFalse();
+        await PutRegionalDocumentAsync(gru, "during-sfo-loss", "GRU", "sfo-offline");
+        var duringLoss = new Dictionary<string, string>(initial, StringComparer.Ordinal)
+        {
+            ["during-sfo-loss"] = "GRU",
+        };
+        await Task.WhenAll(
+            WaitForDocumentsAsync(gru, duringLoss),
+            WaitForDocumentsAsync(fra, duringLoss));
+
+        await fleet.RestartAsync("as-node-1");
+        await Assert.That(fleet.IsMemberAlive("as-node-1")).IsTrue();
+        await WaitForDocumentsAsync(sfo, duringLoss);
+
+        lane.Succeeded = true;
+    }
+
+    private static HttpClient CreateDataClient(string address)
+    {
+        var client = new HttpClient
+        {
+            BaseAddress = new Uri($"http://{address}:8420"),
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", "vm-auth-api-key");
+        return client;
+    }
+
+    private static async Task PutRegionalDocumentAsync(
+        HttpClient client,
+        string documentId,
+        string region,
+        string phase)
+    {
+        using var content = JsonContent.Create(new { region, phase });
+        using var response = await client.PutAsync(DocumentPath(documentId), content);
+        await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.Created);
+    }
+
+    private static async Task WaitForDocumentsAsync(
+        HttpClient client,
+        IReadOnlyDictionary<string, string> expected)
+    {
+        var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(45);
+        var lastObserved = new Dictionary<string, HttpStatusCode>(StringComparer.Ordinal);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var converged = true;
+            foreach (var (documentId, region) in expected)
+            {
+                try
+                {
+                    using var response = await client.GetAsync(DocumentPath(documentId));
+                    lastObserved[documentId] = response.StatusCode;
+                    if (response.StatusCode != HttpStatusCode.OK)
+                    {
+                        converged = false;
+                        continue;
+                    }
+
+                    using var body = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+                    if (!body.RootElement.TryGetProperty("region", out var replicatedRegion)
+                        || !string.Equals(replicatedRegion.GetString(), region, StringComparison.Ordinal))
+                    {
+                        converged = false;
+                    }
+                }
+                catch (HttpRequestException)
+                {
+                    converged = false;
+                }
+                catch (TaskCanceledException)
+                {
+                    converged = false;
+                }
+            }
+
+            if (converged)
+            {
+                return;
+            }
+
+            await Task.Delay(250);
+        }
+
+        throw new TimeoutException(
+            $"Regional documents did not converge at {client.BaseAddress}; last statuses: "
+            + string.Join(", ", lastObserved.Select(pair => $"{pair.Key}={pair.Value}")));
+    }
+
+    private static string DocumentPath(string documentId) =>
+        $"/api/v1/databases/vm-lane-db/collections/replication/documents/{documentId}";
+
     private sealed class VmLane : IAsyncDisposable
     {
-        private VmLane(string root, string region, VmFleetOptions options, string databaseId, string tenantId, string observerCertificate, string observerKey, string observerAuthority)
+        private VmLane(
+            string root,
+            string region,
+            VmFleetOptions options,
+            string databaseId,
+            string tenantId,
+            string observerCertificate,
+            string observerKey,
+            string observerAuthority,
+            bool regionFromCell,
+            string selectedRegions,
+            bool exposeDataPlane)
         {
             Root = root;
             Region = region;
@@ -270,6 +430,9 @@ public sealed class VmNodeFleetScaleHealTests
             ObserverCertificate = observerCertificate;
             ObserverKey = observerKey;
             ObserverAuthority = observerAuthority;
+            RegionFromCell = regionFromCell;
+            SelectedRegions = selectedRegions;
+            ExposeDataPlane = exposeDataPlane;
         }
 
         public string Root { get; }
@@ -288,13 +451,20 @@ public sealed class VmNodeFleetScaleHealTests
 
         public string ObserverAuthority { get; }
 
-        public VmMemberDescription DescribeMember(NodeProvisionRequest request) => new(
-            8422,
-            new Dictionary<string, string>
+        private bool RegionFromCell { get; }
+
+        private string SelectedRegions { get; }
+
+        private bool ExposeDataPlane { get; }
+
+        public VmMemberDescription DescribeMember(NodeProvisionRequest request)
+        {
+            var memberRegion = RegionFromCell ? request.NodeClass.ToUpperInvariant() : Region;
+            var environment = new Dictionary<string, string>
             {
                 ["TERRABASE_NODE_ID"] = request.NodeId,
                 ["TERRABASE_REPLICA_EPOCH"] = "1",
-                ["TERRABASE_REGION"] = Region,
+                ["TERRABASE_REGION"] = memberRegion,
                 ["TERRABASE_MEMBER_CERT_FILE"] = $"/opt/payload/certs/{request.NodeId}.crt",
                 ["TERRABASE_MEMBER_KEY_FILE"] = $"/opt/payload/certs/{request.NodeId}.key",
                 ["TERRABASE_CLUSTER_CA_FILE"] = "/opt/payload/certs/ca.crt",
@@ -313,8 +483,15 @@ public sealed class VmNodeFleetScaleHealTests
                 ["TERRABASE_DATABASE_PATH"] = "/var/lib/terrabase",
                 ["TERRABASE_DATABASE_BACKEND"] = "storage-engine",
                 ["TERRABASE_DATABASE_HOME_REGION"] = Region,
-                ["TERRABASE_DATABASE_SELECTED_REGIONS"] = Region,
-            });
+                ["TERRABASE_DATABASE_SELECTED_REGIONS"] = SelectedRegions,
+            };
+            if (ExposeDataPlane)
+            {
+                environment["TERRABASE_OBSERVABILITY_URL"] = "http://0.0.0.0:8420";
+            }
+
+            return new VmMemberDescription(8422, environment);
+        }
 
         private string PeerUrlProperty(string member) => member switch
         {
@@ -335,15 +512,22 @@ public sealed class VmNodeFleetScaleHealTests
             string inputs,
             string region,
             int subnetThirdOctet,
-            bool includeAuth = false)
+            bool includeAuth = false,
+            bool gatewayMember = false,
+            bool regionFromCell = false,
+            string? selectedRegions = null)
         {
             var root = Path.Combine(Path.GetTempPath(), "orchestrator-vm-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             var host = Path.Combine(root, "payload", "host");
             CopyDirectory(Path.Combine(inputs, "host"), host);
+            var useGatewayMember = includeAuth || gatewayMember;
             if (includeAuth)
             {
                 CopyDirectory(Path.Combine(inputs, "auth"), Path.Combine(root, "payload", "auth"));
+            }
+            if (useGatewayMember)
+            {
                 CopyDirectory(Path.Combine(inputs, "gateway"), Path.Combine(root, "payload", "gateway"));
             }
 
@@ -371,10 +555,10 @@ public sealed class VmNodeFleetScaleHealTests
                 """);
             units.Add((payloadUnit, "terrabase-payload.service"));
             var memberUnit = Path.Combine(root, "terrabase-member.service");
-            var memberExecutable = includeAuth
+            var memberExecutable = useGatewayMember
                 ? "/opt/payload/gateway/TerraBaseDevMember"
                 : "/opt/payload/host/TerraBase.Host";
-            var devGatewayEnvironment = includeAuth
+            var devGatewayEnvironment = useGatewayMember
                 ? "Environment=TERRABASE_DEV_API_KEY=vm-auth-api-key\n"
                 : string.Empty;
             await File.WriteAllTextAsync(memberUnit, $$"""
@@ -461,8 +645,18 @@ public sealed class VmNodeFleetScaleHealTests
                 ObserverAuthorityPath = Path.Combine(certs, "ca.crt"),
                 ReadinessTimeout = TimeSpan.FromSeconds(180),
             };
-            return new VmLane(root, region, options with { SubnetThirdOctet = subnetThirdOctet }, databaseId, tenantId,
-                Path.Combine(certs, "observer.crt"), Path.Combine(certs, "observer.key"), Path.Combine(certs, "ca.crt"));
+            return new VmLane(
+                root,
+                region,
+                options with { SubnetThirdOctet = subnetThirdOctet },
+                databaseId,
+                tenantId,
+                Path.Combine(certs, "observer.crt"),
+                Path.Combine(certs, "observer.key"),
+                Path.Combine(certs, "ca.crt"),
+                regionFromCell,
+                selectedRegions ?? region,
+                gatewayMember);
         }
 
         public bool Succeeded { get; set; }
