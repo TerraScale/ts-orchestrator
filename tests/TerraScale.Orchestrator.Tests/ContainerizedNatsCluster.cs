@@ -119,27 +119,84 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
 
     public async Task StopAsync(Process process, CancellationToken cancellationToken = default)
     {
-        if (containers.Remove(process.Id, out var containerName))
+        try
         {
-            // Podman can leave a stop request waiting on a dead pasta namespace.
-            // Cleanup must remain bounded so a passing test cannot hang the whole
-            // suite; the process kill below is the final ownership fence.
-            await BestEffortRunAsync(["stop", "--time", "2", containerName], cancellationToken);
-            await BestEffortRunAsync(["rm", "--force", containerName], cancellationToken);
+            if (containers.TryGetValue(process.Id, out var containerName))
+            {
+                await RemoveAndRequireAbsentAsync(
+                    ["rm", "--force", "--time", "2", containerName],
+                    ["container", "exists", containerName],
+                    $"NATS test container '{containerName}'",
+                    cancellationToken);
+                containers.Remove(process.Id);
+            }
         }
-        if (!process.HasExited)
-            process.Kill(entireProcessTree: true);
-        await process.WaitForExitAsync(cancellationToken).WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        finally
+        {
+            // Even a failed Podman cleanup command cannot retain the attached
+            // client process. The name stays tracked so pod disposal can retry.
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
-        await BestEffortRunAsync(["pod", "rm", "--force", podName], CancellationToken.None);
-        containers.Clear();
+        if (Interlocked.CompareExchange(ref disposed, 1, 0) != 0) return;
+        try
+        {
+            await RemoveAndRequireAbsentAsync(
+                ["pod", "rm", "--force", "--time", "2", podName],
+                ["pod", "exists", podName],
+                $"NATS test pod '{podName}'",
+                CancellationToken.None);
+            containers.Clear();
+            Volatile.Write(ref disposed, 2);
+        }
+        finally
+        {
+            // A failed absence probe must leave cleanup retryable. The owning
+            // fixture keeps the local-server lease quarantined until a later
+            // disposal proves that the pod is gone.
+            if (Volatile.Read(ref disposed) == 1)
+                Volatile.Write(ref disposed, 0);
+        }
     }
 
-    private static async Task BestEffortRunAsync(
+    private static async Task RemoveAndRequireAbsentAsync(
+        IReadOnlyList<string> removeArguments,
+        IReadOnlyList<string> existsArguments,
+        string resource,
+        CancellationToken cancellationToken)
+    {
+        string removalDiagnostic;
+        try
+        {
+            var removal = await RunBoundedAsync(removeArguments, cancellationToken);
+            removalDiagnostic = removal.ExitCode == 0
+                ? "removal command succeeded"
+                : $"removal exit code {removal.ExitCode}: {removal.Diagnostics}";
+        }
+        catch (TimeoutException exception)
+        {
+            removalDiagnostic = exception.Message;
+        }
+
+        var probe = await RunBoundedAsync(existsArguments, cancellationToken);
+        if (probe.ExitCode == 1)
+            return;
+        if (probe.ExitCode == 0)
+        {
+            throw new InvalidOperationException(
+                $"{resource} still exists after bounded cleanup; {removalDiagnostic}.");
+        }
+        throw new InvalidOperationException(
+            $"Podman could not verify cleanup of {resource}; probe exit code {probe.ExitCode}: " +
+            $"{probe.Diagnostics}; {removalDiagnostic}.");
+    }
+
+    private static async Task<(int ExitCode, string Diagnostics)> RunBoundedAsync(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken)
     {
@@ -147,17 +204,13 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
         try
         {
-            _ = await RunAsync(arguments, timeout.Token);
+            return await RunAsync(arguments, timeout.Token);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
         {
-            // The caller still owns the process/container and will apply its
-            // direct kill path. A stalled Podman helper is not test evidence.
-        }
-        catch (Exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            // Cleanup is intentionally best effort; the lease quarantine
-            // records any remaining process/root for the next run.
+            throw new TimeoutException(
+                $"Podman command '{string.Join(' ', arguments)}' exceeded its 10-second cleanup bound",
+                exception);
         }
     }
 
