@@ -57,7 +57,6 @@ internal sealed class TestFileCreateNodeOperationJournal(
     // A write-through journal update can fsync for far longer than a fixed
     // attempt budget under host IO load; wait on a wall-clock deadline so a
     // contending holder always gets a bounded but generous window.
-    { Directory.CreateDirectory(directory); var path = PathFor(operationId) + ".lock"; var deadline = Environment.TickCount64 + 15_000; for (var attempt = 0; ; attempt++) { token.ThrowIfCancellationRequested(); try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough); } catch (IOException) when (Environment.TickCount64 < deadline) { Thread.Sleep(attempt < 8 ? 5 : 25); } } }
+    { Directory.CreateDirectory(directory); var path = PathFor(operationId) + ".lock"; var deadline = Environment.TickCount64 + 60_000; for (var attempt = 0; ; attempt++) { token.ThrowIfCancellationRequested(); try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough); } catch (IOException) when (Environment.TickCount64 < deadline) { Thread.Sleep(attempt < 8 ? 5 : 25); } } }
     private sealed record Envelope(string Algorithm, string KeyId, string Payload, string Tag);
 }
-

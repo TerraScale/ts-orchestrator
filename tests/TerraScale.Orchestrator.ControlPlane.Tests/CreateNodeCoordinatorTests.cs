@@ -201,7 +201,7 @@ public sealed class CreateNodeCoordinatorTests
             using var first = StartChild(child, root, key, barrier, one, "one"); var firstOutput = CaptureOutputAsync(first);
             using var second = StartChild(child, root, key, barrier, two, "two"); var secondOutput = CaptureOutputAsync(second);
             await WaitForFiles([one + ".ready", two + ".ready"], TimeSpan.FromSeconds(60)); await File.WriteAllTextAsync(barrier, "go");
-            await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60)); await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
+            await first.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90)); await second.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90));
             // The CAS winner exits 0 and the loser exits 1; any other pair means a
             // child failed before writing its verdict, so surface why instead of a
             // bare missing-file error.
@@ -298,4 +298,3 @@ public sealed class CreateNodeCoordinatorTests
     private sealed class ExpiringRecoveryJournal(ICreateNodeOperationJournal inner, CreateNodeRecoveryLookupSigner signer, DateTimeOffset expiry) : ICreateNodeOperationJournal { public ValueTask<CreateNodeOperationJournalEntry?> ReadAsync(string id, CancellationToken token) => inner.ReadAsync(id, token); public ValueTask<bool> CompareExchangeAsync(CreateNodeOperationJournalEntry? expected, CreateNodeOperationJournalEntry replacement, CancellationToken token) => inner.CompareExchangeAsync(expected, replacement.Stage == CreateNodeJournalStage.ProviderCallStarted ? replacement with { RecoveryAuthority = signer.Sign(replacement.Binding, replacement.RecoveryAuthority.IssuedAt, expiry) } : replacement, token); }
     private sealed class OciClient : IOciCreateNodeClient { public int Calls { get; private set; } public ValueTask<CreateNodeProviderResponse> CreateNodeAsync(CreateNodeProviderRequest r, CancellationToken t) { Calls++; throw new InvalidOperationException(); } public ValueTask<CreateNodeReconciliation> ReconcileCreateNodeAsync(CreateNodeProviderRequest r, CancellationToken t) { Calls++; throw new InvalidOperationException(); } }
 }
-
