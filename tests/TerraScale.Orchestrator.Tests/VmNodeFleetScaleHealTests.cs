@@ -536,7 +536,7 @@ public sealed class VmNodeFleetScaleHealTests
 
             var databaseId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();
             var tenantId = LocalNodeFleetScaleHealTests.CanonicalUlid.New();
-            var units = new List<(string UnitPath, string GuestName)>();
+            var units = new List<VmGuestUnit>();
             var payloadUnit = Path.Combine(root, "terrabase-payload.service");
             await File.WriteAllTextAsync(payloadUnit, """
                 [Unit]
@@ -553,7 +553,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Install]
                 WantedBy=multi-user.target
                 """);
-            units.Add((payloadUnit, "terrabase-payload.service"));
+            units.Add(new VmGuestUnit(payloadUnit, "terrabase-payload.service"));
             var memberUnit = Path.Combine(root, "terrabase-member.service");
             var memberExecutable = useGatewayMember
                 ? "/opt/payload/gateway/TerraBaseDevMember"
@@ -584,7 +584,7 @@ public sealed class VmNodeFleetScaleHealTests
                 [Install]
                 WantedBy=multi-user.target
                 """);
-            units.Add((memberUnit, "terrabase-member.service"));
+            units.Add(new VmGuestUnit(memberUnit, "terrabase-member.service"));
             if (includeAuth)
             {
                 var authUnit = Path.Combine(root, "ts-auth.service");
@@ -618,7 +618,7 @@ public sealed class VmNodeFleetScaleHealTests
                     [Install]
                     WantedBy=multi-user.target
                     """);
-                units.Add((authUnit, "ts-auth.service"));
+                units.Add(new VmGuestUnit(authUnit, "ts-auth.service"));
             }
 
             var disabledMarker = Path.Combine(root, "cloud-init.disabled");
