@@ -256,11 +256,18 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
         if (!containers.TryGetValue(serverName, out var container))
             throw new InvalidOperationException($"The server '{serverName}' is not running.");
-        // Force makes this operation idempotent when netavark has already
-        // dropped the container's resolver entry after a prior link fault.
-        await RequireSuccessAsync(
+        // Netavark can remove the interface and then return 125 because its
+        // resolver entry is already absent. Accept only that partial-success
+        // diagnostic, and only after Podman reports the requested end state.
+        var (exitCode, error) = await RunAsync(
             ["network", "disconnect", "--force", gatewayNetwork, container],
             cancellationToken);
+        if (exitCode != 0
+            && (!IsMissingAardvarkEntry(error)
+                || await IsConnectedToNetworkAsync(container, gatewayNetwork, cancellationToken)))
+        {
+            throw PodmanFailure(exitCode, error);
+        }
         // Give the removed interface's TCP fallout time to reach the servers'
         // gateway reconnect logic before the caller asserts link state.
         await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken);
@@ -390,9 +397,33 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
     {
         var (exitCode, error) = await RunAsync(arguments, cancellationToken);
         if (exitCode != 0)
-            throw new InvalidOperationException(
-                $"Podman exited with code {exitCode} while preparing the RF1 gateway fixture network plane: {error.Trim()}");
+            throw PodmanFailure(exitCode, error);
     }
+
+    private static async Task<bool> IsConnectedToNetworkAsync(
+        string container,
+        string network,
+        CancellationToken cancellationToken)
+    {
+        var networks = await ListOwnedAsync(
+            [
+                "inspect",
+                "--format",
+                "{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{\"\\n\"}}{{end}}",
+                container,
+            ],
+            cancellationToken);
+        return networks.Contains(network, StringComparer.Ordinal);
+    }
+
+    private static bool IsMissingAardvarkEntry(string error) =>
+        error.Contains(
+            "netavark: remove aardvark entries: IO error: No such file or directory",
+            StringComparison.Ordinal);
+
+    private static InvalidOperationException PodmanFailure(int exitCode, string error) =>
+        new(
+            $"Podman exited with code {exitCode} while preparing the RF1 gateway fixture network plane: {error.Trim()}");
 
     private static async Task<(int ExitCode, string Error)> RunAsync(
         IReadOnlyList<string> arguments,
