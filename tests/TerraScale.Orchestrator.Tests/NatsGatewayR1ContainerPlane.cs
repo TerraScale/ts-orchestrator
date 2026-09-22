@@ -167,8 +167,10 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
     {
         // Containers first: a leaked server keeps its network attached, and
         // Podman refuses to remove a network an existing container still uses.
+        // Match the deterministic fixture prefix even when a predecessor was
+        // created before the ownership label was added.
         var containers = (await ListOwnedAsync(
-            ["ps", "-a", "--filter", $"label={OwnershipLabel}", "--format", "{{.Names}}"],
+            ["ps", "-a", "--format", "{{.Names}}"],
             cancellationToken))
             .Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal))
             .ToArray();
@@ -177,7 +179,7 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             await RunAsync(["rm", "--force", "--time", "2", container], cancellationToken);
         }
         var networks = (await ListOwnedAsync(
-            ["network", "ls", "--filter", $"label={OwnershipLabel}", "--format", "{{.Name}}"],
+            ["network", "ls", "--format", "{{.Name}}"],
             cancellationToken))
             .Where(static name => name.StartsWith(NetworkNamePrefix, StringComparison.Ordinal))
             .ToArray();
@@ -410,4 +412,3 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
         return (process.ExitCode, error.Result);
     }
 }
-
