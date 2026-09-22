@@ -594,56 +594,61 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
     private async Task WaitForJetStreamReadinessAsync(CancellationToken cancellationToken)
     {
-        for (var member = 0; member < MemberCount; member++)
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        NatsException? lastFailure = null;
+        while (!timeout.IsCancellationRequested)
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            while (!timeout.IsCancellationRequested)
+            cancellationToken.ThrowIfCancellationRequested();
+            for (var member = 0; member < MemberCount; member++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
                 if (processes[member] is { HasExited: true })
                     throw new InvalidOperationException(GetMemberDiagnostic(member));
-                try
-                {
-                    await using var infrastructure = await ConnectAsync(
-                        Infrastructure,
-                        member,
-                        cancellationToken: timeout.Token);
-                    try
-                    {
-                        _ = await infrastructure.CreateJetStreamContext()
-                            .GetStreamAsync("KV_ORCH_OPERATIONS", cancellationToken: timeout.Token);
-                        break;
-                    }
-                    catch (NatsJSApiException exception) when (exception.Error.Code == 404)
-                    {
-                        // The topology has not been provisioned yet. A 404 proves
-                        // that this member's JetStream meta layer is serving.
-                        break;
-                    }
-                }
-                catch (NatsException)
-                {
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMilliseconds(200), timeout.Token);
-                }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    break;
-                }
             }
-            cancellationToken.ThrowIfCancellationRequested();
-            if (timeout.IsCancellationRequested)
-                throw new TimeoutException(
-                    $"The R3 JetStream meta layer did not become ready through member {member + 1} within 30 seconds. " +
-                    GetMemberDiagnostic(member));
+            try
+            {
+                await using var infrastructure = await ConnectAsync(
+                    Infrastructure,
+                    cancellationToken: timeout.Token);
+                // A read-only 404 proves that the metadata API has a leader, but
+                // not that all three JetStream peers can place an R3 asset. Create
+                // one canonical topology stream as the placement probe and retain
+                // it for the idempotent provisioning pass that follows.
+                var stream = await infrastructure.CreateJetStreamContext()
+                    .CreateOrUpdateStreamAsync(Topology.Streams[0], timeout.Token);
+                await stream.RefreshAsync(timeout.Token);
+                var cluster = stream.Info.Cluster;
+                if (!string.IsNullOrWhiteSpace(cluster?.Leader) &&
+                    cluster.Replicas is { Count: MemberCount - 1 } &&
+                    cluster.Replicas.All(static replica =>
+                        replica.Current && !replica.Offline && replica.Lag == 0))
+                    return;
+            }
+            catch (NatsException exception)
+            {
+                lastFailure = exception;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200), timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
         }
+        cancellationToken.ThrowIfCancellationRequested();
+        var detail = lastFailure is null
+            ? "no R3 placement response"
+            : SanitizeDiagnosticLine(lastFailure.Message);
+        throw new TimeoutException(
+            $"The R3 JetStream placement group did not converge within 60 seconds; last failure: {detail}. " +
+            string.Join("; ", Enumerable.Range(0, MemberCount).Select(GetMemberDiagnostic)),
+            lastFailure);
     }
 
     private void StartMember(int member)
@@ -690,31 +695,36 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         Func<Task> action,
         CancellationToken cancellationToken)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        var elapsed = Stopwatch.StartNew();
+        var convergenceWindow = TimeSpan.FromSeconds(60);
         NatsException? lastFailure = null;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 await action();
                 return;
             }
-            catch (NatsException exception) when (!timeout.IsCancellationRequested)
+            catch (NatsException exception)
             {
                 lastFailure = exception;
-                await Task.Delay(TimeSpan.FromMilliseconds(200));
-                cancellationToken.ThrowIfCancellationRequested();
-                if (timeout.IsCancellationRequested)
-                {
-                    var detail = lastFailure is null
-                        ? "no NATS response"
-                        : SanitizeDiagnosticLine(lastFailure.Message);
-                    throw new TimeoutException(
-                        $"NATS operation did not converge within 30 seconds; last failure: {detail}",
-                        lastFailure);
-                }
             }
+            if (elapsed.Elapsed >= convergenceWindow)
+            {
+                var detail = lastFailure is null
+                    ? "no NATS response"
+                    : SanitizeDiagnosticLine(lastFailure.Message);
+                throw new TimeoutException(
+                    $"NATS operation did not converge within 60 seconds; last failure: {detail}",
+                    lastFailure);
+            }
+            var remaining = convergenceWindow - elapsed.Elapsed;
+            await Task.Delay(
+                remaining < TimeSpan.FromMilliseconds(200)
+                    ? remaining
+                    : TimeSpan.FromMilliseconds(200),
+                cancellationToken);
         }
     }
 
