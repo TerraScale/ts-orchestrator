@@ -111,15 +111,17 @@ The selected local candidates are:
 
 - `ts-orchestrator@5f103a8fb123083567a973a8a52ae623b8e952ac`;
 - `TerraBase@a4500b1c332b60fd819571ce06f82c3acb47b36a`;
-- `ts-auth@05cd59f6731e266f4c90b03050a180f6554bf754`.
+- `ts-auth@1f6fa646447c5d1cbae67943bd8dee4b6d47dc93`.
 - `ts-infra@4b718c02df20033ceca04b06d72fb7aed8ba629b`.
 
-The auth production change is
-`7f0504898dfe05f4bfe12b5c8a60468682e7844a`; the following `05cd59f` commit
-only formats two test fixtures. The immutable Firecracker payload therefore
-uses auth `7f05048`, while the final container is built from exact auth HEAD
-`05cd59f`. All four selected source trees were clean when their final gates
-ran.
+The auth service production source is unchanged from the tested `7f05048`
+change (`7f0504898dfe05f4bfe12b5c8a60468682e7844a`); later commits only
+format fixtures, merge the endpoint branch, and fix CI packaging. The exact
+current candidate is `1f6fa64`, and its CI-only change restores the runtime
+before the publish step. The immutable Firecracker payload therefore uses
+auth `7f05048`, while the final container is built and smoke-tested from exact
+auth HEAD `1f6fa64`. All four selected source trees were clean when their
+final gates ran.
 
 This qualification fixed four defects found by the local integration work:
 
@@ -194,16 +196,16 @@ The source-bound artifacts and metadata are under
   SHA-256 `3e7d987eb3273c982f6c2f9fdd481591909f94346afe4c006e53cc0436cb25dd`.
 
 The exact-head auth distroless image is
-`localhost/terrascale/ts-auth:05cd59f6731e266f4c90b03050a180f6554bf754`,
+`localhost/terrascale/ts-auth:1f6fa646447c5d1cbae67943bd8dee4b6d47dc93`,
 digest
-`sha256:82aa0e9b516fdcbf03489d46648e904976a8fd88e7c64db8acb8b87e46dbea6e`.
+`sha256:e1495914fdd75fdc7895fb38969da102912a35b9b313fc6e3e9f3b61c0619066`.
 Its 109,784,671-byte single-file payload has SHA-256
-`7507f6f291267cd4f685aac139d98990a05110d763a8632ed4b652d7927219c7`.
+`cc30e53223ab6058c5c7518d9a5c59d429e86ac47d01938406f972f5ad84ce71`.
 It passed Linux/amd64 image inspection and a real-container smoke against the
 final TerraBase development member: health/readiness, instance creation,
 graceful stop, restart, durable recovery, and duplicate rejection all passed.
-Evidence is in `/tmp/ts-goal-final-auth-container-05cd59f-20260922.log` and
-`/tmp/ts-goal-final-auth-container-smoke-05cd59f-a4500b1c-20260922.log`.
+Evidence is in `/tmp/ts-goal-final-auth-container-1f6fa64-20260922.log` and
+`/tmp/ts-goal-final-auth-container-smoke-1f6fa64-a4500b1c-20260922.log`.
 
 The local gate authorizes only a disposable staging canary. Production remains
 blocked until OCI evidence passes for all of the following:
