@@ -254,14 +254,24 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.Operator,
                 identities.WrongAccount);
 
-            for (var member = 0; member < MemberCount; member++)
-                fixture.StartMember(member);
-
             try
             {
+                // Podman serializes parts of rootless container startup internally.
+                // Starting all three clients at once can leave one `podman run`
+                // blocked before nats-server emits any output under a loaded runner.
+                // Prove each server is accepting authenticated connections before
+                // asking Podman to start the next member.
+                for (var member = 0; member < MemberCount; member++)
+                {
+                    fixture.StartMember(member);
+                    await fixture.WaitForMemberAsync(member, cancellationToken);
+                }
+
                 await fixture.WaitForClusterAsync(cancellationToken);
+                await fixture.WaitForJetStreamReadinessAsync(cancellationToken);
             }
-            catch (Exception exception) when (exception is NatsException or TimeoutException)
+            catch (Exception exception) when (
+                exception is NatsException or TimeoutException or InvalidOperationException)
             {
                 var states = Enumerable.Range(0, MemberCount).Select(fixture.GetMemberDiagnostic);
                 throw new InvalidOperationException(
@@ -459,23 +469,39 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ValidateMember(member);
-        for (var attempt = 0; attempt < 300; attempt++)
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        while (!timeout.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (processes[member] is { HasExited: true })
-                throw new InvalidOperationException($"NATS member {member + 1} exited during readiness.");
+                throw new InvalidOperationException(GetMemberDiagnostic(member));
             try
             {
-                await using var client = await ConnectAsync(Operator, member, cancellationToken: cancellationToken);
-                await client.PingAsync(cancellationToken);
+                await using var client = await ConnectAsync(Operator, member, cancellationToken: timeout.Token);
+                await client.PingAsync(timeout.Token);
                 return;
             }
-            catch (NatsException) when (attempt < 299)
+            catch (NatsException)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
         }
-        throw new TimeoutException($"NATS member {member + 1} did not become ready within 30 seconds.");
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new TimeoutException(
+            $"NATS member {member + 1} did not become ready within 30 seconds. " +
+            GetMemberDiagnostic(member));
     }
 
     private async Task WaitForJetStreamQuorumAsync(CancellationToken cancellationToken)
@@ -564,6 +590,60 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
             }
         }
         throw new TimeoutException("The three-member NATS R3 cluster did not become ready after 120 connection probes.");
+    }
+
+    private async Task WaitForJetStreamReadinessAsync(CancellationToken cancellationToken)
+    {
+        for (var member = 0; member < MemberCount; member++)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            while (!timeout.IsCancellationRequested)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (processes[member] is { HasExited: true })
+                    throw new InvalidOperationException(GetMemberDiagnostic(member));
+                try
+                {
+                    await using var infrastructure = await ConnectAsync(
+                        Infrastructure,
+                        member,
+                        cancellationToken: timeout.Token);
+                    try
+                    {
+                        _ = await infrastructure.CreateJetStreamContext()
+                            .GetStreamAsync("KV_ORCH_OPERATIONS", cancellationToken: timeout.Token);
+                        break;
+                    }
+                    catch (NatsJSApiException exception) when (exception.Error.Code == 404)
+                    {
+                        // The topology has not been provisioned yet. A 404 proves
+                        // that this member's JetStream meta layer is serving.
+                        break;
+                    }
+                }
+                catch (NatsException)
+                {
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                try
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), timeout.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (timeout.IsCancellationRequested)
+                throw new TimeoutException(
+                    $"The R3 JetStream meta layer did not become ready through member {member + 1} within 30 seconds. " +
+                    GetMemberDiagnostic(member));
+        }
     }
 
     private void StartMember(int member)
