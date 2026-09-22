@@ -223,7 +223,6 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
             var containerCluster = await ContainerizedNatsCluster.CreateAsync(
                 directory,
-                clientPorts.Concat(routePorts),
                 cancellationToken: cancellationToken);
             fixture = new NatsControlR3L0cFixture(
                 directory,

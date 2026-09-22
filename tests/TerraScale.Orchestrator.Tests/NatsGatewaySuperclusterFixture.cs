@@ -169,7 +169,6 @@ internal sealed class NatsGatewaySuperclusterFixture : IAsyncDisposable
 
             var containerCluster = await ContainerizedNatsCluster.CreateAsync(
                 directory,
-                clientPorts.Values,
                 cancellationToken: cancellationToken);
             fixture = new NatsGatewaySuperclusterFixture(
                 directory,

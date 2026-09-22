@@ -3,9 +3,9 @@ using System.Diagnostics;
 namespace TerraScale.Orchestrator.Tests;
 
 /// <summary>
-/// Runs the real, digest-pinned NATS image in a private rootless Podman pod.
-/// The pod publishes only explicitly reserved loopback ports and lets clustered
-/// members continue to route over their shared loopback network namespace.
+/// Runs the real, digest-pinned NATS image in a rootless Podman pod. Every NATS
+/// configuration binds explicitly reserved loopback ports, so the pod can use
+/// the job's host network without a long-lived pasta forwarding process.
 /// </summary>
 internal sealed class ContainerizedNatsCluster : IAsyncDisposable
 {
@@ -25,7 +25,6 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
 
     public static async Task<ContainerizedNatsCluster> CreateAsync(
         string root,
-        IEnumerable<int> publishedPorts,
         IEnumerable<string>? readOnlyRoots = null,
         CancellationToken cancellationToken = default)
     {
@@ -47,16 +46,9 @@ internal sealed class ContainerizedNatsCluster : IAsyncDisposable
             "pod", "create",
             "--name", podName,
             "--label", OwnershipLabel,
-            "--network", "pasta:--host-lo-to-ns-lo,--log-file=/dev/null",
+            "--network", "host",
             "--exit-policy", "continue",
         };
-        foreach (var port in publishedPorts.Distinct().Order())
-        {
-            if (port is <= 0 or > ushort.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(publishedPorts), port, "Published ports must be valid TCP ports.");
-            arguments.Add("--publish");
-            arguments.Add($"127.0.0.1:{port}:{port}/tcp");
-        }
 
         await RequireSuccessAsync(arguments, cancellationToken);
         return new ContainerizedNatsCluster(podName, fullRoot, normalizedReadOnlyRoots);

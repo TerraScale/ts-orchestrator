@@ -315,8 +315,8 @@ public sealed class NatsDurableDeliveryTests
                 var configuration = Path.Combine(directory, "nats.conf");
                 await File.WriteAllTextAsync(
                     configuration,
-                    $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-                var containerCluster = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
+                    $"host: 127.0.0.1\nport: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+                var containerCluster = await ContainerizedNatsCluster.CreateAsync(directory);
                 server = new OneJetStream(directory, configuration, port, containerCluster, lease);
                 await server.ConnectAsync();
                 return server;
@@ -448,4 +448,3 @@ public sealed class NatsDurableDeliveryTests
         }
     }
 }
-

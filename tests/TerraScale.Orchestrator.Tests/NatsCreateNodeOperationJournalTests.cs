@@ -425,8 +425,8 @@ public sealed class NatsCreateNodeOperationJournalTests
                 var port = ((IPEndPoint)listener.LocalEndpoint).Port;
                 listener.Stop();
                 var configuration = Path.Combine(directory, "nats.conf");
-                await File.WriteAllTextAsync(configuration, $"port: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-                var containerCluster = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
+                await File.WriteAllTextAsync(configuration, $"host: 127.0.0.1\nport: {port}\n{authorization}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+                var containerCluster = await ContainerizedNatsCluster.CreateAsync(directory);
                 server = new OneNodeJetStream(directory, configuration, port, clientOptions, containerCluster, lease);
                 await server.ConnectAsync();
                 return server;
@@ -629,6 +629,7 @@ public sealed class NatsCreateNodeOperationJournalTests
                         .Select(route => $"\"nats-route://127.0.0.1:{route}\""));
                     await File.WriteAllTextAsync(configurations[index], $$"""
                         server_name: "journal-{{index}}"
+                        host: "127.0.0.1"
                         port: {{clientPorts[index]}}
                         {{authorization}}
                         {{transportConfiguration}}
@@ -644,7 +645,6 @@ public sealed class NatsCreateNodeOperationJournalTests
 
                 var containerCluster = await ContainerizedNatsCluster.CreateAsync(
                     directory,
-                    clientPorts.Concat(routePorts),
                     readOnlyRoots);
                 server = new ThreeNodeJetStream(directory, clientPorts, processes, processOutput, containerCluster, lease);
                 for (var index = 0; index < configurations.Length; index++)
@@ -771,4 +771,3 @@ public sealed class NatsCreateNodeOperationJournalTests
         }
     }
 }
-

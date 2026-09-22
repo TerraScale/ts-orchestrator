@@ -469,8 +469,8 @@ internal sealed class PlacementNatsServer : IAsyncDisposable
             var configuration = Path.Combine(directory, "nats.conf");
             await File.WriteAllTextAsync(
                 configuration,
-                $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-            var containers = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
+                $"host: 127.0.0.1\nport: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+            var containers = await ContainerizedNatsCluster.CreateAsync(directory);
             var process = containers.Start(configuration);
             var client = new NatsClient(new NatsOpts
             {
