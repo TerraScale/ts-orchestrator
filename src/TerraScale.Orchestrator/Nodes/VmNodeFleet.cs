@@ -249,11 +249,14 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
         await File.WriteAllLinesAsync(environment, lines);
         await RunAsync("sudo", $"debugfs -w -R \"write {environment} /opt/member.env\" {rootfs}");
         await RunAsync("sudo", $"debugfs -w -R \"sif /opt/member.env mode 0100644\" {rootfs}");
-        foreach (var (unit, target) in options.GuestUnits)
+        foreach (var unit in options.GuestUnits)
         {
-            await RunAsync("sudo", $"debugfs -w -R \"write {unit} /etc/systemd/system/{target}\" {rootfs}");
-            await RunAsync("sudo", $"debugfs -w -R \"sif /etc/systemd/system/{target} mode 0100644\" {rootfs}");
-            await RunAsync("sudo", $"debugfs -w -R \"symlink /etc/systemd/system/multi-user.target.wants/{target} /etc/systemd/system/{target}\" {rootfs}", ignoreFailure: true);
+            await RunAsync("sudo", $"debugfs -w -R \"write {unit.UnitPath} /etc/systemd/system/{unit.GuestName}\" {rootfs}");
+            await RunAsync("sudo", $"debugfs -w -R \"sif /etc/systemd/system/{unit.GuestName} mode 0100644\" {rootfs}");
+            if (unit.Enable)
+            {
+                await RunAsync("sudo", $"debugfs -w -R \"symlink /etc/systemd/system/multi-user.target.wants/{unit.GuestName} /etc/systemd/system/{unit.GuestName}\" {rootfs}", ignoreFailure: true);
+            }
         }
 
         _ = nodeId;
@@ -313,6 +316,9 @@ public sealed record VmMemberDescription(
     int PeerPort,
     IReadOnlyDictionary<string, string> Environment);
 
+/// <summary>One unit file injected into a Firecracker guest and optionally enabled at boot.</summary>
+public sealed record VmGuestUnit(string UnitPath, string GuestName, bool Enable = true);
+
 /// <summary>
 /// The prepared inputs of the Firecracker lane: the pinned kernel, the
 /// prepared Ubuntu rootfs, the shared read-only member payload disk, the
@@ -333,7 +339,7 @@ public sealed record VmFleetOptions
 
     public required string DisabledMarkerPath { get; init; }
 
-    public required IReadOnlyList<(string UnitPath, string GuestName)> GuestUnits { get; init; }
+    public required IReadOnlyList<VmGuestUnit> GuestUnits { get; init; }
 
     public required string ObserverCertificatePath { get; init; }
 
@@ -390,7 +396,8 @@ internal sealed record VmNode(
     int PeerPort,
     string WorkingDirectory,
     HttpClient Peer,
-    HttpClient Api)
+    HttpClient Api,
+    FileStream ConsoleWriter)
     : IAsyncDisposable
 {
     public bool IsAlive => Firecracker is { HasExited: false } && ProbeAsync().GetAwaiter().GetResult().Up;
@@ -440,10 +447,17 @@ internal sealed record VmNode(
         }) ?? throw new InvalidOperationException($"Firecracker could not be started for {nodeId}.");
         void Record(string line)
         {
-            lock (consoleWriter)
+            try
             {
-                consoleWriter.Write(System.Text.Encoding.UTF8.GetBytes(line + "\n"));
-                consoleWriter.Flush();
+                lock (consoleWriter)
+                {
+                    consoleWriter.Write(System.Text.Encoding.UTF8.GetBytes(line + "\n"));
+                    consoleWriter.Flush();
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Teardown can complete while the final redirected line is in flight.
             }
         }
 
@@ -488,12 +502,24 @@ internal sealed record VmNode(
         await PutAsync(api, "actions", """{"action_type":"InstanceStart"}""");
 
         var peer = BuildPeerClient(options);
-        var node = new VmNode(nodeId, AutoscalingNodeState.Provisioning, firecracker, apiSocket, tap, address, description.PeerPort, workingDirectory, peer, api);
+        var node = new VmNode(
+            nodeId,
+            AutoscalingNodeState.Provisioning,
+            firecracker,
+            apiSocket,
+            tap,
+            address,
+            description.PeerPort,
+            workingDirectory,
+            peer,
+            api,
+            consoleWriter);
         if (!await node.WaitUntilReadyAsync(options.ReadinessTimeout, consoleWriter))
         {
             consoleWriter.Flush();
             var tail = File.Exists(console) ? await File.ReadAllTextAsync(console) : string.Empty;
             await node.StopAsync();
+            node.ReleaseResources();
             // The working directory is preserved for diagnosis.
             throw new TimeoutException(
                 $"The VM member {nodeId} at {address} did not become ready within {options.ReadinessTimeout}. Working directory {workingDirectory} preserved. Console tail: {(tail.Length > 2000 ? tail[^2000..] : tail)}");
@@ -567,6 +593,7 @@ internal sealed record VmNode(
         Peer.Dispose();
         Api.Dispose();
         Firecracker.Dispose();
+        ConsoleWriter.Dispose();
         VmNodeFleet.RunCommand("sudo", $"ip link del {TapName}", ignoreFailure: true);
     }
 
