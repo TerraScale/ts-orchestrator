@@ -160,6 +160,10 @@ The external auth smoke is
 The auth and TerraBase suites are
 `/tmp/ts-goal-final-auth-tests-7f05048-a4500b1c-20260921.log` and
 `/tmp/ts-goal-terrabase-final-api-a4500b1c-20260921.log`. The exact-head
+ts-auth suite was rerun from the RID-qualified output produced with the clean
+TerraBase project reference and passed **381/381**, with zero failures or
+skips, in `/tmp/ts-goal-final-auth-tests-1f6fa64-a4500b1c-clean-rid-20260922.log`.
+The exact-head
 TerraBase build/style log is
 `/tmp/ts-goal-final-terrabase-build-format-a4500b1c-20260922.log`; the complete
 upstream partition evidence is under
