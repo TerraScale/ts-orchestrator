@@ -385,9 +385,13 @@ internal sealed class NatsGatewayR1ContainerPlane : IAsyncDisposable
             startInfo.ArgumentList.Add(argument);
         using var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Podman did not start.");
-        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var output = process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var error = process.StandardError.ReadToEndAsync(cancellationToken);
         await process.WaitForExitAsync(cancellationToken);
-        return output
+        await Task.WhenAll(output, error);
+        if (process.ExitCode != 0)
+            throw PodmanFailure(process.ExitCode, error.Result);
+        return output.Result
             .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     }
 
