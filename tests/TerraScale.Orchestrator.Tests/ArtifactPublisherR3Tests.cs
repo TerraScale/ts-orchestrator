@@ -9,7 +9,7 @@ using TerraScale.Orchestrator.Operations;
 
 namespace TerraScale.Orchestrator.Tests;
 
-[NotInParallel(LocalNatsServerLease.SchedulingConstraint)]
+[NotInParallel]
 public sealed class ArtifactPublisherR3Tests
 {
     [Test]

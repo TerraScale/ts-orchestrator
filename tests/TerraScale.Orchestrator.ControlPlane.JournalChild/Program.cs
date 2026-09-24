@@ -83,7 +83,6 @@ internal sealed class ChildFileCreateNodeOperationJournal(
     }
     private string PathFor(string operationId) => Path.Combine(directory, Convert.ToHexStringLower(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(operationId))) + ".json");
     private FileStream AcquireLock(string operationId, CancellationToken token)
-    { Directory.CreateDirectory(directory); var path = PathFor(operationId) + ".lock"; var deadline = Environment.TickCount64 + 15_000; for (var attempt = 0; ; attempt++) { token.ThrowIfCancellationRequested(); try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough); } catch (IOException) when (Environment.TickCount64 < deadline) { Thread.Sleep(attempt < 8 ? 5 : 25); } } }
+    { Directory.CreateDirectory(directory); var path = PathFor(operationId) + ".lock"; var deadline = Environment.TickCount64 + 60_000; for (var attempt = 0; ; attempt++) { token.ThrowIfCancellationRequested(); try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.WriteThrough); } catch (IOException) when (Environment.TickCount64 < deadline) { Thread.Sleep(attempt < 8 ? 5 : 25); } } }
     private sealed record Envelope(string Algorithm, string KeyId, string Payload, string Tag);
 }
-

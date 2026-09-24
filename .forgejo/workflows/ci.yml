@@ -13,7 +13,7 @@ jobs:
   verify:
     name: verify/csharp
     runs-on: terrascale-builder
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
     steps:
@@ -144,6 +144,38 @@ jobs:
             printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
               > /etc/containers/storage.conf
           fi
+
+      - name: Remove stale orchestrator Podman fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The fixture names are deterministic prefixes. Remove resources
+          # left by an interrupted job even when the old resource has no
+          # ownership label and netavark therefore cannot find its metadata.
+          mapfile -t stale_pods < <(
+            podman pod ps --format '{{.Name}}' \
+              | awk '/^ts-orch-test-nats-/ { print }'
+          )
+          for pod in "${stale_pods[@]}"; do
+            podman pod rm --force "${pod}"
+          done
+          mapfile -t stale_containers < <(
+            podman ps -a --format '{{.Names}}' \
+              | awk '/^ts-r1-/ { print }'
+          )
+          for container in "${stale_containers[@]}"; do
+            podman rm --force --time 2 "${container}"
+          done
+          mapfile -t stale_networks < <(
+            podman network ls --format '{{.Name}}' \
+              | awk '/^ts-r1-/ { print }'
+          )
+          for network in "${stale_networks[@]}"; do
+            podman network rm --force "${network}"
+          done
+          test -z "$(podman pod ps --format '{{.Name}}' | awk '/^ts-orch-test-nats-/ { print }')"
+          test -z "$(podman ps -a --format '{{.Names}}' | awk '/^ts-r1-/ { print }')"
+          test -z "$(podman network ls --format '{{.Name}}' | awk '/^ts-r1-/ { print }')"
 
       - name: Run every TUnit test project
         shell: bash

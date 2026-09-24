@@ -11,12 +11,14 @@ internal static class LocalNatsServerLease
     // Different scheduler groups still contend on the same physical fixture lease.
     internal const string SchedulingConstraint = "LocalNatsServer";
     private static readonly SemaphoreSlim Gate = new(1, 1);
+    private static readonly SemaphoreSlim RetentionRetryGate = new(1, 1);
     private static readonly object RetentionSync = new();
     private static IAsyncDisposable? retainedOwner;
 
     internal static async ValueTask<Handle> AcquireAsync(CancellationToken cancellationToken = default)
     {
-        await Gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        while (!await Gate.WaitAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false))
+            await RetryRetainedAsync(cancellationToken).ConfigureAwait(false);
         return new Handle();
     }
 
@@ -39,11 +41,19 @@ internal static class LocalNatsServerLease
         }
     }
 
-    internal static async ValueTask RetryRetainedAsync()
+    internal static async ValueTask RetryRetainedAsync(CancellationToken cancellationToken = default)
     {
-        IAsyncDisposable? owner;
-        lock (RetentionSync) owner = retainedOwner;
-        if (owner is not null) await owner.DisposeAsync();
+        await RetentionRetryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            IAsyncDisposable? owner;
+            lock (RetentionSync) owner = retainedOwner;
+            if (owner is not null) await owner.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            RetentionRetryGate.Release();
+        }
     }
 
     internal sealed class DirectoryCleanupOwner(string directory, Handle lease) : IAsyncDisposable

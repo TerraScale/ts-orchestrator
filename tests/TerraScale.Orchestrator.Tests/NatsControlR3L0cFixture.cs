@@ -223,7 +223,6 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
 
             var containerCluster = await ContainerizedNatsCluster.CreateAsync(
                 directory,
-                clientPorts.Concat(routePorts),
                 cancellationToken: cancellationToken);
             fixture = new NatsControlR3L0cFixture(
                 directory,
@@ -255,14 +254,24 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
                 identities.Operator,
                 identities.WrongAccount);
 
-            for (var member = 0; member < MemberCount; member++)
-                fixture.StartMember(member);
-
             try
             {
+                // Podman serializes parts of rootless container startup internally.
+                // Starting all three clients at once can leave one `podman run`
+                // blocked before nats-server emits any output under a loaded runner.
+                // Prove each server is accepting authenticated connections before
+                // asking Podman to start the next member.
+                for (var member = 0; member < MemberCount; member++)
+                {
+                    fixture.StartMember(member);
+                    await fixture.WaitForMemberAsync(member, cancellationToken);
+                }
+
                 await fixture.WaitForClusterAsync(cancellationToken);
+                await fixture.WaitForJetStreamReadinessAsync(cancellationToken);
             }
-            catch (Exception exception) when (exception is NatsException or TimeoutException)
+            catch (Exception exception) when (
+                exception is NatsException or TimeoutException or InvalidOperationException)
             {
                 var states = Enumerable.Range(0, MemberCount).Select(fixture.GetMemberDiagnostic);
                 throw new InvalidOperationException(
@@ -460,23 +469,39 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         ValidateMember(member);
-        for (var attempt = 0; attempt < 300; attempt++)
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        while (!timeout.IsCancellationRequested)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (processes[member] is { HasExited: true })
-                throw new InvalidOperationException($"NATS member {member + 1} exited during readiness.");
+                throw new InvalidOperationException(GetMemberDiagnostic(member));
             try
             {
-                await using var client = await ConnectAsync(Operator, member, cancellationToken: cancellationToken);
-                await client.PingAsync(cancellationToken);
+                await using var client = await ConnectAsync(Operator, member, cancellationToken: timeout.Token);
+                await client.PingAsync(timeout.Token);
                 return;
             }
-            catch (NatsException) when (attempt < 299)
+            catch (NatsException)
             {
-                await Task.Delay(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
             }
         }
-        throw new TimeoutException($"NATS member {member + 1} did not become ready within 30 seconds.");
+        cancellationToken.ThrowIfCancellationRequested();
+        throw new TimeoutException(
+            $"NATS member {member + 1} did not become ready within 30 seconds. " +
+            GetMemberDiagnostic(member));
     }
 
     private async Task WaitForJetStreamQuorumAsync(CancellationToken cancellationToken)
@@ -567,6 +592,65 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         throw new TimeoutException("The three-member NATS R3 cluster did not become ready after 120 connection probes.");
     }
 
+    private async Task WaitForJetStreamReadinessAsync(CancellationToken cancellationToken)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(60));
+        NatsException? lastFailure = null;
+        while (!timeout.IsCancellationRequested)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            for (var member = 0; member < MemberCount; member++)
+            {
+                if (processes[member] is { HasExited: true })
+                    throw new InvalidOperationException(GetMemberDiagnostic(member));
+            }
+            try
+            {
+                await using var infrastructure = await ConnectAsync(
+                    Infrastructure,
+                    cancellationToken: timeout.Token);
+                // A read-only 404 proves that the metadata API has a leader, but
+                // not that all three JetStream peers can place an R3 asset. Create
+                // one canonical topology stream as the placement probe and retain
+                // it for the idempotent provisioning pass that follows.
+                var stream = await infrastructure.CreateJetStreamContext()
+                    .CreateOrUpdateStreamAsync(Topology.Streams[0], timeout.Token);
+                await stream.RefreshAsync(timeout.Token);
+                var cluster = stream.Info.Cluster;
+                if (!string.IsNullOrWhiteSpace(cluster?.Leader) &&
+                    cluster.Replicas is { Count: MemberCount - 1 } &&
+                    cluster.Replicas.All(static replica =>
+                        replica.Current && !replica.Offline && replica.Lag == 0))
+                    return;
+            }
+            catch (NatsException exception)
+            {
+                lastFailure = exception;
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(200), timeout.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var detail = lastFailure is null
+            ? "no R3 placement response"
+            : SanitizeDiagnosticLine(lastFailure.Message);
+        throw new TimeoutException(
+            $"The R3 JetStream placement group did not converge within 60 seconds; last failure: {detail}. " +
+            string.Join("; ", Enumerable.Range(0, MemberCount).Select(GetMemberDiagnostic)),
+            lastFailure);
+    }
+
     private void StartMember(int member)
     {
         var process = containerCluster.Start(configurations[member]);
@@ -611,31 +695,36 @@ internal sealed class NatsControlR3L0cFixture : IAsyncDisposable
         Func<Task> action,
         CancellationToken cancellationToken)
     {
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        var elapsed = Stopwatch.StartNew();
+        var convergenceWindow = TimeSpan.FromSeconds(60);
         NatsException? lastFailure = null;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 await action();
                 return;
             }
-            catch (NatsException exception) when (!timeout.IsCancellationRequested)
+            catch (NatsException exception)
             {
                 lastFailure = exception;
-                await Task.Delay(TimeSpan.FromMilliseconds(200));
-                cancellationToken.ThrowIfCancellationRequested();
-                if (timeout.IsCancellationRequested)
-                {
-                    var detail = lastFailure is null
-                        ? "no NATS response"
-                        : SanitizeDiagnosticLine(lastFailure.Message);
-                    throw new TimeoutException(
-                        $"NATS operation did not converge within 30 seconds; last failure: {detail}",
-                        lastFailure);
-                }
             }
+            if (elapsed.Elapsed >= convergenceWindow)
+            {
+                var detail = lastFailure is null
+                    ? "no NATS response"
+                    : SanitizeDiagnosticLine(lastFailure.Message);
+                throw new TimeoutException(
+                    $"NATS operation did not converge within 60 seconds; last failure: {detail}",
+                    lastFailure);
+            }
+            var remaining = convergenceWindow - elapsed.Elapsed;
+            await Task.Delay(
+                remaining < TimeSpan.FromMilliseconds(200)
+                    ? remaining
+                    : TimeSpan.FromMilliseconds(200),
+                cancellationToken);
         }
     }
 

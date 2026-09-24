@@ -1327,8 +1327,8 @@ public sealed class HostConvergenceRuntimeTests
                 listener.Stop();
                 var configuration = Path.Combine(directory, "nats.conf");
                 await File.WriteAllTextAsync(configuration,
-                    $"port: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
-                var containers = await ContainerizedNatsCluster.CreateAsync(directory, [port]);
+                    $"host: 127.0.0.1\nport: {port}\njetstream {{ store_dir: \"{Path.Combine(directory, "store")}\" }}\n");
+                var containers = await ContainerizedNatsCluster.CreateAsync(directory);
                 server = new ConvergenceNatsServer(directory, lease) { Containers = containers };
                 server.nats = containers.Start(configuration);
                 server.url = $"nats://127.0.0.1:{port}";

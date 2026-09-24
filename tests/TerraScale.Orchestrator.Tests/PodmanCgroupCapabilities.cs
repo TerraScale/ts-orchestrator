@@ -56,6 +56,7 @@ internal static class PodmanCgroupCapabilities
         foreach (var argument in new[]
                  {
                      "run", "--rm",
+                     "--network", "host",
                      "--security-opt", "no-new-privileges",
                      "--cap-drop", "all",
                      "--pids-limit", "8",

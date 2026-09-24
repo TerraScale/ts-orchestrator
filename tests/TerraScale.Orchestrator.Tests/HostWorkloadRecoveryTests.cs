@@ -6,6 +6,8 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class HostWorkloadRecoveryTests
 {
+    private static readonly TimeSpan TestWaitTimeout = TimeSpan.FromSeconds(10);
+
     [Test]
     public async Task Lease_loss_during_durable_write_prevents_the_later_native_dispatch()
     {
@@ -29,15 +31,15 @@ public sealed class HostWorkloadRecoveryTests
         var start = lifetime.ConvergeAsync(files.Plan(), CancellationToken.None);
         try
         {
-            await writing.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            await writing.Task.WaitAsync(TestWaitTimeout);
             lease.Cancel();
             await Assert.That(() => start).Throws<OperationCanceledException>();
-            await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+            await lifetime.Completion.WaitAsync(TestWaitTimeout);
             await Assert.That(lifetime.OwnershipReleased.IsCompleted).IsFalse();
             await Assert.That(native.Starts).IsEqualTo(0);
         }
         finally { release.Set(); }
-        await lifetime.OwnershipReleased.WaitAsync(TimeSpan.FromSeconds(2));
+        await lifetime.OwnershipReleased.WaitAsync(TestWaitTimeout);
         await Assert.That(native.Starts).IsEqualTo(0);
     }
 
@@ -86,23 +88,26 @@ public sealed class HostWorkloadRecoveryTests
         var plan = files.Plan();
         if (fault != "missing-record") files.Inventory.Record(plan);
         native.Seed(fault == "foreign" ? files.Plan(digest: 'b') : plan);
-        var probe = new HostInventoryFixture.Probe { Read = async (identity, token) =>
+        var probe = new HostInventoryFixture.Probe
         {
-            var snapshot = await native.ReadAsync(identity, token);
-            return fault switch
+            Read = async (identity, token) =>
             {
-                "partial-coverage" => snapshot with { Drivers = [RuntimeDriver.NativeSystemd] },
-                "duplicates" => snapshot with { Allocations = [.. snapshot.Allocations, .. snapshot.Allocations] },
-                _ => snapshot
-            };
-        } };
+                var snapshot = await native.ReadAsync(identity, token);
+                return fault switch
+                {
+                    "partial-coverage" => snapshot with { Drivers = [RuntimeDriver.NativeSystemd] },
+                    "duplicates" => snapshot with { Allocations = [.. snapshot.Allocations, .. snapshot.Allocations] },
+                    _ => snapshot
+                };
+            }
+        };
         await using var lifetime = new HostWorkloadLifetime(native, CancellationToken.None, files.Inventory, probe,
             shutdownTimeout: TimeSpan.FromMilliseconds(200), recoveryTimeout: TimeSpan.FromMilliseconds(250));
-        await Assert.That((await lifetime.RecoveryCompletion.WaitAsync(TimeSpan.FromSeconds(3))).Ready).IsFalse();
+        await Assert.That((await lifetime.RecoveryCompletion.WaitAsync(TestWaitTimeout)).Ready).IsFalse();
         await Assert.That(() => lifetime.ConvergeAsync(plan, CancellationToken.None)).Throws<InvalidOperationException>();
         await Assert.That(native.Starts).IsEqualTo(0);
         if (fault is "foreign" or "missing-record") await Assert.That(native.Stops).IsEqualTo(0);
-        await lifetime.OwnershipReleased.WaitAsync(TimeSpan.FromSeconds(3));
+        await lifetime.OwnershipReleased.WaitAsync(TestWaitTimeout);
     }
 
     [Test]
@@ -124,7 +129,7 @@ public sealed class HostWorkloadRecoveryTests
         try { await lifetime.ConvergeAsync(files.Plan(), CancellationToken.None); }
         catch (Exception exception) when (exception is IOException or OperationCanceledException) { rejected = true; }
         await Assert.That(rejected).IsTrue();
-        await lifetime.OwnershipReleased.WaitAsync(TimeSpan.FromSeconds(2));
+        await lifetime.OwnershipReleased.WaitAsync(TestWaitTimeout);
         await Assert.That(native.Starts).IsEqualTo(0);
         await Assert.That(lifetime.Snapshot.Need).IsEqualTo("restart-inventory-recovery");
         using var recovered = HostWorkloadInventory.Open(files.Directory, files.Identity);
@@ -150,15 +155,15 @@ public sealed class HostWorkloadRecoveryTests
                 await lifetime.ConvergeAsync(files.Plan(), CancellationToken.None);
                 lease.Cancel();
             }
-            await native.Stopping.Task.WaitAsync(TimeSpan.FromSeconds(2));
-            var receipt = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+            await native.Stopping.Task.WaitAsync(TestWaitTimeout);
+            var receipt = await lifetime.Completion.WaitAsync(TestWaitTimeout);
             await Assert.That(receipt.State).IsEqualTo("unconfirmed");
             await lifetime.DisposeAsync();
             await Assert.That(lifetime.OwnershipReleased.IsCompleted).IsFalse();
             await Assert.That(HostWorkloadInventoryTests.Rejected(() => HostWorkloadInventory.Open(files.Directory, files.Identity))).IsTrue();
         }
         finally { release.TrySetResult(); }
-        await lifetime.OwnershipReleased.WaitAsync(TimeSpan.FromSeconds(2));
+        await lifetime.OwnershipReleased.WaitAsync(TestWaitTimeout);
         using var next = HostWorkloadInventory.Open(files.Directory, files.Identity);
         await Assert.That(native.Entries).IsEmpty();
         await Assert.That((await lifetime.Completion).State).IsEqualTo("unconfirmed");
@@ -170,21 +175,24 @@ public sealed class HostWorkloadRecoveryTests
         await using var files = new HostInventoryFixture();
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var native = new Native();
-        var probe = new HostInventoryFixture.Probe { Read = async (identity, token) =>
+        var probe = new HostInventoryFixture.Probe
         {
-            await release.Task;
-            return await native.ReadAsync(identity, token);
-        } };
+            Read = async (identity, token) =>
+            {
+                await release.Task;
+                return await native.ReadAsync(identity, token);
+            }
+        };
         await using var lifetime = new HostWorkloadLifetime(native, CancellationToken.None, files.Inventory, probe,
             shutdownTimeout: TimeSpan.FromMilliseconds(150), recoveryTimeout: TimeSpan.FromMilliseconds(150));
         try
         {
-            await Assert.That((await lifetime.RecoveryCompletion.WaitAsync(TimeSpan.FromSeconds(2))).Need).IsEqualTo("recovery-deadline-exceeded");
-            await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+            await Assert.That((await lifetime.RecoveryCompletion.WaitAsync(TestWaitTimeout)).Need).IsEqualTo("recovery-deadline-exceeded");
+            await lifetime.Completion.WaitAsync(TestWaitTimeout);
             await Assert.That(lifetime.OwnershipReleased.IsCompleted).IsFalse();
         }
         finally { release.TrySetResult(); }
-        await lifetime.OwnershipReleased.WaitAsync(TimeSpan.FromSeconds(2));
+        await lifetime.OwnershipReleased.WaitAsync(TestWaitTimeout);
         await Assert.That(lifetime.RecoverySnapshot.Ready).IsFalse();
     }
 

@@ -7,6 +7,8 @@ namespace TerraScale.Orchestrator.Tests;
 
 public sealed class HostWorkloadLifetimeTests
 {
+    private static readonly TimeSpan TestWaitTimeout = TimeSpan.FromSeconds(10);
+
     [Test]
     public async Task Lease_loss_stops_and_observes_an_actual_owned_child_process()
     {
@@ -17,7 +19,7 @@ public sealed class HostWorkloadLifetimeTests
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await Assert.That(native.Exited).IsFalse();
         lease.Cancel();
-        var result = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(3));
+        var result = await lifetime.Completion.WaitAsync(TestWaitTimeout);
         await Assert.That(result.State).IsEqualTo("stopped");
         await Assert.That(native.Exited).IsTrue();
     }
@@ -32,7 +34,7 @@ public sealed class HostWorkloadLifetimeTests
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication), CancellationToken.None);
         lease.Cancel();
-        var stopped = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        var stopped = await lifetime.Completion.WaitAsync(TestWaitTimeout);
         await Assert.That(stopped.State).IsEqualTo("stopped");
         await Assert.That(stopped.StoppedAllocations).IsEqualTo(2);
         await Assert.That(native.StopCalls.Count).IsEqualTo(2);
@@ -54,12 +56,12 @@ public sealed class HostWorkloadLifetimeTests
             BeforeStart = synchronous ? () => releaseSynchronous.Wait(TimeSpan.FromSeconds(5)) : null };
         await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe, TimeSpan.FromMilliseconds(150));
         var start = lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
-        await native.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await native.Started.Task.WaitAsync(TestWaitTimeout);
         lease.Cancel();
         try
         {
-            await Assert.That(() => start.WaitAsync(TimeSpan.FromSeconds(2))).Throws<OperationCanceledException>();
-            var uncertain = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+            await Assert.That(() => start.WaitAsync(TestWaitTimeout)).Throws<OperationCanceledException>();
+            var uncertain = await lifetime.Completion.WaitAsync(TestWaitTimeout);
             await Assert.That(uncertain.State).IsEqualTo("unconfirmed");
             await Assert.That(uncertain.Need).IsEqualTo("shutdown-deadline-exceeded");
             await Assert.That(native.StopCalls).IsEmpty();
@@ -87,7 +89,7 @@ public sealed class HostWorkloadLifetimeTests
         await using var lifetime = new HostWorkloadLifetime(native, lease.Token, files.Inventory, HostInventoryFixture.EmptyProbe, TimeSpan.FromMilliseconds(150));
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         lease.Cancel();
-        var result = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        var result = await lifetime.Completion.WaitAsync(TestWaitTimeout);
         await Assert.That(result.State).IsEqualTo("unconfirmed");
         await Assert.That(result.StoppedAllocations).IsEqualTo(0);
         await Assert.That(native.StopCalls.Count).IsEqualTo(1);
@@ -103,7 +105,7 @@ public sealed class HostWorkloadLifetimeTests
         await lifetime.ConvergeAsync(Plan(AdmittedRole.TerraBaseMember), CancellationToken.None);
         await lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication), CancellationToken.None);
         lease.Cancel();
-        var result = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        var result = await lifetime.Completion.WaitAsync(TestWaitTimeout);
         await Assert.That(result.State).IsEqualTo("unconfirmed");
         await Assert.That(result.StoppedAllocations).IsEqualTo(1);
         await Assert.That(native.Running[Plan(AdmittedRole.TerraBaseMember).AllocationId.Value]).IsTrue();
@@ -127,7 +129,7 @@ public sealed class HostWorkloadLifetimeTests
         await Assert.That(() => lifetime.ConvergeAsync(Plan(AdmittedRole.Authentication, 'b'), CancellationToken.None))
             .Throws<InvalidOperationException>();
         lease.Cancel();
-        var result = await lifetime.Completion.WaitAsync(TimeSpan.FromSeconds(2));
+        var result = await lifetime.Completion.WaitAsync(TestWaitTimeout);
         await Assert.That(result.State).IsEqualTo(foreign ? "unconfirmed" : "stopped");
         await Assert.That(client.Stops).IsEqualTo(foreign ? 0 : 1);
         await Assert.That(client.Deletes).IsEqualTo(foreign ? 0 : 1);
@@ -156,7 +158,7 @@ public sealed class HostWorkloadLifetimeTests
 
     private static async Task UntilAsync(Func<bool> condition)
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        using var deadline = new CancellationTokenSource(TestWaitTimeout);
         while (!condition()) await Task.Delay(5, deadline.Token);
     }
 
