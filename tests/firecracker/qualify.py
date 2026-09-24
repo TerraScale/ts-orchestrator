@@ -44,6 +44,8 @@ SESSION_EXECUTION_RESERVE_SECONDS = 5
 WORKLOAD_UID = 2000
 WORKLOAD_GID = 2000
 WORKLOAD_RUN_DIR = "/run/ts-orch-workload"
+CLOCK_READY = "/run/ts-orch-clock-ready"
+CLOCK_BOUND_NS = 1_000_000_000
 
 
 class TerminalReceipt(Exception):
@@ -489,6 +491,8 @@ class Lab:
         return ("[Unit]\nDescription=TerraScale Firecracker qualification " + name +
                 "\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\n" +
                 host_service +
+                "TimeoutStartSec=180\n" +
+                f"ExecStartPre=/bin/sh -c 'while ! test -f {CLOCK_READY}; do sleep 0.1; done'\n" +
                 f"ExecStart=/usr/local/bin/terrascale-orchestrator {role} --config /etc/ts-orch/config.json\n" +
                 "Restart=on-failure\nRestartSec=2\nStandardOutput=journal+console\n" +
                 "StandardError=journal+console\n\n[Install]\nWantedBy=multi-user.target\n")
@@ -570,9 +574,12 @@ class Lab:
         raise TimeoutError(f"{label} did not become ready: {last}")
 
     def wait_ssh(self, name: str) -> None:
-        command = "systemctl is-active ts-orch.service" if name in CONTROLLERS else "true"
-        self.wait(f"ssh-{name}", lambda: self.ssh(name, command,
+        self.wait(f"ssh-{name}", lambda: self.ssh(name, "true",
                                                   allow_failure=True).returncode == 0, timeout=150)
+        self.calibrate_guest_clock(name)
+        self.wait(f"service-{name}", lambda: self.ssh(name, "systemctl is-active ts-orch.service",
+                                                      allow_failure=True).returncode == 0,
+                  timeout=150)
 
     def operator(self, operation: str, *arguments: str, timeout: int = 35,
                  allow_failure: bool = False) -> dict[str, Any] | None:
@@ -683,17 +690,57 @@ printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_s
             return False
         raise RuntimeError("native workload cgroup has no populated state")
 
+    def measure_guest_clock(self, name: str) -> tuple[int, int]:
+        start_outer = time.monotonic_ns()
+        before = time.time_ns()
+        start_inner = time.monotonic_ns()
+        output = self.ssh(name, "date +%s%N", timeout=10).stdout.strip()
+        end_inner = time.monotonic_ns()
+        after = time.time_ns()
+        end_outer = time.monotonic_ns()
+        if not start_outer <= start_inner <= end_inner <= end_outer:
+            raise RuntimeError("lab host monotonic clock changed during guest clock measurement")
+        lower_elapsed = end_inner - start_inner
+        upper_elapsed = end_outer - start_outer
+        realtime_elapsed = after - before
+        # The paired monotonic reads bound sampling delay; allow a small slew.
+        allowance = max(1_000_000, upper_elapsed // 1_000)
+        if (realtime_elapsed < 0 or
+                realtime_elapsed < lower_elapsed - allowance or
+                realtime_elapsed > upper_elapsed + allowance):
+            raise RuntimeError("lab host clock changed during guest clock measurement")
+        guest = int(output)
+        offset = guest - (before + after) // 2
+        uncertainty = upper_elapsed // 2 + allowance
+        self.guest_clock_upper_ns[name] = offset + uncertainty
+        self.note("guest_clock", name=name, offset_ns=offset, uncertainty_ns=uncertainty)
+        return offset, uncertainty
+
+    def calibrate_guest_clock(self, name: str) -> None:
+        guard = (f"test ! -e {CLOCK_READY} && "
+                 'test "$(systemctl show -p MainPID --value ts-orch.service)" = 0')
+        if self.ssh(name, guard, timeout=10, allow_failure=True).returncode:
+            raise RuntimeError(f"{name} service began before clock calibration")
+        offset, uncertainty = self.measure_guest_clock(name)
+        for attempt in range(3):
+            if abs(offset) + uncertainty <= CLOCK_BOUND_NS:
+                break
+            target_ns = time.time_ns()
+            seconds, nanoseconds = divmod(target_ns, 1_000_000_000)
+            target = f"@{seconds}.{nanoseconds:09d}"
+            self.ssh(name, f"date -u --set={target} >/dev/null", timeout=10)
+            self.note("guest_clock_step", name=name, attempt=attempt + 1, target_ns=target_ns)
+            offset, uncertainty = self.measure_guest_clock(name)
+        if abs(offset) + uncertainty > CLOCK_BOUND_NS:
+            raise RuntimeError(f"{name} clock differs from lab host by over one second")
+        self.ssh(name, f"/usr/bin/install -m 0600 /dev/null {CLOCK_READY}", timeout=10)
+        self.note("guest_clock_released", name=name, offset_ns=offset,
+                  uncertainty_ns=uncertainty)
+
     def check_guest_clocks(self) -> None:
         for name in GUESTS:
-            before = time.time_ns()
-            output = self.ssh(name, "date +%s%N", timeout=10).stdout.strip()
-            after = time.time_ns()
-            guest = int(output)
-            offset = guest - (before + after) // 2
-            uncertainty = (after - before) // 2
-            self.guest_clock_upper_ns[name] = offset + uncertainty
-            self.note("guest_clock", name=name, offset_ns=offset, uncertainty_ns=uncertainty)
-            if abs(offset) + uncertainty > 1_000_000_000:
+            offset, uncertainty = self.measure_guest_clock(name)
+            if abs(offset) + uncertainty > CLOCK_BOUND_NS:
                 raise RuntimeError(f"{name} clock differs from lab host by over one second")
 
     def host_renewal_failure_evidence(self, since: datetime, session_hash: str,

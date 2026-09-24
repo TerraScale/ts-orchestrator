@@ -151,6 +151,10 @@ class FaultAndLeaseTests(unittest.TestCase):
         unit = qualify.Lab.guest_unit("host", "host")
         service = unit.split("[Service]\n", 1)[1].split("\n[Install]", 1)[0]
         directives = dict(line.split("=", 1) for line in service.splitlines() if "=" in line)
+        prestarts = [line.split("=", 1)[1] for line in service.splitlines()
+                     if line.startswith("ExecStartPre=")]
+        clock_gate = (f"/bin/sh -c 'while ! test -f {qualify.CLOCK_READY}; "
+                      "do sleep 0.1; done'")
 
         self.assertEqual(directives["User"], "root")
         self.assertEqual(directives["Group"], "root")
@@ -163,9 +167,15 @@ class FaultAndLeaseTests(unittest.TestCase):
                               "CAP_SETUID": 7, "CAP_SETPCAP": 8}
         self.assertEqual(sum(1 << capability_numbers[name] for name in capabilities), 0x1e1)
         self.assertEqual(directives["AmbientCapabilities"], "")
-        self.assertIn("-o 2000 -g 2000 -m 0700 /run/ts-orch-workload",
-                      directives["ExecStartPre"])
-        self.assertNotIn("CapabilityBoundingSet=", qualify.Lab.guest_unit("c1", "run"))
+        self.assertEqual(directives["TimeoutStartSec"], "180")
+        self.assertEqual(prestarts,
+                         ["/usr/bin/install -d -o 2000 -g 2000 -m 0700 /run/ts-orch-workload",
+                          clock_gate])
+        controller_unit = qualify.Lab.guest_unit("c1", "run")
+        self.assertNotIn("CapabilityBoundingSet=", controller_unit)
+        self.assertIn("TimeoutStartSec=180\n", controller_unit)
+        self.assertEqual([line.split("=", 1)[1] for line in controller_unit.splitlines()
+                          if line.startswith("ExecStartPre=")], [clock_gate])
 
     def test_read_only_host_status_requires_current_bound_running_report(self):
         lab = object.__new__(qualify.Lab)
@@ -262,6 +272,112 @@ class FaultAndLeaseTests(unittest.TestCase):
                          (expiry - timedelta(seconds=4.5)).isoformat())
         with self.assertRaisesRegex(RuntimeError, "matching fence"):
             lab.host_renewal_failure_evidence(since, "0" * 32, 3, expiry)
+
+
+class ClockCalibrationTests(unittest.TestCase):
+    @staticmethod
+    def lab(measurements):
+        lab = object.__new__(qualify.Lab)
+        lab.ssh = Mock(return_value=SimpleNamespace(returncode=0))
+        lab.measure_guest_clock = Mock(side_effect=measurements)
+        lab.note = Mock()
+        return lab
+
+    def test_measurement_uses_monotonic_elapsed_for_uncertainty(self):
+        lab = object.__new__(qualify.Lab)
+        lab.ssh = Mock(return_value=SimpleNamespace(stdout="100150000000"))
+        lab.guest_clock_upper_ns = {}
+        lab.note = Mock()
+        with patch.object(qualify.time, "time_ns", side_effect=[100_000_000_000, 100_300_000_000]), \
+                patch.object(qualify.time, "monotonic_ns",
+                             side_effect=[0, 1_000_000, 300_000_000, 301_000_000]):
+            offset, uncertainty = lab.measure_guest_clock("c1")
+
+        self.assertEqual((offset, uncertainty), (0, 151_500_000))
+        self.assertEqual(lab.guest_clock_upper_ns["c1"], uncertainty)
+
+    def test_host_realtime_steps_cannot_release_service(self):
+        for after in (98_000_000_000, 102_000_000_000):
+            with self.subTest(after=after):
+                lab = object.__new__(qualify.Lab)
+                lab.ssh = Mock(side_effect=[SimpleNamespace(returncode=0),
+                                            SimpleNamespace(stdout="100000000000")])
+                lab.guest_clock_upper_ns = {}
+                lab.note = Mock()
+                with patch.object(qualify.time, "time_ns",
+                                  side_effect=[100_000_000_000, after]), \
+                        patch.object(qualify.time, "monotonic_ns",
+                                     side_effect=[0, 1_000_000, 300_000_000, 301_000_000]):
+                    with self.assertRaisesRegex(RuntimeError, "lab host clock changed"):
+                        lab.calibrate_guest_clock("c1")
+
+                self.assertEqual(lab.ssh.call_count, 2)
+                self.assertNotIn("c1", lab.guest_clock_upper_ns)
+
+    def test_impossible_monotonic_interval_is_rejected(self):
+        lab = object.__new__(qualify.Lab)
+        lab.ssh = Mock(return_value=SimpleNamespace(stdout="100000000000"))
+        lab.guest_clock_upper_ns = {}
+        lab.note = Mock()
+        with patch.object(qualify.time, "time_ns", side_effect=[100_000_000_000] * 2), \
+                patch.object(qualify.time, "monotonic_ns",
+                             side_effect=[0, 1_000_000, 500_000, 2_000_000]):
+            with self.assertRaisesRegex(RuntimeError, "monotonic clock changed"):
+                lab.measure_guest_clock("c1")
+
+        self.assertNotIn("c1", lab.guest_clock_upper_ns)
+
+    def test_step_remeasures_before_releasing_service(self):
+        lab = self.lab([(-1_414_932_418, 139_698_286), (-100_000_000, 100_000_000)])
+        with patch.object(qualify.time, "time_ns", return_value=1_000_000_000_123_456_789):
+            lab.calibrate_guest_clock("c1")
+
+        commands = [call.args[1] for call in lab.ssh.call_args_list]
+        self.assertEqual(commands, [
+            f'test ! -e {qualify.CLOCK_READY} && '
+            'test "$(systemctl show -p MainPID --value ts-orch.service)" = 0',
+            "date -u --set=@1000000000.123456789 >/dev/null",
+            f"/usr/bin/install -m 0600 /dev/null {qualify.CLOCK_READY}",
+        ])
+        self.assertEqual(lab.measure_guest_clock.call_count, 2)
+        self.assertEqual(lab.note.call_args.args[0], "guest_clock_released")
+
+    def test_failed_remeasurement_never_releases_service(self):
+        lab = self.lab([(-1_414_932_418, 139_698_286)] * 4)
+        with patch.object(qualify.time, "time_ns", return_value=1_000_000_000_123_456_789):
+            with self.assertRaisesRegex(RuntimeError, "over one second"):
+                lab.calibrate_guest_clock("c1")
+
+        commands = [call.args[1] for call in lab.ssh.call_args_list]
+        self.assertEqual(len([command for command in commands if command.startswith("date -u --set=")]), 3)
+        self.assertNotIn(f"/usr/bin/install -m 0600 /dev/null {qualify.CLOCK_READY}", commands)
+
+    def test_existing_service_refuses_clock_step(self):
+        lab = self.lab([(-1_414_932_418, 139_698_286)])
+        lab.ssh.return_value = SimpleNamespace(returncode=1)
+
+        with self.assertRaisesRegex(RuntimeError, "before clock calibration"):
+            lab.calibrate_guest_clock("c1")
+
+        lab.measure_guest_clock.assert_not_called()
+
+    def test_ssh_calibrates_before_waiting_for_runtime(self):
+        lab = object.__new__(qualify.Lab)
+        order = []
+        lab.wait = Mock(side_effect=lambda label, probe, **options: order.append(label))
+        lab.calibrate_guest_clock = Mock(side_effect=lambda name: order.append(f"calibrate-{name}"))
+
+        lab.wait_ssh("c1")
+
+        self.assertEqual(order, ["ssh-c1", "calibrate-c1", "service-c1"])
+
+    def test_later_check_keeps_strict_one_second_bound(self):
+        lab = self.lab([(900_000_000, 100_000_001)])
+
+        with self.assertRaisesRegex(RuntimeError, "over one second"):
+            lab.check_guest_clocks()
+
+        lab.ssh.assert_not_called()
 
 
 if __name__ == "__main__":

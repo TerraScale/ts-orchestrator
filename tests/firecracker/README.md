@@ -64,9 +64,15 @@ complete during that reserve and must complete before signed expiry. Events
 record the fault time, expected fence threshold, actual post-cancellation
 fence-start event, first failed renewal observed in the guest journal, and a
 conservative process/cgroup stop observation.
-Guest clocks must be within one second of the lab host at boot and before the
-1/3 fault; later drift and SSH observation latency limit subsecond timing
-claims. The stop deadline subtracts the measured upper bound of host clock
+On every boot, the guest service waits on a root-owned `/run` marker while SSH
+measures its clock against the lab host. If needed, the harness sets guest time
+before starting the controller or host service, measures again with SSH latency
+included in the bound, and releases the service only when the absolute offset plus
+uncertainty is within one second. The marker disappears on reboot; a guest
+clock is never stepped after that guest's controller or host service starts.
+Guest clocks are checked again before the 1/3 fault; later drift and SSH
+observation latency limit subsecond timing claims. The stop deadline subtracts
+the measured upper bound of host clock
 offset plus 250 ms from the signed expiry. The operator's read-only `hosts`
 view has `Verified: false`; its
 session and report binding is cross-checked against the host's post-verification
