@@ -1,0 +1,884 @@
+package bootstrap
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+)
+
+func TestReserveSlotRecoversLostAcknowledgementAndSurvivesRestart(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	fixture.client.loseAckForBucket("bootstrap-ledger")
+	scope := testBootstrapScope()
+	intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+
+	reserved, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes)
+	if err != nil {
+		t.Fatalf("reserve after lost intent acknowledgement: %v", err)
+	}
+	if reserved.IntentDigest() != bodyDigest(intentBytes) || reserved.Attempt() != 1 || reserved.HeadETag() == "" {
+		t.Fatalf("reservation does not identify the verified slot: %+v", reserved)
+	}
+	if got := fixture.client.putCalls.Load(); got != 2 {
+		t.Fatalf("PUT calls = %d, want immutable intent and initial HEAD", got)
+	}
+	if got := fixture.client.getCalls.Load(); got != 6 {
+		t.Fatalf("exact-key readbacks = %d, want reservation admission and write confirmation reads", got)
+	}
+
+	restarted := fixture.newLedger(t)
+	launch, err := restarted.ReadForLaunch(t.Context(), scope)
+	if err != nil {
+		t.Fatalf("read launch authorization after restart: %v", err)
+	}
+	if launch.IntentDigest() != reserved.IntentDigest() || launch.HeadETag() != reserved.HeadETag() {
+		t.Fatalf("restart changed durable reservation: before=%+v after=%+v", reserved, launch)
+	}
+
+	duplicate, err := restarted.ReserveSlot(t.Context(), scope, intentBytes, headBytes)
+	if err != nil {
+		t.Fatalf("idempotently reserve exact signed bytes: %v", err)
+	}
+	if duplicate.HeadETag() != launch.HeadETag() {
+		t.Fatalf("idempotent reservation changed HEAD ETag: got %q, want %q", duplicate.HeadETag(), launch.HeadETag())
+	}
+}
+
+func TestConcurrentInitialReservationAndManifestConflict(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+
+	var group sync.WaitGroup
+	errs := make(chan error, 12)
+	for range 12 {
+		group.Go(func() {
+			_, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes)
+			errs <- err
+		})
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent reservation: %v", err)
+		}
+	}
+	if got := fixture.client.objectCount(); got != 2 {
+		t.Fatalf("stored objects = %d, want one intent and one stable HEAD", got)
+	}
+	if fixture.client.invalidCondition.Load() {
+		t.Fatal("a conditional create or update used the wrong Object Storage condition")
+	}
+	if fixture.client.invalidKMSKey.Load() {
+		t.Fatal("a record was not encrypted with its bucket's configured KMS key")
+	}
+
+	storedHead, err := fixture.ledger.decodeHead(scope, headBytes, true)
+	if err != nil {
+		t.Fatalf("decode initial HEAD fixture: %v", err)
+	}
+	resignedHead := fixture.sign(t, scope, domainBootstrapHead, storedHead, fixture.now.Add(time.Second))
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, resignedHead); !errors.Is(err, ErrSlotHeadConflict) {
+		t.Fatalf("different signed bytes with the same HEAD payload returned %v, want exact-byte conflict", err)
+	}
+
+	rotated := intent
+	rotated.ManifestDigest = bodyDigest([]byte("rotated manifest"))
+	rotatedBytes := fixture.sign(t, scope, domainBootstrapIntent, rotated, fixture.now)
+	rotatedHead := fixture.headBytes(t, scope, rotatedBytes, 1)
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, rotatedBytes, rotatedHead); !errors.Is(err, ErrImmutableConflict) {
+		t.Fatalf("changed intent at the existing attempt returned %v, want immutable conflict", err)
+	}
+}
+
+func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	initialHead := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
+		Generation: 1, IntentDigest: bodyDigest(intentBytes)}
+	initialHeadBytes := fixture.sign(t, scope, domainBootstrapHead, initialHead, fixture.now)
+	reservation, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, initialHeadBytes)
+	if err != nil {
+		t.Fatalf("reserve initial attempt: %v", err)
+	}
+	if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, reservation.HeadETag(), nil, nil, nil); !errors.Is(err, ErrSlotNotReserved) {
+		t.Fatalf("advance without a committed positive result = %v, want ErrSlotNotReserved", err)
+	}
+
+	result := fixture.result(scope, intent, reservation.IntentDigest())
+	resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+	completedHead := initialHead
+	completedHead.ResultDigest = bodyDigest(resultBytes)
+	completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+	fixture.client.loseAckForBucket("bootstrap-head")
+	state, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes, completedHeadBytes)
+	if err != nil {
+		t.Fatalf("record result after lost HEAD acknowledgement: %v", err)
+	}
+	if state.Result == nil || state.Head.ResultDigest != bodyDigest(resultBytes) || state.HeadRecord.ETag == reservation.HeadETag() {
+		t.Fatalf("positive result was not committed through a new HEAD ETag: %+v", state)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrSlotAlreadyComplete) {
+		t.Fatalf("launch authorization after positive result = %v, want ErrSlotAlreadyComplete", err)
+	}
+
+	validEvidence := fixture.retirement(scope, state, "instance-retired")
+	retirementBytes := fixture.sign(t, scope, domainSlotRetirement, validEvidence, fixture.now)
+	nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "create-key-2", "retry-token-2")
+	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+	nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
+	validNextHead := SlotHead{
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
+		PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
+		PreviousResultDigest: state.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+	}
+	nextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, validNextHead, fixture.now)
+	if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, reservation.HeadETag(), retirementBytes,
+		nextIntentBytes, nextHeadBytes); !errors.Is(err, ErrSlotHeadConflict) {
+		t.Fatalf("stale HEAD ETag advance returned %v, want conflict", err)
+	}
+
+	invalidEvidence := validEvidence
+	invalidEvidence.PriorInstanceOCID = "ocid1.instance.oc1.sa-saopaulo-1.different"
+	invalidRetirement := fixture.sign(t, scope, domainSlotRetirement, invalidEvidence, fixture.now)
+	invalidNextHead := validNextHead
+	invalidNextHead.RetirementDigest = bodyDigest(invalidRetirement)
+	invalidNextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, invalidNextHead, fixture.now)
+	if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag, invalidRetirement,
+		nextIntentBytes, invalidNextHeadBytes); !errors.Is(err, ErrRetirementInvalid) {
+		t.Fatalf("retirement for another instance returned %v, want retirement rejection", err)
+	}
+
+	launch, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag, retirementBytes,
+		nextIntentBytes, nextHeadBytes)
+	if err != nil {
+		t.Fatalf("advance with current result-bound retirement: %v", err)
+	}
+	if launch.Attempt() != 2 || launch.IntentDigest() != bodyDigest(nextIntentBytes) {
+		t.Fatalf("advanced launch token does not identify attempt two: %+v", launch)
+	}
+	if fixture.client.invalidCondition.Load() {
+		t.Fatal("ledger used an unconditional write instead of If-None-Match/If-Match")
+	}
+}
+
+func TestAdvanceSlotHistoricalRecoveryRequiresExactIntentAndProofStoredWhileCurrent(t *testing.T) {
+	t.Run("repairs exact pending transition after proof expiry", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		state := completeFirstManagedAttempt(t, fixture, scope)
+		evidence := fixture.retirement(scope, state, "instance-retired")
+		retirementBytes := fixture.signInterval(t, scope, domainSlotRetirement, evidence, fixture.now, fixture.now.Add(time.Minute))
+		nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "create-key-2", "retry-token-2")
+		nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
+		nextHead := SlotHead{
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
+			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
+			PreviousResultDigest: state.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+		}
+		nextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, nextHead, fixture.now)
+		if _, err := fixture.ledger.createOrRead(t.Context(), scope, 2, ledgerIntent, nextIntentBytes); err != nil {
+			t.Fatalf("persist exact proof-bound next intent: %v", err)
+		}
+		if _, err := fixture.ledger.createOrRead(t.Context(), scope, 2, ledgerRetirement, retirementBytes); err != nil {
+			t.Fatalf("persist current retirement evidence: %v", err)
+		}
+		fixture.client.setNow(fixture.now.Add(2 * time.Minute))
+		advanced, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag,
+			retirementBytes, nextIntentBytes, nextHeadBytes)
+		if err != nil {
+			t.Fatalf("repair exact persisted transition after evidence expiry: %v", err)
+		}
+		if advanced.Head.Attempt != 2 || advanced.Intent.RetirementDigest != bodyDigest(retirementBytes) {
+			t.Fatalf("historical repair did not advance the proof-bound attempt: %+v", advanced)
+		}
+		if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); err != nil {
+			t.Fatalf("explicit managed launch authorization after repair: %v", err)
+		}
+	})
+
+	t.Run("rejects stale proof for a newly chosen intent without writing it", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		state := completeFirstManagedAttempt(t, fixture, scope)
+		evidence := fixture.retirement(scope, state, "instance-retired")
+		retirementBytes := fixture.signInterval(t, scope, domainSlotRetirement, evidence, fixture.now, fixture.now.Add(time.Minute))
+		if _, err := fixture.ledger.createOrRead(t.Context(), scope, 2, ledgerRetirement, retirementBytes); err != nil {
+			t.Fatalf("persist original retirement evidence: %v", err)
+		}
+		objectCount := fixture.client.objectCount()
+		fixture.client.setNow(fixture.now.Add(2 * time.Minute))
+		nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "create-key-2", "retry-token-2")
+		nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+		nextIntent.CreatedAt = fixture.client.currentTime()
+		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, nextIntent.CreatedAt)
+		nextHead := SlotHead{
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
+			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
+			PreviousResultDigest: state.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+		}
+		nextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, nextHead, fixture.client.currentTime())
+		if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag,
+			retirementBytes, nextIntentBytes, nextHeadBytes); !errors.Is(err, ErrRecordAuthorization) {
+			t.Fatalf("stale retirement proof for a newly chosen intent = %v, want authorization failure", err)
+		}
+		if got := fixture.client.objectCount(); got != objectCount {
+			t.Fatalf("stale proof created ledger records: objects=%d, before=%d", got, objectCount)
+		}
+		current, err := fixture.ledger.ReadSlot(t.Context(), scope)
+		if err != nil || current.Head.Attempt != 1 {
+			t.Fatalf("stale proof changed the stable slot HEAD: state=%+v err=%v", current, err)
+		}
+	})
+}
+
+func TestReadForLaunchRejectsUncommittedResultAndExpiredRetryWindow(t *testing.T) {
+	t.Run("result exists before HEAD confirmation", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+			Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
+			Generation: 1, IntentDigest: bodyDigest(intentBytes)}
+		headBytes := fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
+			t.Fatalf("reserve attempt: %v", err)
+		}
+		resultBytes := fixture.sign(t, scope, domainBootstrapResult, fixture.result(scope, intent, bodyDigest(intentBytes)), fixture.now)
+		if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, resultBytes); err != nil {
+			t.Fatalf("create pending result: %v", err)
+		}
+		if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrSlotResultPendingHead) {
+			t.Fatalf("launch authorization with uncommitted positive result = %v, want pending-HEAD error", err)
+		}
+	})
+
+	t.Run("original server timestamp expires", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+			Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
+			Generation: 1, IntentDigest: bodyDigest(intentBytes)}
+		headBytes := fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
+			t.Fatalf("reserve attempt: %v", err)
+		}
+		fixture.client.setNow(fixture.now.Add(23 * time.Hour))
+		if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrRetryWindowExpired) {
+			t.Fatalf("expired launch retry window = %v, want ErrRetryWindowExpired", err)
+		}
+	})
+}
+
+func TestLedgerFailsClosedOnUnknownPermanentAndMalformedStorageOutcomes(t *testing.T) {
+	t.Run("lost acknowledgement with missing readback", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		fixture.client.failBeforeCommit.Store(true)
+		scope := testBootstrapScope()
+		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrOutcomeUnknown) {
+			t.Fatalf("missing exact-key readback after lost acknowledgement = %v, want ErrOutcomeUnknown", err)
+		}
+		if got := fixture.client.objectCount(); got != 0 {
+			t.Fatalf("objects after pre-commit failure = %d, want zero", got)
+		}
+	})
+
+	t.Run("permanent create failure", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		fixture.client.rejectPut = fakeObjectStorageError{status: http.StatusForbidden}
+		scope := testBootstrapScope()
+		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err == nil || errors.Is(err, ErrOutcomeUnknown) {
+			t.Fatalf("permanent storage rejection = %v, want the terminal service error", err)
+		}
+		if got := fixture.client.getCalls.Load(); got != 1 {
+			t.Fatalf("GET calls after permanent storage rejection = %d, want the exact-key admission read", got)
+		}
+	})
+
+	t.Run("missing server Date", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
+			t.Fatalf("reserve before metadata fault: %v", err)
+		}
+		fixture.client.omitServerDate.Store(true)
+		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); err == nil {
+			t.Fatal("slot read accepted missing server Date metadata")
+		}
+	})
+}
+
+func TestLedgerRejectsInvalidScopeConfigurationAndOversizedRecords(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	for _, scope := range []BootstrapScope{{}, {DeploymentID: "deployment/other", Cell: "GRU", Slot: "controller-a"},
+		{DeploymentID: "deployment-a", Cell: "gru", Slot: "controller-a"},
+		{DeploymentID: "deployment-a", Cell: "GRU", Slot: "../other"}} {
+		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); err == nil {
+			t.Errorf("ReadSlot accepted invalid scope %+v", scope)
+		}
+	}
+	for _, config := range []LedgerConfig{
+		{},
+		{Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.test", Prefix: "../outside"},
+		{Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.test", HeadBucket: "bootstrap-head", HeadKMSKeyID: "ocid1.key.head"},
+	} {
+		if _, err := NewLedger(fixture.client, config); err == nil {
+			t.Errorf("NewLedger accepted invalid storage or trust configuration: %+v", config)
+		}
+	}
+
+	fixture.ledger.maxRecord = 4
+	if _, err := fixture.ledger.createOrRead(t.Context(), testBootstrapScope(), 1, ledgerIntent, []byte("12345")); err == nil || !strings.Contains(err.Error(), "size bound") {
+		t.Fatalf("oversized immutable record error = %v, want size bound", err)
+	}
+	if got := fixture.client.putCalls.Load(); got != 0 {
+		t.Fatalf("PUT calls for invalid scopes/config/oversized body = %d, want 0", got)
+	}
+}
+
+func TestIntentCellRegionBindingAndSeparateRegionalGeneration(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	_, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	if intent.Generation == intent.RegionIntentGeneration {
+		t.Fatal("test must distinguish per-slot attempt generation from regional authorization generation")
+	}
+	intent.OCIRegion = "eu-frankfurt-1"
+	wrongRegionBytes := fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	headBytes := fixture.headBytes(t, scope, wrongRegionBytes, 1)
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, wrongRegionBytes, headBytes); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("GRU intent naming Frankfurt returned %v, want region binding rejection", err)
+	}
+	if got := fixture.client.putCalls.Load(); got != 0 {
+		t.Fatalf("PUT calls for cell/region mismatch = %d, want zero", got)
+	}
+	invalidDigest := intent
+	invalidDigest.LaunchRequestDigest = bodyDigest([]byte("not the canonical profile digest"))
+	if err := validateIntent(invalidDigest); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("intent with noncanonical launch profile digest passed validation: %v", err)
+	}
+}
+
+func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "bootstrap-create-a", "retry-token-1")
+	intent.Mode = IntentModeExternalSeed
+	intent.RetryToken = ""
+	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
+	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	reserved, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes)
+	if err != nil {
+		t.Fatalf("reserve external seed slot: %v", err)
+	}
+	if reserved.Intent.Mode != IntentModeExternalSeed || reserved.Intent.RetryToken != "" ||
+		reserved.Intent.CreateKey != "bootstrap-create-a" || reserved.Intent.ReviewedPlanDigest != bodyDigest([]byte("reviewed OpenTofu plan")) {
+		t.Fatalf("stored external seed identity is incomplete: %+v", reserved)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrExternalSeedMode) {
+		t.Fatalf("external seed launch authorization returned %v, want explicit denial", err)
+	}
+	receiptBytes := fixture.seedReceiptBytes(t, scope, intent, bodyDigest(intentBytes))
+	result := fixture.result(scope, intent, bodyDigest(intentBytes))
+	result.Mode = IntentModeExternalSeed
+	result.SeedReceiptDigest = bodyDigest(receiptBytes)
+	resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+	completedHead := reserved.Head
+	completedHead.ResultDigest = bodyDigest(resultBytes)
+	completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+	if _, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes, completedHeadBytes); !errors.Is(err, ErrExternalSeedMode) {
+		t.Fatalf("generic OCI result write for external seed returned %v, want receipt-gated refusal", err)
+	}
+	if got := fixture.client.objectCount(); got != 2 {
+		t.Fatalf("external seed generic result path wrote an object: object count = %d, want only intent and HEAD", got)
+	}
+	fixture.client.loseAckForBucket("bootstrap-head")
+	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, receiptBytes, resultBytes, completedHeadBytes)
+	if err != nil {
+		t.Fatalf("record root-receipt-gated external seed: %v", err)
+	}
+	if state.Result == nil || state.SeedReceipt == nil || state.SeedReceiptRecord == nil ||
+		state.Result.SeedReceiptDigest != state.SeedReceiptRecord.SHA256 || state.Head.ResultDigest != bodyDigest(resultBytes) {
+		t.Fatalf("external seed completion did not preserve its root receipt: %+v", state)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrSlotAlreadyComplete) {
+		t.Fatalf("completed external seed launch authorization returned %v, want completed-slot denial", err)
+	}
+	restarted := fixture.newLedger(t)
+	recovered, err := restarted.ReadSlot(t.Context(), scope)
+	if err != nil || recovered.SeedReceipt == nil || recovered.SeedReceiptRecord == nil ||
+		recovered.SeedReceiptRecord.SHA256 != bodyDigest(receiptBytes) {
+		t.Fatalf("restart did not recover the exact external seed receipt: state=%+v err=%v", recovered, err)
+	}
+	evidence := fixture.retirement(scope, recovered, "instance-retired")
+	retirementBytes := fixture.sign(t, scope, domainSlotRetirement, evidence, fixture.now)
+	nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "bootstrap-create-b", "retry-token-2")
+	nextIntent.Mode = IntentModeExternalSeed
+	nextIntent.RetryToken = ""
+	nextIntent.ReviewedPlanDigest = bodyDigest([]byte("reviewed replacement OpenTofu plan"))
+	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+	nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
+	nextHead := SlotHead{
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: recovered.Head.Attempt,
+		PreviousGeneration: recovered.Head.Generation, PreviousIntentDigest: recovered.Head.IntentDigest,
+		PreviousResultDigest: recovered.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+	}
+	advanced, err := fixture.ledger.AdvanceSlot(t.Context(), scope, recovered.HeadRecord.ETag,
+		retirementBytes, nextIntentBytes, fixture.sign(t, scope, domainBootstrapHead, nextHead, fixture.now))
+	if err != nil || advanced.Intent.Mode != IntentModeExternalSeed || advanced.Head.Attempt != 2 {
+		t.Fatalf("advance to fresh external-seed successor: state=%+v err=%v", advanced, err)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrExternalSeedMode) {
+		t.Fatalf("external-seed successor launch authorization returned %v, want explicit denial", err)
+	}
+	previousReceiptName := fixture.ledger.objectName(scope, 1, ledgerSeedReceipt)
+	previousReceiptKey := requestKey(new(fixture.ledger.config.Namespace), new(fixture.ledger.config.Bucket), new(previousReceiptName))
+	fixture.client.mu.Lock()
+	previousReceipt := fixture.client.objects[previousReceiptKey]
+	previousReceipt.body = []byte("tampered root receipt")
+	fixture.client.objects[previousReceiptKey] = previousReceipt
+	fixture.client.mu.Unlock()
+	if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrSlotNotReserved) {
+		t.Fatalf("advanced slot accepted a missing/corrupt predecessor seed receipt: %v", err)
+	}
+
+	for _, mutate := range []func(*Intent){
+		func(value *Intent) { value.ReviewedPlanDigest = "" },
+		func(value *Intent) { value.RetryToken = "retry-token-1" },
+	} {
+		invalid := intent
+		mutate(&invalid)
+		if err := validateIntent(invalid); !errors.Is(err, ErrInvalidRecord) {
+			t.Errorf("invalid external seed field combination passed validation: %+v", invalid)
+		}
+	}
+}
+
+func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "bootstrap-create-a", "retry-token-1")
+	intent.Mode = IntentModeExternalSeed
+	intent.RetryToken = ""
+	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
+	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
+		t.Fatalf("reserve external seed slot: %v", err)
+	}
+	receiptBytes := fixture.seedReceiptBytes(t, scope, intent, bodyDigest(intentBytes))
+	result := fixture.result(scope, intent, bodyDigest(intentBytes))
+	result.Mode = IntentModeExternalSeed
+	result.SeedReceiptDigest = bodyDigest(receiptBytes)
+	resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+	completedHead, err := fixture.ledger.decodeHead(scope, headBytes, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completedHead.ResultDigest = bodyDigest(resultBytes)
+	completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerSeedReceipt, receiptBytes); err != nil {
+		t.Fatalf("persist current root receipt before simulated crash: %v", err)
+	}
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, resultBytes); err != nil {
+		t.Fatalf("persist matching result before simulated crash: %v", err)
+	}
+	fixture.client.setNow(fixture.now.Add(6 * time.Minute))
+	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, receiptBytes, resultBytes, completedHeadBytes)
+	if err != nil {
+		t.Fatalf("repair HEAD from exact receipt persisted while current: %v", err)
+	}
+	if state.Result == nil || state.SeedReceiptRecord == nil || state.Head.ResultDigest != bodyDigest(resultBytes) {
+		t.Fatalf("exact persisted receipt did not repair completion: %+v", state)
+	}
+}
+
+func TestCheckRetryWindowUsesOriginalServerTimestamp(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, test := range []struct {
+		name    string
+		record  StoredRecord
+		wantErr error
+	}{
+		{name: "inside", record: StoredRecord{LastModified: now.Add(-22*time.Hour - time.Minute), ServerDate: now}},
+		{name: "expired", record: StoredRecord{LastModified: now.Add(-23 * time.Hour), ServerDate: now}, wantErr: ErrRetryWindowExpired},
+		{name: "missing clock", record: StoredRecord{LastModified: now}, wantErr: ErrInvalidRetryClock},
+		{name: "server clock before create", record: StoredRecord{LastModified: now, ServerDate: now.Add(-time.Second)}, wantErr: ErrInvalidRetryClock},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := CheckRetryWindow(test.record)
+			if test.wantErr != nil && !errors.Is(err, test.wantErr) {
+				t.Fatalf("CheckRetryWindow error = %v, want %v", err, test.wantErr)
+			}
+			if test.wantErr == nil && err != nil {
+				t.Fatalf("CheckRetryWindow returned unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+type ledgerFixture struct {
+	client      *fakeObjectStorageClient
+	ledger      *Ledger
+	privateKey  ed25519.PrivateKey
+	environment string
+	maxLifetime time.Duration
+	now         time.Time
+}
+
+func newLedgerFixture(t *testing.T) *ledgerFixture {
+	t.Helper()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := trust.ParseKeyring(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := newFakeObjectStorageClient()
+	fixture := &ledgerFixture{client: client, privateKey: privateKey, environment: "production", maxLifetime: 24 * time.Hour, now: client.currentTime()}
+	config := LedgerConfig{
+		Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.ledger", Prefix: "private/bootstrap",
+		HeadBucket: "bootstrap-head", HeadKMSKeyID: "ocid1.key.head", Environment: fixture.environment,
+		TrustRoots: roots, TrustPolicy: trust.Policy{MaxLifetime: fixture.maxLifetime, ClockSkew: 2 * time.Minute},
+		VerificationNow: client.currentTime,
+	}
+	fixture.ledger, err = NewLedger(client, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fixture
+}
+
+func (fixture *ledgerFixture) newLedger(t *testing.T) *Ledger {
+	t.Helper()
+	ledger, err := NewLedger(fixture.client, fixture.ledger.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ledger
+}
+
+func (fixture *ledgerFixture) sign(t *testing.T, scope BootstrapScope, domain string, payload any, issuedAt time.Time) []byte {
+	t.Helper()
+	return fixture.signInterval(t, scope, domain, payload, issuedAt, issuedAt.Add(fixture.maxLifetime))
+}
+
+func (fixture *ledgerFixture) signInterval(t *testing.T, scope BootstrapScope, domain string, payload any, issuedAt, expiresAt time.Time) []byte {
+	t.Helper()
+	encodedPayload, err := trust.EncodePayload(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := trust.Sign(encodedPayload, trust.Scope{
+		Domain: domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot,
+	}, issuedAt, expiresAt, fixture.privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := trust.EncodeEnvelope(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func completeFirstManagedAttempt(t *testing.T, fixture *ledgerFixture, scope BootstrapScope) SlotState {
+	t.Helper()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	reserved, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, fixture.headBytes(t, scope, intentBytes, 1))
+	if err != nil {
+		t.Fatalf("reserve first managed attempt: %v", err)
+	}
+	resultBytes := fixture.sign(t, scope, domainBootstrapResult, fixture.result(scope, intent, bodyDigest(intentBytes)), fixture.now)
+	completedHead := reserved.Head
+	completedHead.ResultDigest = bodyDigest(resultBytes)
+	state, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes,
+		fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now))
+	if err != nil {
+		t.Fatalf("complete first managed attempt: %v", err)
+	}
+	return state
+}
+
+func (fixture *ledgerFixture) intentBytes(t *testing.T, scope BootstrapScope, attempt uint64, createKey, retryToken string) ([]byte, Intent) {
+	t.Helper()
+	profile := LaunchProfile{
+		Slot: scope.Slot, CompartmentOCID: "ocid1.compartment.oc1.sa-saopaulo-1.compartment-a",
+		AvailabilityDomain: "AD-1", FaultDomain: "FAULT-DOMAIN-1",
+		SubnetOCID:                "ocid1.subnet.oc1.sa-saopaulo-1.subnet-a",
+		NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.nsg-a"},
+		Shape:                     "VM.Standard.E5.Flex",
+	}
+	launchDigest, err := launchProfileDigest(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := Intent{
+		SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, Attempt: attempt, Generation: attempt,
+		ManifestDigest: bodyDigest([]byte("manifest")), ReleaseReceiptDigest: bodyDigest([]byte("release")), RegionIntentGeneration: 4,
+		ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image-a", RegionIntentDigest: bodyDigest([]byte("region-intent")),
+		LaunchRequestDigest: launchDigest, CreateKey: createKey, RetryToken: retryToken,
+		CreatedAt: fixture.now, OCIRegion: "sa-saopaulo-1", CompartmentOCID: "ocid1.compartment.oc1.sa-saopaulo-1.compartment-a",
+		AvailabilityDomain: "AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet-a",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.nsg-a"}, Shape: "VM.Standard.E5.Flex", Node: "controller-a",
+	}
+	return fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now), intent
+}
+
+func (fixture *ledgerFixture) headBytes(t *testing.T, scope BootstrapScope, intentBytes []byte, attempt uint64) []byte {
+	t.Helper()
+	head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: attempt,
+		Generation: attempt, IntentDigest: bodyDigest(intentBytes)}
+	return fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)
+}
+
+func (fixture *ledgerFixture) result(scope BootstrapScope, intent Intent, intentDigest string) Result {
+	return Result{
+		SchemaVersion: 1, Mode: intent.Mode, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, Attempt: intent.Attempt, Generation: intent.Generation,
+		RegionIntentGeneration: intent.RegionIntentGeneration,
+		IntentDigest:           intentDigest, InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance-a", ProviderRequestID: "request-a",
+		ETag: "instance-etag-a", OCIRegion: intent.OCIRegion, CompartmentOCID: intent.CompartmentOCID,
+		ImageOCID: intent.ImageOCID, Shape: intent.Shape, ObservedProfileDigest: intent.LaunchRequestDigest,
+		CreateKey: intent.CreateKey, ObservedAt: fixture.now,
+	}
+}
+
+func (fixture *ledgerFixture) seedReceiptBytes(t *testing.T, scope BootstrapScope, intent Intent, intentDigest string) []byte {
+	t.Helper()
+	receipt := Receipt{
+		SchemaVersion: ReceiptSchemaVersion, DeploymentID: intent.DeploymentID, Environment: intent.Environment,
+		ClusterID: "cluster-a", Cell: oci.Region(scope.Cell), OCIRegion: intent.OCIRegion,
+		Role: intent.Role, Slot: intent.Slot, InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance-a",
+		CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, CreateKey: intent.CreateKey,
+		IntentSHA256: intentDigest, ManifestDigest: intent.ManifestDigest,
+		ManifestIntentSHA256: intent.RegionIntentDigest, IntentGeneration: intent.RegionIntentGeneration,
+		ProfileSHA256: intent.LaunchRequestDigest,
+	}
+	payload, err := trust.EncodePayload(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := trust.Sign(payload, trust.Scope{
+		Domain: seedReceiptDomain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		Environment: fixture.environment, Role: roleController, Slot: scope.Slot,
+	}, fixture.now, fixture.now.Add(5*time.Minute), fixture.privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := trust.EncodeEnvelope(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func (fixture *ledgerFixture) retirement(scope BootstrapScope, state SlotState, disposition string) RetirementEvidence {
+	return RetirementEvidence{
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, PreviousAttempt: state.Head.Attempt,
+		PreviousGeneration: state.Head.Generation, PreviousResultDigest: state.Head.ResultDigest,
+		PriorInstanceOCID: state.Result.InstanceOCID, PriorCreateKey: state.Intent.CreateKey,
+		Disposition: disposition, ObservedEvidenceDigest: bodyDigest([]byte("provider retirement evidence")),
+		FencingAuthority: "oci-inspector", ObservedAt: fixture.now,
+	}
+}
+
+func testBootstrapScope() BootstrapScope {
+	return BootstrapScope{DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-a"}
+}
+
+type fakeObjectStorageClient struct {
+	mu               sync.Mutex
+	objects          map[string]fakeStoredObject
+	now              time.Time
+	loseAckBucket    string
+	putCalls         atomic.Int32
+	getCalls         atomic.Int32
+	invalidCondition atomic.Bool
+	invalidKMSKey    atomic.Bool
+	omitServerDate   atomic.Bool
+	failBeforeCommit atomic.Bool
+	rejectPut        error
+	rejectPutBucket  string
+}
+
+type fakeStoredObject struct {
+	body         []byte
+	etag         string
+	lastModified time.Time
+}
+
+func newFakeObjectStorageClient() *fakeObjectStorageClient {
+	return &fakeObjectStorageClient{objects: make(map[string]fakeStoredObject), now: time.Now().UTC().Truncate(time.Second)}
+}
+
+func (client *fakeObjectStorageClient) currentTime() time.Time {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return client.now
+}
+
+func (client *fakeObjectStorageClient) setNow(now time.Time) {
+	client.mu.Lock()
+	client.now = now.UTC()
+	client.mu.Unlock()
+}
+
+func (client *fakeObjectStorageClient) loseAckForBucket(bucket string) {
+	client.mu.Lock()
+	client.loseAckBucket = bucket
+	client.mu.Unlock()
+}
+
+func (client *fakeObjectStorageClient) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
+	client.putCalls.Add(1)
+	if request.IfNoneMatch == nil && request.IfMatch == nil || request.IfNoneMatch != nil && request.IfMatch != nil ||
+		request.IfNoneMatch != nil && *request.IfNoneMatch != "*" {
+		client.invalidCondition.Store(true)
+	}
+	expectedKey := "ocid1.key.ledger"
+	if request.BucketName != nil && *request.BucketName == "bootstrap-head" {
+		expectedKey = "ocid1.key.head"
+	}
+	if request.OpcSseKmsKeyId == nil || *request.OpcSseKmsKeyId != expectedKey {
+		client.invalidKMSKey.Store(true)
+	}
+	body, err := io.ReadAll(request.PutObjectBody)
+	if closeErr := request.PutObjectBody.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return objectstorage.PutObjectResponse{}, err
+	}
+	if request.ContentLength == nil || int64(len(body)) != *request.ContentLength {
+		return objectstorage.PutObjectResponse{}, errors.New("incorrect content length")
+	}
+	digest := sha256.Sum256(body)
+	digestHeader := base64.StdEncoding.EncodeToString(digest[:])
+	if request.OpcContentSha256 == nil || *request.OpcContentSha256 != digestHeader ||
+		request.OpcChecksumAlgorithm != objectstorage.PutObjectOpcChecksumAlgorithmSha256 {
+		return objectstorage.PutObjectResponse{}, errors.New("incorrect SHA-256 checksum")
+	}
+	if client.failBeforeCommit.Swap(false) {
+		return objectstorage.PutObjectResponse{}, errors.New("connection reset before object commit")
+	}
+	if client.rejectPut != nil && (client.rejectPutBucket == "" || request.BucketName != nil && *request.BucketName == client.rejectPutBucket) {
+		return objectstorage.PutObjectResponse{}, client.rejectPut
+	}
+	key := requestKey(request.NamespaceName, request.BucketName, request.ObjectName)
+	client.mu.Lock()
+	previous, exists := client.objects[key]
+	if request.IfNoneMatch != nil && exists || request.IfMatch != nil && (!exists || *request.IfMatch != previous.etag) {
+		client.mu.Unlock()
+		return objectstorage.PutObjectResponse{}, fakeObjectStorageError{status: http.StatusPreconditionFailed}
+	}
+	etag := `"` + hex.EncodeToString(digest[:8]) + `"`
+	client.objects[key] = fakeStoredObject{body: bytes.Clone(body), etag: etag, lastModified: client.now}
+	loseAck := client.loseAckBucket != "" && request.BucketName != nil && *request.BucketName == client.loseAckBucket
+	if loseAck {
+		client.loseAckBucket = ""
+	}
+	client.mu.Unlock()
+	if loseAck {
+		return objectstorage.PutObjectResponse{}, errors.New("connection reset after object commit")
+	}
+	return objectstorage.PutObjectResponse{ETag: &etag, OpcRequestId: new("fake-put-request")}, nil
+}
+
+func (client *fakeObjectStorageClient) GetObject(_ context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	client.getCalls.Add(1)
+	key := requestKey(request.NamespaceName, request.BucketName, request.ObjectName)
+	client.mu.Lock()
+	object, ok := client.objects[key]
+	now := client.now
+	client.mu.Unlock()
+	if !ok {
+		return objectstorage.GetObjectResponse{}, fakeObjectStorageError{status: http.StatusNotFound}
+	}
+	date := now.Format(http.TimeFormat)
+	if client.omitServerDate.Load() {
+		date = ""
+	}
+	headers := make(http.Header)
+	if date != "" {
+		headers.Set("Date", date)
+	}
+	length := int64(len(object.body))
+	etag := object.etag
+	lastModified := common.SDKTime{Time: object.lastModified}
+	return objectstorage.GetObjectResponse{
+		RawResponse: &http.Response{Header: headers}, Content: io.NopCloser(bytes.NewReader(object.body)),
+		ContentLength: &length, ETag: &etag, LastModified: &lastModified, OpcRequestId: new("fake-get-request"),
+	}, nil
+}
+
+func (client *fakeObjectStorageClient) objectCount() int {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+	return len(client.objects)
+}
+
+type fakeObjectStorageError struct{ status int }
+
+func (err fakeObjectStorageError) Error() string {
+	return fmt.Sprintf("fake Object Storage status %d", err.status)
+}
+func (err fakeObjectStorageError) GetHTTPStatusCode() int  { return err.status }
+func (err fakeObjectStorageError) GetMessage() string      { return err.Error() }
+func (err fakeObjectStorageError) GetCode() string         { return "FakeError" }
+func (err fakeObjectStorageError) GetOpcRequestID() string { return "fake-request" }
+
+func requestKey(namespace, bucket, objectName *string) string {
+	return *namespace + "\x00" + *bucket + "\x00" + *objectName
+}
+
+func bodyDigest(body []byte) string {
+	digest := sha256.Sum256(body)
+	return hex.EncodeToString(digest[:])
+}
