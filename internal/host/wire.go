@@ -13,6 +13,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 var errSessionOwned = errors.New("another process owns the host session")
@@ -21,7 +22,8 @@ var errSessionBackendUnavailable = errors.New("host session backend temporarily 
 
 func transientSessionTransport(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
-		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse)
 }
 
 type request struct {

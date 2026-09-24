@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
 	"net"
@@ -60,11 +62,18 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	operations, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: delivery.OperationBucket, Replicas: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	probeCtx, probeCancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer probeCancel()
 	command := exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL())
+		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL(),
+		"--operation-id", "fc-diagnostic-2")
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("diagnostic command: %v: %s", err, output)
@@ -96,6 +105,10 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		if consumer != (role == "controller") {
 			t.Fatalf("%s consumer probe visibility = %t", role, consumer)
 		}
+		operation := record["delivery_operation"].(map[string]any)
+		if operation["state"] != "unclaimed" {
+			t.Fatalf("%s unclaimed operation = %v", role, operation)
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
@@ -106,8 +119,14 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	if err := regional.JetStream().DeleteKeyValue(ctx, "TS_HOST_STATE"); err != nil {
 		t.Fatal(err)
 	}
+	sum := sha256.Sum256([]byte("fc-diagnostic-2"))
+	if _, err := operations.Put(ctx, "o_"+hex.EncodeToString(sum[:]), []byte(
+		`{"intent":{"operationId":"fc-diagnostic-2","generation":2,"authorityEpoch":3},"plan":[{}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	command = exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL())
+		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL(),
+		"--operation-id", "fc-diagnostic-2")
 	output, err = command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("diagnostic command with absent host stream: %v: %s", err, output)
@@ -125,6 +144,11 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		}
 		if _, ok := record["stream_TS_CONTROL_LOG"]; !ok {
 			t.Fatalf("successful stream query was lost: %v", record)
+		}
+		operation := record["delivery_operation"].(map[string]any)
+		if operation["state"] != "claimed" || operation["plan_count"] != float64(1) ||
+			operation["authority_epoch"] != float64(3) {
+			t.Fatalf("claimed operation metadata was lost: %v", operation)
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -246,12 +270,24 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	operations, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: delivery.OperationBucket, Replicas: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("fc-one-node-loss-2"))
+	if _, err := operations.Put(ctx, "o_"+hex.EncodeToString(sum[:]), []byte(
+		`{"intent":{"operationId":"fc-one-node-loss-2","generation":2,"authorityEpoch":1},"plan":[{}]}`)); err != nil {
+		t.Fatal(err)
+	}
 	urls := make([]string, len(runtimes))
 	for index, runtime := range runtimes {
 		urls[index] = runtime.URL()
 	}
 	command := exec.CommandContext(ctx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", strings.Join(urls, ","))
+		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", strings.Join(urls, ","),
+		"--operation-id", "fc-one-node-loss-2")
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("replicated diagnostic command: %v: %s", err, output)
@@ -280,6 +316,10 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 			if consumer["cluster"] == nil {
 				t.Fatal("replicated consumer cluster metadata is missing")
 			}
+		}
+		operation := record["delivery_operation"].(map[string]any)
+		if operation["state"] != "claimed" || operation["plan_count"] != float64(1) {
+			t.Fatalf("%s replicated operation metadata incomplete: %v", role, operation)
 		}
 	}
 	if err := scanner.Err(); err != nil {

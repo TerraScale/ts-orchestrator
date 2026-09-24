@@ -36,16 +36,17 @@ type gatedDesiredRead struct {
 	release chan struct{}
 }
 
-type oneShotSessionTimeout struct {
+type oneShotSessionFailure struct {
 	jetstream.KeyValue
 	failNext atomic.Bool
 	failures atomic.Int32
+	failure  error
 }
 
-func (s *oneShotSessionTimeout) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+func (s *oneShotSessionFailure) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
 	if key == sessionKey("gru", "node-a") && s.failNext.CompareAndSwap(true, false) {
 		s.failures.Add(1)
-		return nil, context.DeadlineExceeded
+		return nil, s.failure
 	}
 	return s.KeyValue.Get(ctx, key)
 }
@@ -264,7 +265,7 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 }
 
 func TestSessionRetryClassificationAndReserve(t *testing.T) {
-	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected, errSessionBackendUnavailable} {
+	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected, jetstream.ErrNoStreamResponse, errSessionBackendUnavailable} {
 		if !retrySessionExchange(err) {
 			t.Fatalf("transient session error was terminal: %v", err)
 		}
@@ -286,10 +287,22 @@ func TestSessionRetryClassificationAndReserve(t *testing.T) {
 	}
 }
 
-func TestSignedSessionBackendTimeoutRetriesWithinLease(t *testing.T) {
+func TestSignedTransientSessionBackendRetriesWithinLease(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"deadline exceeded", context.DeadlineExceeded},
+		{"no stream response", jetstream.ErrNoStreamResponse},
+	} {
+		t.Run(test.name, func(t *testing.T) { testSignedTransientSessionBackend(t, test.err) })
+	}
+}
+
+func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	c, conn, _, mutations, controllerKey := testController(t)
 	hostKey := registerTestHost(t, c)
-	state := &oneShotSessionTimeout{KeyValue: c.state}
+	state := &oneShotSessionFailure{KeyValue: c.state, failure: backendErr}
 	c.state = state
 	controllerCtx, stopController := context.WithCancel(t.Context())
 	defer stopController()
@@ -305,14 +318,14 @@ func TestSignedSessionBackendTimeoutRetriesWithinLease(t *testing.T) {
 		t.Fatal(err)
 	}
 	state.failNext.Store(true)
-	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionBackendUnavailable) || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
-		t.Fatalf("signed controller timeout was not classified as retryable: %v", err)
+	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionBackendUnavailable) || !strings.Contains(err.Error(), backendErr.Error()) {
+		t.Fatalf("signed controller failure was not classified as retryable: %v", err)
 	}
 	state.failNext.Store(true)
 	startupCtx, stopWaiting := context.WithTimeout(t.Context(), 3*time.Second)
 	defer stopWaiting()
 	if err := agent.waitForSession(startupCtx); err != nil {
-		t.Fatalf("startup did not retry signed controller timeout: %v", err)
+		t.Fatalf("startup did not retry signed controller failure: %v", err)
 	}
 	agent.mu.RLock()
 	initial := agent.session
@@ -336,11 +349,11 @@ func TestSignedSessionBackendTimeoutRetriesWithinLease(t *testing.T) {
 		}
 		select {
 		case err := <-lost:
-			t.Fatalf("signed renewal timeout stopped the valid lease: %v", err)
+			t.Fatalf("signed renewal failure stopped the valid lease: %v", err)
 		case <-monitorDone:
-			t.Fatal("session monitor exited before retrying signed timeout")
+			t.Fatal("session monitor exited before retrying signed failure")
 		case <-deadline.C:
-			t.Fatal("signed renewal timeout was not retried")
+			t.Fatal("signed renewal failure was not retried")
 		case <-time.After(25 * time.Millisecond):
 		}
 	}

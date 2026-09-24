@@ -9,6 +9,7 @@ host with passwordless sudo for ip, mount, umount, install and systemctl.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import hashlib
 import http.client
 import ipaddress
@@ -69,6 +70,39 @@ def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
     path.chmod(0o600)
+
+
+def curated_host_statuses(statuses: Any, captured_at: datetime) -> list[dict[str, Any]]:
+    if not isinstance(statuses, list):
+        raise ValueError("operator hosts did not return a list")
+    result = []
+    for status in statuses:
+        if not isinstance(status, dict) or not isinstance(status.get("registration"), dict):
+            raise ValueError("operator hosts returned an invalid status")
+        registration = status["registration"]
+        expiry = status.get("session_expires_at")
+        try:
+            current = (datetime.fromisoformat(expiry.replace("Z", "+00:00")) > captured_at
+                       if isinstance(expiry, str) else False)
+        except ValueError:
+            current = False
+        capacity = registration.get("capacity") or {}
+        reports = status.get("reports") or []
+        result.append({
+            "node": registration.get("node"),
+            "environment": registration.get("environment"),
+            "roles": registration.get("roles"),
+            "registration_generation": registration.get("generation"),
+            "capacity": {key: capacity.get(key) for key in ("cpu", "memory_bytes", "disk_bytes")},
+            "session_expires_at": expiry,
+            "session_current": current,
+            "verified": status.get("verified"),
+            "reports": [{"role": report.get("role"), "generation": report.get("generation"),
+                         "state": report.get("state"), "digest_prefix": str(report.get("digest", ""))[:12],
+                         "epoch": report.get("epoch"), "observed_at": report.get("observed_at")}
+                        for report in reports if isinstance(report, dict)],
+        })
+    return result
 
 
 def source_digest() -> str:
@@ -219,6 +253,8 @@ class Lab:
                        "commit": "f" * 40, "treeDigest": ""}
         self.failure_diagnostics_captured = False
         self.cluster_diagnostics_captured = False
+        self.host_status_diagnostics_captured: set[str] = set()
+        self.active_operation_id = ""
 
     def note(self, event: str, **details: Any) -> None:
         entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -530,6 +566,7 @@ class Lab:
                                   timeout=remaining())
             if not isinstance(submitted, dict) or submitted.get("status") != "submitted":
                 raise RuntimeError(f"{operation} {attempt_name} did not submit")
+            self.active_operation_id = submitted["operationId"]
             submitted_at = time.monotonic()
 
             def accepted() -> bool:
@@ -566,6 +603,7 @@ class Lab:
         if self.cluster_diagnostics_captured:
             return
         self.cluster_diagnostics_captured = True
+        self.capture_host_status("early-pending")
         for name in CONTROLLERS:
             vm = self.vms.get(name)
             if vm is None or vm.process is None or vm.process.poll() is not None:
@@ -588,9 +626,12 @@ class Lab:
             urls = ",".join(f"nats://{self.addresses[name]}:4222" for name in CONTROLLERS)
             path = self.logs / "nats-live-diagnostics.jsonl"
             try:
-                result = run([str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
-                              "--operator-seed", str(self.secrets / "operator.nk"),
-                              "--cell", CELL, "--urls", urls], timeout=35, allow_failure=True)
+                command = [str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
+                           "--operator-seed", str(self.secrets / "operator.nk"),
+                           "--cell", CELL, "--urls", urls]
+                if self.active_operation_id:
+                    command.extend(("--operation-id", self.active_operation_id))
+                result = run(command, timeout=35, allow_failure=True)
                 path.write_text(result.stdout + result.stderr)
                 path.chmod(0o600)
                 self.note("cluster_diagnostics", name="nats", path=str(path),
@@ -599,6 +640,33 @@ class Lab:
                 path.write_text(f"NATS diagnostics unavailable: {error!r}\n")
                 path.chmod(0o600)
                 self.note("cluster_diagnostics", name="nats", path=str(path), error=repr(error))
+
+    def capture_host_status(self, label: str) -> None:
+        if label in self.host_status_diagnostics_captured:
+            return
+        self.host_status_diagnostics_captured.add(label)
+        captured_at = datetime.now(timezone.utc)
+        path = self.logs / f"host-status-{label}.json"
+        snapshot: dict[str, Any] = {"captured_at": captured_at.isoformat(), "label": label}
+        try:
+            outcome = run([str(self.binary), "operator", "hosts", "--config",
+                           str(self.operator_config)], timeout=10, allow_failure=True)
+            if outcome.returncode:
+                snapshot.update(status="operator_failed", exit_code=outcome.returncode)
+            else:
+                snapshot.update(status="ok", hosts=curated_host_statuses(
+                    json.loads(outcome.stdout), captured_at))
+        except subprocess.TimeoutExpired:
+            snapshot["status"] = "timeout"
+        except Exception as error:  # diagnostics must not fail the qualification
+            snapshot.update(status="error", error_type=type(error).__name__)
+        try:
+            write_json(path, snapshot)
+        except OSError as error:
+            self.note("host_status_diagnostics", label=label, status="write_failed",
+                      error_type=type(error).__name__)
+            return
+        self.note("host_status_diagnostics", label=label, path=str(path), status=snapshot["status"])
 
     def scenario(self) -> None:
         self.network()
@@ -661,6 +729,7 @@ class Lab:
     def capture_failure_diagnostics(self) -> None:
         if self.failure_diagnostics_captured:
             return
+        self.capture_host_status("failure")
         host_vm = self.vms.get("host")
         if host_vm is None or host_vm.process is None or host_vm.process.poll() is not None:
             return

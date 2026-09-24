@@ -6,7 +6,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -25,6 +28,7 @@ func main() {
 	seed := flag.String("seed", "", "private controller NKey seed file")
 	operatorSeed := flag.String("operator-seed", "", "private operator NKey seed file")
 	cell := flag.String("cell", "", "regional cell name")
+	operationID := flag.String("operation-id", "", "delivery operation to inspect without payloads")
 	urls := flag.String("urls", "", "comma-separated direct controller URLs")
 	flag.Parse()
 	if *seed == "" || *cell == "" || *urls == "" {
@@ -39,7 +43,7 @@ func main() {
 	var output sync.Mutex
 	var workers sync.WaitGroup
 	for _, url := range strings.Split(*urls, ",") {
-		workers.Go(func() { probe(url, "controller", *cell, options, &output) })
+		workers.Go(func() { probe(url, "controller", *cell, *operationID, options, &output) })
 	}
 	if *operatorSeed != "" {
 		operatorOptions, err := identityOptions(*operatorSeed, *cell)
@@ -47,7 +51,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "load operator identity:", err)
 			os.Exit(1)
 		}
-		workers.Go(func() { probe(*urls, "operator", *cell, operatorOptions, &output) })
+		workers.Go(func() { probe(*urls, "operator", *cell, *operationID, operatorOptions, &output) })
 	}
 	workers.Wait()
 }
@@ -74,7 +78,7 @@ func identityOptions(seedFile, cell string) ([]nats.Option, error) {
 	return []nats.Option{nats.CustomInboxPrefix("ts.orch.v1." + cell + ".inbox." + public), identity}, nil
 }
 
-func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
+func probe(url, role, cell, operationID string, identity []nats.Option, output *sync.Mutex) {
 	result := map[string]any{"requested_url": url, "role": role, "time": time.Now().UTC()}
 	defer func() {
 		encoded, err := json.Marshal(result)
@@ -157,6 +161,54 @@ func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 			"revision": snapshot.Revision, "expires_at": snapshot.ExpiresAt,
 			"ready": snapshot.Ready, "reason": snapshot.Reason}, nil
 	})
+	if operationID != "" {
+		read("delivery_operation", func(ctx context.Context) (any, error) {
+			return operationDiagnostic(ctx, js, operationID)
+		})
+	}
+}
+
+func operationDiagnostic(ctx context.Context, js jetstream.JetStream, operationID string) (any, error) {
+	store, err := js.KeyValue(ctx, delivery.OperationBucket)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(operationID))
+	entry, err := store.Get(ctx, "o_"+hex.EncodeToString(sum[:]))
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return map[string]any{"state": "unclaimed"}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var operation struct {
+		Intent struct {
+			OperationID    string `json:"operationId"`
+			Generation     uint64 `json:"generation"`
+			AuthorityEpoch uint64 `json:"authorityEpoch"`
+		} `json:"intent"`
+		Plan    []struct{} `json:"plan"`
+		Receipt *struct {
+			Status         string `json:"status"`
+			Generation     uint64 `json:"generation"`
+			AuthorityEpoch uint64 `json:"authorityEpoch"`
+		} `json:"receipt"`
+	}
+	if err := json.Unmarshal(entry.Value(), &operation); err != nil {
+		return nil, errors.New("operation metadata is malformed")
+	}
+	if operation.Intent.OperationID != operationID {
+		return nil, errors.New("operation key and stored identity differ")
+	}
+	result := map[string]any{"state": "claimed", "revision": entry.Revision(),
+		"generation": operation.Intent.Generation, "authority_epoch": operation.Intent.AuthorityEpoch,
+		"plan_count": len(operation.Plan)}
+	if operation.Receipt != nil {
+		result["receipt"] = map[string]any{"status": operation.Receipt.Status,
+			"generation":      operation.Receipt.Generation,
+			"authority_epoch": operation.Receipt.AuthorityEpoch}
+	}
+	return result, nil
 }
 
 func accountDiagnostic(info *jetstream.AccountInfo) map[string]any {

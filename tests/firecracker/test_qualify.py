@@ -1,8 +1,10 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import qualify
 
@@ -73,6 +75,46 @@ class DeployRetryTests(unittest.TestCase):
 
         self.assertEqual(intent["operationId"], "fc-one-node-loss-epoch-retry-2")
         self.assertNotIn("authorityEpoch", intent)
+
+
+class HostStatusDiagnosticTests(unittest.TestCase):
+    def test_host_status_is_curated_and_session_current_is_derived(self):
+        captured_at = datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc)
+        expiry = (captured_at + timedelta(seconds=20)).isoformat()
+        statuses = [{
+            "registration": {"node": "host-a", "environment": "test", "roles": ["terrabase"],
+                             "generation": 1, "capacity": {"cpu": 2, "memory_bytes": 256, "disk_bytes": 512},
+                             "public_key": "secret-public-key"},
+            "session_expires_at": expiry, "verified": False,
+            "reports": [{"role": "terrabase", "generation": 1, "state": "running",
+                         "digest": "a" * 64, "epoch": 2, "observed_at": expiry,
+                         "session_id": "secret-session-id", "error": "free text"}],
+        }]
+
+        curated = qualify.curated_host_statuses(statuses, captured_at)
+
+        self.assertTrue(curated[0]["session_current"])
+        self.assertEqual(curated[0]["reports"][0]["digest_prefix"], "a" * 12)
+        self.assertNotIn("secret", json.dumps(curated))
+        statuses[0]["session_expires_at"] = (captured_at - timedelta(seconds=1)).isoformat()
+        self.assertFalse(qualify.curated_host_statuses(statuses, captured_at)[0]["session_current"])
+
+    def test_operator_failure_stays_nonfatal_and_does_not_dump_output(self):
+        lab = object.__new__(qualify.Lab)
+        with tempfile.TemporaryDirectory() as directory:
+            lab.logs = Path(directory)
+            lab.binary = Path(directory) / "terrascale-orchestrator"
+            lab.operator_config = Path(directory) / "operator.json"
+            lab.host_status_diagnostics_captured = set()
+            lab.note = Mock()
+            with patch.object(qualify, "run", return_value=SimpleNamespace(
+                    returncode=1, stdout="secret-output", stderr="secret-error")):
+                qualify.Lab.capture_host_status(lab, "early-pending")
+            snapshot = json.loads((lab.logs / "host-status-early-pending.json").read_text())
+
+        self.assertEqual(snapshot["status"], "operator_failed")
+        self.assertEqual(snapshot["exit_code"], 1)
+        self.assertNotIn("secret", json.dumps(snapshot))
 
 
 if __name__ == "__main__":

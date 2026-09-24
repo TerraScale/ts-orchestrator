@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -183,33 +184,65 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	for key, value := range w.Env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
-	if err := cmd.Start(); err != nil {
+	release, waited, err := startWorkloadOnLockedThread(cmd)
+	if err != nil {
 		return fmt.Errorf("start workload in cgroup v2: %w", err)
 	}
+	defer release()
 	start := currentStartTime(cmd.Process.Pid)
 	if start == "" {
-		_ = terminateCgroup(context.Background(), cgroupPath)
-		_ = cmd.Wait()
+		if err := terminateCgroup(context.Background(), cgroupPath); err != nil {
+			_ = cmd.Process.Kill()
+		}
+		release()
+		<-waited
 		return errors.New("cannot identify native process")
 	}
 	record := processRecord{Role: w.Role, Digest: w.Digest, Fingerprint: w.Fingerprint, PID: cmd.Process.Pid, StartTime: start}
 	p.records[w.Role] = record
 	p.commands[w.Role] = cmd
 	if err := p.persistLocked(); err != nil {
-		_ = terminateCgroup(context.Background(), cgroupPath)
-		_ = cmd.Wait()
+		if stopErr := terminateCgroup(context.Background(), cgroupPath); stopErr != nil {
+			_ = cmd.Process.Kill()
+		}
+		release()
+		<-waited
 		delete(p.records, w.Role)
 		delete(p.commands, w.Role)
 		return err
 	}
+	release()
 	go func() {
 		result := "exit status 0"
-		if err := cmd.Wait(); err != nil {
+		if err := <-waited; err != nil {
 			result = err.Error()
 		}
 		fmt.Fprintf(os.Stderr, "native workload exited role=%s pid=%d digest=%s result=%q\n", w.Role, record.PID, w.Digest[:12], result)
 	}()
 	return nil
+}
+
+// Linux delivers Pdeathsig when the thread that created the child exits.
+// Keep that thread alive until Wait so an idle Go thread cannot kill a live workload.
+func startWorkloadOnLockedThread(cmd *exec.Cmd) (func(), <-chan error, error) {
+	started := make(chan error, 1)
+	release := make(chan struct{})
+	waited := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		err := cmd.Start()
+		started <- err
+		if err != nil {
+			return
+		}
+		<-release
+		waited <- cmd.Wait()
+	}()
+	if err := <-started; err != nil {
+		return nil, nil, err
+	}
+	return sync.OnceFunc(func() { close(release) }), waited, nil
 }
 
 func (p *processRunner) Stop(ctx context.Context, role string) error {
