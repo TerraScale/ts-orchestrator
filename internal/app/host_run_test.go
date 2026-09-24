@@ -2,8 +2,14 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"io"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func TestHostRunResultOnlyTreatsParentCancellationAsShutdown(t *testing.T) {
@@ -20,5 +26,28 @@ func TestHostRunResultOnlyTreatsParentCancellationAsShutdown(t *testing.T) {
 	failure := errors.New("host session lost")
 	if err := hostRunResult(ctx, failure); !errors.Is(err, failure) {
 		t.Fatalf("canceled parent concealed an unrelated host failure: %v", err)
+	}
+}
+
+func TestHostSessionTraceConfigAccepted(t *testing.T) {
+	path := testJSONFile(t, t.TempDir(), "host.json", Config{Host: HostConfig{SessionTrace: true, WorkloadUID: 2000, WorkloadGID: 2000}})
+	loaded, err := LoadConfig(path)
+	if err != nil || !loaded.Host.SessionTrace || loaded.Host.WorkloadUID != 2000 || loaded.Host.WorkloadGID != 2000 {
+		t.Fatalf("load host trace and workload identity config: host=%+v err=%v", loaded.Host, err)
+	}
+}
+
+func TestHostRejectsZeroWorkloadIdentityBeforeNativeProbe(t *testing.T) {
+	root := t.TempDir()
+	controllerPublic, _ := testEd25519(t, root, "controller.key")
+	_, _ = testEd25519(t, root, "host.key")
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Host: HostConfig{
+		Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
+		IdentityKeyFile:     filepath.Join(root, "host.key"),
+		ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic),
+		InstallRoot:         filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"),
+	}}
+	if err := runHost(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "workload_uid and workload_gid") {
+		t.Fatalf("host reached native probe with zero workload identity: %v", err)
 	}
 }

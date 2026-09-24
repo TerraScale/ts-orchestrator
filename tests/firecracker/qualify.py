@@ -9,7 +9,7 @@ host with passwordless sudo for ip, mount, umount, install and systemctl.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import http.client
 import ipaddress
@@ -40,6 +40,10 @@ GUESTS = (*CONTROLLERS, "host")
 CONFIG_DIGEST = hashlib.sha256(b'{"args":[],"env":{}}').hexdigest()
 BOOT_ARGS = "console=ttyS0 reboot=k panic=-1 pci=off root=/dev/vda rw"
 PRE_ACCEPTANCE_FENCED = "authority epoch was fenced before acceptance"
+SESSION_EXECUTION_RESERVE_SECONDS = 5
+WORKLOAD_UID = 2000
+WORKLOAD_GID = 2000
+WORKLOAD_RUN_DIR = "/run/ts-orch-workload"
 
 
 class TerminalReceipt(Exception):
@@ -99,7 +103,9 @@ def curated_host_statuses(statuses: Any, captured_at: datetime) -> list[dict[str
             "verified": status.get("verified"),
             "reports": [{"role": report.get("role"), "generation": report.get("generation"),
                          "state": report.get("state"), "digest_prefix": str(report.get("digest", ""))[:12],
-                         "epoch": report.get("epoch"), "observed_at": report.get("observed_at")}
+                         "epoch": report.get("epoch"), "observed_at": report.get("observed_at"),
+                         "session_id_hash": (hashlib.sha256(report["session_id"].encode()).hexdigest()[:32]
+                                             if isinstance(report.get("session_id"), str) else None)}
                         for report in reports if isinstance(report, dict)],
         })
     return result
@@ -240,6 +246,7 @@ class Lab:
         self.subnet = ipaddress.ip_network(f"198.19.{self.network_octet}.0/24")
         self.addresses = {name: str(self.subnet[index + 10]) for index, name in enumerate(GUESTS, 1)}
         self.created_links: list[str] = []
+        self.created_nft_tables: list[str] = []
         self.mounted: list[Path] = []
         self.vms: dict[str, VM] = {}
         self.binary = self.root / "terrascale-orchestrator"
@@ -255,6 +262,9 @@ class Lab:
         self.cluster_diagnostics_captured = False
         self.host_status_diagnostics_captured: set[str] = set()
         self.active_operation_id = ""
+        self.go_source_sha256 = ""
+        self.harness_sha256 = ""
+        self.guest_clock_upper_ns: dict[str, int] = {}
 
     def note(self, event: str, **details: Any) -> None:
         entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -284,6 +294,8 @@ class Lab:
 
     def build(self) -> None:
         before = source_digest()
+        self.go_source_sha256 = before
+        self.harness_sha256 = self.harness_digest()
         revision = run(["git", "rev-parse", "HEAD"]).stdout.strip()
         result = run(["go", "version"])
         self.note("source", revision=revision, manifest_sha256=before, go=result.stdout.strip())
@@ -304,8 +316,69 @@ class Lab:
         after = source_digest()
         if after != before:
             raise RuntimeError("Go source changed during build; rerun against a stable tree")
+        if self.harness_digest() != self.harness_sha256:
+            raise RuntimeError("Firecracker harness changed during build; rerun against a stable tree")
         self.note("binary", sha256=digest(self.binary), source_manifest_sha256=after)
         self.note("diagnostic_binary", sha256=digest(self.natsdiag))
+
+    @staticmethod
+    def harness_digest() -> str:
+        value = hashlib.sha256()
+        for name in ("qualify.py", "test_qualify.py", "natsdiag.go", "nkeygen.go", "README.md"):
+            path = REPO / "tests" / "firecracker" / name
+            value.update(name.encode() + b"\0" + bytes.fromhex(digest(path)))
+        return value.hexdigest()
+
+    def tls_files(self, name: str, *, guest: bool) -> dict[str, str]:
+        directory = Path("/etc/ts-orch") if guest else self.secrets
+        return {"ca_file": str(directory / "nats-ca.pem"),
+                "cert_file": str(directory / f"nats-{name}.pem"),
+                "key_file": str(directory / f"nats-{name}.key")}
+
+    def create_tls_material(self) -> None:
+        ca_key = self.secrets / "nats-ca.key"
+        ca_cert = self.secrets / "nats-ca.pem"
+        run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+             "ec_paramgen_curve:P-256", "-out", str(ca_key)])
+        ca_key.chmod(0o600)
+        run(["openssl", "req", "-new", "-x509", "-key", str(ca_key), "-sha256",
+             "-days", "2", "-subj", f"/CN=ts-fc-{self.bridge}",
+             "-addext", "basicConstraints=critical,CA:TRUE",
+             "-addext", "keyUsage=critical,keyCertSign,cRLSign", "-out", str(ca_cert)])
+        ca_cert.chmod(0o600)
+        fingerprints = {}
+        for serial, name in enumerate((*GUESTS, "operator"), 2):
+            private_key = self.secrets / f"nats-{name}.key"
+            request = self.secrets / f"nats-{name}.csr"
+            extension = self.secrets / f"nats-{name}.ext"
+            certificate = self.secrets / f"nats-{name}.pem"
+            run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+                 "ec_paramgen_curve:P-256", "-out", str(private_key)])
+            private_key.chmod(0o600)
+            run(["openssl", "req", "-new", "-key", str(private_key), "-out",
+                 str(request), "-subj", f"/CN={name}.{CELL}.fc"])
+            san = f"IP:{self.addresses[name]},DNS:{name}.{CELL}.fc" if name in GUESTS else "DNS:operator.lab.fc"
+            extension.write_text("[leaf]\nbasicConstraints=critical,CA:FALSE\n"
+                                 "keyUsage=critical,digitalSignature\n"
+                                 "extendedKeyUsage=serverAuth,clientAuth\n"
+                                 f"subjectAltName={san}\n")
+            extension.chmod(0o600)
+            run(["openssl", "x509", "-req", "-in", str(request), "-CA", str(ca_cert),
+                 "-CAkey", str(ca_key), "-set_serial", str(serial), "-days", "2",
+                 "-sha256", "-extfile", str(extension), "-extensions", "leaf",
+                 "-out", str(certificate)])
+            certificate.chmod(0o600)
+            fingerprints[name] = digest(certificate)
+            request.unlink()
+            extension.unlink()
+        route_password = self.secrets / "route-password"
+        route_password.write_text(secrets.token_urlsafe(32) + "\n")
+        route_password.chmod(0o600)
+        self.note("tls_material", minimum_version="TLS1.3", client_auth="require_and_verify",
+                  ca_sha256=digest(ca_cert), certificate_sha256=fingerprints,
+                  distinct_certificates=len(set(fingerprints.values())) == len(fingerprints))
+        if len(set(fingerprints.values())) != len(fingerprints):
+            raise RuntimeError("TLS leaf certificates were not distinct")
 
     def identities(self) -> None:
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.ssh_key)])
@@ -320,6 +393,7 @@ class Lab:
         generated = run(["go", "run", str(REPO / "tests/firecracker/nkeygen.go"),
                          "--dir", str(self.secrets), *CONTROLLERS, "operator", "host"], timeout=180)
         self.nkeys = json.loads(generated.stdout)
+        self.create_tls_material()
         self.note("identities", names=[*self.nkeys, *self.signing_public])
 
     def configs(self) -> None:
@@ -329,15 +403,20 @@ class Lab:
         signer = {"actor": "ops", "public_key": self.signing_public["operator"],
                   "roles": [ROLE], "environments": [ENVIRONMENT],
                   "can_register_hosts": True, "repositories": [self.source["repository"]]}
-        urls = ",".join(f"nats://{self.addresses[name]}:4222" for name in CONTROLLERS)
+        urls = ",".join(f"tls://{self.addresses[name]}:4222" for name in CONTROLLERS)
         for name in CONTROLLERS:
             other_routes = [f"nats-route://{self.addresses[peer]}:6222" for peer in CONTROLLERS if peer != name]
-            config = {"nats": {"cell": CELL, "instance": name, "replicas": 3, "lab": True,
+            config = {"nats": {"cell": CELL, "instance": name, "replicas": 3, "lab": False,
+                               "client_role": "controller", "tls": self.tls_files(name, guest=True),
                                "nkey_seed_file": f"/etc/ts-orch/{name}.nk",
                                "embedded": {"host": self.addresses[name], "port": 4222,
                                             "route_host": self.addresses[name], "route_port": 6222,
                                             "routes": other_routes, "store_dir": "/var/lib/ts-orch/nats",
                                             "store_max_bytes": 2 << 30,
+                                            "tls": self.tls_files(name, guest=True),
+                                            "route_tls": self.tls_files(name, guest=True),
+                                            "route_user": "ts-fc-route",
+                                            "route_password_file": "/etc/ts-orch/route-password",
                                             "users": grants}},
                       "controller": {"response_key_file": "/etc/ts-orch/controller.key",
                                      "artifact_store_max_bytes": 64 << 20,
@@ -345,16 +424,21 @@ class Lab:
                                          ROLE: {"resources": {"cpu": 1, "memory_bytes": 67108864,
                                                               "disk_bytes": 134217728}}}}}
             write_json(self.secrets / f"{name}.json", config)
-        host = {"nats": {"cell": CELL, "instance": "host-a", "replicas": 3, "lab": True,
-                         "url": urls, "nkey_seed_file": "/etc/ts-orch/host.nk"},
+        host = {"nats": {"cell": CELL, "instance": "host-a", "replicas": 3, "lab": False,
+                         "client_role": "host", "url": urls,
+                         "tls": self.tls_files("host", guest=True),
+                         "nkey_seed_file": "/etc/ts-orch/host.nk"},
                 "host": {"node": "host-a", "environment": ENVIRONMENT, "roles": [ROLE],
+                         "session_trace": True,
+                         "workload_uid": WORKLOAD_UID, "workload_gid": WORKLOAD_GID,
                          "identity_key_file": "/etc/ts-orch/host.key",
                          "controller_public_key": self.signing_public["controller"],
-                         "install_root": "/var/lib/ts-orch/install",
+                         "install_root": "/var/lib/ts-orch-install",
                          "state_root": "/var/lib/ts-orch/host", "poll_millis": 250}}
         write_json(self.secrets / "host.json", host)
         operator = {"nats": {"cell": CELL, "instance": "operator", "replicas": 3,
-                             "lab": True, "url": urls,
+                             "lab": False, "client_role": "operator", "url": urls,
+                             "tls": self.tls_files("operator", guest=False),
                              "nkey_seed_file": str(self.secrets / "operator.nk")},
                     "controller": {"trusted_signers": [signer]},
                     "operator": {"actor": "ops", "signing_key_file": str(self.secrets / "operator.key")}}
@@ -392,6 +476,23 @@ class Lab:
         finally:
             source.unlink(missing_ok=True)
 
+    @staticmethod
+    def guest_unit(name: str, role: str) -> str:
+        host_service = ""
+        if name == "host":
+            host_service = (
+                "User=root\nGroup=root\nNoNewPrivileges=yes\n"
+                "CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP\n"
+                "AmbientCapabilities=\nDelegate=yes\n"
+                f"ExecStartPre=/usr/bin/install -d -o {WORKLOAD_UID} -g {WORKLOAD_GID} "
+                f"-m 0700 {WORKLOAD_RUN_DIR}\n")
+        return ("[Unit]\nDescription=TerraScale Firecracker qualification " + name +
+                "\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\n" +
+                host_service +
+                f"ExecStart=/usr/local/bin/terrascale-orchestrator {role} --config /etc/ts-orch/config.json\n" +
+                "Restart=on-failure\nRestartSec=2\nStandardOutput=journal+console\n" +
+                "StandardError=journal+console\n\n[Install]\nWantedBy=multi-user.target\n")
+
     def prepare_guest(self, name: str) -> None:
         image = self.images / f"{name}.ext4"
         run(["cp", "--reflink=auto", "--sparse=always", str(self.rootfs), str(image)], timeout=240)
@@ -428,13 +529,13 @@ class Lab:
             config_name = name if name in CONTROLLERS else "host"
             self.install(mount, self.secrets / f"{config_name}.json", "/etc/ts-orch/config.json", "0600")
             self.install(mount, self.secrets / f"{config_name}.nk", f"/etc/ts-orch/{config_name}.nk", "0600")
+            for file_name in ("nats-ca.pem", f"nats-{name}.pem", f"nats-{name}.key"):
+                self.install(mount, self.secrets / file_name, f"/etc/ts-orch/{file_name}", "0600")
+            if name in CONTROLLERS:
+                self.install(mount, self.secrets / "route-password", "/etc/ts-orch/route-password", "0600")
             key_name = "controller" if name in CONTROLLERS else "host"
             self.install(mount, self.secrets / f"{key_name}.key", f"/etc/ts-orch/{key_name}.key", "0600")
-            unit = ("[Unit]\nDescription=TerraScale Firecracker qualification " + name +
-                    "\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\n" +
-                    f"ExecStart=/usr/local/bin/terrascale-orchestrator {role} --config /etc/ts-orch/config.json\n" +
-                    "Restart=on-failure\nRestartSec=2\nStandardOutput=journal+console\n" +
-                    "StandardError=journal+console\n\n[Install]\nWantedBy=multi-user.target\n")
+            unit = self.guest_unit(name, role)
             self.install_text(mount, unit, "/etc/systemd/system/ts-orch.service")
             self.sudo("systemctl", f"--root={mount}", "enable", "systemd-networkd.service")
             self.sudo("systemctl", f"--root={mount}", "enable", "ssh.service")
@@ -478,8 +579,15 @@ class Lab:
         command = [str(self.binary), "operator", operation, "--config", str(self.operator_config),
                    *arguments]
         outcome = run(command, timeout=timeout, allow_failure=allow_failure)
+        logged_stdout = outcome.stdout.strip()[-3000:]
+        if operation == "hosts" and outcome.returncode == 0:
+            try:
+                logged_stdout = json.dumps(curated_host_statuses(json.loads(outcome.stdout),
+                                                                 datetime.now(timezone.utc)))[-3000:]
+            except (ValueError, TypeError):
+                logged_stdout = "<invalid host-status output>"
         self.note("operator", operation=operation, exit_code=outcome.returncode,
-                  stdout=outcome.stdout.strip()[-3000:], stderr=outcome.stderr.strip()[-1000:])
+                  stdout=logged_stdout, stderr=outcome.stderr.strip()[-1000:])
         if outcome.returncode:
             return None
         return json.loads(outcome.stdout)
@@ -510,15 +618,200 @@ class Lab:
             if not any(report.get("role") == ROLE and report.get("state") == "running"
                        for report in reports):
                 return False
-            result = self.ssh("host", "test \"$(cat /run/ts-orch-workload.marker)\" = " +
-                              shlex.quote(version) + " && kill -0 \"$(cat /run/ts-orch-workload.pid)\"",
-                              allow_failure=True)
-            return result.returncode == 0
+            observed = self.native_observation()
+            return (observed["marker"] == version and observed["workload_alive"] and
+                    bool(observed["workload_cgroup"]) and
+                    not self.cgroup_empty(observed["workload_cgroup"]))
         self.wait("host-session" if version is None else f"workload-{version}", probe, timeout=150)
+
+    def host_session(self, version: str) -> dict[str, Any]:
+        statuses = self.operator("hosts")
+        if not isinstance(statuses, list) or len(statuses) != 1:
+            raise RuntimeError("expected exactly one host status")
+        status = statuses[0]
+        expiry_raw = status.get("session_expires_at")
+        if not isinstance(expiry_raw, str):
+            raise RuntimeError("host status lacks a session expiry")
+        expiry = datetime.fromisoformat(expiry_raw.replace("Z", "+00:00"))
+        if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc):
+            raise RuntimeError("host session is not current")
+        reports = [report for report in status.get("reports", [])
+                   if report.get("role") == ROLE and report.get("state") == "running"
+                   and report.get("generation") == (1 if version == "v1" else 2)]
+        if len(reports) != 1 or not reports[0].get("session_id"):
+            raise RuntimeError("host lacks a unique running report bound to a session")
+        return {"expires_at": expiry, "session_id": reports[0]["session_id"],
+                "report": reports[0], "reader_verified": status.get("verified")}
+
+    def native_observation(self) -> dict[str, Any]:
+        command = """set -eu
+agent=$(systemctl show ts-orch.service -p MainPID --value)
+invocation=$(systemctl show ts-orch.service -p InvocationID --value)
+workload=$(cat /run/ts-orch-workload/pid 2>/dev/null || true)
+marker=$(cat /run/ts-orch-workload/marker 2>/dev/null || true)
+workload_cgroup=''
+case "$workload" in ''|0|*[!0-9]*) ;; *)
+    if [ -r "/proc/$workload/cgroup" ]; then
+        workload_cgroup=$(awk -F: '$1 == "0" {print $3}' "/proc/$workload/cgroup")
+    fi ;;
+esac
+proc_state() {
+    case "$1" in ''|0|*[!0-9]*) printf 'missing'; return ;; esac
+    if [ -r "/proc/$1/stat" ]; then awk '{print $3 ":" $22}' "/proc/$1/stat"; else printf 'missing'; fi
+}
+printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_state=%s\nworkload_cgroup=%s\nmarker=%s\n' \
+    "$agent" "$(proc_state "$agent")" "$invocation" "$workload" "$(proc_state "$workload")" "$workload_cgroup" "$marker"
+"""
+        output = self.ssh("host", command).stdout
+        observed = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+        expected = {"agent_pid", "agent_state", "invocation", "workload_pid", "workload_state", "workload_cgroup", "marker"}
+        if not expected.issubset(observed):
+            raise RuntimeError("incomplete native process observation")
+        observed["workload_alive"] = observed["workload_state"].split(":", 1)[0] not in ("missing", "Z", "X")
+        return observed
+
+    def cgroup_empty(self, path: str) -> bool:
+        if not path.startswith("/") or "/terrascale-host-" not in path or any(character not in
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_-" for character in path):
+            raise ValueError("invalid native workload cgroup path")
+        output = self.ssh("host", "if [ -e " + shlex.quote("/sys/fs/cgroup" + path + "/cgroup.events") +
+                          " ]; then cat " + shlex.quote("/sys/fs/cgroup" + path + "/cgroup.events") +
+                          "; else echo 'populated 0'; fi").stdout
+        if "populated 0" in output.splitlines():
+            return True
+        if "populated 1" in output.splitlines():
+            return False
+        raise RuntimeError("native workload cgroup has no populated state")
+
+    def check_guest_clocks(self) -> None:
+        for name in GUESTS:
+            before = time.time_ns()
+            output = self.ssh(name, "date +%s%N", timeout=10).stdout.strip()
+            after = time.time_ns()
+            guest = int(output)
+            offset = guest - (before + after) // 2
+            uncertainty = (after - before) // 2
+            self.guest_clock_upper_ns[name] = offset + uncertainty
+            self.note("guest_clock", name=name, offset_ns=offset, uncertainty_ns=uncertainty)
+            if abs(offset) + uncertainty > 1_000_000_000:
+                raise RuntimeError(f"{name} clock differs from lab host by over one second")
+
+    def host_renewal_failure_evidence(self, since: datetime, session_hash: str,
+                                      epoch: int, expiry: datetime) -> None:
+        command = ("journalctl -u ts-orch.service --since " +
+                   shlex.quote("@" + str(int(since.timestamp()))) +
+                   " -n 500 -o json --no-pager")
+        result = self.ssh("host", command, timeout=15, allow_failure=True)
+        if result.returncode:
+            raise RuntimeError("host renewal journal query failed")
+        first_failure: str | None = None
+        fence_completion: str | None = None
+        fence_started: datetime | None = None
+        fence_cause: str | None = None
+        for line in result.stdout.splitlines():
+            try:
+                entry = json.loads(line)
+                message = entry.get("MESSAGE", "")
+                instant = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1_000_000,
+                                                 timezone.utc).isoformat()
+            except (ValueError, KeyError, TypeError):
+                continue
+            if "host session exchange deferred" in message and first_failure is None:
+                first_failure = instant
+            if "host session execution reserve exhausted" in message and fence_completion is None:
+                fence_completion = instant
+            try:
+                fields = dict(part.split("=", 1) for part in shlex.split(message) if "=" in part)
+                if (fields.get("msg") == "host session fenced" and
+                        fields.get("session_id_hash") == session_hash and
+                        int(fields.get("epoch", "0")) == epoch and
+                        datetime.fromisoformat(fields["expires_at"].replace("Z", "+00:00")) == expiry):
+                    fence_started = datetime.fromisoformat(instant)
+                    fence_cause = fields.get("cause_class")
+            except (ValueError, KeyError, TypeError):
+                continue
+        self.note("host_renewal_failure_timing", first_failed_exchange_at=first_failure,
+                  actual_fence_started_at=fence_started.isoformat() if fence_started else None,
+                  fence_cause_class=fence_cause,
+                  agent_failure_reported_at=fence_completion,
+                  journal_clock="guest_realtime", since=since.isoformat())
+        if first_failure is None:
+            raise RuntimeError("host logged no failed session renewal after quorum loss")
+        if fence_started is None:
+            raise RuntimeError("host did not record a matching fence for the native workload")
+        if fence_started > expiry - timedelta(seconds=SESSION_EXECUTION_RESERVE_SECONDS - 1.25):
+            raise RuntimeError("host began fencing too late for its one-second reserve ticker")
+
+    def verified_lease_events(self, since: datetime) -> list[dict[str, Any]]:
+        command = ("journalctl -u ts-orch.service --since " +
+                   shlex.quote("@" + str(int(since.timestamp()))) +
+                   " -n 500 -o json --no-pager")
+        result = self.ssh("host", command, timeout=15)
+        events = []
+        for line in result.stdout.splitlines():
+            try:
+                entry = json.loads(line)
+                fields = dict(part.split("=", 1) for part in shlex.split(entry.get("MESSAGE", ""))
+                              if "=" in part)
+                if fields.get("msg") != "host session accepted":
+                    continue
+                at = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1_000_000,
+                                            timezone.utc)
+                expiry = datetime.fromisoformat(fields["expires_at"].replace("Z", "+00:00"))
+                session_hash = fields["session_id_hash"]
+                epoch = int(fields["epoch"])
+                if (at < since or expiry.tzinfo is None or epoch <= 0 or
+                        len(session_hash) != 32 or any(c not in "0123456789abcdef" for c in session_hash)):
+                    continue
+                events.append({"at": at, "expires_at": expiry,
+                               "session_id_hash": session_hash, "epoch": epoch,
+                               "phase": fields.get("phase")})
+            except (ValueError, KeyError, TypeError):
+                continue
+        return events
+
+    def connected_controller(self) -> str:
+        output = self.ssh("host", "ss -Hnt state established", timeout=10).stdout
+        connected = set()
+        for line in output.splitlines():
+            fields = line.split()
+            if len(fields) < 4:
+                continue
+            local, local_separator, _ = fields[-2].rpartition(":")
+            if not local_separator or local.strip("[]") != self.addresses["host"]:
+                continue
+            peer, separator, port = fields[-1].rpartition(":")
+            if separator and port == "4222":
+                connected.update(name for name in CONTROLLERS if self.addresses[name] == peer.strip("[]"))
+        if len(connected) != 1:
+            raise RuntimeError(f"expected one established host NATS controller socket, found {sorted(connected)}")
+        return connected.pop()
+
+    def blackhole_host_controller(self, controller: str) -> str:
+        table = "tsfc" + secrets.token_hex(5)
+        host_ip, controller_ip = self.addresses["host"], self.addresses[controller]
+        self.sudo("nft", "add", "table", "bridge", table)
+        self.created_nft_tables.append(table)
+        self.sudo("nft", "add", "chain", "bridge", table, "forward",
+                  "{", "type", "filter", "hook", "forward", "priority", "-300", ";",
+                  "policy", "accept", ";", "}")
+        for source, destination, port_kind in ((host_ip, controller_ip, "dport"),
+                                               (controller_ip, host_ip, "sport")):
+            self.sudo("nft", "add", "rule", "bridge", table, "forward", "ether", "type", "ip",
+                      "ip", "saddr", source, "ip", "daddr", destination,
+                      "tcp", port_kind, "4222", "drop")
+        self.note("host_controller_blackhole", table=table, host_ip=host_ip,
+                  controller=controller, controller_ip=controller_ip, port=4222)
+        return table
+
+    def remove_blackhole(self, table: str) -> None:
+        self.sudo("nft", "delete", "table", "bridge", table)
+        self.created_nft_tables.remove(table)
+        self.note("host_controller_blackhole_removed", table=table)
 
     def fixture(self, version: str) -> Path:
         script = ("#!/bin/sh\nset -eu\nprintf '%s\\n' " + shlex.quote(version) +
-                  " > /run/ts-orch-workload.marker\nprintf '%s\\n' \"$$\" > /run/ts-orch-workload.pid\n" +
+                  " > /run/ts-orch-workload/marker\nprintf '%s\\n' \"$$\" > /run/ts-orch-workload/pid\n" +
                   "while :; do sleep 1; done\n")
         path = self.stage / f"workload-{version}.sh"
         path.write_text(script)
@@ -623,12 +916,17 @@ class Lab:
                 path.chmod(0o600)
                 self.note("cluster_diagnostics", name=name, path=str(path), error=repr(error))
         if self.natsdiag.exists() and (self.secrets / "c1.nk").exists():
-            urls = ",".join(f"nats://{self.addresses[name]}:4222" for name in CONTROLLERS)
+            urls = ",".join(f"tls://{self.addresses[name]}:4222" for name in CONTROLLERS)
             path = self.logs / "nats-live-diagnostics.jsonl"
             try:
                 command = [str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
                            "--operator-seed", str(self.secrets / "operator.nk"),
-                           "--cell", CELL, "--urls", urls]
+                           "--cell", CELL, "--urls", urls,
+                           "--ca", str(self.secrets / "nats-ca.pem"),
+                           "--cert", str(self.secrets / "nats-c1.pem"),
+                           "--key", str(self.secrets / "nats-c1.key"),
+                           "--operator-cert", str(self.secrets / "nats-operator.pem"),
+                           "--operator-key", str(self.secrets / "nats-operator.key")]
                 if self.active_operation_id:
                     command.extend(("--operation-id", self.active_operation_id))
                 result = run(command, timeout=35, allow_failure=True)
@@ -676,6 +974,7 @@ class Lab:
             self.vms[name].boot()
         for name in GUESTS:
             self.wait_ssh(name)
+        self.check_guest_clocks()
         self.wait_cluster()
         registration = self.wait("signed-host-registration",
                                  lambda: self.operator("host-register", "--registration",
@@ -696,34 +995,158 @@ class Lab:
         self.note("milestone", name="host-restart-recovery")
 
         replacement = self.artifact("v2")
-        self.vms["c3"].crash()
+        first_session = self.host_session("v1")
+        first_native = self.native_observation()
+        if (not first_native["workload_alive"] or first_native["marker"] != "v1" or
+                not first_native["workload_cgroup"] or self.cgroup_empty(first_native["workload_cgroup"])):
+            raise RuntimeError("native v1 workload is not running before controller loss")
+        connected = self.connected_controller()
+        fault_table = self.blackhole_host_controller(connected)
+        if self.connected_controller() != connected:
+            raise RuntimeError("host changed NATS peer before connected-controller crash")
+        self.vms[connected].crash()
+        first_fault_at = datetime.now(timezone.utc)
         self.wait_cluster()
+
+        def renewed_on_same_process() -> bool:
+            session = self.host_session("v1")
+            observed = self.native_observation()
+            same_agent = (observed["agent_pid"] == first_native["agent_pid"] and
+                          observed["agent_state"].split(":")[-1] == first_native["agent_state"].split(":")[-1] and
+                          observed["invocation"] == first_native["invocation"])
+            same_workload = (observed["workload_pid"] == first_native["workload_pid"] and
+                             observed["workload_state"].split(":")[-1] == first_native["workload_state"].split(":")[-1] and
+                             observed["workload_alive"] and observed["marker"] == "v1")
+            if session["session_id"] != first_session["session_id"] or not same_agent or not same_workload:
+                raise RuntimeError("host agent, signed session or native workload restarted during 2/3 renewal")
+            if session["expires_at"] <= first_session["expires_at"]:
+                return False
+            session_hash = hashlib.sha256(session["session_id"].encode()).hexdigest()[:32]
+            matching = [event for event in self.verified_lease_events(first_fault_at)
+                        if event["phase"] == "renew" and event["session_id_hash"] == session_hash
+                        and event["epoch"] == session["report"]["epoch"]
+                        and event["expires_at"] == session["expires_at"]]
+            if not matching:
+                return False
+            self.note("host_session_renewed_on_surviving_quorum",
+                      connected_controller=connected,
+                      session_id_hash=session_hash,
+                      signed_renewal_at=matching[-1]["at"].isoformat(),
+                      previous_expiry=first_session["expires_at"].isoformat(),
+                      renewed_expiry=session["expires_at"].isoformat(),
+                      native=observed)
+            return True
+
+        self.wait("same-process-host-session-renewal", renewed_on_same_process,
+                  timeout=25, period=0.5)
         self.deploy(replacement, 2, "one-node-loss")
         self.wait_host("v2")
         self.note("milestone", name="one-controller-nats-node-loss")
-        self.vms["c3"].boot()
-        self.wait_ssh("c3")
+        self.remove_blackhole(fault_table)
+        self.vms[connected].boot()
+        self.wait_ssh(connected)
         self.wait_cluster()
 
+        self.check_guest_clocks()
         rollback = self.intent(original, 3, "rollback")
-        self.vms["c2"].crash()
-        self.vms["c3"].crash()
+        last_native = self.native_observation()
+        if (not last_native["workload_alive"] or last_native["marker"] != "v2" or
+                not last_native["workload_cgroup"] or self.cgroup_empty(last_native["workload_cgroup"])):
+            raise RuntimeError("native v2 workload is not running before quorum loss")
+        matching = []
+        for attempt in range(3):
+            connected = self.connected_controller()
+            second = next(name for name in CONTROLLERS if name != connected)
+            second_fault_table = self.blackhole_host_controller(connected)
+            blackhole_at = datetime.now(timezone.utc)
+            last_session = self.host_session("v2")
+            recent_renewals = self.verified_lease_events(datetime.now(timezone.utc) - timedelta(seconds=8))
+            session_hash = hashlib.sha256(last_session["session_id"].encode()).hexdigest()[:32]
+            matching = [event for event in recent_renewals
+                        if event["phase"] == "renew" and event["session_id_hash"] == session_hash
+                        and event["epoch"] == last_session["report"]["epoch"]
+                        and event["expires_at"] == last_session["expires_at"]]
+            if matching and (matching[-1]["expires_at"] - datetime.now(timezone.utc)).total_seconds() < 15:
+                matching = []
+            if matching:
+                try:
+                    still_connected = self.connected_controller()
+                except RuntimeError:
+                    still_connected = None
+                if still_connected != connected:
+                    matching = []
+            if matching:
+                break
+            self.remove_blackhole(second_fault_table)
+            self.note("lease_capture_retry", attempt=attempt + 1,
+                      reason="durable_expiry_not_equal_to_verified_renewal")
+            time.sleep(1)
+        if not matching:
+            raise RuntimeError("latest durable host expiry lacks a matching verified signed renewal")
+        signed_lease = matching[-1]
+        before_crash = self.native_observation()
+        if (not before_crash["workload_alive"] or before_crash["marker"] != "v2" or
+                before_crash["agent_pid"] != last_native["agent_pid"] or
+                before_crash["agent_state"].split(":")[-1] != last_native["agent_state"].split(":")[-1] or
+                before_crash["workload_pid"] != last_native["workload_pid"] or
+                before_crash["workload_state"].split(":")[-1] != last_native["workload_state"].split(":")[-1]):
+            raise RuntimeError("host agent or native v2 workload changed during lease capture")
+        self.vms[connected].crash()
+        self.vms[second].crash()
+        fault_at = datetime.now(timezone.utc)
+        time.sleep(1)
+        after_fault = [event for event in self.verified_lease_events(signed_lease["at"])
+                       if event["session_id_hash"] == session_hash and
+                       event["epoch"] == signed_lease["epoch"]]
+        if after_fault:
+            signed_lease = max(after_fault, key=lambda event: event["expires_at"])
+        clock_allowance_ns = max(0, self.guest_clock_upper_ns["host"]) + 250_000_000
+        stop_deadline = signed_lease["expires_at"] - timedelta(
+            microseconds=math.ceil(clock_allowance_ns / 1000))
+        self.note("quorum_loss", crashed=[connected, second],
+                  blackhole_table=second_fault_table,
+                  session_id_hash=session_hash,
+                  signed_renewal_at=signed_lease["at"].isoformat(),
+                  signed_expiry=signed_lease["expires_at"].isoformat(),
+                  conservative_stop_deadline=stop_deadline.isoformat(),
+                  host_clock_upper_ns=self.guest_clock_upper_ns["host"],
+                  expected_fence_at=(signed_lease["expires_at"] -
+                                     timedelta(seconds=SESSION_EXECUTION_RESERVE_SECONDS)).isoformat(),
+                  blackhole_at=blackhole_at.isoformat(), fault_at=fault_at.isoformat(), native=last_native)
+        stop_observation = None
+        while datetime.now(timezone.utc) < stop_deadline:
+            observed = self.native_observation()
+            if not observed["workload_alive"] and self.cgroup_empty(last_native["workload_cgroup"]):
+                stop_observation = observed
+                break
+            time.sleep(0.25)
+        if stop_observation is None:
+            raise RuntimeError("native v2 workload survived the conservative signed-session stop deadline")
+        stopped_at = datetime.now(timezone.utc)
+        if stopped_at >= stop_deadline:
+            raise RuntimeError("native v2 workload stopped after the conservative signed-session deadline")
+        self.note("native_stopped_on_quorum_loss", stopped_at=stopped_at.isoformat(),
+                  seconds_before_expiry=(signed_lease["expires_at"] - stopped_at).total_seconds(),
+                  execution_reserve_seconds=SESSION_EXECUTION_RESERVE_SECONDS,
+                  original_cgroup_empty=True, native=stop_observation)
+        self.host_renewal_failure_evidence(blackhole_at, session_hash,
+                                           signed_lease["epoch"], signed_lease["expires_at"])
         denied = self.operator("rollback", "--intent", str(rollback),
                                timeout=25, allow_failure=True)
         if denied is not None:
             raise RuntimeError("rollback submitted without JetStream quorum")
-        marker = self.ssh("host", "test \"$(cat /run/ts-orch-workload.marker)\" = v2 && "
-                          "kill -0 \"$(cat /run/ts-orch-workload.pid)\"", allow_failure=True)
-        if marker.returncode:
-            raise RuntimeError("native v2 workload changed during quorum loss")
+        time.sleep(2)
+        stopped_again = self.native_observation()
+        if stopped_again["workload_alive"] or not self.cgroup_empty(last_native["workload_cgroup"]):
+            raise RuntimeError("native v2 workload resumed before quorum restoration")
         self.note("milestone", name="quorum-loss-rejected-new-intent")
-        self.vms["c2"].boot()
-        self.wait_ssh("c2")
+        self.vms[connected].boot()
+        self.wait_ssh(connected)
         self.wait_cluster()
         self.deploy(original, 3, "rollback", operation="rollback")
         self.wait_host("v1")
-        self.vms["c3"].boot()
-        self.wait_ssh("c3")
+        self.vms[second].boot()
+        self.wait_ssh(second)
         self.note("milestone", name="rollback-after-quorum-recovery")
 
     def capture_failure_diagnostics(self) -> None:
@@ -748,7 +1171,8 @@ inventory=/var/lib/ts-orch/host/lab/host-a/inventory.json
 if [ -f "$inventory" ]; then cat "$inventory"; else echo 'inventory missing'; fi
 printf '\n=== cgroup mount and state ===\n'
 findmnt -T /sys/fs/cgroup
-for root in /sys/fs/cgroup/terrascale-host-*; do
+service_cgroup=$(systemctl show ts-orch.service -p ControlGroup --value)
+for root in /sys/fs/cgroup"$service_cgroup"/terrascale-host-*; do
     [ -d "$root" ] || continue
     for group in "$root" "$root"/*; do
         [ -d "$group" ] || continue
@@ -762,11 +1186,11 @@ for root in /sys/fs/cgroup/terrascale-host-*; do
     done
 done
 printf '\n=== workload marker and process ===\n'
-ls -l /run/ts-orch-workload.*
-for item in /run/ts-orch-workload.marker /run/ts-orch-workload.pid; do
+ls -l /run/ts-orch-workload/
+for item in /run/ts-orch-workload/marker /run/ts-orch-workload/pid; do
     if [ -f "$item" ]; then printf '%s: ' "$item"; cat "$item"; fi
 done
-marker_pid=$(cat /run/ts-orch-workload.pid 2>/dev/null)
+marker_pid=$(cat /run/ts-orch-workload/pid 2>/dev/null)
 inventory_pid=$(sed -n 's/.*"pid":[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$inventory" 2>/dev/null | head -n 1)
 for pid in "$marker_pid" "$inventory_pid"; do
     case "$pid" in ''|*[!0-9]*) continue ;; esac
@@ -779,7 +1203,7 @@ for pid in "$marker_pid" "$inventory_pid"; do
     done
 done
 printf '\n=== installed workload artifacts ===\n'
-find /var/lib/ts-orch/install -type f -print -exec stat -c '%a %u:%g %s %n' {} \; -exec sha256sum {} \;
+find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \; -exec sha256sum {} \;
 """
         try:
             result = self.ssh("host", command, timeout=35, allow_failure=True)
@@ -794,6 +1218,15 @@ find /var/lib/ts-orch/install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
     def cleanup(self) -> list[str]:
         errors: list[str] = []
         images_safe = True
+        for table in reversed(self.created_nft_tables.copy()):
+            try:
+                result = self.sudo("nft", "delete", "table", "bridge", table, allow_failure=True)
+                if result.returncode:
+                    errors.append(f"delete owned nft table {table}: {result.stderr.strip()}")
+                else:
+                    self.created_nft_tables.remove(table)
+            except Exception as error:
+                errors.append(f"delete owned nft table {table}: {error}")
         for vm in reversed(list(self.vms.values())):
             try:
                 vm.stop()
@@ -829,7 +1262,8 @@ def preflight(args: argparse.Namespace) -> None:
     for path, expected in ((args.kernel, KERNEL_SHA), (args.rootfs, ROOTFS_SHA)):
         if not path.is_file() or digest(path) != expected:
             raise RuntimeError(f"asset missing or SHA-256 mismatch: {path}")
-    for command in ("go", "git", "ssh", "ssh-keygen", "cp", "ip", "sudo", "mount", "umount", "e2fsck", "resize2fs"):
+    for command in ("go", "git", "ssh", "ssh-keygen", "cp", "ip", "nft", "openssl",
+                    "sudo", "mount", "umount", "e2fsck", "resize2fs"):
         if shutil.which(command) is None:
             raise RuntimeError(f"required command missing: {command}")
     if not Path(args.firecracker).is_file():
@@ -861,6 +1295,8 @@ def main() -> int:
         lab.identities()
         lab.configs()
         lab.scenario()
+        if source_digest() != lab.go_source_sha256 or lab.harness_digest() != lab.harness_sha256:
+            raise RuntimeError("source changed during qualification; run cannot certify a moving tree")
         outcome = "PASS"
     except BaseException as error:
         failure = repr(error)
@@ -878,6 +1314,10 @@ def main() -> int:
         summary = {"result": outcome if not cleanup_errors else "CLEANUP_FAILED",
                    "failure": failure, "cleanup_errors": cleanup_errors,
                    "revision": run(["git", "rev-parse", "HEAD"]).stdout.strip(),
+                   "go_source_sha256": lab.go_source_sha256,
+                   "harness_sha256": lab.harness_sha256,
+                   "final_go_source_sha256": source_digest(),
+                   "final_harness_sha256": lab.harness_digest(),
                    "binary_sha256": digest(lab.binary) if lab.binary.exists() else None,
                    "events": lab.events}
         write_json(lab.root / "summary.json", summary)

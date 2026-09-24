@@ -113,7 +113,9 @@ type AgentConfig struct {
 	Runner              Runner
 	InstallRoot         string
 	StateRoot           string
+	WorkloadIdentity    WorkloadIdentity
 	PollInterval        time.Duration
+	SessionTrace        bool
 }
 
 type ControllerConfig struct {

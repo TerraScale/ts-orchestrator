@@ -9,15 +9,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
 const sessionExecutionReserve = 5 * time.Second
+
+var errSessionExecutionReserve = errors.New("host session execution reserve exhausted")
 
 type Agent struct {
 	cfg         AgentConfig
@@ -27,6 +33,10 @@ type Agent struct {
 	processID   string
 	pending     map[string]pendingCycle
 	sessionLost atomic.Bool
+	diagMu      sync.Mutex
+	diagAt      time.Time
+	diagClass   string
+	diagFailed  bool
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
@@ -56,8 +66,11 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 			return nil, errors.New("duplicate agent role")
 		}
 	}
-	if !filepath.IsAbs(cfg.InstallRoot) || !filepath.IsAbs(cfg.StateRoot) {
-		return nil, errors.New("agent installation and state roots must be absolute")
+	if err := ValidateWorkloadPaths(cfg.InstallRoot, cfg.StateRoot, cfg.WorkloadIdentity); err != nil {
+		return nil, err
+	}
+	if err := ValidatePrivateHostState(cfg.StateRoot, cfg.Cell, cfg.Node); err != nil {
+		return nil, err
 	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
@@ -67,13 +80,132 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	runner := cfg.Runner
 	if runner == nil {
-		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node))
+		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node), cfg.WorkloadIdentity)
 	}
 	id, err := randomID()
 	if err != nil {
 		return nil, err
 	}
 	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle)}, nil
+}
+
+// ValidateWorkloadPaths rejects roots that could expose supervisor state or
+// prevent the dedicated workload identity from reaching installed artifacts.
+// It does not change unrelated ancestors of the install root.
+func ValidateWorkloadPaths(installRoot, stateRoot string, identity WorkloadIdentity) error {
+	if identity.UID == 0 || identity.GID == 0 {
+		return errors.New("host workload_uid and workload_gid must be nonzero")
+	}
+	if !filepath.IsAbs(installRoot) || !filepath.IsAbs(stateRoot) ||
+		filepath.Clean(installRoot) != installRoot || filepath.Clean(stateRoot) != stateRoot {
+		return errors.New("agent installation and state roots must be clean absolute paths")
+	}
+	if installRoot == string(filepath.Separator) || stateRoot == string(filepath.Separator) {
+		return errors.New("agent installation and state roots cannot be the filesystem root")
+	}
+	if installRoot == stateRoot || strings.HasPrefix(installRoot, stateRoot+string(filepath.Separator)) ||
+		strings.HasPrefix(stateRoot, installRoot+string(filepath.Separator)) {
+		return errors.New("agent installation and state roots must not overlap")
+	}
+	if err := inspectWorkloadPath(filepath.Dir(installRoot), identity, true, false, false); err != nil {
+		return fmt.Errorf("install root parent: %w", err)
+	}
+	if err := inspectWorkloadPath(installRoot, identity, false, true, false); err != nil {
+		return fmt.Errorf("install root: %w", err)
+	}
+	if info, err := os.Lstat(installRoot); err == nil {
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || owner.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0022 != 0 {
+			return errors.New("install root must be supervisor-owned and not tenant-writable")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect install root: %w", err)
+	}
+	if err := inspectWorkloadPath(stateRoot, identity, false, true, true); err != nil {
+		return fmt.Errorf("state root: %w", err)
+	}
+	if err := inspectPrivateStateDirectory(stateRoot); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidatePrivateHostState checks the host-owned state subtree before the
+// runtime probe. Missing descendants are created privately by the runner.
+func ValidatePrivateHostState(stateRoot, cell, node string) error {
+	for name, value := range map[string]string{"cell": cell, "node": node} {
+		if err := validateToken(value, name); err != nil {
+			return err
+		}
+	}
+	for _, path := range []string{stateRoot, filepath.Join(stateRoot, cell), filepath.Join(stateRoot, cell, node)} {
+		if err := inspectPrivateStateDirectory(path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func inspectPrivateStateDirectory(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect state directory: %w", err)
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+		owner.Uid != uint32(os.Geteuid()) || info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("state directory %s must be private and supervisor-owned", path)
+	}
+	return nil
+}
+
+func inspectWorkloadPath(path string, identity WorkloadIdentity, tenantTraverse, allowMissing, privateState bool) error {
+	current := string(filepath.Separator)
+	for _, part := range strings.Split(strings.TrimPrefix(path, current), current) {
+		if part != "" {
+			current = filepath.Join(current, part)
+		}
+		info, err := os.Lstat(current)
+		if err != nil {
+			if allowMissing && errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("inspect %s: %w", current, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must be a directory without symlinks", current)
+		}
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			return fmt.Errorf("cannot inspect owner of %s", current)
+		}
+		if os.Geteuid() == 0 && owner.Uid != 0 {
+			return fmt.Errorf("host path ancestor %s must be root-owned", current)
+		}
+		permissions := info.Mode().Perm()
+		search := permissions & 0001
+		write := permissions & 0002
+		if owner.Gid == identity.GID {
+			search, write = permissions&0010, permissions&0020
+		}
+		if owner.Uid == identity.UID {
+			search, write = permissions&0100, permissions&0200
+		}
+		if tenantTraverse && search == 0 {
+			return fmt.Errorf("workload identity cannot traverse %s", current)
+		}
+		if privateState && os.Geteuid() == 0 && permissions&0022 != 0 {
+			return fmt.Errorf("state path ancestor %s is group- or world-writable", current)
+		}
+		if identity.UID != uint32(os.Geteuid()) && write != 0 &&
+			(privateState || info.Mode()&os.ModeSticky == 0 || owner.Uid != 0) {
+			return fmt.Errorf("workload identity can replace host path under %s", current)
+		}
+	}
+	return nil
 }
 
 // Run recovers native ownership before remote admission, then maintains the
@@ -163,6 +295,7 @@ func (a *Agent) acquire(ctx context.Context) error {
 	a.mu.Lock()
 	a.session = s
 	a.mu.Unlock()
+	a.logSessionAccepted("acquire", s)
 	return nil
 }
 
@@ -171,9 +304,13 @@ func (a *Agent) waitForSession(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := a.acquire(ctx); err == nil {
+			a.sessionRecovered()
 			return nil
 		} else if !retrySessionExchange(err) && !errors.Is(err, errSessionOwned) {
+			a.logSessionFailure("acquire", err, 0)
 			return err
+		} else {
+			a.logSessionFailure("acquire", err, 0)
 		}
 		select {
 		case <-ctx.Done():
@@ -199,7 +336,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		current := a.session
 		a.mu.RUnlock()
 		if !sessionUsableUntil(current, time.Now()) {
-			a.failSession(cancel, lost, errors.New("host session execution reserve exhausted"))
+			a.failSession(cancel, lost, errSessionExecutionReserve)
 			return
 		}
 		select {
@@ -211,7 +348,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		current = a.session
 		a.mu.RUnlock()
 		if !sessionUsableUntil(current, time.Now()) {
-			a.failSession(cancel, lost, errors.New("host session execution reserve exhausted"))
+			a.failSession(cancel, lost, errSessionExecutionReserve)
 			return
 		}
 		r, err := a.makeRequest("session", struct {
@@ -229,22 +366,83 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 					a.mu.Lock()
 					a.session = next
 					a.mu.Unlock()
+					if a.cfg.SessionTrace {
+						a.logSessionAccepted("renew", next)
+					}
 				}
 			}
 		}
 		if err != nil && retrySessionExchange(err) && sessionUsableUntil(current, time.Now()) {
+			a.logSessionFailure("renew", err, time.Until(current.ExpiresAt))
 			continue
 		}
 		if err != nil {
+			a.logSessionFailure("renew", err, time.Until(current.ExpiresAt))
 			a.failSession(cancel, lost, fmt.Errorf("host session renewal failed: %w", err))
 			return
 		}
+		a.sessionRecovered()
+	}
+}
+
+// logSessionAccepted is called only after exchange has verified the signed
+// controller reply and the agent has accepted its session binding. Renewal
+// events are opt-in and capped by the one-second renewal ticker per host.
+func (a *Agent) logSessionAccepted(phase string, accepted session) {
+	digest := sha256.Sum256([]byte(accepted.SessionID))
+	slog.Info("host session accepted", "phase", phase,
+		"session_id_hash", hex.EncodeToString(digest[:16]), "epoch", accepted.Epoch,
+		"expires_at", accepted.ExpiresAt.UTC().Format(time.RFC3339Nano))
+}
+
+func (a *Agent) logSessionFailure(stage string, err error, remaining time.Duration) {
+	class := sessionErrorClass(err)
+	key := stage + ":" + class
+	a.diagMu.Lock()
+	now := time.Now()
+	if key == a.diagClass && now.Sub(a.diagAt) < 10*time.Second {
+		a.diagMu.Unlock()
+		return
+	}
+	a.diagClass, a.diagAt, a.diagFailed = key, now, true
+	a.diagMu.Unlock()
+	endpoint := ""
+	if parsed, parseErr := url.Parse(a.cfg.Conn.ConnectedUrl()); parseErr == nil {
+		endpoint = parsed.Host
+	}
+	slog.Warn("host session exchange deferred", "stage", stage, "cause_class", class,
+		"endpoint", endpoint, "remaining_seconds", max(0, int(remaining.Seconds())))
+}
+
+func (a *Agent) sessionRecovered() {
+	a.diagMu.Lock()
+	wasFailing := a.diagFailed
+	a.diagFailed = false
+	a.diagClass = ""
+	a.diagMu.Unlock()
+	if wasFailing {
+		slog.Info("host session exchange recovered")
 	}
 }
 
 func (a *Agent) failSession(cancel context.CancelFunc, lost chan<- error, reason error) {
 	a.sessionLost.Store(true)
 	cancel()
+	if a.cfg.SessionTrace {
+		a.mu.RLock()
+		accepted := a.session
+		a.mu.RUnlock()
+		if accepted.SessionID != "" && accepted.Epoch != 0 {
+			cause := "renewal_failed"
+			if errors.Is(reason, errSessionExecutionReserve) {
+				cause = "reserve_exhausted"
+			}
+			digest := sha256.Sum256([]byte(accepted.SessionID))
+			slog.Info("host session fenced", "session_id_hash", hex.EncodeToString(digest[:16]),
+				"epoch", accepted.Epoch, "expires_at", accepted.ExpiresAt.UTC().Format(time.RFC3339Nano),
+				"cause_class", cause)
+		}
+	}
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), sessionExecutionReserve-time.Second)
 	if err := a.runner.Close(stopCtx); err != nil {
 		reason = errors.Join(reason, fmt.Errorf("stop native workloads after session loss: %w", err))
@@ -485,16 +683,15 @@ func (a *Agent) fetchArtifact(ctx context.Context, role, digest string) (string,
 	defer cancel()
 	root := filepath.Join(a.cfg.InstallRoot, role, "sha256-"+digest)
 	path := filepath.Join(root, role)
-	if existing, err := os.Open(path); err == nil {
-		hash := sha256.New()
-		_, copyErr := io.Copy(hash, io.LimitReader(existing, maxArtifactBytes+1))
-		closeErr := existing.Close()
-		if copyErr == nil && closeErr == nil && hex.EncodeToString(hash.Sum(nil)) == digest {
-			return path, nil
+	for _, directory := range []string{a.cfg.InstallRoot, filepath.Join(a.cfg.InstallRoot, role), root} {
+		if err := ensureInstallDirectory(directory, a.cfg.WorkloadIdentity.GID); err != nil {
+			return "", err
 		}
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if valid, err := verifyInstalledArtifact(path, digest, a.cfg.WorkloadIdentity.GID); err != nil {
 		return "", err
+	} else if valid {
+		return path, nil
 	}
 	tmp, err := os.CreateTemp(root, "partial-*")
 	if err != nil {
@@ -535,7 +732,10 @@ func (a *Agent) fetchArtifact(ctx context.Context, role, digest string) (string,
 	if hex.EncodeToString(hash.Sum(nil)) != digest {
 		return "", errors.New("artifact SHA-256 mismatch")
 	}
-	if err := tmp.Chmod(0500); err != nil {
+	if err := tmp.Chown(-1, int(a.cfg.WorkloadIdentity.GID)); err != nil {
+		return "", err
+	}
+	if err := tmp.Chmod(0550); err != nil {
 		return "", err
 	}
 	if err := tmp.Sync(); err != nil {
@@ -556,4 +756,65 @@ func (a *Agent) fetchArtifact(ctx context.Context, role, digest string) (string,
 		return "", err
 	}
 	return path, nil
+}
+
+func ensureInstallDirectory(path string, gid uint32) error {
+	if err := os.Mkdir(path, 0710); err != nil && !errors.Is(err, os.ErrExist) {
+		return fmt.Errorf("create install directory %s: %w", path, err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || owner.Uid != uint32(os.Geteuid()) ||
+		info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("install directory %s must be supervisor-owned and not tenant-writable", path)
+	}
+	if owner.Gid != gid {
+		if err := os.Chown(path, -1, int(gid)); err != nil {
+			return fmt.Errorf("set install directory group: %w", err)
+		}
+	}
+	if err := os.Chmod(path, 0710); err != nil {
+		return fmt.Errorf("set install directory mode: %w", err)
+	}
+	return nil
+}
+
+func verifyInstalledArtifact(path, digest string, gid uint32) (bool, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("open installed artifact: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || owner.Uid != uint32(os.Geteuid()) ||
+		info.Mode().Perm()&0022 != 0 || info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0 {
+		return false, errors.New("installed artifact must be a supervisor-owned, non-writable regular file")
+	}
+	hash := sha256.New()
+	if _, err := io.Copy(hash, io.LimitReader(file, maxArtifactBytes+1)); err != nil {
+		return false, err
+	}
+	if info.Size() > maxArtifactBytes || hex.EncodeToString(hash.Sum(nil)) != digest {
+		return false, nil
+	}
+	if owner.Gid != gid {
+		if err := file.Chown(-1, int(gid)); err != nil {
+			return false, err
+		}
+	}
+	if err := file.Chmod(0550); err != nil {
+		return false, err
+	}
+	return true, nil
 }

@@ -26,6 +26,36 @@ func transientSessionTransport(err error) bool {
 		errors.Is(err, jetstream.ErrNoStreamResponse)
 }
 
+// sessionErrorClass is deliberately closed over fixed labels so diagnostics
+// never expose broker URLs, signed requests, reply inboxes, or secret values.
+func sessionErrorClass(err error) string {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "timeout"
+	case errors.Is(err, nats.ErrDisconnected), errors.Is(err, nats.ErrStaleConnection):
+		return "disconnected"
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responder"
+	case errors.Is(err, nats.ErrAuthorization):
+		return "authorization"
+	case errors.Is(err, errSessionOwned):
+		return "owned"
+	case errors.Is(err, errSessionContention):
+		return "contention"
+	case errors.Is(err, errSessionBackendUnavailable), errors.Is(err, jetstream.ErrNoStreamResponse):
+		return "backend_unavailable"
+	case errors.Is(err, errSessionRequestDenied):
+		return "denied"
+	default:
+		if api, ok := errors.AsType[*jetstream.APIError](err); ok && api.Code >= 500 {
+			return "backend_unavailable"
+		}
+		return "other"
+	}
+}
+
 type request struct {
 	Version   int               `json:"version"`
 	Node      string            `json:"node"`

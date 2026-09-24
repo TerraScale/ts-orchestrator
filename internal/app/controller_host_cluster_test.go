@@ -26,9 +26,32 @@ import (
 // three controller subscribers. This test keeps the real signed operator and
 // host protocols active across the loss of the broker the host is using.
 func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 125*time.Second)
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, false, false)
+}
+
+func TestProductionTLSHostSessionSurvivesControllerLoss(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		blackhole bool
+	}{
+		{name: "clean_kill"},
+		{name: "blackholed_socket", blackhole: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, test.blackhole)
+		})
+	}
+}
+
+func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole bool) {
+	ctx, cancel := context.WithTimeout(t.Context(), 165*time.Second)
 	defer cancel()
 	root := t.TempDir()
+	var tlsFiles natscell.TLSFiles
+	var routePasswordFile string
+	if production {
+		tlsFiles, routePasswordFile = testR3TLSMaterial(t, root)
+	}
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	hostPublic, hostPrivate := testEd25519(t, root, "host.key")
@@ -61,10 +84,11 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
 		configs[index] = testJSONFile(t, root, instance+".json", Config{
-			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
-				NKeySeedFile: controllerSeeds[index], Embedded: &natscell.Embedded{
+			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: !production,
+				NKeySeedFile: controllerSeeds[index], TLS: tlsFiles, Embedded: &natscell.Embedded{
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-					Routes: routes, StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30, Users: grants}},
+					Routes: routes, StoreDir: filepath.Join(root, instance), StoreMaxBytes: 2 << 30, Users: grants,
+					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
 			Controller: ControllerConfig{CandidateID: instance, ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
@@ -100,14 +124,14 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 		waitControllerChildReady(t, ctx, child)
 	}
 	probe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "authority-probe", Replicas: 3,
-		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: controllerSeeds[0]})
+		Lab: !production, URL: strings.Join(urls, ","), NKeySeedFile: controllerSeeds[0], TLS: tlsFiles})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer probe.Close()
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{
-		NATS: natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, Lab: true,
-			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed},
+		NATS: natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, Lab: !production,
+			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	})
@@ -118,15 +142,28 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	if _, err := callR3Operator(ctx, operatorConfig, "host-register", "--registration", registrationPath); err != nil {
 		t.Fatalf("signed host registration: %v", err)
 	}
+	hostURLs := urls
+	var proxies []*r3BlackholeProxy
+	if blackhole {
+		hostURLs = make([]string, len(urls))
+		for index := range urls {
+			proxies = append(proxies, newR3BlackholeProxy(t, fmt.Sprintf("127.0.0.1:%d", clientPorts[index])))
+			hostURLs[index] = "nats://" + proxies[index].listener.Addr().String()
+		}
+	}
 	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "node-a", Replicas: 3,
-		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: hostSeed, ClientRole: "host"})
+		Lab: !production, URL: strings.Join(hostURLs, ","), NKeySeedFile: hostSeed, ClientRole: "host", TLS: tlsFiles})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer hostRuntime.Close()
 	runner := &inMemoryRunner{}
-	agent, err := host.NewAgent(host.AgentConfig{Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
+	var agentRunner host.Runner = runner
+	if production {
+		agentRunner = &r3StopOnCloseRunner{inMemoryRunner: runner}
+	}
+	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}, Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
+		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: agentRunner,
 		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +176,7 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	firstDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 1)
 	connected := hostRuntime.Conn().ConnectedUrl()
 	failedPeer := -1
-	for index, url := range urls {
+	for index, url := range hostURLs {
 		if connected == url {
 			failedPeer = index
 			break
@@ -150,6 +187,9 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	}
 	before := waitR3Authority(t, ctx, probe, 0, -1)
 	t.Logf("crashing peer%d host_url=%s authority=%+v", failedPeer, connected, before)
+	if blackhole {
+		proxies[failedPeer].blocked.Store(true)
+	}
 	crashControllerChild(t, children[failedPeer])
 	_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
 	if !hostRuntime.Conn().IsConnected() || hostRuntime.Conn().ConnectedUrl() == connected {
@@ -167,7 +207,7 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	after := waitR3Authority(t, ctx, probe, priorEpoch, failedPeer)
 	t.Logf("host_url=%s authority_after=%+v", hostRuntime.Conn().ConnectedUrl(), after)
 	operatorProbe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3,
-		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed})
+		Lab: !production, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,6 +216,31 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 		&r3CallerDiagnostics{probe: probe, operatorProbe: operatorProbe, agentDone: agentDone})
 	if firstDigest == secondDigest {
 		t.Fatal("replacement workload did not change artifact digest")
+	}
+	if production && blackhole {
+		lastSession := waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt)
+		for index, child := range children {
+			if index != failedPeer {
+				crashControllerChild(t, child)
+				break
+			}
+		}
+		select {
+		case err := <-agentDone:
+			if err == nil || errors.Is(err, context.Canceled) {
+				t.Fatalf("host did not fail closed on quorum loss: %v", err)
+			}
+			if !time.Now().Before(lastSession.SessionExpiresAt.Add(-5 * time.Second)) {
+				t.Fatalf("host failed after session execution reserve: expiry=%s err=%v", lastSession.SessionExpiresAt, err)
+			}
+			observed, observeErr := runner.Observe(ctx, "terrabase")
+			if observeErr != nil || observed.Running {
+				t.Fatalf("host retained workload after session loss: observed=%+v err=%v", observed, observeErr)
+			}
+		case <-ctx.Done():
+			t.Fatalf("host did not fail closed after quorum loss: %v", ctx.Err())
+		}
+		return
 	}
 	stopAgent()
 	if err := <-agentDone; !errors.Is(err, context.Canceled) {

@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
@@ -30,6 +32,11 @@ func main() {
 	cell := flag.String("cell", "", "regional cell name")
 	operationID := flag.String("operation-id", "", "delivery operation to inspect without payloads")
 	urls := flag.String("urls", "", "comma-separated direct controller URLs")
+	caFile := flag.String("ca", "", "trusted NATS CA PEM file")
+	certFile := flag.String("cert", "", "NATS client certificate PEM file")
+	keyFile := flag.String("key", "", "NATS client private key PEM file")
+	operatorCertFile := flag.String("operator-cert", "", "operator NATS client certificate PEM file")
+	operatorKeyFile := flag.String("operator-key", "", "operator NATS client private key PEM file")
 	flag.Parse()
 	if *seed == "" || *cell == "" || *urls == "" {
 		fmt.Fprintln(os.Stderr, "usage: go run natsdiag.go --seed FILE --cell CELL --urls URL,URL,URL")
@@ -39,6 +46,23 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load controller identity:", err)
 		os.Exit(1)
+	}
+	if (*caFile != "" || *certFile != "" || *keyFile != "") && (*caFile == "" || *certFile == "" || *keyFile == "") {
+		fmt.Fprintln(os.Stderr, "--ca, --cert, and --key must be supplied together")
+		os.Exit(2)
+	}
+	if (*operatorCertFile != "" || *operatorKeyFile != "") &&
+		(*operatorCertFile == "" || *operatorKeyFile == "" || *caFile == "" || *operatorSeed == "") {
+		fmt.Fprintln(os.Stderr, "--operator-cert and --operator-key require TLS and --operator-seed")
+		os.Exit(2)
+	}
+	if *caFile != "" {
+		tlsOption, err := diagnosticTLS(*caFile, *certFile, *keyFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "load diagnostic TLS:", err)
+			os.Exit(1)
+		}
+		options = append(options, tlsOption)
 	}
 	var output sync.Mutex
 	var workers sync.WaitGroup
@@ -51,9 +75,38 @@ func main() {
 			fmt.Fprintln(os.Stderr, "load operator identity:", err)
 			os.Exit(1)
 		}
+		if *caFile != "" {
+			operatorCert, operatorKey := *certFile, *keyFile
+			if *operatorCertFile != "" {
+				operatorCert, operatorKey = *operatorCertFile, *operatorKeyFile
+			}
+			tlsOption, err := diagnosticTLS(*caFile, operatorCert, operatorKey)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "load diagnostic TLS:", err)
+				os.Exit(1)
+			}
+			operatorOptions = append(operatorOptions, tlsOption)
+		}
 		workers.Go(func() { probe(*urls, "operator", *cell, *operationID, operatorOptions, &output) })
 	}
 	workers.Wait()
+}
+
+func diagnosticTLS(caFile, certFile, keyFile string) (nats.Option, error) {
+	ca, err := os.ReadFile(caFile)
+	if err != nil {
+		return nil, err
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(ca) {
+		return nil, errors.New("NATS CA file has no certificates")
+	}
+	certificate, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		return nil, err
+	}
+	return nats.Secure(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots,
+		Certificates: []tls.Certificate{certificate}}), nil
 }
 
 func identityOptions(seedFile, cell string) ([]nats.Option, error) {

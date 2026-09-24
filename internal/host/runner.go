@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,13 @@ type Workload struct {
 	Executable  string
 	Args        []string
 	Env         map[string]string
+}
+
+// WorkloadIdentity is the dedicated, unprivileged identity for every native
+// workload on this host. Zero is never a valid production identity.
+type WorkloadIdentity struct {
+	UID uint32
+	GID uint32
 }
 
 type Observation struct {
@@ -55,6 +63,7 @@ type processRecord struct {
 type processRunner struct {
 	root      string
 	cgroups   string
+	identity  WorkloadIdentity
 	mu        sync.Mutex
 	closeOnce sync.Once
 	closing   chan struct{}
@@ -63,16 +72,31 @@ type processRunner struct {
 	commands  map[string]*exec.Cmd
 }
 
-func NewProcessRunner(stateRoot string) Runner {
+func NewProcessRunner(stateRoot string, identity WorkloadIdentity) Runner {
+	return &processRunner{root: stateRoot, identity: identity, closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
+}
+
+func nativeCgroupName(stateRoot string) string {
 	hash := sha256.Sum256([]byte(stateRoot))
-	return &processRunner{root: stateRoot, cgroups: filepath.Join("/sys/fs/cgroup", "terrascale-host-"+hex.EncodeToString(hash[:8])), closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
+	return "terrascale-host-" + hex.EncodeToString(hash[:8])
 }
 
 func (p *processRunner) Recover(ctx context.Context) error {
 	if p.root == "" || !filepath.IsAbs(p.root) {
 		return errors.New("native runner requires absolute state root")
 	}
+	if err := validateWorkloadIdentity(p.identity); err != nil {
+		return err
+	}
+	root, err := nativeCgroupRoot(p.root)
+	if err != nil {
+		return err
+	}
+	p.cgroups = root
 	if err := os.MkdirAll(p.root, 0700); err != nil {
+		return err
+	}
+	if err := validatePrivateStateRoot(p.root); err != nil {
 		return err
 	}
 	lock, err := os.OpenFile(filepath.Join(p.root, "owner.lock"), os.O_CREATE|os.O_RDWR, 0600)
@@ -157,6 +181,9 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if !filepath.IsAbs(w.Executable) {
 		return errors.New("workload executable must be absolute")
 	}
+	if err := validateTenantExecutable(w.Executable, p.identity); err != nil {
+		return err
+	}
 	if err := p.Stop(ctx, w.Role); err != nil {
 		return err
 	}
@@ -194,14 +221,17 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if runnerClosing(p.closing) {
 		return errors.New("runner is closing")
 	}
-	cmd := exec.Command(w.Executable, w.Args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL, UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+	target := exec.Command(w.Executable, w.Args...)
+	target.Stdout = os.Stdout
+	target.Stderr = os.Stderr
+	environment := map[string]string{"HOME": "/", "LANG": "C", "PATH": "/usr/bin:/bin"}
 	for key, value := range w.Env {
-		cmd.Env = append(cmd.Env, key+"="+value)
+		environment[key] = value
 	}
+	for key, value := range environment {
+		target.Env = append(target.Env, key+"="+value)
+	}
+	sort.Strings(target.Env)
 	watchDone := make(chan struct{})
 	defer close(watchDone)
 	go func() {
@@ -217,7 +247,7 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		defer cancel()
 		_ = sealCgroup(killCtx, cgroupPath)
 	}()
-	release, waited, err := startWorkloadOnLockedThread(cmd)
+	cmd, release, waited, err := launchNativeWorkload(ctx, target, cgroup, cgroupPath, p.identity)
 	if err != nil {
 		return fmt.Errorf("start workload in cgroup v2: %w", err)
 	}
@@ -276,12 +306,22 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 // Linux delivers Pdeathsig when the thread that created the child exits.
 // Keep that thread alive until Wait so an idle Go thread cannot kill a live workload.
 func startWorkloadOnLockedThread(cmd *exec.Cmd) (func(), <-chan error, error) {
+	return startWorkloadOnLockedThreadWithCheck(cmd, nil)
+}
+
+func startWorkloadOnLockedThreadWithCheck(cmd *exec.Cmd, check func() error) (func(), <-chan error, error) {
 	started := make(chan error, 1)
 	release := make(chan struct{})
 	waited := make(chan error, 1)
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
+		if check != nil {
+			if err := check(); err != nil {
+				started <- err
+				return
+			}
+		}
 		err := cmd.Start()
 		started <- err
 		if err != nil {
@@ -333,7 +373,7 @@ func (p *processRunner) Observe(ctx context.Context, role string) (Observation, 
 	if err != nil {
 		return Observation{}, err
 	}
-	return Observation{Role: role, Digest: record.Digest, Fingerprint: record.Fingerprint, PID: record.PID, Running: populated}, nil
+	return Observation{Role: role, Digest: record.Digest, Fingerprint: record.Fingerprint, PID: record.PID, Running: populated && nativeProcessAliveWithStart(record.PID, record.StartTime)}, nil
 }
 
 func (p *processRunner) Close(ctx context.Context) error {
@@ -523,6 +563,22 @@ func currentStartTime(pid int) string {
 		return ""
 	}
 	return fields[19]
+}
+
+func nativeProcessAliveWithStart(pid int, start string) bool {
+	if start == "" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return false
+	}
+	closing := strings.LastIndexByte(string(data), ')')
+	if closing < 0 {
+		return false
+	}
+	fields := strings.Fields(string(data[closing+1:]))
+	return len(fields) > 19 && fields[19] == start && fields[0] != "Z" && fields[0] != "X" && fields[0] != "x"
 }
 
 func cgroupPopulated(path string) (bool, error) {

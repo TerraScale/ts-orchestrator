@@ -5,6 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -57,5 +61,138 @@ func TestArtifactChunksReadBackendWithoutConsumer(t *testing.T) {
 	}
 	if info.State.Consumers != 0 {
 		t.Fatalf("artifact read created %d consumers", info.State.Consumers)
+	}
+}
+
+func TestInstalledArtifactPermissionsAndUnsafeEntries(t *testing.T) {
+	identity := testAgentIdentity()
+	install := filepath.Join(t.TempDir(), "install")
+	role := filepath.Join(install, "terrabase")
+	data := []byte("#!/bin/sh\nexit 0\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	root := filepath.Join(role, "sha256-"+digest)
+	for _, directory := range []string{install, role, root} {
+		if err := ensureInstallDirectory(directory, identity.GID); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Lstat(directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := info.Sys().(*syscall.Stat_t)
+		if info.Mode().Perm() != 0710 || owner.Uid != uint32(os.Geteuid()) || owner.Gid != identity.GID {
+			t.Fatalf("unsafe install directory %s: mode=%#o uid=%d gid=%d", directory, info.Mode().Perm(), owner.Uid, owner.Gid)
+		}
+	}
+	path := filepath.Join(root, "terrabase")
+	if err := os.WriteFile(path, data, 0500); err != nil {
+		t.Fatal(err)
+	}
+	valid, err := verifyInstalledArtifact(path, digest, identity.GID)
+	if err != nil || !valid {
+		t.Fatalf("verified legacy artifact was not repaired: valid=%t err=%v", valid, err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := info.Sys().(*syscall.Stat_t)
+	if info.Mode().Perm() != 0550 || owner.Uid != uint32(os.Geteuid()) || owner.Gid != identity.GID {
+		t.Fatalf("unsafe verified artifact: mode=%#o uid=%d gid=%d", info.Mode().Perm(), owner.Uid, owner.Gid)
+	}
+	if err := os.Chmod(path, 0570); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyInstalledArtifact(path, digest, identity.GID); err == nil {
+		t.Fatal("tenant-writable artifact was accepted")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/bin/true", path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyInstalledArtifact(path, digest, identity.GID); err == nil {
+		t.Fatal("artifact symlink was accepted")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), path); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureInstallDirectory(path, identity.GID); err == nil {
+		t.Fatal("install directory symlink was accepted")
+	}
+}
+
+func TestWorkloadPathBoundariesBeforeNativeProbe(t *testing.T) {
+	root := t.TempDir()
+	install := filepath.Join(root, "install")
+	state := filepath.Join(root, "state")
+	identity := testAgentIdentity()
+	if err := ValidateWorkloadPaths(install, state, identity); err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range [][2]string{{install, install}, {root, state}, {install, filepath.Join(install, "state")}} {
+		if err := ValidateWorkloadPaths(pair[0], pair[1], identity); err == nil || !strings.Contains(err.Error(), "overlap") {
+			t.Fatalf("overlapping paths accepted: %v", pair)
+		}
+	}
+	if err := ValidateWorkloadPaths(install, state, WorkloadIdentity{}); err == nil {
+		t.Fatal("zero workload identity was accepted")
+	}
+	if err := ValidateWorkloadPaths("/", state, identity); err == nil {
+		t.Fatal("filesystem root was accepted as install root")
+	}
+	if err := os.Symlink(root, install); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkloadPaths(install, state, identity); err == nil {
+		t.Fatal("symlinked install root was accepted")
+	}
+	if err := os.Remove(install); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(state, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkloadPaths(install, state, identity); err == nil {
+		t.Fatal("exposed state root was accepted")
+	}
+	if err := os.Chmod(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	other := WorkloadIdentity{UID: identity.UID + 1, GID: identity.GID + 1}
+	if err := ValidateWorkloadPaths(install, state, other); err == nil || !strings.Contains(err.Error(), "cannot traverse") {
+		t.Fatalf("untraversable install root parent was accepted: %v", err)
+	}
+	installParent, err := os.MkdirTemp("", "ts-install-boundary-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(installParent) })
+	if err := os.Chmod(installParent, 0755); err != nil {
+		t.Fatal(err)
+	}
+	stateParent, err := os.MkdirTemp("", "ts-state-boundary-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(stateParent) })
+	if err := os.Chmod(stateParent, 0777); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateWorkloadPaths(filepath.Join(installParent, "install"), filepath.Join(stateParent, "state"), other); err == nil ||
+		!strings.Contains(err.Error(), "replace host path") {
+		t.Fatalf("tenant-writable state ancestor was accepted: %v", err)
+	}
+	cell := filepath.Join(state, "gru")
+	if err := os.Mkdir(cell, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidatePrivateHostState(state, "gru", "node-a"); err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("exposed state cell directory was accepted: %v", err)
 	}
 }

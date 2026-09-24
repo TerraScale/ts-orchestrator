@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -96,11 +97,15 @@ type Config struct {
 // Runtime keeps the broker and client alive together. Closing it drains the
 // client before stopping the server so JetStream acknowledgements can finish.
 type Runtime struct {
-	server *server.Server
-	conn   *nats.Conn
-	js     jetstream.JetStream
-	cell   string
-	once   sync.Once
+	server    *server.Server
+	conn      *nats.Conn
+	js        jetstream.JetStream
+	cell      string
+	diagMu    sync.Mutex
+	diagAt    time.Time
+	diagState string
+	endpoint  string
+	once      sync.Once
 }
 
 func (r *Runtime) Conn() *nats.Conn { return r.conn }
@@ -119,6 +124,42 @@ func (r *Runtime) URL() string {
 		return r.server.ClientURL()
 	}
 	return r.conn.ConnectedUrl()
+}
+
+// logHostConnection records only the endpoint host and a fixed error class.
+// URL userinfo, NKey material, request bodies, and inboxes stay out of logs.
+func (r *Runtime) logHostConnection(state string, conn *nats.Conn, cause error) {
+	endpoint := ""
+	if conn != nil {
+		if parsed, err := url.Parse(conn.ConnectedUrl()); err == nil {
+			endpoint = parsed.Host
+		}
+	}
+	r.diagMu.Lock()
+	if endpoint == "" {
+		endpoint = r.endpoint
+	} else {
+		r.endpoint = endpoint
+	}
+	now := time.Now()
+	if state == r.diagState && now.Sub(r.diagAt) < 10*time.Second {
+		r.diagMu.Unlock()
+		return
+	}
+	r.diagState, r.diagAt = state, now
+	r.diagMu.Unlock()
+	class := "none"
+	switch {
+	case errors.Is(cause, nats.ErrStaleConnection):
+		class = "stale_connection"
+	case errors.Is(cause, nats.ErrDisconnected):
+		class = "disconnected"
+	case errors.Is(cause, nats.ErrTimeout):
+		class = "timeout"
+	case cause != nil:
+		class = "transport"
+	}
+	slog.Info("host regional NATS connection transition", "state", state, "endpoint", endpoint, "cause_class", class)
 }
 
 func (r *Runtime) Close() error {
@@ -170,6 +211,20 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
+	if cfg.ClientRole == "host" {
+		// A blackholed peer must be detected well inside the host's 25-second
+		// execution window. nats.go otherwise waits two minutes between PINGs.
+		options = append(options,
+			nats.PingInterval(2*time.Second), nats.MaxPingsOutstanding(2),
+			nats.ReconnectWait(500*time.Millisecond),
+			nats.DisconnectErrHandler(func(conn *nats.Conn, cause error) {
+				r.logHostConnection("disconnected", conn, cause)
+			}),
+			nats.ReconnectHandler(func(conn *nats.Conn) {
+				r.logHostConnection("reconnected", conn, nil)
+			}),
+		)
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	connected := make(chan struct{})
@@ -188,6 +243,9 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	}
 	if connectErr != nil {
 		return nil, fmt.Errorf("connect regional NATS: %w", connectErr)
+	}
+	if cfg.ClientRole == "host" {
+		r.logHostConnection("connected", r.conn, nil)
 	}
 	r.js, err = jetstream.New(r.conn)
 	if err != nil {
@@ -403,7 +461,11 @@ func serverOptions(cfg Config) (*server.Options, error) {
 }
 
 func clientOptions(cfg Config) ([]nats.Option, error) {
-	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(12 * time.Second)}
+	connectTimeout := 12 * time.Second
+	if cfg.ClientRole == "host" {
+		connectTimeout = 3 * time.Second
+	}
+	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout)}
 	if cfg.CredentialsFile != "" {
 		data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
 		if err != nil {

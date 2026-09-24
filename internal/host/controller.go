@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"strings"
@@ -42,6 +43,8 @@ type Controller struct {
 	cacheCancel      context.CancelFunc
 	cacheContext     context.Context
 	cacheRetryAfter  time.Time
+	sessionDiagMu    sync.Mutex
+	sessionDiagAt    map[string]time.Time
 	authorityEpoch   func() uint64
 	authorityGuard   func(context.Context, uint64) error
 }
@@ -481,7 +484,13 @@ func (c *Controller) registration(ctx context.Context, node string) (Registratio
 	return r, nil
 }
 
-func (c *Controller) handleSession(ctx context.Context, req request) (any, error) {
+func (c *Controller) handleSession(ctx context.Context, req request) (payload any, resultErr error) {
+	stage := "decode"
+	defer func() {
+		if resultErr != nil {
+			c.logSessionFailure(stage, resultErr)
+		}
+	}()
 	var operation struct {
 		Kind string `json:"kind"`
 	}
@@ -490,6 +499,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 	}
 	stateKey := sessionKey(c.cell, req.Node)
 	for attempt := range 8 {
+		stage = "registration"
 		r, err := c.registration(ctx, req.Node)
 		if err != nil {
 			return nil, err
@@ -498,15 +508,18 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		if err != nil {
 			return nil, err
 		}
+		stage = "verify"
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 			return nil, err
 		}
 		now := time.Now().UTC()
+		stage = "session_read"
 		old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 		if err != nil {
 			return nil, err
 		}
 		if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
+			stage = "session_write"
 			if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
 				return old, nil
 			} else if casConflict(err) {
@@ -519,6 +532,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 			}
 		}
 		var next session
+		stage = "session_validate"
 		switch operation.Kind {
 		case "acquire":
 			if req.Epoch != 0 {
@@ -545,6 +559,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		default:
 			return nil, errors.New("unknown session operation")
 		}
+		stage = "session_write"
 		written, err := c.cas(ctx, stateKey, next, revision)
 		if err == nil && written > 0 {
 			return next, nil
@@ -556,6 +571,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 			return nil, err
 		}
 	}
+	stage = "registration"
 	r, err := c.registration(ctx, req.Node)
 	if err != nil {
 		return nil, err
@@ -564,15 +580,18 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 	if err != nil {
 		return nil, err
 	}
+	stage = "verify"
 	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 		return nil, err
 	}
+	stage = "session_read"
 	old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
 	if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
+		stage = "session_write"
 		if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
 			return old, nil
 		} else if !casConflict(err) {
@@ -580,6 +599,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		}
 		return nil, errSessionContention
 	}
+	stage = "session_validate"
 	switch operation.Kind {
 	case "acquire":
 		if req.Epoch != 0 {
@@ -596,6 +616,23 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		return nil, errors.New("unknown session operation")
 	}
 	return nil, errSessionContention
+}
+
+func (c *Controller) logSessionFailure(stage string, err error) {
+	class := sessionErrorClass(err)
+	key := stage + ":" + class
+	c.sessionDiagMu.Lock()
+	if c.sessionDiagAt == nil {
+		c.sessionDiagAt = make(map[string]time.Time)
+	}
+	now := time.Now()
+	if now.Sub(c.sessionDiagAt[key]) < 10*time.Second {
+		c.sessionDiagMu.Unlock()
+		return
+	}
+	c.sessionDiagAt[key] = now
+	c.sessionDiagMu.Unlock()
+	slog.Warn("host session request deferred", "stage", stage, "cause_class", class)
 }
 
 func exactSessionReplay(old session, r Registration, req request, kind string, now time.Time) bool {

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -69,6 +70,22 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("controller response public key: %w", err)
 	}
+	if !filepath.IsAbs(cfg.Host.StateRoot) {
+		return errors.New("host state root must be absolute")
+	}
+	identity := host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID}
+	if err := host.ValidateWorkloadPaths(cfg.Host.InstallRoot, cfg.Host.StateRoot, identity); err != nil {
+		return fmt.Errorf("host workload paths: %w", err)
+	}
+	if err := host.ValidatePrivateHostState(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node); err != nil {
+		return fmt.Errorf("host private state: %w", err)
+	}
+	probeCtx, stopProbe := context.WithTimeout(ctx, 15*time.Second)
+	err = host.ProbeNativeRuntime(probeCtx, filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node), identity)
+	stopProbe()
+	if err != nil {
+		return fmt.Errorf("host native runtime probe: %w", err)
+	}
 	runtime, err := natscell.Start(ctx, cfg.NATS)
 	if err != nil {
 		return err
@@ -78,7 +95,8 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
 		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, ControllerPublicKey: controllerKey,
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
-		PollInterval: time.Duration(cfg.Host.PollMillis) * time.Millisecond,
+		WorkloadIdentity: identity,
+		PollInterval:     time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 	})
 	if err != nil {
 		return err

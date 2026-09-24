@@ -130,7 +130,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	}
 	defer hostRuntime.Close()
 	runner := &inMemoryRunner{}
-	agent, err := host.NewAgent(host.AgentConfig{Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
+	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}, Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
 		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"), PollInterval: 100 * time.Millisecond})
 	if err != nil {

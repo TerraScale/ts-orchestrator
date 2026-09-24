@@ -64,7 +64,10 @@ type HostConfig struct {
 	ControllerPublicKey string   `json:"controller_public_key"`
 	InstallRoot         string   `json:"install_root"`
 	StateRoot           string   `json:"state_root"`
+	WorkloadUID         uint32   `json:"workload_uid"`
+	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
+	SessionTrace        bool     `json:"session_trace,omitzero"`
 }
 
 func LoadConfig(path string) (Config, error) {
