@@ -16,6 +16,7 @@ const (
 	maxFleetInstances             = 256
 	maxCreateKeyBytes             = 128
 	maxEvidenceBytes              = 64 << 10
+	maxCreateRetryAge             = 23 * time.Hour
 	minRetainedVolumeSizeGB int64 = 50
 
 	tagManagedBy  = "terrascale-managed-by"
@@ -158,6 +159,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	}
 	cloud, identity, found, err := f.findByCreateKey(ctx, request.CreateKey)
 	if err != nil {
+		if hasPriorResult && !priorResult.Unknown && isNotFound(err) {
+			return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the previously confirmed instance is missing")
+		}
 		return Instance{}, err
 	}
 	if found {
@@ -166,17 +170,28 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			return Instance{}, fmt.Errorf("read OCI host ownership journal: %w", err)
 		}
 		if owned {
+			if hasPriorResult && !priorResult.Unknown && priorResult.ResourceID != cloud.ID {
+				return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the observed instance differs from the immutable confirmed result")
+			}
 			if cloud.FaultDomain != request.FaultDomain {
 				return Instance{}, fmt.Errorf("%w: create key is bound to a different fault domain", ErrForeignResource)
 			}
-			if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
-				return Instance{}, err
-			}
+			// The launch receipt is immutable; the live ETag belongs to this
+			// observation and will fence the next tag/termination operation.
 			return f.instanceFromCloud(ctx, cloud, identity)
 		}
 		if !hasPriorResult || !priorResult.Unknown {
+			if hasPriorResult && !priorResult.Unknown {
+				return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the confirmed instance is no longer positively owned")
+			}
 			return Instance{}, fmt.Errorf("%w: instance %s has matching tags but no durable provider attempt or ownership", ErrForeignResource, cloud.ID)
 		}
+	} else if hasPriorResult && !priorResult.Unknown {
+		return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the previously confirmed instance is missing")
+	}
+	operationIntent := priorResult.Intent
+	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+		return Instance{}, err
 	}
 	node := hostNode(f.config, request.CreateKey)
 	launch := LaunchRequest{
@@ -191,30 +206,36 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if err := f.guard(ctx, epoch); err != nil {
 		return Instance{}, err
 	}
+	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+		return Instance{}, err
+	}
 	created, launchErr := f.provider.LaunchInstance(ctx, launch)
 	if launchErr != nil {
 		if err := f.guard(ctx, epoch); err != nil {
-			return Instance{}, errors.Join(ErrOutcomeUnknown, launchErr, err)
+			return Instance{}, errors.Join(ErrOutcomeUnknown, launchErr, err, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
+		}
+		if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+			return Instance{}, errors.Join(err, launchErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
 		created, launchErr = f.provider.LaunchInstance(ctx, launch)
 	}
 	if launchErr != nil || created.ID == "" {
 		unknownErr := errors.Join(ErrOutcomeUnknown, launchErr, errors.New("OCI launch response did not confirm an instance ID"))
-		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	cloud, identity, found, err = f.findByCreateKey(ctx, request.CreateKey)
 	if err != nil {
 		unknownErr := errors.Join(ErrOutcomeUnknown, err)
-		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if !found || cloud.ID != created.ID {
 		unknownErr := fmt.Errorf("%w: launched instance was not positively re-observed by create key", ErrOutcomeUnknown)
-		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if cloud.FaultDomain != request.FaultDomain {
 		return Instance{}, fmt.Errorf("%w: create key is bound to a different fault domain", ErrForeignResource)
 	}
-	if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
+	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
 		return Instance{}, err
 	}
 	return f.instanceFromCloud(ctx, cloud, identity)
@@ -253,6 +274,9 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 
 	cloud, identity, found, err := f.findVolumeByCreateKey(ctx, request.CreateKey)
 	if err != nil {
+		if hasPriorResult && !priorResult.Unknown && isNotFound(err) {
+			return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the previously confirmed volume is missing")
+		}
 		return RetainedVolume{}, err
 	}
 	if found {
@@ -261,17 +285,26 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 			return RetainedVolume{}, fmt.Errorf("read OCI retained volume ownership journal: %w", err)
 		}
 		if owned {
+			if hasPriorResult && !priorResult.Unknown && priorResult.ResourceID != cloud.ID {
+				return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the observed volume differs from the immutable confirmed result")
+			}
 			if cloud.SizeGB != request.SizeGB || cloud.AvailabilityDomain != request.AvailabilityDomain {
 				return RetainedVolume{}, fmt.Errorf("%w: create key is bound to a retained volume with a different profile", ErrForeignResource)
-			}
-			if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: cloud.ID}); err != nil {
-				return RetainedVolume{}, err
 			}
 			return retainedVolumeFromCloud(cloud, identity), nil
 		}
 		if !hasPriorResult || !priorResult.Unknown {
+			if hasPriorResult && !priorResult.Unknown {
+				return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the confirmed volume is no longer positively owned")
+			}
 			return RetainedVolume{}, fmt.Errorf("%w: retained volume %s has matching tags but no durable provider attempt or ownership", ErrRetainedVolumeUnknown, cloud.ID)
 		}
+	} else if hasPriorResult && !priorResult.Unknown {
+		return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the previously confirmed volume is missing")
+	}
+	operationIntent := priorResult.Intent
+	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+		return RetainedVolume{}, err
 	}
 
 	retry := retryToken(strings.Join([]string{
@@ -280,35 +313,41 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	if err := f.guard(ctx, epoch); err != nil {
 		return RetainedVolume{}, err
 	}
+	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+		return RetainedVolume{}, err
+	}
 	created, createErr := f.provider.CreateVolume(ctx, request, volumeTags(f.config, request), retry)
 	if createErr != nil {
 		// Replay the stable OCI retry token to obtain a positive response for a
 		// mutation whose first response may have been lost. A matching tag alone
 		// is never enough to establish controller ownership.
 		if err := f.guard(ctx, epoch); err != nil {
-			return RetainedVolume{}, errors.Join(ErrOutcomeUnknown, createErr, err)
+			return RetainedVolume{}, errors.Join(ErrOutcomeUnknown, createErr, err, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
+		}
+		if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+			return RetainedVolume{}, errors.Join(err, createErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
 		created, createErr = f.provider.CreateVolume(ctx, request, volumeTags(f.config, request), retry)
 	}
 	observed, observedIdentity, wasObserved, observeErr := f.findVolumeByCreateKey(ctx, request.CreateKey)
 	if observeErr != nil {
 		unknownErr := errors.Join(ErrOutcomeUnknown, createErr, observeErr)
-		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if !wasObserved {
 		unknownErr := errors.Join(ErrOutcomeUnknown, createErr, errors.New("retained OCI volume was not positively re-observed"))
-		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if createErr != nil || created.ID == "" || observed.ID != created.ID {
 		// A matching pre-existing item without durable ownership is not adopted
 		// when the provider call failed or returned a different resource.
 		unknownErr := errors.Join(ErrOutcomeUnknown, createErr, errors.New("OCI create response did not prove the observed retained volume"))
-		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+		return RetainedVolume{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if observed.SizeGB != request.SizeGB || observed.AvailabilityDomain != request.AvailabilityDomain {
 		return RetainedVolume{}, fmt.Errorf("%w: created retained volume does not match its requested profile", ErrForeignResource)
 	}
-	if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: observed.ID}); err != nil {
+	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: observed.ID}); err != nil {
 		return RetainedVolume{}, err
 	}
 	return retainedVolumeFromCloud(observed, observedIdentity), nil
@@ -748,6 +787,17 @@ func (f *fleet) currentEpoch() (uint64, error) {
 		return 0, authority.ErrNotLeader
 	}
 	return snapshot.Epoch, nil
+}
+
+func checkCreateRetryWindow(resource, createKey string, intent OperationIntent, now time.Time) error {
+	if intent.CreatedAt.IsZero() || now.Before(intent.CreatedAt) || now.Sub(intent.CreatedAt) >= maxCreateRetryAge {
+		return createRecoveryHold(resource, createKey, "the immutable OCI create intent is outside the 23-hour automatic retry window")
+	}
+	return nil
+}
+
+func createRecoveryHold(resource, createKey, reason string) error {
+	return &CreateRecoveryHoldError{Resource: resource, CreateKey: createKey, Reason: reason}
 }
 
 func (f *fleet) guard(ctx context.Context, epoch uint64) error {

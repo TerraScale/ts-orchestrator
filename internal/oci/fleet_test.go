@@ -115,6 +115,231 @@ func TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof(t *testing.T) {
 	}
 }
 
+func TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := testLaunchIntent("node-expired-unknown")
+	operation.CreatedAt = time.Now().Add(-maxCreateRetryAge - time.Minute).UTC()
+	if err := journal.RecordIntent(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: operation, Unknown: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = fleet.EnsureHost(ctx, EnsureRequest{CreateKey: operation.CreateKey, FaultDomain: operation.FaultDomain})
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("expired unknown host create was not held for operator reconciliation: %v", err)
+	}
+	hold, ok := errors.AsType[*CreateRecoveryHoldError](err)
+	if !ok || hold.CreateKey != operation.CreateKey {
+		t.Fatalf("expired unknown host create returned no actionable typed hold: %#v", err)
+	}
+	if provider.launchCalls != 0 {
+		t.Fatalf("expired token attempted another OCI host create: %d", provider.launchCalls)
+	}
+	stored, found, err := journal.GetResult(ctx, operation)
+	if err != nil || !found || !stored.Unknown || !stored.Intent.CreatedAt.Equal(operation.CreatedAt) {
+		t.Fatalf("retry changed the original durable intent: found=%v stored=%+v err=%v", found, stored, err)
+	}
+}
+
+func TestFakeJournalRetryPreservesOriginalIntentTimestamp(t *testing.T) {
+	journal := newFakeJournal()
+	intent := testLaunchIntent("node-fake-journal-timestamp")
+	if err := journal.RecordIntent(t.Context(), intent); err != nil {
+		t.Fatal(err)
+	}
+
+	retry := intent
+	retry.CreatedAt = intent.CreatedAt.Add(time.Hour)
+	if err := journal.RecordIntent(t.Context(), retry); err != nil {
+		t.Fatalf("same operation retry was rejected: %v", err)
+	}
+	if stored := journal.intents[operationKey(intent)]; !stored.CreatedAt.Equal(intent.CreatedAt) {
+		t.Fatalf("retry refreshed immutable original timestamp: got %s, want %s", stored.CreatedAt, intent.CreatedAt)
+	}
+
+	conflict := retry
+	conflict.SizeGB = 100
+	if err := journal.RecordIntent(t.Context(), conflict); err == nil {
+		t.Fatal("reused operation key with changed profile was accepted")
+	}
+}
+
+func TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := OperationIntent{
+		Action: actionVolumeCreate, Key: "volume-expired-unknown", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "volume-expired-unknown",
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50,
+		CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
+	}
+	if err := journal.RecordIntent(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: operation, Unknown: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("expired unknown volume create was not held for operator reconciliation: %v", err)
+	}
+	if provider.volumeCreateCalls != 0 {
+		t.Fatalf("expired token attempted another OCI volume create: %d", provider.volumeCreateCalls)
+	}
+}
+
+func TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := OperationIntent{
+		Action: actionVolumeCreate, Key: "volume-expired-unconfirmed", Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, CreateKey: "volume-expired-unconfirmed",
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50,
+		CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
+	}
+	if err := journal.RecordIntent(ctx, operation); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: operation.CreateKey, SizeGB: operation.SizeGB})
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("expired unconfirmed volume create was not held for operator reconciliation: %v", err)
+	}
+	if provider.volumeCreateCalls != 0 {
+		t.Fatalf("expired unconfirmed intent attempted an OCI volume create: %d", provider.volumeCreateCalls)
+	}
+}
+
+func TestConfirmedMissingHostRequiresOperatorReconciliation(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := EnsureRequest{CreateKey: "node-confirmed-missing", FaultDomain: "FAULT-DOMAIN-1"}
+	created, err := fleet.EnsureHost(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(provider.instances, created.ID)
+
+	_, err = fleet.EnsureHost(ctx, request)
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("confirmed missing host was recreated instead of held: %v", err)
+	}
+	if provider.launchCalls != 1 {
+		t.Fatalf("confirmed missing resource caused another OCI host create: %d", provider.launchCalls)
+	}
+}
+
+func TestConfirmedMissingVolumeRequiresOperatorReconciliation(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := VolumeCreateRequest{CreateKey: "volume-confirmed-missing", SizeGB: 50}
+	created, err := fleet.CreateRetainedVolume(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delete(provider.volumes, created.ID)
+
+	_, err = fleet.CreateRetainedVolume(ctx, request)
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("confirmed missing volume was recreated instead of held: %v", err)
+	}
+	if provider.volumeCreateCalls != 1 {
+		t.Fatalf("confirmed missing resource caused another OCI volume create: %d", provider.volumeCreateCalls)
+	}
+}
+
+func TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt(t *testing.T) {
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fencer := &fakeFencer{snapshot: writableSnapshot()}
+	fleet, err := NewFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := EnsureRequest{CreateKey: "node-etag-recovery", FaultDomain: "FAULT-DOMAIN-1"}
+	first, err := fleet.EnsureHost(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.Cordon(ctx, first.ID, first.ETag); err != nil {
+		t.Fatal(err)
+	}
+
+	// A new Fleet models a controller restart against the same OCI provider and
+	// durable regional journal.
+	restarted, err := NewFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := restarted.EnsureHost(ctx, request)
+	if err != nil {
+		t.Fatalf("confirmed host recovery after ETag change: %v", err)
+	}
+	if recovered.ID != first.ID || recovered.ETag != first.ETag+"-next" || provider.launchCalls != 1 {
+		t.Fatalf("restart returned stale identity or relaunched host: first=%+v recovered=%+v calls=%d",
+			first, recovered, provider.launchCalls)
+	}
+	operation := testLaunchIntent(request.CreateKey)
+	confirmed, found, err := journal.GetResult(ctx, operation)
+	if err != nil || !found || confirmed.ResourceID != first.ID || confirmed.ETag != first.ETag {
+		t.Fatalf("re-observation rewrote the immutable launch receipt: found=%v receipt=%+v err=%v", found, confirmed, err)
+	}
+}
+
 func TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
@@ -538,8 +763,11 @@ func newFakeJournal() *fakeJournal {
 
 func (j *fakeJournal) RecordIntent(_ context.Context, intent OperationIntent) error {
 	key := operationKey(intent)
-	if current, exists := j.intents[key]; exists && !sameIntent(current, intent) {
-		return errors.New("operation key conflict")
+	if current, exists := j.intents[key]; exists {
+		if !sameIntent(current, intent) {
+			return errors.New("operation key conflict")
+		}
+		return nil
 	}
 	j.intents[key] = intent
 	return nil
@@ -547,9 +775,11 @@ func (j *fakeJournal) RecordIntent(_ context.Context, intent OperationIntent) er
 
 func (j *fakeJournal) RecordResult(_ context.Context, result OperationResult) error {
 	key := operationKey(result.Intent)
-	if _, ok := j.intents[key]; !ok {
+	intent, ok := j.intents[key]
+	if !ok {
 		return errors.New("missing intent")
 	}
+	result.Intent = intent
 	j.results[key] = result
 	if result.Unknown || result.ResourceID == "" {
 		return nil
@@ -570,8 +800,18 @@ func (j *fakeJournal) RecordResult(_ context.Context, result OperationResult) er
 }
 
 func (j *fakeJournal) GetResult(_ context.Context, intent OperationIntent) (OperationResult, bool, error) {
-	result, ok := j.results[operationKey(intent)]
-	return result, ok, nil
+	key := operationKey(intent)
+	storedIntent, exists := j.intents[key]
+	if !exists {
+		return OperationResult{}, false, nil
+	}
+	result, found := j.results[key]
+	if !found {
+		result.Intent = storedIntent
+		return result, false, nil
+	}
+	result.Intent = storedIntent
+	return result, true, nil
 }
 
 func (j *fakeJournal) IsOwnedInstance(_ context.Context, identity ResourceIdentity) (bool, error) {

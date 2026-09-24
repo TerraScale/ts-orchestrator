@@ -124,6 +124,9 @@ func (journal *KVJournal) RecordResult(ctx context.Context, result OperationResu
 		if current.Kind != "operation" || !sameIntent(current.Intent, result.Intent) {
 			return errors.New("OCI operation result has no matching durable intent")
 		}
+		// The operation's first committed intent owns the retry window. A
+		// retried caller's freshly generated CreatedAt must never refresh it.
+		result.Intent = current.Intent
 		if !current.Result.RecordedAt.IsZero() && !current.Result.Unknown {
 			if result.Unknown {
 				// A late timeout must not overwrite a confirmed provider result.
@@ -169,10 +172,13 @@ func (journal *KVJournal) GetResult(ctx context.Context, intent OperationIntent)
 	if entry.Kind != "operation" || !sameIntent(entry.Intent, intent) {
 		return OperationResult{}, false, errors.New("OCI result lookup has no matching durable intent")
 	}
-	if entry.Result.RecordedAt.IsZero() {
-		return OperationResult{}, false, nil
+	result := entry.Result
+	if result.RecordedAt.IsZero() {
+		result.Intent = entry.Intent
+		return result, false, nil
 	}
-	return entry.Result, true, nil
+	result.Intent = entry.Intent
+	return result, true, nil
 }
 
 func (journal *KVJournal) IsOwnedInstance(ctx context.Context, identity ResourceIdentity) (bool, error) {

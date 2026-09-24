@@ -14,7 +14,23 @@ var (
 	ErrRetainedVolumeInUse   = errors.New("retained volume is attached to a different instance")
 	ErrRetainedVolumeUnknown = errors.New("retained volume has no durable controller ownership record")
 	ErrOutcomeUnknown        = errors.New("OCI provider mutation outcome is unknown")
+	ErrCreateRecoveryHold    = errors.New("OCI create requires operator reconciliation")
 )
+
+// CreateRecoveryHoldError stops automatic retries when the original OCI
+// idempotency window has expired or a previously confirmed resource vanished.
+// Recovery needs a separately approved, exact-resource operator workflow.
+type CreateRecoveryHoldError struct {
+	Resource  string
+	CreateKey string
+	Reason    string
+}
+
+func (err *CreateRecoveryHoldError) Error() string {
+	return err.Resource + " create " + err.CreateKey + " is held: " + err.Reason + "; operator reconciliation is required"
+}
+
+func (err *CreateRecoveryHoldError) Unwrap() error { return ErrCreateRecoveryHold }
 
 // Instance is one positively owned host in this Fleet's configured region.
 // DataVolumes contains retained data volumes currently attached to the host;
@@ -169,6 +185,8 @@ type OperationResult struct {
 type Journal interface {
 	RecordIntent(context.Context, OperationIntent) error
 	RecordResult(context.Context, OperationResult) error
+	// GetResult always returns the immutable stored intent in result.Intent,
+	// including its original CreatedAt, even when found is false.
 	GetResult(context.Context, OperationIntent) (OperationResult, bool, error)
 	IsOwnedInstance(context.Context, ResourceIdentity) (bool, error)
 	IsOwnedVolume(context.Context, ResourceIdentity) (bool, error)
