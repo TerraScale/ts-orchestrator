@@ -19,7 +19,7 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 	provider.launchErrorAfterCreate = errors.New("response dropped")
 	journal := newFakeJournal()
 	fencer := &fakeFencer{snapshot: writableSnapshot()}
-	fleet, err := NewFleet(config, intent, provider, journal, fencer, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestStaleLeaderCannotLaunch(t *testing.T) {
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
 	fencer := &fakeFencer{snapshot: writableSnapshot(), guardErr: authority.ErrFenced}
-	fleet, err := NewFleet(config, intent, provider, journal, fencer, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestEnsureHostRefusesForeignResourceWithSameCreateKey(t *testing.T) {
 		},
 	}
 	provider.instances[foreign.ID] = foreign
-	fleet, err := NewFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof(t *testing.T) {
 		LifecycleState: "RUNNING", ETag: "seed-etag", FreeformTags: hostTags(config, createKey),
 	}
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +184,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestConfirmedMissingHostRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestConfirmedMissingVolumeRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt(t *testing.T)
 		t.Fatal(err)
 	}
 	fencer := &fakeFencer{snapshot: writableSnapshot()}
-	fleet, err := NewFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +321,7 @@ func TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt(t *testing.T)
 
 	// A new Fleet models a controller restart against the same OCI provider and
 	// durable regional journal.
-	restarted, err := NewFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	restarted, err := newTestFleet(config, regionIntent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +346,7 @@ func TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent(t *testing.T) {
 	provider := newFakeProvider(config)
 	provider.volumeCreateErrorAfterCreate = errors.New("response dropped")
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 			tagCreateKey: "data-volume-foreign", tagVolumeSize: "50",
 		},
 	}
-	fleet, err := NewFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, LifecycleState: "AVAILABLE",
 		FreeformTags: volumeTags(config, VolumeCreateRequest{CreateKey: key, SizeGB: 50}),
 	}
-	fleet, err = NewFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err = newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -425,7 +425,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	config, intent = testRegionConfig()
 	provider = newFakeProvider(config)
 	journal := newFakeJournal()
-	fleet, err = NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err = newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +445,7 @@ func TestCreateRetainedVolumePinsProfileBeforeMutation(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
-	fleet, err := NewFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -470,7 +470,7 @@ func TestCreateRetainedVolumeDoesNotReplayAfterAuthorityIsFenced(t *testing.T) {
 	fencer := &fakeFencer{snapshot: writableSnapshot()}
 	provider.afterVolumeCreate = func() { fencer.guardErr = authority.ErrFenced }
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, fencer, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, fencer, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned(t *testing.T) {
 	provider.volumeCreateErrorAfterCreate = errors.New("first response dropped")
 	provider.volumeRetryReplayError = errors.New("retry response dropped")
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +537,7 @@ func TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop(t *testing.T) {
 	journal := newFakeJournal()
 	fencer := &fakeFencer{snapshot: writableSnapshot()}
 	writerStop := &fakeWriterStop{}
-	fleet, err := NewFleet(config, intent, provider, journal, fencer, nil, writerStop)
+	fleet, err := newTestFleet(config, intent, provider, journal, fencer, nil, writerStop)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -547,7 +547,8 @@ func TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop(t *testing.T) {
 	}
 	provider.attachments["attachment-1"] = CloudAttachment{
 		ID: "attachment-1", VolumeID: "volume-1", InstanceID: host.ID,
-		LifecycleState: "ATTACHED", ETag: "a1",
+		LifecycleState: "ATTACHED", ETag: "a1", Device: "/dev/oracleoci/oraclevdb",
+		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false), IsPvEncryptionInTransitEnabled: boolPointer(true),
 	}
 
 	err = fleet.Terminate(ctx, host.ID, host.ETag, WriterStopEvidence("verified"))
@@ -574,7 +575,7 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,12 +604,327 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 	}
 }
 
+func TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, fleet, host, volume := newAttachTestState(t)
+	available := true
+	provider.devices[host.ID] = []CloudDevice{
+		{Name: "/dev/oracleoci/oraclevdc", IsAvailable: &available},
+		{Name: "/dev/oracleoci/oraclevdb", IsAvailable: &available},
+	}
+	provider.afterAttach = func(provider *fakeProvider, _ string) {
+		provider.attachmentListErr = errors.New("attachment observation unavailable")
+	}
+	request := VolumeAttachRequest{VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-durable-device"}
+	if _, err := fleet.AttachRetainedVolume(ctx, request); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("lost attachment observation was not reported as ambiguous: %v", err)
+	}
+	scope := OperationScope{
+		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner,
+	}
+	intent, found, err := journal.GetOperation(ctx, scope)
+	if err != nil || !found {
+		t.Fatalf("durable attachment intent was not recoverable: found=%v intent=%+v err=%v", found, intent, err)
+	}
+	if intent.Device != "/dev/oracleoci/oraclevdb" || intent.IsReadOnly || intent.IsShareable || !intent.IsPvEncryptionInTransitEnabled {
+		t.Fatalf("attachment path or fixed policy was not durably selected: %+v", intent)
+	}
+	result, found, err := journal.GetResult(ctx, intent)
+	if err != nil || !found || !result.Unknown {
+		t.Fatalf("ambiguous attachment result was not durably recorded: found=%v result=%+v err=%v", found, result, err)
+	}
+
+	// A controller restart sees a different free-device list, but must recover
+	// the original path and the existing exact attachment from the journal.
+	available = true
+	provider.devices[host.ID] = []CloudDevice{{Name: "/dev/oracleoci/oraclevdc", IsAvailable: &available}}
+	restarted, err := newTestFleet(config, mustTestRegionIntent(t), provider, journal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, err := restarted.AttachRetainedVolume(ctx, request)
+	if err != nil {
+		t.Fatalf("ambiguous attachment did not recover: %v", err)
+	}
+	if attachment.Device != intent.Device || attachment.State != "ATTACHED" ||
+		attachment.IsReadOnly || attachment.IsShareable || !attachment.IsPvEncryptionInTransitEnabled || provider.attachCalls != 1 {
+		t.Fatalf("recovery changed the original path or flags: attachment=%+v calls=%d", attachment, provider.attachCalls)
+	}
+	observed, err := restarted.Observe(ctx)
+	if err != nil || len(observed) != 1 || len(observed[0].Attachments) != 1 || observed[0].Attachments[0] != attachment {
+		t.Fatalf("confirmed attachment projection was not returned by Observe: observed=%+v err=%v", observed, err)
+	}
+}
+
+func TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation(t *testing.T) {
+	ctx := t.Context()
+	_, provider, journal, fleet, host, volume := newAttachTestState(t)
+	provider.attachments["attachment-unbound"] = CloudAttachment{
+		ID: "attachment-unbound", VolumeID: volume.ID, InstanceID: host.ID,
+		LifecycleState: "ATTACHED", ETag: "unbound-etag", Device: "/dev/oracleoci/oraclevdb",
+		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false), IsPvEncryptionInTransitEnabled: boolPointer(true),
+	}
+	request := VolumeAttachRequest{VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-existing-without-op"}
+	if _, err := fleet.AttachRetainedVolume(ctx, request); !errors.Is(err, ErrAttachmentRecoveryHold) {
+		t.Fatalf("unbound existing attachment was adopted: %v", err)
+	}
+	if provider.attachCalls != 0 {
+		t.Fatalf("unbound attachment triggered another attach: %d", provider.attachCalls)
+	}
+	observed, err := fleet.Observe(ctx)
+	if err != nil || len(observed) != 0 {
+		t.Fatalf("Observe exposed an attachment without a durable operation: observed=%+v err=%v", observed, err)
+	}
+	if _, found, err := journal.GetOperation(ctx, OperationScope{
+		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: host.Region,
+		Generation: host.Generation, Owner: host.Owner,
+	}); err != nil || found {
+		t.Fatalf("an unbound attachment was wrapped in a new durable operation: found=%v err=%v", found, err)
+	}
+}
+
+func TestRetainedVolumeAttachRecoversExactAttachmentFromIntentWithoutResult(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, fleet, host, volume := newAttachTestState(t)
+	request := VolumeAttachRequest{VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-intent-only-recovery"}
+	intent := OperationIntent{
+		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
+		ExpectedETag: host.ETag, VolumeID: volume.ID, Device: "/dev/oracleoci/oraclevdc",
+		IsReadOnly: false, IsShareable: false, IsPvEncryptionInTransitEnabled: true,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := journal.RecordIntent(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	provider.attachments["attachment-from-intent"] = CloudAttachment{
+		ID: "attachment-from-intent", VolumeID: volume.ID, InstanceID: host.ID,
+		LifecycleState: "ATTACHED", ETag: "attached-etag", Device: intent.Device,
+		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false), IsPvEncryptionInTransitEnabled: boolPointer(true),
+	}
+	attachment, err := fleet.AttachRetainedVolume(ctx, request)
+	if err != nil {
+		t.Fatalf("fresh durable intent did not recover the already-observed exact attachment: %v", err)
+	}
+	if attachment.ID != "attachment-from-intent" || attachment.Device != intent.Device || provider.attachCalls != 0 {
+		t.Fatalf("intent-only recovery selected or created a different attachment: %+v calls=%d", attachment, provider.attachCalls)
+	}
+	result, found, err := journal.GetResult(ctx, intent)
+	if err != nil || !found || result.Unknown || result.ResourceID != attachment.ID || result.ETag != attachment.ETag {
+		t.Fatalf("exact recovered attachment did not become a durable positive result: found=%v result=%+v err=%v", found, result, err)
+	}
+}
+
+func TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		name := "pending"
+		if unknown {
+			name = "unknown"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			config, provider, journal, fleet, host, volume := newAttachTestState(t)
+			request := VolumeAttachRequest{VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expired-" + name}
+			intent := OperationIntent{
+				Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
+				Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
+				ExpectedETag: host.ETag, VolumeID: volume.ID, Device: "/dev/oracleoci/oraclevdb",
+				IsReadOnly: false, IsShareable: false, IsPvEncryptionInTransitEnabled: true,
+				CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
+			}
+			if err := journal.RecordIntent(ctx, intent); err != nil {
+				t.Fatal(err)
+			}
+			if unknown {
+				if err := journal.RecordResult(ctx, OperationResult{Intent: intent, Unknown: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := fleet.AttachRetainedVolume(ctx, request)
+			if !errors.Is(err, ErrCreateRecoveryHold) {
+				t.Fatalf("expired %s attachment intent was replayed instead of held: %v", name, err)
+			}
+			hold, ok := errors.AsType[*CreateRecoveryHoldError](err)
+			if !ok || hold.CreateKey != request.IdempotencyKey {
+				t.Fatalf("expired %s attachment intent returned no typed recovery hold: %#v", name, err)
+			}
+			if provider.attachCalls != 0 || provider.deviceListCalls != 0 {
+				t.Fatalf("expired %s intent reached OCI or reselected a path: attachCalls=%d deviceLists=%d", name, provider.attachCalls, provider.deviceListCalls)
+			}
+		})
+	}
+}
+
+func TestRetainedVolumeAttachConfirmsExactObservationAfterRetryWindow(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, fleet, host, volume := newAttachTestState(t)
+	request := VolumeAttachRequest{VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expired-observed"}
+	intent := OperationIntent{
+		Action: actionVolumeAttach, Key: request.IdempotencyKey, Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner, ResourceID: host.ID, CreateKey: host.CreateKey,
+		ExpectedETag: host.ETag, VolumeID: volume.ID, Device: "/dev/oracleoci/oraclevdb",
+		IsReadOnly: false, IsShareable: false, IsPvEncryptionInTransitEnabled: true,
+		CreatedAt: time.Now().Add(-maxCreateRetryAge - time.Minute).UTC(),
+	}
+	if err := journal.RecordIntent(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: intent, Unknown: true}); err != nil {
+		t.Fatal(err)
+	}
+	provider.attachments["attachment-expired-observed"] = CloudAttachment{
+		ID: "attachment-expired-observed", VolumeID: volume.ID, InstanceID: host.ID,
+		LifecycleState: "ATTACHED", ETag: "attachment-etag", Device: intent.Device,
+		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false), IsPvEncryptionInTransitEnabled: boolPointer(true),
+	}
+	attachment, err := fleet.AttachRetainedVolume(ctx, request)
+	if err != nil {
+		t.Fatalf("exact observed attachment was not confirmed after expiry: %v", err)
+	}
+	if attachment.ID != "attachment-expired-observed" || provider.attachCalls != 0 || provider.deviceListCalls != 0 {
+		t.Fatalf("post-expiry confirmation caused a new effect or selection: attachment=%+v calls=%d deviceLists=%d",
+			attachment, provider.attachCalls, provider.deviceListCalls)
+	}
+	result, found, err := journal.GetResult(ctx, intent)
+	if err != nil || !found || result.Unknown || result.ResourceID != attachment.ID || result.ETag != attachment.ETag {
+		t.Fatalf("exact post-expiry observation was not made durable: found=%v result=%+v err=%v", found, result, err)
+	}
+}
+
+func TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, _, host, volume := newAttachTestState(t)
+	_, regionIntent := testRegionConfig()
+	fencer := &fakeFencer{snapshot: writableSnapshot()}
+	fleetValue, err := newTestFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	implementation := fleetValue.(*fleet)
+	now := time.Now().UTC()
+	implementation.now = func() time.Time { return now }
+	var finalGuardReached bool
+	fencer.onGuard = func() {
+		if fencer.guards == 2 {
+			now = now.Add(maxCreateRetryAge)
+			finalGuardReached = true
+		}
+	}
+
+	_, err = fleetValue.AttachRetainedVolume(ctx, VolumeAttachRequest{
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-expires-during-guard",
+	})
+	if !errors.Is(err, ErrCreateRecoveryHold) {
+		t.Fatalf("attachment that expired during authority guard was not held: %v", err)
+	}
+	if !finalGuardReached || fencer.guards != 2 {
+		t.Fatalf("attachment did not pass through the final authority guard: reached=%v guards=%d", finalGuardReached, fencer.guards)
+	}
+	if provider.attachCalls != 0 || provider.deviceListCalls != 1 {
+		t.Fatalf("expired attachment called OCI or reselected its device: attachCalls=%d deviceLists=%d", provider.attachCalls, provider.deviceListCalls)
+	}
+	intent, found, err := journal.GetOperation(ctx, OperationScope{
+		Action: actionVolumeAttach, Key: "attach-expires-during-guard", Region: host.Region,
+		Generation: host.Generation, Owner: host.Owner,
+	})
+	if err != nil || !found || !validDevicePath(intent.Device) {
+		t.Fatalf("expired operation did not retain its selected durable device: found=%v intent=%+v err=%v", found, intent, err)
+	}
+}
+
+func TestRetainedVolumeOperationsHoldWithoutImageVerifier(t *testing.T) {
+	ctx := t.Context()
+	config, provider, journal, _, host, volume := newAttachTestState(t)
+	nilVerifierFleet, err := NewFleet(config, mustTestRegionIntent(t), provider, journal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nilVerifierFleet.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: "no-qualification", SizeGB: 50}); !errors.Is(err, ErrImageQualificationUnavailable) {
+		t.Fatalf("volume creation without image evidence was not held: %v", err)
+	}
+	if _, err := nilVerifierFleet.AttachRetainedVolume(ctx, VolumeAttachRequest{
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-no-qualification",
+	}); !errors.Is(err, ErrImageQualificationUnavailable) {
+		t.Fatalf("volume attachment without image evidence was not held: %v", err)
+	}
+	if provider.volumeCreateCalls != 1 || provider.attachCalls != 0 {
+		t.Fatalf("unqualified fleet reached OCI: volumeCalls=%d attachCalls=%d", provider.volumeCreateCalls, provider.attachCalls)
+	}
+}
+
+func TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*CloudInstance)
+	}{
+		{name: "wrong image", mutate: func(instance *CloudInstance) { instance.ImageID = "ocid1.image.other" }},
+		{name: "missing launch option", mutate: func(instance *CloudInstance) { instance.ConsistentVolumeNamingEnabled = nil }},
+		{name: "disabled launch option", mutate: func(instance *CloudInstance) { instance.ConsistentVolumeNamingEnabled = boolPointer(false) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			_, provider, _, fleet, host, volume := newAttachTestState(t)
+			instance := provider.instances[host.ID]
+			test.mutate(&instance)
+			provider.instances[host.ID] = instance
+			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-unqualified-host",
+			})
+			if !errors.Is(err, ErrImageNotQualified) || provider.attachCalls != 0 {
+				t.Fatalf("ineligible host reached attachment: err=%v calls=%d", err, provider.attachCalls)
+			}
+		})
+	}
+}
+
+func TestRetainedVolumeAttachRejectsIncompleteObservedPolicyAndStaleETag(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*CloudAttachment)
+	}{
+		{name: "missing readonly flag", mutate: func(attachment *CloudAttachment) { attachment.IsReadOnly = nil }},
+		{name: "wrong device", mutate: func(attachment *CloudAttachment) { attachment.Device = "/dev/oracleoci/oraclevdc" }},
+		{name: "stale etag", mutate: func(attachment *CloudAttachment) { attachment.ETag = "changed-etag" }},
+		{name: "not attached", mutate: func(attachment *CloudAttachment) { attachment.LifecycleState = "ATTACHING" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			_, provider, journal, fleet, host, volume := newAttachTestState(t)
+			provider.afterAttach = func(provider *fakeProvider, attachmentID string) {
+				attachment := provider.attachments[attachmentID]
+				test.mutate(&attachment)
+				provider.attachments[attachmentID] = attachment
+			}
+			_, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{
+				VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-invalid-observation",
+			})
+			if !errors.Is(err, ErrOutcomeUnknown) || provider.attachCalls != 1 {
+				t.Fatalf("incomplete attachment observation was accepted: err=%v calls=%d", err, provider.attachCalls)
+			}
+			operation, found, lookupErr := journal.GetOperation(ctx, OperationScope{
+				Action: actionVolumeAttach, Key: "attach-invalid-observation", Region: host.Region,
+				Generation: host.Generation, Owner: host.Owner,
+			})
+			if lookupErr != nil || !found {
+				t.Fatalf("invalid observation lost its durable intent: found=%v err=%v", found, lookupErr)
+			}
+			result, found, resultErr := journal.GetResult(ctx, operation)
+			if resultErr != nil || !found || !result.Unknown {
+				t.Fatalf("invalid observation was not kept unknown: found=%v result=%+v err=%v", found, result, resultErr)
+			}
+		})
+	}
+}
+
 func TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -634,7 +950,7 @@ func TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances(t *testin
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,7 +986,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	config, intent := testRegionConfig()
 	provider := newFakeProvider(config)
 	journal := newFakeJournal()
-	fleet, err := NewFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -738,26 +1054,31 @@ type fakeFencer struct {
 	snapshot authority.Snapshot
 	guardErr error
 	guards   int
+	onGuard  func()
 }
 
 func (f *fakeFencer) Current() authority.Snapshot { return f.snapshot }
 func (f *fakeFencer) Guard(context.Context, uint64) error {
 	f.guards++
+	if f.onGuard != nil {
+		f.onGuard()
+	}
 	return f.guardErr
 }
 
 type fakeJournal struct {
-	intents   map[string]OperationIntent
-	results   map[string]OperationResult
-	instances map[string]ResourceIdentity
-	volumes   map[string]ResourceIdentity
+	intents     map[string]OperationIntent
+	results     map[string]OperationResult
+	instances   map[string]ResourceIdentity
+	volumes     map[string]ResourceIdentity
+	attachments map[string]AttachmentIdentity
 }
 
 func newFakeJournal() *fakeJournal {
 	return &fakeJournal{
 		intents: make(map[string]OperationIntent), results: make(map[string]OperationResult),
 		instances: make(map[string]ResourceIdentity),
-		volumes:   make(map[string]ResourceIdentity),
+		volumes:   make(map[string]ResourceIdentity), attachments: make(map[string]AttachmentIdentity),
 	}
 }
 
@@ -795,6 +1116,9 @@ func (j *fakeJournal) RecordResult(_ context.Context, result OperationResult) er
 		identity.AvailabilityDomain = result.Intent.AvailabilityDomain
 		identity.SizeGB = result.Intent.SizeGB
 		j.volumes[identity.ID] = identity
+	case actionVolumeAttach:
+		identity := attachmentIdentityFromResult(result)
+		j.attachments[identity.ID] = identity
 	}
 	return nil
 }
@@ -814,12 +1138,32 @@ func (j *fakeJournal) GetResult(_ context.Context, intent OperationIntent) (Oper
 	return result, true, nil
 }
 
+func (j *fakeJournal) GetOperation(_ context.Context, scope OperationScope) (OperationIntent, bool, error) {
+	intent := OperationIntent{
+		Action: scope.Action, Key: scope.Key, Region: scope.Region,
+		Generation: scope.Generation, Owner: scope.Owner,
+	}
+	stored, exists := j.intents[operationKey(intent)]
+	if !exists {
+		return OperationIntent{}, false, nil
+	}
+	if stored.Action != scope.Action || stored.Key != scope.Key || stored.Region != scope.Region ||
+		stored.Generation != scope.Generation || stored.Owner != scope.Owner {
+		return OperationIntent{}, false, errors.New("operation scope conflict")
+	}
+	return stored, true, nil
+}
+
 func (j *fakeJournal) IsOwnedInstance(_ context.Context, identity ResourceIdentity) (bool, error) {
 	return j.instances[identity.ID] == identity, nil
 }
 
 func (j *fakeJournal) IsOwnedVolume(_ context.Context, identity ResourceIdentity) (bool, error) {
 	return j.volumes[identity.ID] == identity, nil
+}
+
+func (j *fakeJournal) IsOwnedAttachment(_ context.Context, identity AttachmentIdentity) (bool, error) {
+	return j.attachments[identity.ID] == identity, nil
 }
 
 type fakeWriterStop struct {
@@ -838,13 +1182,65 @@ func (v *fakeWriterStop) VerifyInstanceWritersStopped(context.Context, Region, s
 	return v.instanceErr
 }
 
+type fakeImageVerifier struct {
+	err    error
+	images []string
+}
+
+func (v *fakeImageVerifier) VerifyImageQualified(_ context.Context, _ Region, imageID string) error {
+	v.images = append(v.images, imageID)
+	return v.err
+}
+
+func newTestFleet(
+	config RegionConfig,
+	intent RegionIntent,
+	provider Provider,
+	journal Journal,
+	fencer authority.Fencer,
+	drainRequester DrainRequester,
+	writerStop WriterStopVerifier,
+) (Fleet, error) {
+	return NewFleetWithImageVerifier(config, intent, provider, journal, fencer, drainRequester, writerStop, &fakeImageVerifier{})
+}
+
+func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal, Fleet, Instance, RetainedVolume) {
+	t.Helper()
+	ctx := t.Context()
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "attach-test-host", FaultDomain: "FAULT-DOMAIN-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	volume, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: "attach-test-volume", SizeGB: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config, provider, journal, fleet, host, volume
+}
+
+func mustTestRegionIntent(_ *testing.T) RegionIntent {
+	_, intent := testRegionConfig()
+	return intent
+}
+
 type fakeProvider struct {
 	config                       RegionConfig
 	instances                    map[string]CloudInstance
 	launchRetryTokens            map[string]string
+	devices                      map[string][]CloudDevice
 	volumes                      map[string]CloudVolume
 	volumeRetryTokens            map[string]string
 	attachments                  map[string]CloudAttachment
+	attachRetryTokens            map[string]string
+	attachmentListErr            error
+	afterAttach                  func(*fakeProvider, string)
 	launches                     int
 	launchCalls                  int
 	launchErrorAfterCreate       error
@@ -854,14 +1250,18 @@ type fakeProvider struct {
 	volumeRetryReplayError       error
 	afterVolumeCreate            func()
 	attachCalls                  int
+	deviceListCalls              int
+	attachErrorAfterCreate       error
+	attachReplayError            error
 	terminations                 int
 }
 
 func newFakeProvider(config RegionConfig) *fakeProvider {
 	return &fakeProvider{
 		config: config, instances: make(map[string]CloudInstance), launchRetryTokens: make(map[string]string),
+		devices: make(map[string][]CloudDevice),
 		volumes: make(map[string]CloudVolume), volumeRetryTokens: make(map[string]string),
-		attachments: make(map[string]CloudAttachment),
+		attachments: make(map[string]CloudAttachment), attachRetryTokens: make(map[string]string),
 	}
 }
 
@@ -893,8 +1293,9 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	id := fmt.Sprintf("ocid1.instance.new-%d", p.launches)
 	instance := CloudInstance{
 		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
-		FaultDomain: request.FaultDomain, LifecycleState: "PROVISIONING", ETag: "e1",
-		FreeformTags: cloneStringMap(request.FreeformTags),
+		FaultDomain: request.FaultDomain, LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
+		ConsistentVolumeNamingEnabled: new(true),
+		FreeformTags:                  cloneStringMap(request.FreeformTags),
 	}
 	p.instances[id] = instance
 	p.launchRetryTokens[request.RetryToken] = id
@@ -936,6 +1337,11 @@ func (p *fakeProvider) ListVolumeAttachments(_ context.Context, compartmentID, i
 	if compartmentID != p.config.CompartmentID {
 		return nil, ErrForeignResource
 	}
+	if p.attachmentListErr != nil {
+		err := p.attachmentListErr
+		p.attachmentListErr = nil
+		return nil, err
+	}
 	var attachments []CloudAttachment
 	for _, attachment := range p.attachments {
 		if instanceID == "" || attachment.InstanceID == instanceID {
@@ -943,6 +1349,19 @@ func (p *fakeProvider) ListVolumeAttachments(_ context.Context, compartmentID, i
 		}
 	}
 	return attachments, nil
+}
+
+func (p *fakeProvider) ListInstanceDevices(_ context.Context, instanceID string) ([]CloudDevice, error) {
+	p.deviceListCalls++
+	devices, exists := p.devices[instanceID]
+	if exists {
+		return cloneCloudDevices(devices), nil
+	}
+	available := true
+	return []CloudDevice{
+		{Name: "/dev/oracleoci/oraclevdb", IsAvailable: &available},
+		{Name: "/dev/oracleoci/oraclevdc", IsAvailable: &available},
+	}, nil
 }
 
 func (p *fakeProvider) GetVolumeAttachment(_ context.Context, id string) (CloudAttachment, error) {
@@ -953,14 +1372,26 @@ func (p *fakeProvider) GetVolumeAttachment(_ context.Context, id string) (CloudA
 	return attachment, nil
 }
 
-func (p *fakeProvider) AttachVolume(_ context.Context, request VolumeAttachRequest) (CloudAttachment, error) {
+func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttachRequest) (CloudAttachment, error) {
+	if id, exists := p.attachRetryTokens[request.IdempotencyKey]; exists {
+		return p.attachments[id], p.attachReplayError
+	}
 	p.attachCalls++
+	readOnly, shareable, encryption := request.IsReadOnly, request.IsShareable, request.IsPvEncryptionInTransitEnabled
 	attachment := CloudAttachment{
 		ID: fmt.Sprintf("attachment-%d", p.attachCalls), VolumeID: request.VolumeID,
-		InstanceID: request.InstanceID, LifecycleState: "ATTACHED", ETag: "a1",
+		InstanceID: request.InstanceID, LifecycleState: "ATTACHED", ETag: "a1", Device: request.Device,
+		IsReadOnly: &readOnly, IsShareable: &shareable, IsPvEncryptionInTransitEnabled: &encryption,
 	}
 	p.attachments[attachment.ID] = attachment
-	return attachment, nil
+	p.attachRetryTokens[request.IdempotencyKey] = attachment.ID
+	if p.afterAttach != nil {
+		p.afterAttach(p, attachment.ID)
+		p.afterAttach = nil
+	}
+	attachErr := p.attachErrorAfterCreate
+	p.attachErrorAfterCreate = nil
+	return attachment, attachErr
 }
 
 func (p *fakeProvider) DetachVolume(_ context.Context, id, etag string) error {
@@ -1022,8 +1453,24 @@ func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateReque
 
 func cloneCloudInstance(instance CloudInstance) CloudInstance {
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
+	if instance.ConsistentVolumeNamingEnabled != nil {
+		instance.ConsistentVolumeNamingEnabled = boolPointer(*instance.ConsistentVolumeNamingEnabled)
+	}
 	return instance
 }
+
+func cloneCloudDevices(devices []CloudDevice) []CloudDevice {
+	cloned := make([]CloudDevice, len(devices))
+	for index, device := range devices {
+		cloned[index].Name = device.Name
+		if device.IsAvailable != nil {
+			cloned[index].IsAvailable = boolPointer(*device.IsAvailable)
+		}
+	}
+	return cloned
+}
+
+func boolPointer(value bool) *bool { return &value }
 
 type fakeNotFound struct{}
 

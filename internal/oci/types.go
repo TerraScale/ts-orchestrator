@@ -7,14 +7,17 @@ import (
 )
 
 var (
-	ErrForeignResource       = errors.New("OCI resource ownership does not match this fleet")
-	ErrDuplicateCreateKey    = errors.New("OCI create key resolves to multiple resources")
-	ErrStaleETag             = errors.New("OCI resource ETag changed")
-	ErrWriterStopUnverified  = errors.New("database writer stop is not verified")
-	ErrRetainedVolumeInUse   = errors.New("retained volume is attached to a different instance")
-	ErrRetainedVolumeUnknown = errors.New("retained volume has no durable controller ownership record")
-	ErrOutcomeUnknown        = errors.New("OCI provider mutation outcome is unknown")
-	ErrCreateRecoveryHold    = errors.New("OCI create requires operator reconciliation")
+	ErrForeignResource               = errors.New("OCI resource ownership does not match this fleet")
+	ErrDuplicateCreateKey            = errors.New("OCI create key resolves to multiple resources")
+	ErrStaleETag                     = errors.New("OCI resource ETag changed")
+	ErrWriterStopUnverified          = errors.New("database writer stop is not verified")
+	ErrRetainedVolumeInUse           = errors.New("retained volume is attached to a different instance")
+	ErrRetainedVolumeUnknown         = errors.New("retained volume has no durable controller ownership record")
+	ErrAttachmentRecoveryHold        = errors.New("retained volume attachment requires operator reconciliation")
+	ErrImageQualificationUnavailable = errors.New("retained volumes require verified image qualification")
+	ErrImageNotQualified             = errors.New("pinned OCI image is not qualified for retained volumes")
+	ErrOutcomeUnknown                = errors.New("OCI provider mutation outcome is unknown")
+	ErrCreateRecoveryHold            = errors.New("OCI create requires operator reconciliation")
 )
 
 // CreateRecoveryHoldError stops automatic retries when the original OCI
@@ -52,11 +55,15 @@ type Instance struct {
 // Attachment identifies a retained data-volume attachment. VolumeID remains
 // owned by its durable controller record after detachment and instance scale-in.
 type Attachment struct {
-	ID         string
-	VolumeID   string
-	InstanceID string
-	ETag       string
-	State      string
+	ID                             string
+	VolumeID                       string
+	InstanceID                     string
+	ETag                           string
+	State                          string
+	Device                         string
+	IsReadOnly                     bool
+	IsShareable                    bool
+	IsPvEncryptionInTransitEnabled bool
 }
 
 // EnsureRequest identifies the idempotent host launch and its selected failure
@@ -140,6 +147,13 @@ type WriterStopVerifier interface {
 	VerifyInstanceWritersStopped(context.Context, Region, string, WriterStopEvidence) error
 }
 
+// ImageQualificationVerifier proves that the pinned image is approved for
+// retained-volume attachment. A raw image ID or digest is not qualification
+// evidence; deployments without an evidence source must hold these operations.
+type ImageQualificationVerifier interface {
+	VerifyImageQualified(context.Context, Region, string) error
+}
+
 // ResourceIdentity is the complete durable scope needed to positively identify
 // a resource. Tags alone are never sufficient to adopt a seed or OpenTofu item.
 type ResourceIdentity struct {
@@ -154,19 +168,23 @@ type ResourceIdentity struct {
 
 // OperationIntent is durably written before an OCI mutation is attempted.
 type OperationIntent struct {
-	Action             string    `json:"action"`
-	Key                string    `json:"key"`
-	Region             Region    `json:"region"`
-	Generation         uint64    `json:"generation"`
-	Owner              string    `json:"owner"`
-	ResourceID         string    `json:"resource_id,omitempty"`
-	CreateKey          string    `json:"create_key,omitempty"`
-	ExpectedETag       string    `json:"expected_etag,omitempty"`
-	FaultDomain        string    `json:"fault_domain,omitempty"`
-	VolumeID           string    `json:"volume_id,omitempty"`
-	AvailabilityDomain string    `json:"availability_domain,omitempty"`
-	SizeGB             int64     `json:"size_gb,omitempty"`
-	CreatedAt          time.Time `json:"created_at,omitzero"`
+	Action                         string    `json:"action"`
+	Key                            string    `json:"key"`
+	Region                         Region    `json:"region"`
+	Generation                     uint64    `json:"generation"`
+	Owner                          string    `json:"owner"`
+	ResourceID                     string    `json:"resource_id,omitempty"`
+	CreateKey                      string    `json:"create_key,omitempty"`
+	ExpectedETag                   string    `json:"expected_etag,omitempty"`
+	FaultDomain                    string    `json:"fault_domain,omitempty"`
+	VolumeID                       string    `json:"volume_id,omitempty"`
+	AvailabilityDomain             string    `json:"availability_domain,omitempty"`
+	SizeGB                         int64     `json:"size_gb,omitempty"`
+	Device                         string    `json:"device,omitempty"`
+	IsReadOnly                     bool      `json:"is_read_only"`
+	IsShareable                    bool      `json:"is_shareable"`
+	IsPvEncryptionInTransitEnabled bool      `json:"is_pv_encryption_in_transit_enabled"`
+	CreatedAt                      time.Time `json:"created_at,omitzero"`
 }
 
 // OperationResult records the observed result of a provider mutation. A result
@@ -179,6 +197,34 @@ type OperationResult struct {
 	RecordedAt time.Time       `json:"recorded_at,omitzero"`
 }
 
+// OperationScope identifies the immutable portion of an operation key that is
+// known before all mutation details (such as the selected device) are known.
+type OperationScope struct {
+	Action     string
+	Key        string
+	Region     Region
+	Generation uint64
+	Owner      string
+}
+
+// AttachmentIdentity binds an observed attachment to the confirmed operation
+// result that created it, including the instance, retained volume, path, ETag,
+// and fixed attach policy.
+type AttachmentIdentity struct {
+	ID                             string
+	InstanceID                     string
+	VolumeID                       string
+	Device                         string
+	ETag                           string
+	Region                         Region
+	Generation                     uint64
+	Owner                          string
+	CreateKey                      string
+	IsReadOnly                     bool
+	IsShareable                    bool
+	IsPvEncryptionInTransitEnabled bool
+}
+
 // Journal is backed by replicated JetStream KV in production. IsOwnedInstance
 // and IsOwnedVolume must return true only for resources whose controller
 // ownership is backed by a durable operation or a separately verified handoff.
@@ -188,6 +234,11 @@ type Journal interface {
 	// GetResult always returns the immutable stored intent in result.Intent,
 	// including its original CreatedAt, even when found is false.
 	GetResult(context.Context, OperationIntent) (OperationResult, bool, error)
+	// GetOperation resolves the exact operation key from its known regional
+	// scope and returns the original immutable intent, even before a result is
+	// recorded. Callers must not invent omitted mutation details on a retry.
+	GetOperation(context.Context, OperationScope) (OperationIntent, bool, error)
+	IsOwnedAttachment(context.Context, AttachmentIdentity) (bool, error)
 	IsOwnedInstance(context.Context, ResourceIdentity) (bool, error)
 	IsOwnedVolume(context.Context, ResourceIdentity) (bool, error)
 }
@@ -201,8 +252,9 @@ type Provider interface {
 	UpdateInstanceTags(context.Context, string, string, map[string]string) (CloudInstance, error)
 	TerminateInstance(context.Context, string, string) error
 	ListVolumeAttachments(context.Context, string, string) ([]CloudAttachment, error)
+	ListInstanceDevices(context.Context, string) ([]CloudDevice, error)
 	GetVolumeAttachment(context.Context, string) (CloudAttachment, error)
-	AttachVolume(context.Context, VolumeAttachRequest) (CloudAttachment, error)
+	AttachVolume(context.Context, CloudVolumeAttachRequest) (CloudAttachment, error)
 	DetachVolume(context.Context, string, string) error
 	ListVolumes(context.Context, string, string) ([]CloudVolume, error)
 	CreateVolume(context.Context, VolumeCreateRequest, map[string]string, string) (CloudVolume, error)
@@ -212,21 +264,46 @@ type Provider interface {
 // CloudInstance and CloudAttachment are normalized SDK values used at the
 // narrow provider boundary.
 type CloudInstance struct {
-	ID                 string
-	CompartmentID      string
-	AvailabilityDomain string
-	FaultDomain        string
-	LifecycleState     string
-	ETag               string
-	FreeformTags       map[string]string
+	ID                            string
+	CompartmentID                 string
+	AvailabilityDomain            string
+	FaultDomain                   string
+	LifecycleState                string
+	ETag                          string
+	ImageID                       string
+	ConsistentVolumeNamingEnabled *bool
+	FreeformTags                  map[string]string
 }
 
 type CloudAttachment struct {
-	ID             string
-	VolumeID       string
-	InstanceID     string
-	LifecycleState string
-	ETag           string
+	ID                             string
+	VolumeID                       string
+	InstanceID                     string
+	LifecycleState                 string
+	ETag                           string
+	Device                         string
+	IsReadOnly                     *bool
+	IsShareable                    *bool
+	IsPvEncryptionInTransitEnabled *bool
+}
+
+// CloudDevice is a provider candidate only. Fleet validates and deterministically
+// selects a device, then persists it before making an attachment request.
+type CloudDevice struct {
+	Name        string
+	IsAvailable *bool
+}
+
+// CloudVolumeAttachRequest is the provider-bound mutation assembled by Fleet
+// from its durable intent. Placement callers cannot select the device or flags.
+type CloudVolumeAttachRequest struct {
+	VolumeID                       string
+	InstanceID                     string
+	IdempotencyKey                 string
+	Device                         string
+	IsReadOnly                     bool
+	IsShareable                    bool
+	IsPvEncryptionInTransitEnabled bool
 }
 
 type CloudVolume struct {

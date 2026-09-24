@@ -107,6 +107,115 @@ func TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome(t *testing.T)
 	}
 }
 
+func TestJournalOperationLookupRecoversPersistedAttachmentDevice(t *testing.T) {
+	ctx := t.Context()
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := OperationIntent{
+		Action: actionVolumeAttach, Key: "attach-journal-recovery", Region: RegionGRU,
+		Generation: 7, Owner: "orchestrator", ResourceID: "ocid1.instance.attach-target",
+		CreateKey: "host-create-key", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
+		Device: "/dev/oracleoci/oraclevdb", IsReadOnly: false, IsShareable: false,
+		IsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),
+	}
+	if err := journal.RecordIntent(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	scope := OperationScope{
+		Action: intent.Action, Key: intent.Key, Region: intent.Region,
+		Generation: intent.Generation, Owner: intent.Owner,
+	}
+	stored, found, err := journal.GetOperation(ctx, scope)
+	if err != nil || !found || !sameIntent(stored, intent) || !stored.CreatedAt.Equal(intent.CreatedAt) {
+		t.Fatalf("attachment operation lookup changed its immutable intent: found=%v stored=%+v err=%v", found, stored, err)
+	}
+	if _, resultFound, err := journal.GetResult(ctx, stored); err != nil || resultFound {
+		t.Fatalf("fresh attachment intent was misclassified as a provider result: found=%v err=%v", resultFound, err)
+	}
+	if err := journal.RecordResult(ctx, OperationResult{Intent: stored, Unknown: true}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, found, err := journal.GetOperation(ctx, scope)
+	result, resultFound, resultErr := journal.GetResult(ctx, recovered)
+	if err != nil || !found || resultErr != nil || !resultFound || !result.Unknown || recovered.Device != intent.Device {
+		t.Fatalf("unknown provider result lost the selected device: found=%v resultFound=%v intent=%+v result=%+v err=%v resultErr=%v",
+			found, resultFound, recovered, result, err, resultErr)
+	}
+	conflict := intent
+	conflict.Device = "/dev/oracleoci/oraclevdc"
+	if err := journal.RecordIntent(ctx, conflict); err == nil {
+		t.Fatal("same attach operation key accepted a different selected device")
+	}
+}
+
+func TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding(t *testing.T) {
+	ctx := t.Context()
+	kv := testJournalBucket(t)
+	journal, err := NewKVJournal(kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := OperationIntent{
+		Action: actionVolumeAttach, Key: "attach-projection-repair", Region: RegionGRU,
+		Generation: 7, Owner: "orchestrator", ResourceID: "ocid1.instance.attach-target",
+		CreateKey: "host-create-key", VolumeID: "ocid1.volume.retained", ExpectedETag: "host-etag",
+		Device: "/dev/oracleoci/oraclevdb", IsReadOnly: false, IsShareable: false,
+		IsPvEncryptionInTransitEnabled: true, CreatedAt: time.Now().UTC(),
+	}
+	if err := journal.RecordIntent(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	result := OperationResult{Intent: intent, ResourceID: "ocid1.volumeattachment.confirmed", ETag: "attachment-etag"}
+	journal.kv = &failAttachmentProjectionKV{KeyValue: kv, failOnce: true}
+	if err := journal.RecordResult(ctx, result); err == nil {
+		t.Fatal("injected attachment projection failure was hidden")
+	}
+	identity := attachmentIdentityFromResult(OperationResult{
+		Intent: intent, ResourceID: result.ResourceID, ETag: result.ETag, RecordedAt: time.Now().UTC(),
+	})
+	if owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || owned {
+		t.Fatalf("interrupted projection created false ownership: owned=%v err=%v", owned, err)
+	}
+
+	// RecordResult reads the immutable primary receipt and idempotently repairs
+	// its reverse ownership projection after the failed write.
+	journal.kv = kv
+	if err := journal.RecordResult(ctx, result); err != nil {
+		t.Fatalf("exact receipt retry did not repair the attachment projection: %v", err)
+	}
+	entry, err := journal.read(ctx, ownershipKey("attachment", identity.ID))
+	if err != nil || entry.Kind != "attachment" || entry.AttachmentIdentity != identity ||
+		!sameIntent(entry.Intent, intent) || !sameResult(entry.Result, OperationResult{Intent: intent, ResourceID: identity.ID, ETag: identity.ETag}) {
+		t.Fatalf("attachment projection did not reference the exact confirmed receipt: entry=%+v err=%v", entry, err)
+	}
+	if owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {
+		t.Fatalf("repaired exact attachment projection was not owned: owned=%v err=%v", owned, err)
+	}
+	wrongETag := identity
+	wrongETag.ETag = "stale-etag"
+	if owned, err := journal.IsOwnedAttachment(ctx, wrongETag); err != nil || owned {
+		t.Fatalf("attachment projection accepted a stale ETag: owned=%v err=%v", owned, err)
+	}
+
+	conflictingIntent := intent
+	conflictingIntent.Key = "attach-rebind-attempt"
+	conflictingIntent.CreatedAt = time.Now().UTC()
+	if err := journal.RecordIntent(ctx, conflictingIntent); err != nil {
+		t.Fatal(err)
+	}
+	conflictErr := journal.RecordResult(ctx, OperationResult{
+		Intent: conflictingIntent, ResourceID: identity.ID, ETag: identity.ETag,
+	})
+	if conflictErr == nil {
+		t.Fatal("a different attach operation rebound an existing attachment ID")
+	}
+	if owned, err := journal.IsOwnedAttachment(ctx, identity); err != nil || !owned {
+		t.Fatalf("conflicting operation replaced the original attachment owner: owned=%v err=%v", owned, err)
+	}
+}
+
 func TestJournalConcurrentConflictingResultsHaveOneImmutableWinner(t *testing.T) {
 	ctx := t.Context()
 	kv := testJournalBucket(t)
@@ -200,6 +309,19 @@ func testJournalBucket(t *testing.T) jetstream.KeyValue {
 type failOwnershipCreateKV struct {
 	jetstream.KeyValue
 	failOnce bool
+}
+
+type failAttachmentProjectionKV struct {
+	jetstream.KeyValue
+	failOnce bool
+}
+
+func (kv *failAttachmentProjectionKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {
+	if kv.failOnce && strings.HasPrefix(key, "attachment.") {
+		kv.failOnce = false
+		return 0, errors.New("injected attachment projection failure")
+	}
+	return kv.KeyValue.Create(ctx, key, value, opts...)
 }
 
 func (kv *failOwnershipCreateKV) Create(ctx context.Context, key string, value []byte, opts ...jetstream.KVCreateOpt) (uint64, error) {

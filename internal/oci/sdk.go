@@ -94,6 +94,7 @@ func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchR
 			SubnetId: new(config.SubnetID),
 			NsgIds:   networkSecurityGroupIDs,
 		},
+		LaunchOptions: &core.LaunchOptions{IsConsistentVolumeNamingEnabled: new(true)},
 		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new(config.ImageID)},
 	}
 	response, err := provider.compute.LaunchInstance(ctx, core.LaunchInstanceRequest{
@@ -172,15 +173,38 @@ func (provider *sdkProvider) GetVolumeAttachment(ctx context.Context, id string)
 	return cloudAttachment(response.VolumeAttachment, stringValue(response.Etag)), nil
 }
 
-func (provider *sdkProvider) AttachVolume(ctx context.Context, request VolumeAttachRequest) (CloudAttachment, error) {
-	readonly, shareable, encryption := false, false, true
+func (provider *sdkProvider) ListInstanceDevices(ctx context.Context, instanceID string) ([]CloudDevice, error) {
+	var devices []CloudDevice
+	var page *string
+	for {
+		response, err := provider.compute.ListInstanceDevices(ctx, core.ListInstanceDevicesRequest{
+			InstanceId: new(instanceID), IsAvailable: new(true), Page: page, Limit: new(100),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list OCI instance devices: %w", err)
+		}
+		for _, device := range response.Items {
+			devices = append(devices, cloudDevice(device))
+			if len(devices) > maxProviderItems {
+				return nil, errors.New("OCI instance device list exceeds its safety bound")
+			}
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			return devices, nil
+		}
+		page = response.OpcNextPage
+	}
+}
+
+func (provider *sdkProvider) AttachVolume(ctx context.Context, request CloudVolumeAttachRequest) (CloudAttachment, error) {
 	response, err := provider.compute.AttachVolume(ctx, core.AttachVolumeRequest{
 		AttachVolumeDetails: core.AttachParavirtualizedVolumeDetails{
 			InstanceId:                     new(request.InstanceID),
 			VolumeId:                       new(request.VolumeID),
-			IsReadOnly:                     &readonly,
-			IsShareable:                    &shareable,
-			IsPvEncryptionInTransitEnabled: &encryption,
+			Device:                         new(request.Device),
+			IsReadOnly:                     &request.IsReadOnly,
+			IsShareable:                    &request.IsShareable,
+			IsPvEncryptionInTransitEnabled: &request.IsPvEncryptionInTransitEnabled,
 		},
 		OpcRetryToken: new(retryToken(request.IdempotencyKey)),
 	})
@@ -276,24 +300,41 @@ func cloudVolume(volume core.Volume) CloudVolume {
 
 func cloudInstance(instance core.Instance, etag string) CloudInstance {
 	return CloudInstance{
-		ID:                 stringValue(instance.Id),
-		CompartmentID:      stringValue(instance.CompartmentId),
-		AvailabilityDomain: stringValue(instance.AvailabilityDomain),
-		FaultDomain:        stringValue(instance.FaultDomain),
-		LifecycleState:     string(instance.LifecycleState),
-		ETag:               etag,
-		FreeformTags:       cloneStringMap(instance.FreeformTags),
+		ID:                            stringValue(instance.Id),
+		CompartmentID:                 stringValue(instance.CompartmentId),
+		AvailabilityDomain:            stringValue(instance.AvailabilityDomain),
+		FaultDomain:                   stringValue(instance.FaultDomain),
+		LifecycleState:                string(instance.LifecycleState),
+		ETag:                          etag,
+		ImageID:                       stringValue(instance.ImageId),
+		ConsistentVolumeNamingEnabled: consistentVolumeNamingEnabled(instance.LaunchOptions),
+		FreeformTags:                  cloneStringMap(instance.FreeformTags),
 	}
 }
 
 func cloudAttachment(attachment core.VolumeAttachment, etag string) CloudAttachment {
 	return CloudAttachment{
-		ID:             stringValue(attachment.GetId()),
-		VolumeID:       stringValue(attachment.GetVolumeId()),
-		InstanceID:     stringValue(attachment.GetInstanceId()),
-		LifecycleState: string(attachment.GetLifecycleState()),
-		ETag:           etag,
+		ID:                             stringValue(attachment.GetId()),
+		VolumeID:                       stringValue(attachment.GetVolumeId()),
+		InstanceID:                     stringValue(attachment.GetInstanceId()),
+		LifecycleState:                 string(attachment.GetLifecycleState()),
+		ETag:                           etag,
+		Device:                         stringValue(attachment.GetDevice()),
+		IsReadOnly:                     attachment.GetIsReadOnly(),
+		IsShareable:                    attachment.GetIsShareable(),
+		IsPvEncryptionInTransitEnabled: attachment.GetIsPvEncryptionInTransitEnabled(),
 	}
+}
+
+func cloudDevice(device core.Device) CloudDevice {
+	return CloudDevice{Name: stringValue(device.Name), IsAvailable: device.IsAvailable}
+}
+
+func consistentVolumeNamingEnabled(options *core.LaunchOptions) *bool {
+	if options == nil {
+		return nil
+	}
+	return options.IsConsistentVolumeNamingEnabled
 }
 
 func stringValue(value *string) string {

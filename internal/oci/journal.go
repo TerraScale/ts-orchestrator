@@ -26,11 +26,12 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
-	SchemaVersion int              `json:"schema_version"`
-	Kind          string           `json:"kind"`
-	Intent        OperationIntent  `json:"intent,omitzero"`
-	Result        OperationResult  `json:"result,omitzero"`
-	Identity      ResourceIdentity `json:"identity,omitzero"`
+	SchemaVersion      int                `json:"schema_version"`
+	Kind               string             `json:"kind"`
+	Intent             OperationIntent    `json:"intent,omitzero"`
+	Result             OperationResult    `json:"result,omitzero"`
+	Identity           ResourceIdentity   `json:"identity,omitzero"`
+	AttachmentIdentity AttachmentIdentity `json:"attachment_identity,omitzero"`
 }
 
 // OpenJournal creates or opens the regional replicated OCI operation bucket.
@@ -108,6 +109,9 @@ func (journal *KVJournal) RecordResult(ctx context.Context, result OperationResu
 	if err := validateIntent(result.Intent); err != nil {
 		return err
 	}
+	if result.Intent.Action == actionVolumeAttach && !result.Unknown && (result.ResourceID == "" || result.ETag == "") {
+		return errors.New("confirmed OCI volume attachment result requires an attachment ID and ETag")
+	}
 	key := operationKey(result.Intent)
 	if result.RecordedAt.IsZero() {
 		result.RecordedAt = time.Now().UTC()
@@ -181,12 +185,76 @@ func (journal *KVJournal) GetResult(ctx context.Context, intent OperationIntent)
 	return result, true, nil
 }
 
+// GetOperation returns the first committed intent for an exact operation key,
+// including when the provider has not yet produced a durable result. Only the
+// immutable key scope is supplied by the retrying caller; mutation details are
+// recovered from the journal rather than reconstructed.
+func (journal *KVJournal) GetOperation(ctx context.Context, scope OperationScope) (OperationIntent, bool, error) {
+	if scope.Action == "" || scope.Key == "" || scope.Generation == 0 || scope.Owner == "" {
+		return OperationIntent{}, false, errors.New("OCI operation lookup scope is incomplete")
+	}
+	if _, err := scope.Region.OCIRegion(); err != nil {
+		return OperationIntent{}, false, err
+	}
+	keyIntent := OperationIntent{
+		Action: scope.Action, Key: scope.Key, Region: scope.Region,
+		Generation: scope.Generation, Owner: scope.Owner,
+	}
+	entry, err := journal.read(ctx, operationKey(keyIntent))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return OperationIntent{}, false, nil
+	}
+	if err != nil {
+		return OperationIntent{}, false, err
+	}
+	intent := entry.Intent
+	if entry.Kind != "operation" || intent.Action != scope.Action || intent.Key != scope.Key ||
+		intent.Region != scope.Region || intent.Generation != scope.Generation || intent.Owner != scope.Owner {
+		return OperationIntent{}, false, errors.New("OCI operation lookup has no matching durable intent")
+	}
+	return intent, true, nil
+}
+
 func (journal *KVJournal) IsOwnedInstance(ctx context.Context, identity ResourceIdentity) (bool, error) {
 	return journal.isOwned(ctx, "instance", identity)
 }
 
 func (journal *KVJournal) IsOwnedVolume(ctx context.Context, identity ResourceIdentity) (bool, error) {
 	return journal.isOwned(ctx, "volume", identity)
+}
+
+func (journal *KVJournal) IsOwnedAttachment(ctx context.Context, identity AttachmentIdentity) (bool, error) {
+	if !validAttachmentIdentity(identity) {
+		return false, nil
+	}
+	entry, err := journal.read(ctx, ownershipKey("attachment", identity.ID))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if entry.SchemaVersion != journalSchema || entry.Kind != "attachment" || entry.AttachmentIdentity != identity ||
+		entry.Intent.Action != actionVolumeAttach || entry.Result.Unknown || entry.Result.RecordedAt.IsZero() ||
+		entry.Result.ResourceID != identity.ID || entry.Result.ETag != identity.ETag ||
+		!sameIntent(entry.Intent, entry.Result.Intent) || !entry.Intent.CreatedAt.Equal(entry.Result.Intent.CreatedAt) ||
+		!sameAttachmentIntentIdentity(entry.Intent, identity) {
+		return false, nil
+	}
+	operation, err := journal.read(ctx, operationKey(entry.Intent))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if operation.Kind != "operation" || !sameIntent(operation.Intent, entry.Intent) ||
+		!operation.Intent.CreatedAt.Equal(entry.Intent.CreatedAt) || operation.Result.Unknown ||
+		operation.Result.RecordedAt.IsZero() || !sameResult(operation.Result, entry.Result) ||
+		!operation.Result.Intent.CreatedAt.Equal(entry.Intent.CreatedAt) {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (journal *KVJournal) recordOwnership(ctx context.Context, resourceKind string, identity ResourceIdentity) error {
@@ -209,6 +277,37 @@ func (journal *KVJournal) recordOwnership(ctx context.Context, resourceKind stri
 	}
 	if existing.Kind != resourceKind || existing.Identity != identity {
 		return fmt.Errorf("OCI %s is already owned by another controller identity", resourceKind)
+	}
+	return nil
+}
+
+func (journal *KVJournal) recordAttachmentOwnership(ctx context.Context, identity AttachmentIdentity, result OperationResult) error {
+	if !validAttachmentIdentity(identity) || result.Unknown || result.RecordedAt.IsZero() ||
+		result.ResourceID != identity.ID || result.ETag != identity.ETag || result.Intent.Action != actionVolumeAttach ||
+		!sameAttachmentIntentIdentity(result.Intent, identity) {
+		return errors.New("OCI attachment ownership does not match a confirmed attach operation")
+	}
+	entry := journalEntry{
+		SchemaVersion: journalSchema, Kind: "attachment", Intent: result.Intent,
+		Result: result, AttachmentIdentity: identity,
+	}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("encode OCI attachment ownership: %w", err)
+	}
+	key := ownershipKey("attachment", identity.ID)
+	if _, err := journal.kv.Create(ctx, key, data); err == nil {
+		return nil
+	} else if !errors.Is(err, jetstream.ErrKeyExists) {
+		return fmt.Errorf("persist OCI attachment ownership: %w", err)
+	}
+	existing, err := journal.read(ctx, key)
+	if err != nil {
+		return err
+	}
+	if existing.Kind != "attachment" || existing.AttachmentIdentity != identity ||
+		!sameIntent(existing.Intent, result.Intent) || !sameResult(existing.Result, result) {
+		return errors.New("OCI attachment ID is already bound to a different durable operation")
 	}
 	return nil
 }
@@ -261,9 +360,39 @@ func (journal *KVJournal) repairOwnership(ctx context.Context, result OperationR
 		identity.AvailabilityDomain = result.Intent.AvailabilityDomain
 		identity.SizeGB = result.Intent.SizeGB
 		return journal.recordOwnership(ctx, "volume", identity)
+	case actionVolumeAttach:
+		return journal.recordAttachmentOwnership(ctx, attachmentIdentityFromResult(result), result)
 	default:
 		return nil
 	}
+}
+
+func attachmentIdentityFromResult(result OperationResult) AttachmentIdentity {
+	intent := result.Intent
+	return AttachmentIdentity{
+		ID: result.ResourceID, InstanceID: intent.ResourceID, VolumeID: intent.VolumeID,
+		Device: intent.Device, ETag: result.ETag, Region: intent.Region,
+		Generation: intent.Generation, Owner: intent.Owner, CreateKey: intent.CreateKey,
+		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
+		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
+	}
+}
+
+func sameAttachmentIntentIdentity(intent OperationIntent, identity AttachmentIdentity) bool {
+	return intent.ResourceID == identity.InstanceID && intent.VolumeID == identity.VolumeID &&
+		intent.Device == identity.Device && intent.Region == identity.Region &&
+		intent.Generation == identity.Generation && intent.Owner == identity.Owner &&
+		intent.CreateKey == identity.CreateKey && intent.IsReadOnly == identity.IsReadOnly &&
+		intent.IsShareable == identity.IsShareable &&
+		intent.IsPvEncryptionInTransitEnabled == identity.IsPvEncryptionInTransitEnabled
+}
+
+func validAttachmentIdentity(identity AttachmentIdentity) bool {
+	return identity.ID != "" && identity.InstanceID != "" && identity.VolumeID != "" &&
+		validDevicePath(identity.Device) && identity.ETag != "" && identity.Region != "" &&
+		identity.Generation != 0 && identity.Owner != "" && identity.CreateKey != "" &&
+		identity.IsReadOnly == retainedVolumeReadOnly && identity.IsShareable == retainedVolumeShareable &&
+		identity.IsPvEncryptionInTransitEnabled == retainedVolumeEncryptionInTransit
 }
 
 func (journal *KVJournal) repairOwnershipFromOperation(ctx context.Context, kind string, identity ResourceIdentity) (bool, error) {
@@ -310,6 +439,12 @@ func validateIntent(intent OperationIntent) error {
 	if intent.Action == actionLaunch && intent.CreateKey == "" {
 		return errors.New("OCI launch intent requires a create key")
 	}
+	if intent.Action == actionVolumeAttach && (intent.ResourceID == "" || intent.VolumeID == "" ||
+		intent.CreateKey == "" || !validDevicePath(intent.Device) ||
+		intent.IsReadOnly != retainedVolumeReadOnly || intent.IsShareable != retainedVolumeShareable ||
+		intent.IsPvEncryptionInTransitEnabled != retainedVolumeEncryptionInTransit) {
+		return errors.New("OCI volume attachment intent requires a fixed device and attachment policy")
+	}
 	return nil
 }
 
@@ -317,7 +452,9 @@ func sameIntent(a, b OperationIntent) bool {
 	return a.Action == b.Action && a.Key == b.Key && a.Region == b.Region && a.Generation == b.Generation &&
 		a.Owner == b.Owner && a.ResourceID == b.ResourceID && a.CreateKey == b.CreateKey &&
 		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.VolumeID == b.VolumeID &&
-		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB
+		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB && a.Device == b.Device &&
+		a.IsReadOnly == b.IsReadOnly && a.IsShareable == b.IsShareable &&
+		a.IsPvEncryptionInTransitEnabled == b.IsPvEncryptionInTransitEnabled
 }
 
 func sameResult(a, b OperationResult) bool {

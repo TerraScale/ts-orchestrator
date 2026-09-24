@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,10 @@ const (
 	maxEvidenceBytes              = 64 << 10
 	maxCreateRetryAge             = 23 * time.Hour
 	minRetainedVolumeSizeGB int64 = 50
+
+	retainedVolumeReadOnly            = false
+	retainedVolumeShareable           = false
+	retainedVolumeEncryptionInTransit = true
 
 	tagManagedBy  = "terrascale-managed-by"
 	tagOwner      = "terrascale-owner"
@@ -53,6 +58,35 @@ func NewFleet(
 	drainRequester DrainRequester,
 	writerStop WriterStopVerifier,
 ) (Fleet, error) {
+	return newFleet(config, intent, provider, journal, fencer, drainRequester, writerStop, nil)
+}
+
+// NewFleetWithImageVerifier is the injected qualification seam for a verified
+// image evidence source. A nil verifier is allowed for compatibility, but
+// retained-volume creation and attachment will hold until one is configured.
+func NewFleetWithImageVerifier(
+	config RegionConfig,
+	intent RegionIntent,
+	provider Provider,
+	journal Journal,
+	fencer authority.Fencer,
+	drainRequester DrainRequester,
+	writerStop WriterStopVerifier,
+	imageVerifier ImageQualificationVerifier,
+) (Fleet, error) {
+	return newFleet(config, intent, provider, journal, fencer, drainRequester, writerStop, imageVerifier)
+}
+
+func newFleet(
+	config RegionConfig,
+	intent RegionIntent,
+	provider Provider,
+	journal Journal,
+	fencer authority.Fencer,
+	drainRequester DrainRequester,
+	writerStop WriterStopVerifier,
+	imageVerifier ImageQualificationVerifier,
+) (Fleet, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
@@ -61,7 +95,7 @@ func NewFleet(
 	}
 	return &fleet{
 		config: config, provider: provider, journal: journal, fencer: fencer,
-		drainRequester: drainRequester, writerStop: writerStop,
+		drainRequester: drainRequester, writerStop: writerStop, imageVerifier: imageVerifier, now: time.Now,
 	}, nil
 }
 
@@ -75,6 +109,21 @@ func NewInstancePrincipalFleet(
 	drainRequester DrainRequester,
 	writerStop WriterStopVerifier,
 ) (Fleet, error) {
+	return NewInstancePrincipalFleetWithImageVerifier(config, intent, journal, fencer, drainRequester, writerStop, nil)
+}
+
+// NewInstancePrincipalFleetWithImageVerifier preserves instance-principal
+// construction while allowing an approved image qualification source to be
+// injected when one is available.
+func NewInstancePrincipalFleetWithImageVerifier(
+	config RegionConfig,
+	intent RegionIntent,
+	journal Journal,
+	fencer authority.Fencer,
+	drainRequester DrainRequester,
+	writerStop WriterStopVerifier,
+	imageVerifier ImageQualificationVerifier,
+) (Fleet, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
@@ -82,7 +131,7 @@ func NewInstancePrincipalFleet(
 	if err != nil {
 		return nil, err
 	}
-	return NewFleet(config, intent, provider, journal, fencer, drainRequester, writerStop)
+	return NewFleetWithImageVerifier(config, intent, provider, journal, fencer, drainRequester, writerStop, imageVerifier)
 }
 
 type fleet struct {
@@ -92,6 +141,25 @@ type fleet struct {
 	fencer         authority.Fencer
 	drainRequester DrainRequester
 	writerStop     WriterStopVerifier
+	imageVerifier  ImageQualificationVerifier
+	now            func() time.Time
+}
+
+func (f *fleet) verifyPinnedImage(ctx context.Context) error {
+	if f.imageVerifier == nil {
+		return ErrImageQualificationUnavailable
+	}
+	if err := f.imageVerifier.VerifyImageQualified(ctx, f.config.Region, f.config.ImageID); err != nil {
+		return fmt.Errorf("%w: %w", ErrImageNotQualified, err)
+	}
+	return nil
+}
+
+func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
+	if cloud.ImageID != f.config.ImageID || cloud.ConsistentVolumeNamingEnabled == nil || !*cloud.ConsistentVolumeNamingEnabled {
+		return fmt.Errorf("%w: instance %s does not report the pinned image and consistent volume naming", ErrImageNotQualified, cloud.ID)
+	}
+	return nil
 }
 
 func (f *fleet) Region() Region { return f.config.Region }
@@ -134,6 +202,10 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 		}
 		instance, err := f.instanceFromCloud(ctx, cloud, identity)
 		if err != nil {
+			if errors.Is(err, ErrAttachmentRecoveryHold) {
+				slog.Warn("withholding OCI instance with an unbound retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region)
+				continue
+			}
 			return nil, err
 		}
 		instances = append(instances, instance)
@@ -190,7 +262,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the previously confirmed instance is missing")
 	}
 	operationIntent := priorResult.Intent
-	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, f.now()); err != nil {
 		return Instance{}, err
 	}
 	node := hostNode(f.config, request.CreateKey)
@@ -206,7 +278,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if err := f.guard(ctx, epoch); err != nil {
 		return Instance{}, err
 	}
-	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, f.now()); err != nil {
 		return Instance{}, err
 	}
 	created, launchErr := f.provider.LaunchInstance(ctx, launch)
@@ -214,7 +286,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		if err := f.guard(ctx, epoch); err != nil {
 			return Instance{}, errors.Join(ErrOutcomeUnknown, launchErr, err, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
-		if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, time.Now()); err != nil {
+		if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, f.now()); err != nil {
 			return Instance{}, errors.Join(err, launchErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
 		created, launchErr = f.provider.LaunchInstance(ctx, launch)
@@ -250,6 +322,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRequest) (RetainedVolume, error) {
 	if !validCreateKey(request.CreateKey) || request.SizeGB < minRetainedVolumeSizeGB {
 		return RetainedVolume{}, errors.New("retained OCI volume requires a valid create key and at least 50 GiB")
+	}
+	if err := f.verifyPinnedImage(ctx); err != nil {
+		return RetainedVolume{}, err
 	}
 	if request.AvailabilityDomain == "" {
 		request.AvailabilityDomain = f.config.AvailabilityDomain
@@ -303,7 +378,7 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 		return RetainedVolume{}, createRecoveryHold(resourceMemberData, request.CreateKey, "the previously confirmed volume is missing")
 	}
 	operationIntent := priorResult.Intent
-	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, f.now()); err != nil {
 		return RetainedVolume{}, err
 	}
 
@@ -313,7 +388,7 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	if err := f.guard(ctx, epoch); err != nil {
 		return RetainedVolume{}, err
 	}
-	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+	if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, f.now()); err != nil {
 		return RetainedVolume{}, err
 	}
 	created, createErr := f.provider.CreateVolume(ctx, request, volumeTags(f.config, request), retry)
@@ -324,7 +399,7 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 		if err := f.guard(ctx, epoch); err != nil {
 			return RetainedVolume{}, errors.Join(ErrOutcomeUnknown, createErr, err, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
-		if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, time.Now()); err != nil {
+		if err := checkCreateRetryWindow(resourceMemberData, request.CreateKey, operationIntent, f.now()); err != nil {
 			return RetainedVolume{}, errors.Join(err, createErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 		}
 		created, createErr = f.provider.CreateVolume(ctx, request, volumeTags(f.config, request), retry)
@@ -427,6 +502,9 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if request.VolumeID == "" || request.InstanceID == "" || !validCreateKey(request.IdempotencyKey) {
 		return Attachment{}, errors.New("retained volume attach request is incomplete")
 	}
+	if err := f.verifyPinnedImage(ctx); err != nil {
+		return Attachment{}, err
+	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
 		return Attachment{}, err
@@ -435,54 +513,147 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err != nil {
 		return Attachment{}, err
 	}
+	if err := f.verifyRetainedVolumeHostImage(instance); err != nil {
+		return Attachment{}, err
+	}
 	if _, err := f.ownedVolume(ctx, request.VolumeID); err != nil {
 		return Attachment{}, err
 	}
+
+	scope := OperationScope{
+		Action: actionVolumeAttach, Key: request.IdempotencyKey,
+		Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner,
+	}
+	intent, hasIntent, err := f.journal.GetOperation(ctx, scope)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("read OCI volume attachment intent: %w", err)
+	}
+	var retryWindowErr error
+	if hasIntent {
+		retryWindowErr = checkCreateRetryWindow("volume attachment", request.IdempotencyKey, intent, f.now())
+		if intent.ResourceID != request.InstanceID || intent.VolumeID != request.VolumeID || intent.CreateKey != identity.CreateKey {
+			return Attachment{}, fmt.Errorf("%w: operation key is bound to a different instance or volume", ErrAttachmentRecoveryHold)
+		}
+		if !validDevicePath(intent.Device) || intent.IsReadOnly != retainedVolumeReadOnly ||
+			intent.IsShareable != retainedVolumeShareable ||
+			intent.IsPvEncryptionInTransitEnabled != retainedVolumeEncryptionInTransit {
+			err := fmt.Errorf("%w: durable operation has no complete device and attachment policy", ErrAttachmentRecoveryHold)
+			return Attachment{}, errors.Join(retryWindowErr, err)
+		}
+	} else {
+		// Do not create a new journal operation around an attachment that was
+		// already present. Only a prior durable operation can bind that resource.
+		attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
+		if err != nil {
+			return Attachment{}, err
+		}
+		if len(attachments) != 0 {
+			return Attachment{}, fmt.Errorf("%w: retained volume already has an unbound attachment", ErrAttachmentRecoveryHold)
+		}
+		device, err := f.selectRetainedVolumeDevice(ctx, request.InstanceID)
+		if err != nil {
+			return Attachment{}, err
+		}
+		intent = f.intent(actionVolumeAttach, request.IdempotencyKey, request.InstanceID, identity.CreateKey, instance.ETag, "", request.VolumeID)
+		intent.Device = device
+		intent.IsReadOnly = retainedVolumeReadOnly
+		intent.IsShareable = retainedVolumeShareable
+		intent.IsPvEncryptionInTransitEnabled = retainedVolumeEncryptionInTransit
+		if err := f.recordIntent(ctx, epoch, intent); err != nil {
+			return Attachment{}, err
+		}
+		storedIntent, stored, err := f.journal.GetOperation(ctx, scope)
+		if err != nil {
+			return Attachment{}, fmt.Errorf("confirm OCI volume attachment intent: %w", err)
+		}
+		if !stored || !sameIntent(storedIntent, intent) {
+			return Attachment{}, fmt.Errorf("%w: persisted attachment intent changed during creation", ErrAttachmentRecoveryHold)
+		}
+		intent = storedIntent
+	}
+	retryWindowErr = checkCreateRetryWindow("volume attachment", request.IdempotencyKey, intent, f.now())
+
+	priorResult, hasPriorResult, err := f.journal.GetResult(ctx, intent)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("read OCI volume attachment result: %w", err)
+	}
 	attachments, err := f.findVolumeAttachments(ctx, request.VolumeID)
 	if err != nil {
-		return Attachment{}, err
+		return Attachment{}, errors.Join(retryWindowErr, err)
 	}
 	if len(attachments) > 1 {
-		return Attachment{}, fmt.Errorf("%w: volume has multiple attachments", ErrForeignResource)
+		return Attachment{}, errors.Join(retryWindowErr,
+			fmt.Errorf("%w: volume has multiple attachments", ErrAttachmentRecoveryHold))
 	}
 	if len(attachments) == 1 {
 		if attachments[0].InstanceID != request.InstanceID {
-			return Attachment{}, ErrRetainedVolumeInUse
+			return Attachment{}, errors.Join(retryWindowErr, ErrRetainedVolumeInUse)
 		}
-		return f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID)
-	}
-	intent := f.intent(actionVolumeAttach, request.IdempotencyKey, request.InstanceID, identity.CreateKey, instance.ETag, "", request.VolumeID)
-	if err := f.recordIntent(ctx, epoch, intent); err != nil {
-		return Attachment{}, err
-	}
-	if err := f.guard(ctx, epoch); err != nil {
-		return Attachment{}, err
-	}
-	created, attachErr := f.provider.AttachVolume(ctx, request)
-	attachments, observeErr := f.findVolumeAttachments(ctx, request.VolumeID)
-	if observeErr != nil {
-		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, observeErr)
-	}
-	if len(attachments) > 1 {
-		return Attachment{}, fmt.Errorf("%w: OCI returned duplicate volume attachments", ErrOutcomeUnknown)
-	}
-	if len(attachments) == 0 {
-		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, errors.New("retained volume attachment was not observed"))
-	}
-	if attachments[0].InstanceID != request.InstanceID || attachments[0].VolumeID != request.VolumeID {
-		return Attachment{}, ErrRetainedVolumeInUse
-	}
-	attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID)
-	if err != nil {
-		return Attachment{}, err
-	}
-	if attachment.ID == created.ID || created.ID == "" || attachErr != nil {
+		attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+		if err != nil {
+			return Attachment{}, errors.Join(retryWindowErr, ErrAttachmentRecoveryHold, err)
+		}
+		if hasPriorResult && !priorResult.Unknown &&
+			(priorResult.ResourceID != attachment.ID || priorResult.ETag != attachment.ETag) {
+			return Attachment{}, fmt.Errorf("%w: observed attachment differs from its confirmed journal result", ErrAttachmentRecoveryHold)
+		}
+		// Re-recording the exact immutable receipt also repairs its attachment
+		// ownership projection after an interrupted journal projection write.
 		if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: attachment.ID, ETag: attachment.ETag}); err != nil {
 			return Attachment{}, err
 		}
 		return attachment, nil
 	}
-	return Attachment{}, errors.Join(ErrOutcomeUnknown, errors.New("OCI attachment response and re-observation disagree"))
+	if hasPriorResult && !priorResult.Unknown {
+		return Attachment{}, fmt.Errorf("%w: confirmed attachment %s is missing", ErrAttachmentRecoveryHold, priorResult.ResourceID)
+	}
+	if retryWindowErr != nil {
+		return Attachment{}, retryWindowErr
+	}
+	if err := f.guard(ctx, epoch); err != nil {
+		return Attachment{}, err
+	}
+	if err := checkCreateRetryWindow("volume attachment", request.IdempotencyKey, intent, f.now()); err != nil {
+		return Attachment{}, err
+	}
+	created, attachErr := f.provider.AttachVolume(ctx, CloudVolumeAttachRequest{
+		VolumeID: request.VolumeID, InstanceID: request.InstanceID,
+		IdempotencyKey: request.IdempotencyKey, Device: intent.Device,
+		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
+		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
+	})
+	attachments, observeErr := f.findVolumeAttachments(ctx, request.VolumeID)
+	if observeErr != nil {
+		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, observeErr,
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	if len(attachments) > 1 {
+		return Attachment{}, errors.Join(ErrOutcomeUnknown, ErrAttachmentRecoveryHold,
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	if len(attachments) == 0 {
+		return Attachment{}, errors.Join(ErrOutcomeUnknown, attachErr, errors.New("retained volume attachment was not observed"),
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	if attachments[0].InstanceID != request.InstanceID || attachments[0].VolumeID != request.VolumeID {
+		return Attachment{}, errors.Join(ErrRetainedVolumeInUse,
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+	if err != nil {
+		return Attachment{}, errors.Join(ErrOutcomeUnknown, err,
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	if created.ID != "" && created.ID != attachment.ID ||
+		created.ETag != "" && created.ETag != attachment.ETag ||
+		attachErr == nil && (created.ID == "" || created.ETag == "") {
+		return Attachment{}, errors.Join(ErrOutcomeUnknown, errors.New("OCI attachment response and re-observation disagree"),
+			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
+	}
+	if err := f.recordResult(ctx, epoch, OperationResult{Intent: intent, ResourceID: attachment.ID, ETag: attachment.ETag}); err != nil {
+		return Attachment{}, err
+	}
+	return attachment, nil
 }
 
 func (f *fleet) Detach(ctx context.Context, attachmentID, expectedETag, instanceID string, evidence WriterStopEvidence) error {
@@ -669,9 +840,23 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		if _, err := f.ownedVolume(ctx, listed.VolumeID); err != nil {
 			return Instance{}, err
 		}
-		attachment, err := f.reobserveAttachment(ctx, listed.ID, listed.VolumeID, cloud.ID)
+		attachment, err := f.reobserveAttachment(ctx, listed.ID, listed.VolumeID, cloud.ID, "")
 		if err != nil {
 			return Instance{}, err
+		}
+		attachmentIdentity := AttachmentIdentity{
+			ID: attachment.ID, InstanceID: attachment.InstanceID, VolumeID: attachment.VolumeID,
+			Device: attachment.Device, ETag: attachment.ETag, Region: f.config.Region,
+			Generation: f.config.Generation, Owner: f.config.Owner, CreateKey: identity.CreateKey,
+			IsReadOnly: attachment.IsReadOnly, IsShareable: attachment.IsShareable,
+			IsPvEncryptionInTransitEnabled: attachment.IsPvEncryptionInTransitEnabled,
+		}
+		owned, err := f.journal.IsOwnedAttachment(ctx, attachmentIdentity)
+		if err != nil {
+			return Instance{}, fmt.Errorf("read OCI attachment ownership journal: %w", err)
+		}
+		if !owned {
+			return Instance{}, fmt.Errorf("%w: attachment %s has no matching confirmed operation", ErrAttachmentRecoveryHold, attachment.ID)
 		}
 		result.DataVolumes = append(result.DataVolumes, attachment.VolumeID)
 		result.Attachments = append(result.Attachments, attachment)
@@ -679,19 +864,53 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 	return result, nil
 }
 
-func (f *fleet) reobserveAttachment(ctx context.Context, attachmentID, volumeID, instanceID string) (Attachment, error) {
+func (f *fleet) selectRetainedVolumeDevice(ctx context.Context, instanceID string) (string, error) {
+	devices, err := f.provider.ListInstanceDevices(ctx, instanceID)
+	if err != nil {
+		return "", fmt.Errorf("list OCI instance device candidates: %w", err)
+	}
+	available := make([]string, 0, len(devices))
+	for _, device := range devices {
+		if device.IsAvailable == nil || !*device.IsAvailable {
+			continue
+		}
+		if !validDevicePath(device.Name) {
+			return "", errors.New("OCI reported an invalid available device path")
+		}
+		available = append(available, device.Name)
+	}
+	if len(available) == 0 {
+		return "", errors.New("OCI instance has no available retained-volume device")
+	}
+	slices.Sort(available)
+	return available[0], nil
+}
+
+func (f *fleet) reobserveAttachment(ctx context.Context, attachmentID, volumeID, instanceID, expectedDevice string) (Attachment, error) {
 	cloud, err := f.provider.GetVolumeAttachment(ctx, attachmentID)
 	if err != nil {
 		return Attachment{}, err
 	}
 	if cloud.ID != attachmentID || cloud.VolumeID != volumeID || cloud.InstanceID != instanceID || cloud.ETag == "" ||
-		!validAttachmentState(cloud.LifecycleState) {
+		cloud.LifecycleState != "ATTACHED" || !validDevicePath(cloud.Device) ||
+		expectedDevice != "" && cloud.Device != expectedDevice ||
+		cloud.IsReadOnly == nil || *cloud.IsReadOnly != retainedVolumeReadOnly ||
+		cloud.IsShareable == nil || *cloud.IsShareable != retainedVolumeShareable ||
+		cloud.IsPvEncryptionInTransitEnabled == nil || *cloud.IsPvEncryptionInTransitEnabled != retainedVolumeEncryptionInTransit {
 		return Attachment{}, fmt.Errorf("%w: OCI volume attachment scope or state changed", ErrForeignResource)
 	}
 	return Attachment{
 		ID: cloud.ID, VolumeID: cloud.VolumeID, InstanceID: cloud.InstanceID,
-		ETag: cloud.ETag, State: cloud.LifecycleState,
+		ETag: cloud.ETag, State: cloud.LifecycleState, Device: cloud.Device,
+		IsReadOnly: *cloud.IsReadOnly, IsShareable: *cloud.IsShareable,
+		IsPvEncryptionInTransitEnabled: *cloud.IsPvEncryptionInTransitEnabled,
 	}, nil
+}
+
+func validDevicePath(value string) bool {
+	return len(value) > len("/dev/") && len(value) <= 255 && strings.HasPrefix(value, "/dev/") &&
+		path.Clean(value) == value && strings.TrimSpace(value) == value &&
+		!strings.ContainsAny(value, " \t\r\n\x00")
 }
 
 func (f *fleet) findVolumeAttachments(ctx context.Context, volumeID string) ([]CloudAttachment, error) {
@@ -832,7 +1051,7 @@ func (f *fleet) intent(action, key, resourceID, createKey, expectedETag, faultDo
 		Action: action, Key: key, Region: f.config.Region, Generation: f.config.Generation,
 		Owner: f.config.Owner, ResourceID: resourceID, CreateKey: createKey,
 		ExpectedETag: expectedETag, FaultDomain: faultDomain, VolumeID: volumeID,
-		CreatedAt: time.Now().UTC(),
+		CreatedAt: f.now().UTC(),
 	}
 }
 
@@ -874,15 +1093,6 @@ func validCreateKey(value string) bool {
 func validLifecycleState(state string) bool {
 	switch state {
 	case "PROVISIONING", "RUNNING", "STARTING", "STOPPING", "STOPPED", "TERMINATING", "TERMINATED", "MOVING", "CREATING_IMAGE":
-		return true
-	default:
-		return false
-	}
-}
-
-func validAttachmentState(state string) bool {
-	switch state {
-	case "ATTACHING", "ATTACHED", "DETACHING", "DETACHED":
 		return true
 	default:
 		return false
