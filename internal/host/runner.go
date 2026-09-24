@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,17 +53,19 @@ type processRecord struct {
 }
 
 type processRunner struct {
-	root     string
-	cgroups  string
-	mu       sync.Mutex
-	lock     *os.File
-	records  map[string]processRecord
-	commands map[string]*exec.Cmd
+	root      string
+	cgroups   string
+	mu        sync.Mutex
+	closeOnce sync.Once
+	closing   chan struct{}
+	lock      *os.File
+	records   map[string]processRecord
+	commands  map[string]*exec.Cmd
 }
 
 func NewProcessRunner(stateRoot string) Runner {
 	hash := sha256.Sum256([]byte(stateRoot))
-	return &processRunner{root: stateRoot, cgroups: filepath.Join("/sys/fs/cgroup", "terrascale-host-"+hex.EncodeToString(hash[:8])), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
+	return &processRunner{root: stateRoot, cgroups: filepath.Join("/sys/fs/cgroup", "terrascale-host-"+hex.EncodeToString(hash[:8])), closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
 }
 
 func (p *processRunner) Recover(ctx context.Context) error {
@@ -109,6 +110,9 @@ func (p *processRunner) Recover(ctx context.Context) error {
 		}
 		if err := terminateCgroup(ctx, filepath.Join(p.cgroups, entry.Name())); err != nil {
 			return fmt.Errorf("recover native cgroup %s: %w", entry.Name(), err)
+		}
+		if err := os.WriteFile(filepath.Join(p.cgroups, entry.Name(), "cgroup.freeze"), []byte("0"), 0600); err != nil {
+			return fmt.Errorf("unfreeze recovered native cgroup %s: %w", entry.Name(), err)
 		}
 	}
 	data, err := os.ReadFile(filepath.Join(p.root, "inventory.json"))
@@ -164,7 +168,15 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if runnerClosing(p.closing) {
+		return errors.New("runner is closing")
+	}
 	cgroupPath := filepath.Join(p.cgroups, w.Role)
+	// Linux 6.1.155 can compare the host's kill sequence to the target's
+	// incremented sequence after cgroup.kill, killing a clone3 child before exec.
+	if err := removeEmptyCgroupTree(cgroupPath); err != nil {
+		return fmt.Errorf("reset workload cgroup: %w", err)
+	}
 	if err := os.MkdirAll(cgroupPath, 0700); err != nil {
 		return fmt.Errorf("create workload cgroup: %w", err)
 	}
@@ -176,6 +188,12 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if err := terminateCgroup(ctx, cgroupPath); err != nil {
 		return err
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if runnerClosing(p.closing) {
+		return errors.New("runner is closing")
+	}
 	cmd := exec.Command(w.Executable, w.Args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL, UseCgroupFD: true, CgroupFD: int(cgroup.Fd())}
 	cmd.Stdout = os.Stdout
@@ -184,11 +202,34 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	for key, value := range w.Env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
+	watchDone := make(chan struct{})
+	defer close(watchDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-p.closing:
+		case <-watchDone:
+			if runnerApplyInterrupted(ctx, p.closing) == nil {
+				return
+			}
+		}
+		killCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = sealCgroup(killCtx, cgroupPath)
+	}()
 	release, waited, err := startWorkloadOnLockedThread(cmd)
 	if err != nil {
 		return fmt.Errorf("start workload in cgroup v2: %w", err)
 	}
 	defer release()
+	if err := runnerApplyInterrupted(ctx, p.closing); err != nil {
+		if stopErr := terminateCgroup(context.Background(), cgroupPath); stopErr != nil {
+			_ = cmd.Process.Kill()
+		}
+		release()
+		<-waited
+		return err
+	}
 	start := currentStartTime(cmd.Process.Pid)
 	if start == "" {
 		if err := terminateCgroup(context.Background(), cgroupPath); err != nil {
@@ -210,6 +251,16 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		delete(p.records, w.Role)
 		delete(p.commands, w.Role)
 		return err
+	}
+	if err := runnerApplyInterrupted(ctx, p.closing); err != nil {
+		if stopErr := terminateCgroup(context.Background(), cgroupPath); stopErr != nil {
+			_ = cmd.Process.Kill()
+		}
+		release()
+		<-waited
+		delete(p.records, w.Role)
+		delete(p.commands, w.Role)
+		return errors.Join(err, p.persistLocked())
 	}
 	release()
 	go func() {
@@ -286,35 +337,131 @@ func (p *processRunner) Observe(ctx context.Context, role string) (Observation, 
 }
 
 func (p *processRunner) Close(ctx context.Context) error {
-	p.mu.Lock()
-	roles := make([]string, 0, len(p.records))
-	for role := range p.records {
-		roles = append(roles, role)
-	}
-	p.mu.Unlock()
+	p.closeOnce.Do(func() { close(p.closing) })
 	var failures []error
 	entries, err := os.ReadDir(p.cgroups)
 	if err != nil {
 		failures = append(failures, err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() && !slices.Contains(roles, entry.Name()) {
-			roles = append(roles, entry.Name())
+		if entry.IsDir() {
+			path := filepath.Join(p.cgroups, entry.Name())
+			if err := sealCgroup(ctx, path); err != nil {
+				failures = append(failures, err)
+			}
 		}
 	}
-	for _, role := range roles {
-		if err := p.Stop(ctx, role); err != nil {
+	if err := lockRunnerUntil(ctx, &p.mu); err != nil {
+		return errors.Join(append(failures, err)...)
+	}
+	defer p.mu.Unlock()
+	removed := false
+	for role := range p.records {
+		if err := sealCgroup(ctx, filepath.Join(p.cgroups, role)); err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		delete(p.records, role)
+		delete(p.commands, role)
+		removed = true
+	}
+	if removed && p.lock != nil {
+		if err := p.persistLocked(); err != nil {
 			failures = append(failures, err)
 		}
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if len(failures) == 0 && p.lock != nil {
 		_ = syscall.Flock(int(p.lock.Fd()), syscall.LOCK_UN)
 		_ = p.lock.Close()
 		p.lock = nil
 	}
 	return errors.Join(failures...)
+}
+
+// Seal the cgroup before waiting for Apply's mutex. A frozen child cannot run
+// user code; removing the empty cgroup also makes a late clone3 through an
+// already-open cgroup FD fail instead of blocking in a frozen child.
+func sealCgroup(ctx context.Context, path string) error {
+	freezeErr := os.WriteFile(filepath.Join(path, "cgroup.freeze"), []byte("1"), 0600)
+	if errors.Is(freezeErr, os.ErrNotExist) {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+	}
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := terminateCgroup(ctx, path); err != nil {
+			return errors.Join(freezeErr, err)
+		}
+		err := removeEmptyCgroupTree(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if !errors.Is(err, syscall.EBUSY) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return errors.Join(freezeErr, fmt.Errorf("remove workload cgroup: %w", err))
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Join(freezeErr, fmt.Errorf("remove workload cgroup: %w", err), ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func removeEmptyCgroupTree(path string) error {
+	entries, err := os.ReadDir(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if err := removeEmptyCgroupTree(filepath.Join(path, entry.Name())); err != nil {
+				return err
+			}
+		}
+	}
+	return os.Remove(path)
+}
+
+func runnerClosing(closing <-chan struct{}) bool {
+	select {
+	case <-closing:
+		return true
+	default:
+		return false
+	}
+}
+
+func runnerApplyInterrupted(ctx context.Context, closing <-chan struct{}) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if runnerClosing(closing) {
+		return errors.New("runner is closing")
+	}
+	return nil
+}
+
+func lockRunnerUntil(ctx context.Context, mu *sync.Mutex) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if mu.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (p *processRunner) persist() error { p.mu.Lock(); defer p.mu.Unlock(); return p.persistLocked() }
