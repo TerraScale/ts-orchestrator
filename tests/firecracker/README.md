@@ -37,7 +37,11 @@ treated as runtime readiness.
 
 The private run directory defaults to `/tmp/ts-orch-fc-*`. It retains
 `summary.json`, `logs/events.json`, build output and VM serial/VMM logs. Events
-record the exact guest process IDs and task-owned network names. The harness
+record the exact guest process IDs and task-owned network names. At the first
+failed host report, or on a scenario failure, the harness also saves bounded
+read-only host journal, process, cgroup,
+runner-inventory, workload-marker, and installed-artifact diagnostics before
+stopping the VMs. It does not dump guest configuration or private keys. The harness
 stops only its own VMM processes, unmounts its guest copies, deletes only its
 own TAPs and bridge, and removes copied images and credentials in a `finally`
 cleanup. On cleanup failure it retains images for manual inspection and marks

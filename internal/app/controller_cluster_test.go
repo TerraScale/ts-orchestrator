@@ -17,7 +17,27 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestControllerBootstrapRetriesOnlyTransientErrors(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		want bool
+	}{
+		{context.DeadlineExceeded, true},
+		{nats.ErrNoResponders, true},
+		{&jetstream.APIError{Code: 400, ErrorCode: 10005, Description: "no suitable peers for placement"}, true},
+		{jetstream.ErrJetStreamNotEnabled, false},
+		{nats.ErrAuthorization, false},
+		{&jetstream.APIError{Code: 400, ErrorCode: jetstream.JSErrCodeBadRequest}, false},
+	} {
+		if got := transientControllerBootstrapError(test.err); got != test.want {
+			t.Errorf("transientControllerBootstrapError(%v) = %t, want %t", test.err, got, test.want)
+		}
+	}
+}
 
 // Each child executes the real run command with a persistent embedded broker.
 // A delayed founder and a complete restart exercise the bootstrap path that
@@ -125,8 +145,22 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, child := range children {
-			stopControllerChild(t, child)
+		stopControllerChild(t, children[0])
+		// An R3 region must retain both surviving controllers and their
+		// embedded brokers when one controller is deliberately stopped.
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(3 * time.Second):
+		}
+		for _, child := range children[1:] {
+			assertControllerChildRunning(t, child)
+			if err := child.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, child := range children[1:] {
+			waitControllerChildStopped(t, child)
 		}
 	}
 }
@@ -212,6 +246,11 @@ func stopControllerChild(t *testing.T, child *controllerChild) {
 		data, _ := os.ReadFile(child.logPath)
 		t.Fatalf("controller signal: %v; log %s\n%s", err, child.logPath, data)
 	}
+	waitControllerChildStopped(t, child)
+}
+
+func waitControllerChildStopped(t *testing.T, child *controllerChild) {
+	t.Helper()
 	select {
 	case err := <-child.done:
 		if err != nil {

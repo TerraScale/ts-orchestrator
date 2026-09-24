@@ -208,6 +208,7 @@ class Lab:
         self.nkeys: dict[str, str] = {}
         self.source = {"repository": "https://example.com/terrascale/firecracker-fixtures",
                        "commit": "f" * 40, "treeDigest": ""}
+        self.failure_diagnostics_captured = False
 
     def note(self, event: str, **details: Any) -> None:
         entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -449,6 +450,9 @@ class Lab:
             if version is None:
                 return True
             reports = status.get("reports", [])
+            if any(report.get("role") == ROLE and report.get("state") == "failed"
+                   for report in reports):
+                self.capture_failure_diagnostics()
             if not any(report.get("role") == ROLE and report.get("state") == "running"
                        for report in reports):
                 return False
@@ -564,6 +568,70 @@ class Lab:
         self.wait_ssh("c3")
         self.note("milestone", name="rollback-after-quorum-recovery")
 
+    def capture_failure_diagnostics(self) -> None:
+        if self.failure_diagnostics_captured:
+            return
+        host_vm = self.vms.get("host")
+        if host_vm is None or host_vm.process is None or host_vm.process.poll() is not None:
+            return
+        self.failure_diagnostics_captured = True
+        path = self.logs / "host-failure-diagnostics.txt"
+        command = r"""
+set +e
+printf '\n=== host service ===\n'
+systemctl status ts-orch.service --no-pager --full
+printf '\n=== host service journal ===\n'
+journalctl -u ts-orch.service -b --no-pager -o short-iso-precise
+printf '\n=== native process inventory ===\n'
+ps -eo pid,ppid,stat,etime,cmd,cgroup
+printf '\n=== runner inventory ===\n'
+inventory=/var/lib/ts-orch/host/lab/host-a/inventory.json
+if [ -f "$inventory" ]; then cat "$inventory"; else echo 'inventory missing'; fi
+printf '\n=== cgroup mount and state ===\n'
+findmnt -T /sys/fs/cgroup
+for root in /sys/fs/cgroup/terrascale-host-*; do
+    [ -d "$root" ] || continue
+    for group in "$root" "$root"/*; do
+        [ -d "$group" ] || continue
+        printf '\n%s\n' "$group"
+        for item in cgroup.events cgroup.procs memory.events; do
+            if [ -f "$group/$item" ]; then
+                printf '%s: ' "$item"
+                cat "$group/$item"
+            fi
+        done
+    done
+done
+printf '\n=== workload marker and process ===\n'
+ls -l /run/ts-orch-workload.*
+for item in /run/ts-orch-workload.marker /run/ts-orch-workload.pid; do
+    if [ -f "$item" ]; then printf '%s: ' "$item"; cat "$item"; fi
+done
+marker_pid=$(cat /run/ts-orch-workload.pid 2>/dev/null)
+inventory_pid=$(sed -n 's/.*"pid":[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$inventory" 2>/dev/null | head -n 1)
+for pid in "$marker_pid" "$inventory_pid"; do
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    printf '\n/proc/%s\n' "$pid"
+    for item in stat status cgroup; do
+        if [ -f "/proc/$pid/$item" ]; then
+            printf '%s: ' "$item"
+            cat "/proc/$pid/$item"
+        fi
+    done
+done
+printf '\n=== installed workload artifacts ===\n'
+find /var/lib/ts-orch/install -type f -print -exec stat -c '%a %u:%g %s %n' {} \; -exec sha256sum {} \;
+"""
+        try:
+            result = self.ssh("host", command, timeout=35, allow_failure=True)
+            path.write_text(result.stdout + result.stderr)
+            path.chmod(0o600)
+            self.note("failure_diagnostics", name="host", path=str(path), exit_code=result.returncode)
+        except Exception as error:
+            path.write_text(f"host diagnostics unavailable: {error!r}\n")
+            path.chmod(0o600)
+            self.note("failure_diagnostics", name="host", path=str(path), error=repr(error))
+
     def cleanup(self) -> list[str]:
         errors: list[str] = []
         images_safe = True
@@ -638,6 +706,10 @@ def main() -> int:
     except BaseException as error:
         failure = repr(error)
         print(f"qualification failed: {failure}", file=sys.stderr, flush=True)
+        try:
+            lab.capture_failure_diagnostics()
+        except Exception as diagnostic_error:
+            print(f"host diagnostics failed: {diagnostic_error!r}", file=sys.stderr, flush=True)
     finally:
         cleanup_errors = lab.cleanup()
         summary = {"result": outcome if not cleanup_errors else "CLEANUP_FAILED",

@@ -202,7 +202,13 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		delete(p.commands, w.Role)
 		return err
 	}
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		result := "exit status 0"
+		if err := cmd.Wait(); err != nil {
+			result = err.Error()
+		}
+		fmt.Fprintf(os.Stderr, "native workload exited role=%s pid=%d digest=%s result=%q\n", w.Role, record.PID, w.Digest[:12], result)
+	}()
 	return nil
 }
 
