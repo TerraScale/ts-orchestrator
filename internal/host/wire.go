@@ -15,6 +15,9 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
+var errSessionOwned = errors.New("another process owns the host session")
+var errSessionRequestDenied = errors.New("host session request was denied")
+
 type request struct {
 	Version   int               `json:"version"`
 	Node      string            `json:"node"`
@@ -169,6 +172,12 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	if result.Error != "" {
 		if result.Retryable {
 			return errArtifactPreparing
+		}
+		if r.Operation == "session" {
+			if result.Error == errSessionOwned.Error() {
+				return errSessionOwned
+			}
+			return fmt.Errorf("%w: %s", errSessionRequestDenied, result.Error)
 		}
 		return fmt.Errorf("host request denied: %s", result.Error)
 	}

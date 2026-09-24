@@ -1,11 +1,15 @@
 package authority
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -59,6 +63,56 @@ func durableControlStreamConfig() jetstream.StreamConfig {
 		DenyDelete:        true,
 		DenyPurge:         true,
 		Metadata:          map[string]string{"terrascale-contract": "authority-log-v1"},
+	}
+}
+
+func TestAuthorityDiagnosticsAreSafeAndRateLimited(t *testing.T) {
+	queue := make(chan authorityDiagnostic, 1)
+	queue <- authorityDiagnostic{}
+	var dropped atomic.Uint64
+	started := time.Now()
+	if enqueueAuthorityDiagnostic(queue, &dropped, authorityDiagnostic{}) {
+		t.Fatal("full diagnostic queue unexpectedly accepted another event")
+	}
+	if time.Since(started) > 100*time.Millisecond || dropped.Load() != 1 {
+		t.Fatalf("full queue enqueue blocked or failed to count its drop: elapsed=%s dropped=%d", time.Since(started), dropped.Load())
+	}
+
+	var output bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&output, nil))
+	runtime := &Runtime{
+		config: Config{Scope: "gru"}, logger: logger, diagTimes: make(map[string]time.Time),
+	}
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Reason: "not-observed"})
+	runtime.logSnapshotTransition()
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Leader: true, Ready: true, Epoch: 1, Reason: "leader"})
+	runtime.logSnapshotTransition()
+	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "candidate-a", OwnerID: "private-owner-id", Leader: true, Ready: true, Epoch: 1, Revision: 8, Reason: "leader"})
+	runtime.logSnapshotTransition()
+
+	apiErr := &jetstream.APIError{Code: 503, ErrorCode: 10164, Description: "private-server-description"}
+	failure := stageFailure("lease_publish", fmt.Errorf("%w: %w", ErrOutcomeUnknown, apiErr))
+	runtime.recordFailure(failure)
+	runtime.recordFailure(failure)
+	if err := flushAuthorityDiagnostics(t.Context()); err != nil {
+		t.Fatalf("flush diagnostic test events: %v", err)
+	}
+
+	logs := output.String()
+	if !strings.Contains(logs, "stage=lease_publish") || !strings.Contains(logs, "error_class=outcome_unknown") ||
+		!strings.Contains(logs, "cause_class=jetstream_api") || !strings.Contains(logs, "jetstream_error_code=10164") {
+		t.Fatalf("diagnostic log omitted the operation stage or error class: %s", logs)
+	}
+	if strings.Count(logs, "authority operation failed") != 1 {
+		t.Fatalf("repeated errors were not rate-limited: %s", logs)
+	}
+	if strings.Count(logs, "authority state transition") != 2 {
+		t.Fatalf("state transitions were emitted per renewal instead of per state change: %s", logs)
+	}
+	for _, secret := range []string{"private-owner-id", "private-server-description", "candidate-a", "lease_publish"} {
+		if strings.Contains(logs, secret) && secret != "lease_publish" {
+			t.Fatalf("diagnostic log exposed %q: %s", secret, logs)
+		}
 	}
 }
 

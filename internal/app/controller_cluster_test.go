@@ -51,7 +51,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		}
 		return
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 125*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	public, _ := testEd25519(t, root, "response.key")
@@ -108,6 +108,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 		stream, err := probe.JetStream().Stream(probeCtx, authority.ControlStreamName)
+		var holder authority.Snapshot
 		if err == nil {
 			streamInfo, infoErr := stream.Info(probeCtx)
 			if infoErr != nil {
@@ -135,6 +136,9 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 						}
 					}
 				}
+				if err == nil {
+					holder, err = authority.Observe(ctx, probe.JetStream(), "lab")
+				}
 			}
 		}
 		for _, child := range children {
@@ -145,21 +149,43 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		stopControllerChild(t, children[0])
+		failedPeer := 0
+		if boot == 1 {
+			found := false
+			for index := range children {
+				if strings.HasPrefix(holder.CandidateID, fmt.Sprintf("peer%d-", index)) {
+					failedPeer, found = index, true
+					break
+				}
+			}
+			if !found || !holder.Ready || holder.Epoch == 0 {
+				t.Fatalf("unexpected authority holder after startup: %+v", holder)
+			}
+			crashControllerChild(t, children[failedPeer])
+			waitSurvivingAuthority(t, ctx, clientPorts[(failedPeer+1)%3], holder.Epoch)
+		} else {
+			stopControllerChild(t, children[failedPeer])
+		}
 		// An R3 region must retain both surviving controllers and their
-		// embedded brokers when one controller is deliberately stopped.
+		// embedded brokers when one controller is lost.
 		select {
 		case <-ctx.Done():
 			t.Fatal(ctx.Err())
 		case <-time.After(3 * time.Second):
 		}
-		for _, child := range children[1:] {
+		for index, child := range children {
+			if index == failedPeer {
+				continue
+			}
 			assertControllerChildRunning(t, child)
 			if err := child.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 				t.Fatal(err)
 			}
 		}
-		for _, child := range children[1:] {
+		for index, child := range children {
+			if index == failedPeer {
+				continue
+			}
 			waitControllerChildStopped(t, child)
 		}
 	}
@@ -247,6 +273,45 @@ func stopControllerChild(t *testing.T, child *controllerChild) {
 		t.Fatalf("controller signal: %v; log %s\n%s", err, child.logPath, data)
 	}
 	waitControllerChildStopped(t, child)
+}
+
+func crashControllerChild(t *testing.T, child *controllerChild) {
+	t.Helper()
+	if err := child.cmd.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-child.done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("crashed controller did not exit: %s", child.logPath)
+	}
+}
+
+func waitSurvivingAuthority(t *testing.T, ctx context.Context, port int, priorEpoch uint64) {
+	t.Helper()
+	probeCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
+	defer cancel()
+	probe, err := natscell.Start(probeCtx, natscell.Config{Cell: "lab", Instance: "failover-probe", Replicas: 3,
+		Lab: true, URL: fmt.Sprintf("nats://127.0.0.1:%d", port)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	var last authority.Snapshot
+	var lastErr error
+	for probeCtx.Err() == nil {
+		attempt, stop := context.WithTimeout(probeCtx, 2*time.Second)
+		last, lastErr = authority.Observe(attempt, probe.JetStream(), "lab")
+		stop()
+		if lastErr == nil && last.Ready && last.Epoch > priorEpoch {
+			return
+		}
+		select {
+		case <-probeCtx.Done():
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	t.Fatalf("authority did not take over after leader crash: previous epoch=%d last=%+v err=%v", priorEpoch, last, lastErr)
 }
 
 func waitControllerChildStopped(t *testing.T, child *controllerChild) {

@@ -5,6 +5,7 @@ package authority
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 )
 
@@ -41,6 +42,7 @@ type Config struct {
 	LeaseDuration time.Duration
 	RenewInterval time.Duration
 	Replicas      int
+	Logger        *slog.Logger
 }
 
 // Snapshot is the latest lease observation made by this runtime.

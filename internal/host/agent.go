@@ -13,16 +13,22 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
+const sessionExecutionReserve = 5 * time.Second
+
 type Agent struct {
-	cfg       AgentConfig
-	runner    Runner
-	mu        sync.RWMutex
-	session   session
-	processID string
-	pending   map[string]cycleQuery
+	cfg         AgentConfig
+	runner      Runner
+	mu          sync.RWMutex
+	session     session
+	processID   string
+	pending     map[string]cycleQuery
+	sessionLost atomic.Bool
 }
 
 func NewAgent(cfg AgentConfig) (*Agent, error) {
@@ -78,7 +84,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer stopCancel()
 		_ = a.runner.Close(stopCtx)
 	}()
-	if err := a.acquire(work); err != nil {
+	if err := a.waitForSession(work); err != nil {
 		return err
 	}
 	lost := make(chan error, 1)
@@ -88,6 +94,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	for {
 		for _, role := range a.cfg.Roles {
 			if err := work.Err(); err != nil {
+				break
+			}
+			if a.sessionLost.Load() {
 				break
 			}
 			_ = a.reconcile(work, role)
@@ -143,7 +152,7 @@ func (a *Agent) acquire(ctx context.Context) error {
 	if err := exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &s); err != nil {
 		return fmt.Errorf("acquire host session: %w", err)
 	}
-	if s.SessionID != a.processID || s.Epoch == 0 || !time.Now().Before(s.ExpiresAt.Add(-5*time.Second)) {
+	if s.SessionID != a.processID || s.Epoch == 0 || !sessionUsableUntil(s, time.Now()) {
 		return errors.New("invalid acquired host session")
 	}
 	a.mu.Lock()
@@ -152,21 +161,53 @@ func (a *Agent) acquire(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, lost chan<- error) {
-	ticker := time.NewTicker(5 * time.Second)
+func (a *Agent) waitForSession(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		if err := a.acquire(ctx); err == nil {
+			return nil
+		} else if !retrySessionExchange(err) && !errors.Is(err, errSessionOwned) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func retrySessionExchange(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
+}
+
+func sessionUsableUntil(s session, now time.Time) bool {
+	return now.Before(s.ExpiresAt.Add(-sessionExecutionReserve))
+}
+
+func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, lost chan<- error) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		a.mu.RLock()
+		current := a.session
+		a.mu.RUnlock()
+		if !sessionUsableUntil(current, time.Now()) {
+			a.failSession(cancel, lost, errors.New("host session execution reserve exhausted"))
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 		a.mu.RLock()
-		current := a.session
+		current = a.session
 		a.mu.RUnlock()
-		if !time.Now().Before(current.ExpiresAt.Add(-5 * time.Second)) {
-			cancel()
-			lost <- errors.New("host session execution reserve exhausted")
+		if !sessionUsableUntil(current, time.Now()) {
+			a.failSession(cancel, lost, errors.New("host session execution reserve exhausted"))
 			return
 		}
 		r, err := a.makeRequest("session", struct {
@@ -174,7 +215,9 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		}{"renew"})
 		if err == nil {
 			var next session
-			err = exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &next)
+			renewCtx, renewCancel := context.WithDeadline(ctx, current.ExpiresAt.Add(-sessionExecutionReserve))
+			err = exchange(renewCtx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &next)
+			renewCancel()
 			if err == nil {
 				if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
 					err = errors.New("renewed session binding mismatch")
@@ -185,12 +228,25 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 				}
 			}
 		}
+		if err != nil && retrySessionExchange(err) && sessionUsableUntil(current, time.Now()) {
+			continue
+		}
 		if err != nil {
-			cancel()
-			lost <- fmt.Errorf("host session renewal failed: %w", err)
+			a.failSession(cancel, lost, fmt.Errorf("host session renewal failed: %w", err))
 			return
 		}
 	}
+}
+
+func (a *Agent) failSession(cancel context.CancelFunc, lost chan<- error, reason error) {
+	a.sessionLost.Store(true)
+	cancel()
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), sessionExecutionReserve-time.Second)
+	if err := a.runner.Close(stopCtx); err != nil {
+		reason = errors.Join(reason, fmt.Errorf("stop native workloads after session loss: %w", err))
+	}
+	stopCancel()
+	lost <- reason
 }
 
 func (a *Agent) request(ctx context.Context, operation string, payload, out any) error {
@@ -202,6 +258,9 @@ func (a *Agent) request(ctx context.Context, operation string, payload, out any)
 }
 
 func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
+	if a.sessionLost.Load() {
+		return errors.New("host session was lost")
+	}
 	if err := a.flushCycle(ctx, role); err != nil {
 		return err
 	}
@@ -264,6 +323,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			pending := a.pending[role]
 			pending.Succeeded = false
 			a.pending[role] = pending
+			if ctx.Err() != nil || a.sessionLost.Load() {
+				return
+			}
 			finishCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = a.flushCycle(finishCtx, role)

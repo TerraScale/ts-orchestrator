@@ -474,7 +474,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 				return nil, errors.New("acquire requires epoch zero")
 			}
 			if exists && old.RegistrationGeneration == r.Generation && now.Before(old.ExpiresAt) {
-				return nil, errors.New("another process owns the host session")
+				return nil, errSessionOwned
 			}
 			next = session{RegistrationGeneration: r.Generation, SessionID: req.SessionID, Epoch: 1, ExpiresAt: req.IssuedAt.Add(sessionTTL), LastNonce: req.Nonce, LastIssuedAt: req.IssuedAt}
 			if exists {

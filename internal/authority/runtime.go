@@ -4,35 +4,107 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
 	"uuid"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 var natsToken = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
+const authorityDiagnosticQueueSize = 64
+
+type authorityDiagnostic struct {
+	logger  *slog.Logger
+	level   slog.Level
+	message string
+	attrs   []any
+	dropped *atomic.Uint64
+	barrier chan struct{}
+}
+
+var authorityDiagnosticQueue = make(chan authorityDiagnostic, authorityDiagnosticQueueSize)
+
+func init() {
+	go runAuthorityDiagnostics()
+}
+
+func runAuthorityDiagnostics() {
+	for event := range authorityDiagnosticQueue {
+		if event.barrier != nil {
+			close(event.barrier)
+			continue
+		}
+		if event.logger == nil {
+			continue
+		}
+		if event.dropped != nil {
+			if dropped := event.dropped.Swap(0); dropped > 0 {
+				event.attrs = append(event.attrs, "dropped_diagnostics", dropped)
+			}
+		}
+		event.logger.Log(context.Background(), event.level, event.message, event.attrs...)
+	}
+}
+
+func flushAuthorityDiagnostics(ctx context.Context) error {
+	barrier := make(chan struct{})
+	select {
+	case authorityDiagnosticQueue <- authorityDiagnostic{barrier: barrier}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-barrier:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func enqueueAuthorityDiagnostic(queue chan authorityDiagnostic, dropped *atomic.Uint64, event authorityDiagnostic) bool {
+	event.dropped = dropped
+	select {
+	case queue <- event:
+		return true
+	default:
+		if dropped != nil {
+			dropped.Add(1)
+		}
+		return false
+	}
+}
+
 // Runtime manages the lease for one scope and owns the shared ordered control
 // stream. Term changes and host mutations are serialized by the same stream
 // sequence, so an old epoch cannot commit a host record after a newer term.
 type Runtime struct {
-	js         jetstream.JetStream
-	publisher  jetstream.Publisher
-	stream     jetstream.Stream
-	readStream jetstream.Stream
-	config     Config
-	leaseSub   string
-	ownerID    string
+	js          jetstream.JetStream
+	publisher   jetstream.Publisher
+	stream      jetstream.Stream
+	readStream  jetstream.Stream
+	config      Config
+	leaseSub    string
+	ownerID     string
+	logger      *slog.Logger
+	diagnostics chan authorityDiagnostic
 
-	mu       sync.Mutex
-	readMu   sync.Mutex
-	snapshot atomic.Pointer[Snapshot]
-	cancel   context.CancelFunc
-	done     chan struct{}
-	once     sync.Once
+	mu                     sync.Mutex
+	readMu                 sync.Mutex
+	stateMu                sync.Mutex
+	diagMu                 sync.Mutex
+	diagTimes              map[string]time.Time
+	snapshot               atomic.Pointer[Snapshot]
+	lastDiagnosticSnapshot *Snapshot
+	droppedDiagnostics     atomic.Uint64
+	cancel                 context.CancelFunc
+	done                   chan struct{}
+	once                   sync.Once
 }
 
 type leaseRecord struct {
@@ -57,6 +129,10 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	stream, err := openControlStream(ctx, js, config.Replicas)
 	if err != nil {
 		return nil, fmt.Errorf("open authority control log: %w", err)
@@ -74,20 +150,25 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	}
 	loopCtx, cancel := context.WithCancel(ctx)
 	runtime := &Runtime{
-		js:         js,
-		publisher:  js,
-		stream:     stream,
-		readStream: readStream,
-		config:     config,
-		leaseSub:   fmt.Sprintf("%s.%s.lease", controlSubjectRoot, config.Scope),
-		ownerID:    uuid.New().String(),
-		cancel:     cancel,
-		done:       make(chan struct{}),
+		js:          js,
+		publisher:   js,
+		stream:      stream,
+		readStream:  readStream,
+		config:      config,
+		leaseSub:    fmt.Sprintf("%s.%s.lease", controlSubjectRoot, config.Scope),
+		ownerID:     uuid.New().String(),
+		logger:      logger,
+		diagnostics: authorityDiagnosticQueue,
+		diagTimes:   make(map[string]time.Time),
+		cancel:      cancel,
+		done:        make(chan struct{}),
 	}
 	runtime.publishSnapshot(Snapshot{Scope: config.Scope, CandidateID: config.CandidateID, OwnerID: runtime.ownerID, Reason: "not-observed"})
+	runtime.logSnapshotTransition()
 	var observeErr error
 	for range 8 {
 		observeErr = runtime.reconcileWithRetry(loopCtx)
+		runtime.logSnapshotTransition()
 		if !errors.Is(observeErr, ErrConflict) {
 			break
 		}
@@ -143,19 +224,29 @@ func (r *Runtime) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := r.reconcileWithRetry(ctx); err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, ErrConflict) {
-				r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
+			err := r.reconcileWithRetry(ctx)
+			if err != nil && !errors.Is(err, context.Canceled) {
+				r.recordFailure(err)
+				if !errors.Is(err, ErrConflict) {
+					r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
+				}
 			}
+			r.logSnapshotTransition()
 		}
 	}
 }
 
 func (r *Runtime) reconcileWithRetry(ctx context.Context) error {
+	var lastErr error
 	for range 8 {
 		err := r.reconcile(ctx)
 		if !errors.Is(err, ErrConflict) {
 			return err
 		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return lastErr
 	}
 	return ErrConflict
 }
@@ -166,20 +257,20 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 
 	info, err := r.stream.Info(ctx)
 	if err != nil {
-		return err
+		return stageFailure("stream_info", err)
 	}
 	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
-		return fmt.Errorf("validate authority stream consistency: %w", err)
+		return stageFailure("stream_config", err)
 	}
 	entry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 	if errors.Is(err, jetstream.ErrMsgNotFound) {
 		return r.acquire(ctx, info.State.LastSeq, 0, 1)
 	}
 	if err != nil {
-		return err
+		return stageFailure("lease_msg_get", err)
 	}
 	if entry.Sequence > info.State.LastSeq {
-		return ErrConflict
+		return stageFailure("lease_sequence_check", ErrConflict)
 	}
 	lease, err := decodeLease(entry.Data)
 	if err != nil || lease.Scope != r.config.Scope || lease.Epoch == 0 {
@@ -223,7 +314,7 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 	}
 	data, err := jsonMarshal(lease)
 	if err != nil {
-		return err
+		return stageFailure("lease_encode", err)
 	}
 	msg := controlMessage(r.leaseSub, "lease", lease.TransitionID, data)
 	ack, err := r.publisher.PublishMsg(ctx, msg,
@@ -232,20 +323,20 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 	)
 	if err != nil {
 		if isSequenceConflict(err) {
-			return ErrConflict
+			return stageFailure("lease_publish", ErrConflict)
 		}
-		return r.resolveLeaseAppend(ctx, lease, err)
+		return stageFailure("lease_publish", r.resolveLeaseAppend(ctx, lease, err))
 	}
 	stored, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 	if err != nil {
-		return r.resolveLeaseAppend(ctx, lease, err)
+		return stageFailure("lease_confirm_get", r.resolveLeaseAppend(ctx, lease, err))
 	}
 	if stored.Sequence != ack.Sequence {
-		return ErrConflict
+		return stageFailure("lease_confirm_sequence", ErrConflict)
 	}
 	confirmed, err := decodeLease(stored.Data)
 	if err != nil || confirmed.Scope != r.config.Scope || confirmed.CandidateID != r.config.CandidateID || confirmed.OwnerID != r.ownerID || confirmed.Epoch != epoch || confirmed.TransitionID != lease.TransitionID || confirmed.Released != released {
-		return ErrFenced
+		return stageFailure("lease_confirm_record", ErrFenced)
 	}
 	if released {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: epoch, Revision: ack.Sequence, ObservedAt: time.Now(), Reason: "released"})
@@ -254,7 +345,7 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 	now := time.Now()
 	expiresAt := stored.Time.Add(time.Duration(confirmed.LeaseDuration))
 	if !now.Before(expiresAt) {
-		return ErrFenced
+		return stageFailure("lease_confirm_expiry", ErrFenced)
 	}
 	r.publishSnapshot(Snapshot{
 		Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true,
@@ -288,7 +379,7 @@ func (r *Runtime) resolveLeaseAppend(ctx context.Context, attempted leaseRecord,
 			return ErrFenced
 		}
 	}
-	return fmt.Errorf("%w: lease publish: %v", ErrOutcomeUnknown, original)
+	return stageFailure("lease_outcome_probe", fmt.Errorf("%w: %w", ErrOutcomeUnknown, original))
 }
 
 // Current returns the most recently confirmed local authority observation.
@@ -306,6 +397,151 @@ func (r *Runtime) publishSnapshot(snapshot Snapshot) {
 	r.snapshot.Store(&snapshot)
 }
 
+func (r *Runtime) logSnapshotTransition() {
+	if r == nil || r.logger == nil {
+		return
+	}
+	r.stateMu.Lock()
+	current := r.Current()
+	previous := r.lastDiagnosticSnapshot
+	if previous != nil && sameDiagnosticState(*previous, current) {
+		r.stateMu.Unlock()
+		return
+	}
+	r.lastDiagnosticSnapshot = &current
+	var previousReady, previousLeader bool
+	var previousEpoch uint64
+	var previousReason string
+	if previous != nil {
+		previousReady = previous.Ready
+		previousLeader = previous.Leader
+		previousEpoch = previous.Epoch
+		previousReason = previous.Reason
+	}
+	r.stateMu.Unlock()
+	r.emitDiagnostic(slog.LevelInfo, "authority state transition",
+		"scope", current.Scope,
+		"from_ready", previousReady,
+		"from_leader", previousLeader,
+		"from_epoch", previousEpoch,
+		"from_reason", previousReason,
+		"ready", current.Ready,
+		"leader", current.Leader,
+		"epoch", current.Epoch,
+		"reason", current.Reason,
+	)
+}
+
+func (r *Runtime) emitDiagnostic(level slog.Level, message string, attrs ...any) {
+	if r == nil || r.logger == nil {
+		return
+	}
+	queue := r.diagnostics
+	if queue == nil {
+		queue = authorityDiagnosticQueue
+	}
+	enqueueAuthorityDiagnostic(queue, &r.droppedDiagnostics, authorityDiagnostic{
+		logger: r.logger, level: level, message: message, attrs: attrs,
+	})
+}
+
+func sameDiagnosticState(left, right Snapshot) bool {
+	return left.Ready == right.Ready && left.Leader == right.Leader && left.Epoch == right.Epoch && left.Reason == right.Reason
+}
+
+type authorityStageFailure struct {
+	stage string
+	err   error
+}
+
+func (e *authorityStageFailure) Error() string { return e.stage + ": " + e.err.Error() }
+func (e *authorityStageFailure) Unwrap() error { return e.err }
+
+func stageFailure(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := errors.AsType[*authorityStageFailure](err); ok {
+		return err
+	}
+	return &authorityStageFailure{stage: stage, err: err}
+}
+
+func (r *Runtime) recordFailure(err error) {
+	if r == nil || err == nil || r.logger == nil {
+		return
+	}
+	staged, ok := errors.AsType[*authorityStageFailure](err)
+	if !ok {
+		staged = &authorityStageFailure{stage: "reconcile", err: err}
+	}
+	errorClass := authorityErrorClass(err)
+	causeClass := authorityCauseClass(err)
+	var apiCode jetstream.ErrorCode
+	if apiErr, ok := errors.AsType[*jetstream.APIError](err); ok {
+		apiCode = apiErr.ErrorCode
+	}
+	now := time.Now()
+	key := fmt.Sprintf("%s/%s/%s/%d", staged.stage, errorClass, causeClass, apiCode)
+	r.diagMu.Lock()
+	if previous, ok := r.diagTimes[key]; ok && now.Sub(previous) < 15*time.Second {
+		r.diagMu.Unlock()
+		return
+	}
+	if len(r.diagTimes) >= 64 {
+		clear(r.diagTimes)
+	}
+	r.diagTimes[key] = now
+	r.diagMu.Unlock()
+	r.emitDiagnostic(slog.LevelWarn, "authority operation failed",
+		"scope", r.config.Scope,
+		"stage", staged.stage,
+		"error_class", errorClass,
+		"cause_class", causeClass,
+		"jetstream_error_code", uint16(apiCode),
+	)
+}
+
+func authorityCauseClass(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responders"
+	default:
+		if _, ok := errors.AsType[*jetstream.APIError](err); ok {
+			return "jetstream_api"
+		}
+		return "other"
+	}
+}
+
+func authorityErrorClass(err error) string {
+	switch {
+	case errors.Is(err, ErrConflict):
+		return "cas_conflict"
+	case errors.Is(err, ErrFenced):
+		return "fenced"
+	case errors.Is(err, ErrOutcomeUnknown):
+		return "outcome_unknown"
+	case errors.Is(err, ErrLeaseCorrupt):
+		return "lease_corrupt"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responders"
+	default:
+		if _, ok := errors.AsType[*jetstream.APIError](err); ok {
+			return "jetstream_api"
+		}
+		return "transport_or_internal"
+	}
+}
+
 // Guard forces a quorum-acknowledged lease renewal immediately before a
 // mutation. The lease append shares the control-log sequence with host writes,
 // so a new-term barrier and any following write have a single durable order.
@@ -314,49 +550,68 @@ func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {
 		return ErrNotLeader
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	current := r.Current()
 	if !current.CanMutate() || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {
+		wasLocalLeader := current.Leader && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID
+		r.mu.Unlock()
+		r.logSnapshotTransition()
+		if wasLocalLeader {
+			r.recordFailure(stageFailure("guard_precondition", ErrNotLeader))
+		}
 		return ErrNotLeader
 	}
 	if expectedEpoch == 0 || current.Epoch != expectedEpoch {
+		r.mu.Unlock()
 		return ErrFenced
 	}
+	var lastErr error
 	for range 8 {
 		err := r.guardLocked(ctx, expectedEpoch)
 		if !errors.Is(err, ErrConflict) {
+			r.mu.Unlock()
+			r.logSnapshotTransition()
+			if err != nil {
+				r.recordFailure(err)
+			}
 			return err
 		}
+		lastErr = err
 	}
-	return ErrConflict
+	if lastErr == nil {
+		lastErr = stageFailure("guard_retry", ErrConflict)
+	}
+	r.mu.Unlock()
+	r.logSnapshotTransition()
+	r.recordFailure(lastErr)
+	return lastErr
 }
 
 func (r *Runtime) guardLocked(ctx context.Context, expectedEpoch uint64) error {
 	info, err := r.stream.Info(ctx)
 	if err != nil {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
-		return err
+		return stageFailure("guard_stream_info", err)
 	}
 	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-incompatible"})
-		return err
+		return stageFailure("guard_stream_config", err)
 	}
 	entry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 	if err != nil {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-unreadable"})
-		return err
+		return stageFailure("guard_lease_msg_get", err)
 	}
 	if entry.Sequence > info.State.LastSeq {
-		return ErrConflict
+		return stageFailure("guard_sequence_check", ErrConflict)
 	}
 	lease, err := decodeLease(entry.Data)
 	if err != nil {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-corrupt"})
-		return ErrLeaseCorrupt
+		return stageFailure("guard_lease_decode", ErrLeaseCorrupt)
 	}
 	if lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released || !time.Now().Before(entry.Time.Add(time.Duration(lease.LeaseDuration))) {
 		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
-		return ErrFenced
+		return stageFailure("guard_lease_check", ErrFenced)
 	}
 	return r.appendLease(ctx, info.State.LastSeq, entry.Sequence, expectedEpoch, false)
 }
@@ -390,6 +645,7 @@ func (r *Runtime) Close() error {
 			}
 		}
 	})
+	r.logSnapshotTransition()
 	return closeErr
 }
 

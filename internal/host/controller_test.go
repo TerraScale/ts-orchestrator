@@ -79,6 +79,30 @@ type memoryRunner struct {
 	applied  int
 }
 
+type stoppedRunner struct {
+	*memoryRunner
+	stopped chan struct{}
+	once    sync.Once
+}
+
+func (r *stoppedRunner) Close(ctx context.Context) error {
+	err := r.memoryRunner.Close(ctx)
+	r.once.Do(func() { close(r.stopped) })
+	return err
+}
+
+type stalledArtifactStore struct {
+	ArtifactStore
+	started chan struct{}
+	once    sync.Once
+}
+
+func (s *stalledArtifactStore) Get(ctx context.Context, _ string, _ ...jetstream.GetObjectOpt) (jetstream.ObjectResult, error) {
+	s.once.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (m *memoryRunner) Recover(context.Context) error { return nil }
 func (m *memoryRunner) Apply(_ context.Context, w Workload) error {
 	m.mu.Lock()
@@ -203,6 +227,208 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 				t.Fatalf("validateRegistration() err=%v, wantErr=%t", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestSessionRetryClassificationAndReserve(t *testing.T) {
+	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected} {
+		if !retrySessionExchange(err) {
+			t.Fatalf("transient session error was terminal: %v", err)
+		}
+	}
+	for _, err := range []error{errSessionOwned, errSessionRequestDenied, errors.New("renewed session binding mismatch"), nats.ErrConnectionClosed} {
+		if retrySessionExchange(err) {
+			t.Fatalf("terminal session error was retryable: %v", err)
+		}
+	}
+	now := time.Now()
+	if !sessionUsableUntil(session{ExpiresAt: now.Add(sessionExecutionReserve + time.Nanosecond)}, now) {
+		t.Fatal("valid lease beyond reserve was rejected")
+	}
+	if sessionUsableUntil(session{ExpiresAt: now.Add(sessionExecutionReserve)}, now) {
+		t.Fatal("lease at safety boundary remained usable")
+	}
+	if sessionUsableUntil(session{ExpiresAt: now.Add(-time.Second)}, now) {
+		t.Fatal("expired lease remained usable")
+	}
+}
+
+func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	oldKey := registerTestHost(t, c)
+	acquire := func(key ed25519.PrivateKey, id string) request {
+		t.Helper()
+		req := request{Version: 1, Node: "node-a", Operation: "session", SessionID: id, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"acquire"}`)}
+		if err := signRequest(&req, key, "gru"); err != nil {
+			t.Fatal(err)
+		}
+		return req
+	}
+	if _, err := c.handleSession(t.Context(), acquire(oldKey, "0123456789abcdef0123456789abcdef")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, stopWaiting := context.WithCancel(t.Context())
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- agent.waitForSession(waitCtx) }()
+	select {
+	case err := <-waitDone:
+		t.Fatalf("startup gave up on old live session: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	stopWaiting()
+	select {
+	case err := <-waitDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("canceled startup wait returned %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("startup wait ignored cancellation")
+	}
+	cancel()
+	<-done
+}
+
+func TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	install := filepath.Join(t.TempDir(), "install")
+	state := filepath.Join(t.TempDir(), "state")
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	agent.mu.Lock()
+	lease := agent.session
+	lease.ExpiresAt = time.Now().Add(7 * time.Second)
+	agent.session = lease
+	agent.mu.Unlock()
+	// All renewal requests now receive a transport timeout; the old signed
+	// lease remains the only authority until its execution reserve is reached.
+	stopController := func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Fatal("controller did not stop")
+		}
+	}
+	stopController()
+	lostCtx, lostCancel := context.WithCancel(t.Context())
+	lost := make(chan error, 1)
+	go agent.maintainSession(lostCtx, lostCancel, lost)
+	select {
+	case err := <-lost:
+		t.Fatalf("transient timeout stopped workload before signed reserve: %v", err)
+	case <-time.After(1200 * time.Millisecond):
+	}
+	if agent.sessionLost.Load() || !sessionUsableUntil(lease, time.Now()) {
+		t.Fatal("transient timeout invalidated a still-usable signed lease")
+	}
+	select {
+	case err := <-lost:
+		if err == nil || !agent.sessionLost.Load() || sessionUsableUntil(lease, time.Now()) {
+			t.Fatalf("outage did not stop at lease reserve: err=%v lost=%t", err, agent.sessionLost.Load())
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("outage continued beyond signed lease reserve")
+	}
+}
+
+func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
+	c, conn, store, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nwhile :; do sleep 1; done\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	stalled := &stalledArtifactStore{ArtifactStore: store, started: make(chan struct{})}
+	c.artifacts = stalled
+	controllerCtx, stopController := context.WithCancel(t.Context())
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- c.Run(controllerCtx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	oldHash := sha256.Sum256([]byte("old workload"))
+	oldDigest := hex.EncodeToString(oldHash[:])
+	runner := &stoppedRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}, stopped: make(chan struct{})}
+	if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: oldDigest, Fingerprint: oldDigest}); err != nil {
+		t.Fatal(err)
+	}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentCtx, stopAgent := context.WithCancel(t.Context())
+	defer stopAgent()
+	agentDone := make(chan error, 1)
+	go func() { agentDone <- agent.Run(agentCtx) }()
+	select {
+	case <-stalled.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("agent did not acquire a pending cycle and fetch artifact")
+	}
+	agent.mu.Lock()
+	leaseExpiry := time.Now().Add(8 * time.Second)
+	s := agent.session
+	s.ExpiresAt = leaseExpiry
+	agent.session = s
+	agent.mu.Unlock()
+	stopController()
+	select {
+	case <-controllerDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("controller did not stop")
+	}
+	deadline := time.NewTimer(time.Until(leaseExpiry.Add(-500 * time.Millisecond)))
+	defer deadline.Stop()
+	select {
+	case <-runner.stopped:
+		if !time.Now().Before(leaseExpiry) {
+			t.Fatal("active workload stopped after signed lease expiry")
+		}
+	case <-deadline.C:
+		t.Fatal("pending-cycle cleanup kept active workload alive through signed lease expiry")
+	}
+	select {
+	case err := <-agentDone:
+		if err == nil {
+			t.Fatal("agent exited without session-loss error")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("agent did not exit after session loss")
 	}
 }
 

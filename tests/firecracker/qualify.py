@@ -201,6 +201,7 @@ class Lab:
         self.mounted: list[Path] = []
         self.vms: dict[str, VM] = {}
         self.binary = self.root / "terrascale-orchestrator"
+        self.natsdiag = self.root / "natsdiag"
         self.ssh_key = self.secrets / "lab_ssh"
         self.known_hosts = self.secrets / "known_hosts"
         self.operator_config = self.secrets / "operator.json"
@@ -209,6 +210,7 @@ class Lab:
         self.source = {"repository": "https://example.com/terrascale/firecracker-fixtures",
                        "commit": "f" * 40, "treeDigest": ""}
         self.failure_diagnostics_captured = False
+        self.cluster_diagnostics_captured = False
 
     def note(self, event: str, **details: Any) -> None:
         entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -248,10 +250,18 @@ class Lab:
         (self.logs / "build.log").write_text(built.stdout + built.stderr)
         if built.returncode:
             raise RuntimeError(f"Go build failed; see {self.logs / 'build.log'}")
+        diagnostic = subprocess.run(["go", "build", "-trimpath", "-o", str(self.natsdiag),
+                                     "tests/firecracker/natsdiag.go"], cwd=REPO,
+                                    env=environment, capture_output=True, text=True,
+                                    timeout=180, check=False)
+        (self.logs / "natsdiag-build.log").write_text(diagnostic.stdout + diagnostic.stderr)
+        if diagnostic.returncode:
+            raise RuntimeError(f"NATS diagnostic build failed; see {self.logs / 'natsdiag-build.log'}")
         after = source_digest()
         if after != before:
             raise RuntimeError("Go source changed during build; rerun against a stable tree")
         self.note("binary", sha256=digest(self.binary), source_manifest_sha256=after)
+        self.note("diagnostic_binary", sha256=digest(self.natsdiag))
 
     def identities(self) -> None:
         run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(self.ssh_key)])
@@ -500,15 +510,56 @@ class Lab:
                               lambda: self.operator(operation, "--intent", str(path)), timeout=100)
         if not isinstance(submitted, dict) or submitted.get("status") != "submitted":
             raise RuntimeError(f"{operation} {name} did not submit")
+        submitted_at = time.monotonic()
         def accepted() -> bool:
             receipt = self.operator("status", "--operation-id", submitted["operationId"],
                                     "--fingerprint", submitted["fingerprint"])
+            if name == "one-node-loss" and time.monotonic() - submitted_at >= 20:
+                self.capture_cluster_diagnostics()
             if not isinstance(receipt, dict):
                 return False
             if receipt.get("status") in ("rejected", "held"):
                 raise RuntimeError(f"{operation} {name} became terminal {receipt}")
             return receipt.get("status") == "accepted"
         self.wait(f"accepted-{name}", accepted, timeout=100)
+
+    def capture_cluster_diagnostics(self) -> None:
+        if self.cluster_diagnostics_captured:
+            return
+        self.cluster_diagnostics_captured = True
+        for name in CONTROLLERS:
+            vm = self.vms.get(name)
+            if vm is None or vm.process is None or vm.process.poll() is not None:
+                continue
+            path = self.logs / f"{name}-live-diagnostics.txt"
+            command = ("systemctl status ts-orch.service --no-pager --full; "
+                       "journalctl -u ts-orch.service -b --no-pager -n 300 -o short-iso-precise; "
+                       "ps -eo pid,ppid,stat,etime,cmd | grep '[t]errascale-orchestrator'")
+            try:
+                result = self.ssh(name, command, timeout=12, allow_failure=True)
+                path.write_text(result.stdout + result.stderr)
+                path.chmod(0o600)
+                self.note("cluster_diagnostics", name=name, path=str(path),
+                          exit_code=result.returncode)
+            except Exception as error:
+                path.write_text(f"controller diagnostics unavailable: {error!r}\n")
+                path.chmod(0o600)
+                self.note("cluster_diagnostics", name=name, path=str(path), error=repr(error))
+        if self.natsdiag.exists() and (self.secrets / "c1.nk").exists():
+            urls = ",".join(f"nats://{self.addresses[name]}:4222" for name in CONTROLLERS)
+            path = self.logs / "nats-live-diagnostics.jsonl"
+            try:
+                result = run([str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
+                              "--operator-seed", str(self.secrets / "operator.nk"),
+                              "--urls", urls], timeout=35, allow_failure=True)
+                path.write_text(result.stdout + result.stderr)
+                path.chmod(0o600)
+                self.note("cluster_diagnostics", name="nats", path=str(path),
+                          exit_code=result.returncode)
+            except Exception as error:
+                path.write_text(f"NATS diagnostics unavailable: {error!r}\n")
+                path.chmod(0o600)
+                self.note("cluster_diagnostics", name="nats", path=str(path), error=repr(error))
 
     def scenario(self) -> None:
         self.network()
@@ -706,6 +757,10 @@ def main() -> int:
     except BaseException as error:
         failure = repr(error)
         print(f"qualification failed: {failure}", file=sys.stderr, flush=True)
+        try:
+            lab.capture_cluster_diagnostics()
+        except Exception as diagnostic_error:
+            print(f"cluster diagnostics failed: {diagnostic_error!r}", file=sys.stderr, flush=True)
         try:
             lab.capture_failure_diagnostics()
         except Exception as diagnostic_error:
