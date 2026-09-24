@@ -579,6 +579,8 @@ public sealed class VmNodeFleetScaleHealTests
             units.Add(new VmGuestUnit(memberUnit, "terrabase-member.service"));
             if (includeAuth)
             {
+                // This VM lane uses a loopback development gateway. Production
+                // auth must route every replica to the shared GRU authority.
                 var authUnit = Path.Combine(root, "ts-auth.service");
                 await File.WriteAllTextAsync(authUnit, $$"""
                     [Unit]
@@ -590,7 +592,7 @@ public sealed class VmNodeFleetScaleHealTests
                     Type=simple
                     Environment=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
                     Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/run/ts-auth-bundle
-                    Environment=ASPNETCORE_ENVIRONMENT=Production
+                    Environment=ASPNETCORE_ENVIRONMENT=Development
                     Environment=TS_AUTH_LISTEN=http://0.0.0.0:8080
                     Environment=TS_AUTH_PUBLIC_ORIGIN=http://10.{{subnetThirdOctet}}.0.10:8080
                     Environment=TS_AUTH_TERRASCALE_API_URL=http://127.0.0.1:8420
