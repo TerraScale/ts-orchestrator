@@ -551,7 +551,7 @@ class Lab:
             try:
                 result = run([str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
                               "--operator-seed", str(self.secrets / "operator.nk"),
-                              "--urls", urls], timeout=35, allow_failure=True)
+                              "--cell", CELL, "--urls", urls], timeout=35, allow_failure=True)
                 path.write_text(result.stdout + result.stderr)
                 path.chmod(0o600)
                 self.note("cluster_diagnostics", name="nats", path=str(path),

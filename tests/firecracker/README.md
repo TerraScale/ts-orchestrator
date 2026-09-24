@@ -44,9 +44,9 @@ and installed-artifact diagnostics before stopping the VMs. If the one-node-loss
 receipt stays pending for 20 seconds, it also saves each live controller's
 journal and a read-only JetStream snapshot from direct NKey-authenticated
 connections to each controller, plus an operator-style multi-URL connection.
-The diagnostic records stream and consumer
-leadership, pending work, and lease state without dumping guest configuration,
-raw control-log payloads, or private keys. The harness
+The diagnostic uses each identity's permitted reply inbox. It records stream
+and controller-consumer leadership, pending work, and lease state without
+dumping guest configuration, raw control-log payloads, or private keys. The harness
 stops only its own VMM processes, unmounts its guest copies, deletes only its
 own TAPs and bridge, and removes copied images and credentials in a `finally`
 cleanup. On cleanup failure it retains images for manual inspection and marks

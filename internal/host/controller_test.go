@@ -91,6 +91,25 @@ func (r *stoppedRunner) Close(ctx context.Context) error {
 	return err
 }
 
+type delayedStopRunner struct {
+	*stoppedRunner
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (r *delayedStopRunner) Close(ctx context.Context) error {
+	if r.calls.Add(1) == 1 {
+		close(r.started)
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return r.stoppedRunner.Close(ctx)
+}
+
 type stalledArtifactStore struct {
 	ArtifactStore
 	started chan struct{}
@@ -383,7 +402,13 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	}
 	oldHash := sha256.Sum256([]byte("old workload"))
 	oldDigest := hex.EncodeToString(oldHash[:])
-	runner := &stoppedRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}, stopped: make(chan struct{})}
+	runner := &delayedStopRunner{
+		stoppedRunner: &stoppedRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}, stopped: make(chan struct{})},
+		started:       make(chan struct{}),
+		release:       make(chan struct{}),
+	}
+	releaseStop := sync.OnceFunc(func() { close(runner.release) })
+	defer releaseStop()
 	if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: oldDigest, Fingerprint: oldDigest}); err != nil {
 		t.Fatal(err)
 	}
@@ -415,17 +440,31 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	deadline := time.NewTimer(time.Until(leaseExpiry.Add(-500 * time.Millisecond)))
 	defer deadline.Stop()
 	select {
-	case <-runner.stopped:
+	case <-runner.started:
 		if !time.Now().Before(leaseExpiry) {
-			t.Fatal("active workload stopped after signed lease expiry")
+			t.Fatal("active workload stop began after signed lease expiry")
 		}
 	case <-deadline.C:
 		t.Fatal("pending-cycle cleanup kept active workload alive through signed lease expiry")
 	}
 	select {
 	case err := <-agentDone:
-		if err == nil {
-			t.Fatal("agent exited without session-loss error")
+		t.Fatalf("agent returned before workload stop reported the session failure: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	releaseStop()
+	select {
+	case <-runner.stopped:
+		if !time.Now().Before(leaseExpiry) {
+			t.Fatal("active workload stopped after signed lease expiry")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active workload was not stopped after release")
+	}
+	select {
+	case err := <-agentDone:
+		if err == nil || errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "host session") {
+			t.Fatalf("agent did not preserve the session-loss cause: %v", err)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("agent did not exit after session loss")

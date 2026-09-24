@@ -18,18 +18,20 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 func main() {
 	seed := flag.String("seed", "", "private controller NKey seed file")
 	operatorSeed := flag.String("operator-seed", "", "private operator NKey seed file")
+	cell := flag.String("cell", "", "regional cell name")
 	urls := flag.String("urls", "", "comma-separated direct controller URLs")
 	flag.Parse()
-	if *seed == "" || *urls == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run natsdiag.go --seed FILE --urls URL,URL,URL")
+	if *seed == "" || *cell == "" || *urls == "" {
+		fmt.Fprintln(os.Stderr, "usage: go run natsdiag.go --seed FILE --cell CELL --urls URL,URL,URL")
 		os.Exit(2)
 	}
-	option, err := nats.NkeyOptionFromSeed(*seed)
+	options, err := identityOptions(*seed, *cell)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load controller identity:", err)
 		os.Exit(1)
@@ -37,20 +39,42 @@ func main() {
 	var output sync.Mutex
 	var workers sync.WaitGroup
 	for _, url := range strings.Split(*urls, ",") {
-		workers.Go(func() { probe(url, "controller", option, &output) })
+		workers.Go(func() { probe(url, "controller", *cell, options, &output) })
 	}
 	if *operatorSeed != "" {
-		operatorOption, err := nats.NkeyOptionFromSeed(*operatorSeed)
+		operatorOptions, err := identityOptions(*operatorSeed, *cell)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "load operator identity:", err)
 			os.Exit(1)
 		}
-		workers.Go(func() { probe(*urls, "operator", operatorOption, &output) })
+		workers.Go(func() { probe(*urls, "operator", *cell, operatorOptions, &output) })
 	}
 	workers.Wait()
 }
 
-func probe(url, role string, identity nats.Option, output *sync.Mutex) {
+func identityOptions(seedFile, cell string) ([]nats.Option, error) {
+	seed, err := os.ReadFile(seedFile)
+	if err != nil {
+		return nil, err
+	}
+	pair, err := nkeys.ParseDecoratedUserNKey(seed)
+	clear(seed)
+	if err != nil {
+		return nil, err
+	}
+	public, err := pair.PublicKey()
+	pair.Wipe()
+	if err != nil {
+		return nil, err
+	}
+	identity, err := nats.NkeyOptionFromSeed(seedFile)
+	if err != nil {
+		return nil, err
+	}
+	return []nats.Option{nats.CustomInboxPrefix("ts.orch.v1." + cell + ".inbox." + public), identity}, nil
+}
+
+func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 	result := map[string]any{"requested_url": url, "role": role, "time": time.Now().UTC()}
 	defer func() {
 		encoded, err := json.Marshal(result)
@@ -62,7 +86,8 @@ func probe(url, role string, identity nats.Option, output *sync.Mutex) {
 		fmt.Println(string(encoded))
 		output.Unlock()
 	}()
-	conn, err := nats.Connect(url, identity, nats.Timeout(2*time.Second), nats.NoReconnect())
+	options := append([]nats.Option{nats.Timeout(2 * time.Second), nats.NoReconnect()}, identity...)
+	conn, err := nats.Connect(url, options...)
 	if err != nil {
 		result["connect_error"] = err.Error()
 		return
@@ -107,21 +132,23 @@ func probe(url, role string, identity nats.Option, output *sync.Mutex) {
 				"last_seq": info.State.LastSeq, "cluster": info.Cluster}, nil
 		})
 	}
-	read("delivery_consumer", func(ctx context.Context) (any, error) {
-		consumer, err := js.Consumer(ctx, delivery.IntentStream, delivery.IntentConsumer)
-		if err != nil {
-			return nil, err
-		}
-		info, err := consumer.Info(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"delivered": info.Delivered, "ack_floor": info.AckFloor,
-			"ack_pending": info.NumAckPending, "redelivered": info.NumRedelivered,
-			"waiting": info.NumWaiting, "pending": info.NumPending, "cluster": info.Cluster}, nil
-	})
+	if role == "controller" {
+		read("delivery_consumer", func(ctx context.Context) (any, error) {
+			consumer, err := js.Consumer(ctx, delivery.IntentStream, delivery.IntentConsumer)
+			if err != nil {
+				return nil, err
+			}
+			info, err := consumer.Info(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"delivered": info.Delivered, "ack_floor": info.AckFloor,
+				"ack_pending": info.NumAckPending, "redelivered": info.NumRedelivered,
+				"waiting": info.NumWaiting, "pending": info.NumPending, "cluster": info.Cluster}, nil
+		})
+	}
 	read("authority", func(ctx context.Context) (any, error) {
-		snapshot, err := authority.Observe(ctx, js, "lab")
+		snapshot, err := authority.Observe(ctx, js, cell)
 		if err != nil {
 			return nil, err
 		}

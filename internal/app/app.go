@@ -84,10 +84,16 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
-	if err := agent.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		return err
+	return hostRunResult(ctx, agent.Run(ctx))
+}
+
+// A canceled parent is a normal shutdown. An agent that cancels its own work
+// while the parent is live must fail the process so its supervisor restarts it.
+func hostRunResult(ctx context.Context, err error) error {
+	if ctx.Err() != nil && errors.Is(err, context.Canceled) {
+		return nil
 	}
-	return nil
+	return err
 }
 
 func check(ctx context.Context, cfg Config, output io.Writer) error {

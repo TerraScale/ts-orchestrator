@@ -107,12 +107,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-work.Done():
-			select {
-			case err := <-lost:
-				return err
-			default:
-				return work.Err()
+			if a.sessionLost.Load() {
+				// Session loss cancels work before workload shutdown finishes.
+				// Wait for its reason so a supervisor sees a failed host.
+				return <-lost
 			}
+			return work.Err()
 		case <-ticker.C:
 		}
 	}
