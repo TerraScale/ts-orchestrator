@@ -37,18 +37,50 @@ type gatedDesiredRead struct {
 }
 
 type oneShotSessionFailure struct {
-	jetstream.KeyValue
 	failNext atomic.Bool
 	failures atomic.Int32
 	failure  error
+	reader   func(context.Context, string) (session, uint64, bool, error)
 }
 
-func (s *oneShotSessionFailure) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
-	if key == sessionKey("gru", "node-a") && s.failNext.CompareAndSwap(true, false) {
-		s.failures.Add(1)
-		return nil, s.failure
+type sessionConflictState struct {
+	jetstream.KeyValue
+	stale      jetstream.KeyValueEntry
+	reads      atomic.Int32
+	conflicts  atomic.Int32
+	onConflict func(context.Context, string, uint64) error
+}
+
+func (s *sessionConflictState) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	if key == sessionKey("gru", "node-a") && s.stale != nil {
+		s.reads.Add(1)
+		return s.stale, nil
 	}
 	return s.KeyValue.Get(ctx, key)
+}
+
+func (s *sessionConflictState) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
+	if key == sessionKey("gru", "node-a") {
+		for remaining := s.conflicts.Load(); remaining > 0; remaining = s.conflicts.Load() {
+			if s.conflicts.CompareAndSwap(remaining, remaining-1) {
+				if s.onConflict != nil {
+					if err := s.onConflict(ctx, key, revision); err != nil {
+						return 0, err
+					}
+				}
+				return 0, jetstream.ErrKeyRevisionMismatch
+			}
+		}
+	}
+	return s.KeyValue.Update(ctx, key, value, revision)
+}
+
+func (s *oneShotSessionFailure) Read(ctx context.Context, key string) (session, uint64, bool, error) {
+	if key == sessionKey("gru", "node-a") && s.failNext.CompareAndSwap(true, false) {
+		s.failures.Add(1)
+		return session{}, 0, false, s.failure
+	}
+	return s.reader(ctx, key)
 }
 
 func (g *gatedDesiredRead) ReadHostMutation(ctx context.Context, kind authority.HostMutationKind, subject string) (authority.LogEntry, error) {
@@ -302,8 +334,8 @@ func TestSignedTransientSessionBackendRetriesWithinLease(t *testing.T) {
 func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	c, conn, _, mutations, controllerKey := testController(t)
 	hostKey := registerTestHost(t, c)
-	state := &oneShotSessionFailure{KeyValue: c.state, failure: backendErr}
-	c.state = state
+	state := &oneShotSessionFailure{failure: backendErr, reader: c.readLeaderSession}
+	c.sessionRead = state.Read
 	controllerCtx, stopController := context.WithCancel(t.Context())
 	defer stopController()
 	controllerDone := make(chan error, 1)
@@ -615,6 +647,409 @@ func TestHostSessionRejectsReplayAndForeignIdentity(t *testing.T) {
 	}
 	if _, err := c.handleSession(t.Context(), renew); err == nil {
 		t.Fatal("wrong epoch renewal accepted")
+	}
+	wrongReplay := r
+	wrongReplay.Epoch = first.(session).Epoch + 1
+	if err := signRequest(&wrongReplay, key, "gru"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleSession(t.Context(), wrongReplay); err == nil {
+		t.Fatal("same nonce acquire replay with wrong epoch accepted")
+	}
+	wrongKind := r
+	wrongKind.Payload = []byte(`{"kind":"unknown"}`)
+	if err := signRequest(&wrongKind, key, "gru"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.handleSession(t.Context(), wrongKind); err == nil {
+		t.Fatal("same nonce replay with unknown operation accepted")
+	}
+}
+
+func signedHostRequest(t *testing.T, key ed25519.PrivateKey, operation, sessionID string, epoch uint64, payload any) request {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonce, err := randomID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := request{Version: 1, Node: "node-a", Operation: operation, SessionID: sessionID, Epoch: epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
+	if err := signRequest(&r, key, "gru"); err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+func TestConcurrentRenewalAndAuthorizedRPCUseCurrentSession(t *testing.T) {
+	c, _, store, _, _ := testController(t)
+	hostKey := registerTestHost(t, c)
+	sessionID := "0123456789abcdef0123456789abcdef"
+	acquire := signedHostRequest(t, hostKey, "session", sessionID, 0, struct {
+		Kind string `json:"kind"`
+	}{"acquire"})
+	first, err := c.handleSession(t.Context(), acquire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := first.(session)
+	stale, err := c.state.Get(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("host session contention artifact")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}); err != nil {
+		t.Fatal(err)
+	}
+	artifact := signedHostRequest(t, hostKey, "artifact", sessionID, initial.Epoch, artifactQuery{Role: "terrabase", Digest: digest, Offset: 0, Length: len(data)})
+	for deadline := time.Now().Add(3 * time.Second); ; {
+		if _, err := c.handleAuthorized(t.Context(), artifact); err == nil {
+			break
+		} else if !errors.Is(err, errArtifactPreparing) || time.Now().After(deadline) {
+			t.Fatalf("prepare artifact: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	probe := &sessionConflictState{KeyValue: c.state, stale: stale}
+	probe.conflicts.Store(2)
+	c.state = probe
+	renewals := make([]request, 8)
+	for i := range renewals {
+		renewals[i] = signedHostRequest(t, hostKey, "session", sessionID, initial.Epoch, struct {
+			Kind string `json:"kind"`
+		}{"renew"})
+		renewals[i].IssuedAt = acquire.IssuedAt.Add(time.Duration(i+1) * time.Millisecond)
+		if err := signRequest(&renewals[i], hostKey, "gru"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renewDone := make(chan error, 1)
+	go func() {
+		for _, renew := range renewals {
+			if _, err := c.handleSession(t.Context(), renew); err != nil {
+				renewDone <- err
+				return
+			}
+		}
+		renewDone <- nil
+	}()
+	for range 8 {
+		for _, call := range []struct {
+			operation string
+			payload   any
+		}{
+			{"desired", struct {
+				Role string `json:"role"`
+			}{"terrabase"}},
+			{"artifact", artifactQuery{Role: "terrabase", Digest: digest, Offset: 0, Length: len(data)}},
+			{"report", Report{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, SessionID: sessionID, Epoch: initial.Epoch, State: "running", ObservedAt: time.Now().UTC()}},
+		} {
+			req := signedHostRequest(t, hostKey, call.operation, sessionID, initial.Epoch, call.payload)
+			if _, err := c.handleAuthorized(t.Context(), req); err != nil {
+				t.Fatalf("%s during renewal: %v", call.operation, err)
+			}
+		}
+	}
+	if err := <-renewDone; err != nil {
+		t.Fatalf("renewal during authorized RPCs: %v", err)
+	}
+	if got := probe.reads.Load(); got != 0 {
+		t.Fatalf("session authorization used stale direct KV.Get %d times", got)
+	}
+	current, _, exists, err := c.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || current.SessionID != sessionID || current.Epoch != initial.Epoch || !current.ExpiresAt.After(initial.ExpiresAt) {
+		t.Fatalf("session changed identity or failed to renew: %+v exists=%t err=%v", current, exists, err)
+	}
+}
+
+func TestSignedSessionContentionIsTransientWithoutLeaseChange(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	sessionID := "0123456789abcdef0123456789abcdef"
+	acquire := signedHostRequest(t, hostKey, "session", sessionID, 0, struct {
+		Kind string `json:"kind"`
+	}{"acquire"})
+	first, err := c.handleSession(t.Context(), acquire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := first.(session)
+	probe := &sessionConflictState{KeyValue: c.state}
+	c.state = probe
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case err := <-done:
+		t.Fatalf("controller stopped before ready: %v", err)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	probe.conflicts.Store(8)
+	renew := signedHostRequest(t, hostKey, "session", sessionID, initial.Epoch, struct {
+		Kind string `json:"kind"`
+	}{"renew"})
+	if err := exchange(t.Context(), conn, "gru", controllerKey.Public().(ed25519.PublicKey), renew, nil); !errors.Is(err, errSessionContention) || !retrySessionExchange(err) {
+		t.Fatalf("signed same-session renewal contention was terminal: %v", err)
+	}
+	probe.conflicts.Store(8)
+	desired := signedHostRequest(t, hostKey, "desired", sessionID, initial.Epoch, struct {
+		Role string `json:"role"`
+	}{"terrabase"})
+	if err := exchange(t.Context(), conn, "gru", controllerKey.Public().(ed25519.PublicKey), desired, nil); !errors.Is(err, errSessionContention) {
+		t.Fatalf("signed authorized contention was terminal: %v", err)
+	}
+	current, _, exists, err := c.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+	if err != nil || !exists || !sameJSON(current, initial) {
+		t.Fatalf("contended request changed signed lease: %+v exists=%t err=%v", current, exists, err)
+	}
+	cancel()
+	<-done
+}
+
+func TestAgentResumesOpenCycleAfterSignedSessionContention(t *testing.T) {
+	c, conn, store, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nexit 0\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	d := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), d); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case err := <-done:
+		t.Fatalf("controller stopped before ready: %v", err)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := randomID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := cycleQuery{Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1, Attempt: attempt}
+	var opened cycleReply
+	if err := agent.request(t.Context(), "cycle", query, &opened); err != nil || opened.State != "active" {
+		t.Fatalf("open cycle: %+v err=%v", opened, err)
+	}
+	query.CycleID, query.Fence = opened.CycleID, opened.Fence
+	agent.pending["terrabase"] = pendingCycle{query: query}
+	probe := &sessionConflictState{KeyValue: c.state}
+	probe.conflicts.Store(8)
+	c.state = probe
+	if err := agent.reconcile(t.Context(), "terrabase"); !errors.Is(err, errSessionContention) {
+		t.Fatalf("open-cycle request did not surface signed contention: %v", err)
+	}
+	if pending := agent.pending["terrabase"]; pending.outcomeReady || pending.query.CycleID != opened.CycleID || pending.query.Fence != opened.Fence {
+		t.Fatalf("transient contention completed or replaced open cycle: %+v", pending)
+	}
+	var record cycleRecord
+	if _, exists, err := c.get(t.Context(), cycleKey("gru", "node-a", "terrabase"), &record); err != nil || !exists || record.State != "active" {
+		t.Fatalf("transient contention persisted failure: %+v exists=%t err=%v", record, exists, err)
+	}
+	if err := agent.reconcile(t.Context(), "terrabase"); err != nil {
+		t.Fatalf("resume open cycle: %v", err)
+	}
+	if _, exists := agent.pending["terrabase"]; exists {
+		t.Fatal("completed cycle outcome was not flushed")
+	}
+	if _, exists, err := c.get(t.Context(), cycleKey("gru", "node-a", "terrabase"), &record); err != nil || !exists || record.State != "succeeded" || record.CycleID != opened.CycleID || record.Fence != opened.Fence || !record.NotBefore.IsZero() {
+		t.Fatalf("resumed cycle outcome: %+v exists=%t err=%v", record, exists, err)
+	}
+	runner.mu.Lock()
+	applied := runner.applied
+	runner.mu.Unlock()
+	if applied != 1 {
+		t.Fatalf("resumed cycle applied %d times, want once", applied)
+	}
+	query.Succeeded = true
+	agent.pending["terrabase"] = pendingCycle{query: query, outcomeReady: true}
+	if err := agent.reconcile(t.Context(), "terrabase"); err != nil {
+		t.Fatalf("replay completed cycle outcome: %v", err)
+	}
+	if _, exists := agent.pending["terrabase"]; exists {
+		t.Fatal("replayed completed cycle outcome remained pending")
+	}
+	runner.mu.Lock()
+	applied = runner.applied
+	runner.mu.Unlock()
+	if applied != 1 {
+		t.Fatalf("completed outcome replay applied %d times, want once", applied)
+	}
+	cancel()
+	<-done
+}
+
+func TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle(t *testing.T) {
+	c, conn, store, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	data := []byte("#!/bin/sh\nexit 0\n")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	select {
+	case <-c.Ready():
+	case err := <-done:
+		t.Fatalf("controller stopped before ready: %v", err)
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Role: "terrabase", Digest: digest, Running: true}}}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := randomID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := cycleQuery{Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1, Attempt: attempt}
+	var opened cycleReply
+	if err := agent.request(t.Context(), "cycle", query, &opened); err != nil || opened.State != "active" {
+		t.Fatalf("open old cycle: %+v err=%v", opened, err)
+	}
+	query.CycleID, query.Fence = opened.CycleID, opened.Fence
+	agent.pending["terrabase"] = pendingCycle{query: query}
+	withdrawn := desired
+	withdrawn.Generation = 2
+	withdrawn.Digest = ""
+	withdrawn.Withdrawn = true
+	if _, err := c.ApplyDesired(t.Context(), withdrawn); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.reconcile(t.Context(), "terrabase"); err != nil {
+		t.Fatalf("withdrawn reconciliation: %v", err)
+	}
+	observed, err := runner.Observe(t.Context(), "terrabase")
+	if err != nil || observed.Running {
+		t.Fatalf("withdrawal waited for next poll to stop workload: %+v err=%v", observed, err)
+	}
+	runner.mu.Lock()
+	applied := runner.applied
+	runner.mu.Unlock()
+	if applied != 0 {
+		t.Fatalf("withdrawal applied a stale target %d times", applied)
+	}
+	var cycle cycleRecord
+	if _, exists, err := c.get(t.Context(), cycleKey("gru", "node-a", "terrabase"), &cycle); err != nil || !exists || cycle.State != "failed" || cycle.CycleID != opened.CycleID {
+		t.Fatalf("old cycle was not closed: %+v exists=%t err=%v", cycle, exists, err)
+	}
+	var report Report
+	if _, exists, err := c.get(t.Context(), reportKey("gru", "node-a", "terrabase"), &report); err != nil || !exists || report.State != "stopped" || report.Generation != withdrawn.Generation {
+		t.Fatalf("withdrawn target was not reported stopped: %+v exists=%t err=%v", report, exists, err)
+	}
+	cancel()
+	<-done
+}
+
+func TestSessionRevalidationRejectsTakeoverExpiryAndRotation(t *testing.T) {
+	for _, change := range []string{"takeover", "expiry", "rotation"} {
+		t.Run(change, func(t *testing.T) {
+			c, _, _, _, _ := testController(t)
+			hostKey := registerTestHost(t, c)
+			sessionID := "0123456789abcdef0123456789abcdef"
+			acquire := signedHostRequest(t, hostKey, "session", sessionID, 0, struct {
+				Kind string `json:"kind"`
+			}{"acquire"})
+			first, err := c.handleSession(t.Context(), acquire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			initial := first.(session)
+			switch change {
+			case "takeover", "expiry":
+				next := initial
+				if change == "takeover" {
+					next.SessionID = "11111111111111111111111111111111"
+					next.Epoch++
+					raw := c.state
+					probe := &sessionConflictState{KeyValue: raw}
+					probe.conflicts.Store(1)
+					probe.onConflict = func(ctx context.Context, key string, revision uint64) error {
+						data, err := json.Marshal(next)
+						if err != nil {
+							return err
+						}
+						_, err = raw.Update(ctx, key, data, revision)
+						return err
+					}
+					c.state = probe
+				} else {
+					next.ExpiresAt = time.Now().Add(-time.Second)
+					_, revision, exists, err := c.sessionSnapshot(t.Context(), sessionKey("gru", "node-a"))
+					if err != nil || !exists {
+						t.Fatalf("read session: exists=%t err=%v", exists, err)
+					}
+					if _, err := c.cas(t.Context(), sessionKey("gru", "node-a"), next, revision); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "rotation":
+				r, err := c.registration(t.Context(), "node-a")
+				if err != nil {
+					t.Fatal(err)
+				}
+				public, _, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.Generation++
+				r.PublicKey = base64.StdEncoding.EncodeToString(public)
+				if _, err := c.Register(t.Context(), r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			desired := signedHostRequest(t, hostKey, "desired", sessionID, initial.Epoch, struct {
+				Role string `json:"role"`
+			}{"terrabase"})
+			if _, err := c.handleAuthorized(t.Context(), desired); err == nil || errors.Is(err, errSessionContention) {
+				t.Fatalf("%s remained authorized or became transient: %v", change, err)
+			}
+			renew := signedHostRequest(t, hostKey, "session", sessionID, initial.Epoch, struct {
+				Kind string `json:"kind"`
+			}{"renew"})
+			if _, err := c.handleSession(t.Context(), renew); err == nil || errors.Is(err, errSessionContention) {
+				t.Fatalf("%s renewal remained live or became transient: %v", change, err)
+			}
+		})
 	}
 }
 

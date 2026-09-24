@@ -25,8 +25,15 @@ type Agent struct {
 	mu          sync.RWMutex
 	session     session
 	processID   string
-	pending     map[string]cycleQuery
+	pending     map[string]pendingCycle
 	sessionLost atomic.Bool
+}
+
+// An open cycle has no outcome until work has succeeded or failed. A transient
+// session conflict must not turn that open cycle into a failed outcome.
+type pendingCycle struct {
+	query        cycleQuery
+	outcomeReady bool
 }
 
 func NewAgent(cfg AgentConfig) (*Agent, error) {
@@ -66,7 +73,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]cycleQuery)}, nil
+	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle)}, nil
 }
 
 // Run recovers native ownership before remote admission, then maintains the
@@ -177,7 +184,7 @@ func (a *Agent) waitForSession(ctx context.Context) error {
 }
 
 func retrySessionExchange(err error) bool {
-	return errors.Is(err, errSessionBackendUnavailable) || transientSessionTransport(err)
+	return errors.Is(err, errSessionBackendUnavailable) || errors.Is(err, errSessionContention) || transientSessionTransport(err)
 }
 
 func sessionUsableUntil(s session, now time.Time) bool {
@@ -258,8 +265,12 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if a.sessionLost.Load() {
 		return errors.New("host session was lost")
 	}
-	if err := a.flushCycle(ctx, role); err != nil {
-		return err
+	pending, hasPending := a.pending[role]
+	if hasPending && pending.outcomeReady {
+		if err := a.flushCycle(ctx, role); err != nil {
+			return err
+		}
+		hasPending = false
 	}
 	var target desiredReply
 	if err := a.request(ctx, "desired", struct {
@@ -268,14 +279,25 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	if target.Desired == nil {
+		if hasPending {
+			if err := a.failPendingCycle(ctx, role); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 	d := *target.Desired
 	if d.Cell != a.cfg.Cell || d.Node != a.cfg.Node || d.Environment != a.cfg.Environment || d.Role != role || d.Generation == 0 {
 		return errors.New("desired identity mismatch")
 	}
+	if hasPending && (d.Withdrawn || d.Generation != pending.query.Generation || d.Digest != pending.query.Digest || d.AuthorityEpoch != pending.query.AuthorityEpoch) {
+		if err := a.failPendingCycle(ctx, role); err != nil {
+			return err
+		}
+		hasPending = false
+	}
 	defer func() {
-		if resultErr != nil {
+		if resultErr != nil && !errors.Is(resultErr, errSessionContention) {
 			_ = a.publishReport(ctx, a.reportFor(d, "failed", resultErr))
 		}
 	}()
@@ -297,28 +319,43 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	if current.Running && current.Digest == d.Digest && current.Fingerprint == fingerprint {
+		if hasPending {
+			pending.query.Succeeded = true
+			pending.outcomeReady = true
+			a.pending[role] = pending
+			if err := a.flushCycle(ctx, role); err != nil {
+				return err
+			}
+		}
 		return a.publishReport(ctx, a.reportFor(d, "running", nil))
 	}
-	attempt, err := randomID()
-	if err != nil {
-		return err
-	}
-	query := cycleQuery{Role: role, Digest: d.Digest, Generation: d.Generation, AuthorityEpoch: d.AuthorityEpoch, Attempt: attempt}
+	var query cycleQuery
 	var cycle cycleReply
-	if err := a.request(ctx, "cycle", query, &cycle); err != nil {
-		return err
+	if hasPending {
+		query = pending.query
+		cycle = cycleReply{CycleID: query.CycleID, Fence: query.Fence, State: "active"}
+	} else {
+		attempt, err := randomID()
+		if err != nil {
+			return err
+		}
+		query = cycleQuery{Role: role, Digest: d.Digest, Generation: d.Generation, AuthorityEpoch: d.AuthorityEpoch, Attempt: attempt}
+		if err := a.request(ctx, "cycle", query, &cycle); err != nil {
+			return err
+		}
+		if cycle.State != "active" {
+			return nil
+		}
+		query.CycleID = cycle.CycleID
+		query.Fence = cycle.Fence
+		a.pending[role] = pendingCycle{query: query}
 	}
-	if cycle.State != "active" {
-		return nil
-	}
-	query.CycleID = cycle.CycleID
-	query.Fence = cycle.Fence
-	a.pending[role] = query
 	cycleSucceeded := false
 	defer func() {
-		if resultErr != nil && !cycleSucceeded {
+		if resultErr != nil && !cycleSucceeded && !errors.Is(resultErr, errSessionContention) {
 			pending := a.pending[role]
-			pending.Succeeded = false
+			pending.query.Succeeded = false
+			pending.outcomeReady = true
 			a.pending[role] = pending
 			if ctx.Err() != nil || a.sessionLost.Load() {
 				return
@@ -342,7 +379,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return errors.New("desired target changed before native apply")
 	}
 	var active cycleReply
-	if err := a.request(ctx, "cycle", cycleQuery{Role: role, Digest: d.Digest, Generation: d.Generation, AuthorityEpoch: d.AuthorityEpoch, Attempt: attempt}, &active); err != nil {
+	if err := a.request(ctx, "cycle", cycleQuery{Role: role, Digest: d.Digest, Generation: d.Generation, AuthorityEpoch: d.AuthorityEpoch, Attempt: query.Attempt}, &active); err != nil {
 		return err
 	}
 	if active.State != "active" || active.CycleID != cycle.CycleID || active.Fence != cycle.Fence {
@@ -359,8 +396,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return errors.New("native workload did not start")
 	}
 	cycleSucceeded = true
-	pending := a.pending[role]
-	pending.Succeeded = true
+	pending = a.pending[role]
+	pending.query.Succeeded = true
+	pending.outcomeReady = true
 	a.pending[role] = pending
 	if err := a.flushCycle(ctx, role); err != nil {
 		return err
@@ -382,10 +420,11 @@ func desiredFingerprint(d Desired) (string, error) {
 }
 
 func (a *Agent) flushCycle(ctx context.Context, role string) error {
-	query, ok := a.pending[role]
-	if !ok {
+	pending, ok := a.pending[role]
+	if !ok || !pending.outcomeReady {
 		return nil
 	}
+	query := pending.query
 	var result cycleReply
 	if err := a.request(ctx, "cycle", query, &result); err != nil {
 		return err
@@ -399,6 +438,14 @@ func (a *Agent) flushCycle(ctx context.Context, role string) error {
 	}
 	delete(a.pending, role)
 	return nil
+}
+
+func (a *Agent) failPendingCycle(ctx context.Context, role string) error {
+	pending := a.pending[role]
+	pending.query.Succeeded = false
+	pending.outcomeReady = true
+	a.pending[role] = pending
+	return a.flushCycle(ctx, role)
 }
 
 func (a *Agent) reportFor(d Desired, state string, failure error) Report {
@@ -460,7 +507,7 @@ func (a *Agent) fetchArtifact(ctx context.Context, role, digest string) (string,
 	for {
 		var part artifactReply
 		if err := a.request(ctx, "artifact", artifactQuery{Role: role, Digest: digest, Offset: offset, Length: artifactChunkBytes}, &part); err != nil {
-			if errors.Is(err, errArtifactPreparing) {
+			if errors.Is(err, errArtifactPreparing) || errors.Is(err, errSessionContention) {
 				select {
 				case <-ctx.Done():
 					return "", ctx.Err()

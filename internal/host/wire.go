@@ -179,6 +179,9 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	}
 	if result.Error != "" {
 		if result.Retryable {
+			if result.Error == errSessionContention.Error() {
+				return errSessionContention
+			}
 			if r.Operation == "session" {
 				return fmt.Errorf("%w: %s", errSessionBackendUnavailable, result.Error)
 			}

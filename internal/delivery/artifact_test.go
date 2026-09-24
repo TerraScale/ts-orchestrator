@@ -27,6 +27,120 @@ func (s *putCountingObjectStore) Put(ctx context.Context, metadata jetstream.Obj
 	return s.ObjectStore.Put(ctx, metadata, source)
 }
 
+type delayedVisibilityObjectStore struct {
+	jetstream.ObjectStore
+	getInfoCalls          int
+	getCalls              int
+	putCalls              int
+	getInfoMisses         int
+	getMisses             int
+	afterPutGetInfoMisses int
+	afterPutGetMisses     int
+}
+
+func (s *delayedVisibilityObjectStore) GetInfo(ctx context.Context, name string, opts ...jetstream.GetObjectInfoOpt) (*jetstream.ObjectInfo, error) {
+	s.getInfoCalls++
+	if s.getInfoMisses > 0 {
+		s.getInfoMisses--
+		return nil, jetstream.ErrObjectNotFound
+	}
+	return s.ObjectStore.GetInfo(ctx, name, opts...)
+}
+
+func (s *delayedVisibilityObjectStore) Get(ctx context.Context, name string, opts ...jetstream.GetObjectOpt) (jetstream.ObjectResult, error) {
+	s.getCalls++
+	if s.getMisses > 0 {
+		s.getMisses--
+		return nil, jetstream.ErrObjectNotFound
+	}
+	return s.ObjectStore.Get(ctx, name, opts...)
+}
+
+func (s *delayedVisibilityObjectStore) Put(ctx context.Context, metadata jetstream.ObjectMeta, source io.Reader) (*jetstream.ObjectInfo, error) {
+	s.putCalls++
+	info, err := s.ObjectStore.Put(ctx, metadata, source)
+	if err == nil {
+		s.getInfoMisses += s.afterPutGetInfoMisses
+		s.getMisses += s.afterPutGetMisses
+	}
+	return info, err
+}
+
+func TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses(t *testing.T) {
+	for _, test := range []struct {
+		name                  string
+		afterPutGetInfoMisses int
+		afterPutGetMisses     int
+		wantGetCalls          int
+		wantGetInfoCalls      int
+	}{
+		{name: "metadata temporarily unavailable", afterPutGetInfoMisses: 2, wantGetCalls: 1, wantGetInfoCalls: 3},
+		{name: "metadata replica misses object read", afterPutGetMisses: 2, wantGetCalls: 3, wantGetInfoCalls: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, ctx := testService(t, &testWriter{})
+			store := &delayedVisibilityObjectStore{
+				ObjectStore: service.artifacts, afterPutGetInfoMisses: test.afterPutGetInfoMisses,
+				afterPutGetMisses: test.afterPutGetMisses,
+			}
+			service.artifacts = store
+
+			content := []byte("replicated object becomes visible shortly after put")
+			record, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+			if err != nil {
+				t.Fatalf("PrepareArtifact() error = %v", err)
+			}
+			if store.putCalls != 1 {
+				t.Fatalf("Put calls = %d, want one immutable upload", store.putCalls)
+			}
+			if store.getCalls != test.wantGetCalls {
+				t.Fatalf("object read calls = %d, want %d", store.getCalls, test.wantGetCalls)
+			}
+			if store.getInfoCalls != test.wantGetInfoCalls {
+				t.Fatalf("metadata reads = %d, want %d", store.getInfoCalls, test.wantGetInfoCalls)
+			}
+			if err := service.verifyArtifact(ctx, record); err != nil {
+				t.Fatalf("verified object does not match the admitted digest: %v", err)
+			}
+		})
+	}
+}
+
+func TestAcceptArtifactClaimRetriesTemporaryObjectReadMiss(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts}
+	service.artifacts = store
+	_, claim, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("admitted artifact")), artifactTestRequest())
+	if err != nil {
+		t.Fatalf("PrepareArtifact() error = %v", err)
+	}
+	store.getMisses = 1
+	if _, err := service.AcceptArtifactClaim(ctx, claim); err != nil {
+		t.Fatalf("AcceptArtifactClaim() during temporary object read miss = %v", err)
+	}
+	if store.getCalls < 3 {
+		t.Fatalf("object read calls = %d, want initial upload verification plus retry", store.getCalls)
+	}
+}
+
+func TestVerifyArtifactFailsClosedAfterVisibilityRetryBound(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	record, _, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact that must remain visible")), artifactTestRequest())
+	if err != nil {
+		t.Fatalf("PrepareArtifact() error = %v", err)
+	}
+	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts, getInfoMisses: artifactVisibilityAttempts}
+	service.artifacts = store
+
+	err = service.verifyArtifact(ctx, record)
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("verifyArtifact() after persistent absence = %v, want ErrInvalid", err)
+	}
+	if store.getInfoCalls != artifactVisibilityAttempts {
+		t.Fatalf("metadata read attempts = %d, want bounded limit %d", store.getInfoCalls, artifactVisibilityAttempts)
+	}
+}
+
 func TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify(t *testing.T) {
 	service, ctx := testService(t, &testWriter{})
 	counting := &putCountingObjectStore{ObjectStore: service.artifacts}
@@ -62,6 +176,40 @@ func TestPrepareArtifactSkipsPutWhenStoredDigestAndSizeVerify(t *testing.T) {
 	}
 	if firstInfo.Chunks != secondInfo.Chunks {
 		t.Fatalf("stored object chunks changed on retry: first=%d second=%d", firstInfo.Chunks, secondInfo.Chunks)
+	}
+}
+
+func TestPrepareArtifactUsesLeaderMetadataBeforeReplacingExistingObject(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	request := artifactTestRequest()
+	content := bytes.Repeat([]byte("same immutable artifact"), 1024)
+	existing, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("initial PrepareArtifact() error = %v", err)
+	}
+	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts, getInfoMisses: 1}
+	service.artifacts = store
+	before, err := store.ObjectStore.GetInfo(ctx, artifactKey(existing.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(before retry) error = %v", err)
+	}
+
+	retried, _, err := service.PrepareArtifact(ctx, bytes.NewReader(content), request)
+	if err != nil {
+		t.Fatalf("PrepareArtifact() with stale direct-read miss = %v", err)
+	}
+	if retried != existing {
+		t.Fatalf("retry changed immutable record: before=%+v after=%+v", existing, retried)
+	}
+	if store.putCalls != 0 {
+		t.Fatalf("Put calls after stale direct-read miss = %d, want no replacement", store.putCalls)
+	}
+	after, err := store.ObjectStore.GetInfo(ctx, artifactKey(existing.Digest))
+	if err != nil {
+		t.Fatalf("GetInfo(after retry) error = %v", err)
+	}
+	if after.NUID != before.NUID || after.Chunks != before.Chunks {
+		t.Fatalf("retry replaced stored chunks: before NUID=%s chunks=%d, after NUID=%s chunks=%d", before.NUID, before.Chunks, after.NUID, after.Chunks)
 	}
 }
 

@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -165,7 +166,14 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 	}
 	after := waitR3Authority(t, ctx, probe, priorEpoch, failedPeer)
 	t.Logf("host_url=%s authority_after=%+v", hostRuntime.Conn().ConnectedUrl(), after)
-	secondDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 2, probe)
+	operatorProbe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3,
+		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer operatorProbe.Close()
+	secondDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 2,
+		&r3CallerDiagnostics{probe: probe, operatorProbe: operatorProbe, agentDone: agentDone})
 	if firstDigest == secondDigest {
 		t.Fatal("replacement workload did not change artifact digest")
 	}
@@ -244,7 +252,13 @@ func waitR3HostSession(t *testing.T, ctx context.Context, config string, agentDo
 	return host.HostStatus{}
 }
 
-func deployR3Workload(t *testing.T, ctx context.Context, root, config string, runner *inMemoryRunner, generation uint64, probe ...*natscell.Runtime) string {
+type r3CallerDiagnostics struct {
+	probe         *natscell.Runtime
+	operatorProbe *natscell.Runtime
+	agentDone     <-chan error
+}
+
+func deployR3Workload(t *testing.T, ctx context.Context, root, config string, runner *inMemoryRunner, generation uint64, diagnostics ...*r3CallerDiagnostics) string {
 	t.Helper()
 	path := filepath.Join(root, fmt.Sprintf("workload-%d", generation))
 	if err := os.WriteFile(path, []byte(fmt.Sprintf("#!/bin/sh\n# generation %d\nsleep 30\n", generation)), 0o755); err != nil {
@@ -252,12 +266,37 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 	}
 	source := delivery.ArtifactSource{Repository: "https://example.com/terrascale/r3-caller",
 		Commit: strings.Repeat("a", 40), TreeDigest: strings.Repeat("b", 64)}
+	var stopAdmissionMonitor chan struct{}
+	var admissionMonitorDone chan struct{}
+	if len(diagnostics) != 0 {
+		stopAdmissionMonitor = make(chan struct{})
+		admissionMonitorDone = make(chan struct{})
+		go func() {
+			defer close(admissionMonitorDone)
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-stopAdmissionMonitor:
+					return
+				case <-ticker.C:
+					logR3AdmissionState(t, t.Context(), diagnostics[0].probe, diagnostics[0].operatorProbe)
+				}
+			}
+		}()
+	}
+	pushStarted := time.Now()
 	data, err := callR3Operator(ctx, config, "artifact-push", "--file", path,
 		"--repository", source.Repository, "--commit", source.Commit, "--tree-digest", source.TreeDigest,
 		"--role", "terrabase", "--environment", "test")
+	if stopAdmissionMonitor != nil {
+		close(stopAdmissionMonitor)
+		<-admissionMonitorDone
+		t.Logf("generation-%d artifact push elapsed=%s error=%v", generation, time.Since(pushStarted), err)
+	}
 	if err != nil {
-		if len(probe) != 0 {
-			logR3AdmissionState(t, ctx, probe[0])
+		if len(diagnostics) != 0 {
+			logR3AdmissionState(t, t.Context(), diagnostics[0].probe, diagnostics[0].operatorProbe)
 		}
 		t.Fatalf("push artifact generation %d: %v", generation, err)
 	}
@@ -309,10 +348,23 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 	if err := ctx.Err(); err != nil {
 		t.Fatalf("workload generation %d not accepted: %v; last status %s", generation, err, lastStatus)
 	}
+	nextDiagnostic := time.Now().Add(15 * time.Second)
 	for ctx.Err() == nil {
 		observed, _ := runner.Observe(ctx, "terrabase")
 		if observed.Running && observed.Digest == record.Digest {
 			return record.Digest
+		}
+		if len(diagnostics) != 0 {
+			select {
+			case agentErr := <-diagnostics[0].agentDone:
+				logR3CallerState(t, ctx, config, runner, diagnostics[0].probe)
+				t.Fatalf("host agent exited before workload generation %d applied: %v", generation, agentErr)
+			default:
+			}
+			if !time.Now().Before(nextDiagnostic) {
+				logR3CallerState(t, ctx, config, runner, diagnostics[0].probe)
+				nextDiagnostic = time.Now().Add(15 * time.Second)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -323,8 +375,63 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 	return ""
 }
 
-func logR3AdmissionState(t *testing.T, ctx context.Context, probe *natscell.Runtime) {
+func logR3CallerState(t *testing.T, ctx context.Context, config string, runner *inMemoryRunner, probe *natscell.Runtime) {
 	t.Helper()
+	observed, observeErr := runner.Observe(ctx, "terrabase")
+	t.Logf("generation-2 runner: %+v err=%v", observed, observeErr)
+	attempt, stop := context.WithTimeout(ctx, 2*time.Second)
+	data, err := callR3Operator(attempt, config, "hosts")
+	stop()
+	if err == nil {
+		var statuses []host.HostStatus
+		err = json.Unmarshal(data, &statuses)
+		if err == nil {
+			for _, status := range statuses {
+				t.Logf("generation-2 host %s: session_expires=%s reports=%+v", status.Registration.Node,
+					status.SessionExpiresAt.Format(time.RFC3339Nano), status.Reports)
+			}
+		}
+	}
+	if err != nil {
+		t.Logf("generation-2 hosts read: %v", err)
+	}
+	legacy, err := probe.Conn().JetStream()
+	if err != nil {
+		t.Logf("generation-2 cycle reader: %v", err)
+		return
+	}
+	attempt, stop = context.WithTimeout(ctx, 2*time.Second)
+	message, err := legacy.GetLastMsg("KV_TS_HOST_STATE", "$KV.TS_HOST_STATE.cycle.lab.node-a.terrabase", nats.Context(attempt))
+	stop()
+	if err != nil {
+		t.Logf("generation-2 cycle read: %v", err)
+		return
+	}
+	var cycle struct {
+		Generation     uint64    `json:"generation"`
+		AuthorityEpoch uint64    `json:"authority_epoch"`
+		State          string    `json:"state"`
+		Failures       int       `json:"failures"`
+		NotBefore      time.Time `json:"not_before"`
+	}
+	if err := json.Unmarshal(message.Data, &cycle); err != nil {
+		t.Logf("generation-2 cycle decode: %v", err)
+		return
+	}
+	t.Logf("generation-2 cycle: seq=%d state=%s generation=%d authority_epoch=%d failures=%d not_before=%s",
+		message.Sequence, cycle.State, cycle.Generation, cycle.AuthorityEpoch, cycle.Failures, cycle.NotBefore.Format(time.RFC3339Nano))
+}
+
+func logR3AdmissionState(t *testing.T, ctx context.Context, probe, operatorProbe *natscell.Runtime) {
+	t.Helper()
+	attempt, stop := context.WithTimeout(ctx, 2*time.Second)
+	account, err := probe.JetStream().AccountInfo(attempt)
+	stop()
+	if err != nil {
+		t.Logf("admission controller account: %v", err)
+	} else {
+		t.Logf("admission controller account: %+v", account.API)
+	}
 	for _, name := range []string{authority.ControlStreamName, "KV_TS_DELIVERY_ADMISSIONS", "OBJ_TS_ARTIFACTS"} {
 		attempt, stop := context.WithTimeout(ctx, 2*time.Second)
 		stream, err := probe.JetStream().Stream(attempt, name)
@@ -340,8 +447,20 @@ func logR3AdmissionState(t *testing.T, ctx context.Context, probe *natscell.Runt
 			t.Logf("admission stream %s: %v", name, err)
 		}
 	}
-	attempt, stop := context.WithTimeout(ctx, 2*time.Second)
+	attempt, stop = context.WithTimeout(ctx, 2*time.Second)
 	snapshot, err := authority.Observe(attempt, probe.JetStream(), "lab")
 	stop()
 	t.Logf("admission authority=%+v err=%v probe_url=%s", snapshot, err, probe.Conn().ConnectedUrl())
+	attempt, stop = context.WithTimeout(ctx, 2*time.Second)
+	account, err = operatorProbe.JetStream().AccountInfo(attempt)
+	stop()
+	if err != nil {
+		t.Logf("admission operator account: %v", err)
+	} else {
+		t.Logf("admission operator account: %+v", account.API)
+	}
+	attempt, stop = context.WithTimeout(ctx, 2*time.Second)
+	_, err = operatorProbe.JetStream().ObjectStore(attempt, delivery.ArtifactBucket)
+	stop()
+	t.Logf("admission operator artifact bind: err=%v operator_url=%s", err, operatorProbe.Conn().ConnectedUrl())
 }

@@ -24,6 +24,7 @@ import (
 type Controller struct {
 	cell             string
 	conn             *nats.Conn
+	sessionRead      func(context.Context, string) (session, uint64, bool, error)
 	state            jetstream.KeyValue
 	controlLog       jetstream.Stream
 	readOnly         bool
@@ -136,6 +137,43 @@ func (c *Controller) cas(ctx context.Context, key string, value any, revision ui
 		return c.state.Create(ctx, key, data)
 	}
 	return c.state.Update(ctx, key, data, revision)
+}
+
+// sessionSnapshot uses the stream leader because KV.Get can read a lagging
+// replica when the bucket has direct reads enabled.
+func (c *Controller) sessionSnapshot(ctx context.Context, key string) (session, uint64, bool, error) {
+	if c.sessionRead != nil {
+		return c.sessionRead(ctx, key)
+	}
+	return c.readLeaderSession(ctx, key)
+}
+
+func (c *Controller) readLeaderSession(ctx context.Context, key string) (session, uint64, bool, error) {
+	if c.conn == nil { // Read-only readers have no NATS connection.
+		var s session
+		revision, exists, err := c.get(ctx, key, &s)
+		return s, revision, exists, err
+	}
+	js, err := c.conn.JetStream()
+	if err != nil {
+		return session{}, 0, false, err
+	}
+	subject := "$KV." + stateBucket + "." + key
+	msg, err := js.GetLastMsg("KV_"+stateBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return session{}, 0, false, nil
+	}
+	if err != nil {
+		return session{}, 0, false, err
+	}
+	if msg == nil || msg.Subject != subject || msg.Sequence == 0 || len(msg.Data) > 64<<10 || msg.Header.Get("KV-Operation") != "" {
+		return session{}, 0, false, errors.New("invalid host session state")
+	}
+	var s session
+	if err := decodeStrict(msg.Data, &s); err != nil {
+		return session{}, 0, false, fmt.Errorf("corrupt host session state: %w", err)
+	}
+	return s, msg.Sequence, true, nil
 }
 
 // Register admits a public host key and role scope. A generation is immutable.
@@ -281,8 +319,7 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 			continue
 		}
 		status := HostStatus{Registration: r, Verified: !c.readOnly}
-		var s session
-		sessionRevision, exists, err := c.get(ctx, sessionKey(c.cell, r.Node), &s)
+		s, sessionRevision, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
 		if err != nil {
 			return nil, err
 		}
@@ -319,14 +356,9 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 				}
 				status.Reports = append(status.Reports, report)
 			}
-			if c.readOnly {
-				var check session
-				checkRevision, ok, err := c.get(ctx, sessionKey(c.cell, r.Node), &check)
-				if err != nil || !ok || checkRevision != sessionRevision || !sameJSON(check, s) {
-					return nil, errors.New("session changed during host status read")
-				}
-			} else if _, err := c.cas(ctx, sessionKey(c.cell, r.Node), s, sessionRevision); err != nil {
-				return nil, fmt.Errorf("session changed during host status read: %w", err)
+			check, checkRevision, ok, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
+			if err != nil || !ok || checkRevision != sessionRevision || !sameJSON(check, s) {
+				return nil, errors.New("session changed during host status read")
 			}
 		}
 		confirmed, confirmedRevision, ok, err := c.readRegistration(ctx, node)
@@ -402,9 +434,9 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	if err != nil {
 		result.Error = err.Error()
 		if req.Operation == "session" {
-			result.Retryable = transientSessionTransport(err)
+			result.Retryable = transientSessionTransport(err) || errors.Is(err, errSessionContention)
 		} else {
-			result.Retryable = errors.Is(err, errArtifactPreparing)
+			result.Retryable = errors.Is(err, errArtifactPreparing) || errors.Is(err, errSessionContention)
 		}
 	} else if payload != nil {
 		result.Payload, _ = json.Marshal(payload)
@@ -437,17 +469,6 @@ func (c *Controller) registration(ctx context.Context, node string) (Registratio
 }
 
 func (c *Controller) handleSession(ctx context.Context, req request) (any, error) {
-	r, err := c.registration(ctx, req.Node)
-	if err != nil {
-		return nil, err
-	}
-	key, err := decodePublicKey(r.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
-		return nil, err
-	}
 	var operation struct {
 		Kind string `json:"kind"`
 	}
@@ -455,17 +476,30 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		return nil, err
 	}
 	stateKey := sessionKey(c.cell, req.Node)
-	for range 8 {
-		now := time.Now().UTC()
-		var old session
-		revision, exists, err := c.get(ctx, stateKey, &old)
+	for attempt := range 8 {
+		r, err := c.registration(ctx, req.Node)
 		if err != nil {
 			return nil, err
 		}
-		if exists && old.RegistrationGeneration == r.Generation && req.SessionID == old.SessionID && req.Nonce == old.LastNonce && req.IssuedAt.Equal(old.LastIssuedAt) && now.Before(old.ExpiresAt) {
+		key, err := decodePublicKey(r.PublicKey)
+		if err != nil {
+			return nil, err
+		}
+		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
+		if err != nil {
+			return nil, err
+		}
+		if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
 			if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
 				return old, nil
 			} else if casConflict(err) {
+				if err := waitSessionConflict(ctx, attempt); err != nil {
+					return nil, err
+				}
 				continue
 			} else {
 				return nil, err
@@ -488,7 +522,7 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 				next.Epoch = old.Epoch + 1
 			}
 		case "renew":
-			if !exists || old.RegistrationGeneration != r.Generation || old.SessionID != req.SessionID || old.Epoch != req.Epoch || !now.Before(old.ExpiresAt) || !req.IssuedAt.After(old.LastIssuedAt) {
+			if !exists || !renewableSession(old, r, req, now) {
 				return nil, errors.New("session is no longer renewable")
 			}
 			next = old
@@ -505,11 +539,98 @@ func (c *Controller) handleSession(ctx context.Context, req request) (any, error
 		if !casConflict(err) {
 			return nil, err
 		}
+		if err := waitSessionConflict(ctx, attempt); err != nil {
+			return nil, err
+		}
 	}
-	return nil, errors.New("session contention")
+	r, err := c.registration(ctx, req.Node)
+	if err != nil {
+		return nil, err
+	}
+	key, err := decodePublicKey(r.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if exists && exactSessionReplay(old, r, req, operation.Kind, now) {
+		if _, err := c.cas(ctx, stateKey, old, revision); err == nil {
+			return old, nil
+		} else if !casConflict(err) {
+			return nil, err
+		}
+		return nil, errSessionContention
+	}
+	switch operation.Kind {
+	case "acquire":
+		if req.Epoch != 0 {
+			return nil, errors.New("acquire requires epoch zero")
+		}
+		if exists && old.RegistrationGeneration == r.Generation && now.Before(old.ExpiresAt) {
+			return nil, errSessionOwned
+		}
+	case "renew":
+		if !exists || !renewableSession(old, r, req, now) {
+			return nil, errors.New("session is no longer renewable")
+		}
+	default:
+		return nil, errors.New("unknown session operation")
+	}
+	return nil, errSessionContention
+}
+
+func exactSessionReplay(old session, r Registration, req request, kind string, now time.Time) bool {
+	replayEpoch := kind == "acquire" && req.Epoch == 0 || kind == "renew" && req.Epoch == old.Epoch
+	return replayEpoch && old.RegistrationGeneration == r.Generation && old.SessionID == req.SessionID &&
+		old.LastNonce == req.Nonce && old.LastIssuedAt.Equal(req.IssuedAt) && now.Before(old.ExpiresAt)
+}
+
+func renewableSession(old session, r Registration, req request, now time.Time) bool {
+	return old.RegistrationGeneration == r.Generation && old.SessionID == req.SessionID && old.Epoch == req.Epoch &&
+		now.Before(old.ExpiresAt) && req.IssuedAt.After(old.LastIssuedAt)
+}
+
+func currentAuthorizedSession(s session, r Registration, req request, now time.Time) bool {
+	return s.RegistrationGeneration == r.Generation && s.SessionID == req.SessionID && s.Epoch == req.Epoch &&
+		now.Before(s.ExpiresAt) && !req.IssuedAt.Before(s.LastIssuedAt.Add(-requestTTL))
 }
 
 func (c *Controller) authorize(ctx context.Context, req request) (Registration, session, error) {
+	stateKey := sessionKey(c.cell, req.Node)
+	for attempt := range 8 {
+		r, err := c.registration(ctx, req.Node)
+		if err != nil {
+			return Registration{}, session{}, err
+		}
+		key, err := decodePublicKey(r.PublicKey)
+		if err != nil {
+			return Registration{}, session{}, err
+		}
+		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+			return Registration{}, session{}, err
+		}
+		s, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
+		if err != nil {
+			return Registration{}, session{}, err
+		}
+		if !exists || !currentAuthorizedSession(s, r, req, time.Now()) {
+			return Registration{}, session{}, errors.New("host session is not current")
+		}
+		if _, err := c.cas(ctx, stateKey, s, revision); err == nil {
+			return r, s, nil
+		} else if !casConflict(err) {
+			return Registration{}, session{}, fmt.Errorf("host session changed: %w", err)
+		}
+		if err := waitSessionConflict(ctx, attempt); err != nil {
+			return Registration{}, session{}, err
+		}
+	}
 	r, err := c.registration(ctx, req.Node)
 	if err != nil {
 		return Registration{}, session{}, err
@@ -521,19 +642,27 @@ func (c *Controller) authorize(ctx context.Context, req request) (Registration, 
 	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 		return Registration{}, session{}, err
 	}
-	var s session
-	stateKey := sessionKey(c.cell, req.Node)
-	revision, exists, err := c.get(ctx, stateKey, &s)
+	s, _, exists, err := c.sessionSnapshot(ctx, stateKey)
 	if err != nil {
 		return Registration{}, session{}, err
 	}
-	if !exists || s.RegistrationGeneration != r.Generation || s.SessionID != req.SessionID || s.Epoch != req.Epoch || !time.Now().Before(s.ExpiresAt) || req.IssuedAt.Before(s.LastIssuedAt.Add(-requestTTL)) {
+	if !exists || !currentAuthorizedSession(s, r, req, time.Now()) {
 		return Registration{}, session{}, errors.New("host session is not current")
 	}
-	if _, err := c.cas(ctx, stateKey, s, revision); err != nil {
-		return Registration{}, session{}, fmt.Errorf("host session changed: %w", err)
+	return Registration{}, session{}, errSessionContention
+}
+
+var errSessionContention = errors.New("session contention")
+
+func waitSessionConflict(ctx context.Context, attempt int) error {
+	timer := time.NewTimer(time.Duration(attempt+1) * 2 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
-	return r, s, nil
 }
 
 func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, error) {

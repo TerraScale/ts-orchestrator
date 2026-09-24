@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	nats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -79,7 +81,7 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 	if err != nil {
 		return ArtifactRecord{}, nil, fmt.Errorf("sign artifact claim: %w", err)
 	}
-	exists, err := s.checkArtifact(ctx, r)
+	exists, err := s.artifactExistsForUpload(ctx, r.Digest)
 	if err != nil {
 		return ArtifactRecord{}, nil, err
 	}
@@ -93,11 +95,52 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 			}
 			return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w", err)
 		}
-		if err := s.verifyArtifact(ctx, r); err != nil {
-			return ArtifactRecord{}, nil, err
-		}
+	}
+	if err := s.verifyArtifact(ctx, r); err != nil {
+		return ArtifactRecord{}, nil, err
 	}
 	return r, envelope, nil
+}
+
+func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	// The modern ObjectStore.GetInfo uses direct reads when object-store
+	// streams allow them. Its follower read can miss a committed object, so use
+	// the legacy SDK's standard MSG.GET lookup before deciding to replace it.
+	options := s.js.Options()
+	legacyOptions := make([]nats.JSOpt, 0, 2)
+	if options.Domain != "" {
+		legacyOptions = append(legacyOptions, nats.Domain(options.Domain))
+	} else if options.APIPrefix != "" {
+		legacyOptions = append(legacyOptions, nats.APIPrefix(options.APIPrefix))
+	}
+	if options.DefaultTimeout > 0 {
+		legacyOptions = append(legacyOptions, nats.MaxWait(options.DefaultTimeout))
+	}
+	legacyJS, err := s.js.Conn().JetStream(legacyOptions...)
+	if err != nil {
+		return false, fmt.Errorf("bind artifact metadata reader: %w", err)
+	}
+	legacyArtifacts, err := legacyJS.ObjectStore(ArtifactBucket)
+	if err != nil {
+		return false, fmt.Errorf("bind authoritative artifact metadata reader: %w", err)
+	}
+	info, err := legacyArtifacts.GetInfo(artifactKey(digest), nats.Context(ctx))
+	if errors.Is(err, nats.ErrObjectNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect authoritative artifact metadata: %w", err)
+	}
+	if info == nil {
+		return false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func isArtifactStoreFullError(err error) bool {
@@ -291,15 +334,37 @@ func (s *Service) ResolveAdmittedArtifact(ctx context.Context, digest, role, env
 }
 
 func (s *Service) verifyArtifact(ctx context.Context, r ArtifactRecord) error {
-	exists, err := s.checkArtifact(ctx, r)
-	if err != nil {
-		return err
+	delay := 20 * time.Millisecond
+	for attempt := range artifactVisibilityAttempts {
+		exists, err := s.checkArtifact(ctx, r)
+		if err == nil && exists {
+			return nil
+		}
+		if !(err == nil && !exists || errors.Is(err, jetstream.ErrObjectNotFound)) {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if attempt == artifactVisibilityAttempts-1 {
+			return fmt.Errorf("%w: artifact object did not become visible", ErrInvalid)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		delay = min(delay*2, maxArtifactVisibilityDelay)
 	}
-	if !exists {
-		return fmt.Errorf("%w: artifact object does not exist", ErrInvalid)
-	}
-	return nil
+	return fmt.Errorf("%w: artifact object did not become visible", ErrInvalid)
 }
+
+const (
+	artifactVisibilityAttempts = 8
+	maxArtifactVisibilityDelay = 250 * time.Millisecond
+)
 
 func (s *Service) checkArtifact(ctx context.Context, r ArtifactRecord) (bool, error) {
 	info, err := s.artifacts.GetInfo(ctx, artifactKey(r.Digest))
