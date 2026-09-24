@@ -17,6 +17,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import secrets
 import shlex
 import shutil
@@ -60,6 +61,27 @@ def digest(path: Path) -> str:
         for chunk in iter(lambda: stream.read(4 << 20), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def validate_native_cgroup_path(path: str, service_cgroup: str) -> None:
+    def components(value: str) -> list[str]:
+        if not isinstance(value, str) or not value.startswith("/") or value.endswith("/"):
+            raise ValueError("invalid native workload cgroup path")
+        parts = value[1:].split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            raise ValueError("invalid native workload cgroup path")
+        return parts
+
+    service_parts = components(service_cgroup)
+    workload_parts = components(path)
+    if (len(service_parts) < 2 or service_parts[-1] != "ts-orch.service" or
+            any(re.fullmatch(r"[A-Za-z0-9_-]+\.slice", part) is None
+                for part in service_parts[:-1]) or
+            workload_parts[:len(service_parts)] != service_parts or
+            len(workload_parts) != len(service_parts) + 2 or
+            re.fullmatch(r"terrascale-host-[0-9a-f]{16}", workload_parts[-2]) is None or
+            workload_parts[-1] != ROLE):
+        raise ValueError("invalid native workload cgroup path")
 
 
 def run(command: list[str], *, timeout: int = 120, cwd: Path = REPO,
@@ -628,7 +650,7 @@ class Lab:
             observed = self.native_observation()
             return (observed["marker"] == version and observed["workload_alive"] and
                     bool(observed["workload_cgroup"]) and
-                    not self.cgroup_empty(observed["workload_cgroup"]))
+                    not self.cgroup_empty(observed["workload_cgroup"], observed["service_cgroup"]))
         self.wait("host-session" if version is None else f"workload-{version}", probe, timeout=150)
 
     def host_session(self, version: str) -> dict[str, Any]:
@@ -654,39 +676,74 @@ class Lab:
         command = """set -eu
 agent=$(systemctl show ts-orch.service -p MainPID --value)
 invocation=$(systemctl show ts-orch.service -p InvocationID --value)
+service_cgroup=$(systemctl show ts-orch.service -p ControlGroup --value)
+agent_cgroup=''
+case "$agent" in ''|0|*[!0-9]*) ;; *)
+    if [ -r "/proc/$agent/cgroup" ]; then
+        agent_cgroup=$(awk -F: '$1 == "0" {print $3}' "/proc/$agent/cgroup")
+    fi ;;
+esac
 workload=$(cat /run/ts-orch-workload/pid 2>/dev/null || true)
 marker=$(cat /run/ts-orch-workload/marker 2>/dev/null || true)
+proc_state() {
+    case "$1" in ''|0|*[!0-9]*) printf 'missing'; return ;; esac
+    if [ -r "/proc/$1/stat" ]; then awk '{print $3 ":" $22}' "/proc/$1/stat"; else printf 'missing'; fi
+}
+workload_state_before=$(proc_state "$workload")
 workload_cgroup=''
 case "$workload" in ''|0|*[!0-9]*) ;; *)
     if [ -r "/proc/$workload/cgroup" ]; then
         workload_cgroup=$(awk -F: '$1 == "0" {print $3}' "/proc/$workload/cgroup")
     fi ;;
 esac
-proc_state() {
-    case "$1" in ''|0|*[!0-9]*) printf 'missing'; return ;; esac
-    if [ -r "/proc/$1/stat" ]; then awk '{print $3 ":" $22}' "/proc/$1/stat"; else printf 'missing'; fi
-}
-printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_state=%s\nworkload_cgroup=%s\nmarker=%s\n' \
-    "$agent" "$(proc_state "$agent")" "$invocation" "$workload" "$(proc_state "$workload")" "$workload_cgroup" "$marker"
+printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvocation=%s\nworkload_pid=%s\nworkload_state_before=%s\nworkload_state=%s\nworkload_cgroup=%s\nmarker=%s\n' \
+    "$agent" "$(proc_state "$agent")" "$agent_cgroup" "$service_cgroup" "$invocation" "$workload" "$workload_state_before" "$(proc_state "$workload")" "$workload_cgroup" "$marker"
 """
         output = self.ssh("host", command).stdout
         observed = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
-        expected = {"agent_pid", "agent_state", "invocation", "workload_pid", "workload_state", "workload_cgroup", "marker"}
+        expected = {"agent_pid", "agent_state", "agent_cgroup", "service_cgroup", "invocation",
+                    "workload_pid", "workload_state_before", "workload_state", "workload_cgroup", "marker"}
         if not expected.issubset(observed):
             raise RuntimeError("incomplete native process observation")
+        if not observed["service_cgroup"] or observed["agent_cgroup"] != observed["service_cgroup"]:
+            raise RuntimeError("host agent is not in its systemd service cgroup")
+        before_start = observed["workload_state_before"].split(":")[-1]
+        after_start = observed["workload_state"].split(":")[-1]
+        if ((before_start == "missing" and after_start != "missing") or
+                (after_start != "missing" and before_start != after_start)):
+            raise RuntimeError("native workload PID changed during cgroup observation")
+        if after_start == "missing":
+            observed["workload_cgroup"] = ""
         observed["workload_alive"] = observed["workload_state"].split(":", 1)[0] not in ("missing", "Z", "X")
+        if observed["workload_alive"]:
+            validate_native_cgroup_path(observed["workload_cgroup"], observed["service_cgroup"])
         return observed
 
-    def cgroup_empty(self, path: str) -> bool:
-        if not path.startswith("/") or "/terrascale-host-" not in path or any(character not in
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_-" for character in path):
-            raise ValueError("invalid native workload cgroup path")
-        output = self.ssh("host", "if [ -e " + shlex.quote("/sys/fs/cgroup" + path + "/cgroup.events") +
-                          " ]; then cat " + shlex.quote("/sys/fs/cgroup" + path + "/cgroup.events") +
-                          "; else echo 'populated 0'; fi").stdout
-        if "populated 0" in output.splitlines():
+    def cgroup_empty(self, path: str, service_cgroup: str) -> bool:
+        validate_native_cgroup_path(path, service_cgroup)
+        role_path = "/sys/fs/cgroup" + path
+        service_path = "/sys/fs/cgroup" + service_cgroup
+        events = role_path + "/cgroup.events"
+        prefixes = ["/sys", "/sys/fs", "/sys/fs/cgroup"]
+        for component in path[1:].split("/"):
+            prefixes.append(prefixes[-1] + "/" + component)
+        command = (
+            "set -eu\n" +
+            "test \"$(systemctl show ts-orch.service -p ControlGroup --value)\" = " +
+            shlex.quote(service_cgroup) + "\n" +
+            "for entry in " + " ".join(shlex.quote(prefix) for prefix in prefixes) +
+            "; do test ! -L \"$entry\" || exit 4; done\n" +
+            "test -d " + shlex.quote(service_path) + "\n" +
+            "if test -f " + shlex.quote(events) + "; then\n" +
+            "    test ! -L " + shlex.quote(events) + "\n" +
+            "    cat " + shlex.quote(events) + "\n" +
+            "elif test -e " + shlex.quote(role_path) + "; then exit 5\n" +
+            "else printf 'populated 0\\n'; fi")
+        output = self.ssh("host", command).stdout
+        populated = [line for line in output.splitlines() if line.startswith("populated ")]
+        if populated == ["populated 0"]:
             return True
-        if "populated 1" in output.splitlines():
+        if populated == ["populated 1"]:
             return False
         raise RuntimeError("native workload cgroup has no populated state")
 
@@ -1045,7 +1102,8 @@ printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_s
         first_session = self.host_session("v1")
         first_native = self.native_observation()
         if (not first_native["workload_alive"] or first_native["marker"] != "v1" or
-                not first_native["workload_cgroup"] or self.cgroup_empty(first_native["workload_cgroup"])):
+                not first_native["workload_cgroup"] or
+                self.cgroup_empty(first_native["workload_cgroup"], first_native["service_cgroup"])):
             raise RuntimeError("native v1 workload is not running before controller loss")
         connected = self.connected_controller()
         fault_table = self.blackhole_host_controller(connected)
@@ -1098,7 +1156,8 @@ printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_s
         rollback = self.intent(original, 3, "rollback")
         last_native = self.native_observation()
         if (not last_native["workload_alive"] or last_native["marker"] != "v2" or
-                not last_native["workload_cgroup"] or self.cgroup_empty(last_native["workload_cgroup"])):
+                not last_native["workload_cgroup"] or
+                self.cgroup_empty(last_native["workload_cgroup"], last_native["service_cgroup"])):
             raise RuntimeError("native v2 workload is not running before quorum loss")
         matching = []
         for attempt in range(3):
@@ -1163,7 +1222,8 @@ printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_s
         stop_observation = None
         while datetime.now(timezone.utc) < stop_deadline:
             observed = self.native_observation()
-            if not observed["workload_alive"] and self.cgroup_empty(last_native["workload_cgroup"]):
+            if (not observed["workload_alive"] and
+                    self.cgroup_empty(last_native["workload_cgroup"], last_native["service_cgroup"])):
                 stop_observation = observed
                 break
             time.sleep(0.25)
@@ -1184,7 +1244,8 @@ printf 'agent_pid=%s\nagent_state=%s\ninvocation=%s\nworkload_pid=%s\nworkload_s
             raise RuntimeError("rollback submitted without JetStream quorum")
         time.sleep(2)
         stopped_again = self.native_observation()
-        if stopped_again["workload_alive"] or not self.cgroup_empty(last_native["workload_cgroup"]):
+        if (stopped_again["workload_alive"] or
+                not self.cgroup_empty(last_native["workload_cgroup"], last_native["service_cgroup"])):
             raise RuntimeError("native v2 workload resumed before quorum restoration")
         self.note("milestone", name="quorum-loss-rejected-new-intent")
         self.vms[connected].boot()

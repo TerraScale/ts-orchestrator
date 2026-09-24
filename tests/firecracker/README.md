@@ -38,8 +38,10 @@ The host supervisor remains root with `NoNewPrivileges=yes` and an exact
 artifact; `CAP_KILL` lets the root supervisor deliver parent-death `SIGKILL`
 to its UID 2000 child.
 The unit delegates its cgroup subtree; native role cgroups remain beneath the
-service cgroup. The supervisor drops every capability before executing the
-UID/GID 2000 workload.
+service cgroup. The qualification binds the observed native role path to the
+unit's current `ControlGroup` and its exact `terrascale-host-<16 lowercase hex>/terrabase`
+subtree, rejecting traversal and symlinks before checking `cgroup.events`.
+The supervisor drops every capability before executing the UID/GID 2000 workload.
 
 The qualification registers the host, uploads and admits a signed executable,
 deploys it, and requires an accepted receipt plus a running guest process and

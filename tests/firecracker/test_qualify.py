@@ -274,6 +274,76 @@ class FaultAndLeaseTests(unittest.TestCase):
             lab.host_renewal_failure_evidence(since, "0" * 32, 3, expiry)
 
 
+class NativeCgroupPathTests(unittest.TestCase):
+    service = "/system.slice/ts-orch.service"
+    path = ("/system.slice/ts-orch.service/"
+            "terrascale-host-f2f2e59c89f0cea0/terrabase")
+
+    def test_r4_native_role_path_is_bound_to_unit_and_populated(self):
+        qualify.validate_native_cgroup_path(self.path, self.service)
+        lab = object.__new__(qualify.Lab)
+        lab.ssh = Mock(return_value=SimpleNamespace(stdout="populated 1\nfrozen 0\n"))
+
+        self.assertFalse(lab.cgroup_empty(self.path, self.service))
+        command = lab.ssh.call_args.args[1]
+        self.assertIn("systemctl show ts-orch.service -p ControlGroup --value", command)
+        self.assertIn('test ! -L "$entry"', command)
+        self.assertIn(self.path + "/cgroup.events", command)
+        self.assertIn("elif test -e /sys/fs/cgroup" + self.path + "; then exit 5", command)
+        lab.ssh.return_value = SimpleNamespace(stdout="populated 0\nfrozen 0\n")
+        self.assertTrue(lab.cgroup_empty(self.path, self.service))
+        lab.ssh.return_value = SimpleNamespace(stdout="populated 0\npopulated 1\n")
+        with self.assertRaisesRegex(RuntimeError, "no populated state"):
+            lab.cgroup_empty(self.path, self.service)
+
+    def test_traversal_and_other_role_paths_are_rejected(self):
+        invalid = [
+            (self.path.replace("/system.slice/", "/system.slice/../"), self.service),
+            (self.path.replace("/ts-orch.service/", "/ts-orch.service/./"), self.service),
+            (self.path.replace("terrascale-host-", "terrascale.host-"), self.service),
+            (self.path.replace("f2f2e59c89f0cea0", "g2f2e59c89f0cea0"), self.service),
+            (self.path.replace("/terrabase", "/other"), self.service),
+            (self.path + "/child", self.service),
+            (self.path, "/system.slice/other.service"),
+            (self.path, "/system.slice/../ts-orch.service"),
+        ]
+        for path, service in invalid:
+            with self.subTest(path=path, service=service):
+                with self.assertRaisesRegex(ValueError, "invalid native workload cgroup path"):
+                    qualify.validate_native_cgroup_path(path, service)
+
+    def test_observation_binds_workload_start_time_and_agent_unit(self):
+        output = ("agent_pid=1353\nagent_state=S:3500\n"
+                  f"agent_cgroup={self.service}\nservice_cgroup={self.service}\n"
+                  "invocation=valid-invocation\nworkload_pid=1391\n"
+                  "workload_state_before=S:3537\nworkload_state=S:3537\n"
+                  f"workload_cgroup={self.path}\nmarker=v1\n")
+        lab = object.__new__(qualify.Lab)
+        lab.ssh = Mock(return_value=SimpleNamespace(stdout=output))
+
+        observed = lab.native_observation()
+
+        self.assertTrue(observed["workload_alive"])
+        self.assertEqual(observed["workload_cgroup"], self.path)
+        lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
+            "workload_state=S:3537", "workload_state=missing"))
+        exited = lab.native_observation()
+        self.assertFalse(exited["workload_alive"])
+        self.assertEqual(exited["workload_cgroup"], "")
+        lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
+            "workload_state_before=S:3537", "workload_state_before=missing"))
+        with self.assertRaisesRegex(RuntimeError, "PID changed"):
+            lab.native_observation()
+        lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
+            "workload_state=S:3537", "workload_state=S:9999"))
+        with self.assertRaisesRegex(RuntimeError, "PID changed"):
+            lab.native_observation()
+        lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
+            f"agent_cgroup={self.service}", "agent_cgroup=/user.slice/other.service"))
+        with self.assertRaisesRegex(RuntimeError, "not in its systemd service cgroup"):
+            lab.native_observation()
+
+
 class ClockCalibrationTests(unittest.TestCase):
     @staticmethod
     def lab(measurements):
