@@ -12,6 +12,7 @@ import (
 	"os"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	nats "github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -367,28 +368,19 @@ const (
 )
 
 func (s *Service) checkArtifact(ctx context.Context, r ArtifactRecord) (bool, error) {
-	info, err := s.artifacts.GetInfo(ctx, artifactKey(r.Digest))
+	if r.Size <= 0 || r.Size > MaxArtifactBytes {
+		return false, fmt.Errorf("%w: artifact size is outside bounds", ErrInvalid)
+	}
+	err := artifact.ReadVerified(ctx, s.js, s.artifacts, ArtifactBucket, artifactKey(r.Digest),
+		r.Digest, r.Size, MaxArtifactBytes, io.Discard)
 	if errors.Is(err, jetstream.ErrObjectNotFound) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("inspect artifact: %w", err)
-	}
-	if info == nil || info.Deleted || info.Opts != nil && info.Opts.Link != nil || info.Size != uint64(r.Size) {
-		return false, fmt.Errorf("%w: artifact object is deleted, linked or has wrong size", ErrInvalid)
-	}
-	object, err := s.artifacts.Get(ctx, artifactKey(r.Digest))
-	if err != nil {
-		return false, fmt.Errorf("read back artifact: %w", err)
-	}
-	defer object.Close()
-	h := sha256.New()
-	n, err := io.Copy(h, io.LimitReader(contextReader{ctx, object}, MaxArtifactBytes+1))
-	if err != nil {
-		return false, fmt.Errorf("read back artifact: %w", err)
-	}
-	if n != r.Size || hex.EncodeToString(h.Sum(nil)) != r.Digest {
-		return false, fmt.Errorf("%w: artifact bytes differ from admitted digest", ErrInvalid)
+		if errors.Is(err, artifact.ErrInvalid) {
+			return false, fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		return false, err
 	}
 	return true, nil
 }

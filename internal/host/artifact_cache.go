@@ -2,13 +2,12 @@ package host
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 var errArtifactPreparing = errors.New("artifact preparing")
@@ -68,19 +67,18 @@ func (c *Controller) downloadArtifact(digest string) {
 		c.cacheDigest = digest
 		c.cacheSize = size
 	}()
-	reader, err := c.artifacts.Get(ctx, "sha256-"+digest)
+	info, err := c.artifacts.GetInfo(ctx, "sha256-"+digest)
 	if err != nil {
 		fetchErr = err
 		return
 	}
-	defer reader.Close()
-	info, err := reader.Info()
-	if err != nil {
-		fetchErr = err
-		return
-	}
-	if info.Deleted || info.Opts != nil && info.Opts.Link != nil || info.Size == 0 || info.Size > maxArtifactBytes {
+	if info == nil || info.Deleted || info.Opts != nil && info.Opts.Link != nil || info.Size == 0 || info.Size > maxArtifactBytes {
 		fetchErr = errors.New("artifact metadata is invalid")
+		return
+	}
+	js, err := jetstream.New(c.conn)
+	if err != nil {
+		fetchErr = err
 		return
 	}
 	file, err := os.CreateTemp("", "ts-host-artifact-*")
@@ -90,21 +88,16 @@ func (c *Controller) downloadArtifact(digest string) {
 	}
 	_ = os.Remove(file.Name())
 	downloaded = file
-	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(file, hash), io.LimitReader(reader, maxArtifactBytes+1))
-	if err != nil {
+	if err := artifact.ReadVerified(ctx, js, c.artifacts, info.Bucket, "sha256-"+digest,
+		digest, int64(info.Size), maxArtifactBytes, file); err != nil {
 		fetchErr = err
-		return
-	}
-	if written != int64(info.Size) || written > maxArtifactBytes || hex.EncodeToString(hash.Sum(nil)) != digest {
-		fetchErr = fmt.Errorf("artifact %s failed size or SHA-256 verification", digest)
 		return
 	}
 	if err := file.Sync(); err != nil {
 		fetchErr = err
 		return
 	}
-	size = written
+	size = int64(info.Size)
 }
 
 func (c *Controller) closeCache() {

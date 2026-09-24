@@ -335,8 +335,17 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := clientObjects.Put(ctx, jetstream.ObjectMeta{Name: "artifact"}, bytes.NewReader([]byte("content"))); err != nil {
+	artifactInfo, err := clientObjects.Put(ctx, jetstream.ObjectMeta{Name: "artifact"}, bytes.NewReader([]byte("content")))
+	if err != nil {
 		t.Fatalf("operator artifact upload: %v", err)
+	}
+	artifactStream, err := operator.JetStream().Stream(ctx, "OBJ_TS_ARTIFACTS")
+	if err != nil {
+		t.Fatalf("bind artifact chunk stream: %v", err)
+	}
+	chunk, err := artifactStream.GetMsg(ctx, 1, jetstream.WithGetMsgSubject("$O.TS_ARTIFACTS.C."+artifactInfo.NUID))
+	if err != nil || chunk == nil || string(chunk.Data) != "content" {
+		t.Fatalf("operator direct artifact chunk read: %v, chunk=%v", err, chunk)
 	}
 	if _, err := objects.GetInfo(ctx, "artifact"); err != nil {
 		t.Fatal(err)

@@ -61,6 +61,23 @@ Equal generations are idempotent only when their content matches.
 
 The host's signed observation of desired generation and process state. A
 submission acknowledgement alone does not prove that a workload is running.
+Status reads verify reports against the leader-served host session and desired
+generation; a newer timestamp is acceptable when the report's meaning is
+unchanged.
+
+**Artifact cache**
+
+The controller's single-object temporary spool used for chunked host delivery.
+The shared bounded reader validates object metadata, chunk sequence and size,
+and both the NATS object digest and admitted signed digest before bytes enter
+the cache. It reads stream messages directly without creating a JetStream
+consumer.
+
+**Host session retry**
+
+Startup acquisition and renewal retry only classified transient NATS failures.
+If renewal remains unavailable, the agent stops native workloads before the
+signed lease enters its five-second execution reserve.
 
 **Native workload**
 

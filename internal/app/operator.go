@@ -121,7 +121,10 @@ func operatorService(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 }
 
 func operatorArtifactPush(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, claim delivery.ArtifactClaimRequest, output io.Writer) error {
-	service, err := operatorService(ctx, cfg, runtime, true)
+	service, activeRuntime, err := bindArtifactPushClient(ctx, cfg, runtime)
+	if activeRuntime != nil && activeRuntime != runtime {
+		defer activeRuntime.Close()
+	}
 	if err != nil {
 		return err
 	}
@@ -136,7 +139,7 @@ func operatorArtifactPush(ctx context.Context, cfg Config, runtime *natscell.Run
 	}
 	for attempt := range 3 {
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		message, requestErr := runtime.Conn().RequestWithContext(requestCtx, delivery.ArtifactClaimSubject(cfg.NATS.Cell), signedClaim)
+		message, requestErr := activeRuntime.Conn().RequestWithContext(requestCtx, delivery.ArtifactClaimSubject(cfg.NATS.Cell), signedClaim)
 		cancel()
 		if requestErr == nil {
 			var response artifactAdmissionResponse
@@ -156,6 +159,44 @@ func operatorArtifactPush(ctx context.Context, cfg Config, runtime *natscell.Run
 		}
 	}
 	return errors.New("artifact admission request exhausted")
+}
+
+// A timed-out resource bind may leave its NATS request multiplexer unhealthy.
+// Retry only that setup step, with a fresh connection, before any upload or
+// admission mutation has happened. The original caller deadline remains in force.
+func bindArtifactPushClient(ctx context.Context, cfg Config, initial *natscell.Runtime) (*delivery.Service, *natscell.Runtime, error) {
+	active := initial
+	for attempt := range 3 {
+		bindCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		service, err := operatorService(bindCtx, cfg, active, true)
+		setupTimedOut := errors.Is(bindCtx.Err(), context.DeadlineExceeded)
+		cancel()
+		if err == nil {
+			return service, active, nil
+		}
+		if !setupTimedOut || ctx.Err() != nil || attempt == 2 {
+			return nil, active, fmt.Errorf("bind artifact push client: %w", err)
+		}
+		_ = active.Close()
+		connection := cfg.NATS
+		connection.ClientRole = "operator"
+		connection, err = externalNATS(connection)
+		if err != nil {
+			return nil, active, err
+		}
+		active, err = natscell.Start(ctx, connection)
+		if err != nil {
+			return nil, active, fmt.Errorf("restart artifact push connection: %w", err)
+		}
+		readyCtx, readyCancel := context.WithTimeout(ctx, 10*time.Second)
+		err = active.WaitForCluster(readyCtx, cfg.NATS.Replicas)
+		readyCancel()
+		if err != nil {
+			_ = active.Close()
+			return nil, active, fmt.Errorf("wait for restarted artifact push connection: %w", err)
+		}
+	}
+	return nil, active, errors.New("artifact push client bind exhausted")
 }
 
 func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {

@@ -15,6 +15,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+const startupReconcileAttempts = 8
+
 var natsToken = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 const authorityDiagnosticQueueSize = 64
@@ -166,16 +168,22 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	runtime.publishSnapshot(Snapshot{Scope: config.Scope, CandidateID: config.CandidateID, OwnerID: runtime.ownerID, Reason: "not-observed"})
 	runtime.logSnapshotTransition()
 	var observeErr error
-	for range 8 {
+	for attempt := range startupReconcileAttempts {
 		observeErr = runtime.reconcileWithRetry(loopCtx)
 		runtime.logSnapshotTransition()
-		if !errors.Is(observeErr, ErrConflict) {
+		if observeErr != nil && loopCtx.Err() != nil {
+			observeErr = loopCtx.Err()
 			break
 		}
+		if observeErr == nil || !retryableStartupReconcileError(loopCtx, observeErr) || attempt+1 == startupReconcileAttempts {
+			break
+		}
+		timer := time.NewTimer(startupReconcileDelay(attempt, observeErr))
 		select {
 		case <-loopCtx.Done():
 			observeErr = loopCtx.Err()
-		case <-time.After(10 * time.Millisecond):
+			timer.Stop()
+		case <-timer.C:
 		}
 	}
 	if observeErr != nil {
@@ -185,6 +193,40 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	}
 	go runtime.run(loopCtx)
 	return runtime, nil
+}
+
+func retryableStartupReconcileError(ctx context.Context, err error) bool {
+	if err == nil || ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, ErrConflict) {
+		return true
+	}
+	// Reconciliation observes the current lease before issuing another CAS,
+	// so an ambiguous publish is safe to retry only for a transient cause.
+	return transientStartupReconcileError(err)
+}
+
+func transientStartupReconcileError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse) {
+		return true
+	}
+	var apiErr *jetstream.APIError
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	return apiErr.ErrorCode == 10005 || apiErr.Code >= 500 &&
+		!errors.Is(err, jetstream.ErrJetStreamNotEnabled) &&
+		!errors.Is(err, jetstream.ErrJetStreamNotEnabledForAccount)
+}
+
+func startupReconcileDelay(attempt int, err error) time.Duration {
+	if errors.Is(err, ErrConflict) {
+		return 10 * time.Millisecond
+	}
+	return min(time.Duration(attempt+1)*100*time.Millisecond, 500*time.Millisecond)
 }
 
 func (c Config) validate() error {

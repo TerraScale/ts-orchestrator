@@ -71,11 +71,9 @@ func TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses(t *testing.T)
 		name                  string
 		afterPutGetInfoMisses int
 		afterPutGetMisses     int
-		wantGetCalls          int
 		wantGetInfoCalls      int
 	}{
-		{name: "metadata temporarily unavailable", afterPutGetInfoMisses: 2, wantGetCalls: 1, wantGetInfoCalls: 3},
-		{name: "metadata replica misses object read", afterPutGetMisses: 2, wantGetCalls: 3, wantGetInfoCalls: 3},
+		{name: "metadata temporarily unavailable", afterPutGetInfoMisses: 2, wantGetInfoCalls: 3},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, ctx := testService(t, &testWriter{})
@@ -93,9 +91,6 @@ func TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses(t *testing.T)
 			if store.putCalls != 1 {
 				t.Fatalf("Put calls = %d, want one immutable upload", store.putCalls)
 			}
-			if store.getCalls != test.wantGetCalls {
-				t.Fatalf("object read calls = %d, want %d", store.getCalls, test.wantGetCalls)
-			}
 			if store.getInfoCalls != test.wantGetInfoCalls {
 				t.Fatalf("metadata reads = %d, want %d", store.getInfoCalls, test.wantGetInfoCalls)
 			}
@@ -103,23 +98,6 @@ func TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses(t *testing.T)
 				t.Fatalf("verified object does not match the admitted digest: %v", err)
 			}
 		})
-	}
-}
-
-func TestAcceptArtifactClaimRetriesTemporaryObjectReadMiss(t *testing.T) {
-	service, ctx := testService(t, &testWriter{})
-	store := &delayedVisibilityObjectStore{ObjectStore: service.artifacts}
-	service.artifacts = store
-	_, claim, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("admitted artifact")), artifactTestRequest())
-	if err != nil {
-		t.Fatalf("PrepareArtifact() error = %v", err)
-	}
-	store.getMisses = 1
-	if _, err := service.AcceptArtifactClaim(ctx, claim); err != nil {
-		t.Fatalf("AcceptArtifactClaim() during temporary object read miss = %v", err)
-	}
-	if store.getCalls < 3 {
-		t.Fatalf("object read calls = %d, want initial upload verification plus retry", store.getCalls)
 	}
 }
 

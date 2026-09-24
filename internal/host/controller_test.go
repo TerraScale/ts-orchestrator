@@ -163,7 +163,7 @@ type stalledArtifactStore struct {
 	once    sync.Once
 }
 
-func (s *stalledArtifactStore) Get(ctx context.Context, _ string, _ ...jetstream.GetObjectOpt) (jetstream.ObjectResult, error) {
+func (s *stalledArtifactStore) GetInfo(ctx context.Context, _ string, _ ...jetstream.GetObjectInfoOpt) (*jetstream.ObjectInfo, error) {
 	s.once.Do(func() { close(s.started) })
 	<-ctx.Done()
 	return nil, ctx.Err()
@@ -681,6 +681,148 @@ func signedHostRequest(t *testing.T, key ed25519.PrivateKey, operation, sessionI
 		t.Fatal(err)
 	}
 	return r
+}
+
+func reportedTestHost(t *testing.T) (*Controller, ed25519.PrivateKey, session, Report) {
+	t.Helper()
+	c, _, store, _, _ := testController(t)
+	hostKey := registerTestHost(t, c)
+	sessionID := "0123456789abcdef0123456789abcdef"
+	acquire := signedHostRequest(t, hostKey, "session", sessionID, 0, struct {
+		Kind string `json:"kind"`
+	}{"acquire"})
+	result, err := c.handleSession(t.Context(), acquire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := result.(session)
+	data := []byte("status snapshot artifact")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: 1}); err != nil {
+		t.Fatal(err)
+	}
+	report := Report{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, SessionID: sessionID, Epoch: s.Epoch, State: "running", ObservedAt: time.Now().UTC()}
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "report", sessionID, s.Epoch, report)); err != nil {
+		t.Fatal(err)
+	}
+	return c, hostKey, s, report
+}
+
+func TestListHostsAcceptsSameBindingSessionChurn(t *testing.T) {
+	for _, kind := range []string{"authorization write", "renewal"} {
+		t.Run(kind, func(t *testing.T) {
+			c, _, _, report := reportedTestHost(t)
+			reads := 0
+			var finalExpiry time.Time
+			c.sessionRead = func(ctx context.Context, key string) (session, uint64, bool, error) {
+				reads++
+				if reads == 2 {
+					current, revision, exists, err := c.readLeaderSession(ctx, key)
+					if err != nil || !exists {
+						return session{}, 0, false, err
+					}
+					if kind == "renewal" {
+						current.ExpiresAt = current.ExpiresAt.Add(time.Second)
+						current.LastIssuedAt = time.Now().UTC()
+						current.LastNonce = "11111111111111111111111111111111"
+					}
+					finalExpiry = current.ExpiresAt
+					if _, err := c.cas(ctx, key, current, revision); err != nil {
+						return session{}, 0, false, err
+					}
+				}
+				return c.readLeaderSession(ctx, key)
+			}
+			hosts, err := c.ListHosts(t.Context())
+			if err != nil || len(hosts) != 1 || len(hosts[0].Reports) != 1 || !hosts[0].SessionExpiresAt.Equal(finalExpiry) || !sameJSON(hosts[0].Reports[0], report) {
+				t.Fatalf("same-binding status rejected: hosts=%+v err=%v", hosts, err)
+			}
+		})
+	}
+}
+
+func TestListHostsAcceptsNewerSameStateHeartbeat(t *testing.T) {
+	c, hostKey, s, report := reportedTestHost(t)
+	gate := &gatedDesiredRead{HostMutationStore: c.mutations, started: make(chan struct{}), release: make(chan struct{})}
+	c.mutations = gate
+	type statusResult struct {
+		hosts []HostStatus
+		err   error
+	}
+	done := make(chan statusResult, 1)
+	go func() {
+		hosts, err := c.ListHosts(t.Context())
+		done <- statusResult{hosts, err}
+	}()
+	select {
+	case <-gate.started:
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	newer := report
+	newer.ObservedAt = report.ObservedAt.Add(time.Millisecond)
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "report", s.SessionID, s.Epoch, newer)); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	result := <-done
+	if result.err != nil || len(result.hosts) != 1 || len(result.hosts[0].Reports) != 1 || !sameJSON(result.hosts[0].Reports[0], newer) {
+		t.Fatalf("newer same-state heartbeat rejected: hosts=%+v err=%v", result.hosts, result.err)
+	}
+}
+
+func TestListHostsRejectsSessionTakeoverDuringRead(t *testing.T) {
+	c, _, _, _ := reportedTestHost(t)
+	reads := 0
+	c.sessionRead = func(ctx context.Context, key string) (session, uint64, bool, error) {
+		reads++
+		if reads == 2 {
+			current, revision, exists, err := c.readLeaderSession(ctx, key)
+			if err != nil || !exists {
+				return session{}, 0, false, err
+			}
+			current.SessionID = "11111111111111111111111111111111"
+			current.Epoch++
+			if _, err := c.cas(ctx, key, current, revision); err != nil {
+				return session{}, 0, false, err
+			}
+		}
+		return c.readLeaderSession(ctx, key)
+	}
+	if hosts, err := c.ListHosts(t.Context()); err == nil {
+		t.Fatalf("status accepted replaced session: %+v", hosts)
+	}
+}
+
+func TestListHostsRejectsReportStateChangeDuringRead(t *testing.T) {
+	c, hostKey, s, report := reportedTestHost(t)
+	gate := &gatedDesiredRead{HostMutationStore: c.mutations, started: make(chan struct{}), release: make(chan struct{})}
+	c.mutations = gate
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.ListHosts(t.Context())
+		done <- err
+	}()
+	select {
+	case <-gate.started:
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	changed := report
+	changed.State = "failed"
+	changed.Error = "native workload failed"
+	changed.ObservedAt = report.ObservedAt.Add(time.Millisecond)
+	if _, err := c.handleAuthorized(t.Context(), signedHostRequest(t, hostKey, "report", s.SessionID, s.Epoch, changed)); err != nil {
+		t.Fatal(err)
+	}
+	close(gate.release)
+	if err := <-done; err == nil {
+		t.Fatal("status kept running report after state changed to failed")
+	}
 }
 
 func TestConcurrentRenewalAndAuthorizedRPCUseCurrentSession(t *testing.T) {

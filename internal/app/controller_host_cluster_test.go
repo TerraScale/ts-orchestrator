@@ -439,7 +439,8 @@ func logR3AdmissionState(t *testing.T, ctx context.Context, probe, operatorProbe
 			var info *jetstream.StreamInfo
 			info, err = stream.Info(attempt)
 			if err == nil {
-				t.Logf("admission stream %s: cluster=%+v", name, info.Cluster)
+				t.Logf("admission stream %s: cluster=%+v messages=%d bytes=%d consumers=%d last_seq=%d",
+					name, info.Cluster, info.State.Msgs, info.State.Bytes, info.State.Consumers, info.State.LastSeq)
 			}
 		}
 		stop()

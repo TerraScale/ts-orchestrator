@@ -149,31 +149,40 @@ func (c *Controller) sessionSnapshot(ctx context.Context, key string) (session, 
 }
 
 func (c *Controller) readLeaderSession(ctx context.Context, key string) (session, uint64, bool, error) {
+	var s session
+	revision, exists, err := c.readLeaderState(ctx, key, &s)
+	return s, revision, exists, err
+}
+
+func (c *Controller) reportSnapshot(ctx context.Context, key string) (Report, uint64, bool, error) {
+	var report Report
+	revision, exists, err := c.readLeaderState(ctx, key, &report)
+	return report, revision, exists, err
+}
+
+func (c *Controller) readLeaderState(ctx context.Context, key string, destination any) (uint64, bool, error) {
 	if c.conn == nil { // Read-only readers have no NATS connection.
-		var s session
-		revision, exists, err := c.get(ctx, key, &s)
-		return s, revision, exists, err
+		return c.get(ctx, key, destination)
 	}
 	js, err := c.conn.JetStream()
 	if err != nil {
-		return session{}, 0, false, err
+		return 0, false, err
 	}
 	subject := "$KV." + stateBucket + "." + key
 	msg, err := js.GetLastMsg("KV_"+stateBucket, subject, nats.Context(ctx))
 	if errors.Is(err, nats.ErrMsgNotFound) {
-		return session{}, 0, false, nil
+		return 0, false, nil
 	}
 	if err != nil {
-		return session{}, 0, false, err
+		return 0, false, err
 	}
 	if msg == nil || msg.Subject != subject || msg.Sequence == 0 || len(msg.Data) > 64<<10 || msg.Header.Get("KV-Operation") != "" {
-		return session{}, 0, false, errors.New("invalid host session state")
+		return 0, false, errors.New("invalid host state")
 	}
-	var s session
-	if err := decodeStrict(msg.Data, &s); err != nil {
-		return session{}, 0, false, fmt.Errorf("corrupt host session state: %w", err)
+	if err := decodeStrict(msg.Data, destination); err != nil {
+		return 0, false, fmt.Errorf("corrupt host state %s: %w", key, err)
 	}
-	return s, msg.Sequence, true, nil
+	return msg.Sequence, true, nil
 }
 
 // Register admits a public host key and role scope. A generation is immutable.
@@ -319,19 +328,19 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 			continue
 		}
 		status := HostStatus{Registration: r, Verified: !c.readOnly}
-		s, sessionRevision, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
+		s, _, exists, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
 		if err != nil {
 			return nil, err
 		}
 		if exists && s.RegistrationGeneration == r.Generation && time.Now().Before(s.ExpiresAt) {
 			status.SessionExpiresAt = s.ExpiresAt
 			for _, role := range r.Roles {
-				var report Report
-				reportRevision, ok, err := c.get(ctx, reportKey(c.cell, r.Node, role), &report)
+				report, _, ok, err := c.reportSnapshot(ctx, reportKey(c.cell, r.Node, role))
 				if err != nil {
 					return nil, err
 				}
-				if !ok || report.SessionID != s.SessionID || report.Epoch != s.Epoch || time.Since(report.ObservedAt) >= 30*time.Second || report.ObservedAt.After(time.Now().Add(maxClockSkew)) {
+				if !ok || report.Cell != c.cell || report.Node != r.Node || report.Environment != r.Environment || report.Role != role ||
+					report.SessionID != s.SessionID || report.Epoch != s.Epoch || time.Since(report.ObservedAt) >= 30*time.Second || report.ObservedAt.After(time.Now().Add(maxClockSkew)) {
 					continue
 				}
 				desired, desiredRevision, ok, err := c.readDesired(ctx, r.Node, role)
@@ -345,21 +354,19 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 				if err != nil || !ok || confirmedRevision != desiredRevision || !sameJSON(confirmed, desired) {
 					return nil, errors.New("desired changed during host status read")
 				}
-				if c.readOnly {
-					var check Report
-					checkRevision, ok, err := c.get(ctx, reportKey(c.cell, r.Node, role), &check)
-					if err != nil || !ok || checkRevision != reportRevision || !sameJSON(check, report) {
-						return nil, errors.New("report changed during host status read")
-					}
-				} else if _, err := c.cas(ctx, reportKey(c.cell, r.Node, role), report, reportRevision); err != nil {
-					return nil, fmt.Errorf("report changed during host status read: %w", err)
+				check, _, ok, err := c.reportSnapshot(ctx, reportKey(c.cell, r.Node, role))
+				if err != nil || !ok || check.ObservedAt.Before(report.ObservedAt) || !sameReportMeaning(check, report) ||
+					check.SessionID != s.SessionID || check.Epoch != s.Epoch || check.Generation != desired.Generation || check.Digest != desired.Digest ||
+					time.Since(check.ObservedAt) >= 30*time.Second || check.ObservedAt.After(time.Now().Add(maxClockSkew)) || desired.Withdrawn && check.State == "running" {
+					return nil, errors.New("report changed during host status read")
 				}
-				status.Reports = append(status.Reports, report)
+				status.Reports = append(status.Reports, check)
 			}
-			check, checkRevision, ok, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
-			if err != nil || !ok || checkRevision != sessionRevision || !sameJSON(check, s) {
+			check, _, ok, err := c.sessionSnapshot(ctx, sessionKey(c.cell, r.Node))
+			if err != nil || !ok || check.RegistrationGeneration != r.Generation || check.SessionID != s.SessionID || check.Epoch != s.Epoch || !time.Now().Before(check.ExpiresAt) {
 				return nil, errors.New("session changed during host status read")
 			}
+			status.SessionExpiresAt = check.ExpiresAt
 		}
 		confirmed, confirmedRevision, ok, err := c.readRegistration(ctx, node)
 		if err != nil || !ok || confirmedRevision != registrationRevision || !sameJSON(confirmed, r) {
@@ -369,6 +376,12 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 	}
 	slices.SortFunc(hosts, func(a, b HostStatus) int { return strings.Compare(a.Registration.Node, b.Registration.Node) })
 	return hosts, nil
+}
+
+func sameReportMeaning(a, b Report) bool {
+	a.ObservedAt = time.Time{}
+	b.ObservedAt = time.Time{}
+	return sameJSON(a, b)
 }
 
 // Run serves exact host requests until ctx ends. Safe to run on several controllers;

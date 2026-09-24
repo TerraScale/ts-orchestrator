@@ -8,11 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -42,6 +45,7 @@ func (s *Service) Run(ctx context.Context) error {
 	if s == nil || s.consumer == nil || s.config.Verifier == nil || s.config.Authorize == nil || s.config.Fencer == nil || s.config.Planner == nil || s.config.Writer == nil {
 		return errors.New("delivery consumer ports are not configured")
 	}
+	var diagnostics deliveryRetryDiagnostics
 	for ctx.Err() == nil {
 		if !s.config.Fencer.Current().CanMutate() {
 			select {
@@ -89,6 +93,9 @@ func (s *Service) Run(ctx context.Context) error {
 					return fmt.Errorf("ack delivery intent: %w", err)
 				}
 			} else {
+				if processErr != nil {
+					diagnostics.report(slog.Default(), processErr)
+				}
 				delay := 250 * time.Millisecond
 				if !errors.Is(processErr, authority.ErrNotLeader) {
 					delay = 2 * time.Second
@@ -121,6 +128,90 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// Retry diagnostics are deliberately bounded and contain no operation identity,
+// signed wire, placement payload, or raw error text. Run owns this limiter, so
+// it needs no lock and cannot delay authority lease renewal.
+const deliveryRetryLogInterval = 10 * time.Second
+
+type deliveryStageError struct {
+	stage string
+	cause error
+}
+
+func (e deliveryStageError) Error() string { return "delivery " + e.stage + " failed" }
+func (e deliveryStageError) Unwrap() error { return e.cause }
+
+func stageDeliveryError(stage string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return deliveryStageError{stage: stage, cause: err}
+}
+
+type deliveryRetryDiagnostics struct {
+	next       time.Time
+	suppressed uint64
+}
+
+func (d *deliveryRetryDiagnostics) report(logger *slog.Logger, err error) {
+	now := time.Now()
+	if now.Before(d.next) {
+		d.suppressed++
+		return
+	}
+	stage := "unknown"
+	if staged, ok := errors.AsType[deliveryStageError](err); ok {
+		stage = staged.stage
+	}
+	causeClass, apiCode := deliveryFailureClass(err)
+	fields := []any{"stage", stage, "cause_class", causeClass, "suppressed", d.suppressed}
+	if apiCode != 0 {
+		fields = append(fields, "jetstream_api_code", apiCode)
+	}
+	logger.Warn("delivery intent processing deferred", fields...)
+	d.next = now.Add(deliveryRetryLogInterval)
+	d.suppressed = 0
+}
+
+func deliveryFailureClass(err error) (string, uint16) {
+	switch {
+	case errors.Is(err, placement.ErrInsufficientCapacity):
+		return "insufficient_capacity", 0
+	case errors.Is(err, placement.ErrInvalidWorkload):
+		return "invalid_workload", 0
+	case errors.Is(err, authority.ErrFenced):
+		return "authority_fenced", 0
+	case errors.Is(err, authority.ErrNotLeader):
+		return "not_leader", 0
+	case errors.Is(err, host.ErrDesiredConflict):
+		return "desired_conflict", 0
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "timeout", 0
+	case errors.Is(err, context.Canceled):
+		return "canceled", 0
+	case errors.Is(err, nats.ErrDisconnected), errors.Is(err, nats.ErrNoServers):
+		return "disconnected", 0
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responders", 0
+	}
+	if apiErr, ok := errors.AsType[*jetstream.APIError](err); ok {
+		return "jetstream_api", uint16(apiErr.Code)
+	}
+	// ListHosts reports these retryable snapshot races as ordinary errors today.
+	// Match only its known phrases; never include their free text in a log.
+	message := err.Error()
+	if staged, ok := errors.AsType[deliveryStageError](err); ok {
+		message = staged.cause.Error()
+	}
+	if strings.Contains(message, "changed during host status read") {
+		return "host_snapshot_changed", 0
+	}
+	if strings.Contains(message, "unverified host status cannot drive placement") {
+		return "host_status_unverified", 0
+	}
+	return "other", 0
 }
 
 // A pull request or acknowledgement may fail when its serving peer shuts down
@@ -159,7 +250,14 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 	}
 }
 
-func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
+func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, processErr error) {
+	defer func() {
+		if processErr != nil {
+			if _, ok := errors.AsType[deliveryStageError](processErr); !ok {
+				processErr = stageDeliveryError("receipt", processErr)
+			}
+		}
+	}()
 	if len(wire) == 0 || len(wire) > MaxIntentBytes+8192 {
 		return s.reject(ctx, wire, "signed intent exceeds size bound")
 	}
@@ -171,18 +269,18 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 		return s.reject(ctx, wire, "invalid operator signature or intent")
 	}
 	if err != nil {
-		return false, err
+		return false, stageDeliveryError("verified_intent", err)
 	}
 	fingerprint, err := intent.fingerprint()
 	if err != nil {
-		return false, err
+		return false, stageDeliveryError("decode", err)
 	}
 	key := operationKey(intent.OperationID)
 	entry, err := s.operations.Get(ctx, key)
 	if err == nil {
 		var existing operation
 		if err := json.Unmarshal(entry.Value(), &existing); err != nil {
-			return false, err
+			return false, stageDeliveryError("operation_lookup", err)
 		}
 		if existing.Intent.OperationID != intent.OperationID || existing.Fingerprint != fingerprint || existing.Actor != actor {
 			return s.reject(ctx, wire, "operation ID already binds a different request")
@@ -191,27 +289,27 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 			return true, nil
 		}
 	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
-		return false, err
+		return false, stageDeliveryError("operation_lookup", err)
 	}
 	entryErr := err
 	admission, err := s.readAdmission(ctx, intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		if entry != nil {
-			return false, err
+			return false, stageDeliveryError("admission_read", err)
 		}
 		return s.rejectIntent(ctx, wire, intent, actor, "artifact is not admitted")
 	}
 	if err != nil {
-		return false, err
+		return false, stageDeliveryError("admission_read", err)
 	}
 	if admission.ManifestDigest != intent.ManifestDigest || admission.Source != intent.Source || admission.Cell != intent.Cell || admission.Role != intent.Role || admission.Environment != intent.Environment {
 		if entry != nil {
-			return false, ErrConflict
+			return false, stageDeliveryError("admission_read", ErrConflict)
 		}
 		return s.rejectIntent(ctx, wire, intent, actor, "artifact source or manifest does not match admission")
 	}
 	if err := s.verifyArtifact(ctx, admission); err != nil {
-		return false, err
+		return false, stageDeliveryError("artifact_verify", err)
 	}
 	var op operation
 	var revision uint64
@@ -220,11 +318,11 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 			if errors.Is(err, authority.ErrFenced) {
 				return s.rejectIntent(ctx, wire, intent, actor, "authority epoch was fenced before acceptance")
 			}
-			return false, err
+			return false, stageDeliveryError("initial_guard", err)
 		}
 		plan, planErr := s.config.Planner.Plan(ctx, intent)
 		if planErr != nil {
-			return false, fmt.Errorf("plan delivery: %w", planErr)
+			return false, stageDeliveryError("planner", planErr)
 		}
 		if err := validatePlan(intent, plan); err != nil {
 			return s.rejectIntent(ctx, wire, intent, actor, "invalid desired placement plan")
@@ -232,11 +330,11 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 		op = operation{Intent: intent, Fingerprint: fingerprint, Actor: actor, Plan: plan}
 		b, marshalErr := json.Marshal(op)
 		if marshalErr != nil {
-			return false, marshalErr
+			return false, stageDeliveryError("operation_create", marshalErr)
 		}
 		revision, err = s.operations.Create(ctx, key, b)
 		if err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
-			return false, fmt.Errorf("claim delivery operation: %w", err)
+			return false, stageDeliveryError("operation_create", err)
 		}
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			entry, err = s.operations.Get(ctx, key)
@@ -245,11 +343,11 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 		}
 	}
 	if err != nil {
-		return false, fmt.Errorf("read delivery operation: %w", err)
+		return false, stageDeliveryError("operation_create", err)
 	}
 	if entry != nil {
 		if err := json.Unmarshal(entry.Value(), &op); err != nil {
-			return false, fmt.Errorf("decode delivery operation: %w", err)
+			return false, stageDeliveryError("operation_lookup", err)
 		}
 		revision = entry.Revision()
 	}
@@ -260,14 +358,14 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 		return true, nil
 	}
 	if err := validatePlan(intent, op.Plan); err != nil {
-		return false, fmt.Errorf("invalid durable plan: %w", err)
+		return false, stageDeliveryError("validate_plan", err)
 	}
 	for _, desired := range op.Plan {
 		if err := s.config.Fencer.Guard(ctx, intent.AuthorityEpoch); err != nil {
 			if errors.Is(err, authority.ErrFenced) {
 				return s.hold(ctx, key, op, revision, "authority epoch fenced; reconcile with a new intent")
 			}
-			return false, err
+			return false, stageDeliveryError("apply_guard", err)
 		}
 		if _, err := s.config.Writer.ApplyDesired(ctx, desired); err != nil {
 			if errors.Is(err, authority.ErrFenced) {
@@ -276,19 +374,19 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 			if errors.Is(err, host.ErrDesiredConflict) {
 				return s.hold(ctx, key, op, revision, "desired target conflicts with committed host state; reconcile with a new intent")
 			}
-			return false, fmt.Errorf("apply desired to %s: %w", desired.Node, err)
+			return false, stageDeliveryError("apply_desired", err)
 		}
 	}
 	if err := s.config.Fencer.Guard(ctx, intent.AuthorityEpoch); err != nil {
 		if errors.Is(err, authority.ErrFenced) {
 			return s.hold(ctx, key, op, revision, "authority epoch fenced; reconcile with a new intent")
 		}
-		return false, err
+		return false, stageDeliveryError("receipt_guard", err)
 	}
 	op.Receipt = &Receipt{OperationID: intent.OperationID, Fingerprint: fingerprint, Status: "accepted", ArtifactDigest: intent.ArtifactDigest, ManifestDigest: intent.ManifestDigest, Cell: intent.Cell, Role: intent.Role, Environment: intent.Environment, Generation: intent.Generation, AuthorityEpoch: intent.AuthorityEpoch}
 	b, err := json.Marshal(op)
 	if err != nil {
-		return false, err
+		return false, stageDeliveryError("receipt", err)
 	}
 	if _, err = s.operations.Update(ctx, key, b, revision); err != nil {
 		if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
@@ -297,7 +395,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (bool, error) {
 				return true, nil
 			}
 		}
-		return false, fmt.Errorf("complete delivery operation: %w", err)
+		return false, stageDeliveryError("receipt", err)
 	}
 	return true, nil
 }

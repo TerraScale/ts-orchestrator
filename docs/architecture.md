@@ -27,7 +27,13 @@ The Go design separates global authority from regional state. A controller
 must prove current authority before it admits a mutation; regional host state
 uses monotonic generations and epochs so replayed or stale desired state can
 be rejected. Hosts authenticate with per-node Ed25519 identities, report
-observed state, and install artifacts by SHA-256 digest.
+observed state, and install artifacts by SHA-256 digest. Host status reads
+verify session and desired generations against leader-served reports while
+allowing a newer report timestamp when its meaning remains unchanged. The host
+and controller share a bounded artifact reader that verifies object metadata,
+chunk sequence and size, and both object and signed digests before the
+controller caches bytes for host delivery; it reads chunk messages directly
+without creating a JetStream consumer.
 
 Forgejo Actions builds and tests repository source. The control plane owns
 admission of signed immutable artifacts and rollout authority. Artifact
@@ -41,10 +47,10 @@ The repository workflow currently creates build outputs and digest evidence;
 it does not publish or sign a production release. `ts-deploy` does not own
 repository builds or rollout.
 
-The app-level integration test follows the signed path through host
+The app-level integration tests follow the signed path through host
 registration, placement admission, artifact admission, deployment and status,
-and host-agent delivery over NATS. Its workload runner is in memory; that test
-does not establish guest process execution or reboot recovery. The four-VM
+and host-agent delivery over NATS. Their workload runner is in memory; those
+tests do not establish guest process execution or reboot recovery. The four-VM
 Firecracker qualification is the guest-level check for those behaviors and
 quorum loss and recovery.
 
