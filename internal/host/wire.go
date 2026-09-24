@@ -1,0 +1,179 @@
+package host
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go"
+)
+
+type request struct {
+	Version   int               `json:"version"`
+	Node      string            `json:"node"`
+	Operation string            `json:"operation"`
+	SessionID string            `json:"session_id"`
+	Epoch     uint64            `json:"epoch"`
+	Nonce     string            `json:"nonce"`
+	IssuedAt  time.Time         `json:"issued_at"`
+	Payload   json.RawMessage   `json:"payload"`
+	Envelope  protocol.Envelope `json:"-"`
+}
+
+type response struct {
+	Nonce     string          `json:"nonce"`
+	Node      string          `json:"node"`
+	SessionID string          `json:"session_id"`
+	Epoch     uint64          `json:"epoch"`
+	Operation string          `json:"operation"`
+	Error     string          `json:"error,omitempty"`
+	Retryable bool            `json:"retryable,omitzero"`
+	Payload   json.RawMessage `json:"payload,omitempty"`
+}
+
+type session struct {
+	RegistrationGeneration uint64    `json:"registration_generation"`
+	SessionID              string    `json:"session_id"`
+	Epoch                  uint64    `json:"epoch"`
+	ExpiresAt              time.Time `json:"expires_at"`
+	LastNonce              string    `json:"last_nonce"`
+	LastIssuedAt           time.Time `json:"last_issued_at"`
+}
+
+type desiredReply struct {
+	Desired  *Desired `json:"desired,omitempty"`
+	Revision uint64   `json:"revision"`
+}
+type artifactQuery struct {
+	Role   string `json:"role"`
+	Digest string `json:"digest"`
+	Offset int64  `json:"offset"`
+	Length int    `json:"length"`
+}
+type artifactReply struct {
+	Digest string `json:"digest"`
+	Offset int64  `json:"offset"`
+	Total  int64  `json:"total"`
+	Data   []byte `json:"data"`
+}
+type cycleQuery struct {
+	Role           string `json:"role"`
+	Digest         string `json:"digest"`
+	Generation     uint64 `json:"generation"`
+	AuthorityEpoch uint64 `json:"authority_epoch"`
+	Attempt        string `json:"attempt"`
+	CycleID        string `json:"cycle_id,omitempty"`
+	Fence          uint64 `json:"fence,omitempty"`
+	Succeeded      bool   `json:"succeeded,omitzero"`
+}
+type cycleReply struct {
+	CycleID   string    `json:"cycle_id"`
+	Fence     uint64    `json:"fence"`
+	State     string    `json:"state"`
+	NotBefore time.Time `json:"not_before,omitzero"`
+}
+
+func decodePublicKey(encoded string) (ed25519.PublicKey, error) {
+	key, err := base64.StdEncoding.Strict().DecodeString(encoded)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, errors.New("invalid Ed25519 public key")
+	}
+	return ed25519.PublicKey(key), nil
+}
+
+func randomID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+
+func signRequest(r *request, key ed25519.PrivateKey, cell string) error {
+	if len(key) != ed25519.PrivateKeySize {
+		return errors.New("invalid host identity key")
+	}
+	payload, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	r.Envelope, err = protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, r.IssuedAt, r.IssuedAt.Add(requestTTL), key)
+	return err
+}
+
+func verifyRequest(r request, key ed25519.PublicKey, cell string, now time.Time) error {
+	if r.Version != 1 || len(r.Nonce) != 32 || len(r.SessionID) != 32 || r.IssuedAt.IsZero() || r.IssuedAt.After(now.Add(maxClockSkew)) || now.Sub(r.IssuedAt) >= requestTTL {
+		return errors.New("invalid or expired host request")
+	}
+	if _, err := hex.DecodeString(r.Nonce); err != nil {
+		return errors.New("invalid nonce")
+	}
+	if _, err := hex.DecodeString(r.SessionID); err != nil {
+		return errors.New("invalid session ID")
+	}
+	if !r.Envelope.IssuedAt.Equal(r.IssuedAt) || r.Envelope.Epoch != r.Epoch {
+		return errors.New("host request envelope binding mismatch")
+	}
+	return protocol.VerifyEnvelope(r.Envelope, protocol.EnvelopeScope{Region: cell, Kind: "host." + r.Operation, Actor: r.Node, OperationID: r.Nonce, Epoch: r.Epoch}, key, now, protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew})
+}
+
+func decodeStrict(data []byte, destination any) error {
+	return protocol.DecodeStrict(data, destination, 512<<10)
+}
+
+func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey, r request, out any) error {
+	if conn == nil {
+		return errors.New("NATS connection is required")
+	}
+	data, err := protocol.EncodeJSON(r.Envelope)
+	if err != nil {
+		return err
+	}
+	if len(data) > 64<<10 {
+		return errors.New("host request is too large")
+	}
+	subject, err := protocol.AgentObservationSubject(cell, r.Node, r.Operation)
+	if err != nil {
+		return err
+	}
+	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	msg, err := conn.RequestWithContext(deadline, subject, data)
+	if err != nil {
+		return err
+	}
+	if len(msg.Data) > 512<<10 {
+		return errors.New("host response is too large")
+	}
+	var signed protocol.Envelope
+	if err := protocol.DecodeStrict(msg.Data, &signed, 512<<10); err != nil {
+		return err
+	}
+	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{Region: cell, Kind: "host.response." + r.Operation, Actor: "controller", OperationID: r.Nonce, Epoch: r.Epoch}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: requestTTL, ClockSkew: maxClockSkew}); err != nil {
+		return err
+	}
+	var result response
+	if err := decodeStrict([]byte(signed.Payload), &result); err != nil {
+		return err
+	}
+	if result.Nonce != r.Nonce || result.Node != r.Node || result.SessionID != r.SessionID || result.Epoch != r.Epoch || result.Operation != r.Operation {
+		return errors.New("host response binding mismatch")
+	}
+	if result.Error != "" {
+		if result.Retryable {
+			return errArtifactPreparing
+		}
+		return fmt.Errorf("host request denied: %s", result.Error)
+	}
+	if out != nil {
+		return decodeStrict(result.Payload, out)
+	}
+	return nil
+}

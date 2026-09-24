@@ -1,204 +1,62 @@
 # TerraScale Orchestrator
 
-TerraScale Orchestrator is TerraScale's C# control plane, deployed as a
-single binary. It provisions the OCI estate, schedules workloads on plain
-Linux hosts, manages regional capacity, coordinates TerraBase Member
-placement, and owns rollout and routing through a purpose-built control API.
+TerraScale Orchestrator is a Go control plane distributed as one binary. A
+regional controller embeds its NATS server and JetStream store; hosts connect
+to the regional cell to receive signed, digest-pinned desired state. Forgejo
+Actions owns source verification and binary builds. The orchestrator owns
+artifact admission and rollout authority. `ts-deploy` is not the build or
+rollout engine for this repository.
 
-The workspace [`GOAL.md`](../GOAL.md) is the cross-repository authority. In priority
-order, this repository optimizes for: green suites on every merge; one-command deploys
-that hosts converge leaderlessly through NATS; NATS carrying state, artifacts, and
-observations end to end; cells that auto-form and auto-join; and real-microVM multi-region
-proof. [ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md)
-records the decisions behind the deploy path.
+This is a greenfield Go implementation. It does not promise compatibility with
+the retired C# commands, configuration, NATS subjects, or state. The current
+implementation and its gaps are described in [the architecture notes](docs/architecture.md).
+The [pre-migration archive](docs/archive/pre-migration/README.md) retains the
+former operational documentation, and [evidence records](docs/evidence/)
+remain unchanged as historical receipts rather than Go acceptance evidence.
 
-## Ownership boundary
+## Build and verify
 
-The control plane contains the following responsibilities:
-
-- the GRU global control group and each regional control group;
-- OCI compute, block storage, attachments, registry access, control backups,
-  and the verified estate configuration;
-- rootless workload hosting, placement, autoscaling, cordon, drain, and node
-  retirement;
-- workload identities, certificates, trust bundles, and secret references;
-- TerraBase Member and volume allocation intent;
-- regional rollout and rollback by immutable digest; and
-- Cloudflare zone routing: `atlas.terrascale.tech` serves the ts-atlas
-  discovery and region-catalog Worker (metadata only), `api.terrascale.tech`
-  routes to the dashboard Worker for product routes, the GRU, SFO, and FRA
-  `<region>.api.terrascale.tech` regional endpoints, `sync.api.terrascale.tech`,
-  `app.terrascale.tech`, `docs.terrascale.tech`, and
-  `status.terrascale.tech`; and
-- versioned database/branch placement publication to the edge routing KV for
-  SDK discovery, through the ordered, idempotent, retryable EdgeRouting
-  publisher (`src/TerraScale.Orchestrator/ControlPlane/EdgeRouting/`).
-
-It does not own database mutations, CRDT merge semantics, replication,
-reactive subscriptions, authoritative usage accounting, customer identity,
-billing, SDK behavior, or customer API proxying.
-
-## Control topology
-
-GRU holds the three-replica global authority. GRU, SFO, and FRA each run an
-autonomous three-replica regional control group. Each group uses a local
-file-backed JetStream R3 domain. NATS gateways distribute approved control
-subjects between domains, but no Raft group spans a WAN link.
-
-NATS stores Orchestrator control state only. It never carries customer
-documents, WAL records, replication frames, query results, reactive frames, or
-usage truth. Existing customer data paths keep serving when the control plane
-is unavailable.
-
-## Workload hosting
-
-Production workloads run as digest-pinned native binaries under hardened
-transient systemd system units (`terrascale-<allocation>.service`). Each unit's
-description carries the canonical allocation identity and plan fingerprint; a
-missing or mismatched fence stops reconciliation instead of adopting the
-process.
-
-Units run with `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`,
-kernel and control-group protection, `RestrictSUIDSGID`, `LockPersonality`,
-private tmp, runtime, and state directories, and cgroup-v2 resource bounds for
-memory, tasks, CPU, and IO. TerraBase replicas use anti-affinity and drain
-safety so node churn cannot remove the required regional replica floor.
-
-## Database boundary
-
-The public Database API service is the only network TBEP client. It connects
-to TerraBase over HTTP/2 with TLS 1.3 mutual authentication. TerraBase
-Member-to-Member replication uses its own direct QUIC transport with mutual
-authentication. Orchestrator is not on either data path.
-
-Each database chooses from the three launch regions. Every selected region
-places two active TerraBase Members per partition across independent failure
-domains. Orchestrator supplies capacity and fenced placement intent; the
-resulting database/branch placements are published to the edge routing KV so
-SDK discovery serves the same intent. TerraBase
-alone accepts membership, repair, replica retirement, and durability facts.
-
-## Delivery
-
-`ts-deploy` runs in Forgejo Actions and owns build, test, image publication,
-and candidate handoff. The handoff identifies the source commit and tree, the
-Deploy CLI version, immutable artifact digests, and test results. It grants no
-rollout authority.
-
-Orchestrator verifies the handoff and admits the exact digest. Hosts then
-converge leaderlessly ([ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md)):
-each host stops the old unit and recreates it bound to the new digest, and
-rollback is a deploy of the previous digest. It never rebuilds during
-promotion or rollback.
-
-## Local verification
+This repository pins Go 1.27.1 in `.mise.toml`:
 
 ```bash
-dotnet restore TerraScale.Orchestrator.slnx --locked-mode
-dotnet build TerraScale.Orchestrator.slnx --configuration Release --no-restore
-dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build
+mise trust .mise.toml  # first checkout only
+mise install
+mise exec -- make verify
+mise exec -- make build
+mise exec -- make release-linux
 ```
 
-The remaining suites are `TerraScale.Orchestrator.ControlPlane.Tests`,
-`TerraScale.Orchestrator.Protocol.Tests`, `TerraScale.Orchestrator.Scheduler.Tests`, and
-`TerraScale.Orchestrator.ModelTests`. The live Firecracker lanes additionally need KVM,
-sudo, and prepared inputs:
+`make verify` checks Go formatting, runs tests, runs `go vet`, and repeats the
+tests with the race detector. `make build` creates `dist/terrascale-orchestrator`
+for the current host. `make release-linux` creates static Linux amd64 and
+arm64 executables and requires no Go runtime on the target machine. Forgejo CI
+repeats the checks against the event's exact commit, verifies both ELF
+architectures and the embedded Git revision, and prints SHA-256 digests.
 
-```bash
-TS_ORCH_LIVE_VM=1 TS_ORCH_VM_INPUTS=<inputs> \
-  dotnet run --project tests/TerraScale.Orchestrator.Tests -c Release --no-build
-```
+See [local development](docs/local-development.md) for Firecracker
+qualification and [release boundaries](docs/releases.md) for what CI proves
+and what still needs a separate release process.
 
-## Deploying a new TerraBase version
+## Current limits
 
-[ADR 0034](docs/adr/0034-autoforming-cells-and-leaderless-host-convergence.md) records the
-decisions; the operator path is:
+The signed native-workload path has an app-level test with an in-memory runner;
+the separate four-VM Firecracker run is still required to establish guest
+execution, reboot recovery, and quorum-loss behavior. Managed OCI placement
+can provision a host and retained volume, then stops at
+`awaiting-runtime-contract` after the attachment is positively observed. It
+does not start TerraBase, prove a mounted volume, or claim a database member is
+serving. Host image preparation, bootstrap, and signed enrollment remain
+operator steps.
 
-```bash
-# 1. publish the artifact into the regional NATS object store (prints its sha256)
-terrascale-orchestrator operator artifact-push --file ./terrabase-server \
-  --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
-
-# 2. admit the new digest through the signed direct-delivery endpoint
-terrascale-orchestrator operator deploy \
-  --service terrabase-server --digest sha256:... --manifest-digest sha256:... \
-  --regions gru --source-repository TerraScale/TerraBase \
-  --source-commit <40-hex> --source-tree-digest sha256:... \
-  --reason "ship v1.2.3" --key-file operator.pem \
-  --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
-```
-
-Production provenance additionally requires one durable signed evidence record per artifact
-(the CI normally writes it); on a day-one cell, record it once with the CI-artifact key:
-
-```bash
-terrascale-orchestrator operator evidence-record   --digest sha256:... --manifest-digest sha256:...   --source-repository TerraScale/TerraBase --source-commit <40-hex>   --source-tree-digest sha256:... --key-file ci-artifact.pem   --cell gru --nats-url tls://... --nkey-file ... --tls-ca-file ... --tls-cert-file ... --tls-key-file ...
-```
-
-Every admitted host configured with `TS_ORCH_HOST_ROLES=terrabase-member` then converges itself:
-fetch by digest from `ORCH_ARTIFACTS`, verify SHA-256, install under the immutable digest
-path, stop the old unit, converge the systemd unit bound to the new binary, observe, and
-report. The member's `TERRABASE_*` configuration ships as
-`TS_ORCH_HOST_ENV_DIR/terrabase-server.env`, copied to the unit's environment file on every
-converge. Stateful roles serialize through the cell replace lease; a failed replacement
-restores the exact previous digest. Rollback is a deploy of the previous digest with the
-same command. In production, enabling this setting requires the signed regional enrollment
-and credential-readiness configuration below; startup fails before connecting to NATS when
-any required admission value is absent.
-
-The production host admission files are configured with
-`TS_ORCH_HOST_ENROLLMENT_FILE`, `TS_ORCH_HOST_ENROLLMENT_SIGNER_PUBLIC_KEY_FILE`,
-`TS_ORCH_HOST_BOOTSTRAP_TRUST_BUNDLE_FILE`, `TS_ORCH_HOST_CREDENTIAL_BUNDLE_FILE`,
-`TS_ORCH_HOST_NODE_ID`, `TS_ORCH_NATS_ACCOUNT_PUBLIC_KEY`,
-`TS_ORCH_HOST_CLUSTER_NAME`, `TS_ORCH_HOST_ENROLLMENT_SIGNER_KEY_ID`,
-`TS_ORCH_HOST_ENROLLMENT_SIGNER_KEY_VERSION`, and the three
-`TS_ORCH_BOOTSTRAP_SYSTEM_*_ULID` values. The optional operation defaults to
-`ensure-system-project-configuration`. The envelope and trust files are bounded regular
-files without writable group/other permissions; the credential bundle is owner-private and
-must hash to the digest in the signed envelope. A successful admission is cached for the
-process lifetime, while the durable regional NATS KV replay/generation fence accepts each
-node generation once.
-
-Regional controllers can load `TS_ORCH_HOST_SESSION_POLICY_FILE` to serve
-durable remote host sessions through restricted NATS subjects, with admission
-status and OTLP metrics. OCI workload controllers require this policy and
-cannot also use the local host path above. The dedicated host startup/renewal
-loop and workload fencing remain deployment blockers. See
-[host session authentication](docs/operations/host-session-authentication.md)
-for the policy schema and exact qualification limits.
-
-## Auto-forming cells
-
-`run` converges the regional controller topology idempotently at startup (streams, KV,
-object stores, consumers): the first instance creates the cell, later instances join, and
-`TS_ORCH_AUTO_PROVISION=0` restores infrastructure-only provisioning. The infrastructure
-`ORCH_OPERATIONS` journal always stays with the `provision-journal` command.
-
-`ts-infra` declares supported regions and creates the first GRU controller.
-The orchestrator is intended to take over resource lifecycle and establish
-each supported region's cluster. OCI fleet startup now requires the public
-`ts-infra` output in `TS_ORCH_REGION_INTENT_FILE`; it rejects unsupported cells
-and endpoints or templates belonging to a different region. Supported regions
-are not automatically admitted by this file.
-
-Pinned Vault delivery and the bounded two-peer GRU founding commands are
-implemented. The complete first boot, seed ownership transfer, and regional
-estate reconciliation remain deployment blockers. The current C# bootstrap
-contract and exact gaps are documented in
-[`docs/operations/control-bootstrap.md`](docs/operations/control-bootstrap.md)
-and the [OCI readiness record](docs/evidence/oci-readiness-2026-09-20.md).
-
-## Documentation
-
-- [Documentation index](docs/README.md)
-- [Architecture boundaries](docs/guides/architecture-boundaries.md)
-- [GRU and regional authority](docs/adr/0033-gru-global-authority-and-regional-autonomy.md)
-- [Durable work inventory](docs/contracts/durable-work-inventory.md)
-- [Controller membership](docs/contracts/controller-membership.md)
-- [NATS gateway operations](docs/runbooks/nats-gateway-operations.md)
-- [NATS monitoring](docs/runbooks/nats-monitoring.md)
-- [OCI bootstrap and ownership handoff](docs/operations/control-bootstrap.md)
-- [Regional JWT/mTLS authentication and runtime permissions](docs/operations/regional-nats-authentication.md)
-- [Pinned OCI Vault credential delivery](docs/operations/oci-vault-bootstrap.md)
-- [Bounded GRU founding peers](docs/operations/oci-founding-peers.md)
-- [TerraBase host admission and service readiness](docs/operations/oci-member-readiness.md)
+OCI provider behavior has only fake-provider coverage. A create accepted by
+OCI whose result is lost before its recovery result is durably journaled stays
+unowned. Matching tags alone do not authorize adoption; manual inspection and
+reconciliation are required. Artifact uploads are bounded by a 2 GiB default
+quota, but interrupted or concurrent uploads can leave chunks in the store.
+There is no repository-managed cleanup path, automatic garbage collection, or
+admitted-object eviction. Once the quota is full, new uploads fail with
+`ErrArtifactStoreFull`.
+Live OCI mutation, scale-in, region decommission, production authority
+failover, signed release publication, and guest-level rollback remain outside
+the evidence currently available here. Do not use this repository as a
+production-ready cloud control plane.

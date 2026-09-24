@@ -1,0 +1,343 @@
+package delivery
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go/jetstream"
+)
+
+const ArtifactBucket = "TS_ARTIFACTS"
+
+// The NATS server reports stream store rejections through its generic 10077
+// error. The description carries the underlying discard-new store reason.
+const jsStreamStoreFailedErrorCode jetstream.ErrorCode = 10077
+
+type signedAdmission struct {
+	Record   ArtifactRecord `json:"record"`
+	Envelope []byte         `json:"envelope"`
+	Actor    string         `json:"actor"`
+}
+
+func artifactKey(digest string) string { return "sha256-" + digest }
+
+func admissionKey(digest, cell, role, environment string) string {
+	scope := sha256.Sum256([]byte(cell + "\x00" + role + "\x00" + environment))
+	return "a_" + digest + "_" + hex.EncodeToString(scope[:])
+}
+
+const admissionCASAttempts = 8
+
+func ArtifactClaimSubject(cell string) string {
+	return "ts.orch.v1." + cell + ".delivery.artifact.admit"
+}
+
+// PrepareArtifact uploads content-addressed bytes and returns a signed claim.
+// It does not grant admission; the controller must process the claim with
+// AcceptArtifactClaim before the artifact can be deployed.
+func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, request ArtifactClaimRequest) (record ArtifactRecord, claim []byte, resultErr error) {
+	if s == nil || reader == nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("%w: missing artifact reader", ErrInvalid)
+	}
+	if err := request.validate(); err != nil || request.Cell != s.config.Cell {
+		return ArtifactRecord{}, nil, fmt.Errorf("%w: artifact target or source", ErrInvalid)
+	}
+	if s.config.ArtifactSigner == nil {
+		return ArtifactRecord{}, nil, errors.New("artifact signer is not configured")
+	}
+	snapshot, size, digest, err := stageArtifact(ctx, reader)
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	defer func() {
+		cleanupErr := discardStagedArtifact(snapshot)
+		if cleanupErr != nil {
+			if resultErr == nil {
+				record = ArtifactRecord{}
+				claim = nil
+			}
+			resultErr = errors.Join(resultErr, cleanupErr)
+		}
+	}()
+	if size == 0 || size > MaxArtifactBytes {
+		return ArtifactRecord{}, nil, fmt.Errorf("%w: artifact size must be 1..%d bytes", ErrInvalid, MaxArtifactBytes)
+	}
+	r := ArtifactRecord{SchemaVersion: SchemaVersion, Digest: digest, Source: request.Source, Cell: request.Cell, Role: request.Role, Environment: request.Environment, Size: size}
+	r.ManifestDigest, err = r.calculatedManifestDigest()
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	envelope, err := s.config.ArtifactSigner.SignArtifact(ctx, r)
+	if err != nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("sign artifact claim: %w", err)
+	}
+	exists, err := s.checkArtifact(ctx, r)
+	if err != nil {
+		return ArtifactRecord{}, nil, err
+	}
+	if !exists {
+		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
+			return ArtifactRecord{}, nil, err
+		}
+		if _, err := s.artifacts.Put(ctx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{ctx, snapshot}); err != nil {
+			if isArtifactStoreFullError(err) {
+				return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
+			}
+			return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w", err)
+		}
+		if err := s.verifyArtifact(ctx, r); err != nil {
+			return ArtifactRecord{}, nil, err
+		}
+	}
+	return r, envelope, nil
+}
+
+func isArtifactStoreFullError(err error) bool {
+	apiErr, ok := errors.AsType[*jetstream.APIError](err)
+	return ok && apiErr.ErrorCode == jsStreamStoreFailedErrorCode && apiErr.Description == "maximum bytes exceeded"
+}
+
+func stageArtifact(ctx context.Context, reader io.ReadSeeker) (*os.File, int64, string, error) {
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, "", fmt.Errorf("seek artifact source: %w", err)
+	}
+
+	// CreateTemp creates files with mode 0600, so staged artifact bytes are not
+	// readable by unrelated local users while they are being uploaded.
+	snapshot, err := os.CreateTemp("", "ts-orchestrator-artifact-")
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("stage artifact: %w", err)
+	}
+	hash := sha256.New()
+	size, err := io.Copy(io.MultiWriter(snapshot, hash), io.LimitReader(contextReader{ctx, reader}, MaxArtifactBytes+1))
+	if err != nil {
+		return nil, 0, "", errors.Join(fmt.Errorf("stage artifact: %w", err), discardStagedArtifact(snapshot))
+	}
+	if size == 0 || size > MaxArtifactBytes {
+		return nil, 0, "", errors.Join(
+			fmt.Errorf("%w: artifact size must be 1..%d bytes", ErrInvalid, MaxArtifactBytes),
+			discardStagedArtifact(snapshot),
+		)
+	}
+	return snapshot, size, hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func discardStagedArtifact(snapshot *os.File) error {
+	if snapshot == nil {
+		return nil
+	}
+	return errors.Join(snapshot.Close(), os.Remove(snapshot.Name()))
+}
+
+// AcceptArtifactClaim is the controller's admission boundary. Operator and CI
+// clients may publish the signed claim but must not write the admission KV.
+func (s *Service) AcceptArtifactClaim(ctx context.Context, envelope []byte) (ArtifactRecord, error) {
+	if s == nil || s.config.ArtifactVerifier == nil || s.config.AuthorizeArtifact == nil || len(envelope) == 0 || len(envelope) > MaxArtifactClaimBytes {
+		return ArtifactRecord{}, fmt.Errorf("%w: artifact admission configuration or signed claim", ErrInvalid)
+	}
+	r, actor, err := s.config.ArtifactVerifier.VerifyArtifact(ctx, envelope)
+	if err != nil || actor == "" || r.validate() != nil || r.Cell != s.config.Cell {
+		return ArtifactRecord{}, fmt.Errorf("%w: artifact signature or cell", ErrInvalid)
+	}
+	if err := s.config.AuthorizeArtifact(ctx, actor, r); err != nil {
+		return ArtifactRecord{}, err
+	}
+	if err := s.verifyArtifact(ctx, r); err != nil {
+		return ArtifactRecord{}, err
+	}
+	if err := s.persistArtifactAdmission(ctx, r, envelope, actor); err != nil {
+		return ArtifactRecord{}, err
+	}
+	return r, nil
+}
+
+func (s *Service) persistArtifactAdmission(ctx context.Context, record ArtifactRecord, envelope []byte, actor string) error {
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	newAdmission := signedAdmission{Record: record, Envelope: bytes.Clone(envelope), Actor: actor}
+	encoded, err := json.Marshal(newAdmission)
+	if err != nil {
+		return err
+	}
+	for range admissionCASAttempts {
+		entry, getErr := s.admissions.Get(ctx, key)
+		if errors.Is(getErr, jetstream.ErrKeyNotFound) {
+			if _, createErr := s.admissions.Create(ctx, key, encoded); createErr == nil {
+				return s.verifyCurrentAdmission(ctx, record)
+			} else if errors.Is(createErr, jetstream.ErrKeyExists) {
+				continue
+			} else {
+				return fmt.Errorf("admit artifact: %w", createErr)
+			}
+		}
+		if getErr != nil {
+			return getErr
+		}
+		oldAdmission, err := decodeStoredAdmission(entry.Value(), record.Digest, record.Cell, record.Role, record.Environment)
+		if err != nil {
+			return err
+		}
+		if oldAdmission.Record != record {
+			return ErrConflict
+		}
+		if oldAdmission.Actor == actor && bytes.Equal(oldAdmission.Envelope, envelope) {
+			return s.verifyCurrentAdmission(ctx, record)
+		}
+		if current, currentErr := s.readAdmission(ctx, record.Digest, record.Cell, record.Role, record.Environment); currentErr == nil {
+			if current != record {
+				return ErrConflict
+			}
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.config.AuthorizeArtifact(ctx, actor, record); err != nil {
+			return err
+		}
+		if err := s.verifyArtifact(ctx, record); err != nil {
+			return err
+		}
+		updated := signedAdmission{Record: oldAdmission.Record, Envelope: bytes.Clone(envelope), Actor: actor}
+		updateBytes, err := json.Marshal(updated)
+		if err != nil {
+			return err
+		}
+		if _, err := s.admissions.Update(ctx, key, updateBytes, entry.Revision()); err != nil {
+			if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
+				continue
+			}
+			return fmt.Errorf("replace artifact admission: %w", err)
+		}
+		return s.verifyCurrentAdmission(ctx, record)
+	}
+	if current, err := s.readAdmission(ctx, record.Digest, record.Cell, record.Role, record.Environment); err == nil && current == record {
+		return nil
+	}
+	return ErrConflict
+}
+
+func (s *Service) verifyCurrentAdmission(ctx context.Context, expected ArtifactRecord) error {
+	current, err := s.readAdmission(ctx, expected.Digest, expected.Cell, expected.Role, expected.Environment)
+	if err != nil {
+		return err
+	}
+	if current != expected {
+		return ErrConflict
+	}
+	return nil
+}
+
+func decodeStoredAdmission(value []byte, digest, cell, role, environment string) (signedAdmission, error) {
+	var signed signedAdmission
+	if err := protocol.DecodeStrict(value, &signed, MaxArtifactClaimBytes+4096); err != nil {
+		return signedAdmission{}, fmt.Errorf("decode artifact admission: %w", err)
+	}
+	r := signed.Record
+	if err := r.validate(); err != nil || r.Digest != digest || r.Cell != cell || r.Role != role || r.Environment != environment ||
+		signed.Actor == "" || len(signed.Envelope) == 0 || len(signed.Envelope) > MaxArtifactClaimBytes {
+		return signedAdmission{}, fmt.Errorf("invalid durable artifact admission: %w", ErrInvalid)
+	}
+	return signed, nil
+}
+
+func (s *Service) readAdmission(ctx context.Context, digest, cell, role, environment string) (ArtifactRecord, error) {
+	e, err := s.admissions.Get(ctx, admissionKey(digest, cell, role, environment))
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	signed, err := decodeStoredAdmission(e.Value(), digest, cell, role, environment)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	r := signed.Record
+	if s.config.ArtifactVerifier == nil {
+		return ArtifactRecord{}, errors.New("artifact verifier is not configured")
+	}
+	verified, actor, err := s.config.ArtifactVerifier.VerifyArchivedArtifact(ctx, signed.Envelope)
+	if err != nil || actor == "" || actor != signed.Actor || verified != r {
+		return ArtifactRecord{}, fmt.Errorf("%w: durable artifact claim signature", ErrInvalid)
+	}
+	if s.config.AuthorizeArtifact == nil {
+		return ArtifactRecord{}, errors.New("artifact authorizer is not configured")
+	}
+	if err := s.config.AuthorizeArtifact(ctx, actor, r); err != nil {
+		return ArtifactRecord{}, err
+	}
+	return r, nil
+}
+
+// ResolveAdmittedArtifact returns an artifact only when its durable admission is
+// valid under current signer authorization and its stored bytes match the digest.
+func (s *Service) ResolveAdmittedArtifact(ctx context.Context, digest, role, environment string) (ArtifactRecord, error) {
+	if s == nil || !sha256RE.MatchString(digest) || !nameRE.MatchString(role) || !nameRE.MatchString(environment) || !nameRE.MatchString(s.config.Cell) {
+		return ArtifactRecord{}, fmt.Errorf("%w: artifact admission lookup", ErrInvalid)
+	}
+	record, err := s.readAdmission(ctx, digest, s.config.Cell, role, environment)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	if err := s.verifyArtifact(ctx, record); err != nil {
+		return ArtifactRecord{}, err
+	}
+	return record, nil
+}
+
+func (s *Service) verifyArtifact(ctx context.Context, r ArtifactRecord) error {
+	exists, err := s.checkArtifact(ctx, r)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("%w: artifact object does not exist", ErrInvalid)
+	}
+	return nil
+}
+
+func (s *Service) checkArtifact(ctx context.Context, r ArtifactRecord) (bool, error) {
+	info, err := s.artifacts.GetInfo(ctx, artifactKey(r.Digest))
+	if errors.Is(err, jetstream.ErrObjectNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect artifact: %w", err)
+	}
+	if info == nil || info.Deleted || info.Opts != nil && info.Opts.Link != nil || info.Size != uint64(r.Size) {
+		return false, fmt.Errorf("%w: artifact object is deleted, linked or has wrong size", ErrInvalid)
+	}
+	object, err := s.artifacts.Get(ctx, artifactKey(r.Digest))
+	if err != nil {
+		return false, fmt.Errorf("read back artifact: %w", err)
+	}
+	defer object.Close()
+	h := sha256.New()
+	n, err := io.Copy(h, io.LimitReader(contextReader{ctx, object}, MaxArtifactBytes+1))
+	if err != nil {
+		return false, fmt.Errorf("read back artifact: %w", err)
+	}
+	if n != r.Size || hex.EncodeToString(h.Sum(nil)) != r.Digest {
+		return false, fmt.Errorf("%w: artifact bytes differ from admitted digest", ErrInvalid)
+	}
+	return true, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
+}
+
+func (s *Service) Artifacts() jetstream.ObjectStore { return s.artifacts }

@@ -6,11 +6,9 @@ end_of_line = lf
 insert_final_newline = true
 trim_trailing_whitespace = true
 
-[*.{cs,csproj,props,targets}]
-indent_style = space
-indent_size = 4
+[*.go]
+indent_style = tab
 
-[*.{json,yaml,yml,md,slnx}]
+[*.{json,yaml,yml,md}]
 indent_style = space
 indent_size = 2
-

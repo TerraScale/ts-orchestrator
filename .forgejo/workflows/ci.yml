@@ -1,4 +1,4 @@
-name: TerraScale orchestrator checks
+name: TerraScale Orchestrator Go checks
 
 on:
   push:
@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   verify:
-    name: verify/csharp
+    name: verify/go
     runs-on: terrascale-builder
     timeout-minutes: 90
     env:
@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify the clean source revision
+      - name: Verify the source revision and Go toolchain
         shell: bash
         run: |
           set -euo pipefail
@@ -33,197 +33,14 @@ jobs:
           test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
           [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          printf 'source=%s tree=%s\n' \
-            "${source_commit}" "$(git rev-parse HEAD^{tree})"
+          go_version="$(go env GOVERSION)"
+          test "${go_version}" = "go1.27.1"
+          printf 'source=%s tree=%s go=%s\n' \
+            "${source_commit}" "$(git rev-parse HEAD^{tree})" "${go_version}"
 
-      - name: Restore the locked solution
+      - name: Verify formatting, tests, vet, and race behavior
         shell: bash
-        run: dotnet restore TerraScale.Orchestrator.slnx --locked-mode --nologo
-
-      - name: Fail closed on vulnerable NuGet packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          dotnet run scripts/check-nuget-vulnerabilities.tests.cs -- --minimum-expected-tests 13
-          dotnet run scripts/check-nuget-vulnerabilities.cs \
-            src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj \
-            tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj
-
-      - name: Check .NET formatting
-        shell: bash
-        run: dotnet format style TerraScale.Orchestrator.slnx --verify-no-changes --no-restore
-
-      - name: Build the release solution
-        shell: bash
-        run: >-
-          dotnet build TerraScale.Orchestrator.slnx
-          --configuration Release --no-restore --nologo
-          -p:ContinuousIntegrationBuild=true
-
-      - name: Configure the container init the NATS fixtures require
-        shell: bash
-        run: |
-          set -euo pipefail
-          # Current ts-builder images ship this helper. Keep a source-level
-          # fallback for runners that still have the previous cached image so
-          # the test lane remains self-contained while the image is re-warmed.
-          if [ ! -x /usr/local/bin/ts-podman-init ]; then
-            cat > /tmp/ts-podman-init.c <<'EOF'
-          #include <signal.h>
-          #include <string.h>
-          #include <sys/types.h>
-          #include <sys/wait.h>
-          #include <unistd.h>
-
-          static volatile sig_atomic_t terminate;
-          static volatile pid_t child_pid;
-
-          static void stop_handler(int signal_number)
-          {
-              (void)signal_number;
-              terminate = 1;
-          }
-
-          static void forward_handler(int signal_number)
-          {
-              if (child_pid > 0)
-                  kill(child_pid, signal_number);
-          }
-
-          int main(int argc, char **argv)
-          {
-              if (argc <= 1 || (argc == 2 && strcmp(argv[1], "-P") == 0))
-              {
-                  struct sigaction action = {0};
-                  action.sa_handler = stop_handler;
-                  sigaction(SIGTERM, &action, NULL);
-                  sigaction(SIGINT, &action, NULL);
-                  sigaction(SIGHUP, &action, NULL);
-                  sigaction(SIGPIPE, &action, NULL);
-                  while (!terminate)
-                      pause();
-                  return 0;
-              }
-
-              child_pid = fork();
-              if (child_pid < 0)
-                  return 1;
-              if (child_pid == 0)
-              {
-                  execvp(argv[1], &argv[1]);
-                  _exit(127);
-              }
-
-              struct sigaction action = {0};
-              action.sa_handler = forward_handler;
-              sigaction(SIGTERM, &action, NULL);
-              sigaction(SIGINT, &action, NULL);
-              int status = 0;
-              while (wait(&status) != child_pid) { }
-              return WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-          }
-          EOF
-            cc -O2 -static -o /usr/local/bin/ts-podman-init /tmp/ts-podman-init.c
-            chmod 0755 /usr/local/bin/ts-podman-init
-          fi
-          # Smoke the init binary and register it via containers.conf.d. The
-          # test-side CONTAINERS_CONF_OVERRIDE layers cgroup settings on top.
-          /usr/local/bin/ts-podman-init -P &
-          init_pid=$!
-          sleep 0.3
-          kill -TERM "$init_pid"
-          wait "$init_pid"
-          mkdir -p /etc/containers/containers.conf.d
-          printf '[containers]\ninit_path = "/usr/local/bin/ts-podman-init"\n' \
-            > /etc/containers/containers.conf.d/99-podman-init.conf
-          # Native overlay mounts fail inside the job container; the image ships
-          # fuse-overlayfs, so pin the storage graph to it before the first
-          # podman invocation initializes the store.
-          mkdir -p /etc/containers
-          if [ ! -e /etc/containers/storage.conf ]; then
-            printf '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n' \
-              > /etc/containers/storage.conf
-          fi
-
-      - name: Remove stale orchestrator Podman fixtures
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The fixture names are deterministic prefixes. Remove resources
-          # left by an interrupted job even when the old resource has no
-          # ownership label and netavark therefore cannot find its metadata.
-          mapfile -t stale_pods < <(
-            podman pod ps --format '{{.Name}}' \
-              | awk '/^ts-orch-test-nats-/ { print }'
-          )
-          for pod in "${stale_pods[@]}"; do
-            podman pod rm --force "${pod}"
-          done
-          mapfile -t stale_containers < <(
-            podman ps -a --format '{{.Names}}' \
-              | awk '/^ts-r1-/ { print }'
-          )
-          for container in "${stale_containers[@]}"; do
-            podman rm --force --time 2 "${container}"
-          done
-          mapfile -t stale_networks < <(
-            podman network ls --format '{{.Name}}' \
-              | awk '/^ts-r1-/ { print }'
-          )
-          for network in "${stale_networks[@]}"; do
-            podman network rm --force "${network}"
-          done
-          test -z "$(podman pod ps --format '{{.Name}}' | awk '/^ts-orch-test-nats-/ { print }')"
-          test -z "$(podman ps -a --format '{{.Names}}' | awk '/^ts-r1-/ { print }')"
-          test -z "$(podman network ls --format '{{.Name}}' | awk '/^ts-r1-/ { print }')"
-
-      - name: Run every TUnit test project
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p -- artifacts/ci/tests
-          test_log="artifacts/ci/tests/orchestrator-tests.log"
-          test_projects=(
-            tests/TerraScale.Orchestrator.ControlPlane.Tests/TerraScale.Orchestrator.ControlPlane.Tests.csproj
-            tests/TerraScale.Orchestrator.ModelTests/TerraScale.Orchestrator.ModelTests.csproj
-            tests/TerraScale.Orchestrator.Protocol.Tests/TerraScale.Orchestrator.Protocol.Tests.csproj
-            tests/TerraScale.Orchestrator.Scheduler.Tests/TerraScale.Orchestrator.Scheduler.Tests.csproj
-            tests/TerraScale.Orchestrator.Tests/TerraScale.Orchestrator.Tests.csproj
-          )
-          for project in "${test_projects[@]}"; do
-            test -f "${project}"
-            dotnet run --project "${project}" \
-              --configuration Release --no-build --no-restore -- \
-              --minimum-expected-tests 1 \
-              --maximum-parallel-tests 2 2>&1 | tee -a "${test_log}"
-          done
-          grep -Fq 'Test run summary: Passed!' "${test_log}"
-          grep -Eq 'failed: 0' "${test_log}"
-          for project in "${test_projects[@]}"; do
-            project_dir="$(dirname "${project}")"
-            project_name="$(basename "${project}" .csproj)"
-            report="$(find "${project_dir}" -type f -path '*/TestResults/*-report.html' -print -quit)"
-            test -n "${report}"
-            cp -- "${report}" "artifacts/ci/tests/${project_name}.html"
-          done
-          jq -n \
-            --arg sourceCommit "${SOURCE_SHA:?event SHA is required}" \
-            --arg testLog "orchestrator-tests.log" \
-            --arg digests "SHA256SUMS" \
-            --argjson projectCount "${#test_projects[@]}" \
-            '{schemaVersion: 1, sourceCommit: $sourceCommit, projectCount: $projectCount, testLog: $testLog, digests: $digests}' \
-            > artifacts/ci/tests/test-receipt.json
-          # Shell redirection creates SHA256SUMS before glob expansion. Hash only
-          # the evidence payload, including its source receipt, never this file.
-          (cd artifacts/ci/tests && sha256sum -- orchestrator-tests.log *.html test-receipt.json) \
-            > artifacts/ci/tests/SHA256SUMS
-          (cd artifacts/ci/tests && sha256sum --check --strict SHA256SUMS)
-
-          # This runner rejects upload-artifact's boolean inputs (also documented
-          # below for binary artifacts). Retain the source receipt and payload
-          # digests in the job log; HTML files remain local to this job until the
-          # runner supports artifact upload. Do not claim uploaded reports.
-          cat artifacts/ci/tests/test-receipt.json artifacts/ci/tests/SHA256SUMS
+        run: make verify GO=go GOFMT=gofmt
 
   artifact:
     name: artifact/linux-amd64-arm64
@@ -241,108 +58,53 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Build and verify source-matched orchestrator artifacts
+      - name: Build and verify static source-matched binaries
         shell: bash
         run: |
           set -euo pipefail
-
           source_commit="$(git rev-parse HEAD)"
           test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
           [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          go_version="$(go env GOVERSION)"
+          test "${go_version}" = "go1.27.1"
+          make release-linux GO=go GOFMT=gofmt
 
-          project="src/TerraScale.Orchestrator/TerraScale.Orchestrator.csproj"
-          test -f "${project}"
-          version="$(dotnet msbuild "${project}" -getProperty:Version -nologo)"
-          target_framework="$(dotnet msbuild "${project}" -getProperty:TargetFramework -nologo)"
-          publish_single_file="$(dotnet msbuild "${project}" -getProperty:PublishSingleFile -nologo)"
-          self_contained="$(dotnet msbuild "${project}" -getProperty:SelfContained -nologo)"
-          test -n "${version}"
-          test -n "${target_framework}"
-          test "${publish_single_file}" = true
-          test "${self_contained}" = true
-
-          root="${RUNNER_TEMP:-/tmp}/ts-orchestrator-artifacts"
-          artifacts="${root}/artifacts"
-          rm -rf -- "${root}"
-          mkdir -p -- "${artifacts}"
-
-          # The source lock file records both runtime graphs together. Restore
-          # once, then publish each architecture from this exact checkout.
-          dotnet restore "${project}" --locked-mode --nologo
-          for pair in "linux-x64:Advanced Micro Devices X86-64" "linux-arm64:AArch64"; do
-            rid="${pair%%:*}"
+          for pair in \
+            "linux-amd64:Advanced Micro Devices X86-64" \
+            "linux-arm64:AArch64"; do
+            asset="${pair%%:*}"
             expected_machine="${pair#*:}"
-            publish_dir="${root}/publish/${rid}"
-            asset="terrascale-orchestrator-${rid}"
-            mkdir -p -- "${publish_dir}"
-            dotnet publish "${project}" \
-              --configuration Release \
-              --runtime "${rid}" \
-              --self-contained true \
-              --no-restore \
-              --output "${publish_dir}" \
-              --nologo \
-              -p:ContinuousIntegrationBuild=true \
-              -p:PublishSingleFile=true \
-              -p:SelfContained=true \
-              -p:IncludeNativeLibrariesForSelfExtract=true \
-              -p:EnableCompressionInSingleFile=false \
-              -p:DebugType=None
-            executable="${publish_dir}/terrascale-orchestrator"
+            executable="dist/terrascale-orchestrator-${asset}"
             test -s "${executable}"
-            install -m 0755 "${executable}" "${artifacts}/${asset}"
 
-            machine="$(readelf -h "${artifacts}/${asset}" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')"
+            machine="$(readelf -h "${executable}" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')"
             test "${machine}" = "${expected_machine}"
-            bytes="$(stat -c '%s' "${artifacts}/${asset}")"
-            sha256="$(sha256sum "${artifacts}/${asset}" | awk '{print $1}')"
-            test "${bytes}" -gt 0
-            test "${#sha256}" -eq 64
-            case "${sha256}" in *[!0-9a-f]*) echo "orchestrator: non-lowercase artifact digest" >&2; exit 1 ;; esac
+            if readelf -l "${executable}" | grep -Fq 'INTERP'; then
+              echo "${executable} contains a dynamic interpreter" >&2
+              exit 1
+            fi
+            if readelf -d "${executable}" 2>/dev/null | grep -Eq 'NEEDED'; then
+              echo "${executable} has dynamic library dependencies" >&2
+              exit 1
+            fi
 
-            jq -n \
-              --arg artifact "${asset}" \
-              --arg sourceCommit "${source_commit}" \
-              --arg version "${version}" \
-              --arg targetFramework "${target_framework}" \
-              --arg runtimeIdentifier "${rid}" \
-              --arg machine "${machine}" \
-              --arg sha256 "${sha256}" \
-              --argjson bytes "${bytes}" \
-              --argjson selfContained true \
-              --argjson singleFile true \
-              '{schemaVersion: 1, artifact: $artifact, sourceCommit: $sourceCommit, version: $version, targetFramework: $targetFramework, runtimeIdentifier: $runtimeIdentifier, machine: $machine, selfContained: $selfContained, singleFile: $singleFile, bytes: $bytes, sha256: $sha256}' \
-              > "${artifacts}/${asset}.metadata.json"
-            jq -e \
-              --arg artifact "${asset}" \
-              --arg sourceCommit "${source_commit}" \
-              --arg version "${version}" \
-              --arg targetFramework "${target_framework}" \
-              --arg runtimeIdentifier "${rid}" \
-              --arg machine "${machine}" \
-              --arg sha256 "${sha256}" \
-              --argjson bytes "${bytes}" \
-              '(.schemaVersion == 1 and .artifact == $artifact and .sourceCommit == $sourceCommit and .version == $version and .targetFramework == $targetFramework and .runtimeIdentifier == $runtimeIdentifier and .machine == $machine and .selfContained == true and .singleFile == true and .bytes == $bytes and .sha256 == $sha256)' \
-              "${artifacts}/${asset}.metadata.json" >/dev/null
-            printf 'verified %s rid=%s machine=%s bytes=%s sha256=%s source=%s\n' \
-              "${asset}" "${rid}" "${machine}" "${bytes}" "${sha256}" "${source_commit}"
+            build_info="$(go version -m "${executable}")"
+            grep -Fq "vcs.revision=${source_commit}" <<<"${build_info}"
+            grep -Fq 'vcs.modified=false' <<<"${build_info}"
+            bytes="$(stat -c '%s' "${executable}")"
+            sha256="$(sha256sum "${executable}" | awk '{print $1}')"
+            test "${bytes}" -gt 0
+            [[ "${sha256}" =~ ^[0-9a-f]{64}$ ]]
+            printf 'verified %s machine=%s bytes=%s sha256=%s source=%s\n' \
+              "${executable}" "${machine}" "${bytes}" "${sha256}" "${source_commit}"
           done
 
-          (cd "${artifacts}" && sha256sum \
-            terrascale-orchestrator-linux-x64 \
-            terrascale-orchestrator-linux-x64.metadata.json \
-            terrascale-orchestrator-linux-arm64 \
-            terrascale-orchestrator-linux-arm64.metadata.json) > "${artifacts}/SHA256SUMS"
-          (cd "${artifacts}" && sha256sum --check --strict SHA256SUMS)
-          cat "${artifacts}/SHA256SUMS"
-          printf 'orchestrator artifacts: %s\n' "${artifacts}"
+          (cd dist && sha256sum \
+            terrascale-orchestrator-linux-amd64 \
+            terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
+          (cd dist && sha256sum --check --strict SHA256SUMS)
+          cat dist/SHA256SUMS
 
-      # No artifact upload step: every upload-artifact tag on the action
-      # mirror carries the include-hidden-files input, and this runner passes
-      # action inputs with a trailing newline that the action's YAML 1.2
-      # validation rejects, so the upload can never pass. The digested
-      # SHA256SUMS above are the durable per-run evidence; re-enable the
-      # upload once the runner's input handling is fixed. Release creation,
-      # signing, and promotion remain owned by the separately authorized
-      # release workflow.
+      # This Forgejo runner does not currently retain action upload-artifact
+      # outputs. The hashes and source revision remain visible in this job log.

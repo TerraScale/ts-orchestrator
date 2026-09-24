@@ -1,8 +1,11 @@
 .git
 artifacts
+dist
 **/bin
 **/obj
 **/TestResults
+**/*.test
+coverage.out
 .env
 .env.*
 *.creds

@@ -1,2 +1,0 @@
-{"version":1,"id":"stale-leader-late-completion","seed":17,"expectedInvariant":"NoStaleSuccessfulMutation","expectedError":"Completed","schedule":[{"kind":"LeaderChange","node":"n2","delay":0},{"kind":"Duplicate","node":"n1","delay":0},{"kind":"Partition","node":"n1","delay":0},{"kind":"Heal","node":"n1","delay":0}],"digest":"18842b00c872b6b14a0880a7f28f301e873400e1ff8a7c5909deddbbe3131a42"}
-

@@ -28,6 +28,10 @@ import (
 
 var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+// DefaultStoreMaxBytes bounds the embedded JetStream file store when the
+// operator does not specify a per-node limit.
+const DefaultStoreMaxBytes int64 = 8 << 30
+
 // TLSFiles are the certificate material for both NATS listeners and clients.
 type TLSFiles struct {
 	CAFile   string `json:"ca_file"`
@@ -49,11 +53,20 @@ type Embedded struct {
 	RoutePort         int         `json:"route_port"`
 	Routes            []string    `json:"routes"`
 	StoreDir          string      `json:"store_dir"`
+	StoreMaxBytes     int64       `json:"store_max_bytes,omitzero"`
 	TLS               TLSFiles    `json:"tls"`
 	RouteTLS          TLSFiles    `json:"route_tls"`
 	Users             []NKeyGrant `json:"users"`
 	RouteUser         string      `json:"route_user"`
 	RoutePasswordFile string      `json:"route_password_file"`
+}
+
+// StoreLimitBytes returns the effective per-node JetStream file-store limit.
+func (e Embedded) StoreLimitBytes() int64 {
+	if e.StoreMaxBytes == 0 {
+		return DefaultStoreMaxBytes
+	}
+	return e.StoreMaxBytes
 }
 
 // NKeyGrant binds a NATS user key to one regional role. A host grant is tied
@@ -192,16 +205,19 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	return r, nil
 }
 
-// WaitForCluster waits for distinct NATS peers and a JetStream API response.
+// WaitForCluster waits for a NATS and JetStream metadata quorum and a
+// JetStream API response. Routes alone can form before JetStream metadata can
+// elect a leader; an existing R3 stream may recover with one broker absent.
 // A caller must do this before provisioning replicated durable resources.
 func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 	if replicas < 1 || replicas > 5 || replicas%2 == 0 {
 		return errors.New("regional replicas must be 1, 3, or 5")
 	}
+	quorum := replicas/2 + 1
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if r.Ready() && (r.server == nil || r.peerCount() >= replicas) {
+		if r.Ready() && (r.server == nil || r.peerCount() >= quorum && r.metadataReady(quorum)) {
 			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			_, err := r.js.AccountInfo(probeCtx)
 			cancel()
@@ -211,10 +227,37 @@ func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for %d regional NATS peers: %w", replicas, ctx.Err())
+			return fmt.Errorf("wait for %d regional NATS peers: %w", quorum, ctx.Err())
 		case <-ticker.C:
 		}
 	}
+}
+
+// FullClusterReady distinguishes a missing peer from a permanent inability to
+// place a new R3/R5 stream. It does not claim every peer is caught up.
+func (r *Runtime) FullClusterReady(replicas int) bool {
+	return r != nil && r.Ready() && (r.server == nil ||
+		r.peerCount() >= replicas && r.metadataReady(replicas))
+}
+
+func (r *Runtime) metadataReady(required int) bool {
+	if required == 1 {
+		return true
+	}
+	info, err := r.server.Jsz(nil)
+	if err != nil || info.Meta == nil || info.Meta.Leader == "" || info.Meta.Size < required {
+		return false
+	}
+	// Follower-local metadata can report an online peer as Current=false even
+	// while the leader reports it caught up. Requiring Current on every local
+	// view can therefore prevent a healthy follower from ever becoming ready.
+	online := 1 // This embedded server is running.
+	for _, peer := range info.Meta.Replicas {
+		if peer != nil && !peer.Offline && !peer.Pending {
+			online++
+		}
+	}
+	return online >= required
 }
 
 func (r *Runtime) peerCount() int {
@@ -266,6 +309,9 @@ func (cfg Config) validate() error {
 		if e.StoreDir == "" || e.Host == "" || e.Port == 0 {
 			return errors.New("embedded NATS requires store_dir, host, and port")
 		}
+		if e.StoreMaxBytes < 0 {
+			return errors.New("embedded NATS store_max_bytes must be positive when set")
+		}
 		if cfg.Replicas > 1 && (e.RouteHost == "" || e.RoutePort == 0 || len(e.Routes) == 0) {
 			return errors.New("clustered NATS requires route_host, route_port and at least one seed route")
 		}
@@ -282,11 +328,12 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		return nil, fmt.Errorf("create regional JetStream store: %w", err)
 	}
 	options := &server.Options{
-		ServerName: cfg.Cell + "-" + cfg.Instance,
-		Host:       e.Host,
-		Port:       e.Port,
-		JetStream:  true,
-		StoreDir:   e.StoreDir,
+		ServerName:        cfg.Cell + "-" + cfg.Instance,
+		Host:              e.Host,
+		Port:              e.Port,
+		JetStream:         true,
+		JetStreamMaxStore: e.StoreLimitBytes(),
+		StoreDir:          e.StoreDir,
 		// JetStream clustering uses the system account to coordinate metadata.
 		SystemAccount: "$SYS",
 		Accounts:      []*server.Account{server.NewAccount("$SYS")},
@@ -436,27 +483,36 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			return nil, errors.New("controller NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".>", "$JS.API.>", "$KV.>", "$O.>",
+			root + ".>", "ts.control." + cell + ".>", "$JS.API.>", "$KV.>", "$O.>",
+			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*")
+			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply")
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".delivery.intent", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
+			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 			"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
+			"$JS.API.STREAM.INFO.KV_TS_HOST_STATE",
+			"$JS.API.STREAM.INFO.TS_CONTROL_LOG",
 			"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS",
 			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
 			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS",
-			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS",
+			"$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
+			"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
+			"$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
+			"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*",
+			"$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
+			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
+			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
+			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>",
+			"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
+			"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>",
 			"$O.TS_ARTIFACTS.>",
-			"$KV.TS_DELIVERY_ADMISSIONS.>", "$KV.TS_DELIVERY_OPERATIONS.>",
 		}}
 	default:
 		return nil, fmt.Errorf("invalid NATS user role %q", user.Role)

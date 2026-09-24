@@ -3,7 +3,10 @@ obj/
 .idea/
 coverage/
 artifacts/
+dist/
 test-evidence/runs/
+coverage.out
+*.test
 /tmp/
 .tmp-derive-rootfs/
 .codex-worktrees/

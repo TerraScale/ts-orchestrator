@@ -1,99 +1,141 @@
-# TerraScale orchestration terms
+# TerraScale Orchestrator terms
 
-Use these names in code, issues, tests, and documentation.
+Use these names in code, issues, tests, and current documentation. The
+implementation is a greenfield Go replacement; prior C# commands, wire
+formats, and stores are not compatibility contracts.
 
-## Control plane
+## Product and regional control
 
 **TerraScale Orchestrator**
 
-The C# control plane that provisions OCI, schedules TerraScale workloads on
-plain Linux hosts, manages regional capacity and routing, and coordinates
-TerraBase placement through a purpose-built control API.
+One Go executable for regional control, host convergence, signed artifact
+admission, and generic native-workload rollout. Forgejo Actions builds and
+tests repository source. Managed OCI placement can provision a host and
+retained volume, but it stops after confirmed attachment at
+`awaiting-runtime-contract`; it does not launch or report a serving TerraBase
+member.
 
-**Global controller**
+**Regional cell**
 
-One replica of the three-replica GRU global control group. The active replica
-owns global policy, release admission, the region catalog, Cloudflare intent,
-and regional journal aggregation. It is never a database leader.
+One region's independent NATS and JetStream cluster. NATS routes join servers
+inside that region; a JetStream quorum does not span regions. Every controller
+uses a distinct instance identity and persistent store directory. A clustered
+controller waits for the configured number of peers before writing replicated
+state.
 
-**Regional controller**
+**Lab mode**
 
-One replica of a region's three-replica control group. The active replica
-executes accepted policy through the regional scheduler, provider, identity,
-runtime, and routing adapters.
+An explicit `nats.lab: true` setting for local and test use. It allows the
+embedded broker to run without production credentials. It is not a production
+security mode.
 
-**Regional policy**
+**Authority epoch**
 
-A signed, immutable generation of global policy accepted by one regional
-group. It is not a raw NATS message, provider observation, or source-repository
-manifest.
+A monotonically increasing fencing value attached to a mutation. A writer must
+recheck the current authority before effects and before recording completion.
+Delivery that reaches a terminal `held` receipt after fencing requires an
+operator to observe the current state and submit a new intent after authority
+recovers; the old operation is not replayed automatically.
 
-**Authority claim**
+**Global authority**
 
-The current term, session, build, protocol generation, lease, and KV revision
-that permit a controller to advance control state while local quorum is
-healthy. It does not replace provider, storage, identity, or TerraBase
-authorization.
+The cross-region policy and lease boundary planned around GRU and regional
+autonomy. Package-level authority state exists, while production controller
+election and OCI mutation remain unqualified.
 
-## Runtime
+## Hosts and workloads
 
-**First-party workload**
+**Host identity**
 
-A TerraScale service admitted from the closed role catalog and run as a
-digest-pinned native binary under a hardened transient systemd system unit.
+An Ed25519 key pair used by one host. The private key is stored in an
+owner-readable file; the controller stores the public identity, node scope,
+roles, and generation. A host also pins its controller's public response key.
 
-**Tenant workload**
+**Desired generation**
 
-A post-launch stateless function run as an unprivileged, digest-pinned OCI
-container on a dedicated tenant-worker node. It has no durable local state,
-host access, provider credentials, or control-plane identity.
+A monotonically increasing version of one role's target on a host. The target
+binds an artifact digest, region, host, role, environment, and authority epoch.
+Equal generations are idempotent only when their content matches.
 
-**Allocation**
+**Host report**
 
-One admitted workload instance bound to a canonical plan fingerprint, node,
-resources, identity, configuration, and artifact digest.
+The host's signed observation of desired generation and process state. A
+submission acknowledgement alone does not prove that a workload is running.
 
-**Node**
+**Native workload**
 
-A plain OCI Linux host that converges itself through the orchestrator's
-admitted host roles. It runs workloads under an unprivileged account and
-reports capacity and drain state to its regional controller.
+A digest-pinned executable started by the Go host runner in a dedicated cgroup
+v2 subtree. Recovery examines that subtree before accepting new desired state.
+The former systemd and containerd instructions belong to the pre-migration
+archive.
 
-**Managed TerraBase**
+## Artifact delivery
 
-The stateful database workload. TerraBase owns membership, replication,
-repair, and durability. Orchestrator owns capacity and fenced placement intent.
+**Artifact record**
 
-## Delivery
+An immutable SHA-256 digest and size paired with an asserted source repository,
+commit, and source-tree digest. A trusted signature and role/environment grant
+are required before regional admission. The signature asserts provenance; it
+does not prove that CI independently reproduced the build.
 
-**Candidate handoff**
+**Repository build**
 
-The signed document from `ts-deploy` that identifies the source commit and
-tree, Deploy CLI, immutable image digests, test results, target, and rollback
-digest. It grants no rollout authority.
+The Forgejo workflow checks the exact source revision, runs Go tests, vet, race
+checks, and builds static Linux amd64 and arm64 binaries. The current runner
+prints checksums but does not retain downloadable artifacts or sign a
+production release.
 
 **Regional rollout**
 
-A rollout where every configured host converges leaderlessly to the admitted
-digest: fetch, verify, stop the old unit, recreate bound to the new digest,
-observe, and report. Stateful roles serialize through the cell replace lease.
-A failed replacement restores the exact previous digest.
+After artifact admission, a signed intent selects the exact digest, role,
+environment, generation, replica count, configuration digest, and authority
+epoch. Hosts converge to that desired state. A rollback is a new intent for a
+previously admitted digest.
 
-**Rollback digest**
+**Held delivery**
 
-The retained immutable artifact digest restored without rebuilding.
+A terminal receipt written when the operation's authority epoch becomes
+fenced after its durable claim. Some desired-state writes may have succeeded
+before fencing; operators must inspect host state and submit a new intent with
+a new operation identity and generation under the current epoch.
 
-**Launch region**
+## OCI and readiness
 
-One of the three customer-selectable regions: GRU in Sao Paulo, SFO in San
-Francisco, or FRA in Frankfurt.
+**OCI provider**
 
-**Planned region**
+The provider seam behind regional control. Current tests use fakes; no live OCI
+account mutation, automatic regional first boot, or production capacity
+convergence has been qualified.
 
-A location beyond GRU, SFO, and FRA. It is not built, tested, or selectable at
-launch.
+**Production readiness**
 
-**Region catalog**
+Evidence that the actual Go binary and its caller preserve authority,
+durability, host recovery, safe scale-in, and rollback behavior under the
+required failures. The app-level signed host-to-workload caller is tested with
+an in-memory runner. The separate four-VM Firecracker qualification is needed
+for guest execution and failure recovery. Passing package tests or a
+fake-provider test alone does not establish production readiness.
 
-The GRU-owned list of regions admitted for customer selection. Provider
-discovery alone cannot add a region to the catalog.
+## Storage limits
+
+The default artifact object-store quota is 2 GiB. The embedded NATS file store
+defaults to 8 GiB per server and startup requires at least 1.5 GiB beyond the
+artifact quota for control state. Interrupted or concurrent artifact uploads
+can leave quota-consuming chunks; the current store has no repository-managed
+cleanup path, automatic garbage collection, or admitted-object eviction. Once
+the quota is full, new uploads fail with `ErrArtifactStoreFull`.
+
+## Managed OCI placement
+
+The placement file accepts `environment`, `member_role`, `resources`, and
+optional `tick_millis`. Unknown fields are rejected. A zero tick selects the
+five-second default; configured ticks must be between 100 ms and five minutes.
+OCI intent, region configuration, and placement configuration must be
+configured together. The host image, bootstrap, and signed host enrollment
+remain operator-provided. After the retained volume is observed as attached,
+the controller holds the member because no verified TerraBase runtime and
+mount contract is available. It does not publish host desired state, claim
+health, scale in, or decommission a region. If OCI accepts a create but its
+recovery result is lost before durable journaling, later matching tags alone
+do not authorize adoption. The resource remains unowned and requires manual
+inspection and reconciliation.
