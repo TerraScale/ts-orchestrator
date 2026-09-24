@@ -1,0 +1,271 @@
+package bootstrap
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"github.com/oracle/oci-go-sdk/v65/secrets"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+)
+
+const MaxSecretBytes int64 = 1 << 20
+
+var (
+	ErrVaultSecretMismatch = errors.New("Vault secret does not match its signed reference")
+	ErrMaterialization     = errors.New("bootstrap secret materialization failed")
+)
+
+// SecretBundle is the exact, base64-encoded response data for one immutable
+// Vault secret version. It is separate from the OCI SDK type for offline tests.
+type SecretBundle struct {
+	SecretOCID    string
+	VersionNumber int64
+	ContentType   string
+	ContentBase64 string
+}
+
+// SecretBundleReader fetches one explicitly named secret version. It must not
+// resolve mutable stages such as CURRENT or LATEST.
+type SecretBundleReader interface {
+	GetSecretBundle(context.Context, string, int64) (SecretBundle, error)
+}
+
+// Vault retrieves and safely materializes references authorized by both a
+// currently verified manifest and its current exact-instance receipt.
+type Vault struct {
+	reader SecretBundleReader
+	now    func() time.Time
+}
+
+type ociSecretBundleClient interface {
+	GetSecretBundle(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error)
+}
+
+type ociSecretBundleReader struct {
+	client ociSecretBundleClient
+}
+
+// NewInstancePrincipalVault constructs an OCI Secrets client using instance
+// principals and pins it to the canonical Secrets endpoint for one product
+// region. IAM must grant only the intended secret OCIDs and versions.
+func NewInstancePrincipalVault(region oci.Region) (*Vault, error) {
+	ociRegion, err := region.OCIRegion()
+	if err != nil {
+		return nil, err
+	}
+	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	if err != nil {
+		return nil, fmt.Errorf("create OCI instance-principal provider for Vault: %w", err)
+	}
+	client, err := secrets.NewSecretsClientWithConfigurationProvider(provider)
+	if err != nil {
+		return nil, fmt.Errorf("create OCI Secrets client: %w", err)
+	}
+	client.SetRegion(ociRegion)
+	return &Vault{reader: ociSecretBundleReader{client: client}, now: time.Now}, nil
+}
+
+// Materialize fetches one exact, immutable secret version and installs it as
+// an owner-only file. The target is atomically linked into place and is never
+// overwritten. A verified receipt for this manifest and instance is required.
+func (vault *Vault) Materialize(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt, reference SecretReference, destinationDirectory string) error {
+	if vault == nil || vault.reader == nil {
+		return errors.New("bootstrap Vault reader is not configured")
+	}
+	now := time.Now()
+	if vault.now != nil {
+		now = vault.now()
+	}
+	if err := authorizeSecretMaterialization(manifest, receipt, reference, now); err != nil {
+		return err
+	}
+	bundle, err := vault.reader.GetSecretBundle(ctx, reference.SecretOCID, reference.VersionNumber)
+	if err != nil {
+		return fmt.Errorf("get exact OCI Vault secret bundle: %w", err)
+	}
+	content, err := decodeSecretBundle(bundle, reference)
+	if err != nil {
+		return err
+	}
+	defer clear(content)
+	if err := materializeSecret(destinationDirectory, reference.TargetFile, content); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (reader ociSecretBundleReader) GetSecretBundle(ctx context.Context, secretOCID string, version int64) (SecretBundle, error) {
+	response, err := reader.client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{
+		SecretId: new(secretOCID), VersionNumber: new(version),
+	})
+	if err != nil {
+		return SecretBundle{}, err
+	}
+	bundle := response.SecretBundle
+	if bundle.SecretId == nil || bundle.VersionNumber == nil || bundle.SecretBundleContent == nil {
+		return SecretBundle{}, ErrVaultSecretMismatch
+	}
+	content, ok := bundle.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
+	if !ok {
+		if pointer, pointerOK := bundle.SecretBundleContent.(*secrets.Base64SecretBundleContentDetails); pointerOK && pointer != nil {
+			content = *pointer
+			ok = true
+		}
+	}
+	if !ok || content.Content == nil {
+		return SecretBundle{}, ErrVaultSecretMismatch
+	}
+	return SecretBundle{
+		SecretOCID: *bundle.SecretId, VersionNumber: *bundle.VersionNumber,
+		ContentType: "BASE64", ContentBase64: *content.Content,
+	}, nil
+}
+
+func authorizeSecretMaterialization(manifest VerifiedManifest, receipt VerifiedReceipt, reference SecretReference, now time.Time) error {
+	if err := validateVerifiedManifest(manifest); err != nil {
+		return err
+	}
+	if !receipt.verified || !now.Before(receipt.expiresAt) || !now.Before(manifest.expiresAt) ||
+		receipt.manifestDigest != manifest.digest || receipt.receipt.ManifestDigest != manifest.digest ||
+		receipt.receipt.DeploymentID != manifest.manifest.DeploymentID || receipt.receipt.Environment != manifest.manifest.Environment ||
+		receipt.receipt.ClusterID != manifest.manifest.ClusterID || receipt.receipt.Cell != manifest.manifest.Cell ||
+		receipt.receipt.OCIRegion != manifest.manifest.OCIRegion || receipt.receipt.IntentGeneration != manifest.manifest.IntentGeneration ||
+		receipt.receipt.ManifestIntentSHA256 != manifest.manifest.IntentSHA256 || receipt.receipt.Role != manifest.manifest.ControllerRole ||
+		receipt.receipt.Slot != manifest.manifest.Slot {
+		return fmt.Errorf("%w: secret retrieval requires a current receipt for this manifest and exact instance slot", ErrReceiptInvalid)
+	}
+	if err := reference.validate(manifest.manifest); err != nil {
+		return err
+	}
+	if !slices.Contains(manifest.manifest.Secrets, reference) {
+		return fmt.Errorf("%w: secret reference is not present in the signed manifest", ErrManifestInvalid)
+	}
+	switch reference.Purpose {
+	case SecretRegionalShared:
+		return nil
+	case SecretSeedFounder:
+		if receipt.receipt.Slot != manifest.manifest.SeedSlot {
+			return fmt.Errorf("%w: founder secret requires the exact seed receipt", ErrReceiptInvalid)
+		}
+	case SecretController:
+		if reference.Slot != receipt.receipt.Slot {
+			return fmt.Errorf("%w: controller secret is bound to a different slot", ErrReceiptInvalid)
+		}
+	default:
+		return fmt.Errorf("%w: unknown secret purpose", ErrManifestInvalid)
+	}
+	return nil
+}
+
+func decodeSecretBundle(bundle SecretBundle, reference SecretReference) ([]byte, error) {
+	maxEncoded := base64.StdEncoding.EncodedLen(int(reference.MaxBytes))
+	if bundle.SecretOCID != reference.SecretOCID || bundle.VersionNumber != reference.VersionNumber ||
+		bundle.ContentType != "BASE64" || len(bundle.ContentBase64) == 0 || len(bundle.ContentBase64) > maxEncoded {
+		return nil, ErrVaultSecretMismatch
+	}
+	content, err := base64.StdEncoding.Strict().DecodeString(bundle.ContentBase64)
+	if err != nil || int64(len(content)) > reference.MaxBytes ||
+		base64.StdEncoding.EncodeToString(content) != bundle.ContentBase64 || digestBytes(content) != reference.SHA256 {
+		clear(content)
+		return nil, ErrVaultSecretMismatch
+	}
+	return content, nil
+}
+
+func materializeSecret(directory, target string, content []byte) error {
+	return materializeSecretWith(directory, target, content, func(writer io.Writer, value []byte) error {
+		written, err := writer.Write(value)
+		if err != nil {
+			return err
+		}
+		if written != len(value) {
+			return io.ErrShortWrite
+		}
+		return nil
+	})
+}
+
+func materializeSecretWith(directory, target string, content []byte, write func(io.Writer, []byte) error) error {
+	if !filepath.IsAbs(directory) || !fileNameRE.MatchString(target) || strings.Contains(target, "..") || write == nil {
+		return fmt.Errorf("%w: destination must be an absolute directory and a simple file name", ErrMaterialization)
+	}
+	info, err := os.Lstat(directory)
+	if err != nil {
+		return fmt.Errorf("%w: inspect destination directory: %v", ErrMaterialization, err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%w: destination must be a non-symlink directory", ErrMaterialization)
+	}
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return fmt.Errorf("%w: open destination directory: %v", ErrMaterialization, err)
+	}
+	defer root.Close()
+	rootInfo, err := root.Stat(".")
+	if err != nil || !rootInfo.IsDir() {
+		return fmt.Errorf("%w: opened destination is not a directory", ErrMaterialization)
+	}
+	var temporary string
+	var file *os.File
+	for range 8 {
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return fmt.Errorf("%w: generate temporary name: %v", ErrMaterialization, err)
+		}
+		temporary = ".ts-secret-" + hex.EncodeToString(nonce[:]) + ".tmp"
+		file, err = root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("%w: create temporary file: %v", ErrMaterialization, err)
+		}
+	}
+	if file == nil {
+		return fmt.Errorf("%w: could not reserve a unique temporary file", ErrMaterialization)
+	}
+	defer root.Remove(temporary)
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("%w: set temporary file mode: %v", ErrMaterialization, err)
+	}
+	if err := write(file, content); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("%w: write temporary file: %v", ErrMaterialization, err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("%w: sync temporary file: %v", ErrMaterialization, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("%w: close temporary file: %v", ErrMaterialization, err)
+	}
+	if err := root.Link(temporary, target); err != nil {
+		return fmt.Errorf("%w: atomically install without overwrite: %v", ErrMaterialization, err)
+	}
+	directoryFile, err := root.Open(".")
+	if err != nil {
+		return fmt.Errorf("%w: open destination directory for sync: %v", ErrMaterialization, err)
+	}
+	if err := directoryFile.Sync(); err != nil {
+		_ = directoryFile.Close()
+		return fmt.Errorf("%w: sync destination directory: %v", ErrMaterialization, err)
+	}
+	if err := directoryFile.Close(); err != nil {
+		return fmt.Errorf("%w: close destination directory: %v", ErrMaterialization, err)
+	}
+	return nil
+}
