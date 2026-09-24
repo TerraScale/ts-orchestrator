@@ -64,6 +64,11 @@ public sealed class VmNodeFleet : INodeFleet, IAsyncDisposable
         lock (gate)
         {
             node = RequireNode(nodeId);
+            // The existing handle is released below and cannot safely own
+            // cleanup if the replacement fails to boot. Remove it first so
+            // the preserved rootfs and console named by StartAsync's error
+            // survive fleet disposal for diagnosis.
+            nodes.Remove(nodeId);
         }
 
         await node.StopAsync();
@@ -522,7 +527,7 @@ internal sealed record VmNode(
             node.ReleaseResources();
             // The working directory is preserved for diagnosis.
             throw new TimeoutException(
-                $"The VM member {nodeId} at {address} did not become ready within {options.ReadinessTimeout}. Working directory {workingDirectory} preserved. Console tail: {(tail.Length > 2000 ? tail[^2000..] : tail)}");
+                $"The VM member {nodeId} at {address} did not become ready within {options.ReadinessTimeout}. Working directory {workingDirectory} preserved. Console tail: {(tail.Length > 16_000 ? tail[^16_000..] : tail)}");
         }
 
         return node with { State = AutoscalingNodeState.Ready };
