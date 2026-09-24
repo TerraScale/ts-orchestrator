@@ -50,9 +50,17 @@ repository builds or rollout.
 The app-level integration tests follow the signed path through host
 registration, placement admission, artifact admission, deployment and status,
 and host-agent delivery over NATS. Their workload runner is in memory; those
-tests do not establish guest process execution or reboot recovery. The four-VM
-Firecracker qualification is the guest-level check for those behaviors and
-quorum loss and recovery.
+tests do not establish guest process execution or reboot recovery. The
+four-VM Firecracker qualification passed for the pinned test image at source
+revision `df09ee5692b4a5dc60230f019d1265efccb2f972`. It exercised native guest
+execution, host restart recovery, deployment after one controller loss, and
+rollback after quorum recovery. During controller loss, host session
+renewal/reporting failed with
+`context deadline exceeded`; systemd restarted the host agent and the workload
+later returned to running. This demonstrates recovery, not uninterrupted
+availability, arbitrary-kernel compatibility, or production host readiness.
+See [local
+qualification details](local-development.md#latest-local-qualification).
 
 The default artifact object-store quota is 2 GiB. The embedded NATS file store
 defaults to 8 GiB per server, and controller startup reserves at least 1.5

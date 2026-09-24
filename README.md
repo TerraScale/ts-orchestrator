@@ -39,10 +39,17 @@ and what still needs a separate release process.
 
 ## Current limits
 
-The signed native-workload path has an app-level test with an in-memory runner;
-the separate four-VM Firecracker run is still required to establish guest
-execution, reboot recovery, and quorum-loss behavior. Managed OCI placement
-can provision a host and retained volume, then stops at
+The signed native-workload path has an app-level test with an in-memory runner.
+A four-VM Firecracker qualification passed for the pinned test image at source
+revision `df09ee5692b4a5dc60230f019d1265efccb2f972`, covering guest execution,
+host restart recovery, and workload recovery through controller loss and
+quorum restoration. During controller loss, host session renewal/reporting
+failed with `context deadline exceeded`; systemd restarted the host agent and
+the workload later returned to running. This demonstrates recovery, not
+uninterrupted availability or compatibility with arbitrary or production
+kernels. Exact image and binary hashes are in [the qualification record](docs/local-development.md#latest-local-qualification).
+Managed OCI placement can provision a host
+and retained volume, then stops at
 `awaiting-runtime-contract` after the attachment is positively observed. It
 does not start TerraBase, prove a mounted volume, or claim a database member is
 serving. Host image preparation, bootstrap, and signed enrollment remain
