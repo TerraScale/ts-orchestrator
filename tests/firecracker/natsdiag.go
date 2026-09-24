@@ -107,16 +107,20 @@ func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 		value, err := operation(ctx)
 		if err != nil {
 			result[name+"_error"] = err.Error()
-		} else {
-			result[name] = value
+			return
 		}
+		if _, err := json.Marshal(value); err != nil {
+			result[name+"_error"] = fmt.Sprintf("encode diagnostic query: %v", err)
+			return
+		}
+		result[name] = value
 	}
 	read("account", func(ctx context.Context) (any, error) {
 		info, err := js.AccountInfo(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"api": info.API, "tiers": info.Tiers}, nil
+		return accountDiagnostic(info), nil
 	})
 	for _, name := range []string{authority.ControlStreamName, delivery.IntentStream, "KV_TS_HOST_STATE"} {
 		read("stream_"+name, func(ctx context.Context) (any, error) {
@@ -128,8 +132,7 @@ func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"messages": info.State.Msgs, "first_seq": info.State.FirstSeq,
-				"last_seq": info.State.LastSeq, "cluster": info.Cluster}, nil
+			return streamDiagnostic(info), nil
 		})
 	}
 	if role == "controller" {
@@ -142,9 +145,7 @@ func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"delivered": info.Delivered, "ack_floor": info.AckFloor,
-				"ack_pending": info.NumAckPending, "redelivered": info.NumRedelivered,
-				"waiting": info.NumWaiting, "pending": info.NumPending, "cluster": info.Cluster}, nil
+			return consumerDiagnostic(info), nil
 		})
 	}
 	read("authority", func(ctx context.Context) (any, error) {
@@ -156,4 +157,67 @@ func probe(url, role, cell string, identity []nats.Option, output *sync.Mutex) {
 			"revision": snapshot.Revision, "expires_at": snapshot.ExpiresAt,
 			"ready": snapshot.Ready, "reason": snapshot.Reason}, nil
 	})
+}
+
+func accountDiagnostic(info *jetstream.AccountInfo) map[string]any {
+	tiers := make(map[string]any, len(info.Tiers))
+	for name, tier := range info.Tiers {
+		tiers[name] = map[string]any{"memory": tier.Memory, "storage": tier.Store,
+			"reserved_memory": tier.ReservedMemory, "reserved_storage": tier.ReservedStore,
+			"streams": tier.Streams, "consumers": tier.Consumers}
+	}
+	return map[string]any{"api": map[string]any{"level": info.API.Level, "total": info.API.Total,
+		"errors": info.API.Errors, "inflight": info.API.Inflight}, "tiers": tiers}
+}
+
+func streamDiagnostic(info *jetstream.StreamInfo) map[string]any {
+	return map[string]any{"messages": info.State.Msgs, "first_seq": info.State.FirstSeq,
+		"last_seq": info.State.LastSeq, "cluster": clusterDiagnostic(info.Cluster)}
+}
+
+func consumerDiagnostic(info *jetstream.ConsumerInfo) map[string]any {
+	return map[string]any{"delivered": sequenceDiagnostic(info.Delivered),
+		"ack_floor": sequenceDiagnostic(info.AckFloor), "ack_pending": info.NumAckPending,
+		"redelivered": info.NumRedelivered, "waiting": info.NumWaiting,
+		"pending": info.NumPending, "cluster": clusterDiagnostic(info.Cluster)}
+}
+
+func sequenceDiagnostic(info jetstream.SequenceInfo) map[string]any {
+	return map[string]any{"consumer_seq": info.Consumer, "stream_seq": info.Stream,
+		"last_active": info.Last}
+}
+
+func clusterDiagnostic(info *jetstream.ClusterInfo) any {
+	if info == nil {
+		return nil
+	}
+	replicas := make([]map[string]any, 0, len(info.Replicas))
+	for _, peer := range info.Replicas {
+		if peer == nil {
+			continue
+		}
+		replicas = append(replicas, map[string]any{"name": peer.Name, "peer": peer.Peer,
+			"current": peer.Current, "offline": peer.Offline, "pending": peer.Pending,
+			"lag": peer.Lag, "active_ns": peer.Active.Nanoseconds()})
+	}
+	cluster := map[string]any{"name": info.Name, "raft_group": info.RaftGroup,
+		"leader": info.Leader, "leader_since": info.LeaderSince, "replicas": replicas}
+	if info.Desired != nil {
+		desiredReplicas := make([]map[string]any, 0, len(info.Desired.Replicas))
+		for _, peer := range info.Desired.Replicas {
+			if peer == nil {
+				continue
+			}
+			desiredReplicas = append(desiredReplicas, map[string]any{"name": peer.Name,
+				"peer": peer.Peer, "offline": peer.Offline})
+		}
+		desired := map[string]any{"name": info.Desired.Name, "created": info.Desired.Created,
+			"replicas": desiredReplicas}
+		if info.Desired.Status != nil {
+			desired["status"] = map[string]any{"type": string(info.Desired.Status.Type),
+				"description": info.Desired.Status.Description}
+		}
+		cluster["desired"] = desired
+	}
+	return cluster
 }

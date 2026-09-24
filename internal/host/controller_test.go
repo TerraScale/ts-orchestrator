@@ -36,6 +36,20 @@ type gatedDesiredRead struct {
 	release chan struct{}
 }
 
+type oneShotSessionTimeout struct {
+	jetstream.KeyValue
+	failNext atomic.Bool
+	failures atomic.Int32
+}
+
+func (s *oneShotSessionTimeout) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	if key == sessionKey("gru", "node-a") && s.failNext.CompareAndSwap(true, false) {
+		s.failures.Add(1)
+		return nil, context.DeadlineExceeded
+	}
+	return s.KeyValue.Get(ctx, key)
+}
+
 func (g *gatedDesiredRead) ReadHostMutation(ctx context.Context, kind authority.HostMutationKind, subject string) (authority.LogEntry, error) {
 	entry, err := g.HostMutationStore.ReadHostMutation(ctx, kind, subject)
 	if kind == authority.MutationDesired && err == nil && g.blocked.CompareAndSwap(false, true) {
@@ -250,7 +264,7 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 }
 
 func TestSessionRetryClassificationAndReserve(t *testing.T) {
-	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected} {
+	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected, errSessionBackendUnavailable} {
 		if !retrySessionExchange(err) {
 			t.Fatalf("transient session error was terminal: %v", err)
 		}
@@ -270,6 +284,79 @@ func TestSessionRetryClassificationAndReserve(t *testing.T) {
 	if sessionUsableUntil(session{ExpiresAt: now.Add(-time.Second)}, now) {
 		t.Fatal("expired lease remained usable")
 	}
+}
+
+func TestSignedSessionBackendTimeoutRetriesWithinLease(t *testing.T) {
+	c, conn, _, mutations, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	state := &oneShotSessionTimeout{KeyValue: c.state}
+	c.state = state
+	controllerCtx, stopController := context.WithCancel(t.Context())
+	defer stopController()
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- c.Run(controllerCtx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.failNext.Store(true)
+	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionBackendUnavailable) || !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("signed controller timeout was not classified as retryable: %v", err)
+	}
+	state.failNext.Store(true)
+	startupCtx, stopWaiting := context.WithTimeout(t.Context(), 3*time.Second)
+	defer stopWaiting()
+	if err := agent.waitForSession(startupCtx); err != nil {
+		t.Fatalf("startup did not retry signed controller timeout: %v", err)
+	}
+	agent.mu.RLock()
+	initial := agent.session
+	agent.mu.RUnlock()
+	state.failNext.Store(true)
+	monitorCtx, stopMonitor := context.WithCancel(t.Context())
+	monitorDone := make(chan struct{})
+	lost := make(chan error, 1)
+	go func() {
+		agent.maintainSession(monitorCtx, stopMonitor, lost)
+		close(monitorDone)
+	}()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		agent.mu.RLock()
+		current := agent.session
+		agent.mu.RUnlock()
+		if current.ExpiresAt.After(initial.ExpiresAt) {
+			break
+		}
+		select {
+		case err := <-lost:
+			t.Fatalf("signed renewal timeout stopped the valid lease: %v", err)
+		case <-monitorDone:
+			t.Fatal("session monitor exited before retrying signed timeout")
+		case <-deadline.C:
+			t.Fatal("signed renewal timeout was not retried")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	stopMonitor()
+	<-monitorDone
+	if got := state.failures.Load(); got != 3 || agent.sessionLost.Load() {
+		t.Fatalf("signed timeouts=%d, session lost=%t; want three retries and live session", got, agent.sessionLost.Load())
+	}
+	mutations.mu.Lock()
+	delete(mutations.entries, mutations.key(authority.MutationRegistration, registrationSubjectKey("gru", "node-a")))
+	mutations.mu.Unlock()
+	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionRequestDenied) || retrySessionExchange(err) {
+		t.Fatalf("signed revocation denial became retryable: %v", err)
+	}
+	stopController()
+	<-controllerDone
 }
 
 func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {

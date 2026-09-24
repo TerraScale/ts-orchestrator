@@ -34,6 +34,10 @@ crashes two controller VMMs and requires a rollback submission to fail without
 quorum, restores quorum, and performs an accepted rollback with guest execution.
 An `accepted` receipt is followed by guest observation; receipt alone is not
 treated as runtime readiness.
+If the one-controller-loss intent is rejected solely because its authority
+epoch was fenced before acceptance, the harness records that receipt and makes
+one new signed submission with a fresh operation ID. A second rejection fails
+the run.
 
 The private run directory defaults to `/tmp/ts-orch-fc-*`. It retains
 `summary.json`, `logs/events.json`, build output and VM serial/VMM logs. Events
@@ -45,7 +49,8 @@ receipt stays pending for 20 seconds, it also saves each live controller's
 journal and a read-only JetStream snapshot from direct NKey-authenticated
 connections to each controller, plus an operator-style multi-URL connection.
 The diagnostic uses each identity's permitted reply inbox. It records stream
-and controller-consumer leadership, pending work, and lease state without
+and controller-consumer leadership, replica activity in nanoseconds, pending
+work, and lease state without
 dumping guest configuration, raw control-log payloads, or private keys. The harness
 stops only its own VMM processes, unmounts its guest copies, deletes only its
 own TAPs and bridge, and removes copied images and credentials in a `finally`

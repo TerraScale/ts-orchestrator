@@ -17,6 +17,12 @@ import (
 
 var errSessionOwned = errors.New("another process owns the host session")
 var errSessionRequestDenied = errors.New("host session request was denied")
+var errSessionBackendUnavailable = errors.New("host session backend temporarily unavailable")
+
+func transientSessionTransport(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
+}
 
 type request struct {
 	Version   int               `json:"version"`
@@ -171,6 +177,9 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	}
 	if result.Error != "" {
 		if result.Retryable {
+			if r.Operation == "session" {
+				return fmt.Errorf("%w: %s", errSessionBackendUnavailable, result.Error)
+			}
 			return errArtifactPreparing
 		}
 		if r.Operation == "session" {

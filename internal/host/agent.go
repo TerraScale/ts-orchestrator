@@ -15,8 +15,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 const sessionExecutionReserve = 5 * time.Second
@@ -179,8 +177,7 @@ func (a *Agent) waitForSession(ctx context.Context) error {
 }
 
 func retrySessionExchange(err error) bool {
-	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
-		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected)
+	return errors.Is(err, errSessionBackendUnavailable) || transientSessionTransport(err)
 }
 
 func sessionUsableUntil(s session, now time.Time) bool {

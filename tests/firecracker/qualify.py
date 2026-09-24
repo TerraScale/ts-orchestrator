@@ -13,6 +13,7 @@ import hashlib
 import http.client
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -37,6 +38,13 @@ CONTROLLERS = ("c1", "c2", "c3")
 GUESTS = (*CONTROLLERS, "host")
 CONFIG_DIGEST = hashlib.sha256(b'{"args":[],"env":{}}').hexdigest()
 BOOT_ARGS = "console=ttyS0 reboot=k panic=-1 pci=off root=/dev/vda rw"
+PRE_ACCEPTANCE_FENCED = "authority epoch was fenced before acceptance"
+
+
+class TerminalReceipt(Exception):
+    def __init__(self, receipt: dict[str, Any]):
+        super().__init__(f"terminal delivery receipt: {receipt}")
+        self.receipt = receipt
 
 
 def digest(path: Path) -> str:
@@ -505,23 +513,54 @@ class Lab:
 
     def deploy(self, record: dict[str, Any], generation: int, name: str,
                operation: str = "deploy") -> None:
-        path = self.intent(record, generation, name)
-        submitted = self.wait(f"submit-{name}",
-                              lambda: self.operator(operation, "--intent", str(path)), timeout=100)
-        if not isinstance(submitted, dict) or submitted.get("status") != "submitted":
-            raise RuntimeError(f"{operation} {name} did not submit")
-        submitted_at = time.monotonic()
-        def accepted() -> bool:
-            receipt = self.operator("status", "--operation-id", submitted["operationId"],
-                                    "--fingerprint", submitted["fingerprint"])
-            if name == "one-node-loss" and time.monotonic() - submitted_at >= 20:
-                self.capture_cluster_diagnostics()
-            if not isinstance(receipt, dict):
-                return False
-            if receipt.get("status") in ("rejected", "held"):
-                raise RuntimeError(f"{operation} {name} became terminal {receipt}")
-            return receipt.get("status") == "accepted"
-        self.wait(f"accepted-{name}", accepted, timeout=100)
+        deadline = time.monotonic() + 200
+
+        def remaining() -> int:
+            seconds = deadline - time.monotonic()
+            if seconds <= 0:
+                raise TimeoutError(f"{operation} {name} exhausted its 200-second wait budget")
+            return min(100, math.ceil(seconds))
+
+        attempts = (name, f"{name}-epoch-retry") if name == "one-node-loss" else (name,)
+        for attempt, attempt_name in enumerate(attempts):
+            path = self.intent(record, generation, attempt_name)
+            submitted = self.wait(f"submit-{attempt_name}",
+                                  lambda: self.operator(operation, "--intent", str(path),
+                                                        timeout=min(35, remaining())),
+                                  timeout=remaining())
+            if not isinstance(submitted, dict) or submitted.get("status") != "submitted":
+                raise RuntimeError(f"{operation} {attempt_name} did not submit")
+            submitted_at = time.monotonic()
+
+            def accepted() -> bool:
+                receipt = self.operator("status", "--operation-id", submitted["operationId"],
+                                        "--fingerprint", submitted["fingerprint"],
+                                        timeout=min(35, remaining()))
+                if name == "one-node-loss" and time.monotonic() - submitted_at >= 20:
+                    self.capture_cluster_diagnostics()
+                if not isinstance(receipt, dict):
+                    return False
+                if receipt.get("status") in ("rejected", "held"):
+                    raise TerminalReceipt(receipt)
+                return receipt.get("status") == "accepted"
+
+            try:
+                self.wait(f"accepted-{attempt_name}", accepted, timeout=remaining())
+                return
+            except TerminalReceipt as terminal:
+                receipt = terminal.receipt
+                self.note("terminal_receipt", name=attempt_name,
+                          operation_id=submitted["operationId"],
+                          fingerprint=submitted["fingerprint"],
+                          status=receipt.get("status"), error=receipt.get("error"),
+                          authority_epoch=receipt.get("authorityEpoch"))
+                if (attempt == 0 and name == "one-node-loss" and
+                        receipt.get("status") == "rejected" and
+                        receipt.get("error") == PRE_ACCEPTANCE_FENCED):
+                    self.note("retry_fenced_intent", rejected_operation_id=submitted["operationId"],
+                              new_operation_id=f"fc-{attempts[1]}-{generation}")
+                    continue
+                raise RuntimeError(f"{operation} {attempt_name} became terminal {receipt}") from terminal
 
     def capture_cluster_diagnostics(self) -> None:
         if self.cluster_diagnostics_captured:

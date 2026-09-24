@@ -401,7 +401,11 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	}
 	if err != nil {
 		result.Error = err.Error()
-		result.Retryable = errors.Is(err, errArtifactPreparing)
+		if req.Operation == "session" {
+			result.Retryable = transientSessionTransport(err)
+		} else {
+			result.Retryable = errors.Is(err, errArtifactPreparing)
+		}
 	} else if payload != nil {
 		result.Payload, _ = json.Marshal(payload)
 	}
