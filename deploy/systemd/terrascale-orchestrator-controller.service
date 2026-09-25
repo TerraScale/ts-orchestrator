@@ -1,0 +1,44 @@
+[Unit]
+Description=TerraScale Orchestrator regional controller
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/terrascale-orchestrator/controller.json
+
+[Service]
+Type=simple
+User=terrascale-orchestrator
+Group=terrascale-orchestrator
+ExecStart=/usr/local/bin/terrascale-orchestrator run --config /etc/terrascale-orchestrator/controller.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=60s
+KillSignal=SIGTERM
+KillMode=control-group
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+StateDirectory=terrascale-orchestrator-controller
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/terrascale-orchestrator-controller
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectProc=invisible
+ProcSubset=pid
+
+[Install]
+WantedBy=multi-user.target

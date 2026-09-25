@@ -1,0 +1,159 @@
+name: Manually authorized signed release
+
+on:
+  workflow_dispatch:
+    inputs:
+      sign_release:
+        description: Create signed receipts with the protected delegated signer
+        required: true
+        type: boolean
+        default: false
+      publish:
+        description: Conditionally publish immutable binary and receipt objects to OCI
+        required: true
+        type: boolean
+        default: false
+      release_environment:
+        description: Exact delegated release environment
+        required: true
+        type: choice
+        options:
+          - canary
+          - production
+        default: canary
+      region:
+        description: OCI release bucket region (used only when publish is enabled)
+        required: true
+        type: choice
+        options:
+          - GRU
+          - SFO
+          - FRA
+        default: GRU
+
+jobs:
+  release:
+    if: ${{ inputs.sign_release == true || inputs.publish == true }}
+    name: sign and optionally retain exact binaries
+    runs-on: terrascale-release-signer
+    timeout-minutes: 60
+    environment:
+      name: production-release
+    env:
+      SOURCE_SHA: ${{ forgejo.sha }}
+      SOURCE_REF: ${{ forgejo.ref }}
+      RELEASE_ENVIRONMENT: ${{ inputs.release_environment }}
+      RELEASE_REGION: ${{ inputs.region }}
+      RELEASE_PUBLISH: ${{ inputs.publish }}
+    steps:
+      - name: Check out the exact source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ forgejo.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fail closed on source, target, and approval settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
+          [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]
+          test "${SOURCE_REF:?event ref is required}" = "refs/heads/main"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = "go1.27.1"
+          [[ "${RELEASE_ENVIRONMENT}" == canary || "${RELEASE_ENVIRONMENT}" == production ]]
+          [[ "${RELEASE_REGION}" == GRU || "${RELEASE_REGION}" == SFO || "${RELEASE_REGION}" == FRA ]]
+          if [[ "${RELEASE_PUBLISH}" == true && "${{ inputs.sign_release }}" != true ]]; then
+            echo "publication requires sign_release=true" >&2
+            exit 1
+          fi
+          printf 'source=%s environment=%s region=%s\n' \
+            "${source_commit}" "${RELEASE_ENVIRONMENT}" "${RELEASE_REGION}"
+
+      - name: Build static binaries and the release verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          make release-linux GO=go GOFMT=gofmt
+          (cd dist && sha256sum \
+            terrascale-orchestrator-linux-amd64 \
+            terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
+          go build -trimpath -buildvcs=true -o dist/ts-release ./cmd/ts-release
+
+      - name: Materialize protected delegated signing inputs
+        if: ${{ inputs.sign_release == true }}
+        shell: bash
+        env:
+          ROOT_PUBLIC_KEY: ${{ secrets.TS_RELEASE_ROOT_PUBLIC_KEY }}
+          RELEASE_DELEGATION: ${{ secrets.TS_RELEASE_DELEGATION }}
+          DELEGATED_SIGNING_KEY: ${{ secrets.TS_RELEASE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          for name in ROOT_PUBLIC_KEY RELEASE_DELEGATION DELEGATED_SIGNING_KEY; do
+            if [[ -z "${!name}" ]]; then
+              echo "required protected signing input ${name} is missing" >&2
+              exit 1
+            fi
+          done
+          umask 077
+          install -d -m 0700 .release-private
+          printf '%s' "${ROOT_PUBLIC_KEY}" > .release-private/root.pub
+          printf '%s' "${RELEASE_DELEGATION}" > .release-private/delegation.json
+          printf '%s' "${DELEGATED_SIGNING_KEY}" > .release-private/delegate.key
+          chmod 0600 .release-private/root.pub .release-private/delegation.json .release-private/delegate.key
+
+      - name: Create, sign, and verify source-matched binary receipts
+        if: ${{ inputs.sign_release == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() { rm -rf .release-private; }
+          trap cleanup EXIT
+          for architecture in amd64 arm64; do
+            binary="dist/terrascale-orchestrator-linux-${architecture}"
+            candidate="dist/linux-${architecture}.candidate.json"
+            receipt="dist/linux-${architecture}.receipt.json"
+            ./dist/ts-release binary-candidate \
+              --binary "${binary}" --source-revision "${SOURCE_SHA}" \
+              --out "${candidate}"
+            ./dist/ts-release sign-binary \
+              --candidate "${candidate}" --delegation .release-private/delegation.json \
+              --root-key .release-private/root.pub --signing-key .release-private/delegate.key \
+              --environment "${RELEASE_ENVIRONMENT}" --out "${receipt}"
+            ./dist/ts-release verify-binary \
+              --receipt "${receipt}" --delegation .release-private/delegation.json \
+              --root-key .release-private/root.pub --binary "${binary}" \
+              --environment "${RELEASE_ENVIRONMENT}"
+          done
+          (cd dist && sha256sum --check --strict SHA256SUMS)
+
+      - name: Remove delegated signing material
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf .release-private
+
+      - name: Publish immutable signed binaries and receipts to OCI
+        if: ${{ inputs.publish == true }}
+        shell: bash
+        env:
+          OCI_RELEASE_NAMESPACE: ${{ vars.OCI_RELEASE_NAMESPACE }}
+          OCI_RELEASE_BUCKET: ${{ vars.OCI_RELEASE_BUCKET }}
+        run: |
+          set -euo pipefail
+          test "${{ inputs.sign_release }}" = true
+          : "${OCI_RELEASE_NAMESPACE:?protected OCI release namespace is required}"
+          : "${OCI_RELEASE_BUCKET:?protected OCI release bucket is required}"
+          for architecture in amd64 arm64; do
+            prefix="releases/${SOURCE_SHA}/linux-${architecture}"
+            ./dist/ts-release publish \
+              --file "dist/terrascale-orchestrator-linux-${architecture}" \
+              --region "${RELEASE_REGION}" --namespace "${OCI_RELEASE_NAMESPACE}" \
+              --bucket "${OCI_RELEASE_BUCKET}" --object "${prefix}/terrascale-orchestrator"
+            ./dist/ts-release publish \
+              --file "dist/linux-${architecture}.receipt.json" \
+              --region "${RELEASE_REGION}" --namespace "${OCI_RELEASE_NAMESPACE}" \
+              --bucket "${OCI_RELEASE_BUCKET}" --object "${prefix}/receipt.json"
+          done

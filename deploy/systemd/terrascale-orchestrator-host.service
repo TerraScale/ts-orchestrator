@@ -1,0 +1,41 @@
+[Unit]
+Description=TerraScale Orchestrator host runtime
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/terrascale-orchestrator/host.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+SupplementaryGroups=
+ExecStart=/usr/local/bin/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=90s
+KillSignal=SIGTERM
+KillMode=control-group
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+StateDirectory=terrascale-orchestrator-host
+StateDirectoryMode=0755
+Delegate=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETGID CAP_SETUID CAP_SETPCAP
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=no
+ProtectHostname=yes
+ProtectClock=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
