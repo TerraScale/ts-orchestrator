@@ -21,7 +21,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/nats-io/nkeys"
 )
@@ -223,8 +222,9 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		"--operation-id", submitted.OperationID, "--fingerprint", strings.Repeat("0", 64)}, &output); !errors.Is(err, delivery.ErrConflict) {
 		t.Fatalf("status accepted wrong fingerprint: %v", err)
 	}
-	placeIntent := placement.Intent{SchemaVersion: 1, DatabaseID: "db-a", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1}
+	placeIntent := testManagedPlacementIntent()
+	placeIntent.DatabaseID = "db-a"
+	placeIntent.Generation = 1
 	placePath := testJSONFile(t, root, "placement.json", placeIntent)
 	output.Reset()
 	if err := Run(ctx, []string{"operator", "placement-apply", "--config", operatorConfigPath, "--intent", placePath}, &output); err != nil {
@@ -250,11 +250,14 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		t.Fatalf("ordered placement readback: sequence %d, err %v", stored.Sequence, err)
 	}
 	var committed placement.Intent
-	if err := json.Unmarshal(stored.Payload, &committed); err != nil || committed.DatabaseID != placeIntent.DatabaseID || committed.Generation != placeIntent.Generation {
+	if err := json.Unmarshal(stored.Payload, &committed); err != nil || committed.DatabaseID != placeIntent.DatabaseID ||
+		committed.Generation != placeIntent.Generation || committed.CanonicalRoster.DatabaseID != placeIntent.CanonicalRoster.DatabaseID ||
+		committed.CanonicalRoster.DatabaseID == committed.DatabaseID {
 		t.Fatalf("committed placement intent: %v, %+v", err, committed)
 	}
 	secondIntent := placeIntent
 	secondIntent.PartitionID = "partition-b"
+	secondIntent.CanonicalRoster.ShardID = 2
 	secondPath := testJSONFile(t, root, "placement-b.json", secondIntent)
 	output.Reset()
 	if err := Run(ctx, []string{"operator", "placement-apply", "--config", operatorConfigPath, "--intent", secondPath}, &output); err != nil {
