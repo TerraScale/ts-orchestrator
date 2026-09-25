@@ -42,18 +42,90 @@ is bounded to 512 MiB, streams from disk, uses conditional create, and accepts
 an existing object only after a matching streamed SHA-256/size read-back. Image
 receipts bind the base and custom image OCID to the logical region and compare
 the signed binary with bytes extracted from the final QCOW2 by `virt-cat`.
-The runtime has not yet connected image receipt verification to controller or
-host startup; this producer/consumer path remains an open admission gate.
+The controller's bootstrap oneshot now verifies the baked identity and anchor,
+current image receipt, instance receipt, and current regional grant before the
+controller service starts. The host service still starts independently from
+its role config and does not run this image admission path; host startup
+admission remains open.
 
 `deploy/image/build-offline.sh` verifies the signed binary, requires a
-standalone QCOW2 base, and locally installs the binary and both systemd units
-with `virt-customize --no-network`. It does not install credentials or
-configuration and makes no OCI call. Each service is enabled but has a
-`ConditionPathExists` for its role config, so an unprovisioned image leaves
-both inactive. A future image receipt can only be made after a custom image
-has been imported and its OCI image OCID is known. This workflow has not been
-run because the pinned base image, signer, and image-import authorization are
-not yet approved.
+standalone QCOW2 base, and locally prepares a candidate with
+`virt-customize --no-network`. Supply a build-time `ts-bootstrap` executable,
+the signed v2 anchor, its strict canonical schema-version-1 identity JSON with
+`schemaVersion`, `deploymentId`, `environment`, and `cell`, and one or more
+public bootstrap root PEMs. The exact identity bytes passed to the verifier
+are installed in the image. The builder keeps `--root-key` for release-binary
+verification and passes only the repeatable `--bootstrap-root` inputs to
+`ts-bootstrap verify-anchor --anchor ... --identity ... --root-key ...`. It
+requires current anchor, identity, grant, and intent verification to succeed
+before it creates a candidate or copies files into the guest; the identity's
+schema version and environment must match the runtime contract and release
+environment. The anchor is bounded to 64 KiB, the identity to 4 KiB, and the
+root set to 1 through 16 files, each bounded to 16 KiB and 64 KiB total. The
+verifier executable is used only on the build host and is not installed in
+the image.
+
+The candidate contains the signed anchor at
+`/etc/terrascale-orchestrator/bootstrap/anchor.json`, the public identity at
+`/etc/terrascale-orchestrator/bootstrap/identity.json`, and the verified root
+set as sequential `trust-roots/NNN.pem` files starting at `001.pem`, matching
+the runtime loader's accepted names. Those files are root-owned and mode
+`0444`; their directories are root-owned and mode `0755`. The image also
+has the root-owned `0755` bootstrap marker directory and the empty
+`terrascale-orchestrator`-owned `0700` secret-material directory. The runtime
+bootstrap unit creates its `0700` `/run` staging directory for each start.
+The signed anchor, identity, and trust roots are public inputs; no private
+signing keys, release tools, or runtime secret bytes are copied into the guest.
+
+The builder also requires an explicit `--timesyncd-config` file with a
+nonempty `[Time] NTP=` list. It bounds the input to 16 KiB and interprets
+repeated `NTP=` and `FallbackNTP=` assignments as systemd lists: nonempty
+assignments append servers, while an empty assignment resets the accumulated
+list. It rejects unsupported continuations, quoting, escapes, and inline
+comments on those server assignments. The builder removes the input's server
+assignments, preserves its other settings and comments, then writes normalized
+`NTP=` and `FallbackNTP=` settings with an empty reset before each effective
+list. This removes reset-away lab entries and explicitly clears distribution
+fallback defaults unless a fallback list was supplied. The effective lists
+must not contain the Firecracker qualification range. The normalized file is
+installed at
+`/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf`; the builder
+prints its SHA-256 for review. The deployment must provide reachable NTP
+endpoints for its network, and the builder does not bake the lab endpoint. The
+resulting config is part of the image signed by the normal release flow.
+
+Before installation, the builder fails closed if it finds an active static
+`NTP=` or `FallbackNTP=` assignment in the base image's timesyncd config. It
+checks the systemd v255 main-file paths `/etc/systemd/timesyncd.conf` and
+`/usr/lib/systemd/timesyncd.conf`, with `/etc` taking precedence, and the
+drop-in paths `/etc/systemd/timesyncd.conf.d`,
+`/run/systemd/timesyncd.conf.d`, `/usr/local/lib/systemd/timesyncd.conf.d`,
+and `/usr/lib/systemd/timesyncd.conf.d`. For drop-ins, a same-name file in a
+higher-priority directory shadows the lower-priority file; `/dev/null` masks
+are honored. Dangling symlinks and config inspection errors fail the build.
+This scan covers static files only. systemd-timesyncd may also receive NTP
+servers from DHCP or per-link network configuration, which the offline builder
+does not inspect or suppress. Production qualification must establish that
+the image's network policy supplies only approved reachable servers.
+
+The image installs the single orchestrator executable, sysusers definition,
+and bootstrap, controller, and host systemd units. It requires the base image
+to provide both `systemd-timesyncd.service` and
+`systemd-time-wait-sync.service`; offline enablement fails the build if either
+unit is unavailable, and the builder does not install packages. The inspected
+upstream systemd v255 wait unit sets an unbounded start timeout, so the image
+adds a root-owned `0644` drop-in setting `TimeoutStartSec=300s`. The bootstrap
+unit requires and starts after timesyncd and the wait unit before doing admission;
+the controller's existing `Requires=`/`After=` relationship carries that
+ordering forward. A wait timeout or time-service failure prevents bootstrap
+and controller startup, while the controller still applies the runtime
+kernel-clock check before broker effects. The builder enables the time
+services, controller, and host units. Each orchestrator service has a
+`ConditionPathExists` for its role config, so an unprovisioned image leaves the
+controller and host inactive. The builder makes no OCI calls. A future image
+receipt can only be made after a custom image has been imported and its OCI
+image OCID is known. This workflow has not been run because the pinned base
+image, signer, and image-import authorization are not yet approved.
 
 The controller unit runs as the pre-created `terrascale-orchestrator` user,
 reads `/etc/terrascale-orchestrator/controller.json`, and persists embedded
@@ -73,10 +145,12 @@ clock-gated harness is still pending.
 Every production image must establish a synchronized kernel realtime clock
 before opening its NATS broker or issuing/accepting JWT-backed sessions. Gate
 service startup on `adjtimex` reporting `TIME_OK`, with `STA_UNSYNC` and
-`STA_CLOCKERR` clear and `maxerror` at most 250 ms. The image needs an enabled
-NTP service such as chrony or systemd-timesyncd, with polling and reachability
-appropriate for its network. A manually set wall clock is not evidence of
-synchronization, and there is no startup bypass for the time check.
+`STA_CLOCKERR` clear and `maxerror` at most 250 ms. This image path selects
+systemd-timesyncd and its systemd time-wait unit, with deployment-supplied NTP
+endpoints reachable on the guest network. The systemd wait is an initial
+startup dependency; the Go kernel-clock predicate remains authoritative. A
+manually set wall clock is not evidence of synchronization, and there is no
+startup bypass for the time check.
 
 ## Local static build receipt
 
