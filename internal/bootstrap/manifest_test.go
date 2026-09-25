@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -39,6 +41,8 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 	copy.ControllerSlots[0] = "mutated"
 	copy.Profiles[0].NetworkSecurityGroupOCIDs[0] = "mutated"
 	copy.Secrets[0].TargetFile = "mutated"
+	copy.ReleaseImageReceiptWire[0] ^= 1
+	copy.ReleaseDelegationWire[0] ^= 1
 	copy.PeerReceiptDelegation.Signature = "mutated"
 	profile, ok := verified.Profile("peer-b")
 	if !ok || profile.Slot != "peer-b" || profile.NetworkSecurityGroupOCIDs[0] != "ocid1.networksecuritygroup.oc1.iad.nsgpeer" {
@@ -47,6 +51,11 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 	if got := verified.Manifest().ControllerSlots[0]; got != "seed-a" {
 		t.Fatalf("controller slots changed through a returned copy: %q", got)
 	}
+	verifiedCopy := verified.Manifest()
+	if !bytes.Equal(verifiedCopy.ReleaseImageReceiptWire, authority.manifest.ReleaseImageReceiptWire) ||
+		!bytes.Equal(verifiedCopy.ReleaseDelegationWire, authority.manifest.ReleaseDelegationWire) {
+		t.Fatal("release proof wires changed through a returned manifest copy")
+	}
 
 	envelope, err := SignManifest(authority.manifest, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
 	if err != nil {
@@ -54,16 +63,146 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
 		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
-		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: authority.manifest.ImageOCID,
+		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: authority.manifest.ImageOCID, StorageDomain: authority.manifest.StorageDomain,
 	}, authority.now, authority.policy); err == nil {
 		t.Fatal("manifest scoped to seed-a verified as peer-b")
 	}
 	wrongImage := ManifestExpectation{
 		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
-		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: "ocid1.image.oc1.iad.otherimage",
+		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: "ocid1.image.oc1.iad.otherimage", StorageDomain: authority.manifest.StorageDomain,
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, wrongImage, authority.now, authority.policy); err == nil {
 		t.Fatal("manifest verified with a different expected image")
+	}
+}
+
+func TestSignManifestDoesNotRetainCallerReleaseWireAliases(t *testing.T) {
+	authority := newTestBootstrapAuthority(t)
+	manifest := cloneManifest(authority.manifest)
+	envelope, err := SignManifest(manifest, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ReleaseImageReceiptWire[0] ^= 1
+	manifest.ReleaseDelegationWire[0] ^= 1
+	verified, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
+		DeploymentID: authority.manifest.DeploymentID, Environment: authority.manifest.Environment,
+		ClusterID: authority.manifest.ClusterID, Cell: authority.manifest.Cell, Slot: authority.manifest.Slot,
+		ImageOCID: authority.manifest.ImageOCID, StorageDomain: authority.manifest.StorageDomain,
+	}, authority.now, authority.policy)
+	if err != nil {
+		t.Fatalf("signed manifest changed through caller wire aliases: %v", err)
+	}
+	signedManifest := verified.Manifest()
+	if !bytes.Equal(signedManifest.ReleaseImageReceiptWire, authority.manifest.ReleaseImageReceiptWire) ||
+		!bytes.Equal(signedManifest.ReleaseDelegationWire, authority.manifest.ReleaseDelegationWire) {
+		t.Fatal("signed manifest payload did not preserve the original release proof bytes")
+	}
+}
+
+func TestManifestV2RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testing.T) {
+	authority := newTestBootstrapAuthority(t)
+	if err := authority.manifest.Validate(); err != nil {
+		t.Fatalf("valid v2 manifest rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Manifest)
+	}{
+		{name: "v1 schema version", mutate: func(manifest *Manifest) { manifest.SchemaVersion = 1 }},
+		{name: "missing image receipt wire", mutate: func(manifest *Manifest) { manifest.ReleaseImageReceiptWire = nil }},
+		{name: "missing release delegation wire", mutate: func(manifest *Manifest) { manifest.ReleaseDelegationWire = nil }},
+		{name: "noncanonical image receipt wire", mutate: func(manifest *Manifest) {
+			manifest.ReleaseImageReceiptWire = append(bytes.Clone(manifest.ReleaseImageReceiptWire), '\n')
+			manifest.ReleaseReceiptSHA256 = digestBytes(manifest.ReleaseImageReceiptWire)
+		}},
+		{name: "noncanonical release delegation wire", mutate: func(manifest *Manifest) {
+			manifest.ReleaseDelegationWire = append(bytes.Clone(manifest.ReleaseDelegationWire), '\n')
+		}},
+		{name: "wrong image receipt digest", mutate: func(manifest *Manifest) {
+			manifest.ReleaseReceiptSHA256 = digestBytes([]byte("different wire"))
+		}},
+		{name: "oversize image receipt wire", mutate: func(manifest *Manifest) {
+			manifest.ReleaseImageReceiptWire = bytes.Repeat([]byte{'x'}, MaxManifestBytes+1)
+		}},
+		{name: "empty namespace", mutate: func(manifest *Manifest) { manifest.StorageDomain.Namespace = "" }},
+		{name: "same ledger and head bucket", mutate: func(manifest *Manifest) {
+			manifest.StorageDomain.HeadBucket = manifest.StorageDomain.LedgerBucket
+		}},
+		{name: "invalid ledger KMS OCID", mutate: func(manifest *Manifest) {
+			manifest.StorageDomain.LedgerKMSKeyOCID = "not-an-ocid"
+		}},
+		{name: "unsafe storage prefix", mutate: func(manifest *Manifest) { manifest.StorageDomain.Prefix = "private/../bootstrap" }},
+		{name: "overlong storage prefix", mutate: func(manifest *Manifest) {
+			manifest.StorageDomain.Prefix = string(bytes.Repeat([]byte{'a'}, 129))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := cloneManifest(authority.manifest)
+			test.mutate(&manifest)
+			if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+				t.Fatalf("Manifest.Validate() error = %v", err)
+			}
+		})
+	}
+
+	v1 := authority.manifest
+	v1.SchemaVersion = 1
+	payload, err := trust.EncodePayload(v1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1Envelope, err := trust.Sign(payload, trust.Scope{
+		Domain: "terrascale.bootstrap.manifest", DeploymentID: v1.DeploymentID, Cell: string(v1.Cell),
+		Environment: v1.Environment, Role: v1.ControllerRole, Slot: v1.Slot,
+	}, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyManifest(v1Envelope, authority.roots, ManifestExpectation{
+		DeploymentID: v1.DeploymentID, Environment: v1.Environment, ClusterID: v1.ClusterID,
+		Cell: v1.Cell, Slot: v1.Slot, ImageOCID: v1.ImageOCID, StorageDomain: v1.StorageDomain,
+	}, authority.now, authority.policy); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("VerifyManifest() error for signed v1 schema = %v; want ErrManifestInvalid", err)
+	}
+
+	if emptyPrefix := authority.manifest.StorageDomain; emptyPrefix.Prefix != "" {
+		emptyPrefix.Prefix = ""
+		if err := emptyPrefix.Validate(); err != nil {
+			t.Fatalf("canonical empty ledger prefix rejected: %v", err)
+		}
+	}
+}
+
+func TestCurrentAndHistoricalManifestRequireExactExpectedStorageDomain(t *testing.T) {
+	authority := newTestBootstrapAuthority(t)
+	manifestEnvelope, err := SignManifest(authority.manifest, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := ManifestExpectation{
+		DeploymentID: authority.manifest.DeploymentID, Environment: authority.manifest.Environment,
+		ClusterID: authority.manifest.ClusterID, Cell: authority.manifest.Cell,
+		Slot: authority.manifest.Slot, ImageOCID: authority.manifest.ImageOCID,
+		StorageDomain: authority.manifest.StorageDomain,
+	}
+	verified, err := VerifyManifest(manifestEnvelope, authority.roots, expected, authority.now, ManifestTrustPolicy())
+	if err != nil {
+		t.Fatalf("VerifyManifest() error = %v", err)
+	}
+	if got := verified.StorageDomain(); got != expected.StorageDomain {
+		t.Fatalf("verified storage domain = %+v, want %+v", got, expected.StorageDomain)
+	}
+
+	wrong := expected
+	wrong.StorageDomain.Namespace = "stale-namespace"
+	if _, err := VerifyManifest(manifestEnvelope, authority.roots, wrong, authority.now, ManifestTrustPolicy()); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("current verifier accepted a descriptor for another storage domain: %v", err)
+	}
+	if _, err := VerifyHistoricalManifest(manifestEnvelope, authority.roots, wrong, ManifestTrustPolicy()); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("historical verifier accepted a descriptor for another storage domain: %v", err)
 	}
 }
 
@@ -77,7 +216,7 @@ func TestManifestRejectsExpiredWrongRootAndOverbroadPeerDelegation(t *testing.T)
 	}
 	expected := ManifestExpectation{
 		DeploymentID: peer.DeploymentID, Environment: peer.Environment, ClusterID: peer.ClusterID,
-		Cell: peer.Cell, Slot: peer.Slot, ImageOCID: peer.ImageOCID,
+		Cell: peer.Cell, Slot: peer.Slot, ImageOCID: peer.ImageOCID, StorageDomain: peer.StorageDomain,
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, expected, authority.now.Add(time.Hour), authority.policy); !errors.Is(err, trust.ErrExpired) {
 		t.Fatalf("expired manifest error = %v", err)
@@ -217,7 +356,8 @@ func TestSeedAndPeerReceiptsBindExactInstanceAndManifest(t *testing.T) {
 	}
 
 	otherManifest := authority.manifest
-	otherManifest.ReleaseReceiptSHA256 = digestBytes([]byte("different-release"))
+	otherManifest.ReleaseImageReceiptWire = makeDifferentEnvelopeWire(t, authority)
+	otherManifest.ReleaseReceiptSHA256 = digestBytes(otherManifest.ReleaseImageReceiptWire)
 	otherVerified := authority.verifyManifest(t, "seed-a", otherManifest)
 	if _, err := VerifySeedReceipt(seedEnvelope, otherVerified, authority.roots, seedFacts, authority.now, authority.policy); !errors.Is(err, ErrIdentityMismatch) {
 		t.Fatalf("receipt replayed with a different manifest error = %v", err)
@@ -231,7 +371,7 @@ func TestSeedAndPeerReceiptsBindExactInstanceAndManifest(t *testing.T) {
 	}
 	oldVerified, err := VerifyManifest(manifestEnvelope, authority.roots, ManifestExpectation{
 		DeploymentID: oldManifest.DeploymentID, Environment: oldManifest.Environment, ClusterID: oldManifest.ClusterID,
-		Cell: oldManifest.Cell, Slot: oldManifest.Slot, ImageOCID: oldManifest.ImageOCID,
+		Cell: oldManifest.Cell, Slot: oldManifest.Slot, ImageOCID: oldManifest.ImageOCID, StorageDomain: oldManifest.StorageDomain,
 	}, authority.now, authority.policy)
 	if err != nil {
 		t.Fatal(err)
@@ -425,6 +565,21 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 	if err != nil {
 		t.Fatal(err)
 	}
+	releaseEnvelope, err := trust.Sign([]byte(`{}`), trust.Scope{
+		Domain: release.ImageDomain, DeploymentID: "release-a", Cell: "GRU", Environment: "production",
+		Role: "oci-image", Slot: "ocid1.image.oc1.sa-saopaulo-1.image",
+	}, now.Add(-time.Minute), now.Add(20*time.Minute), rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseWire, err := trust.EncodeEnvelope(releaseEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	releaseDelegationWire, err := trust.EncodeEnvelope(delegationEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	regional := []byte("regional shared private key")
 	manifest := Manifest{
 		SchemaVersion: ManifestSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
@@ -440,8 +595,13 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 				NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.iad.nsgpeer"}},
 		},
 		ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image", ImageArchitecture: "linux-amd64",
-		ReleaseReceiptSHA256:  digestBytes([]byte("release receipt")),
+		ReleaseReceiptSHA256:    digestBytes(releaseWire),
+		ReleaseImageReceiptWire: releaseWire, ReleaseDelegationWire: releaseDelegationWire,
 		PeerReceiptDelegation: &delegationEnvelope,
+		StorageDomain: StorageDomain{
+			Namespace: "namespace", LedgerBucket: "bootstrap-ledger", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger",
+			HeadBucket: "bootstrap-head", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap",
+		},
 		Secrets: []SecretReference{
 			{Purpose: SecretRegionalShared, SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 2,
 				SHA256: digestBytes(regional), MaxBytes: 128, TargetFile: "regional.key"},
@@ -469,7 +629,7 @@ func (authority testBootstrapAuthority) verifyManifest(t *testing.T, slot string
 	}
 	verified, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
 		DeploymentID: manifest.DeploymentID, Environment: manifest.Environment, ClusterID: manifest.ClusterID,
-		Cell: manifest.Cell, Slot: slot, ImageOCID: manifest.ImageOCID,
+		Cell: manifest.Cell, Slot: slot, ImageOCID: manifest.ImageOCID, StorageDomain: manifest.StorageDomain,
 	}, authority.now, authority.policy)
 	if err != nil {
 		t.Fatal(err)
@@ -495,6 +655,22 @@ func keyID(t *testing.T, publicKey ed25519.PublicKey) string {
 		t.Fatal(err)
 	}
 	return value
+}
+
+func makeDifferentEnvelopeWire(t *testing.T, authority testBootstrapAuthority) []byte {
+	t.Helper()
+	envelope, err := trust.Sign([]byte(`{"changed":true}`), trust.Scope{
+		Domain: release.ImageDomain, DeploymentID: "release-b", Cell: "GRU", Environment: "production",
+		Role: "oci-image", Slot: authority.manifest.ImageOCID,
+	}, authority.now.Add(-time.Minute), authority.now.Add(20*time.Minute), authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wire
 }
 
 var _ SecretBundleReader = (*memorySecretReader)(nil)

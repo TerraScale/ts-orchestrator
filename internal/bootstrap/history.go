@@ -45,6 +45,9 @@ func (verified HistoricalManifest) Profile(slot string) (LaunchProfile, bool) {
 // bounded signed validity, and any historical peer receipt delegation. The
 // returned proof records no current authorization.
 func VerifyHistoricalManifest(envelope trust.Envelope, roots trust.Keyring, expected ManifestExpectation, policy trust.Policy) (HistoricalManifest, error) {
+	if err := validateManifestEnvelopeSize(envelope); err != nil {
+		return HistoricalManifest{}, err
+	}
 	if err := expected.validate(); err != nil {
 		return HistoricalManifest{}, err
 	}

@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,13 +18,17 @@ import (
 )
 
 const (
-	ManifestSchemaVersion = 1
-	ReceiptSchemaVersion  = 1
-	MaxManifestBytes      = 64 << 10
-	MaxReceiptBytes       = 32 << 10
-	manifestDomain        = "terrascale.bootstrap.manifest"
-	seedReceiptDomain     = "terrascale.bootstrap.seed-receipt"
-	peerReceiptDomain     = "terrascale.bootstrap.peer-receipt"
+	ManifestSchemaVersion   = 2
+	ReceiptSchemaVersion    = 1
+	MaxManifestBytes        = 64 << 10
+	MaxReceiptBytes         = 32 << 10
+	MaxManifestLifetime     = 365 * 24 * time.Hour
+	ManifestClockSkew       = time.Minute
+	DefaultManifestValidity = 30 * 24 * time.Hour
+	MinimumManifestWindow   = 24 * time.Hour
+	manifestDomain          = "terrascale.bootstrap.manifest"
+	seedReceiptDomain       = "terrascale.bootstrap.seed-receipt"
+	peerReceiptDomain       = "terrascale.bootstrap.peer-receipt"
 )
 
 var (
@@ -74,38 +79,67 @@ type LaunchProfile struct {
 	Shape                     string   `json:"shape"`
 }
 
+// StorageDomain pins the immutable bootstrap ledger and its separate CAS-head
+// bucket so a manifest cannot redirect slot history to another object domain.
+type StorageDomain struct {
+	Namespace        string `json:"namespace"`
+	LedgerBucket     string `json:"ledgerBucket"`
+	LedgerKMSKeyOCID string `json:"ledgerKmsKeyOcid"`
+	HeadBucket       string `json:"headBucket"`
+	HeadKMSKeyOCID   string `json:"headKmsKeyOcid"`
+	Prefix           string `json:"prefix"`
+}
+
+// Validate enforces the bounded Object Storage names, separate bucket roles,
+// OCI KMS key identities, and a canonical manifest prefix.
+func (domain StorageDomain) Validate() error {
+	if !ledgerIDPattern.MatchString(domain.Namespace) ||
+		!ledgerNamePattern.MatchString(domain.LedgerBucket) || !ledgerNamePattern.MatchString(domain.HeadBucket) || domain.LedgerBucket == domain.HeadBucket ||
+		!isOCID(domain.LedgerKMSKeyOCID, "key") || !isOCID(domain.HeadKMSKeyOCID, "key") ||
+		len(domain.Prefix) > 128 || !validLedgerPrefix(domain.Prefix) {
+		return fmt.Errorf("%w: invalid signed bootstrap storage domain", ErrManifestInvalid)
+	}
+	return nil
+}
+
 // Manifest is the public, offline-root-signed bootstrap authority delivered to
-// one exact controller slot. It contains private-material references only.
+// one exact controller slot. It carries signed public release proof bytes and
+// references to private material stored outside the manifest.
 type Manifest struct {
-	SchemaVersion         int               `json:"schemaVersion"`
-	DeploymentID          string            `json:"deploymentId"`
-	Environment           string            `json:"environment"`
-	ClusterID             string            `json:"clusterId"`
-	Cell                  oci.Region        `json:"cell"`
-	OCIRegion             string            `json:"ociRegion"`
-	IntentGeneration      uint64            `json:"intentGeneration"`
-	IntentSHA256          string            `json:"intentSha256"`
-	ControllerRole        string            `json:"controllerRole"`
-	Slot                  string            `json:"slot"`
-	SeedSlot              string            `json:"seedSlot"`
-	ControllerSlots       []string          `json:"controllerSlots"`
-	Profiles              []LaunchProfile   `json:"profiles"`
-	ImageOCID             string            `json:"imageOcid"`
-	ImageArchitecture     string            `json:"imageArchitecture"`
-	ReleaseReceiptSHA256  string            `json:"releaseReceiptSha256"`
-	PeerReceiptDelegation *trust.Envelope   `json:"peerReceiptDelegation,omitempty"`
-	Secrets               []SecretReference `json:"secrets"`
+	SchemaVersion        int             `json:"schemaVersion"`
+	DeploymentID         string          `json:"deploymentId"`
+	Environment          string          `json:"environment"`
+	ClusterID            string          `json:"clusterId"`
+	Cell                 oci.Region      `json:"cell"`
+	OCIRegion            string          `json:"ociRegion"`
+	IntentGeneration     uint64          `json:"intentGeneration"`
+	IntentSHA256         string          `json:"intentSha256"`
+	ControllerRole       string          `json:"controllerRole"`
+	Slot                 string          `json:"slot"`
+	SeedSlot             string          `json:"seedSlot"`
+	ControllerSlots      []string        `json:"controllerSlots"`
+	Profiles             []LaunchProfile `json:"profiles"`
+	ImageOCID            string          `json:"imageOcid"`
+	ImageArchitecture    string          `json:"imageArchitecture"`
+	ReleaseReceiptSHA256 string          `json:"releaseReceiptSha256"`
+	// These fields carry the exact canonical public trust-envelope bytes.
+	ReleaseImageReceiptWire []byte            `json:"releaseImageReceiptWire"`
+	ReleaseDelegationWire   []byte            `json:"releaseDelegationWire"`
+	PeerReceiptDelegation   *trust.Envelope   `json:"peerReceiptDelegation,omitempty"`
+	StorageDomain           StorageDomain     `json:"storageDomain"`
+	Secrets                 []SecretReference `json:"secrets"`
 }
 
 // ManifestExpectation contains deployment and slot facts established outside
 // the untrusted manifest transport, such as cloud-init's requested slot.
 type ManifestExpectation struct {
-	DeploymentID string
-	Environment  string
-	ClusterID    string
-	Cell         oci.Region
-	Slot         string
-	ImageOCID    string
+	DeploymentID  string
+	Environment   string
+	ClusterID     string
+	Cell          oci.Region
+	Slot          string
+	ImageOCID     string
+	StorageDomain StorageDomain
 }
 
 // VerifiedManifest is constructed only after root signature, exact scope,
@@ -127,6 +161,11 @@ func (verified VerifiedManifest) Manifest() Manifest { return cloneManifest(veri
 // Digest returns the canonical root-signed envelope digest.
 func (verified VerifiedManifest) Digest() string { return verified.digest }
 
+// StorageDomain returns the exact root-authorized bootstrap ledger domain.
+func (verified VerifiedManifest) StorageDomain() StorageDomain {
+	return verified.manifest.StorageDomain
+}
+
 // Profile returns the root-authorized launch profile for one allowed slot.
 func (verified VerifiedManifest) Profile(slot string) (LaunchProfile, bool) {
 	if !verified.verified {
@@ -140,6 +179,12 @@ func (verified VerifiedManifest) Profile(slot string) (LaunchProfile, bool) {
 	return LaunchProfile{}, false
 }
 
+// ManifestTrustPolicy returns the shared current-verification policy for
+// root-signed bootstrap manifests and their root-signed peer delegations.
+func ManifestTrustPolicy() trust.Policy {
+	return trust.Policy{MaxLifetime: MaxManifestLifetime, ClockSkew: ManifestClockSkew}
+}
+
 // SignManifest canonicalizes and signs a manifest under the offline root.
 func SignManifest(manifest Manifest, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
 	if err := manifest.Validate(); err != nil {
@@ -149,14 +194,30 @@ func SignManifest(manifest Manifest, issuedAt, expiresAt time.Time, rootPrivateK
 	if err != nil {
 		return trust.Envelope{}, err
 	}
+	if len(payload) > MaxManifestBytes {
+		return trust.Envelope{}, fmt.Errorf("%w: manifest exceeds its size limit", ErrManifestInvalid)
+	}
 	scope := manifestScope(manifest.DeploymentID, string(manifest.Cell), manifest.Environment, manifest.ControllerRole, manifest.Slot)
-	return trust.Sign(payload, scope, issuedAt, expiresAt, rootPrivateKey)
+	envelope, err := trust.Sign(payload, scope, issuedAt, expiresAt, rootPrivateKey)
+	if err != nil {
+		return trust.Envelope{}, err
+	}
+	if envelope.ExpiresAt.Sub(envelope.IssuedAt) > MaxManifestLifetime {
+		return trust.Envelope{}, fmt.Errorf("%w: manifest validity exceeds %s", ErrManifestInvalid, MaxManifestLifetime)
+	}
+	if err := validateManifestEnvelopeSize(envelope); err != nil {
+		return trust.Envelope{}, err
+	}
+	return envelope, nil
 }
 
 // VerifyManifest verifies the root signature before decoding or using any
 // Vault reference, and checks the exact expected deployment and controller
 // slot. The signed scope itself is per-slot.
 func VerifyManifest(envelope trust.Envelope, roots trust.Keyring, expected ManifestExpectation, now time.Time, policy trust.Policy) (VerifiedManifest, error) {
+	if err := validateManifestEnvelopeSize(envelope); err != nil {
+		return VerifiedManifest{}, err
+	}
 	if err := expected.validate(); err != nil {
 		return VerifiedManifest{}, err
 	}
@@ -197,6 +258,7 @@ func verifiedManifestPayload(envelope trust.Envelope, payload []byte, expected M
 	}
 	if manifest.DeploymentID != expected.DeploymentID || manifest.Environment != expected.Environment || manifest.ClusterID != expected.ClusterID ||
 		manifest.Cell != expected.Cell || manifest.Slot != expected.Slot || manifest.ImageOCID != expected.ImageOCID ||
+		manifest.StorageDomain != expected.StorageDomain ||
 		envelope.Scope.Role != manifest.ControllerRole || envelope.Scope.Slot != manifest.Slot {
 		return Manifest{}, "", fmt.Errorf("%w: manifest does not match deployment expectation", ErrManifestInvalid)
 	}
@@ -205,6 +267,17 @@ func verifiedManifestPayload(envelope trust.Envelope, payload []byte, expected M
 		return Manifest{}, "", err
 	}
 	return manifest, digest, nil
+}
+
+func validateManifestEnvelopeSize(envelope trust.Envelope) error {
+	encoded, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		return fmt.Errorf("%w: invalid manifest envelope: %v", ErrManifestInvalid, err)
+	}
+	if len(encoded) > MaxManifestBytes {
+		return fmt.Errorf("%w: signed manifest envelope exceeds its size limit", ErrManifestInvalid)
+	}
+	return nil
 }
 
 // Validate checks the closed manifest schema and all exact role, slot,
@@ -220,6 +293,12 @@ func (manifest Manifest) Validate() error {
 		!sha256RE.MatchString(manifest.ReleaseReceiptSHA256) || len(manifest.ControllerSlots) == 0 || len(manifest.ControllerSlots) > 64 ||
 		len(manifest.Profiles) != len(manifest.ControllerSlots) || len(manifest.Secrets) > 128 {
 		return fmt.Errorf("%w: required manifest identity or binding field", ErrManifestInvalid)
+	}
+	if err := manifest.StorageDomain.Validate(); err != nil {
+		return err
+	}
+	if err := validateReleaseProofWires(manifest); err != nil {
+		return err
 	}
 	if hasDuplicate(manifest.ControllerSlots) {
 		return fmt.Errorf("%w: duplicate controller slot", ErrManifestInvalid)
@@ -255,6 +334,30 @@ func (manifest Manifest) Validate() error {
 	peerSlots := slices.DeleteFunc(slices.Clone(manifest.ControllerSlots), func(slot string) bool { return slot == manifest.SeedSlot })
 	if len(peerSlots) == 0 && manifest.PeerReceiptDelegation != nil || len(peerSlots) > 0 && manifest.PeerReceiptDelegation == nil {
 		return fmt.Errorf("%w: peer signer delegation must exactly match peer slot presence", ErrManifestInvalid)
+	}
+	payload, err := trust.EncodePayload(manifest)
+	if err != nil {
+		return fmt.Errorf("%w: encode manifest: %v", ErrManifestInvalid, err)
+	}
+	if len(payload) > MaxManifestBytes {
+		return fmt.Errorf("%w: manifest exceeds its size limit", ErrManifestInvalid)
+	}
+	return nil
+}
+
+func validateReleaseProofWires(manifest Manifest) error {
+	if len(manifest.ReleaseImageReceiptWire) == 0 || len(manifest.ReleaseImageReceiptWire) > MaxManifestBytes ||
+		len(manifest.ReleaseDelegationWire) == 0 || len(manifest.ReleaseDelegationWire) > MaxManifestBytes {
+		return fmt.Errorf("%w: required release proof wire is absent or exceeds the manifest limit", ErrManifestInvalid)
+	}
+	if _, err := trust.DecodeEnvelope(manifest.ReleaseImageReceiptWire); err != nil {
+		return fmt.Errorf("%w: image receipt wire is not canonical: %v", ErrManifestInvalid, err)
+	}
+	if _, err := trust.DecodeEnvelope(manifest.ReleaseDelegationWire); err != nil {
+		return fmt.Errorf("%w: release delegation wire is not canonical: %v", ErrManifestInvalid, err)
+	}
+	if digestBytes(manifest.ReleaseImageReceiptWire) != manifest.ReleaseReceiptSHA256 {
+		return fmt.Errorf("%w: release image receipt wire does not match its exact-wire SHA-256 pin", ErrManifestInvalid)
 	}
 	return nil
 }
@@ -309,6 +412,9 @@ func (expected ManifestExpectation) validate() error {
 	}
 	if _, err := expected.Cell.OCIRegion(); err != nil {
 		return fmt.Errorf("%w: unsupported expected region", ErrManifestInvalid)
+	}
+	if err := expected.StorageDomain.Validate(); err != nil {
+		return fmt.Errorf("%w: invalid expected storage domain", ErrManifestInvalid)
 	}
 	return nil
 }
@@ -391,6 +497,8 @@ func cloneManifest(manifest Manifest) Manifest {
 		manifest.Profiles[index] = cloneProfile(profile)
 	}
 	manifest.Secrets = slices.Clone(manifest.Secrets)
+	manifest.ReleaseImageReceiptWire = bytes.Clone(manifest.ReleaseImageReceiptWire)
+	manifest.ReleaseDelegationWire = bytes.Clone(manifest.ReleaseDelegationWire)
 	if manifest.PeerReceiptDelegation != nil {
 		delegation := cloneEnvelope(*manifest.PeerReceiptDelegation)
 		manifest.PeerReceiptDelegation = &delegation
