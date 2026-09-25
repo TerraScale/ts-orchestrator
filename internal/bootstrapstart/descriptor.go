@@ -1,0 +1,116 @@
+package bootstrapstart
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"regexp"
+	"strings"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+)
+
+const (
+	imdsAddress        = "169.254.169.254:80"
+	imdsBaseURL        = "http://169.254.169.254/opc/v2/instance/"
+	descriptorEndpoint = imdsBaseURL + "metadata/terrascale-bootstrap"
+	identityEndpoint   = imdsBaseURL + "id"
+	maxDescriptorBytes = 4096
+	imdsTimeout        = 3 * time.Second
+)
+
+var (
+	ErrInvalidDescriptor = errors.New("OCI bootstrap descriptor is invalid")
+	descriptorSlotRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	instanceIDRE         = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
+)
+
+// Descriptor is an untrusted IMDS transport hint. Its slot identifies the
+// signed ledger key to read; it supplies no trust root, storage scope, image,
+// or deployment expectation.
+type Descriptor struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Slot          string `json:"slot"`
+}
+
+func ParseDescriptor(data []byte) (Descriptor, error) {
+	var descriptor Descriptor
+	if len(data) == 0 || len(data) > maxDescriptorBytes ||
+		protocol.DecodeStrict(data, &descriptor, maxDescriptorBytes) != nil ||
+		descriptor.SchemaVersion != 1 || !descriptorSlotRE.MatchString(descriptor.Slot) {
+		return Descriptor{}, ErrInvalidDescriptor
+	}
+	return descriptor, nil
+}
+
+// IMDSClient is pinned to the OCI v2 link-local endpoint. The transport never
+// honors proxy variables, DNS, redirects, or a caller-supplied target URL.
+type IMDSClient struct{ client *http.Client }
+
+func NewIMDSClient() IMDSClient {
+	dialer := &net.Dialer{Timeout: imdsTimeout}
+	transport := &http.Transport{
+		Proxy: nil, DisableKeepAlives: true, ResponseHeaderTimeout: imdsTimeout,
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			if network != "tcp" || address != imdsAddress {
+				return nil, ErrInvalidDescriptor
+			}
+			return dialer.DialContext(ctx, network, imdsAddress)
+		},
+	}
+	return IMDSClient{client: &http.Client{
+		Timeout: imdsTimeout, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return ErrInvalidDescriptor },
+	}}
+}
+
+func (imds IMDSClient) FetchDescriptor(ctx context.Context) (Descriptor, error) {
+	data, err := imds.fetch(ctx, descriptorEndpoint, maxDescriptorBytes)
+	if err != nil {
+		return Descriptor{}, err
+	}
+	return ParseDescriptor(data)
+}
+
+// FetchInstanceID identifies the local VM from the fixed OCI IMDS endpoint.
+// A caller must still compare it with authenticated OCI GetInstance/VNIC facts.
+func (imds IMDSClient) FetchInstanceID(ctx context.Context) (string, error) {
+	data, err := imds.fetch(ctx, identityEndpoint, 255)
+	if err != nil {
+		return "", err
+	}
+	id := strings.TrimSpace(string(data))
+	if !instanceIDRE.MatchString(id) || !bytes.Equal(bytes.TrimSpace(data), []byte(id)) {
+		return "", ErrInvalidDescriptor
+	}
+	return id, nil
+}
+
+func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
+	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint {
+		return nil, ErrInvalidDescriptor
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer Oracle")
+	response, err := imds.client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("read fixed OCI IMDS endpoint: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.ContentLength > maximum {
+		return nil, ErrInvalidDescriptor
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maximum+1))
+	if err != nil || len(data) == 0 || int64(len(data)) > maximum {
+		return nil, ErrInvalidDescriptor
+	}
+	return data, nil
+}

@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,9 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -25,21 +28,30 @@ import (
 const testRevision = "0123456789abcdef0123456789abcdef01234567"
 
 type manifestFixture struct {
-	now             time.Time
-	roots           trust.Keyring
-	rootPublic      ed25519.PublicKey
-	rootPrivate     ed25519.PrivateKey
-	delegatePrivate ed25519.PrivateKey
-	manifest        bootstrap.Manifest
-	image           release.ImageReceipt
-	imageWire       []byte
-	delegationWire  []byte
-	directory       string
-	candidatePath   string
-	imagePath       string
-	delegationPath  string
-	rootPath        string
-	privatePath     string
+	now                  time.Time
+	roots                trust.Keyring
+	rootPublic           ed25519.PublicKey
+	rootPrivate          ed25519.PrivateKey
+	delegatePrivate      ed25519.PrivateKey
+	ledgerPublic         ed25519.PublicKey
+	ledgerDelegationWire []byte
+	ledgerExpiresAt      time.Time
+	manifest             bootstrap.Manifest
+	anchor               bootstrap.BootstrapAnchor
+	image                release.ImageReceipt
+	imageWire            []byte
+	delegationWire       []byte
+	initialIntentWire    []byte
+	directory            string
+	candidatePath        string
+	anchorCandidatePath  string
+	anchorPath           string
+	intentPath           string
+	ledgerDelegationPath string
+	imagePath            string
+	delegationPath       string
+	rootPath             string
+	privatePath          string
 }
 
 func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *manifestFixture {
@@ -84,10 +96,17 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 	imageWire := encodeEnvelope(t, imageEnvelope)
 	delegationWire := encodeEnvelope(t, delegation)
 	imageDigest := sha256.Sum256(imageWire)
+	initialIntentWire, err := trust.EncodePayload(oci.RegionIntent{
+		SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU,
+		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	manifest := bootstrap.Manifest{
 		SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
 		ClusterID: "cluster-a", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 1,
-		IntentSHA256: digest([]byte("intent")), ControllerRole: "controller", Slot: "seed-a", SeedSlot: "seed-a",
+		IntentSHA256: digest(initialIntentWire), ControllerRole: "controller", Slot: "seed-a", SeedSlot: "seed-a",
 		ControllerSlots: []string{"seed-a"},
 		Profiles: []bootstrap.LaunchProfile{{
 			Slot: "seed-a", CompartmentOCID: "ocid1.compartment.oc1..compartment",
@@ -102,6 +121,35 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 			HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap",
 		},
 	}
+	ledgerPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerPublicWire, err := trust.EncodeDelegatedPublicKey(ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerKeyID, err := trust.KeyID(ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerExpiresAt := now.Add(bootstrap.MaxBootstrapAnchorLifetime - 24*time.Hour)
+	ledgerCapabilities := make([]trust.Capability, 0, 3)
+	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+		ledgerCapabilities = append(ledgerCapabilities, trust.Capability{
+			Domain: domain, DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell),
+			Environment: manifest.Environment, Role: manifest.ControllerRole,
+			Slots: append([]string(nil), manifest.ControllerSlots...), Actions: []string{"sign"},
+		})
+	}
+	ledgerGrant, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: ledgerKeyID, SubjectPublicKey: ledgerPublicWire,
+		Capabilities: ledgerCapabilities,
+	}, now.Add(-24*time.Hour), ledgerExpiresAt, rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerDelegationWire := encodeEnvelope(t, ledgerGrant)
 	directory := t.TempDir()
 	rootDER, err := x509.MarshalPKIXPublicKey(rootPublic)
 	if err != nil {
@@ -113,24 +161,56 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 	}
 	fixture := &manifestFixture{
 		now: now, roots: roots, rootPublic: rootPublic, rootPrivate: rootPrivate,
-		delegatePrivate: delegatePrivate, manifest: manifest, image: image,
-		imageWire: imageWire, delegationWire: delegationWire, directory: directory,
-		candidatePath: filepath.Join(directory, "candidate.json"), imagePath: filepath.Join(directory, "image.json"),
-		delegationPath: filepath.Join(directory, "release-delegation.json"), rootPath: filepath.Join(directory, "root.pub"),
+		delegatePrivate: delegatePrivate, ledgerPublic: ledgerPublic,
+		ledgerDelegationWire: ledgerDelegationWire, ledgerExpiresAt: ledgerExpiresAt,
+		manifest: manifest, image: image,
+		imageWire: imageWire, delegationWire: delegationWire, initialIntentWire: initialIntentWire, directory: directory,
+		candidatePath:       filepath.Join(directory, "candidate.json"),
+		anchorCandidatePath: filepath.Join(directory, "anchor-candidate.json"),
+		anchorPath:          filepath.Join(directory, "bootstrap-anchor.json"), intentPath: filepath.Join(directory, "region-intent.json"),
+		ledgerDelegationPath: filepath.Join(directory, "ledger-delegation.json"),
+		imagePath:            filepath.Join(directory, "image.json"),
+		delegationPath:       filepath.Join(directory, "release-delegation.json"), rootPath: filepath.Join(directory, "root.pub"),
 		privatePath: filepath.Join(directory, "root.key"),
 	}
 	writeFixture(t, fixture.imagePath, imageWire, 0o600)
 	writeFixture(t, fixture.delegationPath, delegationWire, 0o600)
 	writeFixture(t, fixture.rootPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rootDER}), 0o644)
 	writeFixture(t, fixture.privatePath, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER}), 0o600)
+	writeFixture(t, fixture.intentPath, initialIntentWire, 0o600)
+	writeFixture(t, fixture.ledgerDelegationPath, ledgerDelegationWire, 0o600)
+	fixture.writeAnchor(t, bootstrap.BootstrapAnchor{
+		SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion, DeploymentID: manifest.DeploymentID,
+		Environment: manifest.Environment, ClusterID: manifest.ClusterID, Cell: manifest.Cell,
+		OCIRegion: manifest.OCIRegion, StorageDomain: manifest.StorageDomain,
+		ControllerSlots: append([]string(nil), manifest.ControllerSlots...), LedgerDelegationWire: bytes.Clone(ledgerDelegationWire),
+		InitialRegionIntentGeneration: 1, InitialRegionIntentSHA256: digest(initialIntentWire),
+		InitialRegionIntentWire: bytes.Clone(initialIntentWire),
+	})
 	return fixture
 }
 
 func (fixture *manifestFixture) args(output string, validFor string) []string {
 	args := []string{
 		"--candidate", fixture.candidatePath,
+		"--anchor", fixture.anchorPath,
 		"--image-receipt", fixture.imagePath,
 		"--release-delegation", fixture.delegationPath,
+		"--root-key", fixture.rootPath,
+		"--signing-key", fixture.privatePath,
+		"--out", output,
+	}
+	if validFor != "" {
+		args = append(args, "--valid-for", validFor)
+	}
+	return args
+}
+
+func (fixture *manifestFixture) anchorArgs(output string, validFor string) []string {
+	args := []string{
+		"--candidate", fixture.anchorCandidatePath,
+		"--region-intent", fixture.intentPath,
+		"--ledger-delegation", fixture.ledgerDelegationPath,
 		"--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath,
 		"--out", output,
@@ -148,6 +228,449 @@ func (fixture *manifestFixture) writeCandidate(t *testing.T, manifest bootstrap.
 		t.Fatal(err)
 	}
 	writeFixture(t, fixture.candidatePath, encoded, 0o600)
+}
+
+func (fixture *manifestFixture) writeAnchorCandidate(t *testing.T, anchor bootstrap.BootstrapAnchor) {
+	t.Helper()
+	encoded, err := trust.EncodePayload(anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, fixture.anchorCandidatePath, encoded, 0o600)
+}
+
+func (fixture *manifestFixture) writeAnchor(t *testing.T, anchor bootstrap.BootstrapAnchor) {
+	fixture.writeAnchorAt(t, anchor, fixture.now, fixture.ledgerExpiresAt)
+}
+
+func (fixture *manifestFixture) writeAnchorFor(t *testing.T, anchor bootstrap.BootstrapAnchor, validFor time.Duration) {
+	t.Helper()
+	expiresAt := fixture.now.Add(validFor)
+	if fixture.ledgerExpiresAt.Before(expiresAt) {
+		expiresAt = fixture.ledgerExpiresAt
+	}
+	fixture.writeAnchorAt(t, anchor, fixture.now, expiresAt)
+}
+
+func (fixture *manifestFixture) writeAnchorAt(t *testing.T, anchor bootstrap.BootstrapAnchor, issuedAt, expiresAt time.Time) {
+	t.Helper()
+	envelope, err := bootstrap.SignBootstrapAnchor(anchor, issuedAt, expiresAt, fixture.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.anchor = anchor
+	writeFixture(t, fixture.anchorPath, encoded, 0o600)
+}
+
+func (fixture *manifestFixture) setLedgerGrant(t *testing.T, slots []string) {
+	t.Helper()
+	public, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicWire, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := make([]trust.Capability, 0, 3)
+	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+		capabilities = append(capabilities, trust.Capability{
+			Domain: domain, DeploymentID: fixture.manifest.DeploymentID, Cell: string(fixture.manifest.Cell),
+			Environment: fixture.manifest.Environment, Role: fixture.manifest.ControllerRole,
+			Slots: append([]string(nil), slots...), Actions: []string{"sign"},
+		})
+	}
+	grant, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: publicWire,
+		Capabilities: capabilities,
+	}, fixture.now.Add(-24*time.Hour), fixture.ledgerExpiresAt, fixture.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.ledgerDelegationWire = encodeEnvelope(t, grant)
+	fixture.ledgerPublic = public
+	writeFixture(t, fixture.ledgerDelegationPath, fixture.ledgerDelegationWire, 0o600)
+}
+
+func signTestLedgerGrant(t *testing.T, root ed25519.PrivateKey, public ed25519.PublicKey,
+	deployment string, cell oci.Region, environment string, slots []string, issuedAt, expiresAt time.Time,
+) trust.Envelope {
+	t.Helper()
+	publicWire, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capabilities := make([]trust.Capability, 0, 3)
+	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+		capabilities = append(capabilities, trust.Capability{
+			Domain: domain, DeploymentID: deployment, Cell: string(cell), Environment: environment,
+			Role: "controller", Slots: append([]string(nil), slots...), Actions: []string{"sign"},
+		})
+	}
+	grant, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: publicWire, Capabilities: capabilities,
+	}, issuedAt, expiresAt, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return grant
+}
+
+func (fixture *manifestFixture) anchorForSlots(t *testing.T, slots []string) bootstrap.BootstrapAnchor {
+	t.Helper()
+	fixture.setLedgerGrant(t, slots)
+	anchor := fixture.anchor
+	anchor.ControllerSlots = append([]string(nil), slots...)
+	anchor.LedgerDelegationWire = bytes.Clone(fixture.ledgerDelegationWire)
+	return anchor
+}
+
+func TestSignBootstrapAnchorBindsExactCanonicalIntent(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	candidate := fixture.anchor
+	candidate.InitialRegionIntentGeneration = 0
+	candidate.InitialRegionIntentSHA256 = ""
+	candidate.InitialRegionIntentWire = nil
+	fixture.writeAnchorCandidate(t, candidate)
+	output := filepath.Join(fixture.directory, "new-bootstrap-anchor.json")
+	if err := runAt(append([]string{"sign-anchor"}, fixture.anchorArgs(output, "")...), fixture.now); err != nil {
+		t.Fatalf("sign-anchor: %v", err)
+	}
+	encoded, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.DecodeEnvelope(encoded)
+	if err != nil {
+		t.Fatalf("decode signed anchor: %v", err)
+	}
+	verified, err := bootstrap.VerifyBootstrapAnchor(envelope, fixture.roots, bootstrap.BootstrapAnchorExpectation{
+		DeploymentID: fixture.anchor.DeploymentID, Environment: fixture.anchor.Environment, Cell: fixture.anchor.Cell,
+	}, fixture.now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		t.Fatalf("verify signed anchor: %v", err)
+	}
+	anchor := verified.Anchor()
+	if !bytes.Equal(anchor.InitialRegionIntentWire, fixture.initialIntentWire) ||
+		anchor.InitialRegionIntentGeneration != 1 || anchor.InitialRegionIntentSHA256 != digest(fixture.initialIntentWire) {
+		t.Fatal("signed anchor did not preserve exact canonical initial region-intent bytes and pins")
+	}
+	if !bytes.Equal(verified.Wire(), encoded) || verified.Digest() != digest(encoded) {
+		t.Fatal("verified anchor did not preserve its exact canonical wire and digest")
+	}
+	if !verified.ExpiresAt().Equal(fixture.ledgerExpiresAt) {
+		t.Fatalf("anchor expiry = %s; want ledger-grant expiry %s", verified.ExpiresAt(), fixture.ledgerExpiresAt)
+	}
+	expectation, err := verified.ManifestExpectation("seed-a", fixture.image.OCIImageOCID)
+	if err != nil {
+		t.Fatalf("derive manifest expectation: %v", err)
+	}
+	if expectation.ClusterID != fixture.anchor.ClusterID || expectation.StorageDomain != fixture.anchor.StorageDomain ||
+		!equalOrderedStrings(expectation.ControllerSlots, fixture.anchor.ControllerSlots) ||
+		expectation.IntentGeneration != 1 || expectation.IntentSHA256 != digest(fixture.initialIntentWire) ||
+		expectation.ImageOCID != fixture.image.OCIImageOCID {
+		t.Fatalf("derived manifest expectation = %+v", expectation)
+	}
+}
+
+func TestVerifyBootstrapAnchorUsesCurrentRootSetAndStrictIdentityFile(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	identity := bootstrapstart.BakedIdentity{
+		SchemaVersion: 1, DeploymentID: fixture.anchor.DeploymentID,
+		Environment: fixture.anchor.Environment, Cell: fixture.anchor.Cell,
+	}
+	identityWire, err := protocol.EncodeJSON(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(fixture.directory, "identity.json")
+	writeFixture(t, identityPath, identityWire, 0o600)
+	secondRootPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRootDER, err := x509.MarshalPKIXPublicKey(secondRootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRootPath := filepath.Join(fixture.directory, "second-root.pub")
+	writeFixture(t, secondRootPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: secondRootDER}), 0o644)
+	args := []string{
+		"verify-anchor", "--anchor", fixture.anchorPath, "--identity", identityPath,
+		"--root-key", fixture.rootPath, "--root-key", secondRootPath,
+	}
+	output, err := captureStdout(t, func() error { return runAt(args, fixture.now) })
+	if err != nil {
+		t.Fatalf("verify-anchor with the current root set: %v", err)
+	}
+	for _, want := range []string{`"clusterId":"cluster-a"`, `"controllerSlots":["seed-a"]`,
+		`"initialRegionIntentGeneration":1`, `"ledgerDelegationSubjectKeyId":`} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("verify-anchor output %q does not contain %q", output, want)
+		}
+	}
+
+	unknownIdentity, err := trust.EncodePayload(struct {
+		SchemaVersion int        `json:"schemaVersion"`
+		DeploymentID  string     `json:"deploymentId"`
+		Environment   string     `json:"environment"`
+		Cell          oci.Region `json:"cell"`
+		Unknown       bool       `json:"unknown"`
+	}{
+		SchemaVersion: 1, DeploymentID: fixture.anchor.DeploymentID,
+		Environment: identity.Environment, Cell: fixture.anchor.Cell, Unknown: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, identityPath, unknownIdentity, 0o600)
+	if _, err := captureStdout(t, func() error { return runAt(args, fixture.now) }); err == nil {
+		t.Fatal("verify-anchor accepted an identity file with an unknown key")
+	}
+
+	for _, test := range []struct {
+		name string
+		wire []byte
+	}{
+		{name: "malformed JSON", wire: []byte(`{"schemaVersion":1,`)},
+		{name: "missing schema version", wire: []byte(`{"deploymentId":"deployment-a","environment":"production","cell":"GRU"}`)},
+		{name: "missing deployment identity", wire: []byte(`{"schemaVersion":1,"environment":"production","cell":"GRU"}`)},
+		{name: "wrong schema version", wire: mustEncodePayload(t, bootstrapstart.BakedIdentity{
+			SchemaVersion: 2, DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell,
+		})},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			writeFixture(t, identityPath, test.wire, 0o600)
+			if _, err := captureStdout(t, func() error { return runAt(args, fixture.now) }); err == nil {
+				t.Fatalf("verify-anchor accepted invalid identity: %s", test.wire)
+			}
+		})
+	}
+	if _, err := captureStdout(t, func() error {
+		return runAt([]string{"verify-anchor", "--anchor", fixture.anchorPath, "--root-key", fixture.rootPath}, fixture.now)
+	}); err == nil {
+		t.Fatal("verify-anchor accepted an invocation without the baked identity file")
+	}
+
+	writeFixture(t, identityPath, append(bytes.Clone(identityWire), '\n'), 0o600)
+	if _, err := captureStdout(t, func() error { return runAt(args, fixture.now) }); err == nil {
+		t.Fatal("verify-anchor accepted noncanonical identity JSON")
+	}
+
+	writeFixture(t, identityPath, identityWire, 0o600)
+	fixture.writeAnchorAt(t, fixture.anchor, fixture.now.Add(-2*time.Hour), fixture.now.Add(-time.Hour))
+	args[2] = fixture.anchorPath
+	if _, err := captureStdout(t, func() error { return runAt(args, fixture.now) }); err == nil {
+		t.Fatal("verify-anchor accepted an expired anchor")
+	}
+}
+
+func TestVerifyBootstrapAnchorMatchesBakedRootSetLimits(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	identityWire, err := protocol.EncodeJSON(bootstrapstart.BakedIdentity{
+		SchemaVersion: 1, DeploymentID: fixture.anchor.DeploymentID,
+		Environment: fixture.anchor.Environment, Cell: fixture.anchor.Cell,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(fixture.directory, "baked-identity.json")
+	writeFixture(t, identityPath, identityWire, 0o600)
+	argsForRoots := func(rootPaths ...string) []string {
+		args := []string{"verify-anchor", "--anchor", fixture.anchorPath, "--identity", identityPath}
+		for _, path := range rootPaths {
+			args = append(args, "--root-key", path)
+		}
+		return args
+	}
+	verifyRoots := func(rootPaths ...string) error {
+		_, err := captureStdout(t, func() error { return runAt(argsForRoots(rootPaths...), fixture.now) })
+		return err
+	}
+	writePaddedRoot := func(name string, public ed25519.PublicKey, headers map[string]string, size int) string {
+		der, err := x509.MarshalPKIXPublicKey(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wire := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Headers: headers, Bytes: der})
+		if size > 0 {
+			if len(wire) > size {
+				t.Fatalf("un-padded public-key PEM size %d exceeds requested size %d", len(wire), size)
+			}
+			wire = append(wire, bytes.Repeat([]byte{' '}, size-len(wire))...)
+		}
+		path := filepath.Join(fixture.directory, name)
+		writeFixture(t, path, wire, 0o644)
+		return path
+	}
+
+	t.Run("aggregate maximum accepted", func(t *testing.T) {
+		rootPaths := make([]string, bootstrapstart.MaxRootsTotal/bootstrapstart.MaxRootBytes)
+		for index := range rootPaths {
+			public := fixture.rootPublic
+			if index > 0 {
+				var err error
+				public, _, err = ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			rootPaths[index] = writePaddedRoot(fmt.Sprintf("exact-limit-%d.pem", index), public, nil, bootstrapstart.MaxRootBytes)
+		}
+		if err := verifyRoots(rootPaths...); err != nil {
+			t.Fatalf("verify-anchor rejected an exact-limit baked root set: %v", err)
+		}
+	})
+
+	t.Run("too many files rejected", func(t *testing.T) {
+		rootPaths := make([]string, bootstrapstart.MaxRootFiles+1)
+		for index := range rootPaths {
+			rootPaths[index] = fixture.rootPath
+		}
+		if err := verifyRoots(rootPaths...); err == nil {
+			t.Fatal("verify-anchor accepted more root files than the baked loader")
+		}
+	})
+
+	t.Run("oversized file rejected", func(t *testing.T) {
+		path := writePaddedRoot("oversized-root.pem", fixture.rootPublic, nil, bootstrapstart.MaxRootBytes+1)
+		if err := verifyRoots(path); err == nil {
+			t.Fatal("verify-anchor accepted a root file larger than the baked loader limit")
+		}
+	})
+
+	t.Run("aggregate over limit rejected", func(t *testing.T) {
+		rootPaths := make([]string, bootstrapstart.MaxRootsTotal/bootstrapstart.MaxRootBytes+1)
+		for index := range rootPaths {
+			rootPaths[index] = writePaddedRoot(fmt.Sprintf("over-total-%d.pem", index), fixture.rootPublic, nil, bootstrapstart.MaxRootBytes)
+		}
+		if err := verifyRoots(rootPaths...); err == nil {
+			t.Fatal("verify-anchor accepted aggregate root bytes above the baked loader limit")
+		}
+	})
+
+	t.Run("PEM headers rejected", func(t *testing.T) {
+		path := writePaddedRoot("header-root.pem", fixture.rootPublic, map[string]string{"Comment": "not accepted by baked loader"}, 0)
+		if err := verifyRoots(path); err == nil {
+			t.Fatal("verify-anchor accepted PEM headers rejected by the baked loader")
+		}
+	})
+
+	t.Run("duplicate root identifiers rejected", func(t *testing.T) {
+		if err := verifyRoots(fixture.rootPath, fixture.rootPath); err == nil {
+			t.Fatal("verify-anchor accepted duplicate root key identifiers")
+		}
+	})
+}
+
+func captureStdout(t *testing.T, operation func() error) ([]byte, error) {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	operationErr := operation()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = original
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return output, operationErr
+}
+
+func TestSignBootstrapAnchorRejectsConflictingOrNoncanonicalIntent(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		mutateAnchor func(*bootstrap.BootstrapAnchor)
+		mutateIntent func([]byte) []byte
+	}{
+		{name: "conflicting generation", mutateAnchor: func(anchor *bootstrap.BootstrapAnchor) {
+			anchor.InitialRegionIntentGeneration = 2
+		}},
+		{name: "conflicting digest", mutateAnchor: func(anchor *bootstrap.BootstrapAnchor) {
+			anchor.InitialRegionIntentSHA256 = strings.Repeat("0", 64)
+		}},
+		{name: "noncanonical region intent", mutateIntent: func(wire []byte) []byte {
+			return append(bytes.Clone(wire), '\n')
+		}},
+		{name: "wrong anchor cell", mutateAnchor: func(anchor *bootstrap.BootstrapAnchor) {
+			anchor.Cell, anchor.OCIRegion = oci.RegionFRA, "eu-frankfurt-1"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+			candidate := fixture.anchor
+			if test.mutateAnchor != nil {
+				test.mutateAnchor(&candidate)
+			}
+			fixture.writeAnchorCandidate(t, candidate)
+			if test.mutateIntent != nil {
+				writeFixture(t, fixture.intentPath, test.mutateIntent(fixture.initialIntentWire), 0o600)
+			}
+			output := filepath.Join(fixture.directory, "rejected-anchor.json")
+			if err := runAt(append([]string{"sign-anchor"}, fixture.anchorArgs(output, "")...), fixture.now); err == nil {
+				t.Fatal("sign-anchor accepted a conflicting anchor or noncanonical intent")
+			}
+			if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("rejected anchor created output: stat error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSignBootstrapAnchorRejectsUntrustedLedgerGrantBeforeWriting(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	_, wrongRootPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongGrant := signTestLedgerGrant(t, wrongRootPrivate, fixture.ledgerPublic,
+		fixture.anchor.DeploymentID, fixture.anchor.Cell, fixture.anchor.Environment,
+		fixture.anchor.ControllerSlots, fixture.now.Add(-24*time.Hour), fixture.ledgerExpiresAt)
+	writeFixture(t, fixture.ledgerDelegationPath, encodeEnvelope(t, wrongGrant), 0o600)
+	candidate := fixture.anchor
+	candidate.LedgerDelegationWire = nil
+	fixture.writeAnchorCandidate(t, candidate)
+	output := filepath.Join(fixture.directory, "wrong-ledger-grant.anchor.json")
+	if err := runAt(append([]string{"sign-anchor"}, fixture.anchorArgs(output, "")...), fixture.now); err == nil {
+		t.Fatal("sign-anchor accepted a ledger grant absent from the current root set")
+	}
+	if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("untrusted ledger grant created anchor output: stat error = %v", err)
+	}
+}
+
+func TestSignBootstrapAnchorRejectsSlotOutsideInstanceDescriptorGrammar(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	candidate := fixture.anchorForSlots(t, []string{"seed/a"})
+	fixture.writeAnchorCandidate(t, candidate)
+	output := filepath.Join(fixture.directory, "invalid-slot.anchor.json")
+	if err := runAt(append([]string{"sign-anchor"}, fixture.anchorArgs(output, "")...), fixture.now); err == nil {
+		t.Fatal("sign-anchor accepted a controller slot the instance descriptor cannot parse")
+	}
+	if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid descriptor slot created anchor output: stat error = %v", err)
+	}
 }
 
 func (fixture *manifestFixture) writeProofs(t *testing.T, imageWire, delegationWire []byte) {
@@ -170,6 +693,8 @@ func (fixture *manifestFixture) verifyOutput(t *testing.T, output string, expect
 	verified, err := bootstrap.VerifyManifest(envelope, fixture.roots, bootstrap.ManifestExpectation{
 		DeploymentID: expected.DeploymentID, Environment: expected.Environment, ClusterID: expected.ClusterID,
 		Cell: expected.Cell, Slot: expected.Slot, ImageOCID: expected.ImageOCID, StorageDomain: expected.StorageDomain,
+		ControllerSlots:  append([]string(nil), expected.ControllerSlots...),
+		IntentGeneration: expected.IntentGeneration, IntentSHA256: expected.IntentSHA256,
 	}, fixture.now, bootstrap.ManifestTrustPolicy())
 	if err != nil {
 		t.Fatalf("verify signed output: %v", err)
@@ -184,16 +709,45 @@ func (fixture *manifestFixture) verifyOutput(t *testing.T, output string, expect
 
 func TestSignManifestSignsEachSlotWithExactCurrentReleaseProofs(t *testing.T) {
 	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	peerPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerKeyID, err := trust.KeyID(peerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedPeerPublic, err := trust.EncodeDelegatedPublicKey(peerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerDelegation, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: peerKeyID, SubjectPublicKey: encodedPeerPublic,
+		Capabilities: []trust.Capability{{
+			Domain: "terrascale.bootstrap.peer-receipt", DeploymentID: fixture.manifest.DeploymentID,
+			Cell: string(fixture.manifest.Cell), Environment: fixture.manifest.Environment,
+			Role: fixture.manifest.ControllerRole, Slots: []string{"peer-b"}, Actions: []string{"sign"},
+		}},
+	}, fixture.now.Add(-time.Minute), fixture.now.Add(60*24*time.Hour), fixture.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var envelopeDigests []string
 	for _, slot := range []string{"seed-a", "peer-b"} {
 		t.Run(slot, func(t *testing.T) {
 			manifest := fixture.manifest
-			manifest.Slot, manifest.SeedSlot, manifest.ControllerSlots = slot, slot, []string{slot}
-			manifest.Profiles = []bootstrap.LaunchProfile{{
-				Slot: slot, CompartmentOCID: "ocid1.compartment.oc1..compartment",
-				AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
-				SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet", Shape: "VM.Standard.E5.Flex",
-			}}
+			manifest.Slot, manifest.SeedSlot = slot, "seed-a"
+			manifest.ControllerSlots = []string{"peer-b", "seed-a"}
+			manifest.Profiles = []bootstrap.LaunchProfile{
+				{Slot: "peer-b", CompartmentOCID: "ocid1.compartment.oc1..compartment",
+					AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-2",
+					SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.peer", Shape: "VM.Standard.E5.Flex"},
+				{Slot: "seed-a", CompartmentOCID: "ocid1.compartment.oc1..compartment",
+					AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
+					SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet", Shape: "VM.Standard.E5.Flex"},
+			}
+			manifest.PeerReceiptDelegation = &peerDelegation
+			fixture.writeAnchorFor(t, fixture.anchorForSlots(t, manifest.ControllerSlots), 60*24*time.Hour)
 			fixture.writeCandidate(t, manifest)
 			output := filepath.Join(fixture.directory, slot+".manifest.json")
 			if err := runAt(append([]string{"sign-manifest"}, fixture.args(output, "2160h")...), fixture.now); err != nil {
@@ -256,6 +810,21 @@ func TestSignManifestRejectsInvalidCandidatesAndIdentityMismatches(t *testing.T)
 		{name: "wrong environment", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
 			manifest := fixture.manifest
 			manifest.Environment = "canary"
+			return mustEncodePayload(t, manifest)
+		}},
+		{name: "wrong cluster", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
+			manifest := fixture.manifest
+			manifest.ClusterID = "cluster-b"
+			return mustEncodePayload(t, manifest)
+		}},
+		{name: "wrong storage domain", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
+			manifest := fixture.manifest
+			manifest.StorageDomain.Namespace = "other-namespace"
+			return mustEncodePayload(t, manifest)
+		}},
+		{name: "wrong intent generation", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
+			manifest := fixture.manifest
+			manifest.IntentGeneration = 2
 			return mustEncodePayload(t, manifest)
 		}},
 		{name: "wrong digest", candidate: func(t *testing.T, fixture *manifestFixture) []byte {
@@ -427,13 +996,14 @@ func TestSignManifestClampsToReleaseAndPeerDelegationExpiries(t *testing.T) {
 			t.Fatal(err)
 		}
 		manifest := fixture.manifest
-		manifest.ControllerSlots = []string{"seed-a", "peer-b"}
+		manifest.ControllerSlots = []string{"peer-b", "seed-a"}
 		manifest.Profiles = append(manifest.Profiles, bootstrap.LaunchProfile{
 			Slot: "peer-b", CompartmentOCID: "ocid1.compartment.oc1..compartment",
 			AvailabilityDomain: "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-2",
 			SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.peer", Shape: "VM.Standard.E5.Flex",
 		})
 		manifest.PeerReceiptDelegation = &peerDelegation
+		fixture.writeAnchorFor(t, fixture.anchorForSlots(t, manifest.ControllerSlots), 48*time.Hour)
 		fixture.writeCandidate(t, manifest)
 		output := filepath.Join(fixture.directory, "peer-clamped.manifest.json")
 		if err := runAt(append([]string{"sign-manifest"}, fixture.args(output, "720h")...), fixture.now); err != nil {
@@ -446,15 +1016,47 @@ func TestSignManifestClampsToReleaseAndPeerDelegationExpiries(t *testing.T) {
 	})
 }
 
+func TestSignManifestClampsToCurrentAnchorAndRejectsExpiredAnchor(t *testing.T) {
+	t.Run("caps manifest expiry at anchor", func(t *testing.T) {
+		fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+		fixture.writeAnchorFor(t, fixture.anchor, 48*time.Hour)
+		fixture.writeCandidate(t, fixture.manifest)
+		output := filepath.Join(fixture.directory, "anchor-clamped.manifest.json")
+		if err := runAt(append([]string{"sign-manifest"}, fixture.args(output, "720h")...), fixture.now); err != nil {
+			t.Fatalf("sign-manifest: %v", err)
+		}
+		envelope := fixture.verifyOutput(t, output, fixture.manifest)
+		if !envelope.ExpiresAt.Equal(fixture.now.Add(48 * time.Hour)) {
+			t.Fatalf("manifest expiry = %s; want anchor expiry %s", envelope.ExpiresAt, fixture.now.Add(48*time.Hour))
+		}
+	})
+
+	t.Run("expired anchor cannot authorize signing", func(t *testing.T) {
+		fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+		fixture.writeAnchorAt(t, fixture.anchor, fixture.now.Add(-2*time.Hour), fixture.now.Add(-time.Hour))
+		fixture.writeCandidate(t, fixture.manifest)
+		output := filepath.Join(fixture.directory, "expired-anchor.manifest.json")
+		if err := runAt(append([]string{"sign-manifest"}, fixture.args(output, "720h")...), fixture.now); err == nil {
+			t.Fatal("sign-manifest accepted an expired root-signed anchor")
+		}
+		if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("expired anchor created manifest output: stat error = %v", err)
+		}
+	})
+}
+
 func TestSignManifestRejectsFinalEnvelopeOverSizeLimit(t *testing.T) {
 	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
 	manifest := fixture.manifest
 	manifest.ReleaseImageReceiptWire = bytes.Clone(fixture.imageWire)
 	manifest.ReleaseDelegationWire = bytes.Clone(fixture.delegationWire)
-	manifest.Slot = strings.Repeat("s", 256)
+	manifest.Slot = "s"
 	manifest.SeedSlot = manifest.Slot
 	manifest.ControllerSlots = []string{manifest.Slot}
 	manifest.Profiles[0].Slot = manifest.Slot
+	fixture.writeAnchorFor(t, fixture.anchorForSlots(t, manifest.ControllerSlots), 48*time.Hour)
+	manifest.StorageDomain.Namespace = strings.Repeat("n", 128)
+	manifest.StorageDomain.Prefix = strings.Repeat("p", 128)
 	for index := range 128 {
 		target := "file-" + strings.Repeat("x", 120) + fmt.Sprintf("%03d", index)
 		ocidPrefix := "ocid1.secret.oc1.sa-saopaulo-1."
@@ -474,8 +1076,6 @@ func TestSignManifestRejectsFinalEnvelopeOverSizeLimit(t *testing.T) {
 			break
 		}
 	}
-	manifest.StorageDomain.Namespace = strings.Repeat("n", 128)
-	manifest.StorageDomain.Prefix = strings.Repeat("p", 128)
 	if err := manifest.Validate(); err != nil {
 		t.Fatalf("large size-boundary fixture is invalid: %v", err)
 	}

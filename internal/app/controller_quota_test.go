@@ -9,6 +9,9 @@ import (
 )
 
 func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
+	previousPresence := controllerBakedInputsPresent
+	controllerBakedInputsPresent = func() (bool, error) { return false, nil }
+	t.Cleanup(func() { controllerBakedInputsPresent = previousPresence })
 	for _, test := range []struct {
 		name          string
 		artifactBytes int64
@@ -19,7 +22,7 @@ func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
 		{name: "insufficient control headroom", artifactBytes: 3 << 30, storeBytes: 4 << 30, want: "control state"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := Config{NATS: natscell.Config{Embedded: &natscell.Embedded{StoreMaxBytes: test.storeBytes}},
+			cfg := Config{NATS: natscell.Config{Lab: true, Embedded: &natscell.Embedded{StoreMaxBytes: test.storeBytes}},
 				Controller: ControllerConfig{ArtifactStoreMaxBytes: test.artifactBytes}}
 			if err := runController(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("startup error = %v, want %q", err, test.want)

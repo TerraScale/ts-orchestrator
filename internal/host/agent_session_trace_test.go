@@ -31,7 +31,7 @@ func TestSessionTraceOnlyRecordsVerifiedAcceptedLeases(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey),
 		Runner: &sessionTraceRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}}, InstallRoot: filepath.Join(t.TempDir(), "install"),
 		StateRoot: filepath.Join(t.TempDir(), "state"), SessionTrace: true})

@@ -257,7 +257,9 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 	valid := Registration{
 		Cell: "gru", Node: "host-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
-		ManagedOCI: &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "host-a"},
+		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "host-a"},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	tests := []struct {
 		name    string
@@ -265,8 +267,19 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "complete managed binding"},
-		{name: "ordinary host without binding", change: func(r *Registration) { r.ManagedOCI = nil; r.FailureDomain = "fd-a" }},
+		{name: "ordinary host without binding", change: func(r *Registration) {
+			r.ManagedOCI = nil
+			r.ManagedMember = nil
+			r.SystemReserveBytes = 0
+			r.FailureDomain = "fd-a"
+		}},
 		{name: "unmanaged OCI fault domain", change: func(r *Registration) { r.ManagedOCI = nil }, wantErr: true},
+		{name: "missing member", change: func(r *Registration) { r.ManagedMember = nil }, wantErr: true},
+		{name: "mixed roles", change: func(r *Registration) { r.Roles = []string{"terrabase", "other"} }, wantErr: true},
+		{name: "zero shard", change: func(r *Registration) { r.ManagedMember.Scope.ShardID = 0 }, wantErr: true},
+		{name: "zero host attempt", change: func(r *Registration) { r.ManagedMember.HostAttempt = 0 }, wantErr: true},
+		{name: "reserve absent", change: func(r *Registration) { r.SystemReserveBytes = 0 }, wantErr: true},
+		{name: "capacity absent", change: func(r *Registration) { r.Capacity.MemoryBytes = 0 }, wantErr: true},
 		{name: "missing region", change: func(r *Registration) { r.ManagedOCI.Region = "" }, wantErr: true},
 		{name: "unknown region", change: func(r *Registration) { r.ManagedOCI.Region = "AMS" }, wantErr: true},
 		{name: "missing instance", change: func(r *Registration) { r.ManagedOCI.InstanceID = "" }, wantErr: true},
@@ -286,6 +299,8 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 			registration := valid
 			binding := *valid.ManagedOCI
 			registration.ManagedOCI = &binding
+			member := *valid.ManagedMember
+			registration.ManagedMember = &member
 			if tt.change != nil {
 				tt.change(&registration)
 			}
@@ -346,7 +361,7 @@ func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +442,7 @@ func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +481,7 @@ func TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve(t *testing.T) {
 	install := filepath.Join(t.TempDir(), "install")
 	state := filepath.Join(t.TempDir(), "state")
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,8 +491,10 @@ func TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve(t *testing.T) {
 	agent.mu.Lock()
 	lease := agent.session
 	lease.ExpiresAt = time.Now().Add(7 * time.Second)
-	agent.session = lease
 	agent.mu.Unlock()
+	if err := agent.acceptSession(lease); err != nil {
+		t.Fatal(err)
+	}
 	// All renewal requests now receive a transport timeout; the old signed
 	// lease remains the only authority until its execution reserve is reached.
 	stopController := func() {
@@ -545,7 +562,7 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: oldDigest, Fingerprint: oldDigest}); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,8 +579,10 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	leaseExpiry := time.Now().Add(8 * time.Second)
 	s := agent.session
 	s.ExpiresAt = leaseExpiry
-	agent.session = s
 	agent.mu.Unlock()
+	if err := agent.acceptSession(s); err != nil {
+		t.Fatal(err)
+	}
 	stopController()
 	select {
 	case <-controllerDone:
@@ -984,7 +1003,7 @@ func TestAgentResumesOpenCycleAfterSignedSessionContention(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1073,7 +1092,7 @@ func TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Role: "terrabase", Digest: digest, Running: true}}}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: time.Hour})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1221,7 +1240,7 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1425,7 +1444,9 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	registration := Registration{
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
-		ManagedOCI: &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "terrabase-host-a"},
+		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "terrabase-host-a"},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	registrationReceipt, err := c.Register(t.Context(), registration)
 	if err != nil || registrationReceipt.Revision == 0 {
@@ -1442,13 +1463,83 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	if _, err := c.Register(t.Context(), changedRegistration); err == nil {
 		t.Fatal("managed OCI instance changed within one registration generation")
 	}
+	changedRegistration.Generation = 2
+	if _, err := c.Register(t.Context(), changedRegistration); err == nil {
+		t.Fatal("managed OCI instance retargeted at a higher generation")
+	}
+	generic := Registration{Cell: "gru", Node: "node-e", Environment: "production", Roles: []string{"other"},
+		PublicKey: registration.PublicKey, Generation: 1}
+	if _, err := c.Register(t.Context(), generic); err != nil {
+		t.Fatalf("register generic host: %v", err)
+	}
+	converted := registration
+	converted.Node = generic.Node
+	converted.Generation = 2
+	convertedOCI := *registration.ManagedOCI
+	convertedOCI.InstanceID = "ocid1.instance.oc1..node-e"
+	converted.ManagedOCI = &convertedOCI
+	convertedMember := *registration.ManagedMember
+	convertedMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	converted.ManagedMember = &convertedMember
+	if _, err := c.Register(t.Context(), converted); err == nil {
+		t.Fatal("generic registration converted to managed")
+	}
+	downgraded := registration
+	downgraded.Generation = 2
+	downgraded.FailureDomain = "fd-a"
+	downgraded.ManagedOCI = nil
+	downgraded.ManagedMember = nil
+	downgraded.SystemReserveBytes = 0
+	if _, err := c.Register(t.Context(), downgraded); err == nil {
+		t.Fatal("managed registration converted to generic")
+	}
+	results := make(chan error, 2)
+	var registrations sync.WaitGroup
+	for _, node := range []string{"node-b", "node-c"} {
+		candidate := registration
+		candidate.Node = node
+		binding := *registration.ManagedOCI
+		binding.InstanceID = "ocid1.instance.oc1.." + node
+		candidate.ManagedOCI = &binding
+		member := *registration.ManagedMember
+		member.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		candidate.ManagedMember = &member
+		registrations.Go(func() { _, err := c.Register(t.Context(), candidate); results <- err })
+	}
+	registrations.Wait()
+	close(results)
+	var admitted int
+	for err := range results {
+		if err == nil {
+			admitted++
+		}
+	}
+	if admitted != 1 {
+		t.Fatalf("same managed member admitted to %d concurrent hosts", admitted)
+	}
+	newIncarnation := registration
+	newIncarnation.Node = "node-d"
+	newIncarnationOCI := *registration.ManagedOCI
+	newIncarnationOCI.InstanceID = "ocid1.instance.oc1..node-d"
+	newIncarnation.ManagedOCI = &newIncarnationOCI
+	newIncarnationMember := *registration.ManagedMember
+	newIncarnationMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	newIncarnationMember.Scope.Incarnation = strings.Repeat("c", 32)
+	newIncarnation.ManagedMember = &newIncarnationMember
+	if _, err := c.Register(t.Context(), newIncarnation); err == nil {
+		t.Fatal("another incarnation of the bound logical member was admitted")
+	}
 	data := []byte("#!/bin/sh\nexit 0\n")
 	hash := sha256.Sum256(data)
 	digest := hex.EncodeToString(hash[:])
 	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
 		t.Fatal(err)
 	}
-	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: authorityRuntime.Current().Epoch}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest, Generation: 1, AuthorityEpoch: authorityRuntime.Current().Epoch,
+		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
+			Authority:    MemberAuthority{Epoch: authorityRuntime.Current().Epoch, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)},
+			SourceDigest: strings.Repeat("f", 64), VolumeID: "ocid1.volume.retained", AttachmentID: "ocid1.volumeattachment.host-a",
+			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30}}
 	receipt, err := c.ApplyDesired(t.Context(), desired)
 	if err != nil || receipt.Revision == 0 {
 		t.Fatalf("commit desired: receipt=%+v err=%v", receipt, err)
@@ -1502,8 +1593,32 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	var reply desiredReply
 	if err := exchange(t.Context(), conn, "gru", controllerKey.Public().(ed25519.PublicKey), makeSigned("desired", s.Epoch, struct {
 		Role string `json:"role"`
-	}{"terrabase"}), &reply); err != nil || reply.Desired == nil || !sameJSON(*reply.Desired, desired) || reply.Revision != receipt.Revision {
+	}{"terrabase"}), &reply); err != nil || reply.Desired == nil || !sameJSON(*reply.Desired, desired) || reply.Revision != receipt.Revision ||
+		reply.Registration == nil || !sameJSON(*reply.Registration, registration) || reply.RegistrationRevision != registrationReceipt.Revision {
 		t.Fatalf("signed desired reply=%+v err=%v", reply, err)
+	}
+	runner := &memoryRunner{observed: make(map[string]Observation)}
+	agent := &Agent{cfg: AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Identity: hostKey,
+		Conn: conn, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), InstallRoot: filepath.Join(t.TempDir(), "install"), ClockCheck: func() error { return nil }},
+		runner: runner, session: s, processID: requestID, memoryCheck: func(Registration) error { return nil }}
+	if err := agent.acceptSession(s); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.reconcile(t.Context(), "terrabase"); err == nil || !strings.Contains(err.Error(), "managed member launch awaits") {
+		t.Fatalf("managed launch did not hold before fetch/apply: %v", err)
+	}
+	if runner.applied != 0 {
+		t.Fatal("managed launch reached native Apply")
+	}
+	if _, err := os.Stat(agent.cfg.InstallRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed launch fetched artifact: %v", err)
+	}
+	runner.observed["terrabase"] = Observation{Role: "terrabase", Running: true, CgroupMemoryMaxBytes: desired.ManagedMember.CgroupMemoryMaxBytes - uint64(os.Getpagesize())}
+	if err := agent.reconcile(t.Context(), "terrabase"); err == nil || !strings.Contains(err.Error(), "memory.max drifted") {
+		t.Fatalf("managed cap drift was accepted: %v", err)
+	}
+	if runner.observed["terrabase"].Running || runner.applied != 0 {
+		t.Fatal("drifted managed process remained running or was reapplied")
 	}
 	newPublic, newKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

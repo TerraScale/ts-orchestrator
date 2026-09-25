@@ -1,0 +1,224 @@
+package bootstrapstart
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"golang.org/x/sys/unix"
+)
+
+const (
+	BakedDirectory = "/etc/terrascale-orchestrator/bootstrap"
+	// MaxRootFiles, MaxRootBytes, and MaxRootsTotal bound the baked trust-root
+	// inventory shared with the offline anchor verifier.
+	MaxRootFiles  = 16
+	MaxRootBytes  = 16 << 10
+	MaxRootsTotal = 64 << 10
+	maxIdentity   = 4096
+)
+
+var (
+	ErrBakedInputs = errors.New("baked bootstrap inputs are invalid")
+	rootFilenameRE = regexp.MustCompile(`^[0-9]{3}\.pem$`)
+	identityNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+)
+
+// BakedIdentity is root-owned image content. It is an independent local
+// deployment expectation, never filled from IMDS or instance tags.
+type BakedIdentity struct {
+	SchemaVersion int        `json:"schemaVersion"`
+	DeploymentID  string     `json:"deploymentId"`
+	Environment   string     `json:"environment"`
+	Cell          oci.Region `json:"cell"`
+}
+
+func (identity BakedIdentity) AnchorExpectation() bootstrap.BootstrapAnchorExpectation {
+	return bootstrap.BootstrapAnchorExpectation{
+		DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell,
+	}
+}
+
+// BakedInputs contains exact canonical public proof bytes and the current root
+// set. Removing a root removes its authority for both current and historical
+// verification; no stale key is recovered from a marker or manifest.
+type BakedInputs struct {
+	Identity   BakedIdentity
+	Roots      trust.Keyring
+	AnchorWire []byte
+}
+
+// LoadBakedInputs reads only the fixed production paths. Tests use the private
+// bakedStore seam to exercise modes and symlink handling in temporary trees.
+func LoadBakedInputs() (BakedInputs, error) {
+	return bakedStore{directory: BakedDirectory, ownerUID: 0, ownerGID: 0}.load()
+}
+
+// BakedInputsPresent is a routing check, not validation. Any object at the
+// fixed path, including an invalid file or symlink, requires production
+// admission and therefore fails through LoadBakedInputs. Only an absent path
+// permits an explicitly configured lab runtime.
+func BakedInputsPresent() (bool, error) {
+	_, err := os.Lstat(BakedDirectory)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+type bakedStore struct {
+	directory            string
+	ownerUID             uint32
+	ownerGID             uint32
+	allowUnsafeAncestors bool
+}
+
+func (store bakedStore) load() (BakedInputs, error) {
+	dir, err := store.openDirectory(store.directory)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("open baked bootstrap directory: %w", err)
+	}
+	defer unix.Close(dir)
+	identityWire, err := store.readFile(dir, "identity.json", maxIdentity)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("read baked identity: %w", err)
+	}
+	var identity BakedIdentity
+	if err := protocol.DecodeStrict(identityWire, &identity, maxIdentity); err != nil ||
+		identity.SchemaVersion != 1 || !identityNameRE.MatchString(identity.DeploymentID) ||
+		identity.Environment != "production" && identity.Environment != "canary" {
+		return BakedInputs{}, ErrBakedInputs
+	}
+	if _, err := identity.Cell.OCIRegion(); err != nil {
+		return BakedInputs{}, ErrBakedInputs
+	}
+	canonical, err := protocol.EncodeJSON(identity)
+	if err != nil || !bytes.Equal(identityWire, canonical) {
+		return BakedInputs{}, ErrBakedInputs
+	}
+	anchorWire, err := store.readFile(dir, "anchor.json", bootstrap.MaxBootstrapAnchorBytes)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("read baked anchor: %w", err)
+	}
+	if _, err := trust.DecodeEnvelope(anchorWire); err != nil {
+		return BakedInputs{}, fmt.Errorf("decode baked anchor: %w", err)
+	}
+	rootsDir, err := store.openDirectory(filepath.Join(store.directory, "trust-roots"))
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("open baked trust roots: %w", err)
+	}
+	file := os.NewFile(uintptr(rootsDir), "trust-roots")
+	defer file.Close()
+	names, err := file.Readdirnames(-1)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("read baked root entries: %w", err)
+	}
+	if len(names) == 0 || len(names) > MaxRootFiles {
+		return BakedInputs{}, ErrBakedInputs
+	}
+	sort.Strings(names)
+	keys := make([]ed25519.PublicKey, 0, len(names))
+	total := 0
+	for _, name := range names {
+		if !rootFilenameRE.MatchString(name) || name == "000.pem" {
+			return BakedInputs{}, ErrBakedInputs
+		}
+		wire, err := store.readFile(rootsDir, name, MaxRootBytes)
+		if err != nil {
+			return BakedInputs{}, fmt.Errorf("read baked root %s: %w", name, err)
+		}
+		total += len(wire)
+		if total > MaxRootsTotal {
+			return BakedInputs{}, ErrBakedInputs
+		}
+		block, rest := pem.Decode(wire)
+		if block == nil || block.Type != "PUBLIC KEY" || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
+			return BakedInputs{}, ErrBakedInputs
+		}
+		publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
+		key, ok := publicKey.(ed25519.PublicKey)
+		if err != nil || !ok || len(key) != ed25519.PublicKeySize {
+			return BakedInputs{}, ErrBakedInputs
+		}
+		keys = append(keys, key)
+	}
+	roots, err := trust.ParseKeyring(keys...)
+	if err != nil {
+		return BakedInputs{}, fmt.Errorf("assemble unambiguous root key IDs: %w", err)
+	}
+	return BakedInputs{Identity: identity, Roots: roots, AnchorWire: anchorWire}, nil
+}
+
+func (store bakedStore) openDirectory(path string) (int, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return -1, ErrBakedInputs
+	}
+	fd, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, err
+	}
+	for _, component := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
+		if component == "" || component == "." || component == ".." {
+			unix.Close(fd)
+			return -1, ErrBakedInputs
+		}
+		next, err := unix.Openat(fd, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+		unix.Close(fd)
+		if err != nil {
+			return -1, err
+		}
+		fd = next
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil ||
+			!store.allowUnsafeAncestors && (stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0o777 != 0o755) {
+			unix.Close(fd)
+			return -1, ErrBakedInputs
+		}
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil ||
+		stat.Uid != store.ownerUID || stat.Gid != store.ownerGID || stat.Mode&0o777 != 0o755 {
+		unix.Close(fd)
+		return -1, ErrBakedInputs
+	}
+	return fd, nil
+}
+
+func (store bakedStore) readFile(dir int, name string, maximum int64) ([]byte, error) {
+	if strings.Contains(name, "/") || name == "" || maximum <= 0 {
+		return nil, ErrBakedInputs
+	}
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), name)
+	defer file.Close()
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
+		stat.Uid != store.ownerUID || stat.Gid != store.ownerGID ||
+		stat.Mode&0o777 != 0o444 || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > maximum {
+		return nil, ErrBakedInputs
+	}
+	wire, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || len(wire) == 0 || int64(len(wire)) > maximum {
+		return nil, ErrBakedInputs
+	}
+	return wire, nil
+}

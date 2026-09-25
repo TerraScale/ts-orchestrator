@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,17 +28,22 @@ const sessionExecutionReserve = 5 * time.Second
 var errSessionExecutionReserve = errors.New("host session execution reserve exhausted")
 
 type Agent struct {
-	cfg         AgentConfig
-	runner      Runner
-	mu          sync.RWMutex
-	session     session
-	processID   string
-	pending     map[string]pendingCycle
-	sessionLost atomic.Bool
-	diagMu      sync.Mutex
-	diagAt      time.Time
-	diagClass   string
-	diagFailed  bool
+	cfg              AgentConfig
+	runner           Runner
+	mu               sync.RWMutex
+	session          session
+	sessionSafeUntil time.Time
+	processID        string
+	pending          map[string]pendingCycle
+	sessionLost      atomic.Bool
+	sessionFailOnce  sync.Once
+	diagMu           sync.Mutex
+	diagAt           time.Time
+	diagClass        string
+	diagFailed       bool
+	memoryCheck      func(Registration) error
+	wallNow          func() time.Time
+	watchdogTicks    <-chan time.Time
 }
 
 // An open cycle has no outcome until work has succeeded or failed. A transient
@@ -54,6 +61,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.Conn == nil || len(cfg.Identity) != ed25519.PrivateKeySize || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
 		return nil, errors.New("agent requires NATS connection, Ed25519 identity and pinned controller public key")
+	}
+	if cfg.ClockCheck == nil {
+		return nil, errors.New("agent requires a fresh host clock health check")
 	}
 	if len(cfg.Roles) == 0 || len(cfg.Roles) > 32 {
 		return nil, errors.New("agent requires roles")
@@ -221,6 +231,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer stopCancel()
 		_ = a.runner.Close(stopCtx)
 	}()
+	if err := a.checkClock(); err != nil {
+		return err
+	}
 	if err := a.waitForSession(work); err != nil {
 		return err
 	}
@@ -275,6 +288,9 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 }
 
 func (a *Agent) acquire(ctx context.Context) error {
+	if err := a.checkClock(); err != nil {
+		return err
+	}
 	r, err := a.makeRequest("session", struct {
 		Kind string `json:"kind"`
 	}{"acquire"})
@@ -289,12 +305,12 @@ func (a *Agent) acquire(ctx context.Context) error {
 	if err := exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &s); err != nil {
 		return fmt.Errorf("acquire host session: %w", err)
 	}
-	if s.SessionID != a.processID || s.Epoch == 0 || !sessionUsableUntil(s, time.Now()) {
+	if s.SessionID != a.processID || s.Epoch == 0 {
 		return errors.New("invalid acquired host session")
 	}
-	a.mu.Lock()
-	a.session = s
-	a.mu.Unlock()
+	if err := a.acceptSession(s); err != nil {
+		return err
+	}
 	a.logSessionAccepted("acquire", s)
 	return nil
 }
@@ -328,15 +344,88 @@ func sessionUsableUntil(s session, now time.Time) bool {
 	return now.Before(s.ExpiresAt.Add(-sessionExecutionReserve))
 }
 
+func (a *Agent) checkClock() error {
+	if a.cfg.ClockCheck == nil {
+		return errors.New("host clock health check is absent")
+	}
+	if err := a.cfg.ClockCheck(); err != nil {
+		return fmt.Errorf("host clock is unhealthy: %w", err)
+	}
+	return nil
+}
+
+func (a *Agent) wallTime() time.Time {
+	if a.wallNow != nil {
+		return a.wallNow()
+	}
+	return time.Now()
+}
+
+func (a *Agent) acceptSession(s session) error {
+	if err := a.checkClock(); err != nil {
+		return err
+	}
+	receivedAt := time.Now()
+	remaining := s.ExpiresAt.Sub(a.wallTime()) - sessionExecutionReserve
+	if remaining <= 0 || remaining > sessionTTL-sessionExecutionReserve+maxClockSkew {
+		return errors.New("signed host session has no execution reserve")
+	}
+	// receivedAt carries Go's monotonic reading. A later wall-clock step cannot
+	// extend this locally bounded execution lease.
+	deadline := receivedAt.Add(min(remaining, sessionTTL-sessionExecutionReserve))
+	a.mu.Lock()
+	a.session = s
+	a.sessionSafeUntil = deadline
+	a.mu.Unlock()
+	return nil
+}
+
+func (a *Agent) executionLease() (session, time.Time, error) {
+	if err := a.checkClock(); err != nil {
+		return session{}, time.Time{}, err
+	}
+	a.mu.RLock()
+	s, deadline := a.session, a.sessionSafeUntil
+	a.mu.RUnlock()
+	if deadline.IsZero() || !time.Now().Before(deadline) || !sessionUsableUntil(s, a.wallTime()) {
+		return session{}, time.Time{}, errSessionExecutionReserve
+	}
+	return s, deadline, nil
+}
+
 func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, lost chan<- error) {
+	watchCtx, stopWatch := context.WithCancel(ctx)
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		ticks := a.watchdogTicks
+		if ticks == nil {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			ticks = ticker.C
+		}
+		for {
+			select {
+			case <-watchCtx.Done():
+				return
+			case <-ticks:
+				if _, _, err := a.executionLease(); err != nil {
+					a.failSession(cancel, lost, err)
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		stopWatch()
+		<-watchDone
+	}()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
-		a.mu.RLock()
-		current := a.session
-		a.mu.RUnlock()
-		if !sessionUsableUntil(current, time.Now()) {
-			a.failSession(cancel, lost, errSessionExecutionReserve)
+		current, deadline, err := a.executionLease()
+		if err != nil {
+			a.failSession(cancel, lost, err)
 			return
 		}
 		select {
@@ -344,11 +433,9 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 			return
 		case <-ticker.C:
 		}
-		a.mu.RLock()
-		current = a.session
-		a.mu.RUnlock()
-		if !sessionUsableUntil(current, time.Now()) {
-			a.failSession(cancel, lost, errSessionExecutionReserve)
+		current, deadline, err = a.executionLease()
+		if err != nil {
+			a.failSession(cancel, lost, err)
 			return
 		}
 		r, err := a.makeRequest("session", struct {
@@ -356,28 +443,30 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		}{"renew"})
 		if err == nil {
 			var next session
-			renewCtx, renewCancel := context.WithDeadline(ctx, current.ExpiresAt.Add(-sessionExecutionReserve))
+			renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
 			err = exchange(renewCtx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &next)
 			renewCancel()
 			if err == nil {
 				if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
 					err = errors.New("renewed session binding mismatch")
-				} else {
-					a.mu.Lock()
-					a.session = next
-					a.mu.Unlock()
-					if a.cfg.SessionTrace {
+				} else if _, _, err = a.executionLease(); err == nil {
+					if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
 						a.logSessionAccepted("renew", next)
 					}
 				}
 			}
 		}
-		if err != nil && retrySessionExchange(err) && sessionUsableUntil(current, time.Now()) {
-			a.logSessionFailure("renew", err, time.Until(current.ExpiresAt))
+		_, _, leaseErr := a.executionLease()
+		if leaseErr != nil {
+			a.failSession(cancel, lost, leaseErr)
+			return
+		}
+		if err != nil && retrySessionExchange(err) {
+			a.logSessionFailure("renew", err, time.Until(deadline))
 			continue
 		}
 		if err != nil {
-			a.logSessionFailure("renew", err, time.Until(current.ExpiresAt))
+			a.logSessionFailure("renew", err, time.Until(deadline))
 			a.failSession(cancel, lost, fmt.Errorf("host session renewal failed: %w", err))
 			return
 		}
@@ -426,6 +515,10 @@ func (a *Agent) sessionRecovered() {
 }
 
 func (a *Agent) failSession(cancel context.CancelFunc, lost chan<- error, reason error) {
+	a.sessionFailOnce.Do(func() { a.stopForLostSession(cancel, lost, reason) })
+}
+
+func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error, reason error) {
 	a.sessionLost.Store(true)
 	cancel()
 	if a.cfg.SessionTrace {
@@ -463,6 +556,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if a.sessionLost.Load() {
 		return errors.New("host session was lost")
 	}
+	if _, _, err := a.executionLease(); err != nil {
+		return err
+	}
 	pending, hasPending := a.pending[role]
 	if hasPending && pending.outcomeReady {
 		if err := a.flushCycle(ctx, role); err != nil {
@@ -476,6 +572,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}{role}, &target); err != nil {
 		return err
 	}
+	if err := a.validateDesiredReply(target); err != nil {
+		return err
+	}
 	if target.Desired == nil {
 		if hasPending {
 			if err := a.failPendingCycle(ctx, role); err != nil {
@@ -487,6 +586,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	d := *target.Desired
 	if d.Cell != a.cfg.Cell || d.Node != a.cfg.Node || d.Environment != a.cfg.Environment || d.Role != role || d.Generation == 0 {
 		return errors.New("desired identity mismatch")
+	}
+	if err := validateDesired(d, a.cfg.Cell, *target.Registration); err != nil {
+		return err
 	}
 	if hasPending && (d.Withdrawn || d.Generation != pending.query.Generation || d.Digest != pending.query.Digest || d.AuthorityEpoch != pending.query.AuthorityEpoch) {
 		if err := a.failPendingCycle(ctx, role); err != nil {
@@ -507,6 +609,27 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	if err := validateDigest(d.Digest); err != nil {
 		return err
+	}
+	if d.ManagedMember != nil {
+		memoryWorkload := managedMemoryWorkload(d)
+		current, err := a.runner.Observe(ctx, role)
+		if err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, role))
+		}
+		if err := a.runner.Stop(ctx, role); err != nil {
+			return err
+		}
+		if current.Running && current.CgroupMemoryMaxBytes != memoryWorkload.CgroupMemoryMaxBytes {
+			return errors.New("managed role memory.max drifted from desired cap")
+		}
+		check := a.memoryCheck
+		if check == nil {
+			check = validateManagedHostMemory
+		}
+		if err := check(*target.Registration); err != nil {
+			return err
+		}
+		return errors.New("managed member launch awaits verified mount, artifact, authority material and member identity")
 	}
 	fingerprint, err := desiredFingerprint(d)
 	if err != nil {
@@ -573,7 +696,10 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}{role}, &latest); err != nil {
 		return err
 	}
-	if latest.Desired == nil || !sameJSON(*latest.Desired, d) {
+	if err := a.validateDesiredReply(latest); err != nil {
+		return err
+	}
+	if !sameDesiredReplyBinding(target, latest) {
 		return errors.New("desired target changed before native apply")
 	}
 	var active cycleReply
@@ -582,6 +708,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	if active.State != "active" || active.CycleID != cycle.CycleID || active.Fence != cycle.Fence {
 		return errors.New("cycle fence changed before native apply")
+	}
+	if _, _, err := a.executionLease(); err != nil {
+		return err
 	}
 	if err := a.runner.Apply(ctx, Workload{Role: role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable, Args: d.Args, Env: d.Env}); err != nil {
 		return err
@@ -605,6 +734,39 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	return nil
+}
+
+// This carries only the process-memory portion of a future managed launch.
+// It is never applied until the other managed runtime prerequisites exist.
+func managedMemoryWorkload(d Desired) Workload {
+	launch := d.ManagedMember
+	return Workload{Role: d.Role, Digest: d.Digest,
+		Args: []string{"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
+			"--memory-headroom-bytes", strconv.FormatUint(launch.MemoryHeadroomBytes, 10)},
+		CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}
+}
+
+func sameDesiredReplyBinding(first, latest desiredReply) bool {
+	return first.Desired != nil && latest.Desired != nil && first.Registration != nil && latest.Registration != nil &&
+		first.Revision == latest.Revision && first.RegistrationRevision == latest.RegistrationRevision &&
+		sameJSON(*first.Registration, *latest.Registration) && sameJSON(*first.Desired, *latest.Desired)
+}
+
+func (a *Agent) validateDesiredReply(reply desiredReply) error {
+	if len(a.cfg.Identity) != ed25519.PrivateKeySize {
+		return errors.New("agent host identity key is invalid")
+	}
+	a.mu.RLock()
+	generation := a.session.RegistrationGeneration
+	a.mu.RUnlock()
+	if reply.Registration == nil || reply.RegistrationRevision == 0 ||
+		reply.Registration.Generation != generation ||
+		reply.Registration.Cell != a.cfg.Cell || reply.Registration.Node != a.cfg.Node ||
+		reply.Registration.Environment != a.cfg.Environment ||
+		reply.Registration.PublicKey != base64.StdEncoding.EncodeToString(a.cfg.Identity.Public().(ed25519.PublicKey)) {
+		return errors.New("desired reply registration differs from host session")
+	}
+	return validateRegistration(*reply.Registration, a.cfg.Cell)
 }
 
 func desiredFingerprint(d Desired) (string, error) {

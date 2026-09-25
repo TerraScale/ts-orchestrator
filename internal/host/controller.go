@@ -32,6 +32,7 @@ type Controller struct {
 	mutations        authority.HostMutationStore
 	artifacts        ArtifactStore
 	responseKey      ed25519.PrivateKey
+	registrationMu   sync.Mutex
 	ready            chan struct{}
 	readyOnce        sync.Once
 	cacheMu          sync.Mutex
@@ -213,6 +214,8 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	if err := validateRegistration(r, c.cell); err != nil {
 		return Receipt{}, err
 	}
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
 	authorityEpoch := c.authorityEpoch()
 	if err := c.guard(ctx, authorityEpoch); err != nil {
 		return Receipt{}, err
@@ -223,11 +226,21 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	}
 	key := registrationSubjectKey(c.cell, r.Node)
 	for range 8 {
+		if r.ManagedMember != nil {
+			if err := c.requireExclusiveManagedMember(ctx, r); err != nil {
+				return Receipt{}, err
+			}
+		}
 		current, revision, exists, err := c.readRegistration(ctx, r.Node)
 		if err != nil {
 			return Receipt{}, err
 		}
 		if exists {
+			if (current.ManagedOCI == nil) != (r.ManagedOCI == nil) ||
+				current.ManagedOCI != nil && (current.ManagedMember == nil || *current.ManagedOCI != *r.ManagedOCI ||
+					*current.ManagedMember != *r.ManagedMember || current.FailureDomain != r.FailureDomain) {
+				return Receipt{}, errors.New("host managed binding cannot be retargeted")
+			}
 			if r.Generation < current.Generation {
 				return Receipt{}, errors.New("registration generation moved backward")
 			}
@@ -250,6 +263,39 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 		}
 	}
 	return Receipt{}, errors.New("registration contention")
+}
+
+func (c *Controller) requireExclusiveManagedMember(ctx context.Context, candidate Registration) error {
+	if c.controlLog == nil {
+		return errors.New("managed member exclusivity requires ordered control log")
+	}
+	prefix := "ts.control." + c.cell + ".host.registration." + c.cell + "."
+	info, err := c.controlLog.Info(ctx, jetstream.WithSubjectFilter(prefix+"*"))
+	if err != nil {
+		return err
+	}
+	for subject := range info.State.Subjects {
+		node, ok := strings.CutPrefix(subject, prefix)
+		if !ok || validateToken(node, "node") != nil {
+			return errors.New("managed member registration subject is invalid")
+		}
+		if node == candidate.Node {
+			continue
+		}
+		other, _, exists, err := c.readRegistration(ctx, node)
+		if err != nil {
+			return err
+		}
+		if exists && other.ManagedMember != nil && sameLogicalMember(other.ManagedMember.Scope, candidate.ManagedMember.Scope) {
+			return errors.New("managed member is already bound to another host")
+		}
+	}
+	return nil
+}
+
+func sameLogicalMember(a, b MemberScope) bool {
+	return a.ClusterID == b.ClusterID && a.TenantID == b.TenantID && a.DatabaseID == b.DatabaseID &&
+		a.ShardID == b.ShardID && a.MemberID == b.MemberID
 }
 
 // ApplyDesired persists one exact node/role target. It never rewrites a generation.
@@ -282,11 +328,26 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	}
 	key := desiredSubjectKey(c.cell, d.Node, d.Role)
 	for range 8 {
+		currentRegistration, _, registered, err := c.readRegistration(ctx, d.Node)
+		if err != nil {
+			return Receipt{}, err
+		}
+		if !registered || validateDesired(d, c.cell, currentRegistration) != nil {
+			return Receipt{}, errors.New("registration changed before desired commit")
+		}
 		current, revision, exists, err := c.readDesired(ctx, d.Node, d.Role)
 		if err != nil {
 			return Receipt{}, err
 		}
 		if exists {
+			if (current.ManagedMember == nil) != (d.ManagedMember == nil) {
+				return Receipt{}, fmt.Errorf("%w: managed desired kind changed", ErrDesiredConflict)
+			}
+			if current.ManagedMember != nil && d.ManagedMember != nil &&
+				(current.ManagedMember.Member != d.ManagedMember.Member || current.ManagedMember.OCI != d.ManagedMember.OCI ||
+					current.ManagedMember.VolumeID != d.ManagedMember.VolumeID || current.ManagedMember.AttachmentID != d.ManagedMember.AttachmentID) {
+				return Receipt{}, fmt.Errorf("%w: managed member or attachment retargeted", ErrDesiredConflict)
+			}
 			if d.AuthorityEpoch < current.AuthorityEpoch || d.Generation < current.Generation {
 				return Receipt{}, fmt.Errorf("%w: generation or epoch moved backward", ErrDesiredConflict)
 			}
@@ -742,6 +803,13 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 	}
 	switch req.Operation {
 	case "desired":
+		registration, registrationRevision, exists, err := c.readRegistration(ctx, req.Node)
+		if err != nil {
+			return nil, err
+		}
+		if !exists || !sameJSON(registration, r) || registration.Generation != s.RegistrationGeneration {
+			return nil, errors.New("host registration changed during desired request")
+		}
 		var query struct {
 			Role string `json:"role"`
 		}
@@ -756,9 +824,9 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 			return nil, err
 		}
 		if !exists {
-			return desiredReply{}, nil
+			return desiredReply{Registration: &registration, RegistrationRevision: registrationRevision}, nil
 		}
-		return desiredReply{Desired: &desired, Revision: revision}, nil
+		return desiredReply{Desired: &desired, Revision: revision, Registration: &registration, RegistrationRevision: registrationRevision}, nil
 	case "artifact":
 		return c.serveArtifact(ctx, req, r)
 	case "cycle":

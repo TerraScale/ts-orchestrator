@@ -160,13 +160,16 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	defer hostRuntime.Close()
 	runner := &inMemoryRunner{}
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
 	var agentRunner host.Runner = runner
 	if production {
 		agentRunner = &r3StopOnCloseRunner{inMemoryRunner: runner}
 	}
 	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}, Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: agentRunner,
-		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"), PollInterval: 100 * time.Millisecond})
+		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"), PollInterval: 100 * time.Millisecond,
+		ClockCheck: controllerClockCheck(clock)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,6 +5,8 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"math"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -34,15 +36,24 @@ var ErrDesiredConflict = errors.New("desired generation or target conflicts with
 // Registration is the controller's durable allowlist for one host identity.
 // PublicKey is a base64 encoded Ed25519 key; a higher Generation rotates it.
 type Registration struct {
-	Cell          string             `json:"cell"`
-	Node          string             `json:"node"`
-	FailureDomain string             `json:"failure_domain"`
-	Environment   string             `json:"environment"`
-	Roles         []string           `json:"roles"`
-	PublicKey     string             `json:"public_key"`
-	Generation    uint64             `json:"generation"`
-	Capacity      Capacity           `json:"capacity"`
-	ManagedOCI    *ManagedOCIBinding `json:"managed_oci,omitempty"`
+	Cell               string                `json:"cell"`
+	Node               string                `json:"node"`
+	FailureDomain      string                `json:"failure_domain"`
+	Environment        string                `json:"environment"`
+	Roles              []string              `json:"roles"`
+	PublicKey          string                `json:"public_key"`
+	Generation         uint64                `json:"generation"`
+	Capacity           Capacity              `json:"capacity"`
+	ManagedOCI         *ManagedOCIBinding    `json:"managed_oci,omitempty"`
+	ManagedMember      *ManagedMemberBinding `json:"managed_member,omitempty"`
+	SystemReserveBytes int64                 `json:"system_reserve_bytes,omitzero"`
+}
+
+// ManagedMemberBinding fixes one logical member and host attempt to this host.
+// It is assigned with the first registration and cannot be retargeted.
+type ManagedMemberBinding struct {
+	Scope       MemberScope `json:"scope"`
+	HostAttempt uint64      `json:"host_attempt"`
 }
 
 // ManagedOCIBinding is an operator-assigned OCI identity for a host key. It is
@@ -64,16 +75,31 @@ type Capacity struct {
 // Desired is a single host allocation. A generation can be written only once;
 // a later generation may replace or withdraw it.
 type Desired struct {
-	Cell           string            `json:"cell"`
-	Node           string            `json:"node"`
-	Environment    string            `json:"environment"`
-	Role           string            `json:"role"`
-	Digest         string            `json:"digest"`
-	Generation     uint64            `json:"generation"`
-	AuthorityEpoch uint64            `json:"authority_epoch"`
-	Args           []string          `json:"args,omitempty"`
-	Env            map[string]string `json:"env,omitempty"`
-	Withdrawn      bool              `json:"withdrawn"`
+	Cell           string               `json:"cell"`
+	Node           string               `json:"node"`
+	Environment    string               `json:"environment"`
+	Role           string               `json:"role"`
+	Digest         string               `json:"digest"`
+	Generation     uint64               `json:"generation"`
+	AuthorityEpoch uint64               `json:"authority_epoch"`
+	Args           []string             `json:"args,omitempty"`
+	Env            map[string]string    `json:"env,omitempty"`
+	Withdrawn      bool                 `json:"withdrawn"`
+	ManagedMember  *ManagedMemberLaunch `json:"managed_member,omitempty"`
+}
+
+// ManagedMemberLaunch is inert until the agent can verify the assignment,
+// mounted attachment and private authority material against the real process.
+type ManagedMemberLaunch struct {
+	OCI                  ManagedOCIBinding    `json:"oci"`
+	Member               ManagedMemberBinding `json:"member"`
+	Authority            MemberAuthority      `json:"authority"`
+	SourceDigest         string               `json:"source_digest"`
+	VolumeID             string               `json:"volume_id"`
+	AttachmentID         string               `json:"attachment_id"`
+	ProcessMemoryBytes   uint64               `json:"process_memory_bytes,omitzero"`
+	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes,omitzero"`
+	CgroupMemoryMaxBytes uint64               `json:"cgroup_memory_max_bytes,omitzero"`
 }
 
 type Receipt struct {
@@ -116,6 +142,7 @@ type AgentConfig struct {
 	WorkloadIdentity    WorkloadIdentity
 	PollInterval        time.Duration
 	SessionTrace        bool
+	ClockCheck          func() error
 }
 
 type ControllerConfig struct {
@@ -175,10 +202,21 @@ func validateRegistration(r Registration, cell string) error {
 		if err := validateManagedOCIBinding(*r.ManagedOCI, r.FailureDomain); err != nil {
 			return err
 		}
+		if r.ManagedMember == nil || r.SystemReserveBytes <= 0 || r.Capacity.MemoryBytes <= 0 ||
+			r.Capacity.MemoryBytes > math.MaxInt64-r.SystemReserveBytes ||
+			len(r.Roles) != 1 || r.Roles[0] != "terrabase" {
+			return errors.New("managed host requires one terrabase role, member binding and signed memory reserve")
+		}
+		if err := validateManagedMemberBinding(*r.ManagedMember); err != nil {
+			return err
+		}
 	} else if r.FailureDomain != "" {
 		if err := validateToken(r.FailureDomain, "failure domain"); err != nil {
 			return err
 		}
+	}
+	if r.ManagedOCI == nil && (r.ManagedMember != nil || r.SystemReserveBytes != 0) {
+		return errors.New("generic host cannot carry managed member or memory reserve")
 	}
 	if r.Generation == 0 || len(r.Roles) == 0 || len(r.Roles) > 32 {
 		return errors.New("invalid registration generation or roles")
@@ -198,6 +236,16 @@ func validateRegistration(r Registration, cell string) error {
 	}
 	if r.Capacity.CPU < 0 || r.Capacity.MemoryBytes < 0 || r.Capacity.DiskBytes < 0 {
 		return errors.New("negative host capacity")
+	}
+	return nil
+}
+
+func validateManagedMemberBinding(binding ManagedMemberBinding) error {
+	scope := binding.Scope
+	if !lowerHex(scope.ClusterID, 32) || !lowerHex(scope.Incarnation, 32) ||
+		!canonicalMemberID(scope.TenantID) || !canonicalMemberID(scope.DatabaseID) ||
+		!canonicalMemberID(scope.MemberID) || scope.ShardID == 0 || binding.HostAttempt == 0 {
+		return errors.New("managed member identity is invalid")
 	}
 	return nil
 }
@@ -237,6 +285,21 @@ func validateDesired(d Desired, cell string, r Registration) error {
 	if !slices.Contains(r.Roles, d.Role) {
 		return errors.New("role is not registered")
 	}
+	if (r.ManagedOCI == nil) != (d.ManagedMember == nil) {
+		return errors.New("managed desired and registration kind differ")
+	}
+	if d.ManagedMember != nil {
+		if r.ManagedMember == nil {
+			return errors.New("managed registration lacks member binding")
+		}
+		if d.Role != "terrabase" || *r.ManagedOCI != d.ManagedMember.OCI ||
+			*r.ManagedMember != d.ManagedMember.Member {
+			return errors.New("managed desired binding differs from registration")
+		}
+		if err := validateManagedMemberLaunch(*d.ManagedMember, d, r); err != nil {
+			return err
+		}
+	}
 	if d.Generation == 0 {
 		return errors.New("desired generation must be positive")
 	}
@@ -259,6 +322,37 @@ func validateDesired(d Desired, cell string, r Registration) error {
 		if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(key) || len(value) > 4096 {
 			return errors.New("invalid workload environment")
 		}
+	}
+	return nil
+}
+
+func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Registration) error {
+	if len(d.Args) != 0 || len(d.Env) != 0 {
+		return errors.New("managed desired cannot carry arbitrary arguments or environment")
+	}
+	if validateDigest(launch.SourceDigest) != nil ||
+		!strings.HasPrefix(launch.VolumeID, "ocid1.volume.") ||
+		!strings.HasPrefix(launch.AttachmentID, "ocid1.volumeattachment.") ||
+		len(launch.VolumeID) > 255 || len(launch.AttachmentID) > 255 ||
+		strings.ContainsFunc(launch.VolumeID, unicode.IsSpace) || strings.ContainsFunc(launch.AttachmentID, unicode.IsSpace) ||
+		launch.Authority.Epoch != d.AuthorityEpoch || launch.Authority.Epoch == 0 ||
+		!lowerHex(launch.Authority.ConfigurationID, 64) ||
+		!lowerHex(launch.Authority.CertificateSHA256, 64) ||
+		!lowerHex(launch.Authority.TLSLeafSHA256, 64) {
+		return errors.New("managed launch source, volume or authority is invalid")
+	}
+	if d.Withdrawn {
+		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 {
+			return errors.New("withdrawn managed desired contains memory execution data")
+		}
+		return nil
+	}
+	const gib = uint64(1 << 30)
+	p, h, c := launch.ProcessMemoryBytes, launch.MemoryHeadroomBytes, launch.CgroupMemoryMaxBytes
+	if p < 4*gib || h < max(gib, p/4) || h >= p ||
+		validateCgroupMemoryMax(c) != nil || c < p || c > uint64(r.Capacity.MemoryBytes) ||
+		p > math.MaxInt64 || h > math.MaxInt64 || p%uint64(os.Getpagesize()) != 0 || h%uint64(os.Getpagesize()) != 0 {
+		return errors.New("managed process memory, headroom or cgroup cap is invalid")
 	}
 	return nil
 }

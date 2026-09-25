@@ -89,8 +89,10 @@ type session struct {
 }
 
 type desiredReply struct {
-	Desired  *Desired `json:"desired,omitempty"`
-	Revision uint64   `json:"revision"`
+	Desired              *Desired      `json:"desired,omitempty"`
+	Revision             uint64        `json:"revision"`
+	Registration         *Registration `json:"registration,omitempty"`
+	RegistrationRevision uint64        `json:"registration_revision"`
 }
 type artifactQuery struct {
 	Role   string `json:"role"`

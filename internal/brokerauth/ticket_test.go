@@ -12,6 +12,39 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
+type fixedClockSample struct {
+	bound ClockBound
+	err   error
+}
+
+func (probe fixedClockSample) Measure() (ClockBound, error) { return probe.bound, probe.err }
+
+func TestMeasureHealthyClockRequiresFreshBound(t *testing.T) {
+	now := time.Now()
+	valid := fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: MaxClockError}}
+	if _, err := MeasureHealthyClock(valid); err != nil {
+		t.Fatalf("fresh bounded clock rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name  string
+		probe ClockProbe
+	}{
+		{"missing", nil},
+		{"probe-error", fixedClockSample{err: errors.New("NTP unavailable")}},
+		{"zero", fixedClockSample{bound: ClockBound{MaxError: time.Millisecond}}},
+		{"stale", fixedClockSample{bound: ClockBound{SampledAt: now.Add(-2 * time.Second), MaxError: time.Millisecond}}},
+		{"future", fixedClockSample{bound: ClockBound{SampledAt: now.Add(time.Second), MaxError: time.Millisecond}}},
+		{"negative-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: -time.Millisecond}}},
+		{"excess-error", fixedClockSample{bound: ClockBound{SampledAt: now, MaxError: MaxClockError + time.Millisecond}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := MeasureHealthyClock(test.probe); err == nil {
+				t.Fatal("invalid NTP clock bound accepted")
+			}
+		})
+	}
+}
+
 func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

@@ -58,7 +58,7 @@ type MemberCapabilities struct {
 	DurableDrain bool `json:"durable_drain"`
 }
 
-// MemberStatus is a bounded v1 receiver observation, not serving or drain proof.
+// MemberStatus is a bounded v1 member role observation, not serving or drain proof.
 type MemberStatus struct {
 	SchemaVersion uint64             `json:"schema_version"`
 	Nonce         string             `json:"nonce"`
@@ -392,7 +392,7 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 	}
 	if status.SchemaVersion != 1 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope != expected.Scope || status.Authority != expected.Authority ||
-		!status.ReceiverOnly || status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
+		status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
 		return MemberStatus{}, errors.New("member status identity or capability mismatch")
 	}
 	return status, nil

@@ -35,6 +35,23 @@ func (b ClockBound) valid(now time.Time) bool {
 		!now.Before(b.SampledAt) && now.Sub(b.SampledAt) <= MaxClockSampleAge
 }
 
+// MeasureHealthyClock obtains a fresh NTP bound for an authority decision.
+// The probe checks kernel synchronization; this check also rejects stale or
+// otherwise invalid samples from any ClockProbe implementation.
+func MeasureHealthyClock(probe ClockProbe) (ClockBound, error) {
+	if probe == nil {
+		return ClockBound{}, errors.New("NTP clock health is unavailable")
+	}
+	bound, err := probe.Measure()
+	if err != nil {
+		return ClockBound{}, fmt.Errorf("NTP clock health is unavailable: %w", err)
+	}
+	if !bound.valid(time.Now()) {
+		return ClockBound{}, errors.New("NTP clock health is unavailable")
+	}
+	return bound, nil
+}
+
 // TicketRequest is bound to one broker's fresh random challenge.
 type TicketRequest struct {
 	Cell    string `json:"cell"`
@@ -120,8 +137,8 @@ func (i *Issuer) Issue(ctx context.Context, request TicketRequest) (SignedTicket
 		observed.Revision < snapshot.Revision {
 		return SignedTicket{}, authority.ErrFenced
 	}
-	bound, err := i.Clock.Measure()
-	if err != nil || !bound.valid(time.Now()) {
+	bound, err := MeasureHealthyClock(i.Clock)
+	if err != nil {
 		return SignedTicket{}, errors.New("issuer NTP clock health is unavailable")
 	}
 	issued := authorizedAt

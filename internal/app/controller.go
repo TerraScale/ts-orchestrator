@@ -23,11 +23,23 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// Overridden only by the production-controller integration test, whose local
-// kernel clock is deliberately not an NTP qualification source.
+// Overridden only by tests whose local kernel clock is deliberately not an NTP
+// qualification source. Production startup and broker authority share a probe.
 var controllerBrokerClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
+func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
+	return func() error {
+		_, err := brokerauth.MeasureHealthyClock(probe)
+		return err
+	}
+}
+
 func runController(ctx context.Context, cfg Config, output io.Writer) error {
+	clockProbe := controllerBrokerClockProbe()
+	clockCheck := controllerClockCheck(clockProbe)
+	if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {
+		return err
+	}
 	if cfg.NATS.Embedded == nil {
 		return errors.New("controller run requires an embedded regional NATS server")
 	}
@@ -64,14 +76,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var clockCheck func() error
-	var clockProbe brokerauth.ClockProbe
 	if !cfg.NATS.Lab {
-		clockProbe = controllerBrokerClockProbe()
-		clockCheck = func() error { _, err := clockProbe.Measure(); return err }
 		if err := clockCheck(); err != nil {
 			return fmt.Errorf("production broker NTP clock health: %w", err)
 		}
+	} else {
+		clockCheck = nil
+		clockProbe = nil
 	}
 	cfg.NATS.ClientRole = "controller"
 	runtime, err := natscell.Start(ctx, cfg.NATS)

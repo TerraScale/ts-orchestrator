@@ -17,15 +17,36 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator <run|host|check|operator|identity-new> --config FILE")
+		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new> --config FILE")
 	}
 	command := args[0]
+	if command == "bootstrap-credential-check" {
+		if len(args) != 1 {
+			return errors.New("bootstrap credential check accepts no arguments")
+		}
+		return bootstrapstart.RunCredentialValidationChild(os.Stdin, func(request bootstrapstart.CredentialChildRequest) error {
+			if _, err := readPrivateKey(request.ResponseKeyFile); err != nil {
+				return fmt.Errorf("controller response key: %w", err)
+			}
+			cfg := Config{NATS: request.Config, Controller: ControllerConfig{BrokerTicketKeyFile: request.BrokerTicketKeyFile}}
+			_, _, err := brokerTicketKeys(cfg)
+			return err
+		})
+	}
+	if command == "bootstrap-admit-initial" || command == "bootstrap-admit-restart" {
+		if len(args) != 1 {
+			return errors.New("bootstrap admission child accepts no arguments")
+		}
+		return runControllerAdmissionChild(ctx, command, os.Stdin)
+	}
 	if command == "identity-new" {
 		return newIdentity(args[1:], output)
 	}
@@ -46,6 +67,8 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	switch command {
+	case "bootstrap-controller":
+		return controllerBootstrapCommand(ctx, cfg)
 	case "run":
 		return runController(ctx, cfg, output)
 	case "host":
@@ -56,6 +79,8 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return fmt.Errorf("unknown command %q", command)
 	}
 }
+
+var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
 func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if cfg.NATS.Embedded != nil {
@@ -80,6 +105,10 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err := host.ValidatePrivateHostState(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node); err != nil {
 		return fmt.Errorf("host private state: %w", err)
 	}
+	clockCheck := controllerClockCheck(hostClockProbe())
+	if err := clockCheck(); err != nil {
+		return fmt.Errorf("host NTP clock health: %w", err)
+	}
 	probeCtx, stopProbe := context.WithTimeout(ctx, 15*time.Second)
 	err = host.ProbeNativeRuntime(probeCtx, filepath.Join(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node), identity)
 	stopProbe()
@@ -97,6 +126,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		WorkloadIdentity: identity,
 		PollInterval:     time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
+		ClockCheck: clockCheck,
 	})
 	if err != nil {
 		return err

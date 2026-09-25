@@ -66,6 +66,35 @@ func TestDecodeMemberStatusStrictReceiverContract(t *testing.T) {
 	}
 }
 
+func TestDecodeMemberStatusSenderRoleDoesNotClaimServing(t *testing.T) {
+	nonce := "00000000000000000000000000000001"
+	expected := memberFixtureExpectation()
+	senderStatus := strings.Replace(memberStatusFixture, `"receiver_only":true`, `"receiver_only":false`, 1)
+	status, err := decodeMemberStatus([]byte(senderStatus), nonce, 123, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.ReceiverOnly || status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
+		t.Fatalf("sender role changed capability meaning: %+v", status)
+	}
+
+	for _, test := range []struct {
+		name string
+		body string
+	}{
+		{"serving", strings.Replace(senderStatus, `"serving":false`, `"serving":true`, 1)},
+		{"serving proof", strings.Replace(senderStatus, `"serving_proof":false`, `"serving_proof":true`, 1)},
+		{"durable drain", strings.Replace(senderStatus, `"durable_drain":false`, `"durable_drain":true`, 1)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := decodeMemberStatus([]byte(test.body), nonce, 123, expected); err == nil ||
+				!strings.Contains(err.Error(), "identity or capability mismatch") {
+				t.Fatalf("unexpected capability accepted: %v", err)
+			}
+		})
+	}
+}
+
 func TestMemberSocketRequiresPrivateOwnership(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "member.sock")
 	listener, err := net.Listen("unix", path)

@@ -39,11 +39,12 @@ type WorkloadIdentity struct {
 }
 
 type Observation struct {
-	Role        string
-	Digest      string
-	Fingerprint string
-	Running     bool
-	PID         int
+	Role                 string
+	Digest               string
+	Fingerprint          string
+	Running              bool
+	PID                  int
+	CgroupMemoryMaxBytes uint64
 }
 
 // Runner owns native workload processes. Recover must finish before any Apply.
@@ -366,6 +367,22 @@ func setCgroupMemoryMax(cgroupPath string, limit uint64) error {
 	return nil
 }
 
+func readCgroupMemoryMax(cgroupPath string) (uint64, error) {
+	data, err := os.ReadFile(filepath.Join(cgroupPath, "memory.max"))
+	if err != nil {
+		return 0, err
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "max" {
+		return 0, nil
+	}
+	limit, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, errors.New("invalid role memory.max readback")
+	}
+	return limit, nil
+}
+
 // Linux delivers Pdeathsig when the thread that created the child exits.
 // Keep that thread alive until Wait so an idle Go thread cannot kill a live workload.
 func startWorkloadOnLockedThread(cmd *exec.Cmd) (func(), <-chan error, error) {
@@ -436,7 +453,15 @@ func (p *processRunner) Observe(ctx context.Context, role string) (Observation, 
 	if err != nil {
 		return Observation{}, err
 	}
-	return Observation{Role: role, Digest: record.Digest, Fingerprint: record.Fingerprint, PID: record.PID, Running: populated && nativeProcessAliveWithStart(record.PID, record.StartTime)}, nil
+	running := populated && nativeProcessAliveWithStart(record.PID, record.StartTime)
+	observation := Observation{Role: role, Digest: record.Digest, Fingerprint: record.Fingerprint, PID: record.PID, Running: running}
+	if running {
+		observation.CgroupMemoryMaxBytes, err = readCgroupMemoryMax(filepath.Join(p.cgroups, role))
+		if err != nil {
+			return Observation{}, err
+		}
+	}
+	return observation, nil
 }
 
 func (p *processRunner) Close(ctx context.Context) error {

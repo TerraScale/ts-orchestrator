@@ -129,6 +129,19 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},
 			}}}
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
+	previousPresence := controllerBakedInputsPresent
+	previousAdmission := controllerBootstrapProduction
+	previousProbe := controllerBrokerClockProbe
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
+	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
+	controllerBootstrapProduction = func(context.Context, Config) error { return nil }
+	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
+	t.Cleanup(func() {
+		controllerBakedInputsPresent = previousPresence
+		controllerBootstrapProduction = previousAdmission
+		controllerBrokerClockProbe = previousProbe
+	})
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(wrongPublic)), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -139,11 +152,6 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(ticketPublic)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	previousProbe := controllerBrokerClockProbe
-	clock := &testBrokerClock{}
-	clock.healthy.Store(true)
-	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
-	t.Cleanup(func() { controllerBrokerClockProbe = previousProbe })
 	output := &readyWriter{ready: make(chan struct{})}
 	done := make(chan error, 1)
 	go func() { done <- Run(ctx, []string{"run", "--config", controllerConfigPath}, output) }()
