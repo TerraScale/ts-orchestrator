@@ -26,11 +26,14 @@ production IAM, the full bootstrap path, or sustained availability.
 The original audit baseline is repository commit
 `90b7ea1f4402967d2cc09b00a50d0e2d9c33c369`; the reviewed OCI create-retry
 slice was later committed as `997498bff9a9c1e6aed29622796515b753ca7b69`.
-At the time of this plan update, the shared working tree also contained
-uncommitted Go changes in host, NATS, test, and app paths. A source review
-found no remaining issue in the host native-runtime probe, but writable-cgroup
-guest qualification is still required. Other peer changes remain under review
-and do not close their gates. `AGENTS.md` is human-owned and is not an
+The current committed checkpoint is `a54c8b1344af941c277aed2b22b274a6beb1b0b2`:
+`043e8f47` contains the local JWT/fencing operator caller and R6 leader-read
+changes, and `a54c8b1` contains the eight-file R7 JWT/NTP Firecracker harness.
+The clean detached R7 source is `/tmp/ts-orch-r7-qualification-a54c8b1`;
+its binary builds passed, but the R7 run failed at host Chrony readiness before
+any VM boot. Guest qualification still needs a rerun. New bootstrap integration,
+host cgroup and Chrony harness changes in the shared tree are separate,
+unreviewed work and do not close their gates. `AGENTS.md` is human-owned and is not an
 implementation target.
 
 The OCI SDK uses instance-principal authentication and launches from a pinned
@@ -40,7 +43,9 @@ does not install the binary, provide cloud-init, or distribute host identity
 material. Managed placement explicitly stops before TerraBase serving. Host
 configuration requires local key material, a pinned controller public key,
 NATS settings, install root, and state root, but the repository has no
-production first-boot or enrollment delivery path. The host runner writes
+production host first-boot or enrollment delivery path. A separate controller
+bootstrap admission path is present but unreviewed and unqualified in guests.
+The host runner writes
 under the cgroup-v2 root and needs a qualified privilege and lifecycle
 contract.
 
@@ -51,12 +56,13 @@ does not retain, sign, or publish release assets. Controller JetStream data is
 written under configured `store_dir`; no active durable-volume, backup,
 restore, or quorum-recovery procedure is supplied.
 
-The latest recorded four-VM qualification used source revision
-`df09ee5692b4a5dc60230f019d1265efccb2f972`. It demonstrated guest process
-execution, host restart recovery, and recovery after one controller loss. A
-host renewal/reporting timeout caused systemd to restart the host agent during
-controller loss. This is recovery evidence, not uninterrupted availability.
-The recorded arm64 artifact was cross-compiled and ELF-checked, not executed.
+The latest completed four-VM attempt is R6 at
+`/tmp/ts4vm-20260925-r6/summary.json`: it passed initial guest execution and
+host restart recovery, then failed the same-process renewal check after a
+controller loss. It is partial recovery evidence, not uninterrupted
+availability. The local R7 attempt exercising the production JWT/NTP path
+failed before VM boot, so a guest rerun is pending; the recorded
+arm64 artifact was cross-compiled and ELF-checked, not executed.
 
 Read-only OCI SDK inventory for the active `TerraScale` parent compartment
 returned HTTP 200 in São Paulo, San Jose, and Frankfurt, with zero Compute
@@ -201,8 +207,9 @@ Before any future resource action, all of these gates must be met:
    WORM. The minimum lock/retention duration must be explicitly selected by
    the decision owner; the runtime must not guess or inspect bucket policy.
 5. The offline CLI, focused receipt tests, production broker/JWT/clock gate,
-   and no-live-secret/image delivery paths pass review. The 4-VM static-TLS
-   fixture is not evidence for active JWT/ClockCheck or production NTP.
+   and no-live-secret/image delivery paths pass review. R6's static-TLS
+   fixture is not evidence for active JWT/ClockCheck or production NTP; R7's
+   JWT/NTP attempt failed before VM boot and has no guest outcome.
 6. The qualification operator accepts inventory, stop criteria, teardown
    ownership, exact-OCID cleanup, and post-run verification before an apply
    is even considered.
@@ -240,50 +247,64 @@ attachment means stop and escalate; never broaden cleanup by compartment.
 
 ## Latest local qualification limits (2026-09-25)
 
-The latest four-VM run was R5 on clean detached source `bfaad39228fe908424683729d5d17198683a0604` with harness hash
-`5cf3b32a6f2894af5cea078f11f22b7a8bc5d81184b1bebab970257f4af6dc9d`. It
-completed guest clock calibration, TLS quorum formation, signed host
-registration, initial v1 deployment, host reboot recovery, and a c2 crash with
-two of three controllers still ready. It failed before same-process renewal
-could be verified: the operator `hosts` request timed out, so v2 deployment,
-signed-expiry fencing, and rollback were not reached. The harness uses static
-TLS and cannot qualify the active JWT/ClockCheck startup path or production
-NTP. This is a partial local failure, not production acceptance.
+R6 is the latest completed four-VM run. Its clean source revision was
+`10970344f53afe246b787177c1f439aa9efb2620`, with Go source manifest
+`11dc97ca8af8c106179630ae8d590d871595603109d0982eb8bbc7e0fb07da77` and
+harness hash `b166c78851c9b7e7204aa9d38d6330801065d341d4eeb4199eeccc6618cd58f3`.
+It reached initial v1 execution, host reboot recovery and 2/3 controller
+readiness, then failed the 25-second same-process host-session renewal check.
+The operator `hosts` attempts timed out; the required current session, report,
+and unchanged process proof was not obtained. R6 therefore did not reach v2
+deployment, signed-expiry fencing or rollback. Its `cleanup_errors` were empty.
+Evidence: `/tmp/ts4vm-20260925-r6/summary.json` and
+`logs/nats-live-diagnostics.jsonl`. The post-run parser correction narrows
+renewal evidence to the verified guest log format. The later leader-read fix
+addresses a diagnostic direct-KV read that took the 2-second timeout while
+the equivalent leader read took about 6 ms. Neither correction retroactively
+passes R6 or proves its 25-second renewal requirement.
 
-R5 cleanup reported `cleanup_errors=[]`; post-run checks found no run-owned VM,
-network interface, loop device, mount, or bridge nft table. Evidence is in
-`/tmp/ts4vm-20260925-r5/summary.json`, `events.json`, controller/host
-diagnostics, and `logs/nats-live-diagnostics.jsonl`. The source manifest hash
-was `f627519b4863877a4b4d3b867fbc142e00b018caf561e2029f2c927c367ceda8`; the
-test binary hash was `83acbe567063aabd6fecf99653884c23c3c6b66834c01025e90e50e161c73af5`.
+The older R5 attempt is preserved at `/tmp/ts4vm-20260925-r5/summary.json`.
+Both R5 and R6 used static TLS and manual pre-start guest clock setting, so
+neither tests production JWT admission or the kernel NTP predicate. The
+accepted R7 harness at commit `a54c8b1` instead builds the frozen JWT fixture
+and a probe calling the production `KernelClockProbe.Measure()` predicate,
+starts bridge-only Chrony with a real selected upstream, waits for guest
+timesyncd before releasing services, and tests pinned c1 admission closure
+and recovery. Its clean detached source and four static binary builds are
+recorded under `/tmp/ts-orch-r7-qualification-a54c8b1` and
+`/tmp/ts-orch-r7-qualification-binaries-a54c8b1`. The R7 attempt **FAILED
+BEFORE VM BOOT** at host Chrony readiness: root `chronyd` refused its command
+socket beneath the user-owned run directory, although it selected a real
+upstream. The bridge UDP listener was configured, but the `chronyc` readiness
+probe could not connect and the harness never reached listener observation.
+Evidence is
+`/tmp/ts-orch-r7-qualification-run-20260925T160720Z/summary.json` and
+`logs/chronyd.log`. The shared-tree harness now creates a root-owned mode-0700
+socket directory under `/run`; its 33 focused tests and a pinned Chrony 4.8
+foreground no-NTP-port socket probe passed. This fix has not been used for an
+R7 guest rerun. The four-guest result remains **PENDING**; build, fixture,
+bridge and socket tests do not substitute for guest evidence.
 
-The local JWT R3 gate test passed on source base
-`8ce75ad3888adfe41670e8b8bd60aa2874debd8a`. Independent review of the frozen
-test source manifest SHA-256
-`3dc0831b0f3aa8e131434caa4986928b54e2fca22b4e5f79f94f0629b421df90` identified
-two P1 findings: the revocation helper had no production caller, and an
-invalid fence request could poison the gate floor. In that reviewed snapshot,
-`internal/app/broker_gate.go` had SHA-256 prefix `335def06` and
-`internal/app/broker_gate_test.go` had prefix `18b4a210`; the logged R3 test
-called the helper directly and is not operator acceptance. Runtime is
-implementing a corrective signed operator claim-apply path in the shared
-worktree, but that unstaged content is newer than the reviewed manifest and
-the recorded test. The corrected caller/test still needs a focused rerun and
-independent review; keep acceptance OPEN until both are complete.
+The corrected local JWT R3 tests now exercise the signed operator
+`broker-claim-apply` caller and real TLS-first broker bridge. Both focused
+tests passed: `TestRunControllerOperatorBrokerClaimApply` covers the CLI/caller,
+and `TestBrokerGateR3TicketRevocationAndOfflineFence` covers the gate/fence
+directly; see `/tmp/ts-broker-jwt-r3-final-caller-focused.log`.
+The frozen fixture's 6 GiB cell quota passed a three-broker R3 store test
+with a finite 2 GiB store limit per broker; see `/tmp/oci-jwtsetup-test.log`.
+These tests resolve the earlier helper-only and invalid-fence-floor review
+findings in their local scope. They do not prove OCI bootstrap, external
+credential delivery, production NTP, image deployment or regional operation.
 
-`go test ./internal/app -run
-'^TestBrokerGateR3TicketRevocationAndOfflineFence$' -count=1 -timeout=120s -v`
-passed in 7.62 seconds; its race run passed in 9.883 seconds. Logs are
-`/tmp/ts-jwt-r3-gate-dialer.log` and `/tmp/ts-jwt-r3-gate-race.log`; source
-manifest SHA-256 is
-`3dc0831b0f3aa8e131434caa4986928b54e2fca22b4e5f79f94f0629b421df90`. The test
-exercised local three-broker routing/quorum startup with the broker port held
-by the gated bridge, JWT/mTLS host connection, signed-ticket gate opening,
-helper-level account-claim replacement and local fence acknowledgements,
-renewal reopening the account, and an offline broker remaining pending. It
-does not prove the corrected operator workflow, OCI/Vault/VM integration,
-external credential issuance, production NTP, network partitions, or
-deployment. Neither R5 nor this local JWT test closes a production gate.
+A separate one-guest Unix-socket member-status attempt **FAILED**: systemd
+recorded `ts-member-boundary.service` exiting status 1 after 5.745 seconds.
+The Rust result and Go marker were not captured because the service wrote to
+`ttyS0` while serial-getty also ran. The outer 240-second watcher saw no exit
+marker; this is a monitor/output failure, not evidence that the service kept
+running for 240 seconds or that the member boundary passed. See
+`/tmp/ts-member-boundary-vmrun-20260925T1220Z/attempt-outcome.txt` and
+`guest-systemd.journal`. A corrected guest run and the full systemd
+main-process-death boundary remain open.
 
 ## Proposed trust and bootstrap contract
 
@@ -349,12 +370,12 @@ integration gate.
 | Gate / ownership | Required implementation and acceptance evidence | State |
 | --- | --- | --- |
 | OCI operation recovery — `internal/oci/**` | Use the persisted original operation time and stop replaying OCI create requests before the provider retry-token window expires. Hold expired unknown outcomes and disappeared confirmed resources for explicit, authority-fenced, OCID-specific reconciliation. Preserve the immutable create receipt and use the currently observed ETag for the next fenced operation. Real JetStream KV integration tests must prove no additional provider create at the expiry boundary and safe recovery after lost acknowledgements. | IN PROGRESS; implementation committed as `997498bff9a9c1e6aed29622796515b753ca7b69`; fake-journal unit/race tests passed. Real JetStream KV boundary tests, final review, and reconciliation tooling remain open. |
-| Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. No live publication or image mutation is part of this work. | IN PROGRESS; `cmd/ts-release` now creates/verifies canonical binary receipts using the shared current-delegation API, streams conditional OCI object publication with exact read-back, and checks the binary extracted from candidate QCOW2 images. The shared `internal/release` package exposes current image receipt verification, but no production caller currently invokes it. The accepted wire direction places required public `ReleaseImageReceiptWire` and `ReleaseDelegationWire` bytes in the root-signed bootstrap manifest after OCI image import, while retaining the exact canonical envelope-wire SHA-256 pin. The queued consumer must verify those bytes with the runtime roots and current time before Vault or cloud actions, bind logical region, pinned image OCID, and architecture (explicitly mapping `linux-amd64`/`linux-arm64` to receipt `amd64`/`arm64`), then check the installed binary's size, digest, and architecture. A dispatch-only workflow has both signing and publishing disabled by default. Controller/host units and an offline image installer are present; the host unit matches the proposed runtime-owner path and minimum capability contract. Focused CLI and policy tests pass. No workflow, image build/import, signing, or publication was run. Base-image pinning, first-boot config/enrollment, host guest qualification, image import, installed-binary runtime verification, staged restart/health/rollback, signer environment review, and OCI cost/IAM authorization remain OPEN. |
-| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Implement the signed immutable bootstrap ledger and exact seed handoff before regional JetStream exists. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; signed-envelope/delegation API is being implemented. `ts-infra` foundation/seed gating is committed on draft PR #16. Pre-quorum intent/result, protected per-slot CAS head, seed handoff, GRU formation, SFO/FRA formation, and their runtime proofs remain OPEN. |
-| Instance identity and host enrollment — NATS authorization/enrollment, host image/runtime owners | Use least-privilege OCI policies and version-pinned Vault material to issue per-host NATS identity and Ed25519 identity, pin the controller response key, and complete signed registration and rotation for the exact OCI instance. Demonstrate denied foreign-region, stale-generation, revoked, and tag-only identities through the real boot path. The preferred proof is a private HTTPS begin/complete exchange, fresh nonce, and public-only serial-console response; the controller reads console history, verifies exact instance ID and both signatures, and issues a durable one-time grant before NATS JWT issuance. Fail closed on 1 MiB history truncation or missing/replayed proof; do not grant console-connection IAM to the validator. | IN PROGRESS; OCI console-history provider work is underway. Independent JWT review of the frozen snapshot identified the missing production revocation caller and invalid-fence-floor P1 findings. A corrective operator claim-apply path is being implemented in shared unstaged content; its focused test and independent review remain OPEN. Live image qualification, truncation, IAM denial, retry cleanup, and production broker-revocation convergence also remain OPEN. |
-| Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; source review of the native-runtime probe found no remaining issue. The 8/8 native security run covers nested-supervisor death and child cleanup; full systemd main-process death remains unqualified. The current four-VM harness uses static TLS and cannot qualify the active JWT/ClockCheck path. Writable-cgroup guest qualification remains open. |
-| TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; current placement deliberately holds at `awaiting-runtime-contract`. The local TerraBase fixture does not provide independent replication evidence and cannot close this gate. |
-| Healing, autoscale, and retirement — `internal/placement/**`, followed by OCI drain integration | Choose and approve capacity signals, replica floor, min/max, hysteresis, anti-affinity, budget ceiling, and scale-in policy. Implement durable drain, graceful database shutdown, fresh writer-stop proof, retained-volume detach and re-observation, and only then termination. Exercise interrupted and ambiguous lifecycle operations without data loss or duplicate members. | OPEN; fixed seats do not establish autoscaling or safe scale-in. |
+| Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. No live publication or image mutation is part of this work. | IN PROGRESS; `cmd/ts-release` creates/verifies canonical receipts and conditionally publishes exact OCI objects, but no image or release was signed, imported, published, or run. `internal/bootstrapstart` and `internal/app/bootstrap_controller.go` now contain the intended current/historical image-receipt and running-binary consumer path; this integration is still under review and has no OCI or guest proof. The public receipt/delegation wire remains pinned by the root-signed manifest's exact envelope digest. Controller/host units and an offline installer exist, but first-boot config/enrollment and the corrected host cgroup service layout remain unqualified. The R7 amd64 build passed, but its attempt failed at host Chrony readiness before VM boot; the guest result needs a rerun, and arm64 execution has not been tested. Base-image pinning, installed-binary runtime verification, staged restart/rollback, signer environment review, and OCI IAM/cost authorization remain OPEN. |
+| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Implement the signed immutable bootstrap ledger and exact seed handoff before regional JetStream exists. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; root-to-service admission, anchor/ledger and current/historical restart checks have source and focused tests in `internal/bootstrapstart` and `internal/app/bootstrap_controller.go`, but the current integration is unreviewed and has no guest proof. The founder launcher that reserves a slot and creates the first OCI seed is absent. `ts-infra` foundation/seed gating is committed on draft PR #16 without apply. Exact seed handoff, cold GRU formation and SFO/FRA formation remain OPEN. |
+| Instance identity and host enrollment — NATS authorization/enrollment, host image/runtime owners | Use least-privilege OCI policies and version-pinned Vault material to issue per-host NATS identity and Ed25519 identity, pin the controller response key, and complete signed registration and rotation for the exact OCI instance. Demonstrate denied foreign-region, stale-generation, revoked, and tag-only identities through the real boot path. The preferred proof is a private HTTPS begin/complete exchange, fresh nonce, and public-only serial-console response; the controller reads console history, verifies exact instance ID and both signatures, and issues a durable one-time grant before NATS JWT issuance. Fail closed on 1 MiB history truncation or missing/replayed proof; do not grant console-connection IAM to the validator. | IN PROGRESS; local signed operator `broker-claim-apply` and R3 JWT/fence caller tests passed at the committed checkpoint, addressing the earlier helper-only review findings. The R7 fixture generates private JWT identities but is not a production issuer. Live OCI console-history/IAM denial, first-boot credential issuance and delivery, retry cleanup, and broker-revocation convergence in guests remain OPEN. |
+| Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; the earlier 8/8 native security run covered nested-supervisor death and child cleanup, but full systemd main-process death and writable-cgroup guest qualification remain OPEN. The one-guest Unix-socket attempt exited status 1 without a captured application result. Root-to-service credential handoff has source but its real privileged subprocess and restart caller still require review and qualification. A process-free delegated supervisor leaf is being prepared in the shared tree and is not a guest pass. R7 failed before VM boot, so JWT/NTP host evidence still needs a rerun. |
+| TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; placement deliberately holds at `awaiting-runtime-contract` after OCI attachment. Guest block-device discovery, safe format/adoption, filesystem identity, exclusive mount and mount-bound member launch/report are absent. The bounded receiver-only member-status surface has no serving proof; sender, applied visibility and independent replication evidence remain producer dependencies. |
+| Healing, autoscale, and retirement — `internal/placement/**`, followed by OCI drain integration | Choose and approve capacity signals, replica floor, min/max, hysteresis, anti-affinity, budget ceiling, and scale-in policy. Implement durable drain, graceful database shutdown, fresh writer-stop proof, retained-volume detach and re-observation, and only then termination. Exercise interrupted and ambiguous lifecycle operations without data loss or duplicate members. | OPEN; the TerraBase producer has no durable drain or writer-fence receipt, and the real OCI controller has no member-serving/drain/writer-stop verifier wired. Fixed seats do not establish autoscaling or safe scale-in. |
 | Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before approving even a private OCI canary. | OPEN; no restore procedure or live OCI qualification exists. |
 
 ## Required implementation order
