@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -83,7 +84,11 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.EnsureHost(ctx, oci.EnsureRequest{CreateKey: "clock-fenced-host", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(ctx, oci.EnsureRequest{
+		CreateKey: "clock-fenced-host", FaultDomain: "FAULT-DOMAIN-1",
+		Shape: region.Shape, WholeOCPUs: 1, MemoryInGBs: 6,
+		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 1,
+	})
 	if !errors.Is(err, authority.ErrClockUnhealthy) {
 		t.Fatalf("OCI launch with clock lost between snapshot and Guard = %v", err)
 	}
