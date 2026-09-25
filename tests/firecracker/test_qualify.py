@@ -1,5 +1,7 @@
 import json
 import hashlib
+import ipaddress
+import stat
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -199,6 +201,7 @@ class FaultAndLeaseTests(unittest.TestCase):
         self.assertEqual(directives["Group"], "root")
         self.assertEqual(directives["NoNewPrivileges"], "yes")
         self.assertEqual(directives["Delegate"], "yes")
+        self.assertEqual(directives["DelegateSubgroup"], "supervisor")
         capabilities = directives["CapabilityBoundingSet"].split()
         self.assertEqual(capabilities,
                          ["CAP_CHOWN", "CAP_KILL", "CAP_SETUID", "CAP_SETGID", "CAP_SETPCAP"])
@@ -212,6 +215,7 @@ class FaultAndLeaseTests(unittest.TestCase):
                           clock_gate])
         controller_unit = qualify.Lab.guest_unit("c1", "run")
         self.assertNotIn("CapabilityBoundingSet=", controller_unit)
+        self.assertNotIn("DelegateSubgroup=", controller_unit)
         self.assertIn("TimeoutStartSec=180\n", controller_unit)
         self.assertEqual([line.split("=", 1)[1] for line in controller_unit.splitlines()
                           if line.startswith("ExecStartPre=")], [clock_gate])
@@ -430,6 +434,11 @@ class NativeCgroupPathTests(unittest.TestCase):
         command = lab.ssh.call_args.args[1]
         self.assertIn("systemctl show ts-orch.service -p ControlGroup --value", command)
         self.assertIn('test ! -L "$entry"', command)
+        self.assertIn("grep -qw memory " + "/sys/fs/cgroup" + self.service +
+                      "/cgroup.controllers", command)
+        self.assertIn('test ! -s "$parent/cgroup.procs"', command)
+        self.assertIn('grep -qw memory "$parent/cgroup.subtree_control"', command)
+        self.assertIn("/sys/fs/cgroup" + self.path.rsplit("/", 1)[0], command)
         self.assertIn(self.path + "/cgroup.events", command)
         self.assertIn("elif test -e /sys/fs/cgroup" + self.path + "; then exit 5", command)
         lab.ssh.return_value = SimpleNamespace(stdout="populated 0\nfrozen 0\n")
@@ -445,6 +454,8 @@ class NativeCgroupPathTests(unittest.TestCase):
             (self.path.replace("terrascale-host-", "terrascale.host-"), self.service),
             (self.path.replace("f2f2e59c89f0cea0", "g2f2e59c89f0cea0"), self.service),
             (self.path.replace("/terrabase", "/other"), self.service),
+            (self.path.replace("/terrascale-host-", "/supervisor/terrascale-host-"),
+             self.service),
             (self.path + "/child", self.service),
             (self.path, "/system.slice/other.service"),
             (self.path, "/system.slice/../ts-orch.service"),
@@ -456,7 +467,7 @@ class NativeCgroupPathTests(unittest.TestCase):
 
     def test_observation_binds_workload_start_time_and_agent_unit(self):
         output = ("agent_pid=1353\nagent_state=S:3500\n"
-                  f"agent_cgroup={self.service}\nservice_cgroup={self.service}\n"
+                  f"agent_cgroup={self.service}/supervisor\nservice_cgroup={self.service}\n"
                   "invocation=valid-invocation\nworkload_pid=1391\n"
                   "workload_state_before=S:3537\nworkload_state=S:3537\n"
                   f"workload_cgroup={self.path}\nmarker=v1\n")
@@ -467,6 +478,7 @@ class NativeCgroupPathTests(unittest.TestCase):
 
         self.assertTrue(observed["workload_alive"])
         self.assertEqual(observed["workload_cgroup"], self.path)
+        self.assertEqual(observed["agent_cgroup"], self.service + "/supervisor")
         lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
             "workload_state=S:3537", "workload_state=missing"))
         exited = lab.native_observation()
@@ -480,10 +492,93 @@ class NativeCgroupPathTests(unittest.TestCase):
             "workload_state=S:3537", "workload_state=S:9999"))
         with self.assertRaisesRegex(RuntimeError, "PID changed"):
             lab.native_observation()
+        for wrong_agent in (self.service, self.service + "/other",
+                            "/system.slice/other.service/supervisor"):
+            with self.subTest(agent_cgroup=wrong_agent):
+                lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
+                    f"agent_cgroup={self.service}/supervisor", f"agent_cgroup={wrong_agent}"))
+                with self.assertRaisesRegex(RuntimeError, "not in its systemd supervisor subgroup"):
+                    lab.native_observation()
         lab.ssh.return_value = SimpleNamespace(stdout=output.replace(
-            f"agent_cgroup={self.service}", "agent_cgroup=/user.slice/other.service"))
-        with self.assertRaisesRegex(RuntimeError, "not in its systemd service cgroup"):
+            f"workload_cgroup={self.path}",
+            f"workload_cgroup={self.service}/supervisor/terrabase"))
+        with self.assertRaisesRegex(ValueError, "invalid native workload cgroup path"):
             lab.native_observation()
+
+
+class ChronyControlTests(unittest.TestCase):
+    def test_control_socket_uses_a_private_root_owned_run_directory(self):
+        lab = object.__new__(qualify.Lab)
+        directory = Path("/run/ts-orch-fc-chrony.aB1cD2eF")
+        lab.chrony_control_dir = None
+        lab.sudo = Mock(return_value=SimpleNamespace(stdout=str(directory) + "\n"))
+        owned = SimpleNamespace(st_mode=stat.S_IFDIR | 0o700, st_uid=0)
+        with patch.object(qualify.Path, "lstat", return_value=owned):
+            self.assertEqual(lab.chrony_socket_path(), directory / "chronyd.sock")
+        lab.sudo.assert_called_once_with("mktemp", "-d", "-p", "/run",
+                                         "ts-orch-fc-chrony.XXXXXXXX")
+        self.assertEqual(lab.chrony_control_dir, directory)
+
+        with patch.object(qualify.Path, "lstat", return_value=SimpleNamespace(
+                st_mode=stat.S_IFDIR | 0o700, st_uid=1000)):
+            with self.assertRaisesRegex(RuntimeError, "root-owned"):
+                lab.chrony_socket_path()
+        lab.sudo.return_value = SimpleNamespace(stdout="/tmp/ts-orch-fc-chrony.aB1cD2eF\n")
+        with self.assertRaisesRegex(RuntimeError, "invalid private Chrony"):
+            lab.chrony_socket_path()
+
+    def test_foreground_chrony_uses_root_socket_and_cleanup_removes_only_owned_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lab = object.__new__(qualify.Lab)
+            lab.root = Path(directory)
+            lab.stage = lab.root / "stage"
+            lab.logs = lab.root / "logs"
+            lab.images = lab.root / "images"
+            lab.secrets = lab.root / "secrets"
+            for path in (lab.stage, lab.logs, lab.images, lab.secrets):
+                path.mkdir()
+            lab.subnet = ipaddress.ip_network("198.19.7.0/24")
+            control_dir = Path("/run/ts-orch-fc-chrony.aB1cD2eF")
+            socket = control_dir / "chronyd.sock"
+            lab.chrony_socket_path = Mock(return_value=socket)
+            lab.chrony_control_dir = control_dir
+            lab.note = Mock()
+            lab.wait = Mock(side_effect=lambda _label, predicate, **_kwargs: predicate())
+            lab.created_nft_tables = []
+            lab.created_links = []
+            lab.mounted = []
+            lab.vms = {}
+            lab.session_probe_process = None
+            lab.sudo = Mock(return_value=SimpleNamespace(returncode=0, stderr=""))
+            process = Mock(pid=1234, returncode=0)
+            process.poll.return_value = None
+
+            def command_result(command, **_kwargs):
+                if command[:3] == ["sudo", "-n", str(qualify.CHRONYC)]:
+                    self.assertEqual(command[3:], ["-n", "-h", str(socket), "sources"])
+                    return SimpleNamespace(returncode=0, stdout="^* remote 0 0 0\n")
+                if command[:4] == ["sudo", "-n", "ss", "-H"]:
+                    return SimpleNamespace(returncode=0, stdout="UNCONN 0 0 198.19.7.1:123 0.0.0.0:*\n")
+                self.assertEqual(command, [str(qualify.CHRONYD), "-p", "-f",
+                                           str(lab.stage / "chrony.conf")])
+                return SimpleNamespace(returncode=0, stdout="")
+
+            with patch.object(qualify, "run", side_effect=command_result), \
+                    patch.object(qualify.subprocess, "Popen", return_value=process) as spawned, \
+                    patch.object(qualify, "digest", return_value="pinned"):
+                lab.start_chrony()
+
+            config = (lab.stage / "chrony.conf").read_text()
+            self.assertIn(f"bindcmdaddress {socket}\ncmdport 0\n", config)
+            self.assertIn("bindaddress 198.19.7.1\nallow 198.19.7.0/24\nport 123\n", config)
+            self.assertNotIn("local stratum", config)
+            self.assertEqual(spawned.call_args.args[0],
+                             ["sudo", "-n", str(qualify.CHRONYD), "-x", "-d", "-4", "-f",
+                              str(lab.stage / "chrony.conf")])
+            self.assertEqual(lab.cleanup(), [])
+            lab.sudo.assert_any_call("rm", "-f", "--", str(socket), allow_failure=True)
+            lab.sudo.assert_any_call("rmdir", "--", str(control_dir), allow_failure=True)
+            self.assertIsNone(lab.chrony_control_dir)
 
 
 class ClockReadinessTests(unittest.TestCase):

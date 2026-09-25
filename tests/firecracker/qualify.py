@@ -23,6 +23,7 @@ import shlex
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -308,6 +309,7 @@ class Lab:
         self.jwtsetup = self.root / "jwtsetup"
         self.clockprobe = self.root / "clockprobe"
         self.chrony_process: subprocess.Popen[str] | None = None
+        self.chrony_control_dir: Path | None = None
         self.session_probe_process: subprocess.Popen[str] | None = None
         self.ssh_key = self.secrets / "lab_ssh"
         self.known_hosts = self.secrets / "known_hosts"
@@ -538,9 +540,22 @@ class Lab:
             self.sudo("ip", "link", "set", tap, "up")
         self.note("network", bridge=self.bridge, subnet=str(self.subnet), taps=self.taps)
 
+    def chrony_socket_path(self) -> Path:
+        created = self.sudo("mktemp", "-d", "-p", "/run", "ts-orch-fc-chrony.XXXXXXXX")
+        directory = Path(created.stdout.strip())
+        if (directory.parent != Path("/run") or
+                re.fullmatch(r"ts-orch-fc-chrony\.[A-Za-z0-9]{8}", directory.name) is None):
+            raise RuntimeError("invalid private Chrony control directory")
+        self.chrony_control_dir = directory
+        details = directory.lstat()
+        if (not stat.S_ISDIR(details.st_mode) or details.st_uid != 0 or
+                stat.S_IMODE(details.st_mode) != 0o700):
+            raise RuntimeError("private Chrony control directory must be root-owned mode 0700")
+        return directory / "chronyd.sock"
+
     def start_chrony(self) -> None:
         config = self.stage / "chrony.conf"
-        socket_path = self.root / "chronyd.sock"
+        socket_path = self.chrony_socket_path()
         config.write_text(
             "pool 2.nixos.pool.ntp.org iburst maxsources 4\n"
             f"bindaddress {self.subnet[1]}\nallow {self.subnet}\nport 123\n"
@@ -596,7 +611,7 @@ class Lab:
             host_service = (
                 "User=root\nGroup=root\nNoNewPrivileges=yes\n"
                 "CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP\n"
-                "AmbientCapabilities=\nDelegate=yes\n"
+                "AmbientCapabilities=\nDelegate=yes\nDelegateSubgroup=supervisor\n"
                 f"ExecStartPre=/usr/bin/install -d -o {WORKLOAD_UID} -g {WORKLOAD_GID} "
                 f"-m 0700 {WORKLOAD_RUN_DIR}\n")
         return ("[Unit]\nDescription=TerraScale Firecracker qualification " + name +
@@ -832,8 +847,9 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
                     "workload_pid", "workload_state_before", "workload_state", "workload_cgroup", "marker"}
         if not expected.issubset(observed):
             raise RuntimeError("incomplete native process observation")
-        if not observed["service_cgroup"] or observed["agent_cgroup"] != observed["service_cgroup"]:
-            raise RuntimeError("host agent is not in its systemd service cgroup")
+        if (not observed["service_cgroup"] or
+                observed["agent_cgroup"] != observed["service_cgroup"] + "/supervisor"):
+            raise RuntimeError("host agent is not in its systemd supervisor subgroup")
         before_start = observed["workload_state_before"].split(":")[-1]
         after_start = observed["workload_state"].split(":")[-1]
         if ((before_start == "missing" and after_start != "missing") or
@@ -850,6 +866,7 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         validate_native_cgroup_path(path, service_cgroup)
         role_path = "/sys/fs/cgroup" + path
         service_path = "/sys/fs/cgroup" + service_cgroup
+        runner_path = "/sys/fs/cgroup" + path.rsplit("/", 1)[0]
         events = role_path + "/cgroup.events"
         prefixes = ["/sys", "/sys/fs", "/sys/fs/cgroup"]
         for component in path[1:].split("/"):
@@ -861,6 +878,13 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             "for entry in " + " ".join(shlex.quote(prefix) for prefix in prefixes) +
             "; do test ! -L \"$entry\" || exit 4; done\n" +
             "test -d " + shlex.quote(service_path) + "\n" +
+            "grep -qw memory " + shlex.quote(service_path + "/cgroup.controllers") + "\n" +
+            "for parent in " + " ".join(shlex.quote(parent) for parent in
+                                         (service_path, runner_path)) + "; do\n" +
+            "    test -f \"$parent/cgroup.procs\"\n" +
+            "    test ! -s \"$parent/cgroup.procs\"\n" +
+            "    grep -qw memory \"$parent/cgroup.subtree_control\"\n" +
+            "done\n" +
             "if test -f " + shlex.quote(events) + "; then\n" +
             "    test ! -L " + shlex.quote(events) + "\n" +
             "    cat " + shlex.quote(events) + "\n" +
@@ -1604,6 +1628,21 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
                     process.wait(timeout=5)
             self.note("chrony_stop", pid=process.pid, exit_code=process.returncode)
             self.chrony_process = None
+        if getattr(self, "chrony_control_dir", None) is not None:
+            directory = self.chrony_control_dir
+            try:
+                removed = self.sudo("rm", "-f", "--", str(directory / "chronyd.sock"),
+                                    allow_failure=True)
+                if removed.returncode:
+                    errors.append(f"remove owned Chrony socket {directory}: {removed.stderr.strip()}")
+                else:
+                    removed = self.sudo("rmdir", "--", str(directory), allow_failure=True)
+                    if removed.returncode:
+                        errors.append(f"remove owned Chrony directory {directory}: {removed.stderr.strip()}")
+                    else:
+                        self.chrony_control_dir = None
+            except Exception as error:
+                errors.append(f"remove owned Chrony control directory {directory}: {error}")
         for link in reversed(self.created_links):
             try:
                 result = self.sudo("ip", "link", "del", link, allow_failure=True)

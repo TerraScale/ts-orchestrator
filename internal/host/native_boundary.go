@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -14,6 +15,8 @@ import (
 )
 
 const cgroup2SuperMagic = 0x63677270
+
+var errNativeSubgroupRequired = errors.New("native runtime requires systemd DelegateSubgroup=supervisor")
 
 func validateWorkloadIdentity(identity WorkloadIdentity) error {
 	if identity.UID == 0 || identity.GID == 0 {
@@ -95,9 +98,8 @@ func validateTenantExecutable(path string, identity WorkloadIdentity) error {
 	return nil
 }
 
-// A host may only create role cgroups below its own delegated service cgroup.
-// The kernel-reported membership is authoritative; no config can select a
-// sibling, parent, or the global cgroup root.
+// The supervisor runs in systemd's subgroup, leaving its delegated service
+// cgroup process-free so domain controllers can be enabled for sibling roles.
 func nativeCgroupRoot(stateRoot string) (string, error) {
 	var filesystem syscall.Statfs_t
 	if err := syscall.Statfs("/sys/fs/cgroup", &filesystem); err != nil {
@@ -116,17 +118,69 @@ func nativeCgroupRoot(stateRoot string) (string, error) {
 		if !ok {
 			continue
 		}
-		if membership != "" || !filepath.IsAbs(path) || path == "/" || filepath.Clean(path) != path {
-			return "", errors.New("native runtime requires a non-root delegated service cgroup")
+		if membership != "" {
+			return "", errors.New("native runtime has multiple unified cgroup memberships")
 		}
 		membership = path
 	}
 	if membership == "" {
 		return "", errors.New("native runtime cannot identify its delegated service cgroup")
 	}
-	parent := filepath.Join("/sys/fs/cgroup", membership)
-	if _, err := os.Stat(filepath.Join(parent, "cgroup.controllers")); err != nil {
-		return "", fmt.Errorf("native runtime requires delegated cgroup v2: %w", err)
+	parent, err := nativeDelegatedServiceRoot(membership)
+	if err != nil {
+		return "", err
+	}
+	if err := requireEmptyCgroup(parent); err != nil {
+		return "", fmt.Errorf("native service cgroup must be process-free: %w", err)
+	}
+	controllers, err := os.ReadFile(filepath.Join(parent, "cgroup.controllers"))
+	if err != nil {
+		return "", fmt.Errorf("read delegated service controllers: %w", err)
+	}
+	if !slices.Contains(strings.Fields(string(controllers)), "memory") {
+		return "", errors.New("native service cgroup lacks delegated memory controller")
 	}
 	return filepath.Join(parent, nativeCgroupName(stateRoot)), nil
+}
+
+func nativeDelegatedServiceRoot(membership string) (string, error) {
+	if !filepath.IsAbs(membership) || filepath.Clean(membership) != membership {
+		return "", errNativeSubgroupRequired
+	}
+	service, ok := strings.CutSuffix(membership, "/supervisor")
+	if !ok || service == "" || service == "/" || !strings.HasSuffix(filepath.Base(service), ".service") {
+		return "", errNativeSubgroupRequired
+	}
+	return filepath.Join("/sys/fs/cgroup", service), nil
+}
+
+func requireEmptyCgroup(path string) error {
+	procs, err := os.ReadFile(filepath.Join(path, "cgroup.procs"))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(procs)) != "" {
+		return errors.New("cgroup contains processes")
+	}
+	return nil
+}
+
+func prepareNativeCgroupRoot(root string) error {
+	parent := filepath.Dir(root)
+	if err := requireEmptyCgroup(parent); err != nil {
+		return fmt.Errorf("native service cgroup must stay process-free: %w", err)
+	}
+	if err := enableCgroupMemoryController(parent); err != nil {
+		return fmt.Errorf("enable native service memory controller: %w", err)
+	}
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return fmt.Errorf("create native runner cgroup: %w", err)
+	}
+	if err := requireEmptyCgroup(root); err != nil {
+		return fmt.Errorf("native runner cgroup must be process-free: %w", err)
+	}
+	if err := enableCgroupMemoryController(root); err != nil {
+		return fmt.Errorf("enable native runner memory controller: %w", err)
+	}
+	return nil
 }

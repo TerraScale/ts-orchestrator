@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,12 +22,13 @@ import (
 )
 
 type Workload struct {
-	Role        string
-	Digest      string
-	Fingerprint string
-	Executable  string
-	Args        []string
-	Env         map[string]string
+	Role                 string
+	Digest               string
+	Fingerprint          string
+	Executable           string
+	Args                 []string
+	Env                  map[string]string
+	CgroupMemoryMaxBytes uint64 // Zero leaves the role cgroup's default limit unchanged.
 }
 
 // WorkloadIdentity is the dedicated, unprivileged identity for every native
@@ -115,11 +118,8 @@ func (p *processRunner) Recover(ctx context.Context) error {
 	}
 	p.lock = lock
 	p.mu.Unlock()
-	if err := os.MkdirAll(p.cgroups, 0700); err != nil {
-		return fmt.Errorf("writable cgroup v2 is required: %w", err)
-	}
-	if _, err := os.Stat(filepath.Join(p.cgroups, "cgroup.controllers")); err != nil {
-		return fmt.Errorf("cgroup v2 is required: %w", err)
+	if err := prepareNativeCgroupRoot(p.cgroups); err != nil {
+		return err
 	}
 	entries, err := os.ReadDir(p.cgroups)
 	if err != nil {
@@ -178,6 +178,9 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if err := validateDigest(w.Fingerprint); err != nil {
 		return fmt.Errorf("invalid workload fingerprint: %w", err)
 	}
+	if err := validateCgroupMemoryMax(w.CgroupMemoryMaxBytes); err != nil {
+		return err
+	}
 	if !filepath.IsAbs(w.Executable) {
 		return errors.New("workload executable must be absolute")
 	}
@@ -204,8 +207,18 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if err := removeEmptyCgroupTree(cgroupPath); err != nil {
 		return fmt.Errorf("reset workload cgroup: %w", err)
 	}
+	if w.CgroupMemoryMaxBytes != 0 {
+		if err := enableCgroupMemoryController(p.cgroups); err != nil {
+			return fmt.Errorf("enable workload memory controller: %w", err)
+		}
+	}
 	if err := os.MkdirAll(cgroupPath, 0700); err != nil {
 		return fmt.Errorf("create workload cgroup: %w", err)
+	}
+	if w.CgroupMemoryMaxBytes != 0 {
+		if err := setCgroupMemoryMax(cgroupPath, w.CgroupMemoryMaxBytes); err != nil {
+			return fmt.Errorf("configure workload memory cap: %w", err)
+		}
 	}
 	cgroup, err := os.Open(cgroupPath)
 	if err != nil {
@@ -300,6 +313,56 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		}
 		fmt.Fprintf(os.Stderr, "native workload exited role=%s pid=%d digest=%s result=%q\n", w.Role, record.PID, w.Digest[:12], result)
 	}()
+	return nil
+}
+
+func validateCgroupMemoryMax(limit uint64) error {
+	if limit == 0 {
+		return nil
+	}
+	page := uint64(os.Getpagesize())
+	if limit < page || limit > math.MaxInt64 || limit%page != 0 {
+		return errors.New("workload cgroup memory cap must be finite, page-aligned and fit signed 64-bit")
+	}
+	return nil
+}
+
+func enableCgroupMemoryController(parent string) error {
+	path := filepath.Join(parent, "cgroup.subtree_control")
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	if _, err := file.WriteString("+memory"); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	readback, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(strings.Fields(string(readback)), "memory") {
+		return fmt.Errorf("kernel cgroup.subtree_control does not include memory: %q", strings.TrimSpace(string(readback)))
+	}
+	return nil
+}
+
+func setCgroupMemoryMax(cgroupPath string, limit uint64) error {
+	want := strconv.FormatUint(limit, 10)
+	path := filepath.Join(cgroupPath, "memory.max")
+	if err := os.WriteFile(path, []byte(want), 0600); err != nil {
+		return err
+	}
+	readback, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(readback)) != want {
+		return fmt.Errorf("kernel memory.max readback %q differs from requested %q", strings.TrimSpace(string(readback)), want)
+	}
 	return nil
 }
 

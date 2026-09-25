@@ -136,11 +136,8 @@ func ProbeNativeRuntime(ctx context.Context, runnerStateRoot string, identity Wo
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
-		return fmt.Errorf("native runtime probe requires writable cgroup v2: %w", err)
-	}
-	if _, err := os.Stat(filepath.Join(root, "cgroup.controllers")); err != nil {
-		return fmt.Errorf("native runtime probe requires cgroup v2: %w", err)
+	if err := prepareNativeCgroupRoot(root); err != nil {
+		return fmt.Errorf("prepare native runtime probe cgroup: %w", err)
 	}
 	var roleID [8]byte
 	if _, err := rand.Read(roleID[:]); err != nil {

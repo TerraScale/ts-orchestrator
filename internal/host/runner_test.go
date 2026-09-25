@@ -160,6 +160,55 @@ func writeNativeTestExecutable(t *testing.T, path, body string) {
 	}
 }
 
+func TestWorkloadCgroupMemoryMaxValidation(t *testing.T) {
+	page := uint64(os.Getpagesize())
+	for _, tc := range []struct {
+		name  string
+		limit uint64
+		valid bool
+	}{
+		{name: "default", limit: 0, valid: true},
+		{name: "finite page multiple", limit: 5 << 30, valid: true},
+		{name: "subpage", limit: page - 1},
+		{name: "unaligned", limit: (5 << 30) + 1},
+		{name: "signed overflow", limit: uint64(1) << 63},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateCgroupMemoryMax(tc.limit)
+			if (err == nil) != tc.valid {
+				t.Fatalf("validateCgroupMemoryMax(%d) error = %v, valid = %t", tc.limit, err, tc.valid)
+			}
+			if tc.valid {
+				return
+			}
+			// Invalid limits must fail before Stop or process launch, even when
+			// the runner has not yet recovered or the executable is absent.
+			runner := NewProcessRunner(t.TempDir(), testWorkloadIdentity)
+			workload := Workload{
+				Role: "terrabase", Digest: strings.Repeat("a", 64), Fingerprint: strings.Repeat("b", 64),
+				CgroupMemoryMaxBytes: tc.limit,
+			}
+			if err := runner.Apply(t.Context(), workload); err == nil || !strings.Contains(err.Error(), "memory cap") {
+				t.Fatalf("Apply with invalid cap should fail before runner state or launch checks: %v", err)
+			}
+		})
+	}
+}
+
+func TestEnableCgroupMemoryControllerFailsClosed(t *testing.T) {
+	parent := t.TempDir()
+	if err := enableCgroupMemoryController(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing delegated controller file should fail: %v", err)
+	}
+	path := filepath.Join(parent, "cgroup.subtree_control")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := enableCgroupMemoryController(parent); err == nil || !strings.Contains(err.Error(), "does not include memory") {
+		t.Fatalf("non-kernel readback must not be accepted: %v", err)
+	}
+}
+
 func TestCloseKillsCgroupWhileApplyHoldsLock(t *testing.T) {
 	root := t.TempDir()
 	role := "terrabase"
@@ -244,8 +293,8 @@ func TestApplyDoesNotLaunchAfterCancellation(t *testing.T) {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
 			_ = runner.lock.Close()
 		}
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			t.Skipf("requires writable cgroup v2: %v", err)
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
 		}
 		t.Fatal(err)
 	}
@@ -288,8 +337,8 @@ func TestCloseInvalidatesOpenedCgroupFD(t *testing.T) {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
 			_ = runner.lock.Close()
 		}
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			t.Skipf("requires writable cgroup v2: %v", err)
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
 		}
 		t.Fatal(err)
 	}
@@ -350,8 +399,8 @@ func TestNativeReplacementStartsAfterCgroupKill(t *testing.T) {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
 			_ = runner.lock.Close()
 		}
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			t.Skipf("requires writable cgroup v2: %v", err)
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
 		}
 		t.Fatal(err)
 	}
@@ -403,8 +452,8 @@ func TestNativeWorkloadReceivesOnlyExplicitEnvironment(t *testing.T) {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
 			_ = runner.lock.Close()
 		}
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			t.Skipf("requires writable delegated cgroup v2 and root supervisor: %v", err)
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2 and root supervisor: %v", err)
 		}
 		t.Fatal(err)
 	}
@@ -469,9 +518,12 @@ func TestNativeTenantWorkloadDiesWithSupervisor(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "state")
 	cgroupRoot, err := nativeCgroupRoot(state)
 	if err != nil {
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
+		}
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(cgroupRoot, 0700); err != nil {
+	if err := prepareNativeCgroupRoot(cgroupRoot); err != nil {
 		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
 			t.Skipf("requires writable delegated cgroup v2: %v", err)
 		}

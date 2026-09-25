@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -18,8 +17,8 @@ import (
 func TestNativeRuntimeProbeExecutesAndReplaces(t *testing.T) {
 	stateRoot := filepath.Join(t.TempDir(), "runner")
 	if err := ProbeNativeRuntime(t.Context(), stateRoot, testWorkloadIdentity); err != nil {
-		if errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) {
-			t.Skipf("requires writable cgroup v2: %v", err)
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
 		}
 		t.Fatal(err)
 	}
