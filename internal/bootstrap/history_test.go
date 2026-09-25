@@ -173,6 +173,7 @@ func historyExpectation(manifest Manifest) ManifestExpectation {
 	return ManifestExpectation{
 		DeploymentID: manifest.DeploymentID, Environment: manifest.Environment, ClusterID: manifest.ClusterID,
 		Cell: manifest.Cell, Slot: manifest.Slot, ImageOCID: manifest.ImageOCID, StorageDomain: manifest.StorageDomain,
+		ControllerSlots: append([]string(nil), manifest.ControllerSlots...),
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -55,13 +56,23 @@ type objectStorageServiceError interface {
 // LedgerConfig pins the namespace, private bucket, KMS key, and manifest-owned
 // prefix. Bucket ACL and key policy remain deployment responsibilities.
 type LedgerConfig struct {
-	Namespace       string
-	Bucket          string
-	KMSKeyID        string
-	Prefix          string
-	HeadBucket      string
-	HeadKMSKeyID    string
-	Environment     string
+	DeploymentID                  string
+	Cell                          oci.Region
+	ClusterID                     string
+	InitialRegionIntentGeneration uint64
+	InitialRegionIntentSHA256     string
+	Namespace                     string
+	Bucket                        string
+	KMSKeyID                      string
+	Prefix                        string
+	HeadBucket                    string
+	HeadKMSKeyID                  string
+	Environment                   string
+	ControllerSlots               []string
+	// AnchorExpiresAt bounds fresh effects from a currently verified
+	// bootstrap anchor. Zero is reserved for explicit root-only/offline ledger
+	// workflows that do not derive authority from the machine anchor.
+	AnchorExpiresAt time.Time
 	TrustRoots      trust.Keyring
 	Delegations     []trust.VerifiedDelegation
 	TrustPolicy     trust.Policy
@@ -100,15 +111,21 @@ type Ledger struct {
 // NewLedger validates the fixed storage scope. The caller provisions and
 // authorizes the private KMS bucket before constructing the ledger.
 func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error) {
-	if client == nil || !ledgerIDPattern.MatchString(config.Namespace) ||
+	if client == nil || validateLedgerAnchor(config) != nil || !ledgerIDPattern.MatchString(config.Namespace) ||
 		!ledgerNamePattern.MatchString(config.Bucket) || !strings.HasPrefix(config.KMSKeyID, "ocid1.key.") ||
 		len(config.KMSKeyID) > 255 || strings.ContainsAny(config.KMSKeyID, " \t\r\n") || !validLedgerPrefix(config.Prefix) ||
 		!ledgerNamePattern.MatchString(config.HeadBucket) || config.HeadBucket == config.Bucket ||
 		!strings.HasPrefix(config.HeadKMSKeyID, "ocid1.key.") || len(config.HeadKMSKeyID) > 255 ||
 		strings.ContainsAny(config.HeadKMSKeyID, " \t\r\n") ||
 		!ledgerIDPattern.MatchString(config.Environment) || config.TrustPolicy.MaxLifetime <= 0 || config.TrustPolicy.ClockSkew < 0 ||
-		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 {
+		len(config.ControllerSlots) == 0 || len(config.ControllerSlots) > 64 || hasDuplicate(config.ControllerSlots) ||
+		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config) != nil {
 		return nil, errors.New("bootstrap ledger requires separate immutable and coordination buckets, KMS keys, environment, trust policy, and a valid Object Storage client")
+	}
+	for _, slot := range config.ControllerSlots {
+		if !controllerSlotRE.MatchString(slot) {
+			return nil, errors.New("bootstrap ledger requires a canonical anchor-pinned controller slot set")
+		}
 	}
 	roots := make(trust.Keyring, len(config.TrustRoots))
 	for keyID, key := range config.TrustRoots {
@@ -116,10 +133,46 @@ func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error)
 	}
 	config.TrustRoots = roots
 	config.Delegations = slices.Clone(config.Delegations)
+	config.ControllerSlots = slices.Clone(config.ControllerSlots)
 	if config.VerificationNow == nil {
 		config.VerificationNow = time.Now
 	}
 	return &Ledger{client: client, config: config, maxRecord: maxLedgerRecordBytes}, nil
+}
+
+func validateLedgerDelegations(config LedgerConfig) error {
+	if len(config.Delegations) != 1 {
+		return errors.New("bootstrap ledger requires exactly one anchor-verified ledger delegation")
+	}
+	wantDomains := []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult}
+	capabilities := config.Delegations[0].Capabilities()
+	if len(capabilities) != len(wantDomains) {
+		return errors.New("bootstrap ledger delegation must contain exactly HEAD, intent, and result grants")
+	}
+	seen := make(map[string]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		if !slices.Contains(wantDomains, capability.Domain) || capability.DeploymentID != config.DeploymentID ||
+			capability.Cell != string(config.Cell) || capability.Environment != config.Environment || capability.Role != roleController ||
+			!sameStrings(capability.Slots, config.ControllerSlots) || !slices.Equal(capability.Actions, []string{"sign"}) {
+			return errors.New("bootstrap ledger delegation does not match the exact anchored scope and slots")
+		}
+		if _, exists := seen[capability.Domain]; exists {
+			return errors.New("bootstrap ledger delegation duplicates a signing domain")
+		}
+		seen[capability.Domain] = struct{}{}
+	}
+	return nil
+}
+
+func validateLedgerAnchor(config LedgerConfig) error {
+	if !deploymentRE.MatchString(config.DeploymentID) || !clusterRE.MatchString(config.ClusterID) ||
+		config.InitialRegionIntentGeneration == 0 || !validDigest(config.InitialRegionIntentSHA256) {
+		return errors.New("bootstrap ledger requires trusted deployment, cluster, and initial region-intent identity")
+	}
+	if _, err := config.Cell.OCIRegion(); err != nil {
+		return fmt.Errorf("bootstrap ledger requires a supported trusted cell: %w", err)
+	}
+	return nil
 }
 
 // CheckRetryWindow compares OCI's current server clock to the original
@@ -140,7 +193,9 @@ type ledgerRecordKind string
 const (
 	ledgerIntent      ledgerRecordKind = "intent"
 	ledgerResult      ledgerRecordKind = "result"
+	ledgerManifest    ledgerRecordKind = "manifest"
 	ledgerRetirement  ledgerRecordKind = "retirement"
+	ledgerPeerReceipt ledgerRecordKind = "peer-receipt"
 	ledgerSeedReceipt ledgerRecordKind = "seed-receipt"
 )
 
@@ -156,6 +211,9 @@ func (ledger *Ledger) createOrRead(ctx context.Context, scope BootstrapScope, at
 	ifNoneMatch := "*"
 	digestHeader := base64.StdEncoding.EncodeToString(sourceDigest[:])
 	length := int64(len(body))
+	if err := ledger.validateCurrentAuthority(); err != nil {
+		return StoredRecord{}, err
+	}
 	response, putErr := ledger.client.PutObject(ctx, objectstorage.PutObjectRequest{
 		NamespaceName:        new(ledger.config.Namespace),
 		BucketName:           new(ledger.config.Bucket),
@@ -189,6 +247,17 @@ func (ledger *Ledger) createOrRead(ctx context.Context, scope BootstrapScope, at
 	}
 	stored.Created = putErr == nil
 	return stored, nil
+}
+
+// validateCurrentAuthority bounds current writes and OCI launch tokens. A
+// verified anchor cannot grant effects beyond either its own expiry or the
+// delegated ledger grant; anchor verification guarantees its expiry is at or
+// before the grant expiry.
+func (ledger *Ledger) validateCurrentAuthority() error {
+	if !ledger.config.AnchorExpiresAt.IsZero() && !ledger.now().Before(ledger.config.AnchorExpiresAt) {
+		return fmt.Errorf("%w: current bootstrap anchor has expired", ErrRecordAuthorization)
+	}
+	return nil
 }
 
 func (ledger *Ledger) read(ctx context.Context, scope BootstrapScope, attempt uint64, kind ledgerRecordKind) (StoredRecord, error) {
@@ -280,8 +349,25 @@ func (ledger *Ledger) objectName(scope BootstrapScope, attempt uint64, kind ledg
 	return name
 }
 
+func (ledger *Ledger) validateAnchorScope(scope BootstrapScope) error {
+	if scope.DeploymentID != ledger.config.DeploymentID || scope.Cell != string(ledger.config.Cell) {
+		return fmt.Errorf("%w: bootstrap scope does not match the trusted ledger anchor", ErrRecordAuthorization)
+	}
+	if !slices.Contains(ledger.config.ControllerSlots, scope.Slot) {
+		return fmt.Errorf("%w: controller slot is not pinned by the trusted ledger anchor", ErrRecordAuthorization)
+	}
+	return nil
+}
+
+func (config LedgerConfig) storageDomain() StorageDomain {
+	return StorageDomain{
+		Namespace: config.Namespace, LedgerBucket: config.Bucket, LedgerKMSKeyOCID: config.KMSKeyID,
+		HeadBucket: config.HeadBucket, HeadKMSKeyOCID: config.HeadKMSKeyID, Prefix: config.Prefix,
+	}
+}
+
 func validateLedgerScope(scope BootstrapScope) error {
-	if !ledgerIDPattern.MatchString(scope.DeploymentID) || !ledgerIDPattern.MatchString(scope.Slot) ||
+	if !deploymentRE.MatchString(scope.DeploymentID) || !slotNameRE.MatchString(scope.Slot) ||
 		(scope.Cell != "GRU" && scope.Cell != "SFO" && scope.Cell != "FRA") {
 		return errors.New("bootstrap ledger scope has an invalid deployment, cell, or controller slot")
 	}

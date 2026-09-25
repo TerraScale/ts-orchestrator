@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
@@ -58,43 +57,85 @@ type ociSecretBundleReader struct {
 	client ociSecretBundleClient
 }
 
-// NewInstancePrincipalVault constructs an OCI Secrets client using instance
-// principals and pins it to the canonical Secrets endpoint for one product
-// region. IAM must grant only the intended secret OCIDs and versions.
-func NewInstancePrincipalVault(region oci.Region) (*Vault, error) {
+// NewInstancePrincipalVault constructs an OCI Secrets client from the
+// anchor-scoped instance-principal provider shared by bootstrap observers.
+// IAM must grant only the intended secret OCIDs and versions.
+func NewInstancePrincipalVault(region oci.Region, provider common.ConfigurationProvider) (*Vault, error) {
 	ociRegion, err := region.OCIRegion()
-	if err != nil {
-		return nil, err
+	if err != nil || provider == nil {
+		return nil, errors.New("bootstrap Vault requires a supported region and verified instance-principal provider")
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
-	if err != nil {
-		return nil, fmt.Errorf("create OCI instance-principal provider for Vault: %w", err)
+	providerRegion, err := provider.Region()
+	if err != nil || providerRegion != ociRegion {
+		return nil, errors.New("bootstrap Vault provider region differs from the anchored region")
 	}
 	client, err := secrets.NewSecretsClientWithConfigurationProvider(provider)
 	if err != nil {
 		return nil, fmt.Errorf("create OCI Secrets client: %w", err)
 	}
 	client.SetRegion(ociRegion)
+	client.HTTPClient, err = NewInstancePrincipalSDKHTTPClient()
+	if err != nil {
+		return nil, fmt.Errorf("configure OCI Secrets HTTP transport: %w", err)
+	}
 	return &Vault{reader: ociSecretBundleReader{client: client}, now: time.Now}, nil
 }
 
-// Materialize fetches one exact, immutable secret version and installs it as
-// an owner-only file. The target is atomically linked into place and is never
-// overwritten. A verified receipt for this manifest and instance is required.
+// Materialize checks the current manifest and receipt for one exact secret.
+// The production admission path uses MaterializeCurrent to additionally bind
+// each Vault read and file install to its still-current root proof chain.
 func (vault *Vault) Materialize(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt, reference SecretReference, destinationDirectory string) error {
+	return vault.materialize(ctx, manifest, receipt, reference, destinationDirectory, nil)
+}
+
+// MaterializeCurrent additionally rechecks the whole current bootstrap proof
+// immediately before the Vault request and before installing its response.
+func (vault *Vault) MaterializeCurrent(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt,
+	reference SecretReference, destinationDirectory string, verifyCurrent func(time.Time) error,
+) error {
+	if verifyCurrent == nil {
+		return ErrMaterialization
+	}
+	return vault.materialize(ctx, manifest, receipt, reference, destinationDirectory, verifyCurrent)
+}
+
+func (vault *Vault) materialize(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt,
+	reference SecretReference, destinationDirectory string, verifyCurrent func(time.Time) error,
+) error {
 	if vault == nil || vault.reader == nil {
 		return errors.New("bootstrap Vault reader is not configured")
 	}
-	now := time.Now()
+	clock := time.Now
 	if vault.now != nil {
-		now = vault.now()
+		clock = vault.now
+	}
+	now := clock()
+	if verifyCurrent != nil {
+		if err := verifyCurrent(now); err != nil {
+			return fmt.Errorf("current bootstrap proof before Vault read: %w", err)
+		}
 	}
 	if err := authorizeSecretMaterialization(manifest, receipt, reference, now); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	bundle, err := vault.reader.GetSecretBundle(ctx, reference.SecretOCID, reference.VersionNumber)
 	if err != nil {
 		return fmt.Errorf("get exact OCI Vault secret bundle: %w", err)
+	}
+	now = clock()
+	if verifyCurrent != nil {
+		if err := verifyCurrent(now); err != nil {
+			return fmt.Errorf("current bootstrap proof before secret install: %w", err)
+		}
+	}
+	if err := authorizeSecretMaterialization(manifest, receipt, reference, now); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	content, err := decodeSecretBundle(bundle, reference)
 	if err != nil {

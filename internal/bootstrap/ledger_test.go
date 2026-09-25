@@ -3,8 +3,6 @@ package bootstrap
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -12,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,8 +40,8 @@ func TestReserveSlotRecoversLostAcknowledgementAndSurvivesRestart(t *testing.T) 
 	if got := fixture.client.putCalls.Load(); got != 2 {
 		t.Fatalf("PUT calls = %d, want immutable intent and initial HEAD", got)
 	}
-	if got := fixture.client.getCalls.Load(); got != 6 {
-		t.Fatalf("exact-key readbacks = %d, want reservation admission and write confirmation reads", got)
+	if got := fixture.client.getCalls.Load(); got != 8 {
+		t.Fatalf("exact-key readbacks = %d, want intent/HEAD confirmations, final intent refresh, and verified-slot reads", got)
 	}
 
 	restarted := fixture.newLedger(t)
@@ -98,7 +97,8 @@ func TestConcurrentInitialReservationAndManifestConflict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode initial HEAD fixture: %v", err)
 	}
-	resignedHead := fixture.sign(t, scope, domainBootstrapHead, storedHead, fixture.now.Add(time.Second))
+	resignedHead := fixture.signInterval(t, scope, domainBootstrapHead, storedHead,
+		fixture.now.Add(time.Second), fixture.now.Add(time.Hour))
 	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, resignedHead); !errors.Is(err, ErrSlotHeadConflict) {
 		t.Fatalf("different signed bytes with the same HEAD payload returned %v, want exact-byte conflict", err)
 	}
@@ -128,13 +128,18 @@ func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
 		t.Fatalf("advance without a committed positive result = %v, want ErrSlotNotReserved", err)
 	}
 
+	manifestBytes, receiptBytes, facts := fixture.managedProof(t, scope, intent, reservation.IntentDigest())
 	result := fixture.result(scope, intent, reservation.IntentDigest())
+	result.PeerReceiptDigest = bodyDigest(receiptBytes)
 	resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
 	completedHead := initialHead
 	completedHead.ResultDigest = bodyDigest(resultBytes)
 	completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+	if _, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes, completedHeadBytes); !errors.Is(err, ErrManagedPeerReceiptRequired) {
+		t.Fatalf("generic managed result path returned %v, want delegated receipt requirement", err)
+	}
 	fixture.client.loseAckForBucket("bootstrap-head")
-	state, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes, completedHeadBytes)
+	state, err := fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
 	if err != nil {
 		t.Fatalf("record result after lost HEAD acknowledgement: %v", err)
 	}
@@ -187,8 +192,8 @@ func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
 	}
 }
 
-func TestAdvanceSlotHistoricalRecoveryRequiresExactIntentAndProofStoredWhileCurrent(t *testing.T) {
-	t.Run("repairs exact pending transition after proof expiry", func(t *testing.T) {
+func TestAdvanceSlotRequiresCurrentRetirementAndSuccessorIntent(t *testing.T) {
+	t.Run("does not create successor HEAD from expired stored proof pair", func(t *testing.T) {
 		fixture := newLedgerFixture(t)
 		scope := testBootstrapScope()
 		state := completeFirstManagedAttempt(t, fixture, scope)
@@ -212,16 +217,17 @@ func TestAdvanceSlotHistoricalRecoveryRequiresExactIntentAndProofStoredWhileCurr
 			t.Fatalf("persist current retirement evidence: %v", err)
 		}
 		fixture.client.setNow(fixture.now.Add(2 * time.Minute))
-		advanced, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag,
-			retirementBytes, nextIntentBytes, nextHeadBytes)
-		if err != nil {
-			t.Fatalf("repair exact persisted transition after evidence expiry: %v", err)
+		objectCount := fixture.client.objectCount()
+		if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag,
+			retirementBytes, nextIntentBytes, nextHeadBytes); err == nil {
+			t.Fatal("expired stored retirement evidence authorized a new successor HEAD")
 		}
-		if advanced.Head.Attempt != 2 || advanced.Intent.RetirementDigest != bodyDigest(retirementBytes) {
-			t.Fatalf("historical repair did not advance the proof-bound attempt: %+v", advanced)
+		if got := fixture.client.objectCount(); got != objectCount {
+			t.Fatalf("expired proof transition wrote records: objects=%d, before=%d", got, objectCount)
 		}
-		if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); err != nil {
-			t.Fatalf("explicit managed launch authorization after repair: %v", err)
+		current, err := fixture.ledger.ReadSlot(t.Context(), scope)
+		if err != nil || current.Head.Attempt != 1 {
+			t.Fatalf("expired proof changed the stable slot HEAD: state=%+v err=%v", current, err)
 		}
 	})
 
@@ -262,6 +268,450 @@ func TestAdvanceSlotHistoricalRecoveryRequiresExactIntentAndProofStoredWhileCurr
 	})
 }
 
+func TestReserveSlotDoesNotCreateHEADFromExpiredIntent(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerIntent, intentBytes); err != nil {
+		t.Fatalf("persist exact intent while current: %v", err)
+	}
+	fixture.client.setNow(fixture.now.Add(23 * time.Hour))
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrRetryWindowExpired) {
+		t.Fatalf("expired original intent retry window = %v, want ErrRetryWindowExpired", err)
+	}
+	if got := fixture.client.objectCount(); got != 1 {
+		t.Fatalf("expired intent created an initial HEAD: stored objects=%d, want only the persisted intent", got)
+	}
+}
+
+func TestFirstResultRequiresCurrentManifestAndReceipt(t *testing.T) {
+	for _, mode := range []IntentMode{IntentModeManaged, IntentModeExternalSeed} {
+		t.Run(string(mode), func(t *testing.T) {
+			fixture := newLedgerFixture(t)
+			scope := testBootstrapScope()
+			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+			if mode == IntentModeExternalSeed {
+				intent.Mode = mode
+				intent.RetryToken = ""
+				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
+				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
+			}
+			reserved, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, fixture.headBytes(t, scope, intentBytes, 1))
+			if err != nil {
+				t.Fatalf("reserve proof-gated slot: %v", err)
+			}
+			var manifestBytes, receiptBytes []byte
+			var facts InstanceFacts
+			if mode == IntentModeExternalSeed {
+				manifestBytes, receiptBytes, facts = fixture.seedProof(t, scope, intent, bodyDigest(intentBytes))
+			} else {
+				manifestBytes, receiptBytes, facts = fixture.managedProof(t, scope, intent, bodyDigest(intentBytes))
+			}
+			result := fixture.result(scope, intent, bodyDigest(intentBytes))
+			if mode == IntentModeExternalSeed {
+				result.Mode = mode
+				result.SeedReceiptDigest = bodyDigest(receiptBytes)
+			} else {
+				result.PeerReceiptDigest = bodyDigest(receiptBytes)
+			}
+			resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+			completedHead := reserved.Head
+			completedHead.ResultDigest = bodyDigest(resultBytes)
+			completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+			manifestKind := ledgerManifest
+			receiptKind := ledgerPeerReceipt
+			if mode == IntentModeExternalSeed {
+				receiptKind = ledgerSeedReceipt
+			}
+			if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, manifestKind, manifestBytes); err != nil {
+				t.Fatalf("persist manifest while current: %v", err)
+			}
+			if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, receiptKind, receiptBytes); err != nil {
+				t.Fatalf("persist receipt while current: %v", err)
+			}
+			storedBefore := fixture.client.objectCount()
+			fixture.client.setNow(fixture.now.Add(25 * time.Hour))
+			if mode == IntentModeExternalSeed {
+				_, err = fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			} else {
+				_, err = fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			}
+			if err == nil {
+				t.Fatal("stored expired manifest/receipt authorized a first result write")
+			}
+			if got := fixture.client.objectCount(); got != storedBefore {
+				t.Fatalf("expired proof pair wrote a result or HEAD: objects=%d, before=%d", got, storedBefore)
+			}
+			if _, exists, readErr := fixture.ledger.readExistingExact(t.Context(), scope, 1, ledgerResult, resultBytes); readErr != nil || exists {
+				t.Fatalf("expired proof pair created a result object: exists=%t err=%v", exists, readErr)
+			}
+			state, readErr := fixture.ledger.ReadSlot(t.Context(), scope)
+			if readErr != nil || state.Head.ResultDigest != "" {
+				t.Fatalf("expired proof pair changed HEAD: state=%+v err=%v", state, readErr)
+			}
+		})
+	}
+}
+
+func TestResultCommittedAtExpiredReceiptBoundaryCannotBeCompletedOrRepaired(t *testing.T) {
+	for _, mode := range []IntentMode{IntentModeManaged, IntentModeExternalSeed} {
+		t.Run(string(mode), func(t *testing.T) {
+			fixture := newLedgerFixture(t)
+			scope := testBootstrapScope()
+			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+			if mode == IntentModeExternalSeed {
+				intent.Mode = mode
+				intent.RetryToken = ""
+				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
+				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
+			}
+			reserved, err := fixture.ledger.ReserveSlot(
+				t.Context(), scope, intentBytes, fixture.headBytes(t, scope, intentBytes, 1),
+			)
+			if err != nil {
+				t.Fatalf("reserve proof-gated slot: %v", err)
+			}
+
+			var manifestBytes, receiptBytes []byte
+			var facts InstanceFacts
+			if mode == IntentModeExternalSeed {
+				manifestBytes, receiptBytes, facts = fixture.seedProof(t, scope, intent, reserved.IntentDigest())
+			} else {
+				manifestBytes, receiptBytes, facts = fixture.managedProof(t, scope, intent, reserved.IntentDigest())
+			}
+			receiptExpiry := fixture.now.Add(10*time.Second + 500*time.Millisecond)
+			receiptBytes = fixture.resignReceiptUntil(t, receiptBytes, receiptExpiry)
+			result := fixture.result(scope, intent, reserved.IntentDigest())
+			if mode == IntentModeExternalSeed {
+				result.Mode = mode
+				result.SeedReceiptDigest = bodyDigest(receiptBytes)
+			} else {
+				result.PeerReceiptDigest = bodyDigest(receiptBytes)
+			}
+			resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+			completedHead := reserved.Head
+			completedHead.ResultDigest = bodyDigest(resultBytes)
+			completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+			fixture.client.setClockBeforePut(fixture.ledger.config.Bucket,
+				fixture.ledger.objectName(scope, 1, ledgerResult), receiptExpiry)
+
+			if mode == IntentModeExternalSeed {
+				_, err = fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			} else {
+				_, err = fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			}
+			if !errors.Is(err, ErrRecordAuthorization) {
+				t.Fatalf("result committed at the expired receipt boundary = %v, want ErrRecordAuthorization", err)
+			}
+			if _, exists, readErr := fixture.ledger.readExistingExact(t.Context(), scope, 1, ledgerResult, resultBytes); readErr != nil || !exists {
+				t.Fatalf("late result object was not observed exactly: exists=%t err=%v", exists, readErr)
+			}
+			state, readErr := fixture.ledger.ReadSlot(t.Context(), scope)
+			if readErr != nil || state.Head.ResultDigest != "" {
+				t.Fatalf("late result was accepted by the unchanged HEAD: state=%+v err=%v", state, readErr)
+			}
+			wantLaunchErr := ErrSlotResultPendingHead
+			if mode == IntentModeExternalSeed {
+				wantLaunchErr = ErrExternalSeedMode
+			}
+			if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, wantLaunchErr) {
+				t.Fatalf("late orphan did not preserve the launch gate: got %v, want %v", err, wantLaunchErr)
+			}
+			if _, _, err := fixture.ledger.writeHead(t.Context(), scope, state.HeadRecord.ETag, completedHead, completedHeadBytes, true); err != nil {
+				t.Fatalf("simulate a late persisted completion HEAD: %v", err)
+			}
+			if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrRecordAuthorization) {
+				t.Fatalf("read accepted a HEAD referencing a result outside its receipt interval: %v", err)
+			}
+
+			if mode == IntentModeExternalSeed {
+				_, err = fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			} else {
+				_, err = fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			}
+			if !errors.Is(err, ErrRecordAuthorization) {
+				t.Fatalf("retry repaired a result outside its receipt interval: %v", err)
+			}
+		})
+	}
+}
+
+func TestInitialHeadCommittedAfterIntentExpiryIsRejectedOnRead(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	intentExpiry := fixture.now.Add(1500 * time.Millisecond)
+	intentBytes = fixture.signInterval(t, scope, domainBootstrapIntent, intent, fixture.now, intentExpiry)
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	fixture.client.setClockBeforePut(fixture.ledger.config.HeadBucket, fixture.ledger.headObjectName(scope), intentExpiry.Add(500*time.Millisecond))
+
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("initial HEAD committed after intent expiry = %v, want ErrRecordAuthorization", err)
+	}
+	if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("read accepted a HEAD committed outside the intent interval: %v", err)
+	}
+}
+
+func TestAuthorizationHeadsStayInsideOriginalRetryWindow(t *testing.T) {
+	t.Run("initial reservation", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+		headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+		retryDeadline := fixture.now.Add(maxRetryAge)
+		fixture.client.setClockBeforePut(fixture.ledger.config.HeadBucket, fixture.ledger.headObjectName(scope), retryDeadline)
+
+		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrRetryWindowExpired) {
+			t.Fatalf("initial HEAD at the original retry deadline = %v, want ErrRetryWindowExpired", err)
+		}
+		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrRetryWindowExpired) {
+			t.Fatalf("read accepted initial HEAD outside the original retry window: %v", err)
+		}
+	})
+
+	t.Run("successor advance", func(t *testing.T) {
+		fixture := newLedgerFixture(t)
+		scope := testBootstrapScope()
+		state := completeFirstManagedAttempt(t, fixture, scope)
+		evidence := fixture.retirement(scope, state, "instance-retired")
+		retirementBytes := fixture.sign(t, scope, domainSlotRetirement, evidence, fixture.now)
+		nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "create-key-2", "retry-token-2")
+		nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
+		nextHead := SlotHead{
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
+			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
+			PreviousResultDigest: state.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+		}
+		nextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, nextHead, fixture.now)
+		fixture.client.setClockBeforePut(fixture.ledger.config.HeadBucket, fixture.ledger.headObjectName(scope), fixture.now.Add(maxRetryAge))
+
+		if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag, retirementBytes, nextIntentBytes, nextHeadBytes); !errors.Is(err, ErrRetryWindowExpired) {
+			t.Fatalf("successor HEAD at the original retry deadline = %v, want ErrRetryWindowExpired", err)
+		}
+		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrRetryWindowExpired) {
+			t.Fatalf("read accepted successor HEAD outside the original retry window: %v", err)
+		}
+	})
+}
+
+func TestReadForLaunchRefreshesCurrentIntentAndRetryClockAtTokenIssue(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		elapsed   time.Duration
+		wantError error
+	}{
+		{name: "original retry window expires", elapsed: maxRetryAge, wantError: ErrRetryWindowExpired},
+		{name: "signed intent expires", elapsed: 24 * time.Hour, wantError: ErrRecordAuthorization},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newLedgerFixture(t)
+			scope := testBootstrapScope()
+			intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+			if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, fixture.headBytes(t, scope, intentBytes, 1)); err != nil {
+				t.Fatalf("reserve launch slot: %v", err)
+			}
+			fixture.client.setClockOnGet(
+				fixture.ledger.config.Bucket,
+				fixture.ledger.objectName(scope, 1, ledgerIntent),
+				2,
+				fixture.now.Add(test.elapsed),
+			)
+
+			if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, test.wantError) {
+				t.Fatalf("launch authorization after final intent read crossed its deadline = %v, want %v", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestExpiredHistoricalResultCannotRecreateMissingReceipt(t *testing.T) {
+	for _, mode := range []IntentMode{IntentModeManaged, IntentModeExternalSeed} {
+		t.Run(string(mode), func(t *testing.T) {
+			fixture := newLedgerFixture(t)
+			scope := testBootstrapScope()
+			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+			if mode == IntentModeExternalSeed {
+				intent.Mode = mode
+				intent.RetryToken = ""
+				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
+				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
+			}
+			reserved, err := fixture.ledger.ReserveSlot(
+				t.Context(), scope, intentBytes, fixture.headBytes(t, scope, intentBytes, 1),
+			)
+			if err != nil {
+				t.Fatalf("reserve proof-gated slot: %v", err)
+			}
+			var manifestBytes, receiptBytes []byte
+			var facts InstanceFacts
+			if mode == IntentModeExternalSeed {
+				manifestBytes, receiptBytes, facts = fixture.seedProof(t, scope, intent, reserved.IntentDigest())
+			} else {
+				manifestBytes, receiptBytes, facts = fixture.managedProof(t, scope, intent, reserved.IntentDigest())
+			}
+			result := fixture.result(scope, intent, reserved.IntentDigest())
+			if mode == IntentModeExternalSeed {
+				result.Mode = mode
+				result.SeedReceiptDigest = bodyDigest(receiptBytes)
+			} else {
+				result.PeerReceiptDigest = bodyDigest(receiptBytes)
+			}
+			resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
+			completedHead := reserved.Head
+			completedHead.ResultDigest = bodyDigest(resultBytes)
+			completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+
+			if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerManifest, manifestBytes); err != nil {
+				t.Fatalf("persist exact manifest: %v", err)
+			}
+			if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, resultBytes); err != nil {
+				t.Fatalf("persist result before simulated crash: %v", err)
+			}
+			objectsBeforeRetry := fixture.client.objectCount()
+			fixture.client.setNow(fixture.now.Add(6 * time.Minute))
+
+			if mode == IntentModeExternalSeed {
+				_, err = fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			} else {
+				_, err = fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
+			}
+			if !errors.Is(err, ErrRecordAuthorization) {
+				t.Fatalf("expired repair without a durable receipt = %v, want ErrRecordAuthorization", err)
+			}
+			if got := fixture.client.objectCount(); got != objectsBeforeRetry {
+				t.Fatalf("expired repair created the missing receipt or HEAD: objects=%d, before=%d", got, objectsBeforeRetry)
+			}
+			receiptKind := ledgerPeerReceipt
+			if mode == IntentModeExternalSeed {
+				receiptKind = ledgerSeedReceipt
+			}
+			if _, exists, readErr := fixture.ledger.readExistingExact(t.Context(), scope, 1,
+				receiptKind, receiptBytes); readErr != nil || exists {
+				t.Fatalf("expired repair created the missing receipt: exists=%t err=%v", exists, readErr)
+			}
+			state, readErr := fixture.ledger.ReadSlot(t.Context(), scope)
+			if readErr != nil || state.Head.ResultDigest != "" {
+				t.Fatalf("expired repair changed the stable HEAD: state=%+v err=%v", state, readErr)
+			}
+		})
+	}
+}
+func TestSuccessorHeadCommittedAfterIntentOrEvidenceExpiryIsRejectedOnRead(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	state := completeFirstManagedAttempt(t, fixture, scope)
+	evidenceExpiry := fixture.now.Add(1500 * time.Millisecond)
+	evidence := fixture.retirement(scope, state, "instance-retired")
+	retirementBytes := fixture.signInterval(t, scope, domainSlotRetirement, evidence, fixture.now, evidenceExpiry)
+	nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "create-key-2", "retry-token-2")
+	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
+	nextIntentBytes = fixture.signInterval(t, scope, domainBootstrapIntent, nextIntent, fixture.now, evidenceExpiry)
+	nextHead := SlotHead{
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
+		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
+		PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
+		PreviousResultDigest: state.Head.ResultDigest, RetirementDigest: bodyDigest(retirementBytes),
+	}
+	nextHeadBytes := fixture.sign(t, scope, domainBootstrapHead, nextHead, fixture.now)
+	fixture.client.setClockBeforePut(fixture.ledger.config.HeadBucket, fixture.ledger.headObjectName(scope), evidenceExpiry.Add(500*time.Millisecond))
+
+	if _, err := fixture.ledger.AdvanceSlot(t.Context(), scope, state.HeadRecord.ETag, retirementBytes, nextIntentBytes, nextHeadBytes); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("successor HEAD committed after proof expiry = %v, want ErrRecordAuthorization", err)
+	}
+	if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("read accepted a successor HEAD committed outside intent/evidence intervals: %v", err)
+	}
+}
+
+func TestStoredBeforeExpiryUsesWholeOCISeconds(t *testing.T) {
+	base := time.Date(2026, time.September, 25, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name      string
+		expiresAt time.Time
+		want      bool
+	}{
+		{name: "expiry strictly inside timestamp second", expiresAt: base.Add(time.Second + 500*time.Millisecond), want: false},
+		{name: "exclusive second boundary equals expiry", expiresAt: base.Add(2 * time.Second), want: true},
+		{name: "expiry after exclusive second boundary", expiresAt: base.Add(2*time.Second + time.Nanosecond), want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := storedBeforeExpiry(base.Add(time.Second), test.expiresAt); got != test.want {
+				t.Fatalf("storedBeforeExpiry() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func (fixture *ledgerFixture) resignReceiptUntil(t *testing.T, body []byte, expiresAt time.Time) []byte {
+	t.Helper()
+	envelope, err := trust.DecodeEnvelope(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey := fixture.authority.peerPrivate
+	if envelope.Scope.Domain == seedReceiptDomain {
+		privateKey = fixture.authority.rootPrivate
+	}
+	signed, err := trust.Sign([]byte(envelope.Payload), envelope.Scope, envelope.IssuedAt, expiresAt, privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := trust.EncodeEnvelope(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
+}
+
+func TestCurrentAnchorExpiryGuardsImmutableAndHEADWrites(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := testBootstrapScope()
+	config := fixture.ledger.config
+	config.AnchorExpiresAt = fixture.now.Add(time.Minute)
+	ledger, err := NewLedger(fixture.client, config)
+	if err != nil {
+		t.Fatalf("create anchor-bounded ledger: %v", err)
+	}
+	fixture.ledger = ledger
+	intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
+		t.Fatalf("reserve before anchor expiry: %v", err)
+	}
+	fixture.client.setNow(config.AnchorExpiresAt)
+	putCalls := fixture.client.putCalls.Load()
+	if _, _, err := fixture.ledger.writeHead(t.Context(), scope, "", mustDecodeHeadForTest(t, fixture.ledger, scope, headBytes), headBytes, true); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("HEAD write at anchor expiry = %v, want ErrRecordAuthorization", err)
+	}
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, []byte("unused")); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("immutable write at anchor expiry = %v, want ErrRecordAuthorization", err)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("launch authorization at anchor expiry = %v, want ErrRecordAuthorization", err)
+	}
+	if got := fixture.client.putCalls.Load(); got != putCalls {
+		t.Fatalf("expired anchor reached Object Storage PUT: calls=%d, before=%d", got, putCalls)
+	}
+	if got := fixture.client.objectCount(); got != 2 {
+		t.Fatalf("anchor expiry changed durable state: objects=%d, want the original intent and HEAD", got)
+	}
+}
+
+func mustDecodeHeadForTest(t *testing.T, ledger *Ledger, scope BootstrapScope, headBytes []byte) SlotHead {
+	t.Helper()
+	head, err := ledger.decodeHead(scope, headBytes, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return head
+}
+
 func TestReadForLaunchRejectsUncommittedResultAndExpiredRetryWindow(t *testing.T) {
 	t.Run("result exists before HEAD confirmation", func(t *testing.T) {
 		fixture := newLedgerFixture(t)
@@ -274,7 +724,10 @@ func TestReadForLaunchRejectsUncommittedResultAndExpiredRetryWindow(t *testing.T
 		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
 			t.Fatalf("reserve attempt: %v", err)
 		}
-		resultBytes := fixture.sign(t, scope, domainBootstrapResult, fixture.result(scope, intent, bodyDigest(intentBytes)), fixture.now)
+		_, receiptBytes, _ := fixture.managedProof(t, scope, intent, bodyDigest(intentBytes))
+		result := fixture.result(scope, intent, bodyDigest(intentBytes))
+		result.PeerReceiptDigest = bodyDigest(receiptBytes)
+		resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
 		if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, resultBytes); err != nil {
 			t.Fatalf("create pending result: %v", err)
 		}
@@ -325,8 +778,8 @@ func TestLedgerFailsClosedOnUnknownPermanentAndMalformedStorageOutcomes(t *testi
 		if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err == nil || errors.Is(err, ErrOutcomeUnknown) {
 			t.Fatalf("permanent storage rejection = %v, want the terminal service error", err)
 		}
-		if got := fixture.client.getCalls.Load(); got != 1 {
-			t.Fatalf("GET calls after permanent storage rejection = %d, want the exact-key admission read", got)
+		if got := fixture.client.getCalls.Load(); got != 0 {
+			t.Fatalf("GET calls after permanent storage rejection = %d, want no read after a terminal create error", got)
 		}
 	})
 
@@ -353,6 +806,9 @@ func TestLedgerRejectsInvalidScopeConfigurationAndOversizedRecords(t *testing.T)
 		if _, err := fixture.ledger.ReadSlot(t.Context(), scope); err == nil {
 			t.Errorf("ReadSlot accepted invalid scope %+v", scope)
 		}
+	}
+	if _, err := fixture.ledger.ReadSlot(t.Context(), BootstrapScope{DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-b"}); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("ReadSlot accepted a slot outside the anchor: %v", err)
 	}
 	for _, config := range []LedgerConfig{
 		{},
@@ -403,7 +859,7 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 	intent.Mode = IntentModeExternalSeed
 	intent.RetryToken = ""
 	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
-	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
 	reserved, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes)
 	if err != nil {
@@ -416,7 +872,7 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrExternalSeedMode) {
 		t.Fatalf("external seed launch authorization returned %v, want explicit denial", err)
 	}
-	receiptBytes := fixture.seedReceiptBytes(t, scope, intent, bodyDigest(intentBytes))
+	manifestBytes, receiptBytes, facts := fixture.seedProof(t, scope, intent, bodyDigest(intentBytes))
 	result := fixture.result(scope, intent, bodyDigest(intentBytes))
 	result.Mode = IntentModeExternalSeed
 	result.SeedReceiptDigest = bodyDigest(receiptBytes)
@@ -431,7 +887,7 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 		t.Fatalf("external seed generic result path wrote an object: object count = %d, want only intent and HEAD", got)
 	}
 	fixture.client.loseAckForBucket("bootstrap-head")
-	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, receiptBytes, resultBytes, completedHeadBytes)
+	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
 	if err != nil {
 		t.Fatalf("record root-receipt-gated external seed: %v", err)
 	}
@@ -455,7 +911,7 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 	nextIntent.RetryToken = ""
 	nextIntent.ReviewedPlanDigest = bodyDigest([]byte("reviewed replacement OpenTofu plan"))
 	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
-	nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
+	nextIntentBytes, nextIntent = fixture.bindIntentManifest(t, scope, nextIntent, fixture.now)
 	nextHead := SlotHead{
 		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
@@ -501,12 +957,12 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 	intent.Mode = IntentModeExternalSeed
 	intent.RetryToken = ""
 	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
-	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
 	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); err != nil {
 		t.Fatalf("reserve external seed slot: %v", err)
 	}
-	receiptBytes := fixture.seedReceiptBytes(t, scope, intent, bodyDigest(intentBytes))
+	manifestBytes, receiptBytes, facts := fixture.seedProof(t, scope, intent, bodyDigest(intentBytes))
 	result := fixture.result(scope, intent, bodyDigest(intentBytes))
 	result.Mode = IntentModeExternalSeed
 	result.SeedReceiptDigest = bodyDigest(receiptBytes)
@@ -517,6 +973,9 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 	}
 	completedHead.ResultDigest = bodyDigest(resultBytes)
 	completedHeadBytes := fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now)
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerManifest, manifestBytes); err != nil {
+		t.Fatalf("persist exact root manifest before simulated crash: %v", err)
+	}
 	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerSeedReceipt, receiptBytes); err != nil {
 		t.Fatalf("persist current root receipt before simulated crash: %v", err)
 	}
@@ -524,7 +983,7 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 		t.Fatalf("persist matching result before simulated crash: %v", err)
 	}
 	fixture.client.setNow(fixture.now.Add(6 * time.Minute))
-	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, receiptBytes, resultBytes, completedHeadBytes)
+	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
 	if err != nil {
 		t.Fatalf("repair HEAD from exact receipt persisted while current: %v", err)
 	}
@@ -560,7 +1019,7 @@ func TestCheckRetryWindowUsesOriginalServerTimestamp(t *testing.T) {
 type ledgerFixture struct {
 	client      *fakeObjectStorageClient
 	ledger      *Ledger
-	privateKey  ed25519.PrivateKey
+	authority   testBootstrapAuthority
 	environment string
 	maxLifetime time.Duration
 	now         time.Time
@@ -568,22 +1027,53 @@ type ledgerFixture struct {
 
 func newLedgerFixture(t *testing.T) *ledgerFixture {
 	t.Helper()
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots, err := trust.ParseKeyring(publicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
 	client := newFakeObjectStorageClient()
-	fixture := &ledgerFixture{client: client, privateKey: privateKey, environment: "production", maxLifetime: 24 * time.Hour, now: client.currentTime()}
+	authority := newTestBootstrapAuthority(t)
+	authority.now = client.currentTime()
+	roots := make(trust.Keyring, len(authority.roots))
+	for keyID, key := range authority.roots {
+		roots[keyID] = bytes.Clone(key)
+	}
+	fixture := &ledgerFixture{
+		client: client, authority: authority,
+		environment: "production", maxLifetime: 24 * time.Hour, now: client.currentTime(),
+	}
+	var err error
 	config := LedgerConfig{
-		Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.ledger", Prefix: "private/bootstrap",
-		HeadBucket: "bootstrap-head", HeadKMSKeyID: "ocid1.key.head", Environment: fixture.environment,
-		TrustRoots: roots, TrustPolicy: trust.Policy{MaxLifetime: fixture.maxLifetime, ClockSkew: 2 * time.Minute},
+		DeploymentID: "deployment-a", Cell: oci.RegionGRU, ClusterID: "cluster-a",
+		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: bodyDigest([]byte("region-intent")),
+		Namespace: "namespace", Bucket: "bootstrap-ledger", KMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "private/bootstrap",
+		HeadBucket: "bootstrap-head", HeadKMSKeyID: "ocid1.key.oc1.sa-saopaulo-1.head", Environment: fixture.environment,
+		ControllerSlots: []string{"controller-a", "seed-a"},
+		TrustRoots:      roots, TrustPolicy: trust.Policy{MaxLifetime: fixture.maxLifetime, ClockSkew: 2 * time.Minute},
 		VerificationNow: client.currentTime,
 	}
+	peerPublicWire, err := trust.EncodeDelegatedPublicKey(authority.peerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerDelegation, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID(t, authority.peerPublic), SubjectPublicKey: peerPublicWire,
+		Capabilities: []trust.Capability{
+			{Domain: domainBootstrapHead, DeploymentID: config.DeploymentID, Cell: string(config.Cell), Environment: config.Environment,
+				Role: roleController, Slots: slices.Clone(config.ControllerSlots), Actions: []string{"sign"}},
+			{Domain: domainBootstrapIntent, DeploymentID: config.DeploymentID, Cell: string(config.Cell), Environment: config.Environment,
+				Role: roleController, Slots: slices.Clone(config.ControllerSlots), Actions: []string{"sign"}},
+			{Domain: domainBootstrapResult, DeploymentID: config.DeploymentID, Cell: string(config.Cell), Environment: config.Environment,
+				Role: roleController, Slots: slices.Clone(config.ControllerSlots), Actions: []string{"sign"}},
+		},
+	}, fixture.now, fixture.now.Add(fixture.maxLifetime), authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifiedLedgerDelegation, err := trust.VerifyDelegationCurrent(ledgerDelegation, roots, fixture.now, config.TrustPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.Delegations = []trust.VerifiedDelegation{verifiedLedgerDelegation}
+	fixture.authority.manifest.StorageDomain = config.storageDomain()
+	fixture.authority.manifest.IntentGeneration = config.InitialRegionIntentGeneration
+	fixture.authority.manifest.IntentSHA256 = config.InitialRegionIntentSHA256
 	fixture.ledger, err = NewLedger(client, config)
 	if err != nil {
 		t.Fatal(err)
@@ -607,6 +1097,10 @@ func (fixture *ledgerFixture) sign(t *testing.T, scope BootstrapScope, domain st
 
 func (fixture *ledgerFixture) signInterval(t *testing.T, scope BootstrapScope, domain string, payload any, issuedAt, expiresAt time.Time) []byte {
 	t.Helper()
+	privateKey := fixture.authority.peerPrivate
+	if domain == domainSlotRetirement || domain == domainSeedHandoff {
+		privateKey = fixture.authority.rootPrivate
+	}
 	encodedPayload, err := trust.EncodePayload(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -614,7 +1108,7 @@ func (fixture *ledgerFixture) signInterval(t *testing.T, scope BootstrapScope, d
 	signed, err := trust.Sign(encodedPayload, trust.Scope{
 		Domain: domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot,
-	}, issuedAt, expiresAt, fixture.privateKey)
+	}, issuedAt, expiresAt, privateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -632,10 +1126,13 @@ func completeFirstManagedAttempt(t *testing.T, fixture *ledgerFixture, scope Boo
 	if err != nil {
 		t.Fatalf("reserve first managed attempt: %v", err)
 	}
-	resultBytes := fixture.sign(t, scope, domainBootstrapResult, fixture.result(scope, intent, bodyDigest(intentBytes)), fixture.now)
+	manifestBytes, receiptBytes, facts := fixture.managedProof(t, scope, intent, bodyDigest(intentBytes))
+	result := fixture.result(scope, intent, bodyDigest(intentBytes))
+	result.PeerReceiptDigest = bodyDigest(receiptBytes)
+	resultBytes := fixture.sign(t, scope, domainBootstrapResult, result, fixture.now)
 	completedHead := reserved.Head
 	completedHead.ResultDigest = bodyDigest(resultBytes)
-	state, err := fixture.ledger.RecordResult(t.Context(), scope, resultBytes,
+	state, err := fixture.ledger.RecordManagedPeer(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes,
 		fixture.sign(t, scope, domainBootstrapHead, completedHead, fixture.now))
 	if err != nil {
 		t.Fatalf("complete first managed attempt: %v", err)
@@ -659,14 +1156,152 @@ func (fixture *ledgerFixture) intentBytes(t *testing.T, scope BootstrapScope, at
 	intent := Intent{
 		SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: attempt, Generation: attempt,
-		ManifestDigest: bodyDigest([]byte("manifest")), ReleaseReceiptDigest: bodyDigest([]byte("release")), RegionIntentGeneration: 4,
+		ReleaseReceiptDigest: bodyDigest([]byte("release")), RegionIntentGeneration: 4,
 		ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image-a", RegionIntentDigest: bodyDigest([]byte("region-intent")),
 		LaunchRequestDigest: launchDigest, CreateKey: createKey, RetryToken: retryToken,
 		CreatedAt: fixture.now, OCIRegion: "sa-saopaulo-1", CompartmentOCID: "ocid1.compartment.oc1.sa-saopaulo-1.compartment-a",
 		AvailabilityDomain: "AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet-a",
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.nsg-a"}, Shape: "VM.Standard.E5.Flex", Node: "controller-a",
 	}
-	return fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now), intent
+	intentBytes, intent := fixture.bindIntentManifest(t, scope, intent, fixture.now)
+	return intentBytes, intent
+}
+
+func (fixture *ledgerFixture) bindIntentManifest(t *testing.T, scope BootstrapScope, intent Intent, issuedAt time.Time) ([]byte, Intent) {
+	t.Helper()
+	manifestBytes, _ := fixture.manifestBytes(t, scope, intent)
+	intent.ManifestDigest = objectDigest(manifestBytes)
+	return fixture.sign(t, scope, domainBootstrapIntent, intent, issuedAt), intent
+}
+
+func (fixture *ledgerFixture) manifestBytes(t *testing.T, scope BootstrapScope, intent Intent) ([]byte, VerifiedManifest) {
+	t.Helper()
+	manifest := cloneManifest(fixture.authority.manifest)
+	manifest.DeploymentID = intent.DeploymentID
+	manifest.Environment = intent.Environment
+	manifest.ClusterID = fixture.ledger.config.ClusterID
+	manifest.Cell = oci.Region(intent.Cell)
+	manifest.OCIRegion = intent.OCIRegion
+	manifest.IntentGeneration = intent.RegionIntentGeneration
+	manifest.IntentSHA256 = intent.RegionIntentDigest
+	manifest.Slot = intent.Slot
+	manifest.ImageOCID = intent.ImageOCID
+	manifest.StorageDomain = fixture.ledger.config.storageDomain()
+	manifest.Secrets = nil
+	profile := launchProfileForIntent(intent)
+	manifest.ControllerSlots = slices.Clone(fixture.ledger.config.ControllerSlots)
+	seedSlot := "seed-a"
+	if intent.Mode == IntentModeExternalSeed {
+		seedSlot = intent.Slot
+	} else if seedSlot == intent.Slot {
+		seedSlot = "controller-a"
+		if seedSlot == intent.Slot {
+			seedSlot = "seed-authority"
+		}
+	}
+	manifest.SeedSlot = seedSlot
+	manifest.Profiles = make([]LaunchProfile, 0, len(manifest.ControllerSlots))
+	for _, slot := range manifest.ControllerSlots {
+		profileForSlot := cloneProfile(profile)
+		profileForSlot.Slot = slot
+		if slot == seedSlot && slot != intent.Slot {
+			profileForSlot = cloneProfile(fixture.authority.manifest.Profiles[0])
+			profileForSlot.Slot = slot
+		}
+		manifest.Profiles = append(manifest.Profiles, profileForSlot)
+	}
+	peerSlots := make([]string, 0, len(manifest.ControllerSlots)-1)
+	for _, slot := range manifest.ControllerSlots {
+		if slot != seedSlot {
+			peerSlots = append(peerSlots, slot)
+		}
+	}
+	manifest.PeerReceiptDelegation = nil
+	if len(peerSlots) > 0 {
+		delegation := fixture.peerDelegation(t, peerSlots)
+		manifest.PeerReceiptDelegation = &delegation
+	}
+	envelope, err := SignManifest(manifest, fixture.now, fixture.now.Add(fixture.maxLifetime), fixture.authority.rootPrivate)
+	if err != nil {
+		t.Fatalf("sign test manifest: %v", err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatalf("encode test manifest: %v", err)
+	}
+	verified, err := VerifyManifest(envelope, fixture.ledger.config.TrustRoots, ManifestExpectation{
+		DeploymentID: fixture.ledger.config.DeploymentID, Environment: fixture.environment,
+		ClusterID: fixture.ledger.config.ClusterID, Cell: fixture.ledger.config.Cell,
+		Slot: scope.Slot, ImageOCID: intent.ImageOCID, StorageDomain: fixture.ledger.config.storageDomain(),
+		ControllerSlots:  slices.Clone(fixture.ledger.config.ControllerSlots),
+		IntentGeneration: fixture.ledger.config.InitialRegionIntentGeneration,
+		IntentSHA256:     fixture.ledger.config.InitialRegionIntentSHA256,
+	}, fixture.now, fixture.ledger.config.TrustPolicy)
+	if err != nil {
+		t.Fatalf("verify test manifest: %v", err)
+	}
+	return wire, verified
+}
+
+func (fixture *ledgerFixture) peerDelegation(t *testing.T, slots []string) trust.Envelope {
+	t.Helper()
+	peerPublic, err := trust.EncodeDelegatedPublicKey(fixture.authority.peerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID(t, fixture.authority.peerPublic), SubjectPublicKey: peerPublic,
+		Capabilities: []trust.Capability{{
+			Domain: peerReceiptDomain, DeploymentID: fixture.ledger.config.DeploymentID, Cell: string(fixture.ledger.config.Cell),
+			Environment: fixture.environment, Role: roleController, Slots: slices.Clone(slots), Actions: []string{"sign"},
+		}},
+	}, fixture.now, fixture.now.Add(fixture.maxLifetime), fixture.authority.rootPrivate)
+	if err != nil {
+		t.Fatalf("sign test peer delegation: %v", err)
+	}
+	return delegation
+}
+
+func (fixture *ledgerFixture) managedProof(t *testing.T, scope BootstrapScope, intent Intent, intentDigest string) ([]byte, []byte, InstanceFacts) {
+	t.Helper()
+	manifestBytes, manifest := fixture.manifestBytes(t, scope, intent)
+	facts := InstanceFacts{
+		DeploymentID: intent.DeploymentID, Environment: intent.Environment, ClusterID: fixture.ledger.config.ClusterID,
+		Cell: oci.Region(intent.Cell), OCIRegion: intent.OCIRegion, Role: intent.Role, Slot: intent.Slot,
+		InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance-a", CompartmentOCID: intent.CompartmentOCID,
+		ImageOCID: intent.ImageOCID, CreateKey: intent.CreateKey, IntentSHA256: intentDigest,
+		Profile: launchProfileForIntent(intent),
+	}
+	envelope, err := SignPeerReceipt(manifest, facts, fixture.now, fixture.now.Add(5*time.Minute), fixture.authority.peerPrivate)
+	if err != nil {
+		t.Fatalf("sign test peer receipt: %v", err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatalf("encode test peer receipt: %v", err)
+	}
+	return manifestBytes, wire, facts
+}
+
+func (fixture *ledgerFixture) seedProof(t *testing.T, scope BootstrapScope, intent Intent, intentDigest string) ([]byte, []byte, InstanceFacts) {
+	t.Helper()
+	manifestBytes, manifest := fixture.manifestBytes(t, scope, intent)
+	facts := InstanceFacts{
+		DeploymentID: intent.DeploymentID, Environment: intent.Environment, ClusterID: fixture.ledger.config.ClusterID,
+		Cell: oci.Region(intent.Cell), OCIRegion: intent.OCIRegion, Role: intent.Role, Slot: intent.Slot,
+		InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance-a", CompartmentOCID: intent.CompartmentOCID,
+		ImageOCID: intent.ImageOCID, CreateKey: intent.CreateKey, IntentSHA256: intentDigest,
+		Profile: launchProfileForIntent(intent),
+	}
+	envelope, err := SignSeedReceipt(manifest, facts, fixture.now, fixture.now.Add(5*time.Minute), fixture.authority.rootPrivate)
+	if err != nil {
+		t.Fatalf("sign test seed receipt: %v", err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatalf("encode test seed receipt: %v", err)
+	}
+	return manifestBytes, wire, facts
 }
 
 func (fixture *ledgerFixture) headBytes(t *testing.T, scope BootstrapScope, intentBytes []byte, attempt uint64) []byte {
@@ -689,35 +1324,6 @@ func (fixture *ledgerFixture) result(scope BootstrapScope, intent Intent, intent
 	}
 }
 
-func (fixture *ledgerFixture) seedReceiptBytes(t *testing.T, scope BootstrapScope, intent Intent, intentDigest string) []byte {
-	t.Helper()
-	receipt := Receipt{
-		SchemaVersion: ReceiptSchemaVersion, DeploymentID: intent.DeploymentID, Environment: intent.Environment,
-		ClusterID: "cluster-a", Cell: oci.Region(scope.Cell), OCIRegion: intent.OCIRegion,
-		Role: intent.Role, Slot: intent.Slot, InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.instance-a",
-		CompartmentOCID: intent.CompartmentOCID, ImageOCID: intent.ImageOCID, CreateKey: intent.CreateKey,
-		IntentSHA256: intentDigest, ManifestDigest: intent.ManifestDigest,
-		ManifestIntentSHA256: intent.RegionIntentDigest, IntentGeneration: intent.RegionIntentGeneration,
-		ProfileSHA256: intent.LaunchRequestDigest,
-	}
-	payload, err := trust.EncodePayload(receipt)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signed, err := trust.Sign(payload, trust.Scope{
-		Domain: seedReceiptDomain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
-		Environment: fixture.environment, Role: roleController, Slot: scope.Slot,
-	}, fixture.now, fixture.now.Add(5*time.Minute), fixture.privateKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encoded, err := trust.EncodeEnvelope(signed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return encoded
-}
-
 func (fixture *ledgerFixture) retirement(scope BootstrapScope, state SlotState, disposition string) RetirementEvidence {
 	return RetirementEvidence{
 		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
@@ -736,6 +1342,9 @@ func testBootstrapScope() BootstrapScope {
 type fakeObjectStorageClient struct {
 	mu               sync.Mutex
 	objects          map[string]fakeStoredObject
+	clockAtCommit    map[string]time.Time
+	clockAtGet       map[string]fakeClockAdvance
+	getsByObject     map[string]int
 	now              time.Time
 	loseAckBucket    string
 	putCalls         atomic.Int32
@@ -748,6 +1357,11 @@ type fakeObjectStorageClient struct {
 	rejectPutBucket  string
 }
 
+type fakeClockAdvance struct {
+	getNumber int
+	now       time.Time
+}
+
 type fakeStoredObject struct {
 	body         []byte
 	etag         string
@@ -755,7 +1369,11 @@ type fakeStoredObject struct {
 }
 
 func newFakeObjectStorageClient() *fakeObjectStorageClient {
-	return &fakeObjectStorageClient{objects: make(map[string]fakeStoredObject), now: time.Now().UTC().Truncate(time.Second)}
+	return &fakeObjectStorageClient{
+		objects: make(map[string]fakeStoredObject), clockAtCommit: make(map[string]time.Time),
+		clockAtGet: make(map[string]fakeClockAdvance), getsByObject: make(map[string]int),
+		now: time.Now().UTC().Truncate(time.Second),
+	}
 }
 
 func (client *fakeObjectStorageClient) currentTime() time.Time {
@@ -767,6 +1385,19 @@ func (client *fakeObjectStorageClient) currentTime() time.Time {
 func (client *fakeObjectStorageClient) setNow(now time.Time) {
 	client.mu.Lock()
 	client.now = now.UTC()
+	client.mu.Unlock()
+}
+
+func (client *fakeObjectStorageClient) setClockBeforePut(bucket, objectName string, now time.Time) {
+	client.mu.Lock()
+	client.clockAtCommit[requestKey(new("namespace"), new(bucket), new(objectName))] = now.UTC()
+	client.mu.Unlock()
+}
+
+func (client *fakeObjectStorageClient) setClockOnGet(bucket, objectName string, after int, now time.Time) {
+	client.mu.Lock()
+	key := requestKey(new("namespace"), new(bucket), new(objectName))
+	client.clockAtGet[key] = fakeClockAdvance{getNumber: client.getsByObject[key] + after, now: now.UTC()}
 	client.mu.Unlock()
 }
 
@@ -782,9 +1413,9 @@ func (client *fakeObjectStorageClient) PutObject(_ context.Context, request obje
 		request.IfNoneMatch != nil && *request.IfNoneMatch != "*" {
 		client.invalidCondition.Store(true)
 	}
-	expectedKey := "ocid1.key.ledger"
+	expectedKey := "ocid1.key.oc1.sa-saopaulo-1.ledger"
 	if request.BucketName != nil && *request.BucketName == "bootstrap-head" {
-		expectedKey = "ocid1.key.head"
+		expectedKey = "ocid1.key.oc1.sa-saopaulo-1.head"
 	}
 	if request.OpcSseKmsKeyId == nil || *request.OpcSseKmsKeyId != expectedKey {
 		client.invalidKMSKey.Store(true)
@@ -813,13 +1444,19 @@ func (client *fakeObjectStorageClient) PutObject(_ context.Context, request obje
 	}
 	key := requestKey(request.NamespaceName, request.BucketName, request.ObjectName)
 	client.mu.Lock()
+	if advanceTo, ok := client.clockAtCommit[key]; ok {
+		client.now = advanceTo
+		delete(client.clockAtCommit, key)
+	}
 	previous, exists := client.objects[key]
 	if request.IfNoneMatch != nil && exists || request.IfMatch != nil && (!exists || *request.IfMatch != previous.etag) {
 		client.mu.Unlock()
 		return objectstorage.PutObjectResponse{}, fakeObjectStorageError{status: http.StatusPreconditionFailed}
 	}
 	etag := `"` + hex.EncodeToString(digest[:8]) + `"`
-	client.objects[key] = fakeStoredObject{body: bytes.Clone(body), etag: etag, lastModified: client.now}
+	client.objects[key] = fakeStoredObject{
+		body: bytes.Clone(body), etag: etag, lastModified: client.now.UTC().Truncate(time.Second),
+	}
 	loseAck := client.loseAckBucket != "" && request.BucketName != nil && *request.BucketName == client.loseAckBucket
 	if loseAck {
 		client.loseAckBucket = ""
@@ -835,6 +1472,11 @@ func (client *fakeObjectStorageClient) GetObject(_ context.Context, request obje
 	client.getCalls.Add(1)
 	key := requestKey(request.NamespaceName, request.BucketName, request.ObjectName)
 	client.mu.Lock()
+	client.getsByObject[key]++
+	if advance, ok := client.clockAtGet[key]; ok && client.getsByObject[key] == advance.getNumber {
+		client.now = advance.now
+		delete(client.clockAtGet, key)
+	}
 	object, ok := client.objects[key]
 	now := client.now
 	client.mu.Unlock()

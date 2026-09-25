@@ -41,6 +41,7 @@ var (
 	sha256RE            = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	fileNameRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	slotNameRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)
+	controllerSlotRE    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 	shapeRE             = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	faultDomainRE       = regexp.MustCompile(`^FAULT-DOMAIN-[1-3]$`)
 	createKeyRE         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
@@ -133,13 +134,16 @@ type Manifest struct {
 // ManifestExpectation contains deployment and slot facts established outside
 // the untrusted manifest transport, such as cloud-init's requested slot.
 type ManifestExpectation struct {
-	DeploymentID  string
-	Environment   string
-	ClusterID     string
-	Cell          oci.Region
-	Slot          string
-	ImageOCID     string
-	StorageDomain StorageDomain
+	DeploymentID     string
+	Environment      string
+	ClusterID        string
+	Cell             oci.Region
+	Slot             string
+	ImageOCID        string
+	StorageDomain    StorageDomain
+	ControllerSlots  []string
+	IntentGeneration uint64
+	IntentSHA256     string
 }
 
 // VerifiedManifest is constructed only after root signature, exact scope,
@@ -259,6 +263,9 @@ func verifiedManifestPayload(envelope trust.Envelope, payload []byte, expected M
 	if manifest.DeploymentID != expected.DeploymentID || manifest.Environment != expected.Environment || manifest.ClusterID != expected.ClusterID ||
 		manifest.Cell != expected.Cell || manifest.Slot != expected.Slot || manifest.ImageOCID != expected.ImageOCID ||
 		manifest.StorageDomain != expected.StorageDomain ||
+		!slices.Equal(manifest.ControllerSlots, expected.ControllerSlots) ||
+		expected.IntentGeneration != 0 && manifest.IntentGeneration != expected.IntentGeneration ||
+		expected.IntentSHA256 != "" && manifest.IntentSHA256 != expected.IntentSHA256 ||
 		envelope.Scope.Role != manifest.ControllerRole || envelope.Scope.Slot != manifest.Slot {
 		return Manifest{}, "", fmt.Errorf("%w: manifest does not match deployment expectation", ErrManifestInvalid)
 	}
@@ -287,7 +294,7 @@ func (manifest Manifest) Validate() error {
 	if err != nil || manifest.SchemaVersion != ManifestSchemaVersion || !deploymentRE.MatchString(manifest.DeploymentID) ||
 		!clusterRE.MatchString(manifest.ClusterID) || manifest.Environment != "production" && manifest.Environment != "canary" ||
 		manifest.OCIRegion != ociRegion || manifest.IntentGeneration == 0 || !sha256RE.MatchString(manifest.IntentSHA256) ||
-		manifest.ControllerRole != "controller" || !slotNameRE.MatchString(manifest.Slot) || !slotNameRE.MatchString(manifest.SeedSlot) ||
+		manifest.ControllerRole != "controller" || !controllerSlotRE.MatchString(manifest.Slot) || !controllerSlotRE.MatchString(manifest.SeedSlot) ||
 		!slices.Contains(manifest.ControllerSlots, manifest.Slot) || !slices.Contains(manifest.ControllerSlots, manifest.SeedSlot) ||
 		!isOCID(manifest.ImageOCID, "image") || manifest.ImageArchitecture != "linux-amd64" && manifest.ImageArchitecture != "linux-arm64" ||
 		!sha256RE.MatchString(manifest.ReleaseReceiptSHA256) || len(manifest.ControllerSlots) == 0 || len(manifest.ControllerSlots) > 64 ||
@@ -300,8 +307,8 @@ func (manifest Manifest) Validate() error {
 	if err := validateReleaseProofWires(manifest); err != nil {
 		return err
 	}
-	if hasDuplicate(manifest.ControllerSlots) {
-		return fmt.Errorf("%w: duplicate controller slot", ErrManifestInvalid)
+	if hasDuplicate(manifest.ControllerSlots) || !slices.IsSorted(manifest.ControllerSlots) {
+		return fmt.Errorf("%w: controller slot list is duplicated or not sorted", ErrManifestInvalid)
 	}
 	profiles := make(map[string]struct{}, len(manifest.Profiles))
 	for _, profile := range manifest.Profiles {
@@ -363,7 +370,7 @@ func validateReleaseProofWires(manifest Manifest) error {
 }
 
 func (profile LaunchProfile) validate() error {
-	if !slotNameRE.MatchString(profile.Slot) || !isOCID(profile.CompartmentOCID, "compartment") ||
+	if !controllerSlotRE.MatchString(profile.Slot) || !isOCID(profile.CompartmentOCID, "compartment") ||
 		strings.TrimSpace(profile.AvailabilityDomain) == "" || strings.ContainsAny(profile.AvailabilityDomain, " \t\r\n") || len(profile.AvailabilityDomain) > 128 ||
 		!faultDomainRE.MatchString(profile.FaultDomain) || !isOCID(profile.SubnetOCID, "subnet") ||
 		!shapeRE.MatchString(profile.Shape) || len(profile.NetworkSecurityGroupOCIDs) > 16 {
@@ -407,7 +414,7 @@ func (secret SecretReference) validate(manifest Manifest) error {
 
 func (expected ManifestExpectation) validate() error {
 	if !deploymentRE.MatchString(expected.DeploymentID) || expected.Environment != "production" && expected.Environment != "canary" ||
-		!clusterRE.MatchString(expected.ClusterID) || !slotNameRE.MatchString(expected.Slot) || !isOCID(expected.ImageOCID, "image") {
+		!clusterRE.MatchString(expected.ClusterID) || !controllerSlotRE.MatchString(expected.Slot) || !isOCID(expected.ImageOCID, "image") {
 		return fmt.Errorf("%w: invalid expected manifest identity", ErrManifestInvalid)
 	}
 	if _, err := expected.Cell.OCIRegion(); err != nil {
@@ -415,6 +422,19 @@ func (expected ManifestExpectation) validate() error {
 	}
 	if err := expected.StorageDomain.Validate(); err != nil {
 		return fmt.Errorf("%w: invalid expected storage domain", ErrManifestInvalid)
+	}
+	if expected.IntentGeneration == 0 && expected.IntentSHA256 != "" ||
+		expected.IntentGeneration != 0 && !sha256RE.MatchString(expected.IntentSHA256) {
+		return fmt.Errorf("%w: incomplete expected region-intent pin", ErrManifestInvalid)
+	}
+	if len(expected.ControllerSlots) == 0 || len(expected.ControllerSlots) > MaxBootstrapAnchorSlots ||
+		hasDuplicate(expected.ControllerSlots) || !slices.IsSorted(expected.ControllerSlots) {
+		return fmt.Errorf("%w: invalid expected controller slot set", ErrManifestInvalid)
+	}
+	for _, slot := range expected.ControllerSlots {
+		if !controllerSlotRE.MatchString(slot) {
+			return fmt.Errorf("%w: invalid expected controller slot", ErrManifestInvalid)
+		}
 	}
 	return nil
 }

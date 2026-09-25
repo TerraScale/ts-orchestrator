@@ -32,15 +32,16 @@ const (
 )
 
 var (
-	ErrRecordAuthorization    = errors.New("bootstrap ledger record is not authorized")
-	ErrInvalidRecord          = errors.New("bootstrap ledger record is invalid")
-	ErrSlotHeadConflict       = errors.New("bootstrap slot HEAD changed concurrently")
-	ErrSlotNotReserved        = errors.New("bootstrap slot is not reserved by the expected intent")
-	ErrRetirementInvalid      = errors.New("bootstrap slot retirement evidence is invalid")
-	ErrSlotAlreadyComplete    = errors.New("bootstrap slot already has a positive OCI result")
-	ErrSlotResultPendingHead  = errors.New("bootstrap result exists but its slot HEAD update is unresolved")
-	ErrSlotAdvancePendingHead = errors.New("bootstrap next-attempt intent exists but its slot HEAD update is unresolved")
-	ErrExternalSeedMode       = errors.New("external seed intent is not authorized for an OCI create")
+	ErrRecordAuthorization        = errors.New("bootstrap ledger record is not authorized")
+	ErrInvalidRecord              = errors.New("bootstrap ledger record is invalid")
+	ErrSlotHeadConflict           = errors.New("bootstrap slot HEAD changed concurrently")
+	ErrSlotNotReserved            = errors.New("bootstrap slot is not reserved by the expected intent")
+	ErrRetirementInvalid          = errors.New("bootstrap slot retirement evidence is invalid")
+	ErrSlotAlreadyComplete        = errors.New("bootstrap slot already has a positive OCI result")
+	ErrSlotResultPendingHead      = errors.New("bootstrap result exists but its slot HEAD update is unresolved")
+	ErrSlotAdvancePendingHead     = errors.New("bootstrap next-attempt intent exists but its slot HEAD update is unresolved")
+	ErrExternalSeedMode           = errors.New("external seed intent is not authorized for an OCI create")
+	ErrManagedPeerReceiptRequired = errors.New("managed slot completion requires a verified delegated peer receipt")
 
 	sha256DigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	createTokenPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
@@ -101,6 +102,7 @@ type Result struct {
 	ImageOCID              string     `json:"imageOcid"`
 	Shape                  string     `json:"shape"`
 	ObservedProfileDigest  string     `json:"observedProfileDigest"`
+	PeerReceiptDigest      string     `json:"peerReceiptDigest,omitzero"`
 	SeedReceiptDigest      string     `json:"seedReceiptDigest,omitzero"`
 	CreateKey              string     `json:"createKey"`
 	ObservedAt             time.Time  `json:"observedAt"`
@@ -205,6 +207,10 @@ func (ledger *Ledger) decodeIntent(scope BootstrapScope, body []byte, current bo
 	if !intent.CreatedAt.Equal(envelope.IssuedAt) {
 		return Intent{}, trust.Envelope{}, fmt.Errorf("%w: signed creation time differs from envelope issue time", ErrInvalidRecord)
 	}
+	if intent.RegionIntentGeneration != ledger.config.InitialRegionIntentGeneration ||
+		intent.RegionIntentDigest != ledger.config.InitialRegionIntentSHA256 {
+		return Intent{}, trust.Envelope{}, fmt.Errorf("%w: signed intent does not match the anchor-pinned initial region intent", ErrRecordAuthorization)
+	}
 	return intent, envelope, nil
 }
 
@@ -225,9 +231,9 @@ func (ledger *Ledger) decodeResult(scope BootstrapScope, body []byte, current bo
 		result.ObservedAt.Location() != time.UTC {
 		return Result{}, fmt.Errorf("%w: result omits positive OCI identity or observation", ErrInvalidRecord)
 	}
-	if result.Mode == IntentModeManaged && result.SeedReceiptDigest != "" ||
-		result.Mode == IntentModeExternalSeed && !validDigest(result.SeedReceiptDigest) {
-		return Result{}, fmt.Errorf("%w: result seed receipt binding does not match its mode", ErrInvalidRecord)
+	if result.Mode == IntentModeManaged && (!validDigest(result.PeerReceiptDigest) || result.SeedReceiptDigest != "") ||
+		result.Mode == IntentModeExternalSeed && (result.PeerReceiptDigest != "" || !validDigest(result.SeedReceiptDigest)) {
+		return Result{}, fmt.Errorf("%w: result receipt binding does not match its mode", ErrInvalidRecord)
 	}
 	if !result.ObservedAt.Equal(envelope.IssuedAt) {
 		return Result{}, fmt.Errorf("%w: result observation time differs from its signed issue time", ErrInvalidRecord)

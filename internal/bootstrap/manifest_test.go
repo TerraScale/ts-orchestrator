@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 	if !ok || profile.Slot != "peer-b" || profile.NetworkSecurityGroupOCIDs[0] != "ocid1.networksecuritygroup.oc1.iad.nsgpeer" {
 		t.Fatalf("verified manifest was changed through a returned copy: %#v", profile)
 	}
-	if got := verified.Manifest().ControllerSlots[0]; got != "seed-a" {
+	if got := verified.Manifest().ControllerSlots; !slices.Equal(got, authority.manifest.ControllerSlots) {
 		t.Fatalf("controller slots changed through a returned copy: %q", got)
 	}
 	verifiedCopy := verified.Manifest()
@@ -64,12 +65,14 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 	if _, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
 		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
 		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: authority.manifest.ImageOCID, StorageDomain: authority.manifest.StorageDomain,
+		ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}, authority.now, authority.policy); err == nil {
 		t.Fatal("manifest scoped to seed-a verified as peer-b")
 	}
 	wrongImage := ManifestExpectation{
 		DeploymentID: "deployment-a", Environment: "production", ClusterID: "cluster-a",
 		Cell: oci.RegionGRU, Slot: "peer-b", ImageOCID: "ocid1.image.oc1.iad.otherimage", StorageDomain: authority.manifest.StorageDomain,
+		ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, wrongImage, authority.now, authority.policy); err == nil {
 		t.Fatal("manifest verified with a different expected image")
@@ -89,6 +92,7 @@ func TestSignManifestDoesNotRetainCallerReleaseWireAliases(t *testing.T) {
 		DeploymentID: authority.manifest.DeploymentID, Environment: authority.manifest.Environment,
 		ClusterID: authority.manifest.ClusterID, Cell: authority.manifest.Cell, Slot: authority.manifest.Slot,
 		ImageOCID: authority.manifest.ImageOCID, StorageDomain: authority.manifest.StorageDomain,
+		ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}, authority.now, authority.policy)
 	if err != nil {
 		t.Fatalf("signed manifest changed through caller wire aliases: %v", err)
@@ -113,6 +117,13 @@ func TestManifestV2RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testin
 		{name: "v1 schema version", mutate: func(manifest *Manifest) { manifest.SchemaVersion = 1 }},
 		{name: "missing image receipt wire", mutate: func(manifest *Manifest) { manifest.ReleaseImageReceiptWire = nil }},
 		{name: "missing release delegation wire", mutate: func(manifest *Manifest) { manifest.ReleaseDelegationWire = nil }},
+		{name: "unsorted controller slots", mutate: func(manifest *Manifest) {
+			manifest.ControllerSlots = []string{"seed-a", "peer-b"}
+		}},
+		{name: "slot outside instance descriptor grammar", mutate: func(manifest *Manifest) {
+			manifest.Slot, manifest.SeedSlot = "seed/a", "seed/a"
+			manifest.ControllerSlots = []string{"seed/a"}
+		}},
 		{name: "noncanonical image receipt wire", mutate: func(manifest *Manifest) {
 			manifest.ReleaseImageReceiptWire = append(bytes.Clone(manifest.ReleaseImageReceiptWire), '\n')
 			manifest.ReleaseReceiptSHA256 = digestBytes(manifest.ReleaseImageReceiptWire)
@@ -164,6 +175,7 @@ func TestManifestV2RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testin
 	if _, err := VerifyManifest(v1Envelope, authority.roots, ManifestExpectation{
 		DeploymentID: v1.DeploymentID, Environment: v1.Environment, ClusterID: v1.ClusterID,
 		Cell: v1.Cell, Slot: v1.Slot, ImageOCID: v1.ImageOCID, StorageDomain: v1.StorageDomain,
+		ControllerSlots: slices.Clone(v1.ControllerSlots),
 	}, authority.now, authority.policy); !errors.Is(err, ErrManifestInvalid) {
 		t.Fatalf("VerifyManifest() error for signed v1 schema = %v; want ErrManifestInvalid", err)
 	}
@@ -186,7 +198,7 @@ func TestCurrentAndHistoricalManifestRequireExactExpectedStorageDomain(t *testin
 		DeploymentID: authority.manifest.DeploymentID, Environment: authority.manifest.Environment,
 		ClusterID: authority.manifest.ClusterID, Cell: authority.manifest.Cell,
 		Slot: authority.manifest.Slot, ImageOCID: authority.manifest.ImageOCID,
-		StorageDomain: authority.manifest.StorageDomain,
+		StorageDomain: authority.manifest.StorageDomain, ControllerSlots: slices.Clone(authority.manifest.ControllerSlots),
 	}
 	verified, err := VerifyManifest(manifestEnvelope, authority.roots, expected, authority.now, ManifestTrustPolicy())
 	if err != nil {
@@ -194,6 +206,19 @@ func TestCurrentAndHistoricalManifestRequireExactExpectedStorageDomain(t *testin
 	}
 	if got := verified.StorageDomain(); got != expected.StorageDomain {
 		t.Fatalf("verified storage domain = %+v, want %+v", got, expected.StorageDomain)
+	}
+	withoutSlots := expected
+	withoutSlots.ControllerSlots = nil
+	if _, err := VerifyManifest(manifestEnvelope, authority.roots, withoutSlots, authority.now, ManifestTrustPolicy()); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("current verifier accepted an expectation without anchor slots: %v", err)
+	}
+	if _, err := VerifyHistoricalManifest(manifestEnvelope, authority.roots, withoutSlots, ManifestTrustPolicy()); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("historical verifier accepted an expectation without anchor slots: %v", err)
+	}
+	wrongSlots := expected
+	wrongSlots.ControllerSlots = []string{"peer-b"}
+	if _, err := VerifyManifest(manifestEnvelope, authority.roots, wrongSlots, authority.now, ManifestTrustPolicy()); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("current verifier accepted a different anchor slot set: %v", err)
 	}
 
 	wrong := expected
@@ -217,6 +242,7 @@ func TestManifestRejectsExpiredWrongRootAndOverbroadPeerDelegation(t *testing.T)
 	expected := ManifestExpectation{
 		DeploymentID: peer.DeploymentID, Environment: peer.Environment, ClusterID: peer.ClusterID,
 		Cell: peer.Cell, Slot: peer.Slot, ImageOCID: peer.ImageOCID, StorageDomain: peer.StorageDomain,
+		ControllerSlots: slices.Clone(peer.ControllerSlots),
 	}
 	if _, err := VerifyManifest(envelope, authority.roots, expected, authority.now.Add(time.Hour), authority.policy); !errors.Is(err, trust.ErrExpired) {
 		t.Fatalf("expired manifest error = %v", err)
@@ -372,6 +398,7 @@ func TestSeedAndPeerReceiptsBindExactInstanceAndManifest(t *testing.T) {
 	oldVerified, err := VerifyManifest(manifestEnvelope, authority.roots, ManifestExpectation{
 		DeploymentID: oldManifest.DeploymentID, Environment: oldManifest.Environment, ClusterID: oldManifest.ClusterID,
 		Cell: oldManifest.Cell, Slot: oldManifest.Slot, ImageOCID: oldManifest.ImageOCID, StorageDomain: oldManifest.StorageDomain,
+		ControllerSlots: slices.Clone(oldManifest.ControllerSlots),
 	}, authority.now, authority.policy)
 	if err != nil {
 		t.Fatal(err)
@@ -585,7 +612,7 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 		SchemaVersion: ManifestSchemaVersion, DeploymentID: "deployment-a", Environment: "production",
 		ClusterID: "cluster-a", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", IntentGeneration: 4,
 		IntentSHA256: digestBytes([]byte("regional intent")), ControllerRole: "controller", Slot: "seed-a",
-		SeedSlot: "seed-a", ControllerSlots: []string{"seed-a", "peer-b"},
+		SeedSlot: "seed-a", ControllerSlots: []string{"peer-b", "seed-a"},
 		Profiles: []LaunchProfile{
 			{Slot: "seed-a", CompartmentOCID: "ocid1.compartment.oc1..compartment", AvailabilityDomain: "SA-SAOPAULO-1-AD-1",
 				FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.seed", Shape: "VM.Standard.E5.Flex",
@@ -630,6 +657,7 @@ func (authority testBootstrapAuthority) verifyManifest(t *testing.T, slot string
 	verified, err := VerifyManifest(envelope, authority.roots, ManifestExpectation{
 		DeploymentID: manifest.DeploymentID, Environment: manifest.Environment, ClusterID: manifest.ClusterID,
 		Cell: manifest.Cell, Slot: slot, ImageOCID: manifest.ImageOCID, StorageDomain: manifest.StorageDomain,
+		ControllerSlots: slices.Clone(manifest.ControllerSlots),
 	}, authority.now, authority.policy)
 	if err != nil {
 		t.Fatal(err)
