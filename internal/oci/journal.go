@@ -436,8 +436,9 @@ func validateIntent(intent OperationIntent) error {
 		intent.CreatedAt.IsZero() || intent.CreatedAt.Location() != time.UTC {
 		return errors.New("OCI operation intent is incomplete")
 	}
-	if intent.Action == actionLaunch && intent.CreateKey == "" {
-		return errors.New("OCI launch intent requires a create key")
+	if intent.Action == actionLaunch && (intent.CreateKey == "" || !validComputeProfile(intent.Shape,
+		intent.WholeOCPUs, intent.MemoryInGBs, intent.PlacementProfileDigest, intent.PlacementGeneration)) {
+		return errors.New("OCI launch intent requires a complete signed compute profile")
 	}
 	if intent.Action == actionVolumeAttach && (intent.ResourceID == "" || intent.VolumeID == "" ||
 		intent.CreateKey == "" || !validDevicePath(intent.Device) ||
@@ -448,10 +449,39 @@ func validateIntent(intent OperationIntent) error {
 	return nil
 }
 
+// validComputeProfile checks signed-profile completeness and exact SDK numeric
+// representation. OCI remains authoritative for per-shape platform bounds;
+// launch rejection stays unknown and cannot produce positive ownership.
+func validComputeProfile(shape string, wholeOCPUs, memoryInGBs uint32, profileDigest string, placementGeneration uint64) bool {
+	if !shapePattern.MatchString(shape) || wholeOCPUs == 0 || memoryInGBs == 0 || placementGeneration == 0 ||
+		!isLowerHexSHA256(profileDigest) {
+		return false
+	}
+	_, ocpusExact := exactFloat32(wholeOCPUs)
+	_, memoryExact := exactFloat32(memoryInGBs)
+	return ocpusExact && memoryExact
+}
+
+func exactFloat32(value uint32) (float32, bool) {
+	converted := float32(value)
+	return converted, float64(converted) == float64(value)
+}
+
+func isLowerHexSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	decoded, err := hex.DecodeString(value)
+	return err == nil && hex.EncodeToString(decoded) == value
+}
+
 func sameIntent(a, b OperationIntent) bool {
 	return a.Action == b.Action && a.Key == b.Key && a.Region == b.Region && a.Generation == b.Generation &&
 		a.Owner == b.Owner && a.ResourceID == b.ResourceID && a.CreateKey == b.CreateKey &&
-		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.VolumeID == b.VolumeID &&
+		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.Shape == b.Shape &&
+		a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
+		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
+		a.VolumeID == b.VolumeID &&
 		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB && a.Device == b.Device &&
 		a.IsReadOnly == b.IsReadOnly && a.IsShareable == b.IsShareable &&
 		a.IsPvEncryptionInTransitEnabled == b.IsPvEncryptionInTransitEnabled

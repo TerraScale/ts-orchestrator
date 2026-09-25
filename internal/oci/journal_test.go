@@ -64,6 +64,33 @@ func TestJournalRepairsOwnershipProjectionAfterPartialFailure(t *testing.T) {
 	}
 }
 
+func TestJournalPinsSignedPlacementComputeProfile(t *testing.T) {
+	ctx := t.Context()
+	journal, err := NewKVJournal(testJournalBucket(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := testLaunchIntent("node-journal-profile")
+	if err := journal.RecordIntent(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	scope := OperationScope{
+		Action: actionLaunch, Key: intent.Key, Region: intent.Region,
+		Generation: intent.Generation, Owner: intent.Owner,
+	}
+	stored, found, err := journal.GetOperation(ctx, scope)
+	if err != nil || !found || !sameIntent(stored, intent) ||
+		stored.Shape != intent.Shape || stored.WholeOCPUs != intent.WholeOCPUs || stored.MemoryInGBs != intent.MemoryInGBs ||
+		stored.PlacementProfileDigest != intent.PlacementProfileDigest || stored.PlacementGeneration != intent.PlacementGeneration {
+		t.Fatalf("journal did not preserve the immutable signed profile: found=%v stored=%+v err=%v", found, stored, err)
+	}
+	drifted := intent
+	drifted.MemoryInGBs++
+	if err := journal.RecordIntent(ctx, drifted); err == nil {
+		t.Fatal("journal accepted changed compute sizing for the same create key")
+	}
+}
+
 func TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome(t *testing.T) {
 	ctx := t.Context()
 	journal, err := NewKVJournal(testJournalBucket(t))
@@ -283,6 +310,8 @@ func testLaunchIntent(createKey string) OperationIntent {
 	return OperationIntent{
 		Action: actionLaunch, Key: createKey, Region: RegionGRU, Generation: 7,
 		Owner: "orchestrator", CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1",
+		Shape: "VM.Standard.E5.Flex", WholeOCPUs: 1, MemoryInGBs: 6,
+		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
 		CreatedAt: time.Now().UTC(),
 	}
 }

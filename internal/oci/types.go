@@ -18,6 +18,7 @@ var (
 	ErrImageNotQualified             = errors.New("pinned OCI image is not qualified for retained volumes")
 	ErrOutcomeUnknown                = errors.New("OCI provider mutation outcome is unknown")
 	ErrCreateRecoveryHold            = errors.New("OCI create requires operator reconciliation")
+	ErrPlacementProfileMismatch      = errors.New("OCI host does not match its signed placement compute profile")
 )
 
 // CreateRecoveryHoldError stops automatic retries when the original OCI
@@ -39,17 +40,22 @@ func (err *CreateRecoveryHoldError) Unwrap() error { return ErrCreateRecoveryHol
 // DataVolumes contains retained data volumes currently attached to the host;
 // terminating an instance always asks OCI to preserve all volumes.
 type Instance struct {
-	ID          string
-	Node        string
-	CreateKey   string
-	Region      Region
-	Generation  uint64
-	Owner       string
-	FaultDomain string
-	ETag        string
-	State       string
-	DataVolumes []string
-	Attachments []Attachment
+	ID                     string
+	Node                   string
+	CreateKey              string
+	Region                 Region
+	Generation             uint64
+	Owner                  string
+	FaultDomain            string
+	Shape                  string
+	WholeOCPUs             uint32
+	MemoryInGBs            uint32
+	PlacementProfileDigest string
+	PlacementGeneration    uint64
+	ETag                   string
+	State                  string
+	DataVolumes            []string
+	Attachments            []Attachment
 }
 
 // Attachment identifies a retained data-volume attachment. VolumeID remains
@@ -66,12 +72,17 @@ type Attachment struct {
 	IsPvEncryptionInTransitEnabled bool
 }
 
-// EnsureRequest identifies the idempotent host launch and its selected failure
-// domain. Image, shape, network, compartment, and generation are pinned by the
-// region-bound Fleet configuration.
+// EnsureRequest identifies the idempotent host launch and carries the complete
+// signed regional placement compute profile. Image, network, compartment, and
+// OCI region generation remain pinned by the region-bound Fleet configuration.
 type EnsureRequest struct {
-	CreateKey   string
-	FaultDomain string
+	CreateKey              string
+	FaultDomain            string
+	Shape                  string
+	WholeOCPUs             uint32
+	MemoryInGBs            uint32
+	PlacementProfileDigest string
+	PlacementGeneration    uint64
 }
 
 // VolumeAttachRequest attaches an already-owned retained data volume. The
@@ -177,6 +188,11 @@ type OperationIntent struct {
 	CreateKey                      string    `json:"create_key,omitempty"`
 	ExpectedETag                   string    `json:"expected_etag,omitempty"`
 	FaultDomain                    string    `json:"fault_domain,omitempty"`
+	Shape                          string    `json:"shape,omitempty"`
+	WholeOCPUs                     uint32    `json:"whole_ocpus,omitzero"`
+	MemoryInGBs                    uint32    `json:"memory_in_gbs,omitzero"`
+	PlacementProfileDigest         string    `json:"placement_profile_digest,omitempty"`
+	PlacementGeneration            uint64    `json:"placement_generation,omitzero"`
 	VolumeID                       string    `json:"volume_id,omitempty"`
 	AvailabilityDomain             string    `json:"availability_domain,omitempty"`
 	SizeGB                         int64     `json:"size_gb,omitempty"`
@@ -268,6 +284,9 @@ type CloudInstance struct {
 	CompartmentID                 string
 	AvailabilityDomain            string
 	FaultDomain                   string
+	Shape                         string
+	Ocpus                         *float32
+	MemoryInGBs                   *float32
 	LifecycleState                string
 	ETag                          string
 	ImageID                       string
@@ -315,13 +334,18 @@ type CloudVolume struct {
 	FreeformTags       map[string]string
 }
 
-// LaunchRequest is deliberately limited to the reviewed region template and
-// exact resource identity tags. It cannot specify a different endpoint or
-// compartment than the Fleet's RegionConfig.
+// LaunchRequest carries the immutable signed placement compute profile to the
+// provider. It cannot specify a different endpoint or compartment than the
+// Fleet's RegionConfig.
 type LaunchRequest struct {
-	CreateKey    string
-	Node         string
-	RetryToken   string
-	FaultDomain  string
-	FreeformTags map[string]string
+	CreateKey              string
+	Node                   string
+	RetryToken             string
+	FaultDomain            string
+	Shape                  string
+	WholeOCPUs             uint32
+	MemoryInGBs            uint32
+	PlacementProfileDigest string
+	PlacementGeneration    uint64
+	FreeformTags           map[string]string
 }

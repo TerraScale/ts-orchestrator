@@ -3,8 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base32"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -27,8 +25,7 @@ const maxPlacementWireBytes = maxPlacementIntentBytes + 4096
 func placementApplySubject(cell string) string { return "ts.orch.v1." + cell + ".placement.apply" }
 
 func placementOperationID(intent placement.Intent) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", intent.DatabaseID, intent.PartitionID, intent.Generation)))
-	return "p-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))
+	return intent.OperationID()
 }
 
 func intentSelectsCell(intent placement.Intent, cell string) bool {
@@ -47,7 +44,7 @@ func operatorPlacementApply(ctx context.Context, cfg Config, runtime *natscell.R
 	if err := json.Unmarshal(data, &intent, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("parse placement intent: %w", err)
 	}
-	if err := intent.Validate(); err != nil {
+	if err := intent.ValidateForAdmission(); err != nil {
 		return err
 	}
 	if !intentSelectsCell(intent, cfg.NATS.Cell) {
@@ -72,7 +69,7 @@ func operatorPlacementApply(ctx context.Context, cfg Config, runtime *natscell.R
 	if !snapshot.Ready || snapshot.Reason != "observed" || snapshot.Epoch == 0 || !time.Now().Before(snapshot.ExpiresAt) {
 		return errors.New("regional authority lease is not current")
 	}
-	payload, err := json.Marshal(intent)
+	payload, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		return err
 	}
@@ -120,6 +117,12 @@ type placementApplyResponse struct {
 	Error       string `json:"error,omitempty"`
 }
 
+type placementAdmissionControl interface {
+	Current() authority.Snapshot
+	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
+	CommitPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
+}
+
 func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy, control *authority.Runtime) (*nats.Subscription, error) {
 	return conn.Subscribe(placementApplySubject(cell), func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxPlacementWireBytes || !control.Current().CanMutate() {
@@ -141,7 +144,7 @@ func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, 
 	})
 }
 
-func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, policy signerPolicy, control *authority.Runtime) (placementApplyResponse, error) {
+func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, policy signerPolicy, control placementAdmissionControl) (placementApplyResponse, error) {
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(wire, &envelope, maxPlacementWireBytes); err != nil {
 		return placementApplyResponse{}, err
@@ -150,7 +153,7 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	if err := protocol.DecodeStrict(envelope.Payload, &intent, maxPlacementIntentBytes); err != nil {
 		return placementApplyResponse{}, err
 	}
-	if err := intent.Validate(); err != nil {
+	if err := intent.ValidateForAdmission(); err != nil {
 		return placementApplyResponse{}, err
 	}
 	if !intentSelectsCell(intent, cell) {
@@ -173,9 +176,12 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	if envelope.Epoch == 0 || control.Current().Epoch != envelope.Epoch {
 		return placementApplyResponse{}, authority.ErrFenced
 	}
-	payload, err := json.Marshal(intent)
+	payload, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		return placementApplyResponse{}, err
+	}
+	if !bytes.Equal(envelope.Payload, payload) {
+		return placementApplyResponse{}, errors.New("signed placement payload is not canonical")
 	}
 	for range 8 {
 		var expected uint64

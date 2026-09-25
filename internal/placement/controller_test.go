@@ -11,17 +11,18 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func TestControllerHoldsAfterAttachedVolumeWithoutRuntimeContract(t *testing.T) {
-	intent := validIntent(oci.RegionGRU)
-	store := newPlacementMemoryStore(intent)
-	fleet := &placementTestFleet{instances: attachedInstances(intent)}
-	hosts := &placementTestHosts{statuses: admittedStatuses(intent)}
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
 	var holds []string
 	controller := startTestPlacementController(t, store, fleet, hosts, func(reason string) { holds = append(holds, reason) })
 
-	if err := controller.Tick(context.Background()); err != nil {
+	if err := controller.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	for _, member := range store.members {
@@ -41,21 +42,21 @@ func TestControllerHoldsAfterAttachedVolumeWithoutRuntimeContract(t *testing.T) 
 }
 
 func TestControllerWaitsForOCIReferenceToBecomeAttached(t *testing.T) {
-	intent := validIntent(oci.RegionGRU)
-	store := newPlacementMemoryStore(intent)
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
 	for memberID, member := range store.members {
 		member.State.Stage = StageAwaitingAttach
 		store.members[memberID] = member
 	}
-	instances := attachedInstances(intent)
+	instances := attachedInstances(t, intent)
 	for index := range instances {
 		instances[index].Attachments[0].State = "ATTACHING"
 	}
 	fleet := &placementTestFleet{instances: instances}
-	hosts := &placementTestHosts{statuses: admittedStatuses(intent)}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
 	controller := startTestPlacementController(t, store, fleet, hosts, nil)
 
-	if err := controller.Tick(context.Background()); err != nil {
+	if err := controller.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if store.casCalls != 0 || hosts.desiredWrites != 0 {
@@ -65,7 +66,7 @@ func TestControllerWaitsForOCIReferenceToBecomeAttached(t *testing.T) {
 	for index := range fleet.instances {
 		fleet.instances[index].Attachments[0].State = "ATTACHED"
 	}
-	if err := controller.Tick(context.Background()); err != nil {
+	if err := controller.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if store.casCalls != 1 {
@@ -80,24 +81,24 @@ func TestControllerWaitsForOCIReferenceToBecomeAttached(t *testing.T) {
 }
 
 func TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost(t *testing.T) {
-	intent := validIntent(oci.RegionGRU)
-	store := newPlacementMemoryStore(intent)
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
 	store.members[permanentMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(intent, Seat{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}, StageServing),
 		Revision: 1,
 	}
 	store.members[elasticMember(oci.RegionGRU)] = VersionedMemberState{
-		State:    testMemberState(intent, Seat{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
+		State:    testMemberState(t, intent, Seat{MemberID: "elastic-gru", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic}, StageServing),
 		Revision: 1,
 	}
-	instances := attachedInstances(intent)
+	instances := attachedInstances(t, intent)
 	instances = instances[1:] // permanent-a has disappeared from the owned OCI view.
 	fleet := &placementTestFleet{instances: instances}
-	hosts := &placementTestHosts{statuses: admittedStatuses(intent)}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
 	var holds []string
 	controller := startTestPlacementController(t, store, fleet, hosts, func(reason string) { holds = append(holds, reason) })
 
-	if err := controller.Tick(context.Background()); err != nil {
+	if err := controller.Tick(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	if got := store.members[permanentMember(oci.RegionGRU)].State.Stage; got != StageAwaitingRuntimeContract {
@@ -111,9 +112,337 @@ func TestControllerMovesLegacyServingMemberToRuntimeHoldWhenHostIsLost(t *testin
 	}
 }
 
+func TestControllerPinsSignedProfileBeforeHostCreateAndUsesItOnRecovery(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
+	fleet := &placementTestFleet{ensureResult: &attachedInstances(t, intent)[0]}
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, nil)
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state := store.members[permanentMember(oci.RegionGRU)].State
+	profile, err := intent.ManagedHostProfile(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, err := intent.ProfileDigest(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.casCalls != 1 || fleet.ensureCalls != 0 || state.Stage != StagePreparedHost ||
+		state.IntentPayloadDigest != intent.PayloadDigest() || state.ManagedHostProfile != profile ||
+		state.ManagedHostProfileDigest != profileDigest || state.IntentGeneration != intent.Generation {
+		t.Fatalf("first CAS did not pin the committed profile before OCI: state=%+v CAS=%d ensures=%d", state, store.casCalls, fleet.ensureCalls)
+	}
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	state = store.members[permanentMember(oci.RegionGRU)].State
+	if state.Stage != StageAwaitingHost || state.InstanceID != fleet.ensureResult.ID ||
+		state.InstanceETag != fleet.ensureResult.ETag || len(fleet.ensureRequests) != 1 ||
+		fleet.ensureRequests[0] != pinnedEnsureRequest(state) {
+		t.Fatalf("host launch did not bind the pinned request and verified instance: state=%+v requests=%+v", state, fleet.ensureRequests)
+	}
+
+	restarted := startTestPlacementController(t, store, fleet, &placementTestHosts{}, nil)
+	if err := restarted.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(fleet.ensureRequests) != 2 || fleet.ensureRequests[1] != fleet.ensureRequests[0] ||
+		store.members[permanentMember(oci.RegionGRU)].State.CreateKey != state.CreateKey {
+		t.Fatalf("recovery changed the immutable launch request: requests=%+v", fleet.ensureRequests)
+	}
+}
+
+func TestControllerRejectsEnsuredHostThatDiffersFromPinnedProfile(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	for _, test := range []struct {
+		name   string
+		change func(*oci.Instance)
+	}{
+		{"compute memory", func(instance *oci.Instance) { instance.MemoryInGBs++ }},
+		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "other" }},
+		{"owner", func(instance *oci.Instance) { instance.Owner = "other" }},
+		{"fleet generation", func(instance *oci.Instance) { instance.Generation++ }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
+			instance := attachedInstances(t, intent)[0]
+			test.change(&instance)
+			fleet := &placementTestFleet{ensureResult: &instance}
+			controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, nil)
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if err := controller.Tick(t.Context()); err == nil || fleet.ensureCalls != 1 || store.casCalls != 1 ||
+				store.members[permanentMember(oci.RegionGRU)].State.Stage != StagePreparedHost {
+				t.Fatalf("mismatched OCI response advanced the member: err=%v CAS=%d ensures=%d", err, store.casCalls, fleet.ensureCalls)
+			}
+		})
+	}
+}
+
+func TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI(t *testing.T) {
+	base := committedTestIntent(t, validIntent(oci.RegionGRU))
+	newGeneration := validIntent(oci.RegionGRU)
+	newGeneration.Generation++
+	newProfile := validIntent(oci.RegionGRU)
+	newProfile.ManagedHostProfiles[0].Compute.MemoryInGBs++
+	newGeneration = committedTestIntent(t, newGeneration)
+	newProfile = committedTestIntent(t, newProfile)
+	newPayload := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSFO))
+	tests := []struct {
+		name   string
+		change func(*placementMemoryStore)
+	}{
+		{name: "legacy unpinned state", change: func(store *placementMemoryStore) {
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.IntentPayloadDigest = ""
+			member.State.ManagedHostProfile = ManagedHostProfile{}
+			member.State.ManagedHostProfileDigest = ""
+			store.members[permanentMember(oci.RegionGRU)] = member
+		}},
+		{name: "new signed generation", change: func(store *placementMemoryStore) {
+			store.intents[0] = newGeneration
+		}},
+		{name: "changed signed regional profile", change: func(store *placementMemoryStore) {
+			store.intents[0] = newProfile
+		}},
+		{name: "changed signed payload only", change: func(store *placementMemoryStore) {
+			store.intents[0] = newPayload
+		}},
+		{name: "removed member", change: func(store *placementMemoryStore) {
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.Stage = StageRemoved
+			member.State.HostGeneration = 1
+			store.members[permanentMember(oci.RegionGRU)] = member
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newPlacementMemoryStore(t, base)
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.Stage = StagePreparedHost
+			member.State.HostGeneration = 0
+			store.members[permanentMember(oci.RegionGRU)] = member
+			test.change(store)
+			fleet := &placementTestFleet{}
+			var holds []string
+			controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if fleet.ensureCalls != 0 || store.casCalls != 0 || len(holds) == 0 {
+				t.Fatalf("unsafe member progressed: ensures=%d CAS=%d holds=%v", fleet.ensureCalls, store.casCalls, holds)
+			}
+		})
+	}
+}
+
+func TestControllerHoldsWholePlacementBeforePreparingMissingSeat(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	delete(store.members, permanentMember(oci.RegionGRU))
+	elastic := store.members[elasticMember(oci.RegionGRU)]
+	elastic.State.IntentPayloadDigest = ""
+	elastic.State.ManagedHostProfile = ManagedHostProfile{}
+	elastic.State.ManagedHostProfileDigest = ""
+	store.members[elasticMember(oci.RegionGRU)] = elastic
+	fleet := &placementTestFleet{}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if store.casCalls != 0 || fleet.ensureCalls != 0 || len(holds) != 1 {
+		t.Fatalf("stale sibling allowed a missing seat to prepare: CAS=%d ensures=%d holds=%v", store.casCalls, fleet.ensureCalls, holds)
+	}
+}
+
+func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *testing.T) {
+	legacy := committedTestIntent(t, Intent{
+		SchemaVersion: 1, DatabaseID: "a-legacy", PartitionID: "partition-a",
+		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
+	})
+	managedDraft := validIntent(oci.RegionGRU)
+	managedDraft.DatabaseID = "z-managed"
+	managedDraft.Generation = 7
+	managed := committedTestIntent(t, managedDraft)
+	if legacy.PayloadDigest() == "" || managed.PayloadDigest() == "" || legacy.DatabaseID >= managed.DatabaseID {
+		t.Fatal("test intents are not ordered committed v1 then v2")
+	}
+	store := &placementMemoryStore{
+		intents: []Intent{legacy, managed}, members: make(map[string]VersionedMemberState),
+	}
+	instance := attachedInstances(t, managed)[0]
+	fleet := &placementTestFleet{ensureResult: &instance}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	prepared, exists := store.members[permanentMember(oci.RegionGRU)]
+	if !exists || len(store.members) != 1 || prepared.State.DatabaseID != managed.DatabaseID ||
+		prepared.State.Stage != StagePreparedHost || store.casCalls != 1 || fleet.ensureCalls != 0 || len(holds) != 1 {
+		t.Fatalf("historical v1 blocked or mutated the independent v2 placement: members=%+v CAS=%d ensures=%d holds=%v",
+			store.members, store.casCalls, fleet.ensureCalls, holds)
+	}
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, err := managed.ProfileDigest(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state := store.members[permanentMember(oci.RegionGRU)].State; state.DatabaseID != managed.DatabaseID ||
+		state.Stage != StageAwaitingHost || store.casCalls != 2 || fleet.ensureCalls != 1 ||
+		len(fleet.ensureRequests) != 1 || fleet.ensureRequests[0].PlacementProfileDigest != profileDigest ||
+		fleet.ensureRequests[0].PlacementGeneration != managed.Generation || len(holds) != 2 {
+		t.Fatalf("later managed placement did not launch its pinned profile: state=%+v CAS=%d requests=%+v holds=%v",
+			state, store.casCalls, fleet.ensureRequests, holds)
+	}
+}
+
+func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
+	for _, test := range []struct {
+		name       string
+		change     func(*placementMemoryStore, *placementTestFleet, *placementTestHosts)
+		wantCreate bool
+		wantError  bool
+	}{
+		{name: "current exact host", wantCreate: true},
+		{name: "host missing", change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+			fleet.instances = nil
+		}},
+		{name: "profile drift", wantError: true, change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+			fleet.instances[0].MemoryInGBs++
+		}},
+		{name: "session missing", change: func(_ *placementMemoryStore, _ *placementTestFleet, hosts *placementTestHosts) {
+			hosts.statuses = nil
+		}},
+		{name: "registration generation changed", change: func(_ *placementMemoryStore, _ *placementTestFleet, hosts *placementTestHosts) {
+			hosts.statuses[0].Registration.Generation++
+		}},
+		{name: "existing volume retained on host loss", change: func(store *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+			fleet.instances = nil
+			member := store.members[seat.MemberID]
+			member.State.VolumeID = "volume-existing"
+			store.members[seat.MemberID] = member
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newPlacementMemoryStore(t, intent)
+			member := store.members[seat.MemberID]
+			member.State.Stage = StagePreparedVolume
+			member.State.VolumeID = ""
+			member.State.AttachmentID = ""
+			store.members[seat.MemberID] = member
+			fleet := &placementTestFleet{instances: attachedInstances(t, intent), volumeResult: &oci.RetainedVolume{
+				ID: "volume-created", CreateKey: volumeCreateKey(intent, seat), Region: oci.RegionGRU,
+				Owner: "owner-a", Generation: 1, SizeGB: 50,
+			}}
+			hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+			if test.change != nil {
+				test.change(store, fleet, hosts)
+			}
+			controller := startTestPlacementController(t, store, fleet, hosts, nil)
+			err := controller.Tick(t.Context())
+			if (err != nil) != test.wantError {
+				t.Fatalf("Tick error = %v, wantError %t", err, test.wantError)
+			}
+			state := store.members[seat.MemberID].State
+			if test.wantCreate {
+				if fleet.volumeCalls != 1 || store.casCalls != 1 || state.VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
+					t.Fatalf("current host did not authorize exactly one retained volume: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+				}
+			} else if fleet.volumeCalls != 0 || store.casCalls != 0 || state.Stage != StagePreparedVolume {
+				t.Fatalf("missing or drifted host allowed volume effect: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+			}
+		})
+	}
+}
+
+func TestControllerUsesStartOfTickPlacementAndHoldsItOnNextTick(t *testing.T) {
+	intentA := committedTestIntent(t, validIntent(oci.RegionGRU))
+	intentB := validIntent(oci.RegionGRU)
+	intentB.Generation++
+	intentB = committedTestIntent(t, intentB)
+	store := newPlacementMemoryStore(t, intentA)
+	member := store.members[permanentMember(oci.RegionGRU)]
+	member.State.Stage = StagePreparedHost
+	member.State.HostGeneration = 0
+	store.members[permanentMember(oci.RegionGRU)] = member
+	instance := attachedInstances(t, intentA)[0]
+	fleet := &placementTestFleet{ensureResult: &instance}
+	fleet.onObserve = func() { store.intents[0] = intentB; fleet.onObserve = nil }
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if fleet.ensureCalls != 1 || store.casCalls != 1 || fleet.ensureRequests[0].PlacementGeneration != intentA.Generation ||
+		store.members[permanentMember(oci.RegionGRU)].State.Stage != StageAwaitingHost {
+		t.Fatalf("bounded A action did not use the initial signed snapshot: ensures=%d CAS=%d requests=%+v", fleet.ensureCalls, store.casCalls, fleet.ensureRequests)
+	}
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if fleet.ensureCalls != 1 || store.casCalls != 1 || len(holds) == 0 {
+		t.Fatalf("next tick retried old A after observing B: ensures=%d CAS=%d holds=%v", fleet.ensureCalls, store.casCalls, holds)
+	}
+}
+
+func TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	newFixture := func(t *testing.T) (*placementMemoryStore, *placementTestFleet, *Controller) {
+		t.Helper()
+		store := newPlacementMemoryStore(t, intent)
+		member := store.members[permanentMember(oci.RegionGRU)]
+		member.State.Stage = StageAwaitingHost
+		member.State.HostGeneration = 0
+		store.members[permanentMember(oci.RegionGRU)] = member
+		fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
+		controller := startTestPlacementController(t, store, fleet, &placementTestHosts{statuses: admittedStatuses(t, intent)}, nil)
+		return store, fleet, controller
+	}
+	store, fleet, controller := newFixture(t)
+	fleet.instances[0].ETag = "etag-new"
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatalf("legitimate live ETag churn was held: %v", err)
+	}
+	if state := store.members[permanentMember(oci.RegionGRU)].State; state.InstanceETag != "etag-new" || state.Stage != StagePreparedAttach {
+		t.Fatalf("verified live ETag was not rebound on admission: %+v", state)
+	}
+
+	for _, test := range []struct {
+		name   string
+		change func(*oci.Instance)
+	}{
+		{"shape", func(instance *oci.Instance) { instance.Shape = "VM.Standard.E5.Flex" }},
+		{"profile digest", func(instance *oci.Instance) { instance.PlacementProfileDigest = "other" }},
+		{"placement generation", func(instance *oci.Instance) { instance.PlacementGeneration++ }},
+		{"owner", func(instance *oci.Instance) { instance.Owner = "other" }},
+		{"fleet generation", func(instance *oci.Instance) { instance.Generation++ }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, fleet, controller := newFixture(t)
+			test.change(&fleet.instances[0])
+			if err := controller.Tick(t.Context()); err == nil || store.casCalls != 0 || fleet.ensureCalls != 0 {
+				t.Fatalf("immutable OCI drift was accepted: err=%v CAS=%d ensures=%d", err, store.casCalls, fleet.ensureCalls)
+			}
+		})
+	}
+}
+
 func startTestPlacementController(t *testing.T, store Store, fleet oci.Fleet, hosts HostView, onHold func(string)) *Controller {
 	t.Helper()
-	controller, err := StartController(context.Background(), Config{
+	controller, err := StartController(t.Context(), Config{
 		Cell: "gru", Region: oci.RegionGRU, FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		ManagedOwner: "owner-a", FleetGeneration: 1, Environment: "production", MemberRole: "terrabase",
 		Resources: Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30}, OnHold: onHold,
@@ -124,18 +453,41 @@ func startTestPlacementController(t *testing.T, store Store, fleet oci.Fleet, ho
 	return controller
 }
 
-func newPlacementMemoryStore(intent Intent) *placementMemoryStore {
+func committedTestIntent(t *testing.T, intent Intent) Intent {
+	t.Helper()
+	payload, err := protocol.EncodeJSON(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed, err := DecodeCommittedIntent(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return committed
+}
+
+func newPlacementMemoryStore(t *testing.T, intent Intent) *placementMemoryStore {
+	t.Helper()
 	store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
 	for _, seat := range []Seat{
 		{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
 		{MemberID: elasticMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
 	} {
-		store.members[seat.MemberID] = VersionedMemberState{State: testMemberState(intent, seat, StageAwaitingRuntimeContract), Revision: 1}
+		store.members[seat.MemberID] = VersionedMemberState{State: testMemberState(t, intent, seat, StageAwaitingRuntimeContract), Revision: 1}
 	}
 	return store
 }
 
-func testMemberState(intent Intent, seat Seat, stage MemberStage) MemberState {
+func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) MemberState {
+	t.Helper()
+	profile, err := intent.ManagedHostProfile(seat.Region)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileDigest, err := profile.ProfileDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
 	attempt := uint64(1)
 	state := MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
@@ -144,6 +496,7 @@ func testMemberState(intent Intent, seat Seat, stage MemberStage) MemberState {
 		HostNode: "node-" + seat.MemberID, InstanceID: "instance-" + seat.MemberID,
 		InstanceETag: "etag-1", VolumeID: "volume-" + seat.MemberID,
 		AttachmentID: "attachment-" + seat.MemberID, HostGeneration: 1,
+		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, DesiredGeneration: 1,
 		OperationID: memberOperationID(intent, seat.MemberID, attempt, "test"), UpdatedAt: time.Now().UTC(),
 	}
@@ -153,30 +506,36 @@ func testMemberState(intent Intent, seat Seat, stage MemberStage) MemberState {
 	return state
 }
 
-func attachedInstances(intent Intent) []oci.Instance {
+func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
+	t.Helper()
 	seats := []Seat{
 		{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
 		{MemberID: elasticMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
 	}
 	instances := make([]oci.Instance, 0, len(seats))
 	for _, seat := range seats {
-		state := testMemberState(intent, seat, StageAwaitingRuntimeContract)
+		state := testMemberState(t, intent, seat, StageAwaitingRuntimeContract)
 		instances = append(instances, oci.Instance{
 			ID: state.InstanceID, Node: state.HostNode, CreateKey: state.CreateKey, Region: seat.Region,
-			FaultDomain: seat.FailureDomain, ETag: state.InstanceETag, State: "RUNNING",
+			Generation: 1, Owner: "owner-a", FaultDomain: seat.FailureDomain,
+			Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
+			MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
+			PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
+			ETag: state.InstanceETag, State: "RUNNING",
 			Attachments: []oci.Attachment{{ID: state.AttachmentID, VolumeID: state.VolumeID, InstanceID: state.InstanceID, ETag: "attachment-etag", State: "ATTACHED"}},
 		})
 	}
 	return instances
 }
 
-func admittedStatuses(intent Intent) []host.HostStatus {
+func admittedStatuses(t *testing.T, intent Intent) []host.HostStatus {
+	t.Helper()
 	statuses := make([]host.HostStatus, 0, 2)
 	for index, seat := range []Seat{
 		{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
 		{MemberID: elasticMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
 	} {
-		state := testMemberState(intent, seat, StageAwaitingRuntimeContract)
+		state := testMemberState(t, intent, seat, StageAwaitingRuntimeContract)
 		statuses = append(statuses, host.HostStatus{Verified: true, SessionExpiresAt: time.Now().Add(time.Minute), Registration: host.Registration{
 			Cell: "gru", Node: state.HostNode, FailureDomain: seat.FailureDomain, Environment: "production",
 			Roles: []string{"terrabase"}, Generation: 1,
@@ -253,6 +612,10 @@ func (hosts *placementTestHosts) ApplyDesired(context.Context, host.Desired) (ho
 
 type placementTestFleet struct {
 	instances      []oci.Instance
+	ensureResult   *oci.Instance
+	ensureRequests []oci.EnsureRequest
+	volumeResult   *oci.RetainedVolume
+	onObserve      func()
 	ensureCalls    int
 	volumeCalls    int
 	attachCalls    int
@@ -262,15 +625,25 @@ type placementTestFleet struct {
 
 func (fleet *placementTestFleet) Region() oci.Region { return oci.RegionGRU }
 func (fleet *placementTestFleet) Observe(context.Context) ([]oci.Instance, error) {
+	if fleet.onObserve != nil {
+		fleet.onObserve()
+	}
 	return slices.Clone(fleet.instances), nil
 }
-func (fleet *placementTestFleet) EnsureHost(context.Context, oci.EnsureRequest) (oci.Instance, error) {
+func (fleet *placementTestFleet) EnsureHost(_ context.Context, request oci.EnsureRequest) (oci.Instance, error) {
 	fleet.ensureCalls++
-	return oci.Instance{}, errors.New("unexpected EnsureHost")
+	fleet.ensureRequests = append(fleet.ensureRequests, request)
+	if fleet.ensureResult == nil {
+		return oci.Instance{}, errors.New("unexpected EnsureHost")
+	}
+	return *fleet.ensureResult, nil
 }
 func (fleet *placementTestFleet) CreateRetainedVolume(context.Context, oci.VolumeCreateRequest) (oci.RetainedVolume, error) {
 	fleet.volumeCalls++
-	return oci.RetainedVolume{}, errors.New("unexpected CreateRetainedVolume")
+	if fleet.volumeResult == nil {
+		return oci.RetainedVolume{}, errors.New("unexpected CreateRetainedVolume")
+	}
+	return *fleet.volumeResult, nil
 }
 func (fleet *placementTestFleet) Cordon(context.Context, string, string) error {
 	fleet.cordonCalls++

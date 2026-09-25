@@ -24,15 +24,17 @@ const (
 	retainedVolumeShareable           = false
 	retainedVolumeEncryptionInTransit = true
 
-	tagManagedBy  = "terrascale-managed-by"
-	tagOwner      = "terrascale-owner"
-	tagRegion     = "terrascale-region"
-	tagGeneration = "terrascale-generation"
-	tagResource   = "terrascale-resource"
-	tagCreateKey  = "terrascale-create-key"
-	tagHostNode   = "terrascale-host-node"
-	tagCordoned   = "terrascale-cordoned"
-	tagVolumeSize = "terrascale-volume-size-gib"
+	tagManagedBy              = "terrascale-managed-by"
+	tagOwner                  = "terrascale-owner"
+	tagRegion                 = "terrascale-region"
+	tagGeneration             = "terrascale-generation"
+	tagResource               = "terrascale-resource"
+	tagCreateKey              = "terrascale-create-key"
+	tagHostNode               = "terrascale-host-node"
+	tagCordoned               = "terrascale-cordoned"
+	tagVolumeSize             = "terrascale-volume-size-gib"
+	tagPlacementProfileDigest = "terrascale-placement-profile-digest"
+	tagPlacementGeneration    = "terrascale-placement-generation"
 
 	resourceMemberHost = "member-host"
 	resourceMemberData = "member-data"
@@ -200,7 +202,18 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 			slog.Warn("withholding OCI instance without durable controller ownership", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
 			continue
 		}
-		instance, err := f.instanceFromCloud(ctx, cloud, identity)
+		profileIntent, found, err := f.journal.GetOperation(ctx, OperationScope{
+			Action: actionLaunch, Key: identity.CreateKey, Region: identity.Region,
+			Generation: identity.Generation, Owner: identity.Owner,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("read OCI host placement profile: %w", err)
+		}
+		if !found || profileIntent.Shape != f.config.Shape || !cloudMatchesPlacementProfile(cloud, profileIntent) {
+			slog.Warn("withholding OCI instance that does not match its signed placement compute profile", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
+			continue
+		}
+		instance, err := f.instanceFromCloud(ctx, cloud, identity, profileIntent)
 		if err != nil {
 			if errors.Is(err, ErrAttachmentRecoveryHold) {
 				slog.Warn("withholding OCI instance with an unbound retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region)
@@ -217,17 +230,30 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if !validCreateKey(request.CreateKey) || !slices.Contains(f.config.FaultDomains, request.FaultDomain) {
 		return Instance{}, errors.New("OCI host launch has an invalid create key or unsupported fault domain")
 	}
+	if request.Shape != f.config.Shape || !validComputeProfile(request.Shape, request.WholeOCPUs,
+		request.MemoryInGBs, request.PlacementProfileDigest, request.PlacementGeneration) {
+		return Instance{}, ErrPlacementProfileMismatch
+	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
 		return Instance{}, err
 	}
 	intent := f.intent(actionLaunch, request.CreateKey, "", request.CreateKey, "", request.FaultDomain, "")
+	intent.Shape = request.Shape
+	intent.WholeOCPUs = request.WholeOCPUs
+	intent.MemoryInGBs = request.MemoryInGBs
+	intent.PlacementProfileDigest = request.PlacementProfileDigest
+	intent.PlacementGeneration = request.PlacementGeneration
 	if err := f.recordIntent(ctx, epoch, intent); err != nil {
 		return Instance{}, err
 	}
 	priorResult, hasPriorResult, err := f.journal.GetResult(ctx, intent)
 	if err != nil {
 		return Instance{}, fmt.Errorf("read OCI host operation result: %w", err)
+	}
+	operationIntent := priorResult.Intent
+	if operationIntent.CreatedAt.IsZero() {
+		operationIntent = intent
 	}
 	cloud, identity, found, err := f.findByCreateKey(ctx, request.CreateKey)
 	if err != nil {
@@ -248,9 +274,12 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			if cloud.FaultDomain != request.FaultDomain {
 				return Instance{}, fmt.Errorf("%w: create key is bound to a different fault domain", ErrForeignResource)
 			}
+			if !cloudMatchesPlacementProfile(cloud, operationIntent) {
+				return Instance{}, fmt.Errorf("%w: observed instance does not match the immutable launch intent", ErrPlacementProfileMismatch)
+			}
 			// The launch receipt is immutable; the live ETag belongs to this
 			// observation and will fence the next tag/termination operation.
-			return f.instanceFromCloud(ctx, cloud, identity)
+			return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
 		}
 		if !hasPriorResult || !priorResult.Unknown {
 			if hasPriorResult && !priorResult.Unknown {
@@ -261,7 +290,6 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	} else if hasPriorResult && !priorResult.Unknown {
 		return Instance{}, createRecoveryHold(resourceMemberHost, request.CreateKey, "the previously confirmed instance is missing")
 	}
-	operationIntent := priorResult.Intent
 	if err := checkCreateRetryWindow(resourceMemberHost, request.CreateKey, operationIntent, f.now()); err != nil {
 		return Instance{}, err
 	}
@@ -272,8 +300,15 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		RetryToken: retryToken(strings.Join([]string{
 			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.CreateKey,
 		}, ":")),
-		FaultDomain:  request.FaultDomain,
-		FreeformTags: hostTags(f.config, request.CreateKey),
+		FaultDomain:            operationIntent.FaultDomain,
+		Shape:                  operationIntent.Shape,
+		WholeOCPUs:             operationIntent.WholeOCPUs,
+		MemoryInGBs:            operationIntent.MemoryInGBs,
+		PlacementProfileDigest: operationIntent.PlacementProfileDigest,
+		PlacementGeneration:    operationIntent.PlacementGeneration,
+		FreeformTags: placementProfileTags(
+			hostTags(f.config, request.CreateKey), operationIntent.PlacementProfileDigest, operationIntent.PlacementGeneration,
+		),
 	}
 	if err := f.guard(ctx, epoch); err != nil {
 		return Instance{}, err
@@ -307,10 +342,14 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if cloud.FaultDomain != request.FaultDomain {
 		return Instance{}, fmt.Errorf("%w: create key is bound to a different fault domain", ErrForeignResource)
 	}
+	if !cloudMatchesPlacementProfile(cloud, operationIntent) {
+		unknownErr := fmt.Errorf("%w: %w: launched instance does not match the immutable launch intent", ErrOutcomeUnknown, ErrPlacementProfileMismatch)
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
+	}
 	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
 		return Instance{}, err
 	}
-	return f.instanceFromCloud(ctx, cloud, identity)
+	return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
 }
 
 // CreateRetainedVolume creates or recovers one region-pinned member data
@@ -819,7 +858,7 @@ func (f *fleet) ownedInstance(ctx context.Context, instanceID string) (CloudInst
 	return cloud, identity, nil
 }
 
-func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, identity ResourceIdentity) (Instance, error) {
+func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, identity ResourceIdentity, profile OperationIntent) (Instance, error) {
 	attachments, err := f.provider.ListVolumeAttachments(ctx, f.config.CompartmentID, cloud.ID)
 	if err != nil {
 		return Instance{}, fmt.Errorf("observe OCI host volume attachments: %w", err)
@@ -830,7 +869,9 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 	result := Instance{
 		ID: cloud.ID, Node: hostNode(f.config, identity.CreateKey), CreateKey: identity.CreateKey,
 		Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner,
-		FaultDomain: cloud.FaultDomain, ETag: cloud.ETag,
+		FaultDomain: cloud.FaultDomain, Shape: profile.Shape, WholeOCPUs: profile.WholeOCPUs,
+		MemoryInGBs: profile.MemoryInGBs, PlacementProfileDigest: profile.PlacementProfileDigest,
+		PlacementGeneration: profile.PlacementGeneration, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
 	for _, listed := range attachments {
@@ -1053,6 +1094,29 @@ func (f *fleet) intent(action, key, resourceID, createKey, expectedETag, faultDo
 		ExpectedETag: expectedETag, FaultDomain: faultDomain, VolumeID: volumeID,
 		CreatedAt: f.now().UTC(),
 	}
+}
+
+func placementProfileTags(tags map[string]string, profileDigest string, generation uint64) map[string]string {
+	updated := cloneStringMap(tags)
+	if updated == nil {
+		updated = make(map[string]string, 2)
+	}
+	updated[tagPlacementProfileDigest] = profileDigest
+	updated[tagPlacementGeneration] = fmt.Sprint(generation)
+	return updated
+}
+
+func cloudMatchesPlacementProfile(cloud CloudInstance, intent OperationIntent) bool {
+	if !validComputeProfile(intent.Shape, intent.WholeOCPUs, intent.MemoryInGBs,
+		intent.PlacementProfileDigest, intent.PlacementGeneration) {
+		return false
+	}
+	wantOCPUs, _ := exactFloat32(intent.WholeOCPUs)
+	wantMemory, _ := exactFloat32(intent.MemoryInGBs)
+	return cloud.Shape == intent.Shape && cloud.Ocpus != nil && *cloud.Ocpus == wantOCPUs &&
+		cloud.MemoryInGBs != nil && *cloud.MemoryInGBs == wantMemory &&
+		cloud.FreeformTags[tagPlacementProfileDigest] == intent.PlacementProfileDigest &&
+		cloud.FreeformTags[tagPlacementGeneration] == fmt.Sprint(intent.PlacementGeneration)
 }
 
 func hostTags(config RegionConfig, createKey string) map[string]string {

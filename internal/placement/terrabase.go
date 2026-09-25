@@ -1,6 +1,10 @@
 package placement
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base32"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"slices"
@@ -8,12 +12,21 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
-	placementSchemaVersion = 1
-	maxDatabaseIDLength    = 63
-	maxPartitionIDLength   = 63
+	// IntentSchemaVersion is the only schema accepted for new managed
+	// placement admissions. Schema 1 can still be decoded for historical hold.
+	IntentSchemaVersion       = 2
+	legacyIntentSchemaVersion = 1
+	placementSchemaVersion    = 1
+	maxDatabaseIDLength       = 63
+	maxPartitionIDLength      = 63
+	maxIntentPayloadBytes     = 16 << 10
+	managedMemoryPageBytes    = uint64(4096)
+	managedMemoryGiB          = uint64(1 << 30)
+	maxManagedMemoryByteValue = uint64(1<<63 - 1)
 )
 
 var (
@@ -22,30 +35,207 @@ var (
 )
 
 type Intent struct {
-	SchemaVersion int          `json:"schema_version"`
-	DatabaseID    string       `json:"database_id"`
-	PartitionID   string       `json:"partition_id"`
-	ActiveRegions []oci.Region `json:"active_regions"`
-	Generation    uint64       `json:"generation"`
+	SchemaVersion       int                  `json:"schema_version"`
+	DatabaseID          string               `json:"database_id"`
+	PartitionID         string               `json:"partition_id"`
+	ActiveRegions       []oci.Region         `json:"active_regions"`
+	Generation          uint64               `json:"generation"`
+	ManagedHostProfiles []ManagedHostProfile `json:"managed_host_profiles,omitempty"`
+	committedPayloadSHA string
+}
+
+// ComputeTuple is the explicit Flex compute shape pinned by a signed profile.
+// OCPUs and memory are whole provider units; fractional values are not accepted.
+type ComputeTuple struct {
+	Shape       string `json:"shape"`
+	WholeOCPUs  uint32 `json:"whole_ocpus"`
+	MemoryInGBs uint32 `json:"memory_in_gbs"`
+}
+
+// ManagedHostProfile pins one selected region's OCI compute tuple and guest
+// memory contract. The byte values are supplied by the operator and are never
+// inferred or defaulted by placement admission.
+type ManagedHostProfile struct {
+	Region                 oci.Region   `json:"region"`
+	Compute                ComputeTuple `json:"compute"`
+	ProcessMemoryBytes     uint64       `json:"process_memory_bytes"`
+	MemoryHeadroomBytes    uint64       `json:"memory_headroom_bytes"`
+	CgroupMemoryMaxBytes   uint64       `json:"cgroup_memory_max_bytes"`
+	SystemReserveBytes     uint64       `json:"system_reserve_bytes"`
+	AllocatableMemoryBytes uint64       `json:"allocatable_memory_bytes"`
+}
+
+// ProfileDigest returns the lower-case SHA-256 of deterministic JSON for the
+// entire region profile, including its region, compute tuple and all byte
+// limits. Placement generation is pinned separately by Intent.Generation.
+func (profile ManagedHostProfile) ProfileDigest() (string, error) {
+	if err := profile.Validate(); err != nil {
+		return "", err
+	}
+	encoded, err := protocol.EncodeJSON(profile)
+	if err != nil {
+		return "", fmt.Errorf("encode managed host profile: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func (profile ManagedHostProfile) Validate() error {
+	if !knownRegion(profile.Region) || !validComputeShape(profile.Compute.Shape) ||
+		profile.Compute.WholeOCPUs == 0 || profile.Compute.MemoryInGBs == 0 {
+		return fmt.Errorf("%w: managed profile region or compute tuple", ErrInvalidIntent)
+	}
+	values := [...]uint64{
+		profile.ProcessMemoryBytes, profile.MemoryHeadroomBytes, profile.CgroupMemoryMaxBytes,
+		profile.SystemReserveBytes, profile.AllocatableMemoryBytes,
+	}
+	for _, value := range values {
+		if value == 0 || value > maxManagedMemoryByteValue || value%managedMemoryPageBytes != 0 {
+			return fmt.Errorf("%w: memory limits must be positive, signed-range, page-aligned byte values", ErrInvalidIntent)
+		}
+	}
+	minimumHeadroom := max(managedMemoryGiB, profile.ProcessMemoryBytes/4)
+	// MemoryInGBs is uint32, so this exact multiplication stays below 2^62.
+	// GiB is the conservative upper bound whether the SDK's GB means decimal
+	// or binary units; the host still verifies actual guest capacity.
+	nominalMemoryBytes := uint64(profile.Compute.MemoryInGBs) * managedMemoryGiB
+	if profile.ProcessMemoryBytes < 4*managedMemoryGiB || profile.MemoryHeadroomBytes < minimumHeadroom ||
+		profile.MemoryHeadroomBytes >= profile.ProcessMemoryBytes ||
+		profile.ProcessMemoryBytes > profile.CgroupMemoryMaxBytes ||
+		profile.CgroupMemoryMaxBytes > profile.AllocatableMemoryBytes ||
+		profile.SystemReserveBytes > maxManagedMemoryByteValue-profile.AllocatableMemoryBytes ||
+		profile.AllocatableMemoryBytes > nominalMemoryBytes ||
+		profile.SystemReserveBytes > nominalMemoryBytes-profile.AllocatableMemoryBytes {
+		return fmt.Errorf("%w: managed process, headroom, cgroup, allocatable memory and reserve bounds", ErrInvalidIntent)
+	}
+	return nil
 }
 
 func (intent Intent) Validate() error {
-	if intent.SchemaVersion != placementSchemaVersion || !validBoundedToken(intent.DatabaseID, maxDatabaseIDLength) ||
+	if intent.SchemaVersion != legacyIntentSchemaVersion && intent.SchemaVersion != IntentSchemaVersion ||
+		!validBoundedToken(intent.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(intent.PartitionID, maxPartitionIDLength) || intent.Generation == 0 ||
 		len(intent.ActiveRegions) < 1 || len(intent.ActiveRegions) > len(regionsInOrder) {
 		return fmt.Errorf("%w: schema, identity, generation or region count", ErrInvalidIntent)
 	}
-	seen := make(map[oci.Region]struct{}, len(intent.ActiveRegions))
-	for _, region := range intent.ActiveRegions {
+	for index, region := range intent.ActiveRegions {
 		if !knownRegion(region) {
 			return fmt.Errorf("%w: unsupported region %q", ErrInvalidIntent, region)
 		}
-		if _, exists := seen[region]; exists {
+		if slices.Contains(intent.ActiveRegions[:index], region) {
 			return fmt.Errorf("%w: repeated region %q", ErrInvalidIntent, region)
 		}
-		seen[region] = struct{}{}
+	}
+	if intent.SchemaVersion == legacyIntentSchemaVersion {
+		if len(intent.ManagedHostProfiles) != 0 {
+			return fmt.Errorf("%w: historical schema 1 cannot carry managed host profiles", ErrInvalidIntent)
+		}
+		return nil
+	}
+	if !canonicalRegions(intent.ActiveRegions) || len(intent.ManagedHostProfiles) != len(intent.ActiveRegions) {
+		return fmt.Errorf("%w: managed profiles must exactly cover canonically ordered selected regions", ErrInvalidIntent)
+	}
+	for index, profile := range intent.ManagedHostProfiles {
+		if profile.Region != intent.ActiveRegions[index] {
+			return fmt.Errorf("%w: managed profiles are missing, foreign or out of canonical order", ErrInvalidIntent)
+		}
+		if err := profile.Validate(); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// ValidateForAdmission limits newly signed managed placements to the profile
+// schema. Historical schema-1 records remain decodable for explicit hold.
+func (intent Intent) ValidateForAdmission() error {
+	if intent.SchemaVersion != IntentSchemaVersion {
+		return fmt.Errorf("%w: schema %d is historical and cannot authorize a new managed placement", ErrInvalidIntent, intent.SchemaVersion)
+	}
+	return intent.Validate()
+}
+
+// ManagedHostProfile returns the exact admitted region profile.
+func (intent Intent) ManagedHostProfile(region oci.Region) (ManagedHostProfile, error) {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return ManagedHostProfile{}, err
+	}
+	index := slices.IndexFunc(intent.ManagedHostProfiles, func(profile ManagedHostProfile) bool { return profile.Region == region })
+	if index < 0 {
+		return ManagedHostProfile{}, fmt.Errorf("%w: region %q is not selected", ErrInvalidIntent, region)
+	}
+	return intent.ManagedHostProfiles[index], nil
+}
+
+// ProfileDigest returns the verified profile digest for one selected region.
+func (intent Intent) ProfileDigest(region oci.Region) (string, error) {
+	profile, err := intent.ManagedHostProfile(region)
+	if err != nil {
+		return "", err
+	}
+	return profile.ProfileDigest()
+}
+
+// PayloadDigest exposes the exact canonical payload digest attached by
+// DecodeCommittedIntent after it reads the operator-signed ordered log.
+func (intent Intent) PayloadDigest() string { return intent.committedPayloadSHA }
+
+// OperationID is stable across regional log consumers and binds one admitted
+// database/partition generation without depending on lease history.
+func (intent Intent) OperationID() string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", intent.DatabaseID, intent.PartitionID, intent.Generation)))
+	return "p-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(sum[:]))
+}
+
+// DecodeCommittedIntent validates canonical bytes returned from the ordered
+// authority log and attaches their exact payload digest. It accepts schema 1
+// only so callers can hold historical records; it does not make them eligible
+// for a new managed placement.
+func DecodeCommittedIntent(payload []byte) (Intent, error) {
+	var intent Intent
+	if err := protocol.DecodeStrict(payload, &intent, maxIntentPayloadBytes); err != nil {
+		return Intent{}, fmt.Errorf("%w: decode committed placement intent: %v", ErrInvalidIntent, err)
+	}
+	if err := intent.Validate(); err != nil {
+		return Intent{}, err
+	}
+	canonical, err := protocol.EncodeJSON(intent)
+	if err != nil {
+		return Intent{}, fmt.Errorf("%w: encode committed placement intent: %v", ErrInvalidIntent, err)
+	}
+	if !bytes.Equal(canonical, payload) {
+		return Intent{}, fmt.Errorf("%w: committed placement intent is not canonical JSON", ErrInvalidIntent)
+	}
+	digest := sha256.Sum256(payload)
+	intent.committedPayloadSHA = hex.EncodeToString(digest[:])
+	return intent, nil
+}
+
+func canonicalRegions(regions []oci.Region) bool {
+	previous := -1
+	for _, region := range regions {
+		index := slices.Index(regionsInOrder[:], region)
+		if index < 0 || index <= previous {
+			return false
+		}
+		previous = index
+	}
+	return true
+}
+
+func validComputeShape(shape string) bool {
+	if len(shape) == 0 || len(shape) > 128 {
+		return false
+	}
+	for index := range len(shape) {
+		character := shape[index]
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '.' || character == '-' || character == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type MemberKind string
@@ -142,27 +332,30 @@ const (
 // MemberState is the durable per-member lifecycle record. Store revisions are
 // kept outside this value so its content remains stable across CAS retries.
 type MemberState struct {
-	SchemaVersion     int         `json:"schema_version"`
-	DatabaseID        string      `json:"database_id"`
-	PartitionID       string      `json:"partition_id"`
-	MemberID          string      `json:"member_id"`
-	Region            oci.Region  `json:"region"`
-	FailureDomain     string      `json:"failure_domain"`
-	Kind              MemberKind  `json:"kind"`
-	Stage             MemberStage `json:"stage"`
-	CreateKey         string      `json:"create_key"`
-	HostNode          string      `json:"host_node,omitempty"`
-	InstanceID        string      `json:"instance_id,omitempty"`
-	InstanceETag      string      `json:"instance_etag,omitempty"`
-	VolumeID          string      `json:"volume_id,omitempty"`
-	AttachmentID      string      `json:"attachment_id,omitempty"`
-	HostAttempt       uint64      `json:"host_attempt"`
-	WriterEpoch       uint64      `json:"writer_epoch,omitzero"`
-	IntentGeneration  uint64      `json:"intent_generation"`
-	DesiredGeneration uint64      `json:"desired_generation"`
-	HostGeneration    uint64      `json:"host_generation"`
-	OperationID       string      `json:"operation_id"`
-	UpdatedAt         time.Time   `json:"updated_at"`
+	SchemaVersion            int                `json:"schema_version"`
+	DatabaseID               string             `json:"database_id"`
+	PartitionID              string             `json:"partition_id"`
+	MemberID                 string             `json:"member_id"`
+	Region                   oci.Region         `json:"region"`
+	FailureDomain            string             `json:"failure_domain"`
+	Kind                     MemberKind         `json:"kind"`
+	Stage                    MemberStage        `json:"stage"`
+	CreateKey                string             `json:"create_key"`
+	HostNode                 string             `json:"host_node,omitempty"`
+	InstanceID               string             `json:"instance_id,omitempty"`
+	InstanceETag             string             `json:"instance_etag,omitempty"`
+	VolumeID                 string             `json:"volume_id,omitempty"`
+	AttachmentID             string             `json:"attachment_id,omitempty"`
+	HostAttempt              uint64             `json:"host_attempt"`
+	WriterEpoch              uint64             `json:"writer_epoch,omitzero"`
+	IntentGeneration         uint64             `json:"intent_generation"`
+	IntentPayloadDigest      string             `json:"intent_payload_digest,omitempty"`
+	ManagedHostProfile       ManagedHostProfile `json:"managed_host_profile,omitzero"`
+	ManagedHostProfileDigest string             `json:"managed_host_profile_digest,omitempty"`
+	DesiredGeneration        uint64             `json:"desired_generation"`
+	HostGeneration           uint64             `json:"host_generation"`
+	OperationID              string             `json:"operation_id"`
+	UpdatedAt                time.Time          `json:"updated_at"`
 }
 
 func (state MemberState) Validate() error {
@@ -177,7 +370,26 @@ func (state MemberState) Validate() error {
 		state.Kind == MemberElastic && state.MemberID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state")
 	}
+	if state.IntentPayloadDigest != "" || state.ManagedHostProfile != (ManagedHostProfile{}) || state.ManagedHostProfileDigest != "" {
+		if !validLowerSHA256Digest(state.IntentPayloadDigest) ||
+			!validLowerSHA256Digest(state.ManagedHostProfileDigest) ||
+			state.ManagedHostProfile.Region != state.Region || state.ManagedHostProfile.Validate() != nil {
+			return errors.New("invalid TerraBase member state managed profile pin")
+		}
+		digest, err := state.ManagedHostProfile.ProfileDigest()
+		if err != nil || digest != state.ManagedHostProfileDigest {
+			return errors.New("invalid TerraBase member state managed profile digest")
+		}
+	}
 	return nil
+}
+
+func validLowerSHA256Digest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	digest, err := hex.DecodeString(value)
+	return err == nil && hex.EncodeToString(digest) == value
 }
 
 func knownStage(stage MemberStage) bool {

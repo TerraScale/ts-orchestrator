@@ -115,8 +115,10 @@ func (controller *Controller) Run(ctx context.Context) error {
 }
 
 // Tick observes each authoritative input once and advances no more than one
-// durable transition or external lifecycle action. Unadmitted hosts and missing
-// database evidence remain holds, not implicit authorization.
+// durable transition or external lifecycle action. An admitted intent observed
+// at the start of this tick may finish that bounded action if a newer intent
+// commits concurrently; the next tick holds the old member pin. Unadmitted
+// hosts and missing database evidence remain holds.
 func (controller *Controller) Tick(ctx context.Context) error {
 	if controller == nil || ctx == nil {
 		return errors.New("placement controller and context are required")
@@ -175,6 +177,10 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			return fmt.Errorf("%w: duplicate database/partition intent", ErrInvalidIntent)
 		}
 		seenIntents[identity] = struct{}{}
+		if intent.SchemaVersion != IntentSchemaVersion || intent.PayloadDigest() == "" {
+			controller.hold(fmt.Sprintf("database %s/%s has no admitted managed placement profile; host reconciliation is held", intent.DatabaseID, intent.PartitionID))
+			continue
+		}
 		members, err := controller.store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
 		if err != nil {
 			return err
@@ -192,6 +198,14 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		profile, err := intent.ManagedHostProfile(controller.config.Region)
+		if err != nil {
+			return err
+		}
+		profileDigest, err := profile.ProfileDigest()
+		if err != nil {
+			return err
+		}
 		memberByID := make(map[string]VersionedMemberState, len(members))
 		for _, member := range members {
 			if member.State.DatabaseID != intent.DatabaseID || member.State.PartitionID != intent.PartitionID {
@@ -202,34 +216,37 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			}
 			memberByID[member.State.MemberID] = member
 		}
+		held := false
 		for _, seat := range seats {
 			versioned, exists := memberByID[seat.MemberID]
 			if !exists {
-				state := controller.initialState(intent, seat, 1)
-				if _, err := controller.persist(ctx, epoch, 0, state); err != nil {
-					return err
-				}
-				return nil
+				continue
 			}
 			state := versioned.State
 			if state.Region != seat.Region || state.Kind != seat.Kind || state.FailureDomain != seat.FailureDomain {
 				return fmt.Errorf("%w: admitted placement seat conflicts with durable member identity", ErrStoreCorrupt)
 			}
-			if state.IntentGeneration > intent.Generation {
-				return fmt.Errorf("%w: member state intent generation is newer than authority", ErrStoreCorrupt)
+			if state.IntentPayloadDigest == "" || state.ManagedHostProfileDigest == "" ||
+				state.IntentPayloadDigest != intent.PayloadDigest() || state.ManagedHostProfile != profile ||
+				state.ManagedHostProfileDigest != profileDigest || state.IntentGeneration != intent.Generation {
+				controller.hold(fmt.Sprintf("member %s has no matching immutable placement profile; an explicit new attempt is required", seat.MemberID))
+				held = true
+				break
 			}
 			if state.Stage == StageRemoved {
-				state = controller.initialState(intent, seat, state.HostAttempt+1)
-				state.VolumeID = versioned.State.VolumeID
-				if _, err := controller.persist(ctx, epoch, versioned.Revision, state); err != nil {
-					return err
-				}
-				return nil
+				controller.hold(fmt.Sprintf("removed member %s requires an explicit reconciled new attempt", seat.MemberID))
+				held = true
+				break
 			}
-			if state.IntentGeneration < intent.Generation {
-				state.IntentGeneration = intent.Generation
-				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "generation")
-				if _, err := controller.persist(ctx, epoch, versioned.Revision, state); err != nil {
+		}
+		if held {
+			continue
+		}
+		for _, seat := range seats {
+			versioned, exists := memberByID[seat.MemberID]
+			if !exists {
+				state := controller.initialState(intent, seat, profile, profileDigest, 1)
+				if _, err := controller.persist(ctx, epoch, 0, state); err != nil {
 					return err
 				}
 				return nil
@@ -261,7 +278,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.guard(ctx, epoch); err != nil {
 			return false, err
 		}
-		instance, err := controller.fleet.EnsureHost(ctx, oci.EnsureRequest{CreateKey: state.CreateKey, FaultDomain: seat.FailureDomain})
+		instance, err := controller.fleet.EnsureHost(ctx, pinnedEnsureRequest(state))
 		if err != nil {
 			return false, fmt.Errorf("ensure TerraBase member host %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 		}
@@ -283,7 +300,7 @@ func (controller *Controller) advanceMember(
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
-			instance, err := controller.fleet.EnsureHost(ctx, oci.EnsureRequest{CreateKey: state.CreateKey, FaultDomain: seat.FailureDomain})
+			instance, err := controller.fleet.EnsureHost(ctx, pinnedEnsureRequest(state))
 			if err != nil {
 				return false, fmt.Errorf("recover TerraBase member host %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 			}
@@ -312,6 +329,19 @@ func (controller *Controller) advanceMember(
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 		return true, err
 	case StagePreparedVolume:
+		instance, exists := instances[state.InstanceID]
+		if !exists {
+			controller.hold(fmt.Sprintf("member %s OCI host is not currently observed; retained volume creation is withheld", seat.MemberID))
+			return false, nil
+		}
+		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
+			return false, err
+		}
+		status, admitted := controller.admittedHost(instance, statuses)
+		if !admitted || status.Registration.Generation != state.HostGeneration {
+			controller.hold(fmt.Sprintf("member %s has no current exact host registration; retained volume creation is withheld", seat.MemberID))
+			return false, nil
+		}
 		if state.VolumeID != "" {
 			state.Stage = StagePreparedAttach
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach")
@@ -496,19 +526,31 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 	}, nil
 }
 
-func (controller *Controller) initialState(intent Intent, seat Seat, attempt uint64) MemberState {
+func (controller *Controller) initialState(intent Intent, seat Seat, profile ManagedHostProfile, profileDigest string, attempt uint64) MemberState {
 	return MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain, Kind: seat.Kind,
 		Stage: StagePreparedHost, CreateKey: hostCreateKey(intent, seat, attempt), HostAttempt: attempt,
+		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, OperationID: memberOperationID(intent, seat.MemberID, attempt, "prepare"),
 		UpdatedAt: time.Now().UTC(),
 	}
 }
 
+func pinnedEnsureRequest(state MemberState) oci.EnsureRequest {
+	return oci.EnsureRequest{
+		CreateKey: state.CreateKey, FaultDomain: state.FailureDomain,
+		Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
+		MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
+		PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
+	}
+}
+
 func (controller *Controller) validateEnsuredInstance(instance oci.Instance, state MemberState, seat Seat) error {
 	if instance.ID == "" || instance.Node == "" || instance.ETag == "" || instance.CreateKey != state.CreateKey ||
-		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain {
+		state.InstanceID != "" && instance.ID != state.InstanceID || state.HostNode != "" && instance.Node != state.HostNode ||
+		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain ||
+		!controller.instanceMatchesPinnedProfile(instance, state) {
 		return errors.New("OCI EnsureHost returned an instance with mismatched durable placement identity")
 	}
 	return nil
@@ -516,10 +558,19 @@ func (controller *Controller) validateEnsuredInstance(instance oci.Instance, sta
 
 func (controller *Controller) validateObservedInstance(instance oci.Instance, state MemberState, seat Seat) error {
 	if instance.ID != state.InstanceID || instance.Node != state.HostNode || instance.CreateKey != state.CreateKey ||
-		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain || instance.ETag == "" {
+		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain || instance.ETag == "" ||
+		state.InstanceETag == "" || !controller.instanceMatchesPinnedProfile(instance, state) {
 		return errors.New("observed OCI instance differs from the durable TerraBase member binding")
 	}
 	return nil
+}
+
+func (controller *Controller) instanceMatchesPinnedProfile(instance oci.Instance, state MemberState) bool {
+	compute := state.ManagedHostProfile.Compute
+	return instance.Owner == controller.config.ManagedOwner && instance.Generation == controller.config.FleetGeneration &&
+		instance.Shape == compute.Shape && instance.WholeOCPUs == compute.WholeOCPUs &&
+		instance.MemoryInGBs == compute.MemoryInGBs && instance.PlacementProfileDigest == state.ManagedHostProfileDigest &&
+		instance.PlacementGeneration == state.IntentGeneration
 }
 
 func (controller *Controller) admittedHost(instance oci.Instance, statuses map[string]host.HostStatus) (host.HostStatus, bool) {

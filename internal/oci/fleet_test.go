@@ -24,20 +24,138 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-01", FaultDomain: "FAULT-DOMAIN-1"})
+	want, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-01"))
 	if err != nil {
 		t.Fatalf("EnsureHost after lost response: %v", err)
 	}
 	if provider.launches != 1 || want.ID == "" || want.Node == "" || want.State != "PROVISIONING" {
 		t.Fatalf("unexpected recovered host: launches=%d host=%+v", provider.launches, want)
 	}
+	request := testEnsureRequest("node-create-01")
+	if want.Shape != request.Shape || want.WholeOCPUs != request.WholeOCPUs || want.MemoryInGBs != request.MemoryInGBs ||
+		want.PlacementProfileDigest != request.PlacementProfileDigest || want.PlacementGeneration != request.PlacementGeneration {
+		t.Fatalf("EnsureHost did not return the verified immutable placement profile: host=%+v request=%+v", want, request)
+	}
+	if len(provider.launchRequests) != 2 || !sameLaunchProfile(provider.launchRequests[0], provider.launchRequests[1]) ||
+		provider.launchRequests[0].RetryToken != provider.launchRequests[1].RetryToken {
+		t.Fatalf("lost-response replay changed the signed tuple or retry token: requests=%+v", provider.launchRequests)
+	}
 
-	again, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-01", FaultDomain: "FAULT-DOMAIN-1"})
+	again, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-01"))
 	if err != nil {
 		t.Fatalf("idempotent EnsureHost: %v", err)
 	}
 	if provider.launches != 1 || again.ID != want.ID || again.Node != want.Node {
 		t.Fatalf("retry created or changed host: launches=%d first=%+v retry=%+v", provider.launches, want, again)
+	}
+}
+
+func TestEnsureHostRejectsSameCreateKeyComputeProfileDrift(t *testing.T) {
+	ctx := t.Context()
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testEnsureRequest("node-profile-drift")
+	if _, err := fleet.EnsureHost(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	request.MemoryInGBs++
+	if _, err := fleet.EnsureHost(ctx, request); err == nil {
+		t.Fatal("same create key accepted a different immutable compute tuple")
+	}
+	if provider.launchCalls != 1 || len(provider.launchRequests) != 1 {
+		t.Fatalf("profile drift reached the provider: launchCalls=%d requests=%+v", provider.launchCalls, provider.launchRequests)
+	}
+}
+
+func TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", FaultDomain: "FAULT-DOMAIN-1"})
+	if !errors.Is(err, ErrPlacementProfileMismatch) {
+		t.Fatalf("missing signed profile was not held: %v", err)
+	}
+	if provider.launchCalls != 0 || len(journal.intents) != 0 {
+		t.Fatalf("unsigned request reached provider or journal: launches=%d intents=%d", provider.launchCalls, len(journal.intents))
+	}
+}
+
+func TestOCIShapeRejectionCannotConfirmOrAdoptInstance(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	provider.launchErrorBeforeCreate = errors.New("OCI shape configuration rejected")
+	journal := newFakeJournal()
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testEnsureRequest("node-provider-shape-rejection")
+	_, err = fleet.EnsureHost(t.Context(), request)
+	if !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("provider shape rejection was not held as an unknown outcome: %v", err)
+	}
+	if provider.launchCalls != 2 || len(provider.instances) != 0 || len(journal.instances) != 0 {
+		t.Fatalf("provider rejection resulted in a false positive or ownership: calls=%d cloud=%+v owned=%+v",
+			provider.launchCalls, provider.instances, journal.instances)
+	}
+	storedIntent, found, err := journal.GetOperation(t.Context(), OperationScope{
+		Action: actionLaunch, Key: request.CreateKey, Region: config.Region,
+		Generation: config.Generation, Owner: config.Owner,
+	})
+	result, resultFound, resultErr := journal.GetResult(t.Context(), storedIntent)
+	if err != nil || resultErr != nil || !found || !resultFound || !result.Unknown || result.ResourceID != "" {
+		t.Fatalf("provider rejection was durably confirmed: found=%v resultFound=%v result=%+v errors=(%v, %v)",
+			found, resultFound, result, err, resultErr)
+	}
+	observed, err := fleet.Observe(t.Context())
+	if err != nil || len(observed) != 0 {
+		t.Fatalf("provider rejection produced an adoptable instance: observed=%+v err=%v", observed, err)
+	}
+}
+
+func TestEnsureHostWithholdsNilOrMismatchedObservedSizing(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*CloudInstance)
+	}{
+		{name: "nil OCPU", mutate: func(instance *CloudInstance) { instance.Ocpus = nil }},
+		{name: "nil memory", mutate: func(instance *CloudInstance) { instance.MemoryInGBs = nil }},
+		{name: "wrong OCPU", mutate: func(instance *CloudInstance) { instance.Ocpus = new(float32(2)) }},
+		{name: "wrong memory", mutate: func(instance *CloudInstance) { instance.MemoryInGBs = new(float32(8)) }},
+		{name: "wrong shape", mutate: func(instance *CloudInstance) { instance.Shape = "VM.Standard.E5.Flex.Other" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config, intent := testRegionConfig()
+			provider := newFakeProvider(config)
+			provider.launchObservationMutation = test.mutate
+			journal := newFakeJournal()
+			fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = fleet.EnsureHost(t.Context(), testEnsureRequest("node-bad-observed-profile"))
+			if !errors.Is(err, ErrPlacementProfileMismatch) || !errors.Is(err, ErrOutcomeUnknown) {
+				t.Fatalf("mismatched observed sizing was not held as unknown: %v", err)
+			}
+			operation, found, getErr := journal.GetOperation(t.Context(), OperationScope{
+				Action: actionLaunch, Key: "node-bad-observed-profile", Region: config.Region,
+				Generation: config.Generation, Owner: config.Owner,
+			})
+			result, resultFound, resultErr := journal.GetResult(t.Context(), operation)
+			if getErr != nil || resultErr != nil || !found || !resultFound || !result.Unknown || len(journal.instances) != 0 {
+				t.Fatalf("mismatched instance became confirmed ownership: operation=%+v found=%v result=%+v resultFound=%v owned=%+v errors=(%v, %v)",
+					operation, found, result, resultFound, journal.instances, getErr, resultErr)
+			}
+		})
 	}
 }
 
@@ -52,7 +170,7 @@ func TestStaleLeaderCannotLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-02", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(ctx, testEnsureRequest("node-create-02"))
 	if !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("expected stale leader fence, got %v", err)
 	}
@@ -81,7 +199,7 @@ func TestEnsureHostRefusesForeignResourceWithSameCreateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "shared-create-key", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(ctx, testEnsureRequest("shared-create-key"))
 	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("expected ownership refusal, got %v", err)
 	}
@@ -106,7 +224,7 @@ func TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, EnsureRequest{CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(ctx, testEnsureRequest(createKey))
 	if !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("unowned matching-tag instance was adopted instead of refused: %v", err)
 	}
@@ -136,7 +254,7 @@ func TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = fleet.EnsureHost(ctx, EnsureRequest{CreateKey: operation.CreateKey, FaultDomain: operation.FaultDomain})
+	_, err = fleet.EnsureHost(ctx, ensureRequestForIntent(operation))
 	if !errors.Is(err, ErrCreateRecoveryHold) {
 		t.Fatalf("expired unknown host create was not held for operator reconciliation: %v", err)
 	}
@@ -253,7 +371,7 @@ func TestConfirmedMissingHostRequiresOperatorReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := EnsureRequest{CreateKey: "node-confirmed-missing", FaultDomain: "FAULT-DOMAIN-1"}
+	request := testEnsureRequest("node-confirmed-missing")
 	created, err := fleet.EnsureHost(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +428,7 @@ func TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := EnsureRequest{CreateKey: "node-etag-recovery", FaultDomain: "FAULT-DOMAIN-1"}
+	request := testEnsureRequest("node-etag-recovery")
 	first, err := fleet.EnsureHost(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -519,7 +637,7 @@ func TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned(t *testing.T) {
 		t.Fatal("test provider did not retain the ambiguous volume")
 	}
 
-	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-unconfirmed-volume", FaultDomain: "FAULT-DOMAIN-1"})
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-unconfirmed-volume"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -541,7 +659,7 @@ func TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-03", FaultDomain: "FAULT-DOMAIN-1"})
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-03"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -579,7 +697,7 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-04", FaultDomain: "FAULT-DOMAIN-1"})
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-04"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -928,7 +1046,7 @@ func TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-create-05", FaultDomain: "FAULT-DOMAIN-1"})
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("node-create-05"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -943,6 +1061,33 @@ func TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState(t *testing.T) {
 	if len(observed) != 1 || observed[0].State != "TERMINATED" || observed[0].Node != host.Node {
 		t.Fatalf("terminal owned host was not preserved as an observation: %+v", observed)
 	}
+	if observed[0].PlacementProfileDigest != host.PlacementProfileDigest ||
+		observed[0].PlacementGeneration != host.PlacementGeneration || observed[0].Shape != host.Shape ||
+		observed[0].WholeOCPUs != host.WholeOCPUs || observed[0].MemoryInGBs != host.MemoryInGBs {
+		t.Fatalf("Observe did not return the verified immutable placement profile: observed=%+v initial=%+v", observed[0], host)
+	}
+}
+
+func TestObserveWithholdsOwnedInstanceAfterComputeProfileDrift(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fleet, err := newTestFleet(config, intent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := fleet.EnsureHost(t.Context(), testEnsureRequest("node-observe-profile-drift"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cloud := provider.instances[host.ID]
+	cloud.MemoryInGBs = new(float32(8))
+	provider.instances[host.ID] = cloud
+
+	observed, err := fleet.Observe(t.Context())
+	if err != nil || len(observed) != 0 {
+		t.Fatalf("Observe returned a host after its pinned profile changed: observed=%+v err=%v", observed, err)
+	}
 }
 
 func TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances(t *testing.T) {
@@ -954,7 +1099,7 @@ func TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	owned, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "node-owned-observation", FaultDomain: "FAULT-DOMAIN-1"})
+	owned, err := fleet.EnsureHost(ctx, testEnsureRequest("node-owned-observation"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -991,10 +1136,11 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 		t.Fatal(err)
 	}
 	createKey := "node-durable-unknown"
-	operation := OperationIntent{
-		Action: actionLaunch, Key: createKey, Region: config.Region, Generation: config.Generation,
-		Owner: config.Owner, CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1", CreatedAt: time.Now().UTC(),
-	}
+	operation := testLaunchIntent(createKey)
+	operation.Region = config.Region
+	operation.Generation = config.Generation
+	operation.Owner = config.Owner
+	operation.CreatedAt = time.Now().UTC()
 	if err := journal.RecordIntent(ctx, operation); err != nil {
 		t.Fatal(err)
 	}
@@ -1004,8 +1150,9 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	instanceID := "ocid1.instance.unknown-launch"
 	provider.instances[instanceID] = CloudInstance{
 		ID: instanceID, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
-		FaultDomain: "FAULT-DOMAIN-1", LifecycleState: "PROVISIONING", ETag: "unknown-etag",
-		FreeformTags: hostTags(config, createKey),
+		FaultDomain: "FAULT-DOMAIN-1", Shape: operation.Shape, Ocpus: new(float32(operation.WholeOCPUs)),
+		MemoryInGBs: new(float32(operation.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "unknown-etag",
+		FreeformTags: placementProfileTags(hostTags(config, createKey), operation.PlacementProfileDigest, operation.PlacementGeneration),
 	}
 	provider.launchRetryTokens[retryToken(strings.Join([]string{
 		config.Owner, string(config.Region), fmt.Sprint(config.Generation), createKey,
@@ -1015,7 +1162,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	if err != nil || len(observed) != 0 {
 		t.Fatalf("unconfirmed launch should be withheld without blocking Observe: observed=%+v err=%v", observed, err)
 	}
-	recovered, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1"})
+	recovered, err := fleet.EnsureHost(ctx, ensureRequestForIntent(operation))
 	if err != nil || recovered.ID != instanceID {
 		t.Fatalf("durable unknown launch was not recovered through retry-token proof: recovered=%+v err=%v", recovered, err)
 	}
@@ -1041,6 +1188,28 @@ func testRegionConfig() (RegionConfig, RegionIntent) {
 		ImageID:                 "ocid1.image.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Shape:                   "VM.Standard.E5.Flex", Owner: "orchestrator",
 	}, intent
+}
+
+func testEnsureRequest(createKey string) EnsureRequest {
+	return EnsureRequest{
+		CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
+		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
+	}
+}
+
+func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
+	return EnsureRequest{
+		CreateKey: intent.CreateKey, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
+		WholeOCPUs: intent.WholeOCPUs, MemoryInGBs: intent.MemoryInGBs,
+		PlacementProfileDigest: intent.PlacementProfileDigest, PlacementGeneration: intent.PlacementGeneration,
+	}
+}
+
+func sameLaunchProfile(a, b LaunchRequest) bool {
+	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.FaultDomain == b.FaultDomain &&
+		a.Shape == b.Shape && a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
+		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
+		maps.Equal(a.FreeformTags, b.FreeformTags)
 }
 
 func writableSnapshot() authority.Snapshot {
@@ -1214,7 +1383,7 @@ func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := fleet.EnsureHost(ctx, EnsureRequest{CreateKey: "attach-test-host", FaultDomain: "FAULT-DOMAIN-1"})
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("attach-test-host"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1234,6 +1403,9 @@ type fakeProvider struct {
 	config                       RegionConfig
 	instances                    map[string]CloudInstance
 	launchRetryTokens            map[string]string
+	launchRequests               []LaunchRequest
+	launchObservationMutation    func(*CloudInstance)
+	launchErrorBeforeCreate      error
 	devices                      map[string][]CloudDevice
 	volumes                      map[string]CloudVolume
 	volumeRetryTokens            map[string]string
@@ -1286,6 +1458,10 @@ func (p *fakeProvider) GetInstance(_ context.Context, id string) (CloudInstance,
 
 func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) (CloudInstance, error) {
 	p.launchCalls++
+	p.launchRequests = append(p.launchRequests, request)
+	if p.launchErrorBeforeCreate != nil {
+		return CloudInstance{}, p.launchErrorBeforeCreate
+	}
 	if id, exists := p.launchRetryTokens[request.RetryToken]; exists {
 		return cloneCloudInstance(p.instances[id]), nil
 	}
@@ -1293,9 +1469,13 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	id := fmt.Sprintf("ocid1.instance.new-%d", p.launches)
 	instance := CloudInstance{
 		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
-		FaultDomain: request.FaultDomain, LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
+		FaultDomain: request.FaultDomain, Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
+		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
 		ConsistentVolumeNamingEnabled: new(true),
 		FreeformTags:                  cloneStringMap(request.FreeformTags),
+	}
+	if p.launchObservationMutation != nil {
+		p.launchObservationMutation(&instance)
 	}
 	p.instances[id] = instance
 	p.launchRetryTokens[request.RetryToken] = id
@@ -1453,6 +1633,12 @@ func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateReque
 
 func cloneCloudInstance(instance CloudInstance) CloudInstance {
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
+	if instance.Ocpus != nil {
+		instance.Ocpus = new(*instance.Ocpus)
+	}
+	if instance.MemoryInGBs != nil {
+		instance.MemoryInGBs = new(*instance.MemoryInGBs)
+	}
 	if instance.ConsistentVolumeNamingEnabled != nil {
 		instance.ConsistentVolumeNamingEnabled = boolPointer(*instance.ConsistentVolumeNamingEnabled)
 	}

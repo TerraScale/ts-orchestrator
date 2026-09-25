@@ -58,14 +58,12 @@ func (reader authorityIntentReader) ListPlacementIntents(ctx context.Context, ce
 	}
 	result := make([]Intent, 0, len(entries))
 	for _, entry := range entries {
-		if entry.Kind != authority.MutationPlacementIntent || entry.Sequence == 0 || !validToken(entry.SubjectKey) || !validToken(entry.OperationID) {
+		if entry.Kind != authority.MutationPlacementIntent || entry.Sequence == 0 || entry.Epoch == 0 || !validToken(entry.OperationID) {
 			return nil, fmt.Errorf("%w: malformed ordered placement log identity", ErrInvalidIntent)
 		}
-		var intent Intent
-		if err := json.Unmarshal(entry.Payload, &intent, json.RejectUnknownMembers(true)); err != nil {
-			return nil, fmt.Errorf("%w: decode ordered placement payload: %v", ErrInvalidIntent, err)
-		}
-		if err := intent.Validate(); err != nil || intent.DatabaseID != entry.SubjectKey || !slices.Contains(intent.ActiveRegions, reader.region) {
+		intent, err := DecodeCommittedIntent(entry.Payload)
+		if err != nil || intent.DatabaseID+"."+intent.PartitionID != entry.SubjectKey ||
+			intent.OperationID() != entry.OperationID || !slices.Contains(intent.ActiveRegions, reader.region) {
 			return nil, fmt.Errorf("%w: ordered placement payload identity or region mismatch", ErrInvalidIntent)
 		}
 		result = append(result, intent)
@@ -131,6 +129,9 @@ func (store *jetStreamStore) ListIntents(ctx context.Context) ([]Intent, error) 
 	for _, intent := range intents {
 		if err := intent.Validate(); err != nil {
 			return nil, err
+		}
+		if !validLowerSHA256Digest(intent.PayloadDigest()) {
+			return nil, fmt.Errorf("%w: admitted placement intent is missing its canonical committed payload digest", ErrInvalidIntent)
 		}
 		identity := intent.DatabaseID + "\x00" + intent.PartitionID
 		if _, exists := seen[identity]; exists {

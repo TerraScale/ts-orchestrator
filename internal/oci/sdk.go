@@ -79,17 +79,34 @@ func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudI
 }
 
 func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchRequest) (CloudInstance, error) {
-	config := provider.config
+	return launchInstance(ctx, provider.compute, provider.config, request)
+}
+
+type launchInstanceClient interface {
+	LaunchInstance(context.Context, core.LaunchInstanceRequest) (core.LaunchInstanceResponse, error)
+}
+
+func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest) (CloudInstance, error) {
+	if compute == nil || request.RetryToken == "" || request.Shape != config.Shape ||
+		!validComputeProfile(request.Shape, request.WholeOCPUs, request.MemoryInGBs,
+			request.PlacementProfileDigest, request.PlacementGeneration) {
+		return CloudInstance{}, ErrPlacementProfileMismatch
+	}
 	networkSecurityGroupIDs := append([]string(nil), config.NetworkSecurityGroupIDs...)
+	freeformTags := placementProfileTags(request.FreeformTags, request.PlacementProfileDigest, request.PlacementGeneration)
 	details := core.LaunchInstanceDetails{
 		AvailabilityDomain: new(config.AvailabilityDomain),
 		CompartmentId:      new(config.CompartmentID),
 		FaultDomain:        new(request.FaultDomain),
-		FreeformTags:       cloneStringMap(request.FreeformTags),
+		FreeformTags:       freeformTags,
 		Metadata: map[string]string{
 			"terrascale_host_node": request.Node,
 		},
-		Shape: new(config.Shape),
+		Shape: new(request.Shape),
+		ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
+			Ocpus:       new(float32(request.WholeOCPUs)),
+			MemoryInGBs: new(float32(request.MemoryInGBs)),
+		},
 		CreateVnicDetails: &core.CreateVnicDetails{
 			SubnetId: new(config.SubnetID),
 			NsgIds:   networkSecurityGroupIDs,
@@ -97,7 +114,7 @@ func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchR
 		LaunchOptions: &core.LaunchOptions{IsConsistentVolumeNamingEnabled: new(true)},
 		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new(config.ImageID)},
 	}
-	response, err := provider.compute.LaunchInstance(ctx, core.LaunchInstanceRequest{
+	response, err := compute.LaunchInstance(ctx, core.LaunchInstanceRequest{
 		LaunchInstanceDetails: details,
 		OpcRetryToken:         new(request.RetryToken),
 	})
@@ -299,11 +316,19 @@ func cloudVolume(volume core.Volume) CloudVolume {
 }
 
 func cloudInstance(instance core.Instance, etag string) CloudInstance {
+	var ocpus, memoryInGBs *float32
+	if instance.ShapeConfig != nil {
+		ocpus = instance.ShapeConfig.Ocpus
+		memoryInGBs = instance.ShapeConfig.MemoryInGBs
+	}
 	return CloudInstance{
 		ID:                            stringValue(instance.Id),
 		CompartmentID:                 stringValue(instance.CompartmentId),
 		AvailabilityDomain:            stringValue(instance.AvailabilityDomain),
 		FaultDomain:                   stringValue(instance.FaultDomain),
+		Shape:                         stringValue(instance.Shape),
+		Ocpus:                         ocpus,
+		MemoryInGBs:                   memoryInGBs,
 		LifecycleState:                string(instance.LifecycleState),
 		ETag:                          etag,
 		ImageID:                       stringValue(instance.ImageId),

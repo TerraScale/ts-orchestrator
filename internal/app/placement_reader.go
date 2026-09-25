@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 
@@ -29,9 +28,9 @@ func (r admittedPlacementReader) ListPlacementIntents(ctx context.Context, cell 
 			len(entry.Payload) == 0 || len(entry.Payload) > maxPlacementIntentBytes {
 			return nil, errors.New("admitted placement log entry is invalid")
 		}
-		var intent placement.Intent
-		if err := json.Unmarshal(entry.Payload, &intent, json.RejectUnknownMembers(true)); err != nil || intent.Validate() != nil ||
-			intent.DatabaseID+"."+intent.PartitionID != entry.SubjectKey || placementOperationID(intent) != entry.OperationID || !intentSelectsCell(intent, cell) {
+		intent, err := placement.DecodeCommittedIntent(entry.Payload)
+		if err != nil || intent.DatabaseID+"."+intent.PartitionID != entry.SubjectKey ||
+			intent.OperationID() != entry.OperationID || !intentSelectsCell(intent, cell) {
 			return nil, fmt.Errorf("invalid admitted placement intent for %q", entry.SubjectKey)
 		}
 		intents = append(intents, intent)
