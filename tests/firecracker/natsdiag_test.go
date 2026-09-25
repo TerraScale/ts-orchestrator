@@ -216,6 +216,110 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	}
 }
 
+func TestSessionProbeUsesJWTOverProductionTLSFirstBridge(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixture := exec.CommandContext(t.Context(), "go", "run", "jwtsetup/main.go",
+		"--dir", root, "--cell", "lab", "--brokers", "c1,c2,c3", "--host-node", "host-a")
+	if output, err := fixture.CombinedOutput(); err != nil {
+		t.Fatalf("create JWT fixture: %v: %s", err, output)
+	}
+	caKey := filepath.Join(root, "ca.key")
+	ca := filepath.Join(root, "ca.pem")
+	key := filepath.Join(root, "client.key")
+	request := filepath.Join(root, "client.csr")
+	cert := filepath.Join(root, "client.pem")
+	extensions := filepath.Join(root, "client.ext")
+	if err := os.WriteFile(extensions, []byte("subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth,clientAuth\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range [][]string{
+		{"genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", caKey},
+		{"req", "-new", "-x509", "-key", caKey, "-days", "1", "-subj", "/CN=lab-ca",
+			"-addext", "basicConstraints=critical,CA:TRUE", "-out", ca},
+		{"genpkey", "-algorithm", "EC", "-pkeyopt", "ec_paramgen_curve:P-256", "-out", key},
+		{"req", "-new", "-key", key, "-subj", "/CN=lab-c1", "-out", request},
+		{"x509", "-req", "-in", request, "-CA", ca, "-CAkey", caKey, "-set_serial", "2",
+			"-days", "1", "-extfile", extensions, "-out", cert},
+	} {
+		if output, err := exec.CommandContext(t.Context(), "openssl", command...).CombinedOutput(); err != nil {
+			t.Fatalf("create TLS certificate: %v: %s", err, output)
+		}
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+	tlsFiles := natscell.TLSFiles{CAFile: ca, CertFile: cert, KeyFile: key}
+	regional, err := natscell.Start(t.Context(), natscell.Config{
+		Cell: "lab", Instance: "c1", Replicas: 1, CredentialsFile: filepath.Join(root, "c1.creds"),
+		TLS: tlsFiles, Embedded: &natscell.Embedded{
+			Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "store"),
+			TLS: tlsFiles, RouteTLS: tlsFiles, OperatorJWTFile: filepath.Join(root, "operator.jwt"),
+			SystemJWTFile: filepath.Join(root, "system.jwt"), CellJWTFile: filepath.Join(root, "cell.jwt"),
+			SystemCredentialsFile: filepath.Join(root, "system.creds"),
+			TicketPublicKeyFile:   filepath.Join(root, "broker-ticket.pub"), BrokerIDs: []string{"c1"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = regional.Close() })
+	cellJWT, err := os.ReadFile(filepath.Join(root, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := strings.TrimSpace(string(cellJWT))
+	if err := regional.ApplyCellClaim(t.Context(), 1, claim); err != nil {
+		t.Fatal(err)
+	}
+	options, err := diagnosticOptions("", filepath.Join(root, "c1.creds"), "lab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsOption, err := diagnosticTLS(ca, cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options = append(options, tlsOption)
+	endpoint := strings.Replace(regional.URL(), "nats://", "tls://", 1)
+	if err := sessionProbe(endpoint, "once", options); err == nil {
+		t.Fatal("closed production bridge admitted diagnostic session")
+	}
+	if err := regional.Bridge().OpenUntil(1, claim, time.Now().Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if err := sessionProbe(endpoint, "once", options); err != nil {
+		t.Fatalf("real JWT/TLS-first diagnostic caller: %v", err)
+	}
+	holdFinished := make(chan error, 1)
+	ready := make(chan struct{}, 1)
+	go func() { holdFinished <- sessionProbeReady(endpoint, "hold", options, ready) }()
+	select {
+	case <-ready:
+	case err := <-holdFinished:
+		t.Fatalf("pinned diagnostic session failed before first read: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("pinned diagnostic session did not complete first read")
+	}
+	regional.Bridge().Fence()
+	select {
+	case err := <-holdFinished:
+		if err != nil {
+			t.Fatalf("pinned session did not observe fence closure: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("pinned diagnostic session survived production bridge fence")
+	}
+	if err := sessionProbe(endpoint, "once", options); err == nil {
+		t.Fatal("fenced production bridge admitted new diagnostic session")
+	}
+}
+
 func TestReadPathTargetsAndBoundedErrors(t *testing.T) {
 	targets := readTargets("lab", "fc-diagnostic-2")
 	if len(targets) != 3 {

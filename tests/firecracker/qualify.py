@@ -47,6 +47,10 @@ WORKLOAD_GID = 2000
 WORKLOAD_RUN_DIR = "/run/ts-orch-workload"
 CLOCK_READY = "/run/ts-orch-clock-ready"
 CLOCK_BOUND_NS = 1_000_000_000
+CHRONYD = Path("/nix/store/zinbanwvmabvr9lk7x5qaac0al3v18ml-chrony-4.8/bin/chronyd")
+CHRONYC = CHRONYD.with_name("chronyc")
+CHRONYD_SHA = "bcfa87ddfc6b61c079ed764b541c82de7e1f279c56ad50b6757c679d6c3b05dd"
+CHRONYC_SHA = "10fbfd50c1efe52f56e2a1f1643ab8855b41a6954b5f93242bba1404d8fc7875"
 
 
 def _default_slog_attributes(message: str, event: str,
@@ -301,11 +305,15 @@ class Lab:
         self.vms: dict[str, VM] = {}
         self.binary = self.root / "terrascale-orchestrator"
         self.natsdiag = self.root / "natsdiag"
+        self.jwtsetup = self.root / "jwtsetup"
+        self.clockprobe = self.root / "clockprobe"
+        self.chrony_process: subprocess.Popen[str] | None = None
+        self.session_probe_process: subprocess.Popen[str] | None = None
         self.ssh_key = self.secrets / "lab_ssh"
         self.known_hosts = self.secrets / "known_hosts"
         self.operator_config = self.secrets / "operator.json"
         self.signing_public: dict[str, str] = {}
-        self.nkeys: dict[str, str] = {}
+        self.jwt_manifest: dict[str, Any] = {}
         self.source = {"repository": "https://example.com/terrascale/firecracker-fixtures",
                        "commit": "f" * 40, "treeDigest": ""}
         self.failure_diagnostics_captured = False
@@ -363,6 +371,14 @@ class Lab:
         (self.logs / "natsdiag-build.log").write_text(diagnostic.stdout + diagnostic.stderr)
         if diagnostic.returncode:
             raise RuntimeError(f"NATS diagnostic build failed; see {self.logs / 'natsdiag-build.log'}")
+        for label, target, source in (("jwtsetup", self.jwtsetup, "tests/firecracker/jwtsetup/main.go"),
+                                      ("clockprobe", self.clockprobe, "tests/firecracker/clockprobe/main.go")):
+            result = subprocess.run(["go", "build", "-trimpath", "-o", str(target), source],
+                                    cwd=REPO, env=environment, capture_output=True, text=True,
+                                    timeout=180, check=False)
+            (self.logs / f"{label}-build.log").write_text(result.stdout + result.stderr)
+            if result.returncode:
+                raise RuntimeError(f"{label} build failed; see {self.logs / f'{label}-build.log'}")
         after = source_digest()
         if after != before:
             raise RuntimeError("Go source changed during build; rerun against a stable tree")
@@ -370,11 +386,14 @@ class Lab:
             raise RuntimeError("Firecracker harness changed during build; rerun against a stable tree")
         self.note("binary", sha256=digest(self.binary), source_manifest_sha256=after)
         self.note("diagnostic_binary", sha256=digest(self.natsdiag))
+        self.note("jwtsetup_binary", sha256=digest(self.jwtsetup))
+        self.note("clockprobe_binary", sha256=digest(self.clockprobe))
 
     @staticmethod
     def harness_digest() -> str:
         value = hashlib.sha256()
-        for name in ("qualify.py", "test_qualify.py", "natsdiag.go", "nkeygen.go", "README.md"):
+        for name in ("qualify.py", "test_qualify.py", "natsdiag.go", "natsdiag_test.go",
+                     "jwtsetup/main.go", "clockprobe/main.go", "README.md"):
             path = REPO / "tests" / "firecracker" / name
             value.update(name.encode() + b"\0" + bytes.fromhex(digest(path)))
         return value.hexdigest()
@@ -440,16 +459,17 @@ class Lab:
             self.signing_public[name] = generated.stdout.strip()
             if not self.signing_public[name]:
                 raise RuntimeError(f"identity-new returned no public key for {name}")
-        generated = run(["go", "run", str(REPO / "tests/firecracker/nkeygen.go"),
-                         "--dir", str(self.secrets), *CONTROLLERS, "operator", "host"], timeout=180)
-        self.nkeys = json.loads(generated.stdout)
+        generated = run([str(self.jwtsetup), "--dir", str(self.secrets), "--cell", CELL,
+                         "--brokers", ",".join(CONTROLLERS), "--host-node", "host-a"])
+        self.jwt_manifest = json.loads(generated.stdout)
+        if set(self.jwt_manifest.get("users", {})) != {*CONTROLLERS, "operator", "host", "system"}:
+            raise RuntimeError("JWT fixture returned incomplete public user identities")
         self.create_tls_material()
-        self.note("identities", names=[*self.nkeys, *self.signing_public])
+        self.note("identities", names=[*self.jwt_manifest["users"], *self.signing_public],
+                  operator_account=self.jwt_manifest["operator_account"],
+                  cell_account=self.jwt_manifest["cell_account"])
 
     def configs(self) -> None:
-        grants = [{"public_key": self.nkeys[name], "role": "controller"} for name in CONTROLLERS]
-        grants += [{"public_key": self.nkeys["operator"], "role": "operator"},
-                   {"public_key": self.nkeys["host"], "role": "host", "node": "host-a"}]
         signer = {"actor": "ops", "public_key": self.signing_public["operator"],
                   "roles": [ROLE], "environments": [ENVIRONMENT],
                   "can_register_hosts": True, "repositories": [self.source["repository"]]}
@@ -458,7 +478,7 @@ class Lab:
             other_routes = [f"nats-route://{self.addresses[peer]}:6222" for peer in CONTROLLERS if peer != name]
             config = {"nats": {"cell": CELL, "instance": name, "replicas": 3, "lab": False,
                                "client_role": "controller", "tls": self.tls_files(name, guest=True),
-                               "nkey_seed_file": f"/etc/ts-orch/{name}.nk",
+                               "credentials_file": f"/etc/ts-orch/{name}.creds",
                                "embedded": {"host": self.addresses[name], "port": 4222,
                                             "route_host": self.addresses[name], "route_port": 6222,
                                             "routes": other_routes, "store_dir": "/var/lib/ts-orch/nats",
@@ -467,8 +487,14 @@ class Lab:
                                             "route_tls": self.tls_files(name, guest=True),
                                             "route_user": "ts-fc-route",
                                             "route_password_file": "/etc/ts-orch/route-password",
-                                            "users": grants}},
+                                            "operator_jwt_file": "/etc/ts-orch/operator.jwt",
+                                            "system_jwt_file": "/etc/ts-orch/system.jwt",
+                                            "cell_jwt_file": "/etc/ts-orch/cell.jwt",
+                                            "system_credentials_file": "/etc/ts-orch/system.creds",
+                                            "ticket_public_key_file": "/etc/ts-orch/broker-ticket.pub",
+                                            "broker_ids": list(CONTROLLERS)}},
                       "controller": {"response_key_file": "/etc/ts-orch/controller.key",
+                                     "broker_ticket_key_file": "/etc/ts-orch/broker-ticket.key",
                                      "artifact_store_max_bytes": 64 << 20,
                                      "trusted_signers": [signer], "workloads": {
                                          ROLE: {"resources": {"cpu": 1, "memory_bytes": 67108864,
@@ -477,7 +503,7 @@ class Lab:
         host = {"nats": {"cell": CELL, "instance": "host-a", "replicas": 3, "lab": False,
                          "client_role": "host", "url": urls,
                          "tls": self.tls_files("host", guest=True),
-                         "nkey_seed_file": "/etc/ts-orch/host.nk"},
+                         "credentials_file": "/etc/ts-orch/host.creds"},
                 "host": {"node": "host-a", "environment": ENVIRONMENT, "roles": [ROLE],
                          "session_trace": True,
                          "workload_uid": WORKLOAD_UID, "workload_gid": WORKLOAD_GID,
@@ -489,9 +515,10 @@ class Lab:
         operator = {"nats": {"cell": CELL, "instance": "operator", "replicas": 3,
                              "lab": False, "client_role": "operator", "url": urls,
                              "tls": self.tls_files("operator", guest=False),
-                             "nkey_seed_file": str(self.secrets / "operator.nk")},
+                             "credentials_file": str(self.secrets / "operator.creds")},
                     "controller": {"trusted_signers": [signer]},
-                    "operator": {"actor": "ops", "signing_key_file": str(self.secrets / "operator.key")}}
+                    "operator": {"actor": "ops", "signing_key_file": str(self.secrets / "operator.key"),
+                                 "broker_ticket_public_key_file": str(self.secrets / "broker-ticket.pub")}}
         write_json(self.operator_config, operator)
         registration = {"cell": CELL, "node": "host-a", "environment": ENVIRONMENT,
                         "roles": [ROLE], "public_key": self.signing_public["host"],
@@ -510,6 +537,42 @@ class Lab:
             self.sudo("ip", "link", "set", tap, "master", self.bridge)
             self.sudo("ip", "link", "set", tap, "up")
         self.note("network", bridge=self.bridge, subnet=str(self.subnet), taps=self.taps)
+
+    def start_chrony(self) -> None:
+        config = self.stage / "chrony.conf"
+        socket_path = self.root / "chronyd.sock"
+        config.write_text(
+            "pool 2.nixos.pool.ntp.org iburst maxsources 4\n"
+            f"bindaddress {self.subnet[1]}\nallow {self.subnet}\nport 123\n"
+            f"bindcmdaddress {socket_path}\ncmdport 0\n"
+            f"pidfile {self.root / 'chronyd.pid'}\n"
+            f"driftfile {self.root / 'chronyd.drift'}\n")
+        config.chmod(0o600)
+        run([str(CHRONYD), "-p", "-f", str(config)])
+        log = (self.logs / "chronyd.log").open("w")
+        try:
+            self.chrony_process = subprocess.Popen(
+                ["sudo", "-n", str(CHRONYD), "-x", "-d", "-4", "-f", str(config)],
+                stdout=log, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        finally:
+            log.close()
+
+        def selected() -> bool:
+            if self.chrony_process.poll() is not None:
+                raise RuntimeError(f"private chronyd exited; see {self.logs / 'chronyd.log'}")
+            sources = run(["sudo", "-n", str(CHRONYC), "-n", "-h", str(socket_path), "sources"],
+                          timeout=10, allow_failure=True)
+            if sources.returncode:
+                return False
+            # ^* denotes a selected real upstream; the config contains no local clock.
+            if not any(line.lstrip().startswith("^*") for line in sources.stdout.splitlines()):
+                return False
+            listeners = run(["sudo", "-n", "ss", "-H", "-lun"], timeout=10)
+            return any(f"{self.subnet[1]}:123" in line for line in listeners.stdout.splitlines())
+
+        self.wait("private-chrony-upstream-and-listener", selected, timeout=150, period=2)
+        self.note("chrony_ready", pid=self.chrony_process.pid, upstream="selected_remote",
+                  bind_address=str(self.subnet[1]), chronyd_sha256=digest(CHRONYD))
 
     def install(self, mount: Path, source: Path, destination: str, mode: str) -> None:
         if not destination.startswith("/") or ".." in Path(destination).parts:
@@ -569,6 +632,7 @@ class Lab:
                 known_hosts.write(f"{self.addresses[name]} {key_parts[0]} {key_parts[1]}\n")
             self.known_hosts.chmod(0o600)
             self.install(mount, self.binary, "/usr/local/bin/terrascale-orchestrator", "0755")
+            self.install(mount, self.clockprobe, "/usr/local/bin/ts-orch-clockprobe", "0755")
             self.install_text(mount, self.ssh_public + "\n", "/root/.ssh/authorized_keys", "0600")
             self.install(mount, host_key, "/etc/ssh/ssh_host_ed25519_key", "0600")
             self.install(mount, public_host_key, "/etc/ssh/ssh_host_ed25519_key.pub", "0644")
@@ -580,17 +644,25 @@ class Lab:
             role = "run" if name in CONTROLLERS else "host"
             config_name = name if name in CONTROLLERS else "host"
             self.install(mount, self.secrets / f"{config_name}.json", "/etc/ts-orch/config.json", "0600")
-            self.install(mount, self.secrets / f"{config_name}.nk", f"/etc/ts-orch/{config_name}.nk", "0600")
+            self.install(mount, self.secrets / f"{config_name}.creds",
+                         f"/etc/ts-orch/{config_name}.creds", "0600")
             for file_name in ("nats-ca.pem", f"nats-{name}.pem", f"nats-{name}.key"):
                 self.install(mount, self.secrets / file_name, f"/etc/ts-orch/{file_name}", "0600")
             if name in CONTROLLERS:
                 self.install(mount, self.secrets / "route-password", "/etc/ts-orch/route-password", "0600")
+                for file_name in ("operator.jwt", "system.jwt", "cell.jwt", "system.creds",
+                                  "broker-ticket.key", "broker-ticket.pub"):
+                    self.install(mount, self.secrets / file_name, f"/etc/ts-orch/{file_name}", "0600")
+            self.install_text(mount, "[Time]\nNTP=" + str(self.subnet[1]) +
+                              "\nFallbackNTP=\nRootDistanceMaxSec=1\n",
+                              "/etc/systemd/timesyncd.conf.d/ts-orch-fc.conf")
             key_name = "controller" if name in CONTROLLERS else "host"
             self.install(mount, self.secrets / f"{key_name}.key", f"/etc/ts-orch/{key_name}.key", "0600")
             unit = self.guest_unit(name, role)
             self.install_text(mount, unit, "/etc/systemd/system/ts-orch.service")
             self.sudo("systemctl", f"--root={mount}", "enable", "systemd-networkd.service")
             self.sudo("systemctl", f"--root={mount}", "enable", "ssh.service")
+            self.sudo("systemctl", f"--root={mount}", "enable", "systemd-timesyncd.service")
             self.sudo("systemctl", f"--root={mount}", "enable", "ts-orch.service")
         finally:
             self.sudo("umount", str(mount))
@@ -626,7 +698,7 @@ class Lab:
     def wait_ssh(self, name: str) -> None:
         self.wait(f"ssh-{name}", lambda: self.ssh(name, "true",
                                                   allow_failure=True).returncode == 0, timeout=150)
-        self.calibrate_guest_clock(name)
+        self.release_synchronized_guest_clock(name)
         self.wait(f"service-{name}", lambda: self.ssh(name, "systemctl is-active ts-orch.service",
                                                       allow_failure=True).returncode == 0,
                   timeout=150)
@@ -828,23 +900,34 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         self.note("guest_clock", name=name, offset_ns=offset, uncertainty_ns=uncertainty)
         return offset, uncertainty
 
-    def calibrate_guest_clock(self, name: str) -> None:
+    def wait_synchronized_guest_clock(self, name: str) -> None:
+        def synchronized() -> bool:
+            result = self.ssh(name,
+                              "systemctl is-active --quiet systemd-timesyncd.service && "
+                              "test \"$(timedatectl show -p NTPSynchronized --value)\" = yes && "
+                              "/usr/local/bin/ts-orch-clockprobe",
+                              timeout=10, allow_failure=True)
+            try:
+                evidence = json.loads(result.stdout.strip())
+            except ValueError:
+                return False
+            if result.returncode or evidence.get("healthy") is not True:
+                return False
+            self.note("guest_kernel_clock", name=name, **evidence)
+            return True
+
+        self.wait(f"ntp-clock-{name}", synchronized, timeout=180, period=2)
+        offset, uncertainty = self.measure_guest_clock(name)
+        if abs(offset) + uncertainty > CLOCK_BOUND_NS:
+            raise RuntimeError(f"{name} NTP clock differs from lab host by over one second")
+
+    def release_synchronized_guest_clock(self, name: str) -> None:
         guard = (f"test ! -e {CLOCK_READY} && "
                  'test "$(systemctl show -p MainPID --value ts-orch.service)" = 0')
         if self.ssh(name, guard, timeout=10, allow_failure=True).returncode:
-            raise RuntimeError(f"{name} service began before clock calibration")
+            raise RuntimeError(f"{name} service began before NTP clock readiness")
+        self.wait_synchronized_guest_clock(name)
         offset, uncertainty = self.measure_guest_clock(name)
-        for attempt in range(3):
-            if abs(offset) + uncertainty <= CLOCK_BOUND_NS:
-                break
-            target_ns = time.time_ns()
-            seconds, nanoseconds = divmod(target_ns, 1_000_000_000)
-            target = f"@{seconds}.{nanoseconds:09d}"
-            self.ssh(name, f"date -u --set={target} >/dev/null", timeout=10)
-            self.note("guest_clock_step", name=name, attempt=attempt + 1, target_ns=target_ns)
-            offset, uncertainty = self.measure_guest_clock(name)
-        if abs(offset) + uncertainty > CLOCK_BOUND_NS:
-            raise RuntimeError(f"{name} clock differs from lab host by over one second")
         self.ssh(name, f"/usr/bin/install -m 0600 /dev/null {CLOCK_READY}", timeout=10)
         self.note("guest_clock_released", name=name, offset_ns=offset,
                   uncertainty_ns=uncertainty)
@@ -854,6 +937,64 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             offset, uncertainty = self.measure_guest_clock(name)
             if abs(offset) + uncertainty > CLOCK_BOUND_NS:
                 raise RuntimeError(f"{name} clock differs from lab host by over one second")
+
+    def verify_broker_clock_gate(self) -> None:
+        endpoint = f"tls://{self.addresses['c1']}:4222"
+        command = [str(self.natsdiag), "--creds", str(self.secrets / "c1.creds"),
+                   "--cell", CELL, "--urls", endpoint,
+                   "--ca", str(self.secrets / "nats-ca.pem"),
+                   "--cert", str(self.secrets / "nats-c1.pem"),
+                   "--key", str(self.secrets / "nats-c1.key")]
+        log_path = self.logs / "c1-clock-gate-session.jsonl"
+        error_path = self.logs / "c1-clock-gate-session.stderr.log"
+        with log_path.open("w") as output, error_path.open("w") as errors:
+            self.session_probe_process = subprocess.Popen(
+                [*command, "--session-probe", "hold"], stdout=output, stderr=errors, text=True)
+
+        def state(expected: str) -> bool:
+            records = [json.loads(line) for line in log_path.read_text().splitlines() if line]
+            if any(record.get("state") == expected for record in records):
+                return True
+            if self.session_probe_process.poll() is not None:
+                raise RuntimeError(f"pinned c1 session exited before {expected}; see {error_path}")
+            return False
+
+        self.wait("c1-authenticated-session", lambda: state("ready"), timeout=20, period=0.1)
+        fault_started = time.monotonic()
+        fault_deadline = fault_started + 20
+
+        def remaining(cap: float) -> float:
+            seconds = fault_deadline - time.monotonic()
+            if seconds <= 0:
+                raise TimeoutError("c1 session closure exceeded the 20-second fault budget")
+            return min(cap, seconds)
+
+        self.ssh("c1", "systemctl stop systemd-timesyncd.service && "
+                 "date -u --set=\"$(date -u -d '+90 seconds' '+%Y-%m-%d %H:%M:%S')\" >/dev/null",
+                 timeout=remaining(12))
+        unhealthy = self.ssh("c1", "/usr/local/bin/ts-orch-clockprobe", timeout=remaining(10),
+                             allow_failure=True)
+        evidence = json.loads(unhealthy.stdout.strip())
+        if unhealthy.returncode == 0 or evidence.get("healthy") is not False:
+            raise RuntimeError("c1 clock jump did not make the production kernel predicate unhealthy")
+        self.note("broker_clock_unhealthy", name="c1", **evidence)
+        remaining(20)
+        self.wait("c1-session-closed", lambda: state("closed"),
+                  deadline=fault_deadline, period=0.1)
+        elapsed = time.monotonic() - fault_started
+        if elapsed > 20:
+            raise RuntimeError(f"c1 session closure exceeded polling and ticket bound: {elapsed:.3f}s")
+        refused = run([*command, "--session-probe", "once"], timeout=8, allow_failure=True)
+        if refused.returncode == 0 or '"state":"ready"' in refused.stdout:
+            raise RuntimeError("c1 broker admitted a new authenticated session while clock was unhealthy")
+        self.note("broker_clock_fenced", name="c1", closure_elapsed_seconds=elapsed,
+                  new_admission_exit_code=refused.returncode)
+        self.ssh("c1", "systemctl start systemd-timesyncd.service", timeout=12)
+        self.wait_synchronized_guest_clock("c1")
+        self.wait("c1-readmitted-after-ntp", lambda: run(
+            [*command, "--session-probe", "once"], timeout=8, allow_failure=True).returncode == 0,
+            timeout=75, period=2)
+        self.note("broker_clock_recovered", name="c1")
 
     def host_renewal_failure_evidence(self, since: datetime, session_hash: str,
                                       epoch: int, expiry: datetime) -> None:
@@ -1139,12 +1280,12 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
                 path.write_text(f"controller diagnostics unavailable: {error!r}\n")
                 path.chmod(0o600)
                 self.note("cluster_diagnostics", name=name, path=str(path), error=repr(error))
-        if self.natsdiag.exists() and (self.secrets / "c1.nk").exists():
+        if self.natsdiag.exists() and (self.secrets / "c1.creds").exists():
             urls = ",".join(f"tls://{self.addresses[name]}:4222" for name in CONTROLLERS)
             path = self.logs / "nats-live-diagnostics.jsonl"
             try:
-                command = [str(self.natsdiag), "--seed", str(self.secrets / "c1.nk"),
-                           "--operator-seed", str(self.secrets / "operator.nk"),
+                command = [str(self.natsdiag), "--creds", str(self.secrets / "c1.creds"),
+                           "--operator-creds", str(self.secrets / "operator.creds"),
                            "--cell", CELL, "--urls", urls,
                            "--ca", str(self.secrets / "nats-ca.pem"),
                            "--cert", str(self.secrets / "nats-c1.pem"),
@@ -1192,6 +1333,7 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
 
     def scenario(self) -> None:
         self.network()
+        self.start_chrony()
         for name in GUESTS:
             self.prepare_guest(name)
         for name in GUESTS:
@@ -1199,6 +1341,8 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         for name in GUESTS:
             self.wait_ssh(name)
         self.check_guest_clocks()
+        self.wait_cluster()
+        self.verify_broker_clock_gate()
         self.wait_cluster()
         registration = self.wait("signed-host-registration",
                                  lambda: self.operator("host-register", "--registration",
@@ -1415,6 +1559,16 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
     def cleanup(self) -> list[str]:
         errors: list[str] = []
         images_safe = True
+        if getattr(self, "session_probe_process", None) is not None:
+            process = self.session_probe_process
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            self.session_probe_process = None
         for table in reversed(self.created_nft_tables.copy()):
             try:
                 result = self.sudo("nft", "delete", "table", "bridge", table, allow_failure=True)
@@ -1439,6 +1593,17 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
                     self.mounted.remove(mount)
             except Exception as error:
                 errors.append(f"unmount {mount}: {error}")
+        if getattr(self, "chrony_process", None) is not None:
+            process = self.chrony_process
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+            self.note("chrony_stop", pid=process.pid, exit_code=process.returncode)
+            self.chrony_process = None
         for link in reversed(self.created_links):
             try:
                 result = self.sudo("ip", "link", "del", link, allow_failure=True)
@@ -1460,11 +1625,14 @@ def preflight(args: argparse.Namespace) -> None:
         if not path.is_file() or digest(path) != expected:
             raise RuntimeError(f"asset missing or SHA-256 mismatch: {path}")
     for command in ("go", "git", "ssh", "ssh-keygen", "cp", "ip", "nft", "openssl",
-                    "sudo", "mount", "umount", "e2fsck", "resize2fs"):
+                    "sudo", "mount", "umount", "e2fsck", "resize2fs", "ss"):
         if shutil.which(command) is None:
             raise RuntimeError(f"required command missing: {command}")
     if not Path(args.firecracker).is_file():
         raise RuntimeError(f"Firecracker executable missing: {args.firecracker}")
+    if (not CHRONYD.is_file() or digest(CHRONYD) != CHRONYD_SHA or
+            not CHRONYC.is_file() or digest(CHRONYC) != CHRONYC_SHA):
+        raise RuntimeError("pinned Chrony 4.8 binaries are unavailable or changed")
     if not Path("/dev/kvm").exists() or not Path("/dev/net/tun").exists():
         raise RuntimeError("Firecracker requires /dev/kvm and /dev/net/tun")
 

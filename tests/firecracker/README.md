@@ -11,14 +11,15 @@ python3 tests/firecracker/qualify.py run
 `/tmp/vm-inputs/vmlinux` and `/tmp/vm-inputs/rootfs.ext4`, Firecracker,
 `/dev/kvm`, `/dev/net/tun`, and required host commands. It creates no VMs or
 network devices. `run` needs passwordless `sudo` for `ip`, `mount`, `umount`,
-`install`, `systemctl`, and `nft`. The host also needs `openssl`. Options
+`install`, `systemctl`, and `nft`. The host also needs `openssl`, `ss`, and the
+pinned Chrony 4.8 binaries named in `qualify.py`. Options
 `--kernel`, `--rootfs`, `--firecracker`, and
 `--run-dir` select alternate assets or a new evidence directory; asset hashes
 must still match. Do not reuse `/tmp/vm-inputs/certs`.
 
 The run builds the current static Go binary, checks that Go source did not
 change during the build, creates fresh Ed25519 identities with the actual
-`identity-new` CLI, test NKey identities, a private two-day CA with distinct
+`identity-new` CLI, private operator/account/user JWT credentials, a private two-day CA with distinct
 P-256 TLS 1.3 client/server certificates for each guest and the operator, a
 shared private route password, and per-guest SSH host keys pinned in
 the private run's `known_hosts`, then boots three controller/NATS
@@ -29,7 +30,11 @@ carry only the private `198.19.x.0/24` test subnet. No uplink, NAT, or TCP
 Firecracker API listener is created. The operator CLI runs on the lab host and
 talks to the guest NATS cluster over that bridge. All NATS clients and
 embedded client and route listeners use production mode (`lab: false`), TLS
-and mutual certificate verification. Role-bound NKey grants remain enabled.
+and mutual certificate verification. Production JWT account and user grants
+authorize the regional controllers, operator, and host. A private Chrony server
+serves only the run's bridge while selecting a real remote upstream; each guest
+uses timesyncd against that bridge before its production kernel-clock predicate
+releases the service.
 The native fixture runs as dedicated UID/GID 2000 and writes its marker and
 PID in a private `/run/ts-orch-workload` directory prepared by the host unit.
 The host supervisor remains root with `NoNewPrivileges=yes` and an exact
@@ -71,12 +76,16 @@ complete during that reserve and must complete before signed expiry. Events
 record the fault time, expected fence threshold, actual post-cancellation
 fence-start event, first failed renewal observed in the guest journal, and a
 conservative process/cgroup stop observation.
-On every boot, the guest service waits on a root-owned `/run` marker while SSH
-measures its clock against the lab host. If needed, the harness sets guest time
-before starting the controller or host service, measures again with SSH latency
-included in the bound, and releases the service only when the absolute offset plus
-uncertainty is within one second. The marker disappears on reboot; a guest
-clock is never stepped after that guest's controller or host service starts.
+On every boot, the guest service waits on a root-owned `/run` marker until
+timesyncd reports NTP synchronization, the test-only clockprobe passes the exact
+production `KernelClockProbe.Measure()` predicate, and the measured guest clock
+offset plus SSH uncertainty is within one second. The marker disappears on reboot.
+After cluster readiness, the harness keeps a JWT-authenticated read connection
+pinned to c1, deliberately jumps c1's clock while timesyncd is stopped, requires
+the kernel predicate to fail, observes the existing connection close, and rejects
+fresh admission. It restarts timesyncd and requires genuine resynchronization
+before testing admission recovery. This fault step occurs after service start;
+startup never manually sets the guest clock.
 Guest clocks are checked again before the 1/3 fault; later drift and SSH
 observation latency limit subsecond timing claims. The stop deadline subtracts
 the measured upper bound of host clock
@@ -100,7 +109,7 @@ failed host report, or on a scenario failure, the harness also saves bounded
 read-only host journal, process, cgroup, runner-inventory, workload-marker,
 and installed-artifact diagnostics before stopping the VMs. If the one-node-loss
 receipt stays pending for 20 seconds, it also saves each live controller's
-journal and a read-only JetStream snapshot from direct NKey-authenticated
+journal and a read-only JetStream snapshot from direct JWT-authenticated
 connections to each controller, plus an operator-style multi-URL connection.
 It saves a curated operator host-status snapshot at that point and on host
 failure, including session expiry and currentness, capacity, report state,

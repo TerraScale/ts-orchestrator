@@ -1,7 +1,7 @@
 //go:build ignore
 
 // natsdiag reads only regional JetStream metadata during a Firecracker lab run.
-// It never prints the NKey seed or raw control-log payloads.
+// It never prints credentials or raw control-log payloads.
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -29,6 +30,9 @@ import (
 func main() {
 	seed := flag.String("seed", "", "private controller NKey seed file")
 	operatorSeed := flag.String("operator-seed", "", "private operator NKey seed file")
+	creds := flag.String("creds", "", "private controller JWT credentials file")
+	operatorCreds := flag.String("operator-creds", "", "private operator JWT credentials file")
+	sessionMode := flag.String("session-probe", "", "single pinned endpoint admission probe: once or hold")
 	cell := flag.String("cell", "", "regional cell name")
 	operationID := flag.String("operation-id", "", "delivery operation to inspect without payloads")
 	urls := flag.String("urls", "", "comma-separated direct controller URLs")
@@ -38,11 +42,15 @@ func main() {
 	operatorCertFile := flag.String("operator-cert", "", "operator NATS client certificate PEM file")
 	operatorKeyFile := flag.String("operator-key", "", "operator NATS client private key PEM file")
 	flag.Parse()
-	if *seed == "" || *cell == "" || *urls == "" {
-		fmt.Fprintln(os.Stderr, "usage: go run natsdiag.go --seed FILE --cell CELL --urls URL,URL,URL")
+	if (*seed == "") == (*creds == "") || *cell == "" || *urls == "" {
+		fmt.Fprintln(os.Stderr, "usage: natsdiag --creds FILE --cell CELL --urls URL,URL,URL")
 		os.Exit(2)
 	}
-	options, err := identityOptions(*seed, *cell)
+	if *sessionMode != "" && (*sessionMode != "once" && *sessionMode != "hold" || strings.Contains(*urls, ",")) {
+		fmt.Fprintln(os.Stderr, "session probe requires once or hold and one pinned endpoint")
+		os.Exit(2)
+	}
+	options, err := diagnosticOptions(*seed, *creds, *cell)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "load controller identity:", err)
 		os.Exit(1)
@@ -52,7 +60,7 @@ func main() {
 		os.Exit(2)
 	}
 	if (*operatorCertFile != "" || *operatorKeyFile != "") &&
-		(*operatorCertFile == "" || *operatorKeyFile == "" || *caFile == "" || *operatorSeed == "") {
+		(*operatorCertFile == "" || *operatorKeyFile == "" || *caFile == "" || *operatorSeed == "" && *operatorCreds == "") {
 		fmt.Fprintln(os.Stderr, "--operator-cert and --operator-key require TLS and --operator-seed")
 		os.Exit(2)
 	}
@@ -64,13 +72,20 @@ func main() {
 		}
 		options = append(options, tlsOption)
 	}
+	if *sessionMode != "" {
+		if err := sessionProbe(*urls, *sessionMode, options); err != nil {
+			fmt.Fprintln(os.Stderr, "session probe:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	var output sync.Mutex
 	var workers sync.WaitGroup
 	for _, url := range strings.Split(*urls, ",") {
 		workers.Go(func() { probe(url, "controller", *cell, *operationID, options, &output) })
 	}
-	if *operatorSeed != "" {
-		operatorOptions, err := identityOptions(*operatorSeed, *cell)
+	if *operatorSeed != "" || *operatorCreds != "" {
+		operatorOptions, err := diagnosticOptions(*operatorSeed, *operatorCreds, *cell)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "load operator identity:", err)
 			os.Exit(1)
@@ -92,6 +107,29 @@ func main() {
 	workers.Wait()
 }
 
+type diagnosticTLSDialer struct {
+	config *tls.Config
+}
+
+func (d *diagnosticTLSDialer) Dial(network, address string) (net.Conn, error) {
+	return tls.DialWithDialer(&net.Dialer{Timeout: 2 * time.Second}, network, address, d.config)
+}
+
+func (*diagnosticTLSDialer) SkipTLSHandshake() bool { return true }
+
+func bridgeURL(raw string) string {
+	parts := strings.Split(raw, ",")
+	for index, part := range parts {
+		part = strings.TrimSpace(part)
+		if address, ok := strings.CutPrefix(part, "tls://"); ok {
+			parts[index] = "nats://" + address
+		} else {
+			parts[index] = part
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
 func diagnosticTLS(caFile, certFile, keyFile string) (nats.Option, error) {
 	ca, err := os.ReadFile(caFile)
 	if err != nil {
@@ -105,8 +143,32 @@ func diagnosticTLS(caFile, certFile, keyFile string) (nats.Option, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nats.Secure(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots,
-		Certificates: []tls.Certificate{certificate}}), nil
+	return nats.SetCustomDialer(&diagnosticTLSDialer{config: &tls.Config{
+		MinVersion: tls.VersionTLS13, RootCAs: roots,
+		Certificates: []tls.Certificate{certificate},
+	}}), nil
+}
+
+func diagnosticOptions(seedFile, credentialsFile, cell string) ([]nats.Option, error) {
+	if credentialsFile == "" {
+		return identityOptions(seedFile, cell)
+	}
+	contents, err := os.ReadFile(credentialsFile)
+	if err != nil {
+		return nil, err
+	}
+	pair, err := nkeys.ParseDecoratedUserNKey(contents)
+	clear(contents)
+	if err != nil {
+		return nil, err
+	}
+	public, err := pair.PublicKey()
+	pair.Wipe()
+	if err != nil {
+		return nil, err
+	}
+	return []nats.Option{nats.CustomInboxPrefix("ts.orch.v1." + cell + ".inbox." + public),
+		nats.UserCredentials(credentialsFile)}, nil
 }
 
 func identityOptions(seedFile, cell string) ([]nats.Option, error) {
@@ -131,6 +193,65 @@ func identityOptions(seedFile, cell string) ([]nats.Option, error) {
 	return []nats.Option{nats.CustomInboxPrefix("ts.orch.v1." + cell + ".inbox." + public), identity}, nil
 }
 
+// sessionProbe keeps one authenticated, non-reconnecting connection pinned to
+// one bridge. A successful INFO request is required after Flush and on each
+// hold poll, so an open TCP socket without a working account cannot pass.
+func sessionProbe(url, mode string, identity []nats.Option) error {
+	return sessionProbeReady(url, mode, identity, nil)
+}
+
+func sessionProbeReady(url, mode string, identity []nats.Option, ready chan<- struct{}) error {
+	started := time.Now()
+	options := append([]nats.Option{nats.Timeout(2 * time.Second), nats.NoReconnect()}, identity...)
+	conn, err := nats.Connect(bridgeURL(url), options...)
+	if err != nil {
+		return fmt.Errorf("authenticated admission: %w", err)
+	}
+	defer conn.Close()
+	read := func() error {
+		if err := conn.FlushTimeout(2 * time.Second); err != nil {
+			return err
+		}
+		response, err := conn.Request("$JS.API.INFO", nil, 2*time.Second)
+		if err != nil {
+			return err
+		}
+		if len(response.Data) == 0 || strings.Contains(string(response.Data), `"error"`) {
+			return errors.New("JetStream account read was empty or rejected")
+		}
+		return nil
+	}
+	if err := read(); err != nil {
+		return fmt.Errorf("required first read: %w", err)
+	}
+	emit := func(state string) error {
+		encoded, err := json.Marshal(map[string]any{
+			"state": state, "elapsed_ms": time.Since(started).Milliseconds(), "time": time.Now().UTC(),
+		})
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Println(string(encoded))
+		return err
+	}
+	if err := emit("ready"); err != nil || mode == "once" {
+		return err
+	}
+	if ready != nil {
+		ready <- struct{}{}
+	}
+	for time.Since(started) < 5*time.Minute {
+		time.Sleep(250 * time.Millisecond)
+		if err := read(); err != nil {
+			if conn.IsClosed() {
+				return emit("closed")
+			}
+			return fmt.Errorf("required read failed while connection remained open: %w", err)
+		}
+	}
+	return errors.New("pinned connection did not close before probe deadline")
+}
+
 func probe(url, role, cell, operationID string, identity []nats.Option, output *sync.Mutex) {
 	result := map[string]any{"requested_url": url, "role": role, "time": time.Now().UTC()}
 	defer func() {
@@ -144,7 +265,7 @@ func probe(url, role, cell, operationID string, identity []nats.Option, output *
 		output.Unlock()
 	}()
 	options := append([]nats.Option{nats.Timeout(2 * time.Second), nats.NoReconnect()}, identity...)
-	conn, err := nats.Connect(url, options...)
+	conn, err := nats.Connect(bridgeURL(url), options...)
 	if err != nil {
 		result["connect_error"] = err.Error()
 		return
