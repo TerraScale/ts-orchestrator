@@ -49,6 +49,32 @@ CLOCK_READY = "/run/ts-orch-clock-ready"
 CLOCK_BOUND_NS = 1_000_000_000
 
 
+def _default_slog_attributes(message: str, event: str,
+                             required_fields: set[str]) -> dict[str, str] | None:
+    prefix = re.fullmatch(
+        rf"(?P<timestamp>\d{{4}}/\d{{2}}/\d{{2}} \d{{2}}:\d{{2}}:\d{{2}}) "
+        rf"INFO {re.escape(event)}(?: (?P<attributes>.*))?",
+        message,
+    )
+    if prefix is None:
+        return None
+    try:
+        datetime.strptime(prefix.group("timestamp"), "%Y/%m/%d %H:%M:%S")
+        parts = shlex.split(prefix.group("attributes") or "")
+    except ValueError:
+        return None
+
+    fields: dict[str, str] = {}
+    for part in parts:
+        key, separator, value = part.partition("=")
+        if not separator or not key or key in fields:
+            return None
+        fields[key] = value
+    if not required_fields.issubset(fields):
+        return None
+    return fields
+
+
 class TerminalReceipt(Exception):
     def __init__(self, receipt: dict[str, Any]):
         super().__init__(f"terminal delivery receipt: {receipt}")
@@ -854,9 +880,9 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             if "host session execution reserve exhausted" in message and fence_completion is None:
                 fence_completion = instant
             try:
-                fields = dict(part.split("=", 1) for part in shlex.split(message) if "=" in part)
-                if (fields.get("msg") == "host session fenced" and
-                        fields.get("session_id_hash") == session_hash and
+                fields = _default_slog_attributes(
+                    message, "host session fenced", {"session_id_hash", "epoch", "expires_at"})
+                if (fields is not None and fields.get("session_id_hash") == session_hash and
                         int(fields.get("epoch", "0")) == epoch and
                         datetime.fromisoformat(fields["expires_at"].replace("Z", "+00:00")) == expiry):
                     fence_started = datetime.fromisoformat(instant)
@@ -884,9 +910,10 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         for line in result.stdout.splitlines():
             try:
                 entry = json.loads(line)
-                fields = dict(part.split("=", 1) for part in shlex.split(entry.get("MESSAGE", ""))
-                              if "=" in part)
-                if fields.get("msg") != "host session accepted":
+                fields = _default_slog_attributes(
+                    entry.get("MESSAGE", ""), "host session accepted",
+                    {"phase", "session_id_hash", "epoch", "expires_at"})
+                if fields is None:
                     continue
                 at = datetime.fromtimestamp(int(entry["__REALTIME_TIMESTAMP"]) / 1_000_000,
                                             timezone.utc)

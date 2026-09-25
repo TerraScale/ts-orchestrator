@@ -272,45 +272,80 @@ class FaultAndLeaseTests(unittest.TestCase):
 
         self.assertEqual(lab.created_nft_tables, ["tsfcabcde12345"])
 
-    def test_verified_lease_event_parser_uses_only_accepted_message(self):
+    def test_verified_lease_event_parser_reads_default_slog_and_ignores_neighbors(self):
         lab = object.__new__(qualify.Lab)
         at = datetime(2026, 9, 24, 12, 0, 1, tzinfo=timezone.utc)
-        expiry = (at + timedelta(seconds=30)).isoformat()
+        expiry = (at + timedelta(seconds=30)).isoformat().replace("+00:00", "Z")
         session_hash = hashlib.sha256(b"opaque-id").hexdigest()[:32]
-        entry = {"__REALTIME_TIMESTAMP": str(int(at.timestamp() * 1_000_000)),
-                 "MESSAGE": (f'time=2026-09-24T12:00:01Z level=INFO msg="host session accepted" '
-                             f'phase=renew session_id_hash={session_hash} epoch=2 expires_at={expiry}')}
-        lab.ssh = Mock(return_value=SimpleNamespace(stdout=json.dumps(entry) + "\n"))
+        renewal = (f"2026/09/24 12:00:01 INFO host session accepted phase=renew "
+                   f"session_id_hash={session_hash} epoch=2 expires_at={expiry}")
+
+        def journal_entry(observed_at, message):
+            return {"__REALTIME_TIMESTAMP": str(int(observed_at.timestamp() * 1_000_000)),
+                    "MESSAGE": message}
+
+        entries = [
+            journal_entry(at, renewal),
+            journal_entry(at, renewal.replace("INFO host session accepted", "WARN host session accepted")),
+            journal_entry(at, renewal.replace("host session accepted", "host session exchange recovered")),
+            journal_entry(at, renewal.replace("2026/09/24 12:00:01", "2026/02/31 12:00:01")),
+            journal_entry(at, renewal.replace(f"session_id_hash={session_hash}", "session_id_hash=not-a-digest")),
+            journal_entry(at, renewal.replace("epoch=2", "epoch=2 epoch=3")),
+            journal_entry(at, renewal.replace(f"session_id_hash={session_hash} ", "")),
+            journal_entry(at, (f'time=2026-09-24T12:00:01Z level=INFO msg="host session accepted" '
+                               f'phase=renew session_id_hash={session_hash} epoch=2 expires_at={expiry}')),
+            journal_entry(at - timedelta(seconds=2), renewal),
+        ]
+        lab.ssh = Mock(return_value=SimpleNamespace(
+            stdout="\n".join(json.dumps(entry) for entry in entries) + "\n"))
 
         events = lab.verified_lease_events(at - timedelta(seconds=1))
 
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["expires_at"], at + timedelta(seconds=30))
         self.assertEqual(events[0]["session_id_hash"], session_hash)
-        self.assertNotIn("opaque-id", json.dumps(entry))
+        self.assertEqual(events[0]["phase"], "renew")
+        self.assertNotIn("opaque-id", json.dumps(entries))
 
     def test_fence_event_binds_latest_signed_lease_before_expiry(self):
         lab = object.__new__(qualify.Lab)
         lab.note = Mock()
         expiry = datetime(2026, 9, 24, 12, 0, 30, tzinfo=timezone.utc)
+        expiry_text = expiry.isoformat().replace("+00:00", "Z")
         since = expiry - timedelta(seconds=20)
         session_hash = hashlib.sha256(b"opaque-id").hexdigest()[:32]
         failed = {"__REALTIME_TIMESTAMP": str(int((expiry - timedelta(seconds=15)).timestamp() * 1_000_000)),
-                  "MESSAGE": 'time=2026-09-24T12:00:15Z level=WARN msg="host session exchange deferred" stage=renew'}
-        fenced = {"__REALTIME_TIMESTAMP": str(int((expiry - timedelta(seconds=4.5)).timestamp() * 1_000_000)),
-                  "MESSAGE": (f'time=2026-09-24T12:00:25.5Z level=INFO msg="host session fenced" '
-                              f'session_id_hash={session_hash} epoch=3 expires_at={expiry.isoformat()} '
-                              'cause_class=reserve_exhausted')}
+                  "MESSAGE": "2026/09/24 12:00:15 WARN host session exchange deferred "
+                             "stage=renew cause_class=unavailable endpoint=host.lab.fc remaining_seconds=15"}
+        fence_at = expiry - timedelta(seconds=4.5)
+        fenced = {"__REALTIME_TIMESTAMP": str(int(fence_at.timestamp() * 1_000_000)),
+                  "MESSAGE": (f"2026/09/24 12:00:25 INFO host session fenced "
+                              f"session_id_hash={session_hash} epoch=3 expires_at={expiry_text} "
+                              "cause_class=reserve_exhausted")}
+        wrong_hash = dict(fenced, MESSAGE=fenced["MESSAGE"].replace(
+            f"session_id_hash={session_hash}", "session_id_hash=" + "0" * 32))
+        wrong_epoch = dict(fenced, MESSAGE=fenced["MESSAGE"].replace("epoch=3", "epoch=4"))
+        legacy_format = dict(fenced, MESSAGE=(f'time=2026-09-24T12:00:25Z level=INFO '
+                                              f'msg="host session fenced" session_id_hash={session_hash} '
+                                              f'epoch=3 expires_at={expiry_text} '
+                                              'cause_class=reserve_exhausted'))
         lab.ssh = Mock(return_value=SimpleNamespace(returncode=0, stdout=(
-            json.dumps(failed) + "\n" + json.dumps(fenced) + "\n")))
+            "\n".join(json.dumps(entry) for entry in
+                      (failed, wrong_hash, wrong_epoch, legacy_format, fenced)) + "\n")))
 
         lab.host_renewal_failure_evidence(since, session_hash, 3, expiry)
 
         self.assertEqual(lab.note.call_args.kwargs["fence_cause_class"], "reserve_exhausted")
         self.assertEqual(lab.note.call_args.kwargs["actual_fence_started_at"],
                          (expiry - timedelta(seconds=4.5)).isoformat())
-        with self.assertRaisesRegex(RuntimeError, "matching fence"):
-            lab.host_renewal_failure_evidence(since, "0" * 32, 3, expiry)
+        for entry, expected_epoch, expected_expiry in (
+                (wrong_hash, 3, expiry), (wrong_epoch, 3, expiry),
+                (fenced, 3, expiry + timedelta(seconds=1)), (legacy_format, 3, expiry)):
+            with self.subTest(entry=entry["MESSAGE"]):
+                lab.ssh.return_value = SimpleNamespace(
+                    returncode=0, stdout=json.dumps(failed) + "\n" + json.dumps(entry) + "\n")
+                with self.assertRaisesRegex(RuntimeError, "matching fence"):
+                    lab.host_renewal_failure_evidence(since, session_hash, expected_epoch, expected_expiry)
 
 
 class RenewalDeadlineTests(unittest.TestCase):
