@@ -184,3 +184,130 @@ func prepareNativeCgroupRoot(root string) error {
 	}
 	return nil
 }
+
+// Only the configured workload group may traverse the runner's cgroups.
+// Cgroup control files retain their kernel-provided root ownership and modes.
+func configureTenantCgroupDirectory(path string, identity WorkloadIdentity) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || owner.Uid != 0 {
+		return fmt.Errorf("native cgroup %s must be a root-owned directory", path)
+	}
+	if err := os.Chmod(path, 0700); err != nil {
+		return fmt.Errorf("seal native cgroup %s before assigning workload group: %w", path, err)
+	}
+	if err := os.Chown(path, 0, int(identity.GID)); err != nil {
+		return fmt.Errorf("assign native cgroup %s to workload group: %w", path, err)
+	}
+	if err := os.Chmod(path, 0710); err != nil {
+		return fmt.Errorf("set native cgroup %s traversal mode: %w", path, err)
+	}
+	info, err = os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	owner, ok = info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 ||
+		owner.Uid != 0 || owner.Gid != identity.GID || info.Mode().Perm() != 0710 {
+		return fmt.Errorf("native cgroup %s did not retain root-owned workload-group traversal", path)
+	}
+	return nil
+}
+
+func tenantCgroupMode(info os.FileInfo, identity WorkloadIdentity) (uint32, error) {
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, errors.New("cannot inspect native cgroup ownership")
+	}
+	permissions := uint32(info.Mode().Perm())
+	switch {
+	case owner.Uid == identity.UID:
+		return permissions >> 6 & 7, nil
+	case owner.Gid == identity.GID:
+		return permissions >> 3 & 7, nil
+	default:
+		return permissions & 7, nil
+	}
+}
+
+// The workload has no supplementary groups or capabilities, so these mode
+// checks match the credentials it will use after the native helper drops root.
+func validateTenantCgroupTraversal(path string, identity WorkloadIdentity) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return errors.New("native cgroup path must be absolute and clean")
+	}
+	for directory := path; ; directory = filepath.Dir(directory) {
+		info, err := os.Lstat(directory)
+		if err != nil {
+			return fmt.Errorf("inspect native cgroup ancestor %s: %w", directory, err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("native cgroup ancestor %s is not a directory", directory)
+		}
+		mode, err := tenantCgroupMode(info, identity)
+		if err != nil {
+			return fmt.Errorf("inspect native cgroup ancestor %s: %w", directory, err)
+		}
+		if mode&1 == 0 || mode&2 != 0 {
+			return fmt.Errorf("workload cannot safely traverse native cgroup ancestor %s", directory)
+		}
+		if directory == "/" {
+			return nil
+		}
+	}
+}
+
+func validateTenantCgroupAccounting(rolePath string, identity WorkloadIdentity) error {
+	if err := validateTenantCgroupTraversal(rolePath, identity); err != nil {
+		return err
+	}
+	for _, name := range []string{"memory.current", "memory.max"} {
+		path := filepath.Join(rolePath, name)
+		info, err := os.Lstat(path)
+		if err != nil {
+			return fmt.Errorf("inspect workload memory accounting %s: %w", path, err)
+		}
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || !info.Mode().IsRegular() || owner.Uid != 0 {
+			return fmt.Errorf("workload memory accounting %s is not a root-owned file", path)
+		}
+		mode, err := tenantCgroupMode(info, identity)
+		if err != nil {
+			return fmt.Errorf("inspect workload memory accounting %s: %w", path, err)
+		}
+		if mode&4 == 0 || mode&2 != 0 {
+			return fmt.Errorf("workload cannot safely read memory accounting %s", path)
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(filepath.Dir(rolePath), "cgroup.subtree_control"),
+		filepath.Join(rolePath, "cgroup.procs"),
+	} {
+		if err := validateTenantCgroupControl(path, identity); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateTenantCgroupControl(path string, identity WorkloadIdentity) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect native cgroup control %s: %w", path, err)
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || owner.Uid != 0 {
+		return fmt.Errorf("native cgroup control %s is not a root-owned file", path)
+	}
+	mode, err := tenantCgroupMode(info, identity)
+	if err != nil {
+		return fmt.Errorf("inspect native cgroup control %s: %w", path, err)
+	}
+	if mode&2 != 0 {
+		return fmt.Errorf("workload can write native cgroup control %s", path)
+	}
+	return nil
+}

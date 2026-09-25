@@ -122,6 +122,17 @@ func (p *processRunner) Recover(ctx context.Context) error {
 	if err := prepareNativeCgroupRoot(p.cgroups); err != nil {
 		return err
 	}
+	if err := configureTenantCgroupDirectory(p.cgroups, p.identity); err != nil {
+		return fmt.Errorf("configure native runner cgroup traversal: %w", err)
+	}
+	if err := validateTenantCgroupTraversal(p.cgroups, p.identity); err != nil {
+		return err
+	}
+	for _, name := range []string{"cgroup.procs", "cgroup.subtree_control"} {
+		if err := validateTenantCgroupControl(filepath.Join(p.cgroups, name), p.identity); err != nil {
+			return err
+		}
+	}
 	entries, err := os.ReadDir(p.cgroups)
 	if err != nil {
 		return err
@@ -220,6 +231,19 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		if err := setCgroupMemoryMax(cgroupPath, w.CgroupMemoryMaxBytes); err != nil {
 			return fmt.Errorf("configure workload memory cap: %w", err)
 		}
+	}
+	if err := configureTenantCgroupDirectory(cgroupPath, p.identity); err != nil {
+		return fmt.Errorf("configure workload cgroup traversal: %w", err)
+	}
+	if err := validateTenantCgroupControl(filepath.Join(cgroupPath, "cgroup.procs"), p.identity); err != nil {
+		return err
+	}
+	if w.CgroupMemoryMaxBytes != 0 {
+		if err := validateTenantCgroupAccounting(cgroupPath, p.identity); err != nil {
+			return err
+		}
+	} else if err := validateTenantCgroupTraversal(cgroupPath, p.identity); err != nil {
+		return err
 	}
 	cgroup, err := os.Open(cgroupPath)
 	if err != nil {

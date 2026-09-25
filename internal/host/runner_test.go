@@ -195,6 +195,96 @@ func TestWorkloadCgroupMemoryMaxValidation(t *testing.T) {
 	}
 }
 
+func TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root supervisor in a delegated cgroup v2 service")
+	}
+	state := filepath.Join(t.TempDir(), "state")
+	runner := NewProcessRunner(state, testWorkloadIdentity).(*processRunner)
+	if err := runner.Recover(t.Context()); err != nil {
+		if runner.lock != nil {
+			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
+			_ = runner.lock.Close()
+		}
+		if nativeTestCgroupUnavailable(err) {
+			t.Skipf("requires systemd delegated writable cgroup v2: %v", err)
+		}
+		t.Fatal(err)
+	}
+	root := runner.cgroups
+	if err := runner.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The runtime probe or an older host may leave this persistent root private.
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(root, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	runner = NewProcessRunner(state, testWorkloadIdentity).(*processRunner)
+	if err := runner.Recover(t.Context()); err != nil {
+		t.Fatalf("Recover did not repair legacy cgroup traversal: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := runner.Close(ctx); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+		if err := os.Remove(root); err != nil {
+			t.Errorf("remove native runner cgroup: %v", err)
+		}
+	})
+	info, err := os.Stat(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := info.Sys().(*syscall.Stat_t)
+	if owner.Uid != 0 || owner.Gid != testWorkloadIdentity.GID || info.Mode().Perm() != 0710 {
+		t.Fatalf("recovered runner cgroup owner/mode = %d:%d %04o", owner.Uid, owner.Gid, info.Mode().Perm())
+	}
+	unrelated := filepath.Join(root, "other-tenant")
+	if err := os.Mkdir(unrelated, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(unrelated, 0, int(testWorkloadIdentity.GID-1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unrelated, 0710); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Remove(unrelated); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("remove unrelated cgroup: %v", err)
+		}
+	})
+	install := nativeTestInstallDir(t)
+	marker := nativeTestReadableMarker(t, "accounting")
+	script := filepath.Join(install, "workload")
+	content := fmt.Sprintf("#!/bin/sh\nset -eu\nIFS=: read -r _ _ membership < /proc/self/cgroup\nrole=/sys/fs/cgroup$membership\nIFS= read -r current < \"$role/memory.current\"\nIFS= read -r limit < \"$role/memory.max\"\n[ -n \"$current\" ]\n[ \"$limit\" = \"5368709120\" ]\n[ ! -w \"$role/memory.max\" ]\n[ ! -w \"$role/cgroup.procs\" ]\n[ ! -w \"$role/../cgroup.subtree_control\" ]\n[ ! -r %q ]\nprintf ok > %q\nwhile :; do sleep 1; done\n", filepath.Join(unrelated, "cgroup.procs"), marker)
+	writeNativeTestExecutable(t, script, content)
+	digest := strings.Repeat("a", 64)
+	if err := runner.Apply(t.Context(), Workload{
+		Role: "terrabase", Digest: digest, Fingerprint: digest, Executable: script,
+		CgroupMemoryMaxBytes: 5 << 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		data, err := os.ReadFile(marker)
+		if err == nil && string(data) == "ok" {
+			break
+		}
+		if time.Now().After(deadline) {
+			observation, observeErr := runner.Observe(t.Context(), "terrabase")
+			t.Fatalf("tenant could not read finite cgroup accounting or crossed cgroup boundary: marker=%q error=%v observation=%+v observe_error=%v", data, err, observation, observeErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestEnableCgroupMemoryControllerFailsClosed(t *testing.T) {
 	parent := t.TempDir()
 	if err := enableCgroupMemoryController(parent); !errors.Is(err, os.ErrNotExist) {
