@@ -22,6 +22,7 @@ import (
 )
 
 const workloadHelperArgument = "--terrascale-internal-native-workload-helper"
+const maxNativeTargetExtraFiles = 1
 
 type nativeExecRequest struct {
 	Path      string           `json:"path"`
@@ -29,6 +30,8 @@ type nativeExecRequest struct {
 	Env       []string         `json:"env"`
 	Identity  WorkloadIdentity `json:"identity"`
 	ParentPID int              `json:"parent_pid"`
+	// A nil count is an invalid protocol request, including for zero files.
+	ExtraFileCount *int `json:"extra_file_count"`
 }
 
 func init() {
@@ -61,7 +64,7 @@ func runNativeWorkloadHelper() {
 	}
 	_ = requestFile.Close()
 	var request nativeExecRequest
-	if err := json.Unmarshal(data, &request); err != nil || request.Path == "" || len(request.Args) == 0 || request.ParentPID < 2 || request.Identity.UID == 0 || request.Identity.GID == 0 {
+	if err := json.Unmarshal(data, &request); err != nil || !validNativeExecRequest(request) {
 		fail(errors.New("native helper request malformed"))
 	}
 	// Move the status FD above target ExtraFiles before installing target FD 3.
@@ -71,13 +74,8 @@ func runNativeWorkloadHelper() {
 	}
 	_ = status.Close()
 	status = os.NewFile(uintptr(statusFD), "native-exec-status")
-	for fd := 5; fd < 6; fd++ {
-		if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err == nil {
-			if err := unix.Dup3(fd, fd-2, 0); err != nil {
-				fail(fmt.Errorf("native helper extra fd: %w", err))
-			}
-			_ = unix.Close(fd)
-		}
+	if err := remapNativeTargetExtraFiles(*request.ExtraFileCount); err != nil {
+		fail(err)
 	}
 	if err := dropNativePrivileges(request.Identity, request.ParentPID); err != nil {
 		fail(err)
@@ -85,6 +83,41 @@ func runNativeWorkloadHelper() {
 	if err := syscall.Exec(request.Path, request.Args, request.Env); err != nil {
 		fail(fmt.Errorf("exec native workload: %w", err))
 	}
+}
+
+func validNativeExecRequest(request nativeExecRequest) bool {
+	return request.Path != "" && len(request.Args) != 0 && request.ParentPID >= 2 &&
+		request.Identity.UID != 0 && request.Identity.GID != 0 && request.ExtraFileCount != nil &&
+		validateNativeTargetExtraFileCount(*request.ExtraFileCount) == nil
+}
+
+func validateNativeTargetExtraFileCount(count int) error {
+	if count < 0 || count > maxNativeTargetExtraFiles {
+		return errors.New("native target supports at most one inherited file")
+	}
+	return nil
+}
+
+// The helper's FDs 3 and 4 carry the request and status pipes. os/exec places
+// the only optional target file at FD 5. A zero-file launch must leave FD 5
+// alone: the Go runtime can allocate its epoll descriptor there during init.
+func remapNativeTargetExtraFiles(count int) error {
+	if err := validateNativeTargetExtraFileCount(count); err != nil {
+		return err
+	}
+	if count == 0 {
+		return nil
+	}
+	if _, err := unix.FcntlInt(5, unix.F_GETFD, 0); err != nil {
+		return fmt.Errorf("native helper missing inherited target fd 5: %w", err)
+	}
+	if err := unix.Dup3(5, 3, 0); err != nil {
+		return fmt.Errorf("native helper target fd 3: %w", err)
+	}
+	if err := unix.Close(5); err != nil {
+		return fmt.Errorf("close native helper inherited target fd 5: %w", err)
+	}
+	return nil
 }
 
 func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
@@ -147,10 +180,13 @@ func launchNativeWorkload(ctx context.Context, target *exec.Cmd, cgroup *os.File
 	if !filepath.IsAbs(cgroupPath) || filepath.Clean(cgroupPath) != cgroupPath {
 		return nil, nil, nil, errors.New("native launch requires an absolute cgroup path")
 	}
+	if err := validateNativeTargetExtraFileCount(len(target.ExtraFiles)); err != nil {
+		return nil, nil, nil, err
+	}
 	if err := requireNativeSupervisorKillCapability(); err != nil {
 		return nil, nil, nil, err
 	}
-	request := nativeExecRequest{Path: target.Path, Args: target.Args, Env: target.Env, Identity: identity, ParentPID: os.Getpid()}
+	request := nativeExecRequest{Path: target.Path, Args: target.Args, Env: target.Env, Identity: identity, ParentPID: os.Getpid(), ExtraFileCount: new(len(target.ExtraFiles))}
 	data, err := json.Marshal(request)
 	if err != nil || len(data) > 128<<10 {
 		return nil, nil, nil, errors.New("native helper request too large")
