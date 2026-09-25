@@ -78,27 +78,7 @@ func NewReceipt(manifest VerifiedManifest, facts InstanceFacts) (Receipt, error)
 	if err := validateVerifiedManifest(manifest); err != nil {
 		return Receipt{}, err
 	}
-	profile, ok := manifest.Profile(facts.Slot)
-	if !ok || !sameProfile(profile, facts.Profile) {
-		return Receipt{}, fmt.Errorf("%w: observed OCI launch profile differs from the manifest", ErrIdentityMismatch)
-	}
-	if err := validateFacts(manifest, facts); err != nil {
-		return Receipt{}, err
-	}
-	profileDigest, err := launchProfileDigest(profile)
-	if err != nil {
-		return Receipt{}, err
-	}
-	return Receipt{
-		SchemaVersion: ReceiptSchemaVersion, DeploymentID: manifest.manifest.DeploymentID,
-		Environment: manifest.manifest.Environment, ClusterID: manifest.manifest.ClusterID,
-		Cell: manifest.manifest.Cell, OCIRegion: manifest.manifest.OCIRegion,
-		Role: manifest.manifest.ControllerRole, Slot: facts.Slot, InstanceOCID: facts.InstanceOCID,
-		CompartmentOCID: profile.CompartmentOCID, ImageOCID: manifest.manifest.ImageOCID,
-		CreateKey: facts.CreateKey, IntentSHA256: facts.IntentSHA256,
-		ManifestDigest: manifest.digest, ManifestIntentSHA256: manifest.manifest.IntentSHA256,
-		IntentGeneration: manifest.manifest.IntentGeneration, ProfileSHA256: profileDigest,
-	}, nil
+	return receiptForManifest(manifest.manifest, manifest.digest, facts)
 }
 
 // SignSeedReceipt creates a root-signed receipt for the exact seed instance.
@@ -154,6 +134,23 @@ func VerifyPeerReceipt(envelope trust.Envelope, manifest VerifiedManifest, facts
 		return VerifiedReceipt{}, fmt.Errorf("%w: manifest has no peer receipt delegation", ErrReceiptInvalid)
 	}
 	return verifyReceipt(envelope, manifest, nil, facts, peerReceiptDomain, now, policy)
+}
+
+// VerifyHistoricalSeedReceipt proves root authorization and exact seed
+// instance facts for the receipt's signed interval. It grants no current
+// bootstrap or restart authorization.
+func VerifyHistoricalSeedReceipt(envelope trust.Envelope, manifest HistoricalManifest, roots trust.Keyring, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
+	return verifyHistoricalReceipt(envelope, manifest, roots, facts, seedReceiptDomain, policy)
+}
+
+// VerifyHistoricalPeerReceipt proves delegated founder authorization and exact
+// peer instance facts for the receipt's signed interval. It grants no current
+// bootstrap or restart authorization.
+func VerifyHistoricalPeerReceipt(envelope trust.Envelope, manifest HistoricalManifest, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
+	if !manifest.hasDelegation {
+		return HistoricalReceipt{}, fmt.Errorf("%w: historical manifest has no peer receipt delegation", ErrReceiptInvalid)
+	}
+	return verifyHistoricalReceipt(envelope, manifest, nil, facts, peerReceiptDomain, policy)
 }
 
 // ReceiptPayload strictly decodes a receipt for tools that already verified
@@ -220,18 +217,68 @@ func verifyReceipt(envelope trust.Envelope, manifest VerifiedManifest, roots tru
 	if len(payload) > MaxReceiptBytes {
 		return VerifiedReceipt{}, fmt.Errorf("%w: receipt exceeds its size limit", ErrReceiptInvalid)
 	}
-	receipt, err := ReceiptPayload(payload)
-	if err != nil {
-		return VerifiedReceipt{}, err
-	}
 	want, err := NewReceipt(manifest, facts)
 	if err != nil {
 		return VerifiedReceipt{}, err
 	}
-	if receipt != want || envelope.Scope != scope {
+	receipt, err := matchReceiptPayload(payload, want)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	if envelope.Scope != scope {
 		return VerifiedReceipt{}, fmt.Errorf("%w: signed receipt does not match exact instance facts", ErrIdentityMismatch)
 	}
 	return VerifiedReceipt{
+		receipt: receipt, manifestDigest: manifest.digest,
+		issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt, verified: true,
+	}, nil
+}
+
+func verifyHistoricalReceipt(envelope trust.Envelope, manifest HistoricalManifest, roots trust.Keyring, facts InstanceFacts, domain string, policy trust.Policy) (HistoricalReceipt, error) {
+	if err := validateHistoricalManifest(manifest); err != nil {
+		return HistoricalReceipt{}, err
+	}
+	if err := validateFactsAgainstManifest(manifest.manifest, facts); err != nil {
+		return HistoricalReceipt{}, err
+	}
+	if domain == seedReceiptDomain && facts.Slot != manifest.manifest.SeedSlot {
+		return HistoricalReceipt{}, fmt.Errorf("%w: seed receipt targets a peer slot", ErrReceiptInvalid)
+	}
+	if domain == peerReceiptDomain && facts.Slot == manifest.manifest.SeedSlot {
+		return HistoricalReceipt{}, fmt.Errorf("%w: peer receipt targets the seed slot", ErrReceiptInvalid)
+	}
+	scope := trust.Scope{
+		Domain: domain, DeploymentID: manifest.manifest.DeploymentID, Cell: string(manifest.manifest.Cell),
+		Environment: manifest.manifest.Environment, Role: manifest.manifest.ControllerRole, Slot: facts.Slot,
+	}
+	var payload []byte
+	var err error
+	if domain == seedReceiptDomain {
+		payload, err = trust.VerifyHistorical(envelope, scope, roots, policy)
+	} else {
+		payload, err = trust.VerifyDelegatedHistorical(envelope, scope, manifest.delegation, policy)
+	}
+	if err != nil {
+		return HistoricalReceipt{}, fmt.Errorf("verify historical bootstrap instance receipt: %w", err)
+	}
+	if envelope.IssuedAt.Before(manifest.issuedAt) || envelope.ExpiresAt.After(manifest.expiresAt) {
+		return HistoricalReceipt{}, fmt.Errorf("%w: receipt validity exceeds its signed manifest", ErrReceiptInvalid)
+	}
+	if len(payload) > MaxReceiptBytes {
+		return HistoricalReceipt{}, fmt.Errorf("%w: receipt exceeds its size limit", ErrReceiptInvalid)
+	}
+	want, err := receiptForManifest(manifest.manifest, manifest.digest, facts)
+	if err != nil {
+		return HistoricalReceipt{}, err
+	}
+	receipt, err := matchReceiptPayload(payload, want)
+	if err != nil {
+		return HistoricalReceipt{}, err
+	}
+	if envelope.Scope != scope {
+		return HistoricalReceipt{}, fmt.Errorf("%w: signed receipt does not match exact instance facts", ErrIdentityMismatch)
+	}
+	return HistoricalReceipt{
 		receipt: receipt, manifestDigest: manifest.digest,
 		issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt, verified: true,
 	}, nil
@@ -252,18 +299,66 @@ func (receipt Receipt) validate() error {
 }
 
 func validateFacts(manifest VerifiedManifest, facts InstanceFacts) error {
-	profile, ok := manifest.Profile(facts.Slot)
+	return validateFactsAgainstManifest(manifest.manifest, facts)
+}
+
+func validateFactsAgainstManifest(manifest Manifest, facts InstanceFacts) error {
+	profile, ok := manifestProfile(manifest, facts.Slot)
 	if !ok || !sameProfile(profile, facts.Profile) {
 		return fmt.Errorf("%w: observed launch profile is unauthorized", ErrIdentityMismatch)
 	}
-	if facts.DeploymentID != manifest.manifest.DeploymentID || facts.Environment != manifest.manifest.Environment ||
-		facts.ClusterID != manifest.manifest.ClusterID || facts.Cell != manifest.manifest.Cell ||
-		facts.OCIRegion != manifest.manifest.OCIRegion || facts.Role != manifest.manifest.ControllerRole ||
-		facts.CompartmentOCID != profile.CompartmentOCID || facts.ImageOCID != manifest.manifest.ImageOCID ||
+	if facts.DeploymentID != manifest.DeploymentID || facts.Environment != manifest.Environment ||
+		facts.ClusterID != manifest.ClusterID || facts.Cell != manifest.Cell ||
+		facts.OCIRegion != manifest.OCIRegion || facts.Role != manifest.ControllerRole ||
+		facts.CompartmentOCID != profile.CompartmentOCID || facts.ImageOCID != manifest.ImageOCID ||
 		!isOCID(facts.InstanceOCID, "instance") || !createKeyRE.MatchString(facts.CreateKey) || !sha256RE.MatchString(facts.IntentSHA256) {
 		return fmt.Errorf("%w: authenticated instance facts do not match manifest", ErrIdentityMismatch)
 	}
 	return nil
+}
+
+func receiptForManifest(manifest Manifest, digest string, facts InstanceFacts) (Receipt, error) {
+	profile, ok := manifestProfile(manifest, facts.Slot)
+	if !ok || !sameProfile(profile, facts.Profile) {
+		return Receipt{}, fmt.Errorf("%w: observed OCI launch profile differs from the manifest", ErrIdentityMismatch)
+	}
+	if err := validateFactsAgainstManifest(manifest, facts); err != nil {
+		return Receipt{}, err
+	}
+	profileDigest, err := launchProfileDigest(profile)
+	if err != nil {
+		return Receipt{}, err
+	}
+	return Receipt{
+		SchemaVersion: ReceiptSchemaVersion, DeploymentID: manifest.DeploymentID,
+		Environment: manifest.Environment, ClusterID: manifest.ClusterID,
+		Cell: manifest.Cell, OCIRegion: manifest.OCIRegion,
+		Role: manifest.ControllerRole, Slot: facts.Slot, InstanceOCID: facts.InstanceOCID,
+		CompartmentOCID: profile.CompartmentOCID, ImageOCID: manifest.ImageOCID,
+		CreateKey: facts.CreateKey, IntentSHA256: facts.IntentSHA256,
+		ManifestDigest: digest, ManifestIntentSHA256: manifest.IntentSHA256,
+		IntentGeneration: manifest.IntentGeneration, ProfileSHA256: profileDigest,
+	}, nil
+}
+
+func matchReceiptPayload(payload []byte, expected Receipt) (Receipt, error) {
+	receipt, err := ReceiptPayload(payload)
+	if err != nil {
+		return Receipt{}, err
+	}
+	if receipt != expected {
+		return Receipt{}, fmt.Errorf("%w: signed receipt does not match exact instance facts", ErrIdentityMismatch)
+	}
+	return receipt, nil
+}
+
+func manifestProfile(manifest Manifest, slot string) (LaunchProfile, bool) {
+	for _, profile := range manifest.Profiles {
+		if profile.Slot == slot {
+			return profile, true
+		}
+	}
+	return LaunchProfile{}, false
 }
 
 func validateVerifiedManifest(manifest VerifiedManifest) error {

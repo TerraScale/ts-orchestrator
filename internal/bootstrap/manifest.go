@@ -168,16 +168,7 @@ func VerifyManifest(envelope trust.Envelope, roots trust.Keyring, expected Manif
 	if len(payload) > MaxManifestBytes {
 		return VerifiedManifest{}, fmt.Errorf("%w: manifest exceeds its size limit", ErrManifestInvalid)
 	}
-	manifest, err := ManifestPayload(payload)
-	if err != nil {
-		return VerifiedManifest{}, err
-	}
-	if manifest.DeploymentID != expected.DeploymentID || manifest.Environment != expected.Environment || manifest.ClusterID != expected.ClusterID ||
-		manifest.Cell != expected.Cell || manifest.Slot != expected.Slot || manifest.ImageOCID != expected.ImageOCID ||
-		envelope.Scope.Role != manifest.ControllerRole || envelope.Scope.Slot != manifest.Slot {
-		return VerifiedManifest{}, fmt.Errorf("%w: manifest does not match deployment expectation", ErrManifestInvalid)
-	}
-	digest, err := trust.Fingerprint(envelope)
+	manifest, digest, err := verifiedManifestPayload(envelope, payload, expected)
 	if err != nil {
 		return VerifiedManifest{}, err
 	}
@@ -197,6 +188,23 @@ func VerifyManifest(envelope trust.Envelope, roots trust.Keyring, expected Manif
 		verified.hasDelegation = true
 	}
 	return verified, nil
+}
+
+func verifiedManifestPayload(envelope trust.Envelope, payload []byte, expected ManifestExpectation) (Manifest, string, error) {
+	manifest, err := ManifestPayload(payload)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	if manifest.DeploymentID != expected.DeploymentID || manifest.Environment != expected.Environment || manifest.ClusterID != expected.ClusterID ||
+		manifest.Cell != expected.Cell || manifest.Slot != expected.Slot || manifest.ImageOCID != expected.ImageOCID ||
+		envelope.Scope.Role != manifest.ControllerRole || envelope.Scope.Slot != manifest.Slot {
+		return Manifest{}, "", fmt.Errorf("%w: manifest does not match deployment expectation", ErrManifestInvalid)
+	}
+	digest, err := trust.Fingerprint(envelope)
+	if err != nil {
+		return Manifest{}, "", err
+	}
+	return manifest, digest, nil
 }
 
 // Validate checks the closed manifest schema and all exact role, slot,
