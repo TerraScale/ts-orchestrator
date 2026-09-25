@@ -1,8 +1,10 @@
 package placement
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -169,23 +171,134 @@ func TestManagedProfileAcceptsAllocatablePlusReserveAtNominalComputeMemory(t *te
 	}
 }
 
+func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
+	intent := validIntent(oci.RegionGRU, oci.RegionFRA)
+	if err := intent.ValidateForAdmission(); err != nil {
+		t.Fatalf("valid canonical roster rejected: %v", err)
+	}
+	digest, err := intent.CanonicalRosterDigest()
+	if err != nil || !validLowerSHA256Digest(digest) {
+		t.Fatalf("canonical roster digest = %q, %v", digest, err)
+	}
+	row, err := intent.RosterRowForSeat(Seat{
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent,
+	})
+	if err != nil || row.MemberID != intent.CanonicalRoster.Rows[0].MemberID {
+		t.Fatalf("lookup exact placement seat = %+v, %v", row, err)
+	}
+	if _, err := intent.RosterRowForSeat(Seat{
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "wrong-domain", Kind: MemberPermanent,
+	}); err == nil {
+		t.Fatal("roster lookup accepted a failure domain that differs from the configured seat")
+	}
+
+	changed := intent
+	changed.CanonicalRoster = testCanonicalRoster(changed.ActiveRegions)
+	changed.CanonicalRoster.Rows[0].ServerName = "rotated-gru.tb.example"
+	changedDigest, err := changed.CanonicalRosterDigest()
+	if err != nil || changedDigest == digest {
+		t.Fatalf("roster digest failed to bind row changes: digest=%q err=%v", changedDigest, err)
+	}
+
+	cases := []struct {
+		name   string
+		mutate func(*Intent)
+	}{
+		{name: "wrong cluster ID", mutate: func(intent *Intent) { intent.CanonicalRoster.ClusterID = strings.Repeat("0", 32) }},
+		{name: "noncanonical roster database ULID", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.DatabaseID = strings.ToLower(intent.CanonicalRoster.DatabaseID)
+		}},
+		{name: "unknown authority version", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Version = 1 }},
+		{name: "zero authority epoch", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Epoch = 0 }},
+		{name: "wrong seat order", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.Rows[0], intent.CanonicalRoster.Rows[1] = intent.CanonicalRoster.Rows[1], intent.CanonicalRoster.Rows[0]
+		}},
+		{name: "duplicate member ID", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.Rows[1].MemberID = intent.CanonicalRoster.Rows[0].MemberID
+		}},
+		{name: "duplicate leaf hash", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.Rows[1].TLSLeafSHA256 = intent.CanonicalRoster.Rows[0].TLSLeafSHA256
+		}},
+		{name: "duplicate server name", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.Rows[1].ServerName = intent.CanonicalRoster.Rows[0].ServerName
+		}},
+		{name: "zero incarnation", mutate: func(intent *Intent) { intent.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("0", 32) }},
+		{name: "invalid failure domain", mutate: func(intent *Intent) { intent.CanonicalRoster.Rows[0].FailureDomain = "FAULT DOMAIN" }},
+		{name: "uppercase server name", mutate: func(intent *Intent) { intent.CanonicalRoster.Rows[0].ServerName = "Member.example" }},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validIntent(oci.RegionGRU, oci.RegionFRA)
+			test.mutate(&candidate)
+			if err := candidate.ValidateForAdmission(); err == nil {
+				t.Fatal("invalid canonical roster was accepted")
+			}
+		})
+	}
+}
+
+func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testing.T) {
+	previous := validIntent(oci.RegionGRU)
+	addition := validIntent(oci.RegionGRU, oci.RegionFRA)
+	addition.Generation = previous.Generation + 1
+	if err := addition.ValidateSupersession(previous); err != nil {
+		t.Fatalf("signed added seats with continuous existing identity rejected: %v", err)
+	}
+
+	removed := validIntent(oci.RegionGRU)
+	removed.Generation = 2
+	if err := removed.ValidateSupersession(validIntent(oci.RegionGRU, oci.RegionFRA)); err == nil {
+		t.Fatal("seat removal was accepted without verified retirement evidence")
+	}
+
+	rotatedMember := validIntent(oci.RegionGRU)
+	rotatedMember.Generation = 2
+	rotatedMember.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+	if err := rotatedMember.ValidateSupersession(previous); err == nil {
+		t.Fatal("ordinary generation increment authorized member identity rotation")
+	}
+
+	rotatedIncarnation := validIntent(oci.RegionGRU)
+	rotatedIncarnation.Generation = 2
+	rotatedIncarnation.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
+	if err := rotatedIncarnation.ValidateSupersession(previous); err == nil {
+		t.Fatal("ordinary generation increment authorized member incarnation rotation")
+	}
+
+	changedScope := validIntent(oci.RegionGRU)
+	changedScope.Generation = 2
+	changedScope.CanonicalRoster.ShardID++
+	if err := changedScope.ValidateSupersession(previous); err == nil {
+		t.Fatal("supersession changed the canonical shared scope")
+	}
+
+	legacy := Intent{SchemaVersion: profileIntentSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
+		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
+		ManagedHostProfiles: []ManagedHostProfile{testManagedHostProfile(oci.RegionGRU)}}
+	if err := addition.ValidateSupersession(legacy); err == nil {
+		t.Fatal("schema-2 history without a roster authorized schema-3 supersession")
+	}
+}
+
 func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
-	state := validMemberStateForPins()
-	if err := state.Validate(); err != nil {
+	legacyState := validMemberStateForPins()
+	legacyState.SchemaVersion = legacyMemberStateSchemaVersion
+	legacyState.DatabaseID = "db-main"
+	if err := legacyState.Validate(); err != nil {
 		t.Fatalf("legacy unpinned member state should remain readable: %v", err)
 	}
 
-	profile := testManagedHostProfile(oci.RegionGRU)
+	state := validMemberStateForPins()
+	intent := validIntent(oci.RegionGRU)
+	profile := intent.ManagedHostProfiles[0]
 	profileDigest, err := profile.ProfileDigest()
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := Intent{
-		SchemaVersion: IntentSchemaVersion, DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: state.IntentGeneration,
-		ManagedHostProfiles: []ManagedHostProfile{profile},
-	}
-	encoded, err := protocol.EncodeJSON(payload)
+	intent.Generation = state.IntentGeneration
+	encoded, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,8 +306,14 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	state.IntentPayloadDigest = hex.EncodeToString(payloadDigest[:])
 	state.ManagedHostProfile = profile
 	state.ManagedHostProfileDigest = profileDigest
+	state.CanonicalRosterRow = intent.CanonicalRoster.Rows[0]
+	state.CanonicalRosterDigest, err = intent.CanonicalRosterDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.AuthorityReference = intent.CanonicalRoster.Authority
 	if err := state.Validate(); err != nil {
-		t.Fatalf("valid managed member-state pins were rejected: %v", err)
+		t.Fatalf("valid member-state V2 pins were rejected: %v", err)
 	}
 	encodedState, err := protocol.EncodeJSON(state)
 	if err != nil {
@@ -217,6 +336,9 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 		{name: "profile digest mismatch", mutate: func(state *MemberState) { state.ManagedHostProfileDigest = strings.Repeat("0", 64) }},
 		{name: "foreign profile region", mutate: func(state *MemberState) { state.ManagedHostProfile.Region = oci.RegionSFO }},
 		{name: "invalid profile values", mutate: func(state *MemberState) { state.ManagedHostProfile.SystemReserveBytes = 0 }},
+		{name: "missing roster digest", mutate: func(state *MemberState) { state.CanonicalRosterDigest = "" }},
+		{name: "changed roster seat", mutate: func(state *MemberState) { state.CanonicalRosterRow.SeatID = elasticMember(oci.RegionGRU) }},
+		{name: "invalid authority reference", mutate: func(state *MemberState) { state.AuthorityReference.Epoch = 0 }},
 	}
 	for _, test := range invalid {
 		t.Run(test.name, func(t *testing.T) {
@@ -231,8 +353,8 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 
 func validMemberStateForPins() MemberState {
 	return MemberState{
-		SchemaVersion: placementSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
-		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "fault-domain-1",
+		SchemaVersion: placementSchemaVersion, DatabaseID: testDatabaseID, PartitionID: "partition-a",
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1",
 		Kind: MemberPermanent, Stage: StagePreparedHost, CreateKey: "member-create-key", HostAttempt: 1,
 		IntentGeneration: 1, OperationID: "member-operation", UpdatedAt: time.Now().UTC(),
 	}
@@ -253,6 +375,47 @@ func TestHistoricalIntentIsReadableButNotAdmissible(t *testing.T) {
 	}
 	if err := decoded.ValidateForAdmission(); err == nil {
 		t.Fatal("historical schema-1 intent authorized a new managed placement")
+	}
+}
+
+func TestPreV3CanonicalPayloadBytesRemainReadableAsHeldHistory(t *testing.T) {
+	// These golden bytes match the V1 and V2 Intent field sets at clean source
+	// checkpoint 49f7506; they intentionally omit canonical_roster.
+	v1Payload := []byte(`{"schema_version":1,"database_id":"db-legacy-v1","partition_id":"partition-a","active_regions":["GRU"],"generation":1}`)
+	v2Payload := []byte(`{"schema_version":2,"database_id":"db-legacy-v2","partition_id":"partition-a","active_regions":["GRU"],"generation":1,"managed_host_profiles":[{"region":"GRU","compute":{"shape":"VM.Standard.E4.Flex","whole_ocpus":1,"memory_in_gbs":6},"process_memory_bytes":4294967296,"memory_headroom_bytes":1073741824,"cgroup_memory_max_bytes":4294967296,"system_reserve_bytes":1073741824,"allocatable_memory_bytes":5368709120}]}`)
+	historicalPayloads := [][]byte{v1Payload, v2Payload}
+	historical := make([]Intent, 0, len(historicalPayloads))
+	for index, payload := range historicalPayloads {
+		intent, err := DecodeCommittedIntent(payload)
+		if err != nil {
+			t.Fatalf("decode pre-v3 canonical payload %d: %v", index+1, err)
+		}
+		wantDigest := sha256.Sum256(payload)
+		if intent.PayloadDigest() != hex.EncodeToString(wantDigest[:]) {
+			t.Fatalf("pre-v3 schema %d payload digest = %q, want exact golden-byte SHA-256", intent.SchemaVersion, intent.PayloadDigest())
+		}
+		if err := intent.ValidateForAdmission(); err == nil {
+			t.Fatalf("historical schema %d authorized a new placement", intent.SchemaVersion)
+		}
+		historical = append(historical, intent)
+	}
+
+	current := committedIntentForTest(t, validIntent(oci.RegionGRU))
+	store := &jetStreamStore{cell: "gru", intents: intentReaderFunc(func(context.Context, string) ([]Intent, error) {
+		return []Intent{current, historical[1], historical[0]}, nil
+	})}
+	got, err := store.ListIntents(context.Background())
+	if err != nil || len(got) != 3 {
+		t.Fatalf("list historical held intents alongside schema 3: count=%d err=%v", len(got), err)
+	}
+	if got[0].SchemaVersion != legacyIntentSchemaVersion || got[1].SchemaVersion != profileIntentSchemaVersion ||
+		got[2].SchemaVersion != IntentSchemaVersion {
+		t.Fatalf("mixed historical/current schema order = %d, %d, %d", got[0].SchemaVersion, got[1].SchemaVersion, got[2].SchemaVersion)
+	}
+	for _, intent := range got {
+		if !validLowerSHA256Digest(intent.PayloadDigest()) {
+			t.Fatalf("committed schema %d lost its payload digest", intent.SchemaVersion)
+		}
 	}
 }
 
@@ -451,11 +614,44 @@ func validIntent(regions ...oci.Region) Intent {
 	}
 	return Intent{
 		SchemaVersion:       IntentSchemaVersion,
-		DatabaseID:          "db-main",
+		DatabaseID:          testDatabaseID,
 		PartitionID:         "partition-a",
 		ActiveRegions:       active,
 		Generation:          1,
+		CanonicalRoster:     testCanonicalRoster(active),
 		ManagedHostProfiles: profiles,
+	}
+}
+
+const testDatabaseID = "db-main"
+
+func testCanonicalRoster(regions []oci.Region) CanonicalRoster {
+	rows := make([]CanonicalRosterRow, 0, len(regions)*2)
+	memberSuffixes := "VWXYZ0"
+	for regionIndex, region := range regions {
+		rows = append(rows,
+			CanonicalRosterRow{
+				Region: region, SeatID: permanentMember(region), FailureDomain: "FAULT-DOMAIN-1",
+				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[regionIndex*2]),
+				Incarnation: fmt.Sprintf("%032x", regionIndex*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+1),
+				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
+			},
+			CanonicalRosterRow{
+				Region: region, SeatID: elasticMember(region), FailureDomain: "FAULT-DOMAIN-2",
+				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[regionIndex*2+1]),
+				Incarnation: fmt.Sprintf("%032x", regionIndex*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+2),
+				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
+			},
+		)
+	}
+	return CanonicalRoster{
+		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAS",
+		DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAR", ShardID: 1,
+		Authority: AuthorityReference{
+			Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
+			CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
+		},
+		Rows: rows,
 	}
 }
 

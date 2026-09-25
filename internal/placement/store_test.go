@@ -5,9 +5,11 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
@@ -22,12 +24,64 @@ func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
 	}
 }
 
+func TestReadMemberUsesExactKeyAndReturnsExplicitAbsence(t *testing.T) {
+	state := validMemberStateForPins()
+	state.SchemaVersion = legacyMemberStateSchemaVersion
+	state.DatabaseID = "db-main"
+	data, err := protocol.EncodeJSON(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := fixedMemberEntry{key: memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID), value: data, revision: 9}
+	kv := &exactLookupKV{entry: entry}
+	store := &jetStreamStore{state: kv}
+	got, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID)
+	if err != nil || got.Revision != entry.revision || !reflect.DeepEqual(got.State, state) {
+		t.Fatalf("exact member lookup = %+v, %v; want revision %d and original state", got, err, entry.revision)
+	}
+	if kv.key != "member.db-main.partition-a.permanent-a" {
+		t.Fatalf("member lookup read key %q; want exact composite key", kv.key)
+	}
+
+	kv.err = jetstream.ErrKeyNotFound
+	if _, err := store.ReadMember(context.Background(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrMemberNotFound) {
+		t.Fatalf("missing exact member lookup error = %v, want ErrMemberNotFound", err)
+	}
+}
+
+type exactLookupKV struct {
+	jetstream.KeyValue
+	entry fixedMemberEntry
+	key   string
+	err   error
+}
+
+func (kv *exactLookupKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {
+	kv.key = key
+	if kv.err != nil {
+		return nil, kv.err
+	}
+	return kv.entry, nil
+}
+
+type fixedMemberEntry struct {
+	key      string
+	value    []byte
+	revision uint64
+}
+
+func (entry fixedMemberEntry) Bucket() string                  { return stateBucketName }
+func (entry fixedMemberEntry) Key() string                     { return entry.key }
+func (entry fixedMemberEntry) Value() []byte                   { return entry.value }
+func (entry fixedMemberEntry) Revision() uint64                { return entry.revision }
+func (entry fixedMemberEntry) Created() time.Time              { return time.Unix(1, 0).UTC() }
+func (entry fixedMemberEntry) Delta() uint64                   { return 0 }
+func (entry fixedMemberEntry) Operation() jetstream.KeyValueOp { return jetstream.KeyValuePut }
+
 func TestIntentListAllowsDifferentPartitionsButRejectsDuplicateCompositeIdentity(t *testing.T) {
 	first := validIntent(oci.RegionGRU)
-	first.DatabaseID = "db-main"
 	first.PartitionID = "partition-b"
 	second := validIntent(oci.RegionGRU)
-	second.DatabaseID = "db-main"
 	second.PartitionID = "partition-a"
 	first = committedIntentForTest(t, first)
 	second = committedIntentForTest(t, second)
@@ -88,7 +142,6 @@ func TestIntentListReturnsCommittedHistoricalAndManagedIntentsInStableOrder(t *t
 		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
 	}
 	managed := validIntent(oci.RegionGRU)
-	managed.DatabaseID = "db-managed"
 	legacy = committedIntentForTest(t, legacy)
 	managed = committedIntentForTest(t, managed)
 	store := &jetStreamStore{cell: "gru", intents: intentReaderFunc(func(context.Context, string) ([]Intent, error) {
@@ -108,7 +161,7 @@ func TestIntentListReturnsCommittedHistoricalAndManagedIntentsInStableOrder(t *t
 		}
 	}
 	if intents[0].SchemaVersion != legacyIntentSchemaVersion || intents[1].SchemaVersion != IntentSchemaVersion {
-		t.Fatalf("mixed intent schema order = %d, %d; want legacy followed by managed", intents[0].SchemaVersion, intents[1].SchemaVersion)
+		t.Fatalf("mixed intent schema order = %d, %d; want database/partition sort order", intents[0].SchemaVersion, intents[1].SchemaVersion)
 	}
 
 	managedDuplicate := validIntent(oci.RegionGRU)

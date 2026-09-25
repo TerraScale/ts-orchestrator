@@ -17,16 +17,18 @@ import (
 
 const (
 	// IntentSchemaVersion is the only schema accepted for new managed
-	// placement admissions. Schema 1 can still be decoded for historical hold.
-	IntentSchemaVersion       = 2
-	legacyIntentSchemaVersion = 1
-	placementSchemaVersion    = 1
-	maxDatabaseIDLength       = 63
-	maxPartitionIDLength      = 63
-	maxIntentPayloadBytes     = 16 << 10
-	managedMemoryPageBytes    = uint64(4096)
-	managedMemoryGiB          = uint64(1 << 30)
-	maxManagedMemoryByteValue = uint64(1<<63 - 1)
+	// placement admissions. Schemas 1 and 2 remain readable for historical hold.
+	IntentSchemaVersion            = 3
+	legacyIntentSchemaVersion      = 1
+	profileIntentSchemaVersion     = 2
+	legacyMemberStateSchemaVersion = 1
+	placementSchemaVersion         = 2
+	maxDatabaseIDLength            = 63
+	maxPartitionIDLength           = 63
+	maxIntentPayloadBytes          = 16 << 10
+	managedMemoryPageBytes         = uint64(4096)
+	managedMemoryGiB               = uint64(1 << 30)
+	maxManagedMemoryByteValue      = uint64(1<<63 - 1)
 )
 
 var (
@@ -40,8 +42,44 @@ type Intent struct {
 	PartitionID         string               `json:"partition_id"`
 	ActiveRegions       []oci.Region         `json:"active_regions"`
 	Generation          uint64               `json:"generation"`
+	CanonicalRoster     CanonicalRoster      `json:"canonical_roster,omitzero"`
 	ManagedHostProfiles []ManagedHostProfile `json:"managed_host_profiles,omitempty"`
 	committedPayloadSHA string
+}
+
+// AuthorityReference identifies a TerraBase certificate and trust root. It is
+// only a structural pin: this package does not possess the bytes or verifier
+// needed to authenticate the referenced certificate or key.
+type AuthorityReference struct {
+	Version           uint32 `json:"version"`
+	Epoch             uint64 `json:"epoch"`
+	ConfigurationID   string `json:"configuration_id"`
+	CertificateSHA256 string `json:"certificate_sha256"`
+	TrustedKeySHA256  string `json:"trusted_key_sha256"`
+}
+
+// CanonicalRoster is the signed cluster scope and ordered set of TerraBase
+// member identities. Rows use Go placement-seat order: region, permanent,
+// elastic. Certificate consumers may have a different member-ID order.
+type CanonicalRoster struct {
+	ClusterID  string               `json:"cluster_id"`
+	TenantID   string               `json:"tenant_id"`
+	DatabaseID string               `json:"database_id"`
+	ShardID    uint64               `json:"shard_id"`
+	Authority  AuthorityReference   `json:"authority"`
+	Rows       []CanonicalRosterRow `json:"members"`
+}
+
+// CanonicalRosterRow binds one Go placement seat to its TerraBase identity,
+// incarnation, TLS certificate leaf and server name.
+type CanonicalRosterRow struct {
+	Region        oci.Region `json:"region"`
+	SeatID        string     `json:"seat_id"`
+	FailureDomain string     `json:"failure_domain"`
+	MemberID      string     `json:"member_id"`
+	Incarnation   string     `json:"incarnation"`
+	TLSLeafSHA256 string     `json:"tls_leaf_sha256"`
+	ServerName    string     `json:"server_name"`
 }
 
 // ComputeTuple is the explicit Flex compute shape pinned by a signed profile.
@@ -112,7 +150,8 @@ func (profile ManagedHostProfile) Validate() error {
 }
 
 func (intent Intent) Validate() error {
-	if intent.SchemaVersion != legacyIntentSchemaVersion && intent.SchemaVersion != IntentSchemaVersion ||
+	if intent.SchemaVersion != legacyIntentSchemaVersion && intent.SchemaVersion != profileIntentSchemaVersion &&
+		intent.SchemaVersion != IntentSchemaVersion ||
 		!validBoundedToken(intent.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(intent.PartitionID, maxPartitionIDLength) || intent.Generation == 0 ||
 		len(intent.ActiveRegions) < 1 || len(intent.ActiveRegions) > len(regionsInOrder) {
@@ -127,8 +166,8 @@ func (intent Intent) Validate() error {
 		}
 	}
 	if intent.SchemaVersion == legacyIntentSchemaVersion {
-		if len(intent.ManagedHostProfiles) != 0 {
-			return fmt.Errorf("%w: historical schema 1 cannot carry managed host profiles", ErrInvalidIntent)
+		if len(intent.ManagedHostProfiles) != 0 || !intent.CanonicalRoster.isZero() {
+			return fmt.Errorf("%w: historical schema 1 cannot carry managed profiles or a canonical roster", ErrInvalidIntent)
 		}
 		return nil
 	}
@@ -143,16 +182,239 @@ func (intent Intent) Validate() error {
 			return err
 		}
 	}
+	if intent.SchemaVersion == profileIntentSchemaVersion {
+		if !intent.CanonicalRoster.isZero() {
+			return fmt.Errorf("%w: historical schema 2 cannot carry a canonical roster", ErrInvalidIntent)
+		}
+		return nil
+	}
+	if err := intent.CanonicalRoster.Validate(intent.ActiveRegions); err != nil {
+		return err
+	}
 	return nil
 }
 
-// ValidateForAdmission limits newly signed managed placements to the profile
-// schema. Historical schema-1 records remain decodable for explicit hold.
+// ValidateForAdmission limits newly signed managed placements to schema 3.
+// Historical schemas remain decodable for explicit per-intent hold.
 func (intent Intent) ValidateForAdmission() error {
 	if intent.SchemaVersion != IntentSchemaVersion {
 		return fmt.Errorf("%w: schema %d is historical and cannot authorize a new managed placement", ErrInvalidIntent, intent.SchemaVersion)
 	}
 	return intent.Validate()
+}
+
+func (roster CanonicalRoster) isZero() bool {
+	return roster.ClusterID == "" && roster.TenantID == "" && roster.DatabaseID == "" &&
+		roster.ShardID == 0 && roster.Authority == (AuthorityReference{}) && len(roster.Rows) == 0
+}
+
+func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
+	if !lowerHex(roster.ClusterID, 32) || allZeroHex(roster.ClusterID) ||
+		!canonicalMemberID(roster.TenantID) || !canonicalMemberID(roster.DatabaseID) ||
+		roster.ShardID == 0 || roster.Authority.Validate() != nil ||
+		len(roster.Rows) != len(activeRegions)*2 {
+		return fmt.Errorf("%w: canonical roster shared scope or row count", ErrInvalidIntent)
+	}
+
+	memberIDs := make(map[string]struct{}, len(roster.Rows))
+	tlsLeafHashes := make(map[string]struct{}, len(roster.Rows))
+	serverNames := make(map[string]struct{}, len(roster.Rows))
+	failureDomains := make(map[oci.Region]string, len(activeRegions))
+	for index, row := range roster.Rows {
+		region := activeRegions[index/2]
+		seatID := permanentMember(region)
+		if index%2 == 1 {
+			seatID = elasticMember(region)
+		}
+		if row.Region != region || row.SeatID != seatID || !validFailureDomain(row.FailureDomain) ||
+			!canonicalMemberID(row.MemberID) || !lowerHex(row.Incarnation, 32) || allZeroHex(row.Incarnation) ||
+			!validLowerSHA256Digest(row.TLSLeafSHA256) || !validServerName(row.ServerName) {
+			return fmt.Errorf("%w: invalid or noncanonical row %d in TerraBase member roster", ErrInvalidIntent, index)
+		}
+		if _, exists := memberIDs[row.MemberID]; exists {
+			return fmt.Errorf("%w: repeated TerraBase member ID %q", ErrInvalidIntent, row.MemberID)
+		}
+		if _, exists := tlsLeafHashes[row.TLSLeafSHA256]; exists {
+			return fmt.Errorf("%w: repeated TerraBase TLS leaf hash", ErrInvalidIntent)
+		}
+		if _, exists := serverNames[row.ServerName]; exists {
+			return fmt.Errorf("%w: repeated TerraBase member server name %q", ErrInvalidIntent, row.ServerName)
+		}
+		if index%2 == 0 {
+			failureDomains[region] = row.FailureDomain
+		} else if failureDomains[region] == row.FailureDomain {
+			return fmt.Errorf("%w: TerraBase members in region %s share a failure domain", ErrInvalidIntent, region)
+		}
+		memberIDs[row.MemberID] = struct{}{}
+		tlsLeafHashes[row.TLSLeafSHA256] = struct{}{}
+		serverNames[row.ServerName] = struct{}{}
+	}
+	return nil
+}
+
+func (authority AuthorityReference) Validate() error {
+	if authority.Version != 2 || authority.Epoch == 0 ||
+		!validLowerSHA256Digest(authority.ConfigurationID) || allZeroHex(authority.ConfigurationID) ||
+		!validLowerSHA256Digest(authority.CertificateSHA256) || !validLowerSHA256Digest(authority.TrustedKeySHA256) {
+		return fmt.Errorf("%w: invalid TerraBase authority reference", ErrInvalidIntent)
+	}
+	return nil
+}
+
+// CanonicalRosterDigest returns SHA-256 over deterministic canonical JSON for
+// the roster. It does not verify signatures or the referenced certificate.
+func (intent Intent) CanonicalRosterDigest() (string, error) {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return "", err
+	}
+	encoded, err := protocol.EncodeJSON(intent.CanonicalRoster)
+	if err != nil {
+		return "", fmt.Errorf("encode canonical TerraBase roster: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// RosterRowForSeat finds the signed row for one exact Go placement seat and
+// checks its configured region and failure domain.
+func (intent Intent) RosterRowForSeat(seat Seat) (CanonicalRosterRow, error) {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return CanonicalRosterRow{}, err
+	}
+	for _, row := range intent.CanonicalRoster.Rows {
+		if row.Region != seat.Region || row.SeatID != seat.MemberID {
+			continue
+		}
+		if row.FailureDomain != seat.FailureDomain || seatIDForKind(row.Region, seat.Kind) != seat.MemberID {
+			return CanonicalRosterRow{}, fmt.Errorf("%w: roster row does not match the configured placement seat", ErrInvalidIntent)
+		}
+		return row, nil
+	}
+	return CanonicalRosterRow{}, fmt.Errorf("%w: no canonical roster row for region %s seat %s", ErrInvalidIntent, seat.Region, seat.MemberID)
+}
+
+// ValidateSupersession checks the no-rotation continuity contract for a new
+// signed generation. Removal remains rejected until admission has explicit
+// retirement evidence, and legacy intents cannot establish a roster baseline.
+func (intent Intent) ValidateSupersession(previous Intent) error {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return err
+	}
+	if err := previous.Validate(); err != nil {
+		return err
+	}
+	if previous.SchemaVersion != IntentSchemaVersion || previous.DatabaseID != intent.DatabaseID ||
+		previous.PartitionID != intent.PartitionID || intent.Generation <= previous.Generation {
+		return fmt.Errorf("%w: supersession requires a later schema-3 generation with the same business identity", ErrInvalidIntent)
+	}
+	oldScope, newScope := previous.CanonicalRoster, intent.CanonicalRoster
+	if oldScope.ClusterID != newScope.ClusterID || oldScope.TenantID != newScope.TenantID ||
+		oldScope.DatabaseID != newScope.DatabaseID || oldScope.ShardID != newScope.ShardID ||
+		oldScope.Authority != newScope.Authority {
+		return fmt.Errorf("%w: supersession changes canonical roster shared scope", ErrInvalidIntent)
+	}
+	newRows := make(map[string]CanonicalRosterRow, len(newScope.Rows))
+	for _, row := range newScope.Rows {
+		newRows[rosterSeatKey(row.Region, row.SeatID)] = row
+	}
+	for _, oldRow := range oldScope.Rows {
+		newRow, exists := newRows[rosterSeatKey(oldRow.Region, oldRow.SeatID)]
+		if !exists {
+			return fmt.Errorf("%w: supersession removes seat %s/%s without retirement evidence", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
+		}
+		if newRow.MemberID != oldRow.MemberID || newRow.Incarnation != oldRow.Incarnation {
+			return fmt.Errorf("%w: supersession rotates identity for continuing seat %s/%s", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
+		}
+	}
+	return nil
+}
+
+func rosterSeatKey(region oci.Region, seatID string) string {
+	return string(region) + "\x00" + seatID
+}
+
+func seatIDForKind(region oci.Region, kind MemberKind) string {
+	switch kind {
+	case MemberPermanent:
+		return permanentMember(region)
+	case MemberElastic:
+		return elasticMember(region)
+	default:
+		return ""
+	}
+}
+
+func canonicalMemberID(value string) bool {
+	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
+		return false
+	}
+	nonzero := false
+	for index := range len(value) {
+		character := value[index]
+		if !strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", rune(character)) {
+			return false
+		}
+		nonzero = nonzero || character != '0'
+	}
+	return nonzero
+}
+
+func lowerHex(value string, length int) bool {
+	if len(value) != length {
+		return false
+	}
+	for index := range len(value) {
+		character := value[index]
+		if character < '0' || character > '9' {
+			if character < 'a' || character > 'f' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func allZeroHex(value string) bool {
+	for index := range len(value) {
+		if value[index] != '0' {
+			return false
+		}
+	}
+	return true
+}
+
+func validFailureDomain(value string) bool {
+	if len(value) < 1 || len(value) > 64 {
+		return false
+	}
+	for index := range len(value) {
+		character := value[index]
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validServerName(value string) bool {
+	if len(value) < 1 || len(value) > 253 {
+		return false
+	}
+	for label := range strings.SplitSeq(value, ".") {
+		if len(label) < 1 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for index := range len(label) {
+			character := label[index]
+			if character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
 }
 
 // ManagedHostProfile returns the exact admitted region profile.
@@ -270,8 +532,8 @@ func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, 
 			continue
 		}
 		domains := faultDomains[region]
-		if len(domains) < 2 || !validBoundedToken(strings.ToLower(domains[0]), 63) ||
-			!validBoundedToken(strings.ToLower(domains[1]), 63) || domains[0] == domains[1] {
+		if len(domains) < 2 || !validFailureDomain(domains[0]) ||
+			!validFailureDomain(domains[1]) || domains[0] == domains[1] {
 			return nil, fmt.Errorf("%w: region %s needs two distinct configured fault domains", ErrInvalidIntent, region)
 		}
 		permanentID := permanentMember(region)
@@ -306,6 +568,10 @@ func knownRegion(region oci.Region) bool {
 
 func validBoundedToken(value string, maxLength int) bool {
 	return len(value) <= maxLength && validToken(value)
+}
+
+func validDatabaseKeyID(value string) bool {
+	return validBoundedToken(value, maxDatabaseIDLength)
 }
 
 type MemberStage string
@@ -352,6 +618,9 @@ type MemberState struct {
 	IntentPayloadDigest      string             `json:"intent_payload_digest,omitempty"`
 	ManagedHostProfile       ManagedHostProfile `json:"managed_host_profile,omitzero"`
 	ManagedHostProfileDigest string             `json:"managed_host_profile_digest,omitempty"`
+	CanonicalRosterRow       CanonicalRosterRow `json:"canonical_roster_row,omitzero"`
+	CanonicalRosterDigest    string             `json:"canonical_roster_digest,omitempty"`
+	AuthorityReference       AuthorityReference `json:"authority_reference,omitzero"`
 	DesiredGeneration        uint64             `json:"desired_generation"`
 	HostGeneration           uint64             `json:"host_generation"`
 	OperationID              string             `json:"operation_id"`
@@ -359,9 +628,14 @@ type MemberState struct {
 }
 
 func (state MemberState) Validate() error {
-	if state.SchemaVersion != placementSchemaVersion || !validBoundedToken(state.DatabaseID, maxDatabaseIDLength) ||
+	validStateFailureDomain := validBoundedToken(strings.ToLower(state.FailureDomain), 63)
+	if state.SchemaVersion == placementSchemaVersion {
+		validStateFailureDomain = validFailureDomain(state.FailureDomain)
+	}
+	if state.SchemaVersion != legacyMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion ||
+		!validBoundedToken(state.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(state.PartitionID, maxPartitionIDLength) || !validToken(state.MemberID) ||
-		!knownRegion(state.Region) || !validBoundedToken(strings.ToLower(state.FailureDomain), 63) ||
+		!knownRegion(state.Region) || !validStateFailureDomain ||
 		state.Kind != MemberPermanent && state.Kind != MemberElastic || !knownStage(state.Stage) ||
 		!validToken(state.CreateKey) || state.HostAttempt == 0 || state.IntentGeneration == 0 ||
 		stageRequiresHostGeneration(state.Stage) && state.HostGeneration == 0 ||
@@ -380,6 +654,30 @@ func (state MemberState) Validate() error {
 		if err != nil || digest != state.ManagedHostProfileDigest {
 			return errors.New("invalid TerraBase member state managed profile digest")
 		}
+	}
+	if state.SchemaVersion == legacyMemberStateSchemaVersion {
+		if state.CanonicalRosterRow != (CanonicalRosterRow{}) || state.CanonicalRosterDigest != "" ||
+			state.AuthorityReference != (AuthorityReference{}) {
+			return errors.New("invalid legacy TerraBase member state roster pin")
+		}
+		return nil
+	}
+	if !validLowerSHA256Digest(state.IntentPayloadDigest) ||
+		!validLowerSHA256Digest(state.ManagedHostProfileDigest) ||
+		state.ManagedHostProfile.Region != state.Region || state.ManagedHostProfile.Validate() != nil ||
+		state.CanonicalRosterRow.Region != state.Region || state.CanonicalRosterRow.SeatID != state.MemberID ||
+		state.CanonicalRosterRow.FailureDomain != state.FailureDomain ||
+		!validFailureDomain(state.CanonicalRosterRow.FailureDomain) ||
+		!canonicalMemberID(state.CanonicalRosterRow.MemberID) ||
+		!lowerHex(state.CanonicalRosterRow.Incarnation, 32) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
+		!validLowerSHA256Digest(state.CanonicalRosterRow.TLSLeafSHA256) ||
+		!validServerName(state.CanonicalRosterRow.ServerName) ||
+		!validLowerSHA256Digest(state.CanonicalRosterDigest) || state.AuthorityReference.Validate() != nil {
+		return errors.New("invalid TerraBase member state canonical roster pin")
+	}
+	if state.Kind == MemberPermanent && state.CanonicalRosterRow.SeatID != permanentMember(state.Region) ||
+		state.Kind == MemberElastic && state.CanonicalRosterRow.SeatID != elasticMember(state.Region) {
+		return errors.New("invalid TerraBase member state seat pin")
 	}
 	return nil
 }

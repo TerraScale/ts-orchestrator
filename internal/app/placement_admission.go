@@ -187,8 +187,8 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		var expected uint64
 		current, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
 		if err == nil {
-			var old placement.Intent
-			if err := json.Unmarshal(current.Payload, &old, json.RejectUnknownMembers(true)); err != nil || old.Validate() != nil || old.DatabaseID != intent.DatabaseID || old.PartitionID != intent.PartitionID {
+			old, err := placement.DecodeCommittedIntent(current.Payload)
+			if err != nil || old.DatabaseID != intent.DatabaseID || old.PartitionID != intent.PartitionID {
 				return placementApplyResponse{}, errors.New("durable placement intent is corrupt")
 			}
 			if old.Generation > intent.Generation || old.Generation == intent.Generation && !bytes.Equal(current.Payload, payload) {
@@ -196,6 +196,9 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 			}
 			if old.Generation == intent.Generation {
 				return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: current.Sequence}, nil
+			}
+			if err := intent.ValidateSupersession(old); err != nil {
+				return placementApplyResponse{}, err
 			}
 			expected = current.Sequence
 		} else if !errors.Is(err, authority.ErrNotFound) {

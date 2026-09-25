@@ -130,7 +130,17 @@ func TestControllerPinsSignedProfileBeforeHostCreateAndUsesItOnRecovery(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	rosterDigest, err := intent.CanonicalRosterDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := intent.RosterRowForSeat(Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if store.casCalls != 1 || fleet.ensureCalls != 0 || state.Stage != StagePreparedHost ||
+		state.CanonicalRosterRow != row || state.CanonicalRosterDigest != rosterDigest ||
+		state.AuthorityReference != intent.CanonicalRoster.Authority ||
 		state.IntentPayloadDigest != intent.PayloadDigest() || state.ManagedHostProfile != profile ||
 		state.ManagedHostProfileDigest != profileDigest || state.IntentGeneration != intent.Generation {
 		t.Fatalf("first CAS did not pin the committed profile before OCI: state=%+v CAS=%d ensures=%d", state, store.casCalls, fleet.ensureCalls)
@@ -199,9 +209,28 @@ func TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI(t *testing.T) 
 	}{
 		{name: "legacy unpinned state", change: func(store *placementMemoryStore) {
 			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.SchemaVersion = 1
+			member.State.CanonicalRosterRow = CanonicalRosterRow{}
+			member.State.CanonicalRosterDigest = ""
+			member.State.AuthorityReference = AuthorityReference{}
 			member.State.IntentPayloadDigest = ""
 			member.State.ManagedHostProfile = ManagedHostProfile{}
 			member.State.ManagedHostProfileDigest = ""
+			store.members[permanentMember(oci.RegionGRU)] = member
+		}},
+		{name: "changed canonical roster row", change: func(store *placementMemoryStore) {
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.CanonicalRosterRow = store.members[elasticMember(oci.RegionGRU)].State.CanonicalRosterRow
+			store.members[permanentMember(oci.RegionGRU)] = member
+		}},
+		{name: "missing canonical roster digest", change: func(store *placementMemoryStore) {
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.CanonicalRosterDigest = ""
+			store.members[permanentMember(oci.RegionGRU)] = member
+		}},
+		{name: "changed authority reference", change: func(store *placementMemoryStore) {
+			member := store.members[permanentMember(oci.RegionGRU)]
+			member.State.AuthorityReference.Epoch++
 			store.members[permanentMember(oci.RegionGRU)] = member
 		}},
 		{name: "new signed generation", change: func(store *placementMemoryStore) {
@@ -241,6 +270,63 @@ func TestControllerHoldsUnpinnedChangedAndRemovedMembersBeforeOCI(t *testing.T) 
 	}
 }
 
+func TestControllerHoldsConfiguredSeatWithoutMatchingSignedRosterRow(t *testing.T) {
+	draft := validIntent(oci.RegionGRU)
+	draft.CanonicalRoster.Rows[0].FailureDomain = "FAULT-DOMAIN-3"
+	intent := committedTestIntent(t, draft)
+	store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
+	fleet := &placementTestFleet{}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(reason string) { holds = append(holds, reason) })
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if store.casCalls != 0 || fleet.ensureCalls != 0 || len(holds) != 1 {
+		t.Fatalf("configured failure domain mismatch prepared or launched a host: CAS=%d ensures=%d holds=%v", store.casCalls, fleet.ensureCalls, holds)
+	}
+}
+
+func TestControllerRechecksExactRosterPinsBeforeHostRecoveryAndVolumeCreate(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seat := permanentMember(oci.RegionGRU)
+	for _, stage := range []MemberStage{StageAwaitingHost, StagePreparedVolume} {
+		for _, test := range []struct {
+			name   string
+			change func(*MemberState)
+		}{
+			{"row", func(state *MemberState) { state.CanonicalRosterRow.ServerName = "changed.example.test" }},
+			{"roster digest", func(state *MemberState) { state.CanonicalRosterDigest = "" }},
+			{"authority reference", func(state *MemberState) { state.AuthorityReference.Epoch++ }},
+		} {
+			t.Run(string(stage)+"/"+test.name, func(t *testing.T) {
+				store := newPlacementMemoryStore(t, intent)
+				member := store.members[seat]
+				member.State.Stage = stage
+				if stage == StageAwaitingHost {
+					member.State.HostGeneration = 0
+				} else {
+					member.State.VolumeID = ""
+					member.State.AttachmentID = ""
+				}
+				test.change(&member.State)
+				store.members[seat] = member
+				fleet := &placementTestFleet{}
+				if stage == StagePreparedVolume {
+					fleet.instances = attachedInstances(t, intent)
+				}
+				var holds []string
+				controller := startTestPlacementController(t, store, fleet, &placementTestHosts{statuses: admittedStatuses(t, intent)}, func(reason string) { holds = append(holds, reason) })
+				if err := controller.Tick(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if store.casCalls != 0 || fleet.ensureCalls != 0 || fleet.volumeCalls != 0 || len(holds) != 1 {
+					t.Fatalf("drifted %s pin advanced member: CAS=%d ensures=%d volumes=%d holds=%v", stage, store.casCalls, fleet.ensureCalls, fleet.volumeCalls, holds)
+				}
+			})
+		}
+	}
+}
+
 func TestControllerHoldsWholePlacementBeforePreparingMissingSeat(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
@@ -263,18 +349,24 @@ func TestControllerHoldsWholePlacementBeforePreparingMissingSeat(t *testing.T) {
 
 func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *testing.T) {
 	legacy := committedTestIntent(t, Intent{
-		SchemaVersion: 1, DatabaseID: "a-legacy", PartitionID: "partition-a",
+		SchemaVersion: 1, DatabaseID: "0-legacy", PartitionID: "partition-a",
 		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
 	})
+	profileDraft := validIntent(oci.RegionGRU)
+	profileDraft.SchemaVersion = profileIntentSchemaVersion
+	profileDraft.DatabaseID = "1-profile"
+	profileDraft.CanonicalRoster = CanonicalRoster{}
+	profileOnly := committedTestIntent(t, profileDraft)
 	managedDraft := validIntent(oci.RegionGRU)
 	managedDraft.DatabaseID = "z-managed"
 	managedDraft.Generation = 7
 	managed := committedTestIntent(t, managedDraft)
-	if legacy.PayloadDigest() == "" || managed.PayloadDigest() == "" || legacy.DatabaseID >= managed.DatabaseID {
-		t.Fatal("test intents are not ordered committed v1 then v2")
+	if legacy.PayloadDigest() == "" || profileOnly.PayloadDigest() == "" || managed.PayloadDigest() == "" ||
+		legacy.DatabaseID >= profileOnly.DatabaseID || profileOnly.DatabaseID >= managed.DatabaseID {
+		t.Fatal("test intents are not ordered committed v1, v2, then v3")
 	}
 	store := &placementMemoryStore{
-		intents: []Intent{legacy, managed}, members: make(map[string]VersionedMemberState),
+		intents: []Intent{legacy, profileOnly, managed}, members: make(map[string]VersionedMemberState),
 	}
 	instance := attachedInstances(t, managed)[0]
 	fleet := &placementTestFleet{ensureResult: &instance}
@@ -286,8 +378,8 @@ func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *
 	}
 	prepared, exists := store.members[permanentMember(oci.RegionGRU)]
 	if !exists || len(store.members) != 1 || prepared.State.DatabaseID != managed.DatabaseID ||
-		prepared.State.Stage != StagePreparedHost || store.casCalls != 1 || fleet.ensureCalls != 0 || len(holds) != 1 {
-		t.Fatalf("historical v1 blocked or mutated the independent v2 placement: members=%+v CAS=%d ensures=%d holds=%v",
+		prepared.State.Stage != StagePreparedHost || store.casCalls != 1 || fleet.ensureCalls != 0 || len(holds) != 2 {
+		t.Fatalf("historical intents blocked or mutated the independent v3 placement: members=%+v CAS=%d ensures=%d holds=%v",
 			store.members, store.casCalls, fleet.ensureCalls, holds)
 	}
 
@@ -301,7 +393,7 @@ func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *
 	if state := store.members[permanentMember(oci.RegionGRU)].State; state.DatabaseID != managed.DatabaseID ||
 		state.Stage != StageAwaitingHost || store.casCalls != 2 || fleet.ensureCalls != 1 ||
 		len(fleet.ensureRequests) != 1 || fleet.ensureRequests[0].PlacementProfileDigest != profileDigest ||
-		fleet.ensureRequests[0].PlacementGeneration != managed.Generation || len(holds) != 2 {
+		fleet.ensureRequests[0].PlacementGeneration != managed.Generation || len(holds) != 4 {
 		t.Fatalf("later managed placement did not launch its pinned profile: state=%+v CAS=%d requests=%+v holds=%v",
 			state, store.casCalls, fleet.ensureRequests, holds)
 	}
@@ -488,6 +580,14 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	rosterDigest, err := intent.CanonicalRosterDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := intent.RosterRowForSeat(seat)
+	if err != nil {
+		t.Fatal(err)
+	}
 	attempt := uint64(1)
 	state := MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
@@ -496,6 +596,7 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 		HostNode: "node-" + seat.MemberID, InstanceID: "instance-" + seat.MemberID,
 		InstanceETag: "etag-1", VolumeID: "volume-" + seat.MemberID,
 		AttachmentID: "attachment-" + seat.MemberID, HostGeneration: 1,
+		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
 		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, DesiredGeneration: 1,
 		OperationID: memberOperationID(intent, seat.MemberID, attempt, "test"), UpdatedAt: time.Now().UTC(),
@@ -566,6 +667,14 @@ func (store *placementMemoryStore) ListMembers(_ context.Context, databaseID, pa
 		}
 	}
 	return result, nil
+}
+
+func (store *placementMemoryStore) ReadMember(_ context.Context, databaseID, partitionID, seatID string) (VersionedMemberState, error) {
+	member, exists := store.members[seatID]
+	if !exists || member.State.DatabaseID != databaseID || member.State.PartitionID != partitionID {
+		return VersionedMemberState{}, ErrMemberNotFound
+	}
+	return member, nil
 }
 
 func (store *placementMemoryStore) CompareAndSwap(_ context.Context, expected uint64, state MemberState) (uint64, error) {

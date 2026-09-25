@@ -198,6 +198,24 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		rosterDigest, err := intent.CanonicalRosterDigest()
+		if err != nil {
+			return err
+		}
+		rowsBySeat := make(map[string]CanonicalRosterRow, len(seats))
+		rosterHeld := false
+		for _, seat := range seats {
+			row, err := intent.RosterRowForSeat(seat)
+			if err != nil {
+				controller.hold(fmt.Sprintf("member %s has no signed roster row matching its configured seat; host reconciliation is held: %v", seat.MemberID, err))
+				rosterHeld = true
+				break
+			}
+			rowsBySeat[seat.MemberID] = row
+		}
+		if rosterHeld {
+			continue
+		}
 		profile, err := intent.ManagedHostProfile(controller.config.Region)
 		if err != nil {
 			return err
@@ -226,10 +244,14 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			if state.Region != seat.Region || state.Kind != seat.Kind || state.FailureDomain != seat.FailureDomain {
 				return fmt.Errorf("%w: admitted placement seat conflicts with durable member identity", ErrStoreCorrupt)
 			}
-			if state.IntentPayloadDigest == "" || state.ManagedHostProfileDigest == "" ||
+			if state.SchemaVersion != placementSchemaVersion ||
+				state.CanonicalRosterRow != rowsBySeat[seat.MemberID] ||
+				state.CanonicalRosterDigest != rosterDigest ||
+				state.AuthorityReference != intent.CanonicalRoster.Authority ||
+				state.IntentPayloadDigest == "" || state.ManagedHostProfileDigest == "" ||
 				state.IntentPayloadDigest != intent.PayloadDigest() || state.ManagedHostProfile != profile ||
 				state.ManagedHostProfileDigest != profileDigest || state.IntentGeneration != intent.Generation {
-				controller.hold(fmt.Sprintf("member %s has no matching immutable placement profile; an explicit new attempt is required", seat.MemberID))
+				controller.hold(fmt.Sprintf("member %s has no matching immutable roster, authority reference, or placement profile; an explicit new attempt is required", seat.MemberID))
 				held = true
 				break
 			}
@@ -245,7 +267,7 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		for _, seat := range seats {
 			versioned, exists := memberByID[seat.MemberID]
 			if !exists {
-				state := controller.initialState(intent, seat, profile, profileDigest, 1)
+				state := controller.initialState(intent, seat, rowsBySeat[seat.MemberID], rosterDigest, profile, profileDigest, 1)
 				if _, err := controller.persist(ctx, epoch, 0, state); err != nil {
 					return err
 				}
@@ -526,11 +548,12 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 	}, nil
 }
 
-func (controller *Controller) initialState(intent Intent, seat Seat, profile ManagedHostProfile, profileDigest string, attempt uint64) MemberState {
+func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, attempt uint64) MemberState {
 	return MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain, Kind: seat.Kind,
 		Stage: StagePreparedHost, CreateKey: hostCreateKey(intent, seat, attempt), HostAttempt: attempt,
+		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
 		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, OperationID: memberOperationID(intent, seat.MemberID, attempt, "prepare"),
 		UpdatedAt: time.Now().UTC(),

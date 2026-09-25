@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-func TestPlacementAdmissionCommitsSignedCanonicalV2AndExposesDigests(t *testing.T) {
+func TestPlacementAdmissionCommitsSignedCanonicalV3AndExposesDigests(t *testing.T) {
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	control := newPlacementAdmissionControl()
 	intent := testManagedPlacementIntent()
@@ -69,7 +71,7 @@ func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	intent := testManagedPlacementIntent()
 	legacy := placement.Intent{
-		SchemaVersion: 1, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+		SchemaVersion: 1, DatabaseID: "db-main", PartitionID: intent.PartitionID,
 		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: intent.Generation,
 	}
 
@@ -135,6 +137,66 @@ func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.
 	})
 }
 
+func TestPlacementAdmissionEnforcesRosterContinuityOnSupersession(t *testing.T) {
+	policy, privateKey := newPlacementAdmissionPolicy(t)
+	for _, test := range []struct {
+		name   string
+		mutate func(*placement.Intent)
+	}{
+		{name: "removed region", mutate: func(intent *placement.Intent) {
+			*intent = testManagedPlacementIntentForRegions(oci.RegionGRU)
+		}},
+		{name: "member rotation", mutate: func(intent *placement.Intent) {
+			intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+		}},
+		{name: "incarnation rotation", mutate: func(intent *placement.Intent) {
+			intent.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
+		}},
+		{name: "shared shard change", mutate: func(intent *placement.Intent) {
+			intent.CanonicalRoster.ShardID++
+		}},
+		{name: "authority reference change", mutate: func(intent *placement.Intent) {
+			intent.CanonicalRoster.Authority.Epoch++
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			control := newPlacementAdmissionControl()
+			previous := testManagedPlacementIntentForRegions(oci.RegionGRU, oci.RegionFRA)
+			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
+				t.Fatalf("seed existing committed placement: %v", err)
+			}
+			candidate := previous
+			test.mutate(&candidate)
+			candidate.Generation = previous.Generation + 1
+			_, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control)
+			if err == nil {
+				t.Fatal("discontinuous placement supersession was committed")
+			}
+			entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
+			if entry.Sequence != 1 {
+				t.Fatalf("rejected supersession changed committed sequence to %d", entry.Sequence)
+			}
+		})
+	}
+
+	t.Run("signed addition preserves existing seat identities", func(t *testing.T) {
+		control := newPlacementAdmissionControl()
+		previous := testManagedPlacementIntentForRegions(oci.RegionGRU)
+		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
+			t.Fatalf("seed existing committed placement: %v", err)
+		}
+		candidate := testManagedPlacementIntentForRegions(oci.RegionGRU, oci.RegionFRA)
+		candidate.Generation = previous.Generation + 1
+		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
+			t.Fatalf("commit signed added seats: %v", err)
+		}
+		entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
+		if entry.Sequence != 2 {
+			t.Fatalf("signed addition sequence = %d, want 2", entry.Sequence)
+		}
+	})
+}
+
 func newPlacementAdmissionPolicy(t *testing.T) (signerPolicy, ed25519.PrivateKey) {
 	t.Helper()
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -155,17 +217,79 @@ func newPlacementAdmissionPolicy(t *testing.T) (signerPolicy, ed25519.PrivateKey
 }
 
 func testManagedPlacementIntent() placement.Intent {
-	return placement.Intent{
-		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 7,
-		ManagedHostProfiles: []placement.ManagedHostProfile{{
-			Region:             oci.RegionGRU,
+	return testManagedPlacementIntentForRegions(oci.RegionGRU)
+}
+
+func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Intent {
+	selected := make(map[oci.Region]struct{}, len(regions))
+	for _, region := range regions {
+		selected[region] = struct{}{}
+	}
+	active := make([]oci.Region, 0, len(selected))
+	profiles := make([]placement.ManagedHostProfile, 0, len(selected))
+	rows := make([]placement.CanonicalRosterRow, 0, len(selected)*2)
+	memberSuffixes := "VWXYZ0"
+	regionOrder := [...]oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA}
+	for _, region := range regionOrder {
+		if _, exists := selected[region]; !exists {
+			continue
+		}
+		index := len(active)
+		active = append(active, region)
+		profiles = append(profiles, placement.ManagedHostProfile{
+			Region:             region,
 			Compute:            placement.ComputeTuple{Shape: "VM.Standard.E4.Flex", WholeOCPUs: 1, MemoryInGBs: 6},
 			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30,
 			CgroupMemoryMaxBytes: 4 << 30, SystemReserveBytes: 1 << 30,
 			AllocatableMemoryBytes: 5 << 30,
-		}},
+		})
+		rows = append(rows,
+			placement.CanonicalRosterRow{
+				Region: region, SeatID: permanentSeatID(region), FailureDomain: "FAULT-DOMAIN-1",
+				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[index*2]),
+				Incarnation: fmt.Sprintf("%032x", index*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
+				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
+			},
+			placement.CanonicalRosterRow{
+				Region: region, SeatID: elasticSeatID(region), FailureDomain: "FAULT-DOMAIN-2",
+				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[index*2+1]),
+				Incarnation: fmt.Sprintf("%032x", index*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
+				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
+			},
+		)
 	}
+	databaseID := "db-main"
+	return placement.Intent{
+		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: databaseID, PartitionID: "partition-a",
+		ActiveRegions: active, Generation: 7,
+		CanonicalRoster: placement.CanonicalRoster{
+			ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAS",
+			DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAR", ShardID: 1,
+			Authority: placement.AuthorityReference{
+				Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
+				CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
+			},
+			Rows: rows,
+		},
+		ManagedHostProfiles: profiles,
+	}
+}
+
+func permanentSeatID(region oci.Region) string {
+	switch region {
+	case oci.RegionGRU:
+		return "permanent-a"
+	case oci.RegionSFO:
+		return "permanent-b"
+	case oci.RegionFRA:
+		return "permanent-c"
+	default:
+		return ""
+	}
+}
+
+func elasticSeatID(region oci.Region) string {
+	return "elastic-" + strings.ToLower(string(region))
 }
 
 func signedPlacementEnvelope(

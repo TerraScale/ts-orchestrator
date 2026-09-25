@@ -2,6 +2,8 @@
 Description=TerraScale Orchestrator regional controller
 Wants=network-online.target
 After=network-online.target
+Requires=terrascale-orchestrator-bootstrap.service
+After=terrascale-orchestrator-bootstrap.service
 ConditionPathExists=/etc/terrascale-orchestrator/controller.json
 
 [Service]

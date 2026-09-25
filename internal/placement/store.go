@@ -20,8 +20,9 @@ const (
 )
 
 var (
-	ErrStoreConflict = errors.New("placement state compare-and-swap conflict")
-	ErrStoreCorrupt  = errors.New("placement state is corrupt")
+	ErrStoreConflict  = errors.New("placement state compare-and-swap conflict")
+	ErrStoreCorrupt   = errors.New("placement state is corrupt")
+	ErrMemberNotFound = errors.New("placement member state not found")
 )
 
 // AdmittedIntentReader returns only placement intents committed by the
@@ -76,7 +77,14 @@ type VersionedMemberState struct {
 	Revision uint64
 }
 
+// MemberPinReader looks up one exact durable Go placement seat. It must not
+// scan the state bucket or substitute a different member when the key is absent.
+type MemberPinReader interface {
+	ReadMember(context.Context, string, string, string) (VersionedMemberState, error)
+}
+
 type Store interface {
+	MemberPinReader
 	ListIntents(context.Context) ([]Intent, error)
 	ListMembers(context.Context, string, string) ([]VersionedMemberState, error)
 	CompareAndSwap(context.Context, uint64, MemberState) (uint64, error)
@@ -149,7 +157,7 @@ func (store *jetStreamStore) ListIntents(ctx context.Context) ([]Intent, error) 
 }
 
 func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partitionID string) ([]VersionedMemberState, error) {
-	if !validBoundedToken(databaseID, maxDatabaseIDLength) || !validBoundedToken(partitionID, maxPartitionIDLength) {
+	if !validDatabaseKeyID(databaseID) || !validBoundedToken(partitionID, maxPartitionIDLength) {
 		return nil, fmt.Errorf("%w: database or partition id", ErrInvalidIntent)
 	}
 	keys, err := store.state.Keys(ctx)
@@ -188,6 +196,33 @@ func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partit
 		return strings.Compare(a.State.MemberID, b.State.MemberID)
 	})
 	return result, nil
+}
+
+func (store *jetStreamStore) ReadMember(ctx context.Context, databaseID, partitionID, seatID string) (VersionedMemberState, error) {
+	if !validDatabaseKeyID(databaseID) || !validBoundedToken(partitionID, maxPartitionIDLength) ||
+		!validToken(seatID) {
+		return VersionedMemberState{}, fmt.Errorf("%w: database, partition, or seat id", ErrInvalidIntent)
+	}
+	key := memberStateKey(databaseID, partitionID, seatID)
+	entry, err := store.state.Get(ctx, key)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return VersionedMemberState{}, ErrMemberNotFound
+	}
+	if err != nil {
+		return VersionedMemberState{}, err
+	}
+	if entry.Operation() != jetstream.KeyValuePut {
+		return VersionedMemberState{}, fmt.Errorf("%w: tombstone at %s", ErrStoreCorrupt, key)
+	}
+	var state MemberState
+	if err := json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)); err != nil {
+		return VersionedMemberState{}, fmt.Errorf("%w: decode %s: %v", ErrStoreCorrupt, key, err)
+	}
+	if err := state.Validate(); err != nil || state.DatabaseID != databaseID || state.PartitionID != partitionID ||
+		state.MemberID != seatID || memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) != key {
+		return VersionedMemberState{}, fmt.Errorf("%w: invalid state at %s", ErrStoreCorrupt, key)
+	}
+	return VersionedMemberState{State: state, Revision: entry.Revision()}, nil
 }
 
 func (store *jetStreamStore) CompareAndSwap(ctx context.Context, expected uint64, state MemberState) (uint64, error) {

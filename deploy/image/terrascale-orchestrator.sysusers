@@ -1,1 +1,1 @@
-u terrascal... - "TerraScale Orchestrator" /var/lib/terrascale-orchestrator-controller /usr/sbin/nologin
+u terrascale-orchestrator - "TerraScale Orchestrator" /var/lib/terrascale-orchestrator-controller /usr/sbin/nologin

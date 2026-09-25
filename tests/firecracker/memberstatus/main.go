@@ -33,6 +33,7 @@ type fixture struct {
 	ServerCertificate    string               `json:"server_certificate"`
 	ServerPrivateKey     string               `json:"server_private_key"`
 	ClientCARoots        string               `json:"client_ca_roots"`
+	OutboundPeerMemberID string               `json:"outbound_peer_member_id"`
 	MemoryLimitBytes     uint64               `json:"memory_limit_bytes"`
 	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes"`
 	Scope                host.MemberScope     `json:"scope"`
@@ -67,7 +68,8 @@ func run() (resultErr error) {
 	if err := json.Unmarshal(data, &config, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("decode signed fixture manifest: %w", err)
 	}
-	if config.TenantUID == 0 || config.TenantGID == 0 || config.MemoryLimitBytes < 4<<30 ||
+	if config.TenantUID == 0 || config.TenantGID == 0 || config.OutboundPeerMemberID == "" ||
+		config.OutboundPeerMemberID == config.Scope.MemberID || config.MemoryLimitBytes < 4<<30 ||
 		config.MemoryHeadroomBytes < 1<<30 {
 		return errors.New("invalid managed fixture identity or memory profile")
 	}
@@ -259,6 +261,61 @@ func run() (resultErr error) {
 		return fmt.Errorf("duplicate bind changed live socket: %w", err)
 	}
 	fmt.Println("memberstatus: existing socket retained after duplicate bind")
+
+	if err := runner.Stop(ctx, "terrabase"); err != nil {
+		return fmt.Errorf("stop receiver-only member: %w", err)
+	}
+	senderControl := filepath.Join(root, "sender-control")
+	if err := mkdirOwned(senderControl, 0, identity.GID, 0730); err != nil {
+		return err
+	}
+	senderSocket := filepath.Join(senderControl, "member.sock")
+	peerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer peerListener.Close()
+	senderAdminPort, err := availablePort()
+	if err != nil {
+		return err
+	}
+	senderReplicationPort, err := availablePort()
+	if err != nil {
+		return err
+	}
+	senderArgs := append(memberArgs(config, dataRoot, senderSocket, senderAdminPort, senderReplicationPort, pki),
+		"--replication-peer-member-id", config.OutboundPeerMemberID,
+		"--replication-peer-addr", peerListener.Addr().String(),
+		"--replication-server-ca-roots", filepath.Join(pki, "member-ca.pem"))
+	reportPhase("sender_role_apply_begin")
+	if err := runner.Apply(ctx, host.Workload{
+		Role: "terrabase", Digest: digest, Fingerprint: digest, Executable: executable, Args: senderArgs,
+		CgroupMemoryMaxBytes: roleMemoryMaxBytes,
+	}); err != nil {
+		return fmt.Errorf("launch sender-enabled TerraBase through native runner: %w", err)
+	}
+	senderExpected := expected
+	senderExpected.SocketPath = senderSocket
+	var senderStatus host.MemberStatus
+	var senderErr error
+	senderDeadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(senderDeadline) {
+		senderStatus, senderErr = host.ReadMemberStatus(ctx, runner, senderExpected)
+		if senderErr == nil && senderStatus.Local.Ready && senderStatus.Local.ReplicationListenerReady {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+	if senderErr != nil || !senderStatus.Local.Ready || !senderStatus.Local.StorageRecovered ||
+		!senderStatus.Local.Healthy || senderStatus.ReceiverOnly || senderStatus.Serving ||
+		senderStatus.Capabilities.ServingProof || senderStatus.Capabilities.DurableDrain {
+		return fmt.Errorf("managed sender status did not become ready: status=%+v error=%v", senderStatus, senderErr)
+	}
+	fmt.Println("memberstatus: authenticated Go client accepted real sender-enabled process")
 	return nil
 }
 

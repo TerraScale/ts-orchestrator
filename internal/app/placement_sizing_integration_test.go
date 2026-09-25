@@ -51,6 +51,16 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rosterDigest, err := committed[0].CanonicalRosterDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rosterRow, err := committed[0].RosterRowForSeat(placement.Seat{
+		MemberID: "permanent-a", Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: placement.MemberPermanent,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	store, err := placement.NewJetStreamStore(ctx, broker.JetStream(), "gru", 1, reader)
 	if err != nil {
 		t.Fatal(err)
@@ -95,10 +105,18 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	}
 	prepared := members[0]
 	if prepared.Revision == 0 || prepared.State.Stage != placement.StagePreparedHost ||
+		prepared.State.CanonicalRosterRow != rosterRow ||
+		prepared.State.CanonicalRosterDigest != rosterDigest ||
+		prepared.State.AuthorityReference != committed[0].CanonicalRoster.Authority ||
 		prepared.State.IntentPayloadDigest != committed[0].PayloadDigest() ||
 		prepared.State.ManagedHostProfile != profile || prepared.State.ManagedHostProfileDigest != profileDigest ||
 		prepared.State.IntentGeneration != intent.Generation || len(provider.launches) != 0 {
 		t.Fatalf("signed profile was not durably pinned before provider launch: member=%+v launches=%+v", prepared, provider.launches)
+	}
+	pinned, err := store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, rosterRow.SeatID)
+	if err != nil || pinned.Revision != prepared.Revision || pinned.State.CanonicalRosterRow != rosterRow ||
+		pinned.State.CanonicalRosterDigest != rosterDigest || pinned.State.AuthorityReference != committed[0].CanonicalRoster.Authority {
+		t.Fatalf("exact JetStream member read lost the signed roster pin: member=%+v err=%v", pinned, err)
 	}
 
 	if err := controller.Tick(ctx); err != nil {
