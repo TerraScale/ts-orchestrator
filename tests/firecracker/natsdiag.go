@@ -219,6 +219,100 @@ func probe(url, role, cell, operationID string, identity []nats.Option, output *
 			return operationDiagnostic(ctx, js, operationID)
 		})
 	}
+	if role == "operator" {
+		result["operator_read_paths"] = operatorReadPaths(conn, js, cell, operationID)
+	}
+}
+
+type readTarget struct {
+	label  string
+	bucket string
+	key    string
+}
+
+func readTargets(cell, operationID string) []readTarget {
+	targets := make([]readTarget, 0, 3)
+	if operationID != "" {
+		sum := sha256.Sum256([]byte(operationID))
+		targets = append(targets, readTarget{label: "delivery_operation",
+			bucket: delivery.OperationBucket, key: "o_" + hex.EncodeToString(sum[:])})
+	}
+	targets = append(targets,
+		readTarget{label: "host_session", bucket: "TS_HOST_STATE", key: "session." + cell + ".host-a"},
+		readTarget{label: "host_report", bucket: "TS_HOST_STATE", key: "report." + cell + ".host-a.terrabase"})
+	return targets
+}
+
+func (target readTarget) subject() string {
+	return "$KV." + target.bucket + "." + target.key
+}
+
+// These two reads use the same operator connection but different JetStream
+// routes. KeyValue.Get may use a replica's direct endpoint; GetLastMsg without
+// DirectGet is sent to the stream leader. Each attempt owns a fresh deadline.
+func operatorReadPaths(conn *nats.Conn, js jetstream.JetStream, cell, operationID string) map[string]any {
+	results := make(map[string]any)
+	for _, target := range readTargets(cell, operationID) {
+		results[target.label] = map[string]any{
+			"stream": "KV_" + target.bucket,
+			"direct_kv": timedReadPath(func(ctx context.Context) (string, bool, uint64, error) {
+				store, err := js.KeyValue(ctx, target.bucket)
+				if err != nil {
+					return "kv_open", false, 0, err
+				}
+				entry, err := store.Get(ctx, target.key)
+				if err != nil {
+					return "kv_get", false, 0, err
+				}
+				if entry == nil {
+					return "kv_get", false, 0, errors.New("missing KV entry")
+				}
+				return "kv_get", true, entry.Revision(), nil
+			}),
+			"leader_api": timedReadPath(func(ctx context.Context) (string, bool, uint64, error) {
+				legacy, err := conn.JetStream()
+				if err != nil {
+					return "jetstream_context", false, 0, err
+				}
+				message, err := legacy.GetLastMsg("KV_"+target.bucket, target.subject(), nats.Context(ctx))
+				if err != nil {
+					return "get_last_msg", false, 0, err
+				}
+				if message == nil {
+					return "get_last_msg", false, 0, errors.New("missing stream message")
+				}
+				return "get_last_msg", true, message.Sequence, nil
+			}),
+		}
+	}
+	return results
+}
+
+func timedReadPath(call func(context.Context) (string, bool, uint64, error)) map[string]any {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	started := time.Now()
+	stage, found, revision, err := call(ctx)
+	return map[string]any{"stage": stage,
+		"elapsed_ms": float64(time.Since(started).Microseconds()) / 1000,
+		"error":      readPathError(err), "found": found, "revision": revision}
+}
+
+func readPathError(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, nats.ErrTimeout):
+		return "deadline_exceeded"
+	case errors.Is(err, jetstream.ErrKeyNotFound), errors.Is(err, nats.ErrMsgNotFound):
+		return "not_found"
+	case errors.Is(err, nats.ErrNoResponders):
+		return "no_responders"
+	case errors.Is(err, nats.ErrAuthorization):
+		return "authorization"
+	default:
+		return "other"
+	}
 }
 
 func operationDiagnostic(ctx context.Context, js jetstream.JetStream, operationID string) (any, error) {

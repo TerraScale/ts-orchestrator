@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -57,10 +58,16 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
+	hostState, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket: "TS_HOST_STATE", Replicas: 1,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, key := range []string{"session.lab.host-a", "report.lab.host-a.terrabase"} {
+		if _, err := hostState.Put(ctx, key, []byte("private-host-payload")); err != nil {
+			t.Fatal(err)
+		}
 	}
 	operations, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket: delivery.OperationBucket, Replicas: 1,
@@ -77,6 +84,9 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("diagnostic command: %v: %s", err, output)
+	}
+	if bytes.Contains(output, []byte("private-host-payload")) || bytes.Contains(output, []byte("fc-diagnostic-2")) {
+		t.Fatal("diagnostic printed a stored payload or operation ID")
 	}
 	seen := make(map[string]bool)
 	scanner := bufio.NewScanner(bytes.NewReader(output))
@@ -108,6 +118,44 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		operation := record["delivery_operation"].(map[string]any)
 		if operation["state"] != "unclaimed" {
 			t.Fatalf("%s unclaimed operation = %v", role, operation)
+		}
+		if role == "operator" {
+			if record["connected_url"] != regional.URL() {
+				t.Fatalf("operator read paths lacked the connected URL: %v", record["connected_url"])
+			}
+			paths := record["operator_read_paths"].(map[string]any)
+			for _, label := range []string{"host_session", "host_report", "delivery_operation"} {
+				pair := paths[label].(map[string]any)
+				wantStream := "KV_TS_HOST_STATE"
+				if label == "delivery_operation" {
+					wantStream = "KV_TS_DELIVERY_OPERATIONS"
+				}
+				if pair["stream"] != wantStream {
+					t.Fatalf("%s stream = %v", label, pair["stream"])
+				}
+				for _, path := range []string{"direct_kv", "leader_api"} {
+					observation := pair[path].(map[string]any)
+					wantStage := "kv_get"
+					if path == "leader_api" {
+						wantStage = "get_last_msg"
+					}
+					if observation["stage"] != wantStage || observation["elapsed_ms"].(float64) < 0 {
+						t.Fatalf("%s %s stage/elapsed = %v", label, path, observation)
+					}
+					found := observation["found"].(bool)
+					if found != (label != "delivery_operation") {
+						t.Fatalf("%s %s found = %t", label, path, found)
+					}
+					if found && observation["revision"].(float64) == 0 {
+						t.Fatalf("%s %s omitted revision", label, path)
+					}
+					if !found && observation["error"] != "not_found" {
+						t.Fatalf("%s %s absent error = %v", label, path, observation["error"])
+					}
+				}
+			}
+		} else if _, ok := record["operator_read_paths"]; ok {
+			t.Fatal("controller emitted operator read paths")
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -150,12 +198,57 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 			operation["authority_epoch"] != float64(3) {
 			t.Fatalf("claimed operation metadata was lost: %v", operation)
 		}
+		if record["role"] == "operator" {
+			operationPaths := record["operator_read_paths"].(map[string]any)["delivery_operation"].(map[string]any)
+			for _, path := range []string{"direct_kv", "leader_api"} {
+				observation := operationPaths[path].(map[string]any)
+				if observation["error"] != "" || observation["found"] != true || observation["revision"].(float64) == 0 {
+					t.Fatalf("claimed operation %s path = %v", path, observation)
+				}
+			}
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
 	if partialRecords != 2 {
 		t.Fatalf("partial diagnostic records = %d, want 2", partialRecords)
+	}
+}
+
+func TestReadPathTargetsAndBoundedErrors(t *testing.T) {
+	targets := readTargets("lab", "fc-diagnostic-2")
+	if len(targets) != 3 {
+		t.Fatalf("read targets = %d", len(targets))
+	}
+	sum := sha256.Sum256([]byte("fc-diagnostic-2"))
+	want := map[string]string{
+		"host_session":       "$KV.TS_HOST_STATE.session.lab.host-a",
+		"host_report":        "$KV.TS_HOST_STATE.report.lab.host-a.terrabase",
+		"delivery_operation": "$KV.TS_DELIVERY_OPERATIONS.o_" + hex.EncodeToString(sum[:]),
+	}
+	for _, target := range targets {
+		if target.subject() != want[target.label] {
+			t.Fatalf("%s subject = %s", target.label, target.subject())
+		}
+	}
+	if len(readTargets("lab", "")) != 2 {
+		t.Fatal("empty operation ID must not create an operation target")
+	}
+	observation := timedReadPath(func(ctx context.Context) (string, bool, uint64, error) {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > 2*time.Second {
+			t.Fatalf("read path deadline = %v", deadline)
+		}
+		return "kv_get", false, 0, fmt.Errorf("wrapped: %w", context.DeadlineExceeded)
+	})
+	if observation["stage"] != "kv_get" || observation["error"] != "deadline_exceeded" ||
+		observation["found"] != false || observation["elapsed_ms"].(float64) < 0 {
+		t.Fatalf("bounded timeout observation = %v", observation)
+	}
+	if readPathError(jetstream.ErrKeyNotFound) != "not_found" ||
+		readPathError(errors.New("private-host-payload")) != "other" || readPathError(nil) != "" {
+		t.Fatal("read path error classification exposed content or lost absence")
 	}
 }
 
