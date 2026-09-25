@@ -293,9 +293,9 @@ func (intent Intent) RosterRowForSeat(seat Seat) (CanonicalRosterRow, error) {
 	return CanonicalRosterRow{}, fmt.Errorf("%w: no canonical roster row for region %s seat %s", ErrInvalidIntent, seat.Region, seat.MemberID)
 }
 
-// ValidateSupersession checks the no-rotation continuity contract for a new
-// signed generation. Removal remains rejected until admission has explicit
-// retirement evidence, and legacy intents cannot establish a roster baseline.
+// ValidateSupersession preserves each continuing roster row across signed
+// generations. Removal remains rejected until admission has explicit retirement
+// evidence, and legacy intents cannot establish a roster baseline.
 func (intent Intent) ValidateSupersession(previous Intent) error {
 	if err := intent.ValidateForAdmission(); err != nil {
 		return err
@@ -322,8 +322,8 @@ func (intent Intent) ValidateSupersession(previous Intent) error {
 		if !exists {
 			return fmt.Errorf("%w: supersession removes seat %s/%s without retirement evidence", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
 		}
-		if newRow.MemberID != oldRow.MemberID || newRow.Incarnation != oldRow.Incarnation {
-			return fmt.Errorf("%w: supersession rotates identity for continuing seat %s/%s", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
+		if newRow != oldRow {
+			return fmt.Errorf("%w: supersession changes canonical roster row for continuing seat %s/%s", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
 		}
 	}
 	return nil

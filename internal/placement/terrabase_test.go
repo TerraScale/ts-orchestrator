@@ -241,6 +241,11 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 
 func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testing.T) {
 	previous := validIntent(oci.RegionGRU)
+	unchanged := validIntent(oci.RegionGRU)
+	unchanged.Generation = previous.Generation + 1
+	if err := unchanged.ValidateSupersession(previous); err != nil {
+		t.Fatalf("later generation with unchanged roster row rejected: %v", err)
+	}
 	addition := validIntent(oci.RegionGRU, oci.RegionFRA)
 	addition.Generation = previous.Generation + 1
 	if err := addition.ValidateSupersession(previous); err != nil {
@@ -265,6 +270,26 @@ func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testin
 	rotatedIncarnation.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
 	if err := rotatedIncarnation.ValidateSupersession(previous); err == nil {
 		t.Fatal("ordinary generation increment authorized member incarnation rotation")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*CanonicalRosterRow)
+	}{
+		{name: "failure domain", mutate: func(row *CanonicalRosterRow) { row.FailureDomain = "FAULT-DOMAIN-3" }},
+		{name: "TLS leaf", mutate: func(row *CanonicalRosterRow) { row.TLSLeafSHA256 = strings.Repeat("e", 64) }},
+		{name: "server name", mutate: func(row *CanonicalRosterRow) { row.ServerName = "renewed-permanent-gru.tb.example" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := validIntent(oci.RegionGRU)
+			candidate.Generation = previous.Generation + 1
+			test.mutate(&candidate.CanonicalRoster.Rows[0])
+			if err := candidate.ValidateForAdmission(); err != nil {
+				t.Fatalf("changed row is not otherwise admissible: %v", err)
+			}
+			if err := candidate.ValidateSupersession(previous); err == nil {
+				t.Fatal("supersession accepted a changed row for a continuing seat")
+			}
+		})
 	}
 
 	changedScope := validIntent(oci.RegionGRU)
