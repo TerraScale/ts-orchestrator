@@ -1,5 +1,6 @@
 import json
 import hashlib
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
@@ -133,6 +134,44 @@ class HostStatusDiagnosticTests(unittest.TestCase):
         logged = json.dumps(lab.note.call_args.kwargs)
         self.assertNotIn("secret-session-id", logged)
         self.assertIn("session_id_hash", logged)
+
+    def test_failed_operator_probe_records_stage_before_raising_without_host_secrets(self):
+        lab = object.__new__(qualify.Lab)
+        lab.binary = Path("/tmp/unused-fc-operator")
+        lab.operator_config = Path("/tmp/unused-fc-config")
+        lab.note = Mock()
+        with patch.object(qualify, "run", return_value=SimpleNamespace(
+                returncode=1, stdout='{"session_id":"secret-session-id"}',
+                stderr="context deadline exceeded")) as command:
+            with self.assertRaisesRegex(RuntimeError, "context deadline exceeded"):
+                lab.host_session("v1", timeout=4.5,
+                                 stage="same-process-host-session-renewal")
+
+        self.assertEqual(command.call_args.kwargs, {"timeout": 4.5, "allow_failure": True})
+        event = lab.note.call_args
+        self.assertEqual(event.args, ("operator",))
+        self.assertEqual(event.kwargs["stage"], "same-process-host-session-renewal")
+        self.assertEqual(event.kwargs["exit_code"], 1)
+        self.assertEqual(event.kwargs["failure"], "exit_nonzero")
+        self.assertEqual(event.kwargs["stderr"], "context deadline exceeded")
+        self.assertGreaterEqual(event.kwargs["elapsed_seconds"], 0)
+        self.assertNotIn("secret-session-id", json.dumps(event.kwargs))
+
+    def test_operator_subprocess_timeout_records_bounded_stderr(self):
+        lab = object.__new__(qualify.Lab)
+        lab.binary = Path("/tmp/unused-fc-operator")
+        lab.operator_config = Path("/tmp/unused-fc-config")
+        lab.note = Mock()
+        timeout = subprocess.TimeoutExpired(["operator", "hosts"], 5,
+                                            stderr=b"context deadline exceeded")
+        with patch.object(qualify, "run", side_effect=timeout):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                lab.operator("hosts", timeout=5, stage="same-process-host-session-renewal")
+
+        event = lab.note.call_args
+        self.assertEqual(event.kwargs["failure"], "subprocess_timeout")
+        self.assertEqual(event.kwargs["timeout_seconds"], 5)
+        self.assertEqual(event.kwargs["stderr"], "context deadline exceeded")
 
 
 class FaultAndLeaseTests(unittest.TestCase):
@@ -272,6 +311,74 @@ class FaultAndLeaseTests(unittest.TestCase):
                          (expiry - timedelta(seconds=4.5)).isoformat())
         with self.assertRaisesRegex(RuntimeError, "matching fence"):
             lab.host_renewal_failure_evidence(since, "0" * 32, 3, expiry)
+
+
+class RenewalDeadlineTests(unittest.TestCase):
+    @staticmethod
+    def lab():
+        lab = object.__new__(qualify.Lab)
+        fault_at = datetime.now(timezone.utc)
+        original_expiry = fault_at + timedelta(seconds=25)
+        renewed_expiry = original_expiry + timedelta(seconds=5)
+        first_session = {"session_id": "opaque-session", "expires_at": original_expiry}
+        renewed_session = {"session_id": "opaque-session", "expires_at": renewed_expiry,
+                           "report": {"epoch": 2}}
+        native = {"agent_pid": "940", "agent_state": "S:123", "invocation": "unit-1",
+                  "workload_pid": "1209", "workload_state": "S:456",
+                  "workload_alive": True, "marker": "v1"}
+        event = {"at": fault_at + timedelta(seconds=1), "expires_at": renewed_expiry,
+                 "session_id_hash": hashlib.sha256(b"opaque-session").hexdigest()[:32],
+                 "epoch": 2, "phase": "renew"}
+        lab.host_session = Mock(return_value=renewed_session)
+        lab.native_observation = Mock(return_value=native)
+        lab.verified_lease_events = Mock(return_value=[event])
+        lab.note = Mock()
+        return lab, fault_at, first_session, native
+
+    def test_each_renewal_command_uses_the_same_remaining_25_second_deadline(self):
+        lab, fault_at, first_session, native = self.lab()
+        lab.wait = Mock(side_effect=lambda _label, probe, **_options: probe())
+        with patch.object(qualify.time, "monotonic", side_effect=[100, 123, 124.5, 124.8, 124.9]):
+            lab.wait_same_process_renewal(first_session, native, "c2", fault_at)
+
+        self.assertEqual(lab.wait.call_args.kwargs["deadline"], 125)
+        self.assertEqual(lab.host_session.call_args.kwargs,
+                         {"timeout": 2, "stage": "same-process-host-session-renewal"})
+        self.assertEqual(lab.native_observation.call_args.kwargs, {"timeout": 0.5})
+        self.assertAlmostEqual(lab.verified_lease_events.call_args.kwargs["timeout"], 0.2)
+        self.assertEqual(lab.note.call_args.args[0], "host_session_renewed_on_surviving_quorum")
+
+    def test_late_completed_probe_cannot_certify_and_renewal_log_is_diagnostic_only(self):
+        lab, fault_at, first_session, native = self.lab()
+
+        def timeout_after_probe(_label, probe, **_options):
+            self.assertFalse(probe())
+            raise TimeoutError("renewal deadline passed")
+
+        lab.wait = Mock(side_effect=timeout_after_probe)
+        with patch.object(qualify.time, "monotonic", side_effect=[100, 101, 102, 103, 126]):
+            with self.assertRaisesRegex(TimeoutError, "renewal deadline passed"):
+                lab.wait_same_process_renewal(first_session, native, "c2", fault_at)
+
+        self.assertEqual([call.args[0] for call in lab.note.call_args_list],
+                         ["host_renewal_timeout_diagnostics"])
+        self.assertEqual(lab.note.call_args.kwargs["status"], "ok")
+        self.assertEqual(len(lab.note.call_args.kwargs["renewals"]), 1)
+        self.assertEqual(lab.verified_lease_events.call_args.kwargs["timeout"], 5)
+
+    def test_guest_renewal_diagnostic_cannot_replace_failed_operator_status(self):
+        lab, fault_at, first_session, native = self.lab()
+        lab.host_session.side_effect = RuntimeError("operator hosts: context deadline exceeded")
+        with patch.object(qualify.time, "monotonic", side_effect=[100, 101, 102, 126]), \
+                patch.object(qualify.time, "sleep"):
+            with self.assertRaisesRegex(TimeoutError, "same-process-host-session-renewal"):
+                lab.wait_same_process_renewal(first_session, native, "c2", fault_at)
+
+        self.assertEqual(lab.host_session.call_args.kwargs["timeout"], 5)
+        lab.native_observation.assert_not_called()
+        self.assertEqual([call.args[0] for call in lab.note.call_args_list],
+                         ["host_renewal_timeout_diagnostics"])
+        self.assertEqual(len(lab.note.call_args.kwargs["renewals"]), 1)
 
 
 class NativeCgroupPathTests(unittest.TestCase):

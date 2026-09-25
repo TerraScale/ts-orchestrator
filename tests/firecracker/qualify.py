@@ -581,8 +581,10 @@ class Lab:
                     f"root@{address}", "sh", "-lc", shlex.quote(command)],
                    timeout=timeout, allow_failure=allow_failure)
 
-    def wait(self, label: str, probe: Any, *, timeout: int = 120, period: float = 2) -> Any:
-        deadline = time.monotonic() + timeout
+    def wait(self, label: str, probe: Any, *, timeout: int = 120, period: float = 2,
+             deadline: float | None = None) -> Any:
+        if deadline is None:
+            deadline = time.monotonic() + timeout
         last: BaseException | None = None
         while time.monotonic() < deadline:
             try:
@@ -603,21 +605,47 @@ class Lab:
                                                       allow_failure=True).returncode == 0,
                   timeout=150)
 
-    def operator(self, operation: str, *arguments: str, timeout: int = 35,
-                 allow_failure: bool = False) -> dict[str, Any] | None:
+    def operator(self, operation: str, *arguments: str, timeout: float = 35,
+                 allow_failure: bool = False, stage: str = "") -> dict[str, Any] | None:
         command = [str(self.binary), "operator", operation, "--config", str(self.operator_config),
                    *arguments]
-        outcome = run(command, timeout=timeout, allow_failure=allow_failure)
-        logged_stdout = outcome.stdout.strip()[-3000:]
+        started = time.monotonic()
+        try:
+            outcome = run(command, timeout=timeout, allow_failure=True)
+        except subprocess.TimeoutExpired as error:
+            stderr = error.stderr or ""
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode(errors="replace")
+            self.note("operator", operation=operation, stage=stage or operation,
+                      exit_code=None, elapsed_seconds=round(time.monotonic() - started, 3),
+                      timeout_seconds=timeout, stdout="", stderr=stderr[-1000:],
+                      failure="subprocess_timeout")
+            raise
+        except OSError as error:
+            self.note("operator", operation=operation, stage=stage or operation,
+                      exit_code=None, elapsed_seconds=round(time.monotonic() - started, 3),
+                      timeout_seconds=timeout, stdout="", stderr=str(error)[-1000:],
+                      failure="launch_error")
+            raise
+        logged_stdout = ("" if operation == "hosts" and outcome.returncode else
+                         outcome.stdout.strip()[-3000:])
         if operation == "hosts" and outcome.returncode == 0:
             try:
                 logged_stdout = json.dumps(curated_host_statuses(json.loads(outcome.stdout),
                                                                  datetime.now(timezone.utc)))[-3000:]
             except (ValueError, TypeError):
                 logged_stdout = "<invalid host-status output>"
-        self.note("operator", operation=operation, exit_code=outcome.returncode,
-                  stdout=logged_stdout, stderr=outcome.stderr.strip()[-1000:])
+        self.note("operator", operation=operation, stage=stage or operation,
+                  exit_code=outcome.returncode,
+                  elapsed_seconds=round(time.monotonic() - started, 3),
+                  timeout_seconds=timeout, stdout=logged_stdout,
+                  stderr=outcome.stderr.strip()[-1000:],
+                  failure="exit_nonzero" if outcome.returncode else None)
         if outcome.returncode:
+            if not allow_failure:
+                failure_stdout = "" if operation == "hosts" else outcome.stdout[-2000:]
+                raise RuntimeError(f"command {command!r} failed ({outcome.returncode}): "
+                                   f"{failure_stdout} {outcome.stderr[-2000:]}")
             return None
         return json.loads(outcome.stdout)
 
@@ -653,8 +681,9 @@ class Lab:
                     not self.cgroup_empty(observed["workload_cgroup"], observed["service_cgroup"]))
         self.wait("host-session" if version is None else f"workload-{version}", probe, timeout=150)
 
-    def host_session(self, version: str) -> dict[str, Any]:
-        statuses = self.operator("hosts")
+    def host_session(self, version: str, *, timeout: float = 35,
+                     stage: str = "") -> dict[str, Any]:
+        statuses = self.operator("hosts", timeout=timeout, stage=stage)
         if not isinstance(statuses, list) or len(statuses) != 1:
             raise RuntimeError("expected exactly one host status")
         status = statuses[0]
@@ -672,7 +701,7 @@ class Lab:
         return {"expires_at": expiry, "session_id": reports[0]["session_id"],
                 "report": reports[0], "reader_verified": status.get("verified")}
 
-    def native_observation(self) -> dict[str, Any]:
+    def native_observation(self, *, timeout: float = 15) -> dict[str, Any]:
         command = """set -eu
 agent=$(systemctl show ts-orch.service -p MainPID --value)
 invocation=$(systemctl show ts-orch.service -p InvocationID --value)
@@ -699,7 +728,7 @@ esac
 printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvocation=%s\nworkload_pid=%s\nworkload_state_before=%s\nworkload_state=%s\nworkload_cgroup=%s\nmarker=%s\n' \
     "$agent" "$(proc_state "$agent")" "$agent_cgroup" "$service_cgroup" "$invocation" "$workload" "$workload_state_before" "$(proc_state "$workload")" "$workload_cgroup" "$marker"
 """
-        output = self.ssh("host", command).stdout
+        output = self.ssh("host", command, timeout=timeout).stdout
         observed = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
         expected = {"agent_pid", "agent_state", "agent_cgroup", "service_cgroup", "invocation",
                     "workload_pid", "workload_state_before", "workload_state", "workload_cgroup", "marker"}
@@ -846,11 +875,11 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         if fence_started > expiry - timedelta(seconds=SESSION_EXECUTION_RESERVE_SECONDS - 1.25):
             raise RuntimeError("host began fencing too late for its one-second reserve ticker")
 
-    def verified_lease_events(self, since: datetime) -> list[dict[str, Any]]:
+    def verified_lease_events(self, since: datetime, *, timeout: float = 15) -> list[dict[str, Any]]:
         command = ("journalctl -u ts-orch.service --since " +
                    shlex.quote("@" + str(int(since.timestamp()))) +
                    " -n 500 -o json --no-pager")
-        result = self.ssh("host", command, timeout=15)
+        result = self.ssh("host", command, timeout=timeout)
         events = []
         for line in result.stdout.splitlines():
             try:
@@ -873,6 +902,70 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             except (ValueError, KeyError, TypeError):
                 continue
         return events
+
+    def wait_same_process_renewal(self, first_session: dict[str, Any],
+                                  first_native: dict[str, Any], connected: str,
+                                  first_fault_at: datetime) -> None:
+        deadline = time.monotonic() + 25
+
+        def remaining(cap: float) -> float:
+            return min(cap, max(0.0, deadline - time.monotonic()))
+
+        def renewed_on_same_process() -> bool:
+            timeout = remaining(5)
+            if timeout <= 0:
+                return False
+            session = self.host_session("v1", timeout=timeout,
+                                        stage="same-process-host-session-renewal")
+            timeout = remaining(15)
+            if timeout <= 0:
+                return False
+            observed = self.native_observation(timeout=timeout)
+            same_agent = (observed["agent_pid"] == first_native["agent_pid"] and
+                          observed["agent_state"].split(":")[-1] == first_native["agent_state"].split(":")[-1] and
+                          observed["invocation"] == first_native["invocation"])
+            same_workload = (observed["workload_pid"] == first_native["workload_pid"] and
+                             observed["workload_state"].split(":")[-1] == first_native["workload_state"].split(":")[-1] and
+                             observed["workload_alive"] and observed["marker"] == "v1")
+            if session["session_id"] != first_session["session_id"] or not same_agent or not same_workload:
+                raise RuntimeError("host agent, signed session or native workload restarted during 2/3 renewal")
+            if session["expires_at"] <= first_session["expires_at"]:
+                return False
+            timeout = remaining(15)
+            if timeout <= 0:
+                return False
+            session_hash = hashlib.sha256(session["session_id"].encode()).hexdigest()[:32]
+            matching = [event for event in self.verified_lease_events(first_fault_at, timeout=timeout)
+                        if event["phase"] == "renew" and event["session_id_hash"] == session_hash
+                        and event["epoch"] == session["report"]["epoch"]
+                        and event["expires_at"] == session["expires_at"]]
+            if not matching or time.monotonic() >= deadline:
+                return False
+            self.note("host_session_renewed_on_surviving_quorum",
+                      connected_controller=connected,
+                      session_id_hash=session_hash,
+                      signed_renewal_at=matching[-1]["at"].isoformat(),
+                      previous_expiry=first_session["expires_at"].isoformat(),
+                      renewed_expiry=session["expires_at"].isoformat(),
+                      native=observed)
+            return True
+
+        try:
+            self.wait("same-process-host-session-renewal", renewed_on_same_process,
+                      deadline=deadline, period=0.5)
+        except TimeoutError:
+            try:
+                events = self.verified_lease_events(first_fault_at, timeout=5)
+                self.note("host_renewal_timeout_diagnostics", status="ok", renewals=[{
+                    "accepted_at": event["at"].isoformat(),
+                    "expires_at": event["expires_at"].isoformat(),
+                    "session_id_hash": event["session_id_hash"],
+                    "epoch": event["epoch"],
+                } for event in events if event["phase"] == "renew"])
+            except (RuntimeError, subprocess.TimeoutExpired, OSError, ValueError) as error:
+                self.note("host_renewal_timeout_diagnostics", status="unavailable",
+                          error_type=type(error).__name__)
+            raise
 
     def connected_controller(self) -> str:
         output = self.ssh("host", "ss -Hnt state established", timeout=10).stdout
@@ -1112,38 +1205,7 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         self.vms[connected].crash()
         first_fault_at = datetime.now(timezone.utc)
         self.wait_cluster()
-
-        def renewed_on_same_process() -> bool:
-            session = self.host_session("v1")
-            observed = self.native_observation()
-            same_agent = (observed["agent_pid"] == first_native["agent_pid"] and
-                          observed["agent_state"].split(":")[-1] == first_native["agent_state"].split(":")[-1] and
-                          observed["invocation"] == first_native["invocation"])
-            same_workload = (observed["workload_pid"] == first_native["workload_pid"] and
-                             observed["workload_state"].split(":")[-1] == first_native["workload_state"].split(":")[-1] and
-                             observed["workload_alive"] and observed["marker"] == "v1")
-            if session["session_id"] != first_session["session_id"] or not same_agent or not same_workload:
-                raise RuntimeError("host agent, signed session or native workload restarted during 2/3 renewal")
-            if session["expires_at"] <= first_session["expires_at"]:
-                return False
-            session_hash = hashlib.sha256(session["session_id"].encode()).hexdigest()[:32]
-            matching = [event for event in self.verified_lease_events(first_fault_at)
-                        if event["phase"] == "renew" and event["session_id_hash"] == session_hash
-                        and event["epoch"] == session["report"]["epoch"]
-                        and event["expires_at"] == session["expires_at"]]
-            if not matching:
-                return False
-            self.note("host_session_renewed_on_surviving_quorum",
-                      connected_controller=connected,
-                      session_id_hash=session_hash,
-                      signed_renewal_at=matching[-1]["at"].isoformat(),
-                      previous_expiry=first_session["expires_at"].isoformat(),
-                      renewed_expiry=session["expires_at"].isoformat(),
-                      native=observed)
-            return True
-
-        self.wait("same-process-host-session-renewal", renewed_on_same_process,
-                  timeout=25, period=0.5)
+        self.wait_same_process_renewal(first_session, first_native, connected, first_fault_at)
         self.deploy(replacement, 2, "one-node-loss")
         self.wait_host("v2")
         self.note("milestone", name="one-controller-nats-node-loss")
