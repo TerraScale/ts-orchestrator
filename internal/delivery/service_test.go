@@ -186,7 +186,7 @@ func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *natsce
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close() })
-	s, err := Open(ctx, Config{JS: r.JetStream(), Cell: "lab", Replicas: 1, Signer: testCodec{}, Verifier: testCodec{}, ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }, Authorize: func(context.Context, string, Intent) error { return nil }, Fencer: testFence{}, Planner: testPlanner{}, Writer: writer})
+	s, err := Open(ctx, Config{Conn: r.Conn(), JS: r.JetStream(), Cell: "lab", Replicas: 1, Signer: testCodec{}, Verifier: testCodec{}, ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }, Authorize: func(context.Context, string, Intent) error { return nil }, Fencer: testFence{}, Planner: testPlanner{}, Writer: writer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 
 func TestArtifactAdmissionBindsSourceAndReadback(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
-	client, err := ConnectClient(ctx, Config{JS: s.js, Cell: "lab", ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }})
+	client, err := ConnectClient(ctx, Config{Conn: s.config.Conn, JS: s.js, Cell: "lab", ArtifactSigner: testCodec{}, ArtifactVerifier: testCodec{}, AuthorizeArtifact: func(context.Context, string, ArtifactRecord) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

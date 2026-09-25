@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -48,18 +49,24 @@ func (f TLSFiles) complete() bool {
 // Routes are stable seed addresses; NATS route discovery connects the remaining
 // members once any seed is reachable. A persisted StoreDir is required.
 type Embedded struct {
-	Host              string      `json:"host"`
-	Port              int         `json:"port"`
-	RouteHost         string      `json:"route_host"`
-	RoutePort         int         `json:"route_port"`
-	Routes            []string    `json:"routes"`
-	StoreDir          string      `json:"store_dir"`
-	StoreMaxBytes     int64       `json:"store_max_bytes,omitzero"`
-	TLS               TLSFiles    `json:"tls"`
-	RouteTLS          TLSFiles    `json:"route_tls"`
-	Users             []NKeyGrant `json:"users"`
-	RouteUser         string      `json:"route_user"`
-	RoutePasswordFile string      `json:"route_password_file"`
+	Host                  string      `json:"host"`
+	Port                  int         `json:"port"`
+	RouteHost             string      `json:"route_host"`
+	RoutePort             int         `json:"route_port"`
+	Routes                []string    `json:"routes"`
+	StoreDir              string      `json:"store_dir"`
+	StoreMaxBytes         int64       `json:"store_max_bytes,omitzero"`
+	TLS                   TLSFiles    `json:"tls"`
+	RouteTLS              TLSFiles    `json:"route_tls"`
+	Users                 []NKeyGrant `json:"users"`
+	RouteUser             string      `json:"route_user"`
+	RoutePasswordFile     string      `json:"route_password_file"`
+	OperatorJWTFile       string      `json:"operator_jwt_file,omitempty"`
+	SystemJWTFile         string      `json:"system_jwt_file,omitempty"`
+	CellJWTFile           string      `json:"cell_jwt_file,omitempty"`
+	SystemCredentialsFile string      `json:"system_credentials_file,omitempty"`
+	TicketPublicKeyFile   string      `json:"ticket_public_key_file,omitempty"`
+	BrokerIDs             []string    `json:"broker_ids,omitempty"`
 }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
@@ -97,20 +104,99 @@ type Config struct {
 // Runtime keeps the broker and client alive together. Closing it drains the
 // client before stopping the server so JetStream acknowledgements can finish.
 type Runtime struct {
-	server    *server.Server
-	conn      *nats.Conn
-	js        jetstream.JetStream
-	cell      string
-	diagMu    sync.Mutex
-	diagAt    time.Time
-	diagState string
-	endpoint  string
-	once      sync.Once
+	server          *server.Server
+	conn            *nats.Conn
+	js              jetstream.JetStream
+	cell            string
+	diagMu          sync.Mutex
+	diagAt          time.Time
+	diagState       string
+	endpoint        string
+	resolver        *accountResolver
+	operator        *jwt.OperatorClaims
+	systemConn      *nats.Conn
+	bridge          *Bridge
+	claimMu         sync.Mutex
+	appliedSequence uint64
+	once            sync.Once
 }
 
 func (r *Runtime) Conn() *nats.Conn { return r.conn }
 
 func (r *Runtime) JetStream() jetstream.JetStream { return r.js }
+
+func (r *Runtime) Bridge() *Bridge { return r.bridge }
+
+// SignedByPinnedOperator checks the operator claim installed at broker startup.
+func (r *Runtime) SignedByPinnedOperator(claim *jwt.AccountClaims) bool {
+	return r != nil && r.operator != nil && claim != nil && r.operator.DidSign(claim)
+}
+
+func (r *Runtime) CellAccount() string {
+	if r == nil || r.resolver == nil {
+		return ""
+	}
+	return r.resolver.cell
+}
+
+func (r *Runtime) InitialCellJWT() string {
+	if r == nil || r.resolver == nil {
+		return ""
+	}
+	raw, _ := r.resolver.Fetch(r.resolver.cell)
+	return raw
+}
+
+// ApplyCellClaim fences the external listener before installing a durable
+// account replacement. A routed CLAIMS.UPDATE reply is never accepted as local
+// proof; Accountz must report the exact raw JWT on this embedded server.
+func (r *Runtime) ApplyCellClaim(ctx context.Context, sequence uint64, raw string) error {
+	if r == nil || r.server == nil || r.resolver == nil || r.systemConn == nil ||
+		sequence == 0 || raw == "" {
+		return errors.New("production cell claim application is unavailable")
+	}
+	r.claimMu.Lock()
+	defer r.claimMu.Unlock()
+	if sequence < r.appliedSequence {
+		return errors.New("cell claim sequence is stale")
+	}
+	if r.bridge != nil {
+		r.bridge.FenceClaim(sequence)
+	}
+	if err := r.resolver.Store(r.resolver.cell, raw); err != nil {
+		return err
+	}
+	if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+		return err
+	}
+	current, err := r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+	if err != nil {
+		return err
+	}
+	if current.Account == nil {
+		return errors.New("cell account is not loaded")
+	}
+	if current.Account.Jwt != raw {
+		requestCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		subject := "$SYS.REQ.ACCOUNT." + r.resolver.cell + ".CLAIMS.UPDATE"
+		if _, err := r.systemConn.RequestWithContext(requestCtx, subject, []byte(raw)); err != nil {
+			return fmt.Errorf("request cell account claim update: %w", err)
+		}
+		for current.Account.Jwt != raw {
+			if err := requestCtx.Err(); err != nil {
+				return errors.New("cell JWT update lacks local exact readback")
+			}
+			time.Sleep(20 * time.Millisecond)
+			current, err = r.server.Accountz(&server.AccountzOptions{Account: r.resolver.cell})
+			if err != nil || current.Account == nil {
+				return errors.New("cell JWT update lacks local account readback")
+			}
+		}
+	}
+	r.appliedSequence = sequence
+	return nil
+}
 
 func (r *Runtime) Ready() bool {
 	return r != nil && r.conn != nil && r.conn.IsConnected() &&
@@ -120,6 +206,9 @@ func (r *Runtime) Ready() bool {
 // URL returns the effective client URL, including the selected ephemeral port
 // when a lab server was configured with port -1.
 func (r *Runtime) URL() string {
+	if r.bridge != nil {
+		return "nats://" + r.bridge.Addr().String()
+	}
 	if r.server != nil {
 		return r.server.ClientURL()
 	}
@@ -167,6 +256,12 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.once.Do(func() {
+		if r.bridge != nil {
+			r.bridge.Close()
+		}
+		if r.systemConn != nil {
+			r.systemConn.Close()
+		}
 		if r.conn != nil {
 			r.conn.Drain()
 			r.conn.Close()
@@ -206,10 +301,20 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 			return nil, errors.New("embedded NATS did not become ready")
 		}
 		cfg.URL = r.server.ClientURL()
+		if !cfg.Lab {
+			r.resolver = options.AccountResolver.(*accountResolver)
+			r.operator = options.TrustedOperators[0]
+			if _, err := r.server.LookupAccount(r.resolver.cell); err != nil {
+				return nil, fmt.Errorf("load regional cell account: %w", err)
+			}
+		}
 	}
 	options, err := clientOptions(cfg)
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Embedded != nil && !cfg.Lab {
+		options = append(options, nats.InProcessServer(r.server))
 	}
 	if cfg.ClientRole == "host" {
 		// A blackholed peer must be detected well inside the host's 25-second
@@ -230,7 +335,11 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	connected := make(chan struct{})
 	var connectErr error
 	go func() {
-		r.conn, connectErr = nats.Connect(cfg.URL, options...)
+		connectURL := cfg.URL
+		if !cfg.Lab && cfg.Embedded == nil {
+			connectURL = bridgeClientURLs(connectURL)
+		}
+		r.conn, connectErr = nats.Connect(connectURL, options...)
 		close(connected)
 	}()
 	select {
@@ -243,6 +352,28 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	}
 	if connectErr != nil {
 		return nil, fmt.Errorf("connect regional NATS: %w", connectErr)
+	}
+	if cfg.Embedded != nil && !cfg.Lab {
+		systemCfg := cfg
+		systemCfg.NKeySeedFile = ""
+		systemCfg.CredentialsFile = cfg.Embedded.SystemCredentialsFile
+		systemOptions, optionErr := clientOptions(systemCfg)
+		if optionErr != nil {
+			return nil, fmt.Errorf("system account client: %w", optionErr)
+		}
+		systemOptions = append(systemOptions, nats.InProcessServer(r.server))
+		r.systemConn, err = nats.Connect(cfg.URL, systemOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("connect internal system account: %w", err)
+		}
+		bridgeTLS, tlsErr := loadTLS(cfg.Embedded.TLS, true)
+		if tlsErr != nil {
+			return nil, tlsErr
+		}
+		r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)), bridgeTLS, r.resolver.cell)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if cfg.ClientRole == "host" {
 		r.logHostConnection("connected", r.conn, nil)
@@ -352,18 +483,33 @@ func (cfg Config) validate() error {
 		return errors.New("choose one regional NKey seed or JWT credentials file")
 	}
 	if !cfg.Lab {
-		if !cfg.TLS.complete() || (cfg.NKeySeedFile == "" && cfg.CredentialsFile == "") {
+		if !cfg.TLS.complete() || cfg.CredentialsFile == "" || cfg.NKeySeedFile != "" {
 			return errors.New("production regional NATS requires client TLS and NKey/JWT credentials")
 		}
-		if cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() || len(cfg.Embedded.Users) == 0) {
-			return errors.New("production embedded NATS requires client/route TLS and role-bound NKey users")
-		}
-		if cfg.Embedded != nil && cfg.CredentialsFile != "" {
-			return errors.New("production embedded NATS requires role-bound NKey authentication; JWT credentials need an external account resolver")
+		if cfg.Embedded != nil && (!cfg.Embedded.TLS.complete() || !cfg.Embedded.RouteTLS.complete() ||
+			cfg.Embedded.OperatorJWTFile == "" || cfg.Embedded.SystemJWTFile == "" ||
+			cfg.Embedded.CellJWTFile == "" || cfg.Embedded.SystemCredentialsFile == "" ||
+			cfg.Embedded.TicketPublicKeyFile == "" || len(cfg.Embedded.BrokerIDs) != cfg.Replicas || len(cfg.Embedded.Users) != 0) {
+			return errors.New("production embedded NATS requires operator/system/cell JWTs, system credentials, and client/route TLS")
 		}
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
+		if !cfg.Lab {
+			seen := make(map[string]struct{}, len(e.BrokerIDs))
+			for _, id := range e.BrokerIDs {
+				if !cellName.MatchString(id) {
+					return errors.New("production broker ID is invalid")
+				}
+				if _, exists := seen[id]; exists {
+					return errors.New("production broker IDs must be unique")
+				}
+				seen[id] = struct{}{}
+			}
+			if _, own := seen[cfg.Instance]; !own {
+				return errors.New("production broker ID list excludes this instance")
+			}
+		}
 		if e.StoreDir == "" || e.Host == "" || e.Port == 0 {
 			return errors.New("embedded NATS requires store_dir, host, and port")
 		}
@@ -401,6 +547,26 @@ func serverOptions(cfg Config) (*server.Options, error) {
 			Port: e.RoutePort,
 		},
 	}
+	if !cfg.Lab {
+		operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)
+		if err != nil {
+			return nil, err
+		}
+		if err := validateSystemCredentials(e.SystemCredentialsFile, cfg.Cell, cellID, systemID); err != nil {
+			return nil, err
+		}
+		controller, _, err := credentialUser(cfg.CredentialsFile)
+		if err != nil || credentialAccount(controller) != cellID {
+			return nil, errors.New("controller credentials do not belong to the regional cell account")
+		}
+		resolver := newAccountResolver(systemID, systemJWT, cellID, cellJWT)
+		options.TrustedOperators = []*jwt.OperatorClaims{operator}
+		options.SystemAccount = systemID
+		options.Accounts = nil
+		options.AccountResolver = resolver
+		options.DontListen = true
+		options.Cluster.NoAdvertise = true
+	}
 	if cfg.Replicas > 1 {
 		for _, raw := range e.Routes {
 			route, err := url.Parse(raw)
@@ -410,7 +576,7 @@ func serverOptions(cfg Config) (*server.Options, error) {
 			options.Routes = append(options.Routes, route)
 		}
 	}
-	if e.TLS.complete() {
+	if cfg.Lab && e.TLS.complete() {
 		config, err := loadTLS(e.TLS, true)
 		if err != nil {
 			return nil, err
@@ -513,12 +679,16 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return signNKeyFile(cfg.NKeySeedFile, nonce)
 		}))
 	}
-	if cfg.TLS.complete() {
+	if cfg.TLS.complete() && (cfg.Embedded == nil || cfg.Lab) {
 		tlsConfig, err := loadTLS(cfg.TLS, false)
 		if err != nil {
 			return nil, err
 		}
-		options = append(options, nats.Secure(tlsConfig))
+		if cfg.Lab {
+			options = append(options, nats.Secure(tlsConfig))
+		} else {
+			options = append(options, nats.SetCustomDialer(&tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}))
+		}
 	}
 	return options, nil
 }
@@ -549,13 +719,13 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply")
+			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".broker.claim.apply")
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
+			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 			"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
@@ -656,6 +826,9 @@ func readPrivateFile(path string, limit int64) ([]byte, error) {
 
 // ClientAddress returns the bound listener address for an embedded runtime.
 func (r *Runtime) ClientAddress() net.Addr {
+	if r.bridge != nil {
+		return r.bridge.Addr()
+	}
 	if r.server == nil {
 		return nil
 	}

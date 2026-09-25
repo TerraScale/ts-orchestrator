@@ -276,7 +276,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 		return false, stageDeliveryError("decode", err)
 	}
 	key := operationKey(intent.OperationID)
-	entry, err := s.operations.Get(ctx, key)
+	entry, err := s.getOperation(ctx, key)
 	if err == nil {
 		var existing operation
 		if err := json.Unmarshal(entry.Value(), &existing); err != nil {
@@ -337,7 +337,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 			return false, stageDeliveryError("operation_create", err)
 		}
 		if errors.Is(err, jetstream.ErrKeyExists) {
-			entry, err = s.operations.Get(ctx, key)
+			entry, err = s.getOperation(ctx, key)
 		} else {
 			err = nil
 		}
@@ -461,7 +461,7 @@ func validatePlan(intent Intent, plan []host.Desired) error {
 func (s *Service) verifiedIntent(ctx context.Context, wire []byte) (Intent, string, error) {
 	sum := sha256.Sum256(wire)
 	key := "w_" + hex.EncodeToString(sum[:])
-	e, err := s.operations.Get(ctx, key)
+	e, err := s.getOperation(ctx, key)
 	if err == nil {
 		var cached struct {
 			Intent Intent `json:"intent"`
@@ -532,7 +532,7 @@ func (s *Service) rejectIntent(ctx context.Context, wire []byte, intent Intent, 
 	} else if !errors.Is(err, jetstream.ErrKeyExists) {
 		return false, fmt.Errorf("record rejected intent: %w", err)
 	}
-	e, err := s.operations.Get(ctx, key)
+	e, err := s.getOperation(ctx, key)
 	if err != nil {
 		return false, err
 	}

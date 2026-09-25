@@ -14,8 +14,8 @@ func NewReader(ctx context.Context, cfg ReaderConfig) (*Reader, error) {
 	if err := validateToken(cfg.Cell, "cell"); err != nil {
 		return nil, err
 	}
-	if cfg.HostMutations == nil {
-		return nil, errors.New("reader requires ordered host mutation store")
+	if cfg.HostMutations == nil || cfg.Conn == nil {
+		return nil, errors.New("reader requires NATS connection and ordered host mutation store")
 	}
 	state := cfg.State
 	if state == nil {
@@ -49,7 +49,7 @@ func NewReader(ctx context.Context, cfg ReaderConfig) (*Reader, error) {
 			return nil, err
 		}
 	}
-	return &Reader{controller: &Controller{cell: cfg.Cell, state: state, controlLog: controlLog, mutations: cfg.HostMutations, readOnly: true}}, nil
+	return &Reader{controller: &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, readOnly: true}}, nil
 }
 
 func (r *Reader) ListHosts(ctx context.Context) ([]HostStatus, error) {

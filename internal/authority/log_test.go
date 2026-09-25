@@ -31,6 +31,13 @@ func TestVerifyControlStreamConfigRejectsMessageEviction(t *testing.T) {
 		{name: "rollup", mutate: func(config *jetstream.StreamConfig) { config.AllowRollup = true }},
 		{name: "direct reads", mutate: func(config *jetstream.StreamConfig) { config.AllowDirect = true }},
 		{name: "discard policy", mutate: func(config *jetstream.StreamConfig) { config.Discard = jetstream.DiscardNew }},
+		{name: "extra wildcard subject", mutate: func(config *jetstream.StreamConfig) { config.Subjects = append(config.Subjects, "unrelated.>") }},
+		{name: "duplicate control subject", mutate: func(config *jetstream.StreamConfig) { config.Subjects = append(config.Subjects, controlStreamSubject) }},
+		{name: "limited consumers", mutate: func(config *jetstream.StreamConfig) { config.MaxConsumers = 1 }},
+		{name: "limited message size", mutate: func(config *jetstream.StreamConfig) { config.MaxMsgSize = 128 }},
+		{name: "no publish acknowledgements", mutate: func(config *jetstream.StreamConfig) { config.NoAck = true }},
+		{name: "message TTL", mutate: func(config *jetstream.StreamConfig) { config.AllowMsgTTL = true }},
+		{name: "subject transform", mutate: func(config *jetstream.StreamConfig) { config.SubjectTransform = &jetstream.SubjectTransformConfig{} }},
 	}
 
 	for _, test := range tests {
@@ -55,6 +62,7 @@ func durableControlStreamConfig() jetstream.StreamConfig {
 		Name:              ControlStreamName,
 		Subjects:          []string{controlStreamSubject},
 		Retention:         jetstream.LimitsPolicy,
+		MaxConsumers:      -1,
 		MaxMsgs:           -1,
 		MaxBytes:          -1,
 		MaxMsgsPerSubject: -1,

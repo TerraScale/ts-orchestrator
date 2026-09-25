@@ -131,6 +131,9 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	if config.ClockCheck != nil && config.ClockCheck() != nil {
+		return nil, ErrClockUnhealthy
+	}
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -139,11 +142,15 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 	if err != nil {
 		return nil, fmt.Errorf("open authority control log: %w", err)
 	}
-	readStream, err := js.Stream(ctx, ControlStreamName)
+	readCtx, readCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	readStream, err := js.Stream(readCtx, ControlStreamName)
+	readCancel()
 	if err != nil {
 		return nil, fmt.Errorf("open authority read handle: %w", err)
 	}
-	readInfo, err := readStream.Info(ctx)
+	infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	readInfo, err := readStream.Info(infoCtx)
+	infoCancel()
 	if err != nil {
 		return nil, fmt.Errorf("inspect authority read handle: %w", err)
 	}
@@ -297,14 +304,18 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	info, err := r.stream.Info(ctx)
+	infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	info, err := r.stream.Info(infoCtx)
+	infoCancel()
 	if err != nil {
 		return stageFailure("stream_info", err)
 	}
 	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
 		return stageFailure("stream_config", err)
 	}
-	entry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
+	entryCtx, entryCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	entry, err := r.stream.GetLastMsgForSubject(entryCtx, r.leaseSub)
+	entryCancel()
 	if errors.Is(err, jetstream.ErrMsgNotFound) {
 		return r.acquire(ctx, info.State.LastSeq, 0, 1)
 	}
@@ -350,6 +361,9 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 	if epoch == 0 {
 		return ErrFenced
 	}
+	if !released && r.checkClock() != nil {
+		return ErrClockUnhealthy
+	}
 	lease := leaseRecord{
 		Version: 1, Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID,
 		Epoch: epoch, LeaseDuration: int64(r.config.LeaseDuration), TransitionID: uuid.New().String(), Released: released,
@@ -359,17 +373,21 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 		return stageFailure("lease_encode", err)
 	}
 	msg := controlMessage(r.leaseSub, "lease", lease.TransitionID, data)
-	ack, err := r.publisher.PublishMsg(ctx, msg,
+	publishCtx, publishCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	ack, err := r.publisher.PublishMsg(publishCtx, msg,
 		jetstream.WithExpectLastSequence(lastSequence),
 		jetstream.WithExpectLastSequenceForSubject(leaseSequence, r.leaseSub),
 	)
+	publishCancel()
 	if err != nil {
 		if isSequenceConflict(err) {
 			return stageFailure("lease_publish", ErrConflict)
 		}
 		return stageFailure("lease_publish", r.resolveLeaseAppend(ctx, lease, err))
 	}
-	stored, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
+	confirmCtx, confirmCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	stored, err := r.stream.GetLastMsgForSubject(confirmCtx, r.leaseSub)
+	confirmCancel()
 	if err != nil {
 		return stageFailure("lease_confirm_get", r.resolveLeaseAppend(ctx, lease, err))
 	}
@@ -430,9 +448,21 @@ func (r *Runtime) Current() Snapshot {
 		return Snapshot{Reason: "unavailable"}
 	}
 	if snapshot := r.snapshot.Load(); snapshot != nil {
+		if r.checkClock() != nil {
+			blocked := *snapshot
+			blocked.Ready, blocked.Leader, blocked.Reason = false, false, "clock-unhealthy"
+			return blocked
+		}
 		return *snapshot
 	}
 	return Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "not-observed"}
+}
+
+func (r *Runtime) checkClock() error {
+	if r != nil && r.config.ClockCheck != nil {
+		return r.config.ClockCheck()
+	}
+	return nil
 }
 
 func (r *Runtime) publishSnapshot(snapshot Snapshot) {
@@ -590,6 +620,9 @@ func authorityErrorClass(err error) string {
 func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {
 	if r == nil {
 		return ErrNotLeader
+	}
+	if r.checkClock() != nil {
+		return ErrClockUnhealthy
 	}
 	r.mu.Lock()
 	current := r.Current()

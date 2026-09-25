@@ -11,6 +11,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -59,6 +60,7 @@ type DesiredWriter interface {
 }
 
 type Config struct {
+	Conn                  *nats.Conn
 	JS                    jetstream.JetStream
 	Cell                  string
 	Replicas              int
@@ -114,7 +116,7 @@ func IntentSubject(cell string) string { return "ts.orch.v1." + cell + ".deliver
 // Operator and CI identities should use this path with only their specific
 // artifact, admission, operation-read and intent-publish permissions.
 func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.JS == nil || !nameRE.MatchString(cfg.Cell) {
+	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) {
 		return nil, fmt.Errorf("%w: delivery client configuration", ErrInvalid)
 	}
 	s := &Service{js: cfg.JS, config: cfg}
@@ -137,7 +139,7 @@ func ConnectClient(ctx context.Context, cfg Config) (*Service, error) {
 // Open provisions the durable regional resources and may be used by CLI
 // commands without starting a consumer. Serve requires the controller ports.
 func Open(ctx context.Context, cfg Config) (*Service, error) {
-	if cfg.JS == nil || !nameRE.MatchString(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
+	if cfg.Conn == nil || cfg.JS == nil || !nameRE.MatchString(cfg.Cell) || cfg.Replicas != 1 && cfg.Replicas != 3 && cfg.Replicas != 5 || cfg.ArtifactStoreMaxBytes < 0 {
 		return nil, fmt.Errorf("%w: delivery service configuration", ErrInvalid)
 	}
 	artifactStoreMaxBytes := cfg.ArtifactStoreMaxBytes
@@ -200,7 +202,7 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	if err != nil {
 		return err
 	}
-	if existing, readErr := s.operations.Get(ctx, operationKey(intent.OperationID)); readErr == nil {
+	if existing, readErr := s.getOperation(ctx, operationKey(intent.OperationID)); readErr == nil {
 		var op operation
 		if err := json.Unmarshal(existing.Value(), &op); err != nil {
 			return err
@@ -230,11 +232,62 @@ func operationKey(id string) string {
 	return "o_" + hex.EncodeToString(sum[:])
 }
 
+type operationValue struct {
+	value    []byte
+	revision uint64
+}
+
+func (e operationValue) Value() []byte    { return e.value }
+func (e operationValue) Revision() uint64 { return e.revision }
+
+// getOperation asks the stream leader for this exact KV subject. The normal
+// KeyValue.Get path can use a follower when direct reads are enabled.
+func (s *Service) getOperation(ctx context.Context, key string) (*operationValue, error) {
+	if s == nil || s.config.Conn == nil {
+		return nil, errors.New("delivery operation leader read requires NATS connection")
+	}
+	js, err := s.config.Conn.JetStream()
+	if err != nil {
+		return nil, err
+	}
+	subject := "$KV." + OperationBucket + "." + key
+	msg, err := js.GetLastMsg("KV_"+OperationBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return operationValueFromMsg(subject, msg)
+}
+
+func operationValueFromMsg(subject string, msg *nats.RawStreamMsg) (*operationValue, error) {
+	if msg == nil || msg.Subject != subject || msg.Sequence == 0 {
+		return nil, errors.New("invalid delivery operation state")
+	}
+	if operation := msg.Header.Get("KV-Operation"); operation != "" {
+		if operation == "DEL" || operation == "PURGE" {
+			return nil, jetstream.ErrKeyNotFound
+		}
+		return nil, errors.New("invalid delivery operation marker")
+	}
+	if marker := msg.Header.Get(jetstream.MarkerReasonHeader); marker != "" {
+		if marker == "MaxAge" || marker == "Purge" || marker == "Remove" {
+			return nil, jetstream.ErrKeyNotFound
+		}
+		return nil, errors.New("invalid delivery operation marker")
+	}
+	if len(msg.Data) == 0 {
+		return nil, errors.New("invalid delivery operation body")
+	}
+	return &operationValue{value: msg.Data, revision: msg.Sequence}, nil
+}
+
 func (s *Service) Status(ctx context.Context, operationID string) (Receipt, error) {
 	if s == nil || !opRE.MatchString(operationID) {
 		return Receipt{}, ErrInvalid
 	}
-	e, err := s.operations.Get(ctx, operationKey(operationID))
+	e, err := s.getOperation(ctx, operationKey(operationID))
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return Receipt{}, ErrPending
 	}

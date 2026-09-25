@@ -13,6 +13,7 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -21,6 +22,10 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// Overridden only by the production-controller integration test, whose local
+// kernel clock is deliberately not an NTP qualification source.
+var controllerBrokerClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
 func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if cfg.NATS.Embedded == nil {
@@ -55,6 +60,19 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("controller response key: %w", err)
 	}
+	ticketPrivate, ticketPublic, err := brokerTicketKeys(cfg)
+	if err != nil {
+		return err
+	}
+	var clockCheck func() error
+	var clockProbe brokerauth.ClockProbe
+	if !cfg.NATS.Lab {
+		clockProbe = controllerBrokerClockProbe()
+		clockCheck = func() error { _, err := clockProbe.Measure(); return err }
+		if err := clockCheck(); err != nil {
+			return fmt.Errorf("production broker NTP clock health: %w", err)
+		}
+	}
 	cfg.NATS.ClientRole = "controller"
 	runtime, err := natscell.Start(ctx, cfg.NATS)
 	if err != nil {
@@ -81,6 +99,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				LeaseDuration: time.Duration(cfg.Controller.LeaseSeconds) * time.Second,
 				RenewInterval: time.Duration(cfg.Controller.RenewSeconds) * time.Second,
 				Replicas:      cfg.NATS.Replicas,
+				ClockCheck:    clockCheck,
 			})
 		}, func(control *authority.Runtime) { _ = control.Close() })
 	if err != nil {
@@ -88,11 +107,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopAuthority()
 	defer control.Close()
+	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
+	if err != nil {
+		return fmt.Errorf("start broker admission gate: %w", err)
+	}
 	planner := &regionalDeliveryPlanner{profiles: cfg.Controller.Workloads}
 	service, _, err := retryControllerOpen(ctx, "open regional delivery stores", fullClusterReady, false,
 		func(attempt context.Context) (*delivery.Service, error) {
 			return delivery.Open(attempt, delivery.Config{
-				JS: runtime.JetStream(), Cell: cfg.NATS.Cell, Replicas: cfg.NATS.Replicas,
+				Conn: runtime.Conn(), JS: runtime.JetStream(), Cell: cfg.NATS.Cell, Replicas: cfg.NATS.Replicas,
 				ArtifactStoreMaxBytes: artifactStoreMaxBytes,
 				Verifier:              policy.codec, ArtifactVerifier: policy.codec,
 				Authorize: policy.authorizeIntent, AuthorizeArtifact: policy.authorizeArtifact,
@@ -160,6 +183,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return fmt.Errorf("serve placement admission: %w", err)
 	}
 	defer placementSub.Unsubscribe()
+	if gate != nil {
+		brokerSub, err := serveBrokerClaimAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, gate)
+		if err != nil {
+			return fmt.Errorf("serve broker claim admission: %w", err)
+		}
+		defer brokerSub.Unsubscribe()
+	}
 	workerErrors := make(chan error, 3)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })

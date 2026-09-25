@@ -30,6 +30,7 @@ var (
 	ErrInvalidTransition = errors.New("invalid operation journal transition")
 	ErrProofConsumed     = errors.New("operation proof has already been consumed")
 	ErrListTooLarge      = errors.New("placement intent count exceeds the configured bound")
+	ErrClockUnhealthy    = errors.New("authority clock health is not bounded")
 )
 
 // Config identifies this candidate within one regional or global control log.
@@ -43,6 +44,7 @@ type Config struct {
 	RenewInterval time.Duration
 	Replicas      int
 	Logger        *slog.Logger
+	ClockCheck    func() error
 }
 
 // Snapshot is the latest lease observation made by this runtime.

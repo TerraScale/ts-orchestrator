@@ -27,6 +27,7 @@ type ControllerConfig struct {
 	LeaseSeconds          int                        `json:"lease_seconds,omitzero"`
 	RenewSeconds          int                        `json:"renew_seconds,omitzero"`
 	ResponseKeyFile       string                     `json:"response_key_file,omitempty"`
+	BrokerTicketKeyFile   string                     `json:"broker_ticket_key_file,omitempty"`
 	TrustKeyFile          string                     `json:"trust_key_file,omitempty"`
 	OciRegionConfig       string                     `json:"oci_region_config,omitempty"`
 	OciRegionIntentFile   string                     `json:"oci_region_intent_file,omitempty"`
@@ -42,18 +43,20 @@ type WorkloadProfile struct {
 }
 
 type TrustedSignerConfig struct {
-	Actor             string   `json:"actor"`
-	PublicKey         string   `json:"public_key"`
-	Roles             []string `json:"roles"`
-	Environments      []string `json:"environments"`
-	CanRegisterHosts  bool     `json:"can_register_hosts,omitzero"`
-	CanPlaceTerraBase bool     `json:"can_place_terrabase,omitzero"`
-	Repositories      []string `json:"repositories,omitempty"`
+	Actor                  string   `json:"actor"`
+	PublicKey              string   `json:"public_key"`
+	Roles                  []string `json:"roles"`
+	Environments           []string `json:"environments"`
+	CanRegisterHosts       bool     `json:"can_register_hosts,omitzero"`
+	CanPlaceTerraBase      bool     `json:"can_place_terrabase,omitzero"`
+	CanRotateBrokerAccount bool     `json:"can_rotate_broker_account,omitzero"`
+	Repositories           []string `json:"repositories,omitempty"`
 }
 
 type OperatorConfig struct {
-	Actor          string `json:"actor"`
-	SigningKeyFile string `json:"signing_key_file"`
+	Actor                     string `json:"actor"`
+	SigningKeyFile            string `json:"signing_key_file"`
+	BrokerTicketPublicKeyFile string `json:"broker_ticket_public_key_file,omitempty"`
 }
 
 type HostConfig struct {

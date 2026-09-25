@@ -112,6 +112,11 @@ func reportKey(cell, node, role string) string  { return "report." + cell + "." 
 func cycleKey(cell, node, role string) string   { return "cycle." + cell + "." + node + "." + role }
 
 func (c *Controller) get(ctx context.Context, key string, destination any) (uint64, bool, error) {
+	if c.conn != nil {
+		return c.readLeaderState(ctx, key, destination)
+	}
+	// Only package tests construct a Controller without the connection required
+	// by NewController and NewReader.
 	entry, err := c.state.Get(ctx, key)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return 0, false, nil
@@ -164,7 +169,7 @@ func (c *Controller) reportSnapshot(ctx context.Context, key string) (Report, ui
 }
 
 func (c *Controller) readLeaderState(ctx context.Context, key string, destination any) (uint64, bool, error) {
-	if c.conn == nil { // Read-only readers have no NATS connection.
+	if c.conn == nil { // Only package tests construct a controller without Conn.
 		return c.get(ctx, key, destination)
 	}
 	js, err := c.conn.JetStream()
@@ -179,7 +184,22 @@ func (c *Controller) readLeaderState(ctx context.Context, key string, destinatio
 	if err != nil {
 		return 0, false, err
 	}
-	if msg == nil || msg.Subject != subject || msg.Sequence == 0 || len(msg.Data) > 64<<10 || msg.Header.Get("KV-Operation") != "" {
+	if msg == nil || msg.Subject != subject || msg.Sequence == 0 {
+		return 0, false, errors.New("invalid host state")
+	}
+	if operation := msg.Header.Get("KV-Operation"); operation != "" {
+		if operation == "DEL" || operation == "PURGE" {
+			return 0, false, nil
+		}
+		return 0, false, errors.New("invalid host state operation")
+	}
+	if marker := msg.Header.Get(jetstream.MarkerReasonHeader); marker != "" {
+		if marker == "MaxAge" || marker == "Purge" || marker == "Remove" {
+			return 0, false, nil
+		}
+		return 0, false, errors.New("invalid host state marker")
+	}
+	if len(msg.Data) > 64<<10 {
 		return 0, false, errors.New("invalid host state")
 	}
 	if err := decodeStrict(msg.Data, destination); err != nil {

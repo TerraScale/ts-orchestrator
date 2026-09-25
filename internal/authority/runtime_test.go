@@ -67,6 +67,39 @@ func TestStartReobservesCommittedLeaseAfterAmbiguousPublish(t *testing.T) {
 	}
 }
 
+func TestClockHealthFencesGuardAndDurableMutations(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	var healthy atomic.Bool
+	healthy.Store(true)
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "clock-owner", Replicas: 1,
+		ClockCheck: func() error {
+			if !healthy.Load() {
+				return ErrClockUnhealthy
+			}
+			return nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	if epoch == 0 {
+		t.Fatal("authority did not acquire its initial lease")
+	}
+	healthy.Store(false)
+	if runtime.Current().CanMutate() {
+		t.Fatal("unhealthy clock retained a mutable authority snapshot")
+	}
+	if err := runtime.Guard(ctx, epoch); !errors.Is(err, ErrClockUnhealthy) {
+		t.Fatalf("Guard with unhealthy clock = %v", err)
+	}
+	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "op-a", 0, []byte(`{"node":"a"}`)); !errors.Is(err, ErrClockUnhealthy) {
+		t.Fatalf("durable mutation with unhealthy clock = %v", err)
+	}
+}
+
 func TestStartDoesNotRetryPermanentOrCanceledLeasePublish(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 
@@ -206,4 +239,103 @@ func newAuthorityTestJetStream(t *testing.T) jetstream.JetStream {
 		t.Fatal(err)
 	}
 	return js
+}
+
+type deadlineInfoStream struct {
+	jetstream.Stream
+	deadline time.Duration
+}
+
+func (stream *deadlineInfoStream) Info(ctx context.Context, _ ...jetstream.StreamInfoOpt) (*jetstream.StreamInfo, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		stream.deadline = time.Until(deadline)
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestStartupReconcileBoundsStreamInfoWithLongParent(t *testing.T) {
+	stream := &deadlineInfoStream{}
+	runtime := &Runtime{stream: stream}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	started := time.Now()
+	err := runtime.reconcile(ctx)
+	elapsed := time.Since(started)
+	if !errors.Is(err, context.DeadlineExceeded) || failureStage(err) != "stream_info" {
+		t.Fatalf("reconcile failure = %v, stage = %q; want bounded stream_info deadline", err, failureStage(err))
+	}
+	if stream.deadline <= 0 || stream.deadline > authorityAPITimeout || elapsed < authorityAPITimeout-200*time.Millisecond || elapsed > authorityAPITimeout+time.Second {
+		t.Fatalf("stream Info bound = %s, elapsed = %s; want one %s exchange", stream.deadline, elapsed, authorityAPITimeout)
+	}
+}
+
+type deadlinePublish struct {
+	jetstream.Publisher
+	deadline time.Duration
+}
+
+func (publisher *deadlinePublish) PublishMsg(ctx context.Context, _ *nats.Msg, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		publisher.deadline = time.Until(deadline)
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+type failedOutcomeProbeStream struct{ jetstream.Stream }
+
+func (*failedOutcomeProbeStream) GetLastMsgForSubject(context.Context, string) (*jetstream.RawStreamMsg, error) {
+	return nil, jetstream.ErrNoStreamResponse
+}
+
+func TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent(t *testing.T) {
+	publisher := &deadlinePublish{}
+	runtime := &Runtime{
+		publisher: publisher, stream: &failedOutcomeProbeStream{},
+		leaseSub: "ts.control.gru.lease", ownerID: "owner-a",
+		config: Config{Scope: "gru", CandidateID: "candidate-a", LeaseDuration: 5 * time.Second},
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	started := time.Now()
+	err := runtime.appendLease(ctx, 0, 0, 1, false)
+	elapsed := time.Since(started)
+	if !errors.Is(err, ErrOutcomeUnknown) || failureStage(err) != "lease_outcome_probe" {
+		t.Fatalf("ambiguous publish failure = %v, stage = %q", err, failureStage(err))
+	}
+	if publisher.deadline <= 0 || publisher.deadline > authorityAPITimeout || elapsed < authorityAPITimeout-200*time.Millisecond || elapsed > authorityAPITimeout+time.Second {
+		t.Fatalf("lease publish bound = %s, elapsed = %s; want one %s exchange", publisher.deadline, elapsed, authorityAPITimeout)
+	}
+}
+
+func failureStage(err error) string {
+	if staged, ok := errors.AsType[*authorityStageFailure](err); ok {
+		return staged.stage
+	}
+	return ""
+}
+
+func TestStartRejectsExistingControlStreamWithExtraSubject(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	config := durableControlStreamConfig()
+	config.Replicas = 1
+	config.Subjects = append(config.Subjects, "unrelated.>")
+	stream, err := js.CreateStream(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "candidate-a", Replicas: 1})
+	if runtime != nil || err == nil {
+		t.Fatalf("Start accepted a control stream with an extra subject: runtime=%v err=%v", runtime, err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 0 {
+		t.Fatalf("Start published %d lease messages into an unsafe control stream", info.State.Msgs)
+	}
 }

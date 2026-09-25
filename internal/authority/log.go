@@ -32,6 +32,8 @@ type controlRecord struct {
 	Payload     []byte           `json:"payload"`
 }
 
+const authorityAPITimeout = 5 * time.Second
+
 func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int) (jetstream.Stream, error) {
 	config := jetstream.StreamConfig{
 		Name:              ControlStreamName,
@@ -50,19 +52,28 @@ func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int
 		AllowDirect: false,
 		Metadata:    map[string]string{"terrascale-contract": "authority-log-v1"},
 	}
-	stream, err := js.CreateStream(ctx, config)
+	// JetStream only applies its default API timeout when the caller has no
+	// deadline. A long startup deadline must not let one lost reply consume the
+	// entire attempt.
+	createCtx, cancel := context.WithTimeout(ctx, authorityAPITimeout)
+	stream, err := js.CreateStream(createCtx, config)
+	cancel()
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) && !errors.Is(err, jetstream.ErrBucketExists) {
-			return nil, err
+			return nil, fmt.Errorf("create authority stream: %w", err)
 		}
-		stream, err = js.Stream(ctx, ControlStreamName)
+		lookupCtx, lookupCancel := context.WithTimeout(ctx, authorityAPITimeout)
+		stream, err = js.Stream(lookupCtx, ControlStreamName)
+		lookupCancel()
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("lookup existing authority stream: %w", err)
 		}
 	}
-	info, err := stream.Info(ctx)
+	infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
+	info, err := stream.Info(infoCtx)
+	infoCancel()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("inspect authority stream: %w", err)
 	}
 	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
 		return nil, err
@@ -73,10 +84,15 @@ func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int
 func verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) error {
 	if (replicas != 1 && replicas != 3 && replicas != 5) || actual.Name != ControlStreamName ||
 		actual.Replicas != replicas || actual.Retention != jetstream.LimitsPolicy ||
-		actual.Storage != jetstream.FileStorage || actual.MaxMsgs != -1 || actual.MaxBytes != -1 ||
+		actual.Storage != jetstream.FileStorage || actual.MaxConsumers != -1 ||
+		actual.MaxMsgs != -1 || actual.MaxBytes != -1 ||
 		actual.MaxMsgsPerSubject != -1 || actual.MaxAge != 0 || actual.Discard != jetstream.DiscardOld ||
-		actual.DiscardNewPerSubject || actual.AllowRollup || actual.AllowDirect || !actual.DenyDelete || !actual.DenyPurge ||
-		!containsString(actual.Subjects, controlStreamSubject) ||
+		actual.MaxMsgSize > 0 || actual.DiscardNewPerSubject || actual.AllowRollup ||
+		actual.AllowDirect || actual.MirrorDirect || actual.NoAck || actual.Sealed ||
+		!actual.DenyDelete || !actual.DenyPurge || len(actual.Subjects) != 1 ||
+		actual.Subjects[0] != controlStreamSubject || actual.Mirror != nil || len(actual.Sources) != 0 ||
+		actual.SubjectTransform != nil || actual.RePublish != nil || actual.AllowMsgTTL ||
+		actual.SubjectDeleteMarkerTTL != 0 || actual.AllowMsgSchedules ||
 		actual.Metadata["terrascale-contract"] != "authority-log-v1" {
 		return errors.New("existing control log has incompatible consistency, durability, or subject configuration")
 	}
@@ -112,6 +128,9 @@ func (r *Runtime) commitMutation(
 ) (uint64, error) {
 	if r == nil {
 		return 0, ErrNotLeader
+	}
+	if r.checkClock() != nil {
+		return 0, ErrClockUnhealthy
 	}
 	if err := validateMutation(kind, subjectKey, operationID, payload); err != nil {
 		return 0, err
@@ -533,15 +552,6 @@ func decodeLease(data []byte) (leaseRecord, error) {
 		return lease, ErrLeaseCorrupt
 	}
 	return lease, nil
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
 }
 
 func isSequenceConflict(err error) bool {

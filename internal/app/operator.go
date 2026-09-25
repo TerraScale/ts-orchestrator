@@ -23,7 +23,7 @@ var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|placement-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -39,6 +39,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	registrationPath := flags.String("registration", "", "JSON host registration")
 	operationID := flags.String("operation-id", "", "delivery operation ID")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
+	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -78,6 +79,11 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("placement-apply requires --intent FILE")
 		}
 		return operatorPlacementApply(ctx, cfg, runtime, *intentPath, output)
+	case "broker-claim-apply":
+		if *artifactPath == "" || *expectedSequence == "" {
+			return errors.New("broker-claim-apply requires --file and --expected-sequence")
+		}
+		return operatorBrokerClaimApply(ctx, cfg, runtime, *artifactPath, *expectedSequence, output)
 	case "artifact-push":
 		if *artifactPath == "" || *repository == "" || *commit == "" || *treeDigest == "" || *role == "" || *environment == "" {
 			return errors.New("artifact-push requires --file, --repository, --commit, --tree-digest, --role and --environment")
@@ -102,7 +108,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 }
 
 func operatorService(ctx context.Context, cfg Config, runtime *natscell.Runtime, signed bool) (*delivery.Service, error) {
-	settings := delivery.Config{JS: runtime.JetStream(), Cell: cfg.NATS.Cell}
+	settings := delivery.Config{Conn: runtime.Conn(), JS: runtime.JetStream(), Cell: cfg.NATS.Cell}
 	if signed {
 		policy, err := buildSignerPolicy(cfg)
 		if err != nil {
@@ -278,7 +284,7 @@ func operatorHosts(ctx context.Context, cfg Config, runtime *natscell.Runtime, o
 	if err != nil {
 		return err
 	}
-	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: reader})
+	hostReader, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: reader})
 	if err != nil {
 		return err
 	}

@@ -1457,7 +1457,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	if err != nil || len(allocations) != 1 || !sameJSON(allocations[0], desired) {
 		t.Fatalf("committed allocations=%+v err=%v", allocations, err)
 	}
-	reader, err := NewReader(t.Context(), ReaderConfig{Cell: "gru", JS: js, StateReplicas: 1, HostMutations: authorityRuntime})
+	reader, err := NewReader(t.Context(), ReaderConfig{Cell: "gru", Conn: c.conn, JS: js, StateReplicas: 1, HostMutations: authorityRuntime})
 	if err != nil {
 		t.Fatal(err)
 	}

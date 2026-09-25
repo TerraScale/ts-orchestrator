@@ -134,6 +134,7 @@ type ControllerConfig struct {
 
 type ReaderConfig struct {
 	Cell          string
+	Conn          *nats.Conn
 	JS            jetstream.JetStream
 	State         jetstream.KeyValue
 	StateReplicas int
