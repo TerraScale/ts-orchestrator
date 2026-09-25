@@ -3,7 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -51,6 +53,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	var controllerDone, agentDone *convergenceTask
 	var hostRuntime *natscell.Runtime
+	root := t.TempDir()
 	t.Cleanup(func() {
 		cancel()
 		waitForConvergenceFixtureExit(t, "host agent", agentDone)
@@ -61,8 +64,6 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		}
 		waitForConvergenceFixtureExit(t, "controller", controllerDone)
 	})
-
-	root := t.TempDir()
 	portListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +153,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	clock.healthy.Store(true)
 	agent, err := host.NewAgent(host.AgentConfig{
 		WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())},
-		Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
+		Cell:             "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
 		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"),
 		PollInterval: convergencePollInterval, ClockCheck: controllerClockCheck(clock),
@@ -165,7 +166,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	waitForConvergenceHostSession(t, ctx, agentDone, operatorConfigPath, &output)
 
 	source := delivery.ArtifactSource{
-		Repository: "https://example.com/terrascale/terradb",
+		Repository: "https://example.com/terrascale/terrabase",
 		Commit:     strings.Repeat("a", 40),
 		TreeDigest: strings.Repeat("b", 64),
 	}
@@ -177,6 +178,10 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	}
 
 	intentPaths := make([]string, len(artifacts))
+	provenance := collectConvergenceProvenance(t)
+	if len(provenance.DirtyPaths) != 0 {
+		t.Fatalf("refusing measurement with dirty source paths: %s", strings.Join(provenance.DirtyPaths, ", "))
+	}
 	for index, artifact := range artifacts {
 		intent := delivery.Intent{
 			Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest,
@@ -212,13 +217,18 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			t.Fatalf("submit receipt for generation %d: %v: %s", generation, err, output.String())
 		}
 
-		completion, err := runner.Wait(ctx, artifact.Digest)
+		applyCtx, cancelApply := context.WithTimeout(ctx, 15*time.Second)
+		completion, err := runner.Wait(applyCtx, agentDone, artifact.Digest)
+		cancelApply()
 		if err != nil {
 			t.Fatalf("wait for generation %d Apply completion: %v", generation, err)
 		}
 		elapsed := completion.At.Sub(started)
-		if completion.Digest != artifact.Digest || completion.Generation != generation || completion.Fingerprint != submitted.Fingerprint {
-			t.Fatalf("generation %d Apply mismatch: completion=%+v submitted fingerprint=%s", generation, completion, submitted.Fingerprint)
+		observed, err := runner.Observe(ctx, "terrabase")
+		if err != nil || !observed.Running || observed.Digest != artifact.Digest ||
+			completion.Digest != artifact.Digest || completion.Generation != generation ||
+			completion.Fingerprint == "" || completion.Fingerprint != observed.Fingerprint {
+			t.Fatalf("generation %d Apply mismatch: completion=%+v observation=%+v err=%v", generation, completion, observed, err)
 		}
 		if elapsed <= 0 {
 			t.Fatalf("generation %d convergence duration is not positive: %s", generation, elapsed)
@@ -228,7 +238,8 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		}
 		sample := deploymentConvergenceSample{
 			OperationID: submitted.OperationID, ArtifactDigest: artifact.Digest,
-			Generation: generation, DurationNS: elapsed.Nanoseconds(),
+			Generation: generation, ApplyFingerprint: completion.Fingerprint,
+			DurationNS: elapsed.Nanoseconds(),
 		}
 		if index < convergenceWarmupCount {
 			warmups = append(warmups, sample)
@@ -250,17 +261,21 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		t.Fatalf("successful samples: warmups=%d measured=%d, want %d and %d", len(warmups), len(samples), convergenceWarmupCount, convergenceSampleCount)
 	}
 
-	provenance := collectConvergenceProvenance(t)
+	if finalProvenance := collectConvergenceProvenance(t); !sameConvergenceSource(provenance, finalProvenance) {
+		t.Fatalf("source changed during measurement: before=%+v after=%+v", provenance, finalProvenance)
+	}
 	result := deploymentConvergenceResult{
-		Schema: "ts-orchestrator.deployment-convergence.v1",
+		Schema:    "ts-orchestrator.deployment-convergence.v1",
 		Semantics: "time from before operator deploy invocation through matching digest completion of host.Agent Runner.Apply; measured runner is in-memory and does not start an OS process",
-		Source: provenance,
+		Source:    provenance,
 		Config: deploymentConvergenceConfig{
 			Cell: "gru", Controllers: 1, Hosts: 1, EmbeddedNATS: true, NATSReplicas: 1,
 			NKeyAuthenticated: true, LabMode: true, TLS: false, HostPollIntervalNS: int64(convergencePollInterval),
+			JetStreamStore: "file-backed in per-test temporary directory", VMCount: 0,
 			Runner: "in-memory observation runner; no process creation", OutstandingDeployments: 1,
 			Warmups: convergenceWarmupCount, MeasuredSamples: convergenceSampleCount,
 			DistinctPreAdmittedArtifacts: len(artifacts),
+			ContentionAssumption:         "no concurrent builds, tests, staging, or VM/lab workload",
 		},
 		WarmupSuccesses: len(warmups), MeasuredSuccesses: len(samples),
 		WarmupSamples: warmups, Samples: samples,
@@ -378,7 +393,7 @@ func (r *convergenceMemoryRunner) Arm(digest string, generation uint64) error {
 	return nil
 }
 
-func (r *convergenceMemoryRunner) Wait(ctx context.Context, digest string) (convergenceApply, error) {
+func (r *convergenceMemoryRunner) Wait(ctx context.Context, agentDone *convergenceTask, digest string) (convergenceApply, error) {
 	r.mu.Lock()
 	expectation := r.expectations[digest]
 	violation := r.violation
@@ -394,6 +409,8 @@ func (r *convergenceMemoryRunner) Wait(ctx context.Context, digest string) (conv
 		return completion, nil
 	case err := <-r.violated:
 		return convergenceApply{}, err
+	case <-agentDone.done:
+		return convergenceApply{}, fmt.Errorf("host agent exited before matching Apply: %w", agentDone.result())
 	case <-ctx.Done():
 		return convergenceApply{}, ctx.Err()
 	}
@@ -568,19 +585,31 @@ func collectConvergenceProvenance(t *testing.T) deploymentConvergenceProvenance 
 	modules := make(map[string]string)
 	for _, dependency := range buildInfo.Deps {
 		if dependency.Replace != nil {
-			modules[dependency.Path] = dependency.Replace.Version
+			modules[dependency.Path] = fmt.Sprintf("%s => %s@%s", dependency.Version, dependency.Replace.Path, dependency.Replace.Version)
 		} else {
 			modules[dependency.Path] = dependency.Version
 		}
 	}
 	cpuModel := convergenceCPUModel()
+	measurementSource, err := os.ReadFile("deployment_convergence_measurement_test.go")
+	if err != nil {
+		t.Fatalf("read measurement source for provenance: %v", err)
+	}
+	measurementSourceHash := sha256.Sum256(measurementSource)
 	return deploymentConvergenceProvenance{
 		Revision: revision, Tree: tree, DirtyPaths: dirtyPaths,
-		GoVersion: buildInfo.GoVersion, RuntimeVersion: runtime.Version(),
+		MeasurementFileSHA256: hex.EncodeToString(measurementSourceHash[:]),
+		GoVersion:             buildInfo.GoVersion, RuntimeVersion: runtime.Version(),
 		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, NumCPU: runtime.NumCPU(),
 		GOMAXPROCS: runtime.GOMAXPROCS(0), GOMAXPROCSSetting: os.Getenv("GOMAXPROCS"),
 		CPUModel: cpuModel, GOTOOLCHAIN: os.Getenv("GOTOOLCHAIN"), Modules: modules,
 	}
+}
+
+func sameConvergenceSource(first, second deploymentConvergenceProvenance) bool {
+	return first.Revision == second.Revision && first.Tree == second.Tree &&
+		first.MeasurementFileSHA256 == second.MeasurementFileSHA256 &&
+		slices.Equal(first.DirtyPaths, second.DirtyPaths)
 }
 
 func convergenceGitOutput(t *testing.T, args ...string) string {
@@ -608,19 +637,20 @@ func convergenceCPUModel() string {
 }
 
 type deploymentConvergenceProvenance struct {
-	Revision          string            `json:"revision"`
-	Tree              string            `json:"tree"`
-	DirtyPaths        []string          `json:"dirty_paths"`
-	GoVersion         string            `json:"go_version"`
-	RuntimeVersion    string            `json:"runtime_version"`
-	GOOS              string            `json:"goos"`
-	GOARCH            string            `json:"goarch"`
-	NumCPU            int               `json:"num_cpu"`
-	GOMAXPROCS        int               `json:"gomaxprocs"`
-	GOMAXPROCSSetting string            `json:"gomaxprocs_setting"`
-	CPUModel          string            `json:"cpu_model"`
-	GOTOOLCHAIN       string            `json:"gotoolchain"`
-	Modules           map[string]string `json:"modules"`
+	Revision              string            `json:"revision"`
+	Tree                  string            `json:"tree"`
+	MeasurementFileSHA256 string            `json:"measurement_file_sha256"`
+	DirtyPaths            []string          `json:"dirty_paths"`
+	GoVersion             string            `json:"go_version"`
+	RuntimeVersion        string            `json:"runtime_version"`
+	GOOS                  string            `json:"goos"`
+	GOARCH                string            `json:"goarch"`
+	NumCPU                int               `json:"num_cpu"`
+	GOMAXPROCS            int               `json:"gomaxprocs"`
+	GOMAXPROCSSetting     string            `json:"gomaxprocs_setting"`
+	CPUModel              string            `json:"cpu_model"`
+	GOTOOLCHAIN           string            `json:"gotoolchain"`
+	Modules               map[string]string `json:"modules"`
 }
 
 type deploymentConvergenceConfig struct {
@@ -633,18 +663,22 @@ type deploymentConvergenceConfig struct {
 	LabMode                      bool   `json:"lab_mode"`
 	TLS                          bool   `json:"tls"`
 	HostPollIntervalNS           int64  `json:"host_poll_interval_ns"`
+	JetStreamStore               string `json:"jetstream_store"`
+	VMCount                      int    `json:"vm_count"`
 	Runner                       string `json:"runner"`
 	OutstandingDeployments       int    `json:"outstanding_deployments"`
 	Warmups                      int    `json:"warmups"`
 	MeasuredSamples              int    `json:"measured_samples"`
 	DistinctPreAdmittedArtifacts int    `json:"distinct_pre_admitted_artifacts"`
+	ContentionAssumption         string `json:"contention_assumption"`
 }
 
 type deploymentConvergenceSample struct {
-	OperationID   string `json:"operation_id"`
-	ArtifactDigest string `json:"artifact_digest"`
-	Generation    uint64 `json:"generation"`
-	DurationNS    int64  `json:"duration_ns"`
+	OperationID      string `json:"operation_id"`
+	ArtifactDigest   string `json:"artifact_digest"`
+	Generation       uint64 `json:"generation"`
+	ApplyFingerprint string `json:"apply_fingerprint"`
+	DurationNS       int64  `json:"duration_ns"`
 }
 
 type deploymentConvergenceSummary struct {
@@ -655,15 +689,15 @@ type deploymentConvergenceSummary struct {
 }
 
 type deploymentConvergenceResult struct {
-	Schema            string                         `json:"schema"`
-	Semantics         string                         `json:"semantics"`
+	Schema            string                          `json:"schema"`
+	Semantics         string                          `json:"semantics"`
 	Source            deploymentConvergenceProvenance `json:"source"`
 	Config            deploymentConvergenceConfig     `json:"config"`
-	WarmupSuccesses   int                            `json:"warmup_successes"`
-	MeasuredSuccesses int                            `json:"measured_successes"`
-	WarmupSamples     []deploymentConvergenceSample  `json:"warmup_samples"`
-	Samples           []deploymentConvergenceSample  `json:"samples"`
-	Summary           deploymentConvergenceSummary   `json:"summary"`
+	WarmupSuccesses   int                             `json:"warmup_successes"`
+	MeasuredSuccesses int                             `json:"measured_successes"`
+	WarmupSamples     []deploymentConvergenceSample   `json:"warmup_samples"`
+	Samples           []deploymentConvergenceSample   `json:"samples"`
+	Summary           deploymentConvergenceSummary    `json:"summary"`
 }
 
 func summarizeConvergenceSamples(samples []deploymentConvergenceSample) deploymentConvergenceSummary {
@@ -676,6 +710,6 @@ func summarizeConvergenceSamples(samples []deploymentConvergenceSample) deployme
 	p95Rank := (95*len(durations) + 99) / 100
 	return deploymentConvergenceSummary{
 		Method: "p50 median (mean of middle pair for even n); p95 nearest-rank ceil(0.95*n); max observed",
-		P50NS: median, P95NS: durations[p95Rank-1], MaxNS: durations[len(durations)-1],
+		P50NS:  median, P95NS: durations[p95Rank-1], MaxNS: durations[len(durations)-1],
 	}
 }
