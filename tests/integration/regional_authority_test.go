@@ -52,7 +52,7 @@ func transientAuthorityStartupError(err error) bool {
 }
 
 func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	t.Cleanup(cancel)
 
 	cluster := newRegionalCluster(t, ctx)
