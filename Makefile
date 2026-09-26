@@ -11,9 +11,9 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify format-check test vet race-test build build-linux release-linux run host check clean
+.PHONY: verify format-check firecracker-contract-test test vet race-test build build-linux release-linux run host check clean
 
-verify: format-check test vet race-test
+verify: format-check firecracker-contract-test test vet race-test
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -21,6 +21,11 @@ format-check:
 		printf 'Go files need gofmt:\n%s\n' "$$unformatted" >&2; \
 		exit 1; \
 	fi
+
+firecracker-contract-test:
+	python3 -m unittest discover -s tests/firecracker -p test_qualify.py -v
+	python3 -m unittest discover -s tests/firecracker/memberstatus -p test_qualify.py -v
+	python3 -m unittest discover -s tests/firecracker/managedmember -p test_qualify.py -v
 
 test:
 	$(GO) test ./...

@@ -39,6 +39,40 @@ INPUT_NAMES = (
     "rust_server",
     "rust_test",
 )
+MANAGED_VOLUME_PROFILE = "managed-volume-v1"
+MANAGED_VOLUME_INPUT_NAMES = (
+    "kernel",
+    "rootfs",
+    "firecracker",
+    "go_host_test",
+    "volume_ext4",
+    "authority_tbca",
+    "trusted_public_key",
+    "server_crt",
+    "server_key",
+    "client_ca_pem",
+    "client_managed_manifest",
+    "client_config",
+    "client_chain",
+    "client_private_key",
+    "client_api_keys",
+)
+MANAGED_VOLUME_GO_TEST_NAME = "TestManagedRuntimeFirecrackerMountedVolume"
+MANAGED_VOLUME_UUID = "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102"
+MANAGED_VOLUME_IMAGE_SIZE_BYTES = 256 << 20
+MANAGED_RUNTIME_ROOT = Path("/srv/ts-managed")
+MANAGED_MEMBER_DIR = Path("/srv/ts-managed/6efe9447512debbf02bcd921c78d666c")
+MANAGED_MOUNT_PATH = MANAGED_MEMBER_DIR / "volume"
+MANAGED_MATERIAL_PATH = MANAGED_MEMBER_DIR / "material"
+MANAGED_CONTROL_PATH = MANAGED_MEMBER_DIR / "control"
+MANAGED_VOLUME_SETUP_SERVICE_NAME = "ts-member-status-managed-volume-setup.service"
+MANAGED_VOLUME_SETUP_SCRIPT = "/usr/local/sbin/ts-member-status-managed-volume-setup"
+MANAGED_VOLUME_RESULT_PREFIX = "TS_MANAGED_VOLUME_QUALIFICATION_RESULT="
+MANAGED_VOLUME_RUNNER_SUCCESS = MANAGED_VOLUME_RESULT_PREFIX + "PASS"
+MANAGED_VOLUME_RUNNER_FAILURE = re.compile(
+    r"^TS_MANAGED_VOLUME_QUALIFICATION_RESULT=FAILED stage=(?P<stage>[a-z0-9-]+) "
+    r"status=(?P<status>[1-9][0-9]{0,2})$")
+MANAGED_VOLUME_RUNNER_STAGES = {"go-host-test", "runner"}
 GO_TEST_NAME = "TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery"
 RUST_TEST_NAME = "member_control_managed::managed_member_status_cross_language_process_boundary"
 GO_SUCCESS = "PASS"
@@ -187,21 +221,43 @@ def load_manifest(path: Path) -> tuple[dict[str, Any], bytes, dict[str, Path]]:
             not _valid_commit(commits.get("orchestrator")) or
             not _valid_commit(commits.get("terrabase"))):
         raise QualificationError("source_commits must contain full orchestrator and terrabase commit IDs")
-    rust_test_name = manifest.get("rust_test_name")
-    if (not isinstance(rust_test_name, str) or not rust_test_name or
-            "\x00" in rust_test_name or "\n" in rust_test_name or "\r" in rust_test_name):
-        raise QualificationError("rust_test_name must be a non-empty single-line test name")
-    if rust_test_name != RUST_TEST_NAME:
-        raise QualificationError(f"rust_test_name must select the reviewed test {RUST_TEST_NAME}")
+    profile = manifest.get("profile")
+    if "profile" not in manifest:
+        input_names = INPUT_NAMES
+        rust_test_name = manifest.get("rust_test_name")
+        if (not isinstance(rust_test_name, str) or not rust_test_name or
+                "\x00" in rust_test_name or "\n" in rust_test_name or "\r" in rust_test_name):
+            raise QualificationError("rust_test_name must be a non-empty single-line test name")
+        if rust_test_name != RUST_TEST_NAME:
+            raise QualificationError(f"rust_test_name must select the reviewed test {RUST_TEST_NAME}")
+        if "go_test_name" in manifest or "managed_volume" in manifest:
+            raise QualificationError("legacy manifest cannot include managed-volume profile fields")
+        go_test_name = GO_TEST_NAME
+    elif profile == MANAGED_VOLUME_PROFILE:
+        input_names = MANAGED_VOLUME_INPUT_NAMES
+        rust_test_name = None
+        if "rust_test_name" in manifest:
+            raise QualificationError("managed-volume manifest must not include rust_test_name")
+        go_test_name = manifest.get("go_test_name")
+        if go_test_name != MANAGED_VOLUME_GO_TEST_NAME:
+            raise QualificationError(
+                f"go_test_name must select the reviewed test {MANAGED_VOLUME_GO_TEST_NAME}")
+        managed_volume = manifest.get("managed_volume")
+        if (not isinstance(managed_volume, dict) or set(managed_volume) != {"filesystem_uuid"} or
+                managed_volume.get("filesystem_uuid") != MANAGED_VOLUME_UUID):
+            raise QualificationError(
+                f"managed_volume must pin filesystem_uuid {MANAGED_VOLUME_UUID}")
+    else:
+        raise QualificationError(f"unsupported qualification profile: {profile!r}")
     inputs = manifest.get("inputs")
-    if not isinstance(inputs, dict) or set(inputs) != set(INPUT_NAMES):
-        missing = sorted(set(INPUT_NAMES) - set(inputs or {})) if isinstance(inputs, dict) else list(INPUT_NAMES)
-        extra = sorted(set(inputs) - set(INPUT_NAMES)) if isinstance(inputs, dict) else []
-        raise QualificationError(f"manifest inputs must contain exactly {INPUT_NAMES}; missing={missing}, extra={extra}")
+    if not isinstance(inputs, dict) or set(inputs) != set(input_names):
+        missing = sorted(set(input_names) - set(inputs or {})) if isinstance(inputs, dict) else list(input_names)
+        extra = sorted(set(inputs) - set(input_names)) if isinstance(inputs, dict) else []
+        raise QualificationError(f"manifest inputs must contain exactly {input_names}; missing={missing}, extra={extra}")
 
     resolved: dict[str, Path] = {}
     input_identity: dict[str, dict[str, Any]] = {}
-    for name in INPUT_NAMES:
+    for name in input_names:
         record = inputs[name]
         if not isinstance(record, dict) or not isinstance(record.get("path"), str):
             raise QualificationError(f"input {name} must include a path and sha256")
@@ -234,6 +290,10 @@ def load_manifest(path: Path) -> tuple[dict[str, Any], bytes, dict[str, Path]]:
 
     normalized = dict(manifest)
     normalized["inputs"] = input_identity
+    normalized["profile"] = profile
+    normalized["go_test_name"] = go_test_name
+    if profile is None:
+        normalized["rust_test_name"] = rust_test_name
     return normalized, raw, resolved
 
 
@@ -328,6 +388,52 @@ def parse_qualification_result(go_output: str, go_returncode: int,
     if rust_summary_position < 0 or sentinel_position < rust_summary_position:
         raise QualificationError("guest runner PASS sentinel appeared before the Rust test result")
     return {"go_host_test": go_result, "rust_test": rust_result}
+
+
+def parse_managed_volume_result(go_output: str, go_returncode: int,
+                                serial_output: str) -> dict[str, dict[str, Any]]:
+    go_result = parse_go_test_output(go_output, go_returncode, MANAGED_VOLUME_GO_TEST_NAME)
+    runner_result = parse_managed_volume_runner_result(serial_output)
+    if runner_result["status"] != "PASS":
+        raise QualificationError(
+            f"guest command failed stage={runner_result['stage']} status={runner_result['exit_status']}")
+    serial = "\n".join(_serial_payload_lines(serial_output))
+    evidence = ("managed-volume-v1 device=/dev/oracleoci/oraclevdb "
+                f"uuid={MANAGED_VOLUME_UUID} mount={MANAGED_MOUNT_PATH} "
+                r"mount_id=(?P<mount_id>[1-9][0-9]*) replication_shard=absent")
+    evidence_matches = [match for line in serial.splitlines()
+                        if (match := re.search(evidence, line.strip())) is not None]
+    if len(evidence_matches) != 1:
+        raise QualificationError(
+            "guest serial must contain exactly one managed-volume verification record")
+    evidence_position = serial.index(evidence_matches[0].group(0))
+    sentinel_position = serial.index(MANAGED_VOLUME_RUNNER_SUCCESS)
+    if evidence_position >= sentinel_position:
+        raise QualificationError("guest runner PASS sentinel appeared before managed-volume verification")
+    mount_id = int(evidence_matches[0].group("mount_id"))
+    return {"go_host_test": go_result,
+            "managed_volume": {"status": "PASS", "device": "/dev/oracleoci/oraclevdb",
+                               "filesystem_uuid": MANAGED_VOLUME_UUID,
+                               "mount_path": str(MANAGED_MOUNT_PATH),
+                               "mount_id": mount_id,
+                               "replication_shard": "absent"}}
+
+
+def parse_managed_volume_runner_result(serial_output: str) -> dict[str, Any]:
+    result_lines = [line for line in _serial_payload_lines(serial_output)
+                    if line.startswith(MANAGED_VOLUME_RESULT_PREFIX)]
+    if len(result_lines) != 1:
+        raise QualificationError(
+            "guest serial must contain exactly one terminal managed-volume runner result; "
+            f"found {len(result_lines)}")
+    result = result_lines[0]
+    if result == MANAGED_VOLUME_RUNNER_SUCCESS:
+        return {"status": "PASS"}
+    failure = MANAGED_VOLUME_RUNNER_FAILURE.fullmatch(result)
+    if failure is None or failure.group("stage") not in MANAGED_VOLUME_RUNNER_STAGES:
+        raise QualificationError(f"guest serial contains a malformed runner result: {result}")
+    return {"status": "FAILED", "stage": failure.group("stage"),
+            "exit_status": int(failure.group("status")), "sentinel": result}
 
 
 def parse_runner_result(serial_output: str) -> dict[str, Any]:
@@ -671,7 +777,8 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 
 class FirecrackerVM:
     def __init__(self, firecracker: Path, kernel: Path, image: Path,
-                 socket_dir: Path, logs: Path, events: EventLog):
+                 socket_dir: Path, logs: Path, events: EventLog,
+                 managed_volume: Path | None = None):
         self.firecracker = firecracker
         self.kernel = kernel
         self.image = image
@@ -679,6 +786,7 @@ class FirecrackerVM:
         self.socket_path = socket_dir / "api.sock"
         self.logs = logs
         self.events = events
+        self.managed_volume = managed_volume
         self.process: subprocess.Popen[bytes] | None = None
         self.serial_path = logs / "guest-serial.log"
         self.vmm_path = logs / "firecracker-vmm.log"
@@ -749,6 +857,13 @@ class FirecrackerVM:
             "is_root_device": True,
             "is_read_only": False,
         })
+        if self.managed_volume is not None:
+            self._api("PUT", "/drives/managed-volume", {
+                "drive_id": "managed-volume",
+                "path_on_host": str(self.managed_volume),
+                "is_root_device": False,
+                "is_read_only": False,
+            })
         self._api("PUT", "/actions", {"action_type": "InstanceStart"})
         self.events.add("guest_boot", pid=self.process.pid, memory_mib=GUEST_RAM_MIB,
                         vcpus=GUEST_VCPUS, network_interfaces=[])
@@ -885,16 +1000,179 @@ exit 0
     return script
 
 
-def _service_unit() -> str:
+def _managed_volume_shell_runner(*, guest_root: Path = Path("/")) -> str:
+    def guest_path(path: str) -> str:
+        return str(guest_root / path.lstrip("/"))
+
+    log_dir = guest_path("/var/log/ts-managed-volume-qualification")
+    binary = guest_path("/opt/ts-managed-volume-qualification/host.test")
+    test_name = shlex.quote(MANAGED_VOLUME_GO_TEST_NAME)
+    return f"""#!/bin/sh
+set -eu
+RUNNER_STAGE=runner
+RUNNER_LOG=
+RUNNER_RESULT=FAILED
+
+finish() {{
+    status=$?
+    trap - EXIT
+    if [ "$RUNNER_RESULT" = PASS ] && [ "$status" -eq 0 ]; then
+        result='{MANAGED_VOLUME_RUNNER_SUCCESS}'
+    else
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+        result="{MANAGED_VOLUME_RESULT_PREFIX}FAILED stage=$RUNNER_STAGE status=$status"
+        if [ -n "$RUNNER_LOG" ]; then
+            printf '%s\\n' "$result" >>"$RUNNER_LOG" || :
+        fi
+    fi
+    printf '%s\\n' "$result" >&2
+    sync || :
+    systemctl --no-wall reboot || :
+    exit "$status"
+}}
+
+trap finish EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+LOG_DIR={log_dir}
+mkdir -p "$LOG_DIR"
+run_capture() {{
+    RUNNER_STAGE=go-host-test
+    RUNNER_LOG="$LOG_DIR/go-host-test.log"
+    if {binary} -test.run '^{test_name}$' -test.v -test.timeout={GO_TEST_TIMEOUT} >"$RUNNER_LOG" 2>&1; then
+        cat "$RUNNER_LOG"
+        RUNNER_LOG=
+    else
+        status=$?
+        cat "$RUNNER_LOG"
+        exit "$status"
+    fi
+}}
+
+run_capture
+RUNNER_RESULT=PASS
+exit 0
+"""
+
+
+def _managed_volume_setup_script() -> str:
+    return f"""#!/bin/sh
+set -eu
+EXPECTED_UUID='{MANAGED_VOLUME_UUID}'
+DEVICE=/dev/vdb
+ALIAS=/dev/oracleoci/oraclevdb
+MOUNT={shlex.quote(str(MANAGED_MOUNT_PATH))}
+
+if [ "${{TS_FC_VOLUME_UUID:-}}" != "$EXPECTED_UUID" ]; then
+    echo "managed volume UUID environment is missing or unexpected" >&2
+    exit 1
+fi
+attempt=0
+while [ "$attempt" -lt 120 ]; do
+    if [ -b "$DEVICE" ] && [ -e "/dev/disk/by-uuid/$TS_FC_VOLUME_UUID" ] &&
+       [ "$(readlink -f "/dev/disk/by-uuid/$TS_FC_VOLUME_UUID")" = "$DEVICE" ]; then
+        break
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.5
+done
+if [ "$attempt" -ge 120 ]; then
+    echo "managed volume did not appear with the pinned UUID" >&2
+    exit 1
+fi
+if [ "$(blkid -s UUID -o value "$DEVICE")" != "$EXPECTED_UUID" ]; then
+    echo "managed volume device UUID differs from the pin" >&2
+    exit 1
+fi
+for directory in /srv/ts-managed {MANAGED_MEMBER_DIR} {MANAGED_MATERIAL_PATH} {MANAGED_CONTROL_PATH} "$MOUNT"; do
+    if [ -L "$directory" ] || [ ! -d "$directory" ]; then
+        echo "managed runtime directory is unsafe: $directory" >&2
+        exit 1
+    fi
+done
+chown 0:65534 /srv/ts-managed {MANAGED_MEMBER_DIR} {MANAGED_MATERIAL_PATH} {MANAGED_CONTROL_PATH} "$MOUNT"
+chmod 0750 /srv/ts-managed {MANAGED_MEMBER_DIR} {MANAGED_MATERIAL_PATH} "$MOUNT"
+chmod 0730 {MANAGED_CONTROL_PATH}
+for material in {MANAGED_MATERIAL_PATH}/authority.tbca {MANAGED_MATERIAL_PATH}/trusted-public-key {MANAGED_MATERIAL_PATH}/server.crt {MANAGED_MATERIAL_PATH}/server.key {MANAGED_MATERIAL_PATH}/client-ca.pem {MANAGED_MATERIAL_PATH}/server-ca.pem {MANAGED_MATERIAL_PATH}/client-managed-manifest.json {MANAGED_MATERIAL_PATH}/client-config.json {MANAGED_MATERIAL_PATH}/client-chain.pem {MANAGED_MATERIAL_PATH}/client-private-key.pem {MANAGED_MATERIAL_PATH}/client-api-keys.json; do
+    if [ -L "$material" ] || [ ! -f "$material" ]; then
+        echo "managed authority material is unsafe: $material" >&2
+        exit 1
+    fi
+    chown 0:65534 "$material"
+    chmod 0440 "$material"
+done
+if [ -L /dev/oracleoci ] || [ -e /dev/oracleoci ] && [ ! -d /dev/oracleoci ]; then
+    echo "managed volume alias directory is unsafe" >&2
+    exit 1
+fi
+mkdir -p /dev/oracleoci
+if [ -e "$ALIAS" ] || [ -L "$ALIAS" ]; then
+    echo "managed volume alias already exists" >&2
+    exit 1
+fi
+ln -s ../vdb "$ALIAS"
+if findmnt -rn -S "$DEVICE" >/dev/null 2>&1 ||
+   findmnt -rn -S "/dev/disk/by-uuid/$TS_FC_VOLUME_UUID" >/dev/null 2>&1; then
+    echo "managed volume device is already mounted" >&2
+    exit 1
+fi
+if mountpoint -q "$MOUNT"; then
+    echo "managed volume mountpoint is already mounted" >&2
+    exit 1
+fi
+mount -t ext4 -o rw "$ALIAS" "$MOUNT"
+if [ "$(findmnt -n -o TARGET --source "$DEVICE")" != "$MOUNT" ] ||
+   [ "$(findmnt -n -o FSTYPE --target "$MOUNT")" != ext4 ] ||
+   [ "$(findmnt -n -o OPTIONS --target "$MOUNT" | tr ',' '\\n' | grep -xc rw)" -ne 1 ]; then
+    echo "managed volume did not mount read-write as ext4" >&2
+    exit 1
+fi
+chown 0:65534 "$MOUNT"
+chmod 0750 "$MOUNT"
+mkdir -m 0700 "$MOUNT/data" "$MOUNT/replication"
+chown 65534:65534 "$MOUNT/data" "$MOUNT/replication"
+chmod 0700 "$MOUNT/data" "$MOUNT/replication"
+"""
+
+
+def _managed_volume_setup_unit(filesystem_uuid: str) -> str:
+    return f"""[Unit]
+Description=Prepare the pinned TerraScale managed test volume
+After=local-fs.target
+Before={SERVICE_NAME}
+
+[Service]
+Type=oneshot
+User=root
+Environment=TS_FC_VOLUME_UUID={filesystem_uuid}
+TimeoutStartSec=90s
+ExecStart={MANAGED_VOLUME_SETUP_SCRIPT}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+"""
+
+
+def _service_unit(managed_volume_uuid: str | None = None) -> str:
+    volume_ordering = ""
+    volume_environment = ""
+    if managed_volume_uuid is not None:
+        volume_ordering = f"Requires={MANAGED_VOLUME_SETUP_SERVICE_NAME}\nAfter={MANAGED_VOLUME_SETUP_SERVICE_NAME}\n"
+        volume_environment = f"Environment=TS_FC_VOLUME_UUID={managed_volume_uuid}\n"
     return f"""[Unit]
 Description=TerraScale member-status Firecracker qualification
 After=local-fs.target
+{volume_ordering}
 
 [Service]
 Type=oneshot
 User=root
 Group=root
-Delegate=yes
+{volume_environment}Delegate=yes
 DelegateSubgroup=supervisor
 MemoryMax=5G
 NoNewPrivileges=yes
@@ -917,6 +1195,8 @@ class Qualification:
         self.manifest = manifest
         self.raw_manifest = raw_manifest
         self.inputs = inputs
+        self.managed_volume_profile = manifest.get("profile") == MANAGED_VOLUME_PROFILE
+        self.input_names = MANAGED_VOLUME_INPUT_NAMES if self.managed_volume_profile else INPUT_NAMES
         self.root = run_dir
         self.logs = self.root / "logs"
         self.commands = self.root / "commands"
@@ -924,6 +1204,7 @@ class Qualification:
         self.mount_root = self.root / "mount"
         self.stage = self.root / "stage"
         self.image = self.images / "member-status.ext4"
+        self.managed_volume_image = self.images / "managed-volume.ext4"
         self.mount_path = self.mount_root / "guest"
         self.events = EventLog(self.logs / "events.json")
         self.command_runner = CommandRunner(self.root, self.events)
@@ -940,15 +1221,20 @@ class Qualification:
             "serial": str(self.logs / "guest-serial.log"),
             "vmm": str(self.logs / "firecracker-vmm.log"),
             "go_host_test": str(self.logs / "guest-go-host-test.log"),
-            "rust_test": str(self.logs / "guest-rust-test.log"),
         }
+        if self.managed_volume_profile:
+            self.logs_out["managed_volume_test"] = str(self.logs / "guest-managed-volume-test.log")
+        else:
+            self.logs_out["rust_test"] = str(self.logs / "guest-rust-test.log")
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.local_source_paths = {
             "driver": Path(__file__).resolve(),
             "tests": Path(__file__).with_name("test_qualify.py").resolve(),
             "readme": REPO / "tests/firecracker/README.md",
             "memberstatus_probe_source": REPO / "tests/firecracker/memberstatus/main.go",
-            "focused_go_test_source": REPO / "internal/host/runner_test.go",
+            "focused_go_test_source": (REPO / "internal/host/managed_runtime_firecracker_test.go"
+                                       if self.managed_volume_profile else
+                                       REPO / "internal/host/runner_test.go"),
         }
         self.local_source_hashes = {name: sha256_file(path)
                                     for name, path in self.local_source_paths.items()}
@@ -961,9 +1247,16 @@ class Qualification:
         manifest_path = self.root / "manifest.json"
         manifest_path.write_bytes(self.raw_manifest)
         manifest_path.chmod(0o600)
-        self.events.add("qualification_start", manifest_sha256=sha256_bytes(self.raw_manifest),
-                        source_commits=self.manifest["source_commits"],
-                        rust_test_name=self.manifest["rust_test_name"], run_dir=str(self.root))
+        fields: dict[str, Any] = {
+            "manifest_sha256": sha256_bytes(self.raw_manifest),
+            "source_commits": self.manifest["source_commits"],
+            "run_dir": str(self.root),
+        }
+        if self.managed_volume_profile:
+            fields.update(profile=MANAGED_VOLUME_PROFILE, go_test_name=self.manifest["go_test_name"])
+        else:
+            fields["rust_test_name"] = self.manifest["rust_test_name"]
+        self.events.add("qualification_start", **fields)
 
     def _sudo(self) -> str:
         candidate = Path("/run/wrappers/bin/sudo")
@@ -985,13 +1278,13 @@ class Qualification:
                          allowed_returncodes=allowed_returncodes)
 
     def _recheck_inputs(self) -> None:
-        for name in INPUT_NAMES:
+        for name in self.input_names:
             current = sha256_file(self.inputs[name])
             expected = self.manifest["inputs"][name]["sha256"]
             if current != expected:
                 raise QualificationError(f"input {name} changed during qualification: {self.inputs[name]}")
         self.events.add("inputs_rechecked", hashes={name: self.manifest["inputs"][name]["sha256"]
-                                                    for name in INPUT_NAMES})
+                                                    for name in self.input_names})
 
     def _create_private_image(self) -> None:
         self._run("copy-rootfs", "cp", "--reflink=auto", "--sparse=always",
@@ -1012,6 +1305,39 @@ class Qualification:
                                  timeout=240, allowed_returncodes={0, 1})
         self.events.add("private_image_checked", log=str(check_log))
         self._run("resize2fs", "resize2fs", self.image, timeout=240)
+        if self.managed_volume_profile:
+            if self.inputs["volume_ext4"].stat().st_size != MANAGED_VOLUME_IMAGE_SIZE_BYTES:
+                raise QualificationError(
+                    f"managed volume image must be exactly {MANAGED_VOLUME_IMAGE_SIZE_BYTES} bytes")
+            self._run("copy-managed-volume", "cp", "--reflink=auto", "--sparse=always",
+                      self.inputs["volume_ext4"], self.managed_volume_image, timeout=120)
+            self.managed_volume_image.chmod(0o600)
+            copied_volume_hash = sha256_file(self.managed_volume_image)
+            expected_volume_hash = self.manifest["inputs"]["volume_ext4"]["sha256"]
+            if copied_volume_hash != expected_volume_hash:
+                raise QualificationError(
+                    "private managed volume copy SHA-256 mismatch: "
+                    f"expected {expected_volume_hash}, got {copied_volume_hash}")
+            self.events.add("private_managed_volume_copy_verified", sha256=copied_volume_hash)
+            _, fsck_log = self._run("managed-volume-e2fsck", "e2fsck", "-fn",
+                                    self.managed_volume_image, timeout=120)
+            self.events.add("private_managed_volume_checked", log=str(fsck_log))
+            _, uuid_log = self._run("managed-volume-blkid", "blkid", "-s", "UUID", "-o", "value",
+                                    self.managed_volume_image, timeout=30)
+            observed_uuid = uuid_log.read_text().strip()
+            expected_uuid = self.manifest["managed_volume"]["filesystem_uuid"]
+            if observed_uuid != expected_uuid:
+                raise QualificationError(
+                    f"managed volume UUID mismatch: expected {expected_uuid}, got {observed_uuid!r}")
+            _, type_log = self._run("managed-volume-blkid-type", "blkid", "-s", "TYPE", "-o", "value",
+                                    self.managed_volume_image, timeout=30)
+            observed_type = type_log.read_text().strip()
+            if observed_type != "ext4":
+                raise QualificationError(f"managed volume filesystem type must be ext4, got {observed_type!r}")
+            self.events.add("private_managed_volume_created", source=str(self.inputs["volume_ext4"]),
+                            image=str(self.managed_volume_image), filesystem_uuid=observed_uuid,
+                            filesystem_type=observed_type,
+                            virtual_size_bytes=self.managed_volume_image.stat().st_size)
 
     def _mount(self, *, read_only: bool = False) -> None:
         if os.path.lexists(self.mount_path):
@@ -1064,17 +1390,23 @@ class Qualification:
         path.chmod(mode)
         return path
 
-    def _install(self, source: Path, destination: Path, mode: str) -> None:
+    def _install(self, source: Path, destination: Path, mode: str,
+                 group: str = "root") -> None:
         if not destination.is_absolute() or ".." in destination.parts:
             raise QualificationError(f"unsafe guest destination: {destination}")
         target = _guest_path_without_symlinks(self.mount_path, destination)
-        self._sudo_run("install-" + destination.name, "install", "-D", "-o", "root", "-g", "root",
+        self._sudo_run("install-" + destination.name, "install", "-D", "-o", "root", "-g", group,
                        "-m", mode, source, target, timeout=60)
 
-    def _enable_guest_service(self) -> None:
-        unit_path = Path("/etc/systemd/system") / SERVICE_NAME
+    def _install_directory(self, destination: Path, mode: str, group: str = "root") -> None:
+        target = _guest_path_without_symlinks(self.mount_path, destination)
+        self._sudo_run("install-dir-" + destination.name, "install", "-d", "-o", "root", "-g", group,
+                       "-m", mode, target, timeout=30)
+
+    def _enable_guest_service(self, service_name: str = SERVICE_NAME) -> None:
+        unit_path = Path("/etc/systemd/system") / service_name
         wants_dir = Path("/etc/systemd/system/multi-user.target.wants")
-        link_path = wants_dir / SERVICE_NAME
+        link_path = wants_dir / service_name
         _guest_path_without_symlinks(self.mount_path, unit_path)
         wants_host = _guest_path_without_symlinks(self.mount_path, wants_dir)
         self._sudo_run("create-service-wants-dir", "install", "-d", "-o", "root", "-g", "root",
@@ -1082,7 +1414,8 @@ class Qualification:
         link_host = _guest_path_without_symlinks(self.mount_path, link_path)
         if os.path.lexists(link_host):
             raise QualificationError(f"guest service enable path already exists: {link_path}")
-        self._sudo_run("enable-guest-service", "ln", "-s", f"../{SERVICE_NAME}", link_host, timeout=30)
+        self._sudo_run("enable-guest-service-" + service_name, "ln", "-s",
+                       f"../{service_name}", link_host, timeout=30)
 
     def _stage_guest(self) -> None:
         self._mount()
@@ -1091,7 +1424,11 @@ class Qualification:
                 self.mount_path, Path("/usr/lib/systemd/systemd"))
             if not systemd_binary.is_file():
                 raise QualificationError(f"guest rootfs has no systemd binary at {systemd_binary}")
-            for required in ("usr/bin/setpriv", "usr/bin/curl", "usr/bin/systemctl"):
+            required_binaries = (("usr/bin/systemctl", "usr/bin/blkid", "usr/bin/findmnt",
+                                  "usr/bin/mountpoint", "usr/bin/readlink")
+                                 if self.managed_volume_profile else
+                                 ("usr/bin/setpriv", "usr/bin/curl", "usr/bin/systemctl"))
+            for required in required_binaries:
                 required_path = _guest_path_without_symlinks(self.mount_path, Path("/" + required))
                 if not required_path.is_file():
                     raise QualificationError(f"guest rootfs is missing required probe executable: /{required}")
@@ -1110,6 +1447,10 @@ class Qualification:
                 raise QualificationError("guest requires an installed systemd package at version 255 or newer")
             self.events.add("guest_systemd_version", version=int(version_match.group(1)),
                             source="dpkg-status")
+
+            if self.managed_volume_profile:
+                self._stage_managed_volume_guest()
+                return
 
             payloads = (
                 ("go_host_test", Path("/opt/ts-member-status/go-host-test")),
@@ -1143,6 +1484,90 @@ class Qualification:
         finally:
             self._unmount()
 
+    def _stage_managed_volume_guest(self) -> None:
+        binary = Path("/opt/ts-managed-volume-qualification/host.test")
+        self._install(self.inputs["go_host_test"], binary, "0755")
+        actual = sha256_file(self.mount_path / binary.relative_to("/"))
+        expected = self.manifest["inputs"]["go_host_test"]["sha256"]
+        if actual != expected:
+            raise QualificationError(f"staged go_host_test SHA-256 mismatch: expected {expected}, got {actual}")
+        self.events.add("guest_binary_staged", name="go_host_test", path=str(binary), sha256=actual)
+
+        for directory, mode in ((Path("/srv/ts-managed"), "0750"),
+                                (MANAGED_MEMBER_DIR, "0750"),
+                                (MANAGED_MATERIAL_PATH, "0750"),
+                                (MANAGED_CONTROL_PATH, "0730"),
+                                (MANAGED_MOUNT_PATH, "0750")):
+            self._install_directory(directory, mode, "65534")
+
+        material_names = (
+            "authority_tbca", "trusted_public_key", "server_crt", "server_key", "client_ca_pem",
+            "client_managed_manifest", "client_config", "client_chain", "client_private_key",
+            "client_api_keys",
+        )
+        material_destinations = {
+            "authority_tbca": "authority.tbca",
+            "trusted_public_key": "trusted-public-key",
+            "server_crt": "server.crt",
+            "server_key": "server.key",
+            "client_ca_pem": "client-ca.pem",
+            "client_managed_manifest": "client-managed-manifest.json",
+            "client_config": "client-config.json",
+            "client_chain": "client-chain.pem",
+            "client_private_key": "client-private-key.pem",
+            "client_api_keys": "client-api-keys.json",
+        }
+        for name in material_names:
+            source = self.inputs[name]
+            destination = MANAGED_MATERIAL_PATH / material_destinations[name]
+            self._install(source, destination, "0440", "65534")
+            staged = self.mount_path / destination.relative_to("/")
+            actual = sha256_file(staged)
+            expected = self.manifest["inputs"][name]["sha256"]
+            if actual != expected:
+                raise QualificationError(f"staged {name} SHA-256 mismatch: expected {expected}, got {actual}")
+            self.events.add("guest_material_staged", name=name, path=str(destination), sha256=actual)
+
+        # The isolated fixture uses one synthetic CA for its server and peer
+        # roles. Keep the server trust path separately named but byte-pinned to
+        # the already declared client CA input; no unpinned material is copied.
+        client_ca = self.inputs["client_ca_pem"]
+        server_ca_path = MANAGED_MATERIAL_PATH / "server-ca.pem"
+        self._install(client_ca, server_ca_path, "0440", "65534")
+        server_ca_staged = self.mount_path / server_ca_path.relative_to("/")
+        server_ca_hash = sha256_file(server_ca_staged)
+        if server_ca_hash != self.manifest["inputs"]["client_ca_pem"]["sha256"]:
+            raise QualificationError("staged server-ca.pem differs from the pinned shared fixture CA")
+        self.events.add("guest_material_staged", name="server_ca_alias", path=str(server_ca_path),
+                        sha256=server_ca_hash, source_input="client_ca_pem")
+
+        runner = self._write_stage_file("managed-volume-runner.sh",
+                                        _managed_volume_shell_runner(), 0o700)
+        setup_script = self._write_stage_file("managed-volume-setup.sh", _managed_volume_setup_script(), 0o700)
+        qualification_unit = self._write_stage_file(
+            "managed-volume-unit.service",
+            _service_unit(self.manifest["managed_volume"]["filesystem_uuid"]), 0o644)
+        setup_unit = self._write_stage_file(
+            "managed-volume-setup-unit.service",
+            _managed_volume_setup_unit(self.manifest["managed_volume"]["filesystem_uuid"]), 0o644)
+        self._install(runner, Path("/usr/local/sbin/ts-member-status-qualification"), "0755")
+        self._install(setup_script, Path(MANAGED_VOLUME_SETUP_SCRIPT), "0755")
+        self._install(qualification_unit, Path("/etc/systemd/system/" + SERVICE_NAME), "0644")
+        self._install(setup_unit,
+                      Path("/etc/systemd/system/" + MANAGED_VOLUME_SETUP_SERVICE_NAME), "0644")
+        self._enable_guest_service(MANAGED_VOLUME_SETUP_SERVICE_NAME)
+        self._enable_guest_service()
+        self.events.add("guest_managed_volume_setup_staged", unit=MANAGED_VOLUME_SETUP_SERVICE_NAME,
+                        script=MANAGED_VOLUME_SETUP_SCRIPT, filesystem_uuid=MANAGED_VOLUME_UUID,
+                        device="/dev/vdb", alias="/dev/oracleoci/oraclevdb",
+                        mount_path=str(MANAGED_MOUNT_PATH), no_test_service_sys_admin=True)
+        self.events.add("guest_service_staged", unit=SERVICE_NAME,
+                        runner="/usr/local/sbin/ts-member-status-qualification",
+                        delegate=True, delegate_subgroup="supervisor", memory_max="5G",
+                        no_new_privileges=True, ambient_capabilities=[],
+                        capability_bounding_set=CAPABILITY_BOUNDING_SET,
+                        profile=MANAGED_VOLUME_PROFILE)
+
     def _make_socket_dir(self) -> None:
         self.socket_dir = make_private_socket_dir()
         self.events.add("api_socket_dir_created", path=str(self.socket_dir))
@@ -1153,7 +1578,8 @@ class Qualification:
             raise QualificationError("Firecracker requires readable and writable /dev/kvm")
         self._make_socket_dir()
         self.vm = FirecrackerVM(self.inputs["firecracker"], self.inputs["kernel"], self.image,
-                                self.socket_dir, self.logs, self.events)
+                                self.socket_dir, self.logs, self.events,
+                                self.managed_volume_image if self.managed_volume_profile else None)
         self.vm.start()
         self.vm.wait_for_shutdown()
 
@@ -1162,9 +1588,14 @@ class Qualification:
             return
         self._mount(read_only=True)
         try:
-            guest_log_dir = Path("/var/log/ts-member-status-qualification")
-            for guest_name, output_name in (("go-host-test.log", "guest-go-host-test.log"),
-                                            ("rust-test.log", "guest-rust-test.log")):
+            if self.managed_volume_profile:
+                guest_log_dir = Path("/var/log/ts-managed-volume-qualification")
+                guest_logs = (("go-host-test.log", "guest-managed-volume-test.log"),)
+            else:
+                guest_log_dir = Path("/var/log/ts-member-status-qualification")
+                guest_logs = (("go-host-test.log", "guest-go-host-test.log"),
+                              ("rust-test.log", "guest-rust-test.log"))
+            for guest_name, output_name in guest_logs:
                 guest_path = guest_log_dir / guest_name
                 source = _guest_path_without_symlinks(self.mount_path, guest_path)
                 try:
@@ -1186,13 +1617,31 @@ class Qualification:
 
     def _check_results(self) -> None:
         serial_path = self.logs / "guest-serial.log"
-        go_path = self.logs / "guest-go-host-test.log"
-        rust_path = self.logs / "guest-rust-test.log"
         if not serial_path.is_file():
             raise QualificationError(f"required guest evidence log is missing: {serial_path}")
         serial, serial_oversized = _read_text_bounded(serial_path, MAX_SERIAL_LOG_BYTES)
         if serial_oversized:
             raise QualificationError("guest serial log exceeded its collection bound")
+        if self.managed_volume_profile:
+            runner_result = parse_managed_volume_runner_result(serial)
+            if runner_result["status"] == "FAILED":
+                self.test_results = {"runner": runner_result}
+                self.events.add("test_results", results=self.test_results)
+                raise QualificationError(
+                    f"guest test command failed stage={runner_result['stage']} "
+                    f"status={runner_result['exit_status']}")
+            go_path = self.logs / "guest-managed-volume-test.log"
+            if not go_path.is_file():
+                raise QualificationError(f"required guest evidence log is missing: {go_path}")
+            go, go_oversized = _read_text_bounded(go_path, MAX_GUEST_LOG_BYTES)
+            if go_oversized:
+                raise QualificationError("managed volume Go test evidence log exceeded its collection bound")
+            self.test_results = parse_managed_volume_result(go, 0, serial)
+            self.events.add("test_results", results=self.test_results)
+            return
+
+        go_path = self.logs / "guest-go-host-test.log"
+        rust_path = self.logs / "guest-rust-test.log"
         runner_result = parse_runner_result(serial)
         if runner_result["status"] == "FAILED":
             self.test_results = {"runner": runner_result}
@@ -1239,14 +1688,24 @@ class Qualification:
             self.events.add("private_image_retained", image=str(self.image),
                             stopped=stopped, commands_stopped=commands_stopped,
                             mounted=mounted, tracked_mount=self.mount_owned)
+            if self.managed_volume_profile:
+                self.events.add("private_managed_volume_retained", image=str(self.managed_volume_image),
+                                stopped=stopped, commands_stopped=commands_stopped,
+                                mounted=mounted, tracked_mount=self.mount_owned)
             return
         if self.image.exists() and self.failure:
             self.events.add("private_image_retained", image=str(self.image),
                             reason="qualification failed; preserve guest-side evidence")
+            if self.managed_volume_profile and self.managed_volume_image.exists():
+                self.events.add("private_managed_volume_retained", image=str(self.managed_volume_image),
+                                reason="qualification failed; preserve guest-side evidence")
             return
         if self.image.exists() and self.cleanup_errors:
             self.events.add("private_image_retained", image=str(self.image),
                             reason="cleanup failed; preserve guest-side evidence")
+            if self.managed_volume_profile and self.managed_volume_image.exists():
+                self.events.add("private_managed_volume_retained", image=str(self.managed_volume_image),
+                                reason="cleanup failed; preserve guest-side evidence")
             return
         if self.image.exists():
             try:
@@ -1254,6 +1713,17 @@ class Qualification:
                 self.events.add("private_image_removed", image=str(self.image))
             except OSError as error:
                 self.cleanup_errors.append(f"remove stopped and unmounted private image {self.image}: {error}")
+        if self.managed_volume_profile and self.managed_volume_image.exists():
+            if self.failure or self.cleanup_errors:
+                self.events.add("private_managed_volume_retained", image=str(self.managed_volume_image),
+                                reason="qualification or cleanup failed; preserve guest-side evidence")
+                return
+            try:
+                self.managed_volume_image.unlink()
+                self.events.add("private_managed_volume_removed", image=str(self.managed_volume_image))
+            except OSError as error:
+                self.cleanup_errors.append(
+                    f"remove stopped managed volume image {self.managed_volume_image}: {error}")
 
     def run(self) -> dict[str, Any]:
         self.prepare_dirs()
@@ -1297,13 +1767,12 @@ class Qualification:
             "finished_at": datetime.now(timezone.utc).isoformat(),
             "run_dir": str(self.root),
             "source_commits": self.manifest["source_commits"],
-            "rust_test_name": self.manifest["rust_test_name"],
             "manifest_sha256": sha256_bytes(self.raw_manifest),
             "local_source_hashes": self.local_source_hashes,
             "local_source_hashes_after": self.local_source_hashes_after,
             "local_source_stable": self.local_source_stable,
-            "input_hashes": {name: self.manifest["inputs"][name]["sha256"] for name in INPUT_NAMES},
-            "input_paths": {name: self.manifest["inputs"][name]["resolved_path"] for name in INPUT_NAMES},
+            "input_hashes": {name: self.manifest["inputs"][name]["sha256"] for name in self.input_names},
+            "input_paths": {name: self.manifest["inputs"][name]["resolved_path"] for name in self.input_names},
             "resources": {
                 "guest_ram_mib": GUEST_RAM_MIB,
                 "guest_vcpus": GUEST_VCPUS,
@@ -1322,6 +1791,19 @@ class Qualification:
             "logs": self.logs_out,
             "events": self.events.entries,
         }
+        if self.managed_volume_profile:
+            summary["profile"] = MANAGED_VOLUME_PROFILE
+            summary["go_test_name"] = self.manifest["go_test_name"]
+            summary["managed_volume"] = {
+                "filesystem_uuid": self.manifest["managed_volume"]["filesystem_uuid"],
+                "private_image": str(self.managed_volume_image),
+                "private_image_removed": not self.managed_volume_image.exists(),
+                "private_image_retained": self.managed_volume_image.exists(),
+                "device": "/dev/oracleoci/oraclevdb",
+                "mount_path": str(MANAGED_MOUNT_PATH),
+            }
+        else:
+            summary["rust_test_name"] = self.manifest["rust_test_name"]
         self._write_summary(summary)
         print(json.dumps({"outcome": outcome, "summary": str(self.root / "summary.json"),
                           "failure": self.failure}, sort_keys=True), flush=True)
@@ -1357,7 +1839,9 @@ def _validate_host_prerequisites(inputs: dict[str, Path], run_dir: Path) -> None
     parent = run_dir.parent
     if not parent.exists() or not parent.is_dir():
         raise QualificationError(f"--run-dir parent must already exist: {parent}")
-    required = ("cp", "e2fsck", "resize2fs", "mount", "umount", "install", "ln")
+    required = ["cp", "e2fsck", "resize2fs", "mount", "umount", "install", "ln"]
+    if "volume_ext4" in inputs:
+        required.append("blkid")
     missing = [name for name in required if shutil.which(name) is None]
     if not Path("/run/wrappers/bin/sudo").is_file() and shutil.which("sudo") is None:
         missing.append("sudo")

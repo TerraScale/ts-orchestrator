@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import signal
+import json
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -26,6 +28,16 @@ MEMBER_STATUS_GO_OK
 {qualify.SENDER_SUCCESS}
 ok
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+"""
+MANAGED_VOLUME_EVIDENCE = (
+    "managed-volume-v1 device=/dev/oracleoci/oraclevdb "
+    f"uuid={qualify.MANAGED_VOLUME_UUID} mount={qualify.MANAGED_MOUNT_PATH} "
+    "mount_id=23 replication_shard=absent"
+)
+MANAGED_VOLUME_PASS = f"""=== RUN   {qualify.MANAGED_VOLUME_GO_TEST_NAME}
+    managed_runtime_firecracker_test.go:1: {MANAGED_VOLUME_EVIDENCE}
+--- PASS: {qualify.MANAGED_VOLUME_GO_TEST_NAME} (0.00s)
+PASS
 """
 
 
@@ -59,6 +71,83 @@ class ResultParserTests(unittest.TestCase):
         for label, output, returncode in cases:
             with self.subTest(label=label), self.assertRaises(qualify.QualificationError):
                 qualify.parse_go_test_output(output, returncode)
+
+    def test_managed_volume_parser_requires_exact_test_and_mount_evidence(self):
+        serial = MANAGED_VOLUME_PASS + qualify.MANAGED_VOLUME_RUNNER_SUCCESS + "\n"
+        result = qualify.parse_managed_volume_result(MANAGED_VOLUME_PASS, 0, serial)
+        self.assertEqual(result["go_host_test"]["name"], qualify.MANAGED_VOLUME_GO_TEST_NAME)
+        self.assertEqual(result["managed_volume"]["mount_id"], 23)
+        self.assertEqual(result["managed_volume"]["replication_shard"], "absent")
+
+        cases = (
+            (MANAGED_VOLUME_PASS.replace("--- PASS:", "--- SKIP:"), serial),
+            (MANAGED_VOLUME_PASS, serial.replace("mount_id=23", "mount_id=0")),
+            (MANAGED_VOLUME_PASS, serial.replace("replication_shard=absent", "replication_shard=present")),
+            (MANAGED_VOLUME_PASS, serial.replace(qualify.MANAGED_VOLUME_RUNNER_SUCCESS,
+                                                  qualify.MANAGED_VOLUME_RUNNER_SUCCESS + "\n" +
+                                                  qualify.MANAGED_VOLUME_RUNNER_SUCCESS)),
+            (MANAGED_VOLUME_PASS, qualify.MANAGED_VOLUME_RUNNER_SUCCESS + "\n" + MANAGED_VOLUME_PASS),
+        )
+        for output, bad_serial in cases:
+            with self.subTest(output=output[:24], serial=bad_serial[-48:]), \
+                    self.assertRaises(qualify.QualificationError):
+                qualify.parse_managed_volume_result(output, 0, bad_serial)
+
+    def test_managed_volume_manifest_requires_exact_test_inputs_uuid_and_no_rust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            names = qualify.MANAGED_VOLUME_INPUT_NAMES
+            inputs = {}
+            for name in names:
+                path = root / name
+                path.write_bytes(name.encode())
+                if name in ("firecracker", "go_host_test"):
+                    path.chmod(0o755)
+                inputs[name] = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            manifest = {
+                "profile": qualify.MANAGED_VOLUME_PROFILE,
+                "source_commits": {"orchestrator": "a" * 40, "terrabase": "b" * 40},
+                "go_test_name": qualify.MANAGED_VOLUME_GO_TEST_NAME,
+                "managed_volume": {"filesystem_uuid": qualify.MANAGED_VOLUME_UUID},
+                "inputs": inputs,
+            }
+            path = root / "manifest.json"
+            path.write_text(json.dumps(manifest))
+            loaded, _, resolved = qualify.load_manifest(path)
+            self.assertEqual(set(resolved), set(names))
+            self.assertEqual(loaded["profile"], qualify.MANAGED_VOLUME_PROFILE)
+
+            invalid = []
+            invalid.append({**manifest, "rust_test_name": qualify.RUST_TEST_NAME})
+            invalid.append({**manifest, "go_test_name": "TestSomethingElse"})
+            invalid.append({**manifest, "managed_volume": {"filesystem_uuid": "not-pinned"}})
+            invalid.append({**manifest, "inputs": {**inputs, "rust_test": inputs["go_host_test"]}})
+            for candidate in invalid:
+                path.write_text(json.dumps(candidate))
+                with self.subTest(candidate=candidate.keys()), self.assertRaises(qualify.QualificationError):
+                    qualify.load_manifest(path)
+
+    def test_absent_profile_preserves_legacy_manifest_schema(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            inputs = {}
+            for name in qualify.INPUT_NAMES:
+                path = root / name
+                path.write_bytes(name.encode())
+                if name in ("firecracker", "go_host_test", "memberstatus_probe", "rust_server", "rust_test"):
+                    path.chmod(0o755)
+                inputs[name] = {"path": str(path), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+            manifest = {
+                "source_commits": {"orchestrator": "a" * 40, "terrabase": "b" * 40},
+                "rust_test_name": qualify.RUST_TEST_NAME,
+                "inputs": inputs,
+            }
+            path = root / "manifest.json"
+            path.write_text(json.dumps(manifest))
+            loaded, _, resolved = qualify.load_manifest(path)
+            self.assertIsNone(loaded["profile"])
+            self.assertEqual(set(resolved), set(qualify.INPUT_NAMES))
+            self.assertEqual(loaded["rust_test_name"], qualify.RUST_TEST_NAME)
 
     def test_rust_parser_rejects_zero_ignored_wrong_name_multiple_and_failed_exit(self):
         cases = (
@@ -184,6 +273,45 @@ class BoundedLogTests(unittest.TestCase):
                 vm._finish_output()
 
 
+class ManagedVolumeAttachTests(unittest.TestCase):
+    def test_volume_drive_is_registered_before_instance_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            socket_dir = root / "socket"
+            socket_dir.mkdir()
+            socket_path = socket_dir / "api.sock"
+            socket_path.touch()
+            logs = root / "logs"
+            logs.mkdir()
+            events = qualify.EventLog(logs / "events.json")
+            vm = qualify.FirecrackerVM(
+                root / "firecracker", root / "kernel", root / "rootfs", socket_dir, logs, events,
+                root / "managed-volume.ext4")
+            calls = []
+
+            class Capture:
+                def __init__(self, stream, path, maximum):
+                    self.path = path
+
+            process = type("Process", (), {"pid": 123, "stdout": object(), "stderr": object(),
+                                             "returncode": None})()
+            with patch.object(qualify.subprocess, "Popen", return_value=process), \
+                    patch.object(qualify, "BoundedOutput", Capture), \
+                    patch.object(qualify, "_child_exited_without_reaping", return_value=False), \
+                    patch.object(vm, "_api", side_effect=lambda method, path, payload=None:
+                                 calls.append((method, path, payload)) or {}):
+                vm.start()
+
+            drive_index = next(index for index, call in enumerate(calls)
+                               if call[1] == "/drives/managed-volume")
+            start_index = next(index for index, call in enumerate(calls)
+                               if call[1] == "/actions" and call[2]["action_type"] == "InstanceStart")
+            self.assertLess(drive_index, start_index)
+            self.assertEqual(calls[drive_index][2], {
+                "drive_id": "managed-volume", "path_on_host": str(root / "managed-volume.ext4"),
+                "is_root_device": False, "is_read_only": False})
+
+
 class GuestRunnerFailureTests(unittest.TestCase):
     def test_service_timeout_leaves_host_shutdown_fallback(self):
         self.assertLess(qualify.GUEST_SERVICE_TIMEOUT_SECONDS, qualify.GUEST_DEADLINE_SECONDS)
@@ -259,6 +387,59 @@ class GuestRunnerFailureTests(unittest.TestCase):
             result = qualify.parse_runner_result(process.stdout)
             self.assertEqual(result["stage"], "go-host-test")
             self.assertEqual(result["exit_status"], 37)
+
+    def test_managed_volume_runner_records_mount_evidence_and_requests_reboot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guest = root / "guest"
+            binary = guest / "opt/ts-managed-volume-qualification/host.test"
+            binary.parent.mkdir(parents=True)
+            binary.write_text(
+                "#!/bin/sh\n"
+                f"printf '%s\\n' '=== RUN   {qualify.MANAGED_VOLUME_GO_TEST_NAME}'\n"
+                f"printf '%s\\n' '    managed_runtime_firecracker_test.go:1: {MANAGED_VOLUME_EVIDENCE}'\n"
+                f"printf '%s\\n' '--- PASS: {qualify.MANAGED_VOLUME_GO_TEST_NAME} (0.00s)' 'PASS'\n")
+            binary.chmod(0o755)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            reboot_record = root / "reboot-args"
+            fake_systemctl = fake_bin / "systemctl"
+            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
+            fake_systemctl.chmod(0o755)
+            script = root / "runner.sh"
+            script.write_text(qualify._managed_volume_shell_runner(guest_root=guest))
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+            process = subprocess.run(["/bin/sh", str(script)], stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, env=environment, timeout=5,
+                                     check=False, text=True)
+
+            self.assertEqual(process.returncode, 0)
+            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
+            results = qualify.parse_managed_volume_result(
+                (guest / "var/log/ts-managed-volume-qualification/go-host-test.log").read_text(),
+                0, process.stdout)
+            self.assertEqual(results["managed_volume"]["mount_id"], 23)
+
+    def test_managed_volume_setup_and_service_keep_mount_privilege_separate(self):
+        script = qualify._managed_volume_setup_script()
+        setup = qualify._managed_volume_setup_unit(qualify.MANAGED_VOLUME_UUID)
+        service = qualify._service_unit(qualify.MANAGED_VOLUME_UUID)
+
+        self.assertIn('ln -s ../vdb "$ALIAS"', script)
+        self.assertIn(f"mount -t ext4 -o rw \"$ALIAS\" \"$MOUNT\"", script)
+        self.assertNotIn("replication/shard", script)
+        self.assertIn("Environment=TS_FC_VOLUME_UUID=", setup)
+        self.assertIn(f"Before={qualify.SERVICE_NAME}", setup)
+        self.assertIn(f"Requires={qualify.MANAGED_VOLUME_SETUP_SERVICE_NAME}", service)
+        self.assertIn("NoNewPrivileges=yes", service)
+        self.assertNotIn("SYS_ADMIN", service)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "setup.sh"
+            path.write_text(script)
+            checked = subprocess.run(["/bin/sh", "-n", str(path)], check=False)
+            self.assertEqual(checked.returncode, 0)
 
 
 class QualificationCleanupTests(unittest.TestCase):

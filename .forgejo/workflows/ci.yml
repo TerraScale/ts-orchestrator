@@ -37,7 +37,7 @@ jobs:
           printf 'source=%s tree=%s go=%s\n' \
             "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
 
-      - name: Verify formatting, tests, vet, and race behavior
+      - name: Verify Go and Firecracker contract tests
         shell: bash
         run: make verify GO=go GOFMT=gofmt
 
@@ -79,5 +79,7 @@ jobs:
             terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
           cat dist/SHA256SUMS
 
-      # This Forgejo runner does not currently retain action upload-artifact
-      # outputs. The hashes and source revision remain visible in this job log.
+      # The runner rejects every mirrored upload-artifact tag because its
+      # include-hidden-files input reaches action validation with a trailing
+      # newline. Keep the source revision, validation output, and binary hash
+      # receipt in the retained job log until a pinned upload path is qualified.

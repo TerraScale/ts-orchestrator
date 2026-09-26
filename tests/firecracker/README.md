@@ -34,7 +34,8 @@ both test summaries explicitly pass, the nested Go probe reports
 `MEMBER_STATUS_GO_OK` and its sender-enabled success marker, and the guest emits
 the final `MEMBER_STATUS_QUALIFICATION_RESULT=PASS` sentinel after both tests.
 On any runner exit, the guest records one terminal PASS or a FAILED stage and
-exit status, then requests poweroff. The guest service has a 270-second start
+exit status, then requests reboot so Firecracker's x86 reset handler can end
+the VMM naturally. The guest service has a 270-second start
 timeout and the host retains a 300-second shutdown deadline for stuck guests;
 completed test failures are reported with their exact stage and status.
 
@@ -45,6 +46,32 @@ summary is `PASS`, `FAILED`, or `CLEANUP_FAILED`; only `PASS` returns zero. The
 source rootfs and executable inputs remain unchanged. The private writable
 image is removed only after the VMM is confirmed stopped and the image is
 confirmed unmounted; otherwise the image is retained for inspection.
+
+### Managed-volume runtime preparation profile
+
+The same driver accepts the optional manifest profile
+`"profile":"managed-volume-v1"`. It requires
+`"go_test_name":"TestManagedRuntimeFirecrackerMountedVolume"`, omits
+`rust_test_name`, and pins `managed_volume.filesystem_uuid` to the reviewed
+fixture UUID. Its exact input names are `kernel`, `rootfs`, `firecracker`,
+`go_host_test`, `volume_ext4`, `authority_tbca`, `trusted_public_key`,
+`server_crt`, `server_key`, `client_ca_pem`, `client_managed_manifest`,
+`client_config`, `client_chain`, `client_private_key`, and `client_api_keys`;
+each input has an absolute path and SHA-256 digest. The volume is a clean,
+256-MiB preformatted ext4 image copied into the run directory and attached as
+the second read-write Firecracker drive before guest start.
+
+A trusted root setup unit waits for the pinned UUID on `/dev/vdb`, creates the
+fixed `/dev/oracleoci/oraclevdb` alias, mounts the volume once at the
+binding-derived `/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/volume`, and
+sets the fixed runtime/material ownership and modes before the restricted Go
+test service starts. The test service receives only `TS_FC_VOLUME_UUID`, keeps
+`NoNewPrivileges=yes`, and does not receive `CAP_SYS_ADMIN`. The profile runs
+only the focused Go test and requires one explicit non-skipped PASS plus its
+mount/material evidence line and terminal runner PASS. It verifies the
+mounted device, material, paths, and generated runtime arguments; it does not
+claim the member is serving. The host still requires natural Firecracker exit
+0, bounded evidence logs, and clean resource cleanup.
 
 Run from the repository root on the authorized local lab host:
 
