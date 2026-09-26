@@ -13,9 +13,43 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 const regionalPeers = 3
+
+func startAuthorityWithRetry(ctx context.Context, js jetstream.JetStream, config authority.Config) (*authority.Runtime, error) {
+	for attempt := 1; ; attempt++ {
+		runtime, err := authority.Start(ctx, js, config)
+		if err == nil || !transientAuthorityStartupError(err) {
+			return runtime, err
+		}
+
+		timer := time.NewTimer(min(time.Duration(attempt)*250*time.Millisecond, 2*time.Second))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func transientAuthorityStartupError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, authority.ErrConflict) ||
+		errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrNoResponders) ||
+		errors.Is(err, nats.ErrDisconnected) || errors.Is(err, jetstream.ErrNoStreamResponse) {
+		return true
+	}
+	apiErr, ok := errors.AsType[*jetstream.APIError](err)
+	if !ok {
+		return false
+	}
+	return apiErr.ErrorCode == 10005 || apiErr.Code >= 500 &&
+		!errors.Is(err, jetstream.ErrJetStreamNotEnabled) &&
+		!errors.Is(err, jetstream.ErrJetStreamNotEnabledForAccount)
+}
 
 func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
@@ -41,7 +75,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		t.Helper()
 		cfg := leaseConfig
 		cfg.CandidateID = candidateIDs[index]
-		runtime, err := authority.Start(ctx, cluster.nodes[index].JetStream(), cfg)
+		runtime, err := startAuthorityWithRetry(ctx, cluster.nodes[index].JetStream(), cfg)
 		if err != nil {
 			t.Fatalf("start authority %s: %v", cfg.CandidateID, err)
 		}

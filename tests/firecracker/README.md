@@ -66,7 +66,8 @@ fixed `/dev/oracleoci/oraclevdb` alias, mounts the volume once at the
 binding-derived `/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/volume`, and
 sets the fixed runtime/material ownership and modes before the restricted Go
 test service starts. The test service receives only `TS_FC_VOLUME_UUID`, keeps
-`NoNewPrivileges=yes`, and does not receive `CAP_SYS_ADMIN`. The profile runs
+`NoNewPrivileges=yes`, adds only `CAP_DAC_READ_SEARCH` to the bounding set
+above, and does not receive `CAP_SYS_ADMIN`. The profile runs
 only the focused Go test and requires one explicit non-skipped PASS plus its
 mount/material evidence line and terminal runner PASS. It verifies the
 mounted device, material, paths, and generated runtime arguments; it does not
@@ -88,8 +89,9 @@ and
 It also checks Firecracker,
 `/dev/kvm`, `/dev/net/tun`, and required host commands. It creates no VMs or
 network devices. `run` needs passwordless `sudo` for `ip`, `mount`, `umount`,
-`install`, `systemctl`, and `nft`. The host also needs `openssl`, `ss`, and the
-pinned Chrony 4.8 binaries named in `qualify.py`. Options
+`install`, `systemctl`, `nft`, `ss`, `mktemp`, `rm`, `rmdir`, and the pinned
+Chrony 4.8 `chronyd` and `chronyc` binaries named in `qualify.py`. The host
+also needs `openssl`. Options
 `--kernel`, `--rootfs`, `--firecracker`, and
 `--run-dir` select alternate assets or a new evidence directory; asset hashes
 must still match. The default evidence directory is temporary under `/tmp`;
