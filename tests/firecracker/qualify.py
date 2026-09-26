@@ -32,8 +32,15 @@ from typing import Any
 
 
 REPO = Path(__file__).resolve().parents[2]
-KERNEL_SHA = "e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2"
-ROOTFS_SHA = "dd49aee1d9c28f8e781a627bec744db3a961ce4402950130ff9268504c551314"
+DEFAULT_KERNEL = Path(
+    "/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/"
+    "20260926-firecracker/inputs/vmlinux-6.1.186")
+DEFAULT_ROOTFS = Path(
+    "/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/"
+    "20260926-firecracker/inputs/rootfs-noble-20260911.ext4")
+KERNEL_SHA = "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523"
+ROOTFS_SHA = "a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6"
+MAX_UNIX_SOCKET_PATH_BYTES = 107
 ROLE = "terrabase"
 CELL = "lab"
 ENVIRONMENT = "test"
@@ -92,6 +99,134 @@ def digest(path: Path) -> str:
         for chunk in iter(lambda: stream.read(4 << 20), b""):
             value.update(chunk)
     return value.hexdigest()
+
+
+def firecracker_socket_path(directory: Path, name: str) -> Path:
+    path = directory / f"{name}.sock"
+    if len(os.fsencode(path)) > MAX_UNIX_SOCKET_PATH_BYTES:
+        raise ValueError(f"Firecracker API socket path is too long: {path}")
+    return path
+
+
+def create_private_socket_directory() -> Path:
+    directory = Path(tempfile.mkdtemp(prefix="tsfc-", dir="/tmp"))
+    try:
+        directory.chmod(0o700)
+    except BaseException:
+        directory.rmdir()
+        raise
+    return directory
+
+
+def child_exited_without_reaping(process: subprocess.Popen[Any]) -> bool:
+    if process.returncode is not None:
+        return True
+    try:
+        result = os.waitid(os.P_PID, process.pid,
+                           os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError as error:
+        raise RuntimeError(f"owned process {process.pid} was reaped before cleanup") from error
+    return result is not None and result.si_pid == process.pid
+
+
+def wait_child_without_reaping(process: subprocess.Popen[Any], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while not child_exited_without_reaping(process):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+    return True
+
+
+def owned_process_group(process: subprocess.Popen[Any]) -> int:
+    if process.returncode is not None:
+        raise RuntimeError(f"owned process {process.pid} was reaped before group cleanup")
+    try:
+        pgid = os.getpgid(process.pid)
+    except ProcessLookupError as error:
+        raise RuntimeError(f"owned process {process.pid} disappeared before group cleanup") from error
+    if pgid != process.pid:
+        raise RuntimeError(f"owned process {process.pid} is no longer its process-group leader")
+    return pgid
+
+
+def live_process_group_members(pgid: int) -> list[int]:
+    members = []
+    try:
+        entries = list(Path("/proc").iterdir())
+    except OSError as error:
+        raise RuntimeError(f"cannot inspect owned process group {pgid}: {error}") from error
+    for entry in entries:
+        if not entry.name.isdecimal():
+            continue
+        try:
+            fields = (entry / "stat").read_text().rsplit(")", 1)[1].split()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise RuntimeError(f"cannot inspect process {entry.name} in group {pgid}: {error}") from error
+        if len(fields) < 3:
+            raise RuntimeError(f"invalid process status for {entry.name} in group {pgid}")
+        state, _, process_group = fields[:3]
+        try:
+            observed_pgid = int(process_group)
+        except ValueError as error:
+            raise RuntimeError(f"invalid process group for process {entry.name}") from error
+        if observed_pgid == pgid and state not in ("Z", "X", "x"):
+            members.append(int(entry.name))
+    return members
+
+
+def wait_for_process_group_quiescence(pgid: int, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        members = live_process_group_members(pgid)
+        if not members:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"owned process group {pgid} still has live members: {members}")
+        time.sleep(0.05)
+
+
+def stop_process_group(process: subprocess.Popen[Any], *, timeout: float = 5) -> None:
+    pgid = owned_process_group(process)
+    os.killpg(pgid, signal.SIGTERM)
+    wait_child_without_reaping(process, timeout)
+    # Keep the group leader unreaped until the final signal; its zombie reserves the PGID.
+    if owned_process_group(process) != pgid:
+        raise RuntimeError(f"owned process group {pgid} changed before forced cleanup")
+    os.killpg(pgid, signal.SIGKILL)
+    wait_for_process_group_quiescence(pgid, timeout)
+    process.wait(timeout=timeout)
+
+
+def kill_process_group(process: subprocess.Popen[Any], *, timeout: float = 5) -> None:
+    pgid = owned_process_group(process)
+    os.killpg(pgid, signal.SIGKILL)
+    wait_for_process_group_quiescence(pgid, timeout)
+    process.wait(timeout=timeout)
+
+
+def cleanup_owned_sockets(vms: dict[str, "VM"], directory: Path) -> list[str]:
+    for vm in vms.values():
+        if vm.process is not None:
+            return [f"keep Firecracker API sockets until {vm.name} is confirmed stopped"]
+
+    errors: list[str] = []
+    for vm in vms.values():
+        try:
+            vm.socket.unlink(missing_ok=True)
+        except OSError as error:
+            errors.append(f"remove owned Firecracker API socket {vm.socket}: {error}")
+    if errors:
+        return errors
+    try:
+        directory.rmdir()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        errors.append(f"remove empty Firecracker API socket directory {directory}: {error}")
+    return errors
 
 
 def validate_native_cgroup_path(path: str, service_cgroup: str) -> None:
@@ -193,7 +328,7 @@ class VM:
         self.lab, self.name, self.ip, self.tap, self.image = lab, name, ip, tap, image
         self.directory = lab.root / "vms" / name
         self.directory.mkdir(parents=True)
-        self.socket = self.directory / "api.sock"
+        self.socket = firecracker_socket_path(lab.socket_dir, name)
         self.process: subprocess.Popen[bytes] | None = None
         self.output = None
         self.boots = 0
@@ -223,7 +358,7 @@ class VM:
                                         start_new_session=True)
         deadline = time.monotonic() + 20
         while not self.socket.exists():
-            if self.process.poll() is not None:
+            if child_exited_without_reaping(self.process):
                 raise RuntimeError(f"Firecracker {self.name} exited before API socket; see {serial}")
             if time.monotonic() > deadline:
                 raise TimeoutError(f"Firecracker {self.name} API socket never appeared")
@@ -242,17 +377,13 @@ class VM:
         if self.process is None:
             return
         process = self.process
-        if process.poll() is None:
-            try:
-                self.api("/actions", {"action_type": "SendCtrlAltDel"})
-                process.wait(timeout=25)
-            except (OSError, TimeoutError, subprocess.TimeoutExpired, RuntimeError):
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
+        try:
+            self.api("/actions", {"action_type": "SendCtrlAltDel"})
+        except Exception:
+            pass
+        else:
+            wait_child_without_reaping(process, 25)
+        stop_process_group(process)
         self.lab.note("vm_stop", name=self.name, exit_code=process.returncode)
         self.process = None
         if self.output is not None:
@@ -264,9 +395,7 @@ class VM:
         if self.process is None:
             return
         process = self.process
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=5)
+        kill_process_group(process)
         self.lab.note("vm_crash", name=self.name, pid=process.pid, exit_code=process.returncode)
         self.process = None
         if self.output is not None:
@@ -292,8 +421,6 @@ class Lab:
         self.stage = self.root / "stage"
         for directory in (self.logs, self.secrets, self.images, self.stage):
             directory.mkdir(mode=0o700)
-        if len(str(self.root / "vms" / "host" / "api.sock")) >= 100:
-            raise ValueError("run directory is too long for Firecracker Unix API sockets")
         self.events: list[dict[str, Any]] = []
         self.bridge = "tsf" + secrets.token_hex(3) + "b"
         self.taps = {name: "tsf" + self.bridge[3:9] + str(index) for index, name in enumerate(GUESTS, 1)}
@@ -325,6 +452,9 @@ class Lab:
         self.go_source_sha256 = ""
         self.harness_sha256 = ""
         self.guest_clock_upper_ns: dict[str, int] = {}
+        self.socket_dir = create_private_socket_directory()
+        for name in GUESTS:
+            firecracker_socket_path(self.socket_dir, name)
 
     def note(self, event: str, **details: Any) -> None:
         entry = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -1288,7 +1418,7 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
         self.capture_host_status("early-pending")
         for name in CONTROLLERS:
             vm = self.vms.get(name)
-            if vm is None or vm.process is None or vm.process.poll() is not None:
+            if vm is None or vm.process is None or child_exited_without_reaping(vm.process):
                 continue
             path = self.logs / f"{name}-live-diagnostics.txt"
             command = ("systemctl status ts-orch.service --no-pager --full; "
@@ -1519,7 +1649,8 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             return
         self.capture_host_status("failure")
         host_vm = self.vms.get("host")
-        if host_vm is None or host_vm.process is None or host_vm.process.poll() is not None:
+        if (host_vm is None or host_vm.process is None or
+                child_exited_without_reaping(host_vm.process)):
             return
         self.failure_diagnostics_captured = True
         path = self.logs / "host-failure-diagnostics.txt"
@@ -1580,7 +1711,7 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
             path.chmod(0o600)
             self.note("failure_diagnostics", name="host", path=str(path), error=repr(error))
 
-    def cleanup(self) -> list[str]:
+    def cleanup(self, *, preserve_images: bool = False) -> list[str]:
         errors: list[str] = []
         images_safe = True
         if getattr(self, "session_probe_process", None) is not None:
@@ -1608,6 +1739,8 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
             except Exception as error:  # cleanup must continue for all owned resources
                 images_safe = False
                 errors.append(f"stop {vm.name}: {error}")
+        if getattr(self, "socket_dir", None) is not None:
+            errors.extend(cleanup_owned_sockets(self.vms, self.socket_dir))
         for mount in reversed(self.mounted):
             try:
                 result = self.sudo("umount", str(mount), allow_failure=True)
@@ -1650,7 +1783,10 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
                     errors.append(f"delete link {link}: {result.stderr.strip()}")
             except Exception as error:
                 errors.append(f"delete link {link}: {error}")
-        if images_safe and not self.mounted:
+        if preserve_images or errors:
+            reason = "qualification_failed" if preserve_images else "cleanup_failed"
+            self.note("guest_images_retained", path=str(self.images), reason=reason)
+        elif images_safe and not self.mounted:
             shutil.rmtree(self.images, ignore_errors=True)
         else:
             errors.append(f"guest images retained for manual cleanup: {self.images}")
@@ -1679,8 +1815,8 @@ def preflight(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("check", "run"))
-    parser.add_argument("--kernel", type=Path, default=Path("/tmp/vm-inputs/vmlinux"))
-    parser.add_argument("--rootfs", type=Path, default=Path("/tmp/vm-inputs/rootfs.ext4"))
+    parser.add_argument("--kernel", type=Path, default=DEFAULT_KERNEL)
+    parser.add_argument("--rootfs", type=Path, default=DEFAULT_ROOTFS)
     parser.add_argument("--firecracker", default=shutil.which("firecracker") or "firecracker")
     parser.add_argument("--run-dir", type=Path, help="new, private evidence directory")
     args = parser.parse_args()
@@ -1714,7 +1850,7 @@ def main() -> int:
         except Exception as diagnostic_error:
             print(f"host diagnostics failed: {diagnostic_error!r}", file=sys.stderr, flush=True)
     finally:
-        cleanup_errors = lab.cleanup()
+        cleanup_errors = lab.cleanup(preserve_images=outcome != "PASS")
         summary = {"result": outcome if not cleanup_errors else "CLEANUP_FAILED",
                    "failure": failure, "cleanup_errors": cleanup_errors,
                    "revision": run(["git", "rev-parse", "HEAD"]).stdout.strip(),

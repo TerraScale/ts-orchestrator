@@ -1,14 +1,17 @@
 import json
 import hashlib
 import ipaddress
+import os
 import stat
 import subprocess
+import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import qualify
 
@@ -717,6 +720,200 @@ class ClockReadinessTests(unittest.TestCase):
 
             self.assertEqual(lab.ssh.call_count, 2)
             self.assertEqual(lab.wait.call_count, 1)
+
+
+class FirecrackerHarnessResourceTests(unittest.TestCase):
+    def test_recovered_kernel_and_rootfs_are_explicitly_pinned(self):
+        self.assertEqual(qualify.DEFAULT_KERNEL.name, "vmlinux-6.1.186")
+        self.assertEqual(qualify.DEFAULT_ROOTFS.name, "rootfs-noble-20260911.ext4")
+        self.assertEqual(qualify.KERNEL_SHA,
+                         "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523")
+        self.assertEqual(qualify.ROOTFS_SHA,
+                         "a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6")
+
+    def test_preflight_still_rejects_asset_hash_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            kernel = Path(directory) / "kernel"
+            kernel.write_bytes(b"unverified kernel")
+            rootfs = Path(directory) / "rootfs"
+            rootfs.write_bytes(b"unverified rootfs")
+
+            with self.assertRaisesRegex(RuntimeError, "SHA-256 mismatch"):
+                qualify.preflight(SimpleNamespace(kernel=kernel, rootfs=rootfs))
+
+    def test_api_socket_path_uses_short_private_directory_with_long_run_dir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            parent = Path(directory)
+            durable_root = parent / ("durable-" + "x" * 180)
+            durable_root.mkdir()
+            socket_dir = parent / "tsfc-a1b2c3"
+            socket_dir.mkdir(mode=0o700)
+            vm = qualify.VM(SimpleNamespace(root=durable_root, socket_dir=socket_dir),
+                            "host", "198.19.1.14", "tap0", parent / "rootfs.ext4")
+
+            self.assertEqual(vm.socket, socket_dir / "host.sock")
+            self.assertLessEqual(len(os.fsencode(vm.socket)),
+                                 qualify.MAX_UNIX_SOCKET_PATH_BYTES)
+            self.assertGreater(len(os.fsencode(durable_root / "vms" / "host" / "api.sock")),
+                               qualify.MAX_UNIX_SOCKET_PATH_BYTES)
+
+    def test_api_socket_path_rejects_paths_over_unix_limit(self):
+        too_long = Path("/tmp") / ("x" * qualify.MAX_UNIX_SOCKET_PATH_BYTES)
+        with self.assertRaisesRegex(ValueError, "socket path is too long"):
+            qualify.firecracker_socket_path(too_long, "host")
+
+    def test_socket_cleanup_unlinks_only_owned_path_and_does_not_recurse(self):
+        with tempfile.TemporaryDirectory() as directory:
+            socket_dir = Path(directory) / "sockets"
+            socket_dir.mkdir()
+            owned_socket = socket_dir / "host.sock"
+            unrelated = socket_dir / "leave-me"
+            owned_socket.touch()
+            unrelated.touch()
+            vm = SimpleNamespace(process=None, socket=owned_socket)
+
+            errors = qualify.cleanup_owned_sockets({"host": vm}, socket_dir)
+
+            self.assertFalse(owned_socket.exists())
+            self.assertTrue(unrelated.exists())
+            self.assertEqual(len(errors), 1)
+            self.assertIn("empty Firecracker API socket directory", errors[0])
+
+    def test_socket_cleanup_keeps_socket_while_owned_process_group_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            socket_dir = Path(directory) / "sockets"
+            socket_dir.mkdir()
+            owned_socket = socket_dir / "host.sock"
+            owned_socket.touch()
+            vm = SimpleNamespace(name="host", process=SimpleNamespace(pid=1234),
+                                 socket=owned_socket)
+
+            errors = qualify.cleanup_owned_sockets({"host": vm}, socket_dir)
+
+            self.assertTrue(owned_socket.exists())
+            self.assertEqual(errors, [
+                "keep Firecracker API sockets until host is confirmed stopped"])
+
+    def test_failed_qualification_cleanup_preserves_guest_images(self):
+        lab = object.__new__(qualify.Lab)
+        lab.session_probe_process = None
+        lab.created_nft_tables = []
+        lab.vms = {}
+        lab.mounted = []
+        lab.chrony_process = None
+        lab.chrony_control_dir = None
+        lab.created_links = []
+        lab.images = Path("/tmp/failed-run/images")
+        lab.secrets = Path("/tmp/failed-run/secrets")
+        lab.stage = Path("/tmp/failed-run/stage")
+        lab.note = Mock()
+
+        with patch.object(qualify.shutil, "rmtree") as remove_tree:
+            errors = qualify.Lab.cleanup(lab, preserve_images=True)
+
+        self.assertEqual(errors, [])
+        self.assertNotIn(call(lab.images, ignore_errors=True),
+                         remove_tree.call_args_list)
+        lab.note.assert_called_once_with(
+            "guest_images_retained", path=str(lab.images), reason="qualification_failed")
+
+    def test_process_group_signals_finish_before_the_leader_is_reaped(self):
+        operations = []
+        process = Mock(pid=1234, returncode=None)
+        process.wait.side_effect = lambda **options: operations.append(("reap", options))
+
+        with patch.object(qualify.os, "getpgid", return_value=1234), \
+                patch.object(qualify.os, "killpg",
+                             side_effect=lambda pgid, sig: operations.append(("signal", pgid, sig))), \
+                patch.object(qualify, "wait_child_without_reaping",
+                             side_effect=lambda child, timeout: operations.append(("wait", child, timeout))), \
+                patch.object(qualify, "wait_for_process_group_quiescence",
+                             side_effect=lambda pgid, timeout:
+                             operations.append(("quiescent", pgid, timeout))):
+            qualify.stop_process_group(process, timeout=1)
+
+        self.assertEqual(operations, [
+            ("signal", 1234, qualify.signal.SIGTERM),
+            ("wait", process, 1),
+            ("signal", 1234, qualify.signal.SIGKILL),
+            ("quiescent", 1234, 1),
+            ("reap", {"timeout": 1}),
+        ])
+
+    def test_cleanup_refuses_to_signal_a_reaped_process_group_leader(self):
+        process = Mock(pid=1234, returncode=0)
+
+        with patch.object(qualify.os, "getpgid") as getpgid, \
+                patch.object(qualify.os, "killpg") as killpg:
+            with self.assertRaisesRegex(RuntimeError, "reaped before group cleanup"):
+                qualify.stop_process_group(process)
+
+        getpgid.assert_not_called()
+        killpg.assert_not_called()
+
+    def test_live_group_member_timeout_keeps_leader_unreaped(self):
+        process = Mock(pid=1234, returncode=None)
+
+        with patch.object(qualify.os, "getpgid", return_value=1234), \
+                patch.object(qualify.os, "killpg") as killpg, \
+                patch.object(qualify, "wait_child_without_reaping", return_value=True), \
+                patch.object(qualify, "live_process_group_members", return_value=[5678]), \
+                patch.object(qualify.time, "monotonic", side_effect=[10, 11]), \
+                patch.object(qualify.time, "sleep"):
+            with self.assertRaisesRegex(TimeoutError, "still has live members"):
+                qualify.stop_process_group(process, timeout=1)
+
+        self.assertEqual(killpg.call_args_list, [
+            call(1234, qualify.signal.SIGTERM), call(1234, qualify.signal.SIGKILL)])
+        process.wait.assert_not_called()
+        self.assertIsNone(process.returncode)
+
+    def test_child_exit_probe_observes_without_reaping(self):
+        process = Mock(pid=1234, returncode=None)
+        result = SimpleNamespace(si_pid=1234)
+
+        with patch.object(qualify.os, "waitid", return_value=result) as waitid:
+            self.assertTrue(qualify.child_exited_without_reaping(process))
+
+        waitid.assert_called_once_with(qualify.os.P_PID, 1234,
+                                       qualify.os.WEXITED | qualify.os.WNOHANG | qualify.os.WNOWAIT)
+        process.wait.assert_not_called()
+
+    def test_process_group_kills_term_ignoring_child_before_reaping_leader(self):
+        child_program = (
+            "import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+            "print('ready', flush=True); time.sleep(60)")
+        leader_program = (
+            "import subprocess,sys,time; "
+            "child=subprocess.Popen([sys.executable,'-c',sys.argv[1]], "
+            "stdout=subprocess.PIPE,text=True); "
+            "assert child.stdout.readline().strip() == 'ready'; "
+            "print(child.pid, flush=True); time.sleep(60)")
+        leader = subprocess.Popen([sys.executable, "-c", leader_program, child_program],
+                                  stdout=subprocess.PIPE, text=True, start_new_session=True)
+        assert leader.stdout is not None
+        child_pid = int(leader.stdout.readline().strip())
+
+        original_wait = qualify.wait_for_process_group_quiescence
+
+        def verify_group_before_reap(pgid, timeout):
+            original_wait(pgid, timeout)
+            self.assertIsNone(leader.returncode)
+            for process_pid in (leader.pid, child_pid):
+                try:
+                    state = Path(f"/proc/{process_pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+                except FileNotFoundError:
+                    state = None
+                self.assertIn(state, (None, "Z", "X"))
+
+        try:
+            with patch.object(qualify, "wait_for_process_group_quiescence",
+                             side_effect=verify_group_before_reap):
+                qualify.stop_process_group(leader, timeout=2)
+            self.assertIsNotNone(leader.returncode)
+        finally:
+            leader.stdout.close()
+
 
 if __name__ == "__main__":
     unittest.main()
