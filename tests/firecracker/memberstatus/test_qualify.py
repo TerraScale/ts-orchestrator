@@ -697,6 +697,28 @@ class QualificationCleanupTests(unittest.TestCase):
         return qualify.Qualification(
             {"source_commits": {}, "rust_test_name": RUST_NAME}, b"{}", {}, root)
 
+    def test_summary_log_paths_are_profile_specific(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            legacy = self.make_qualification(base / "legacy")
+            managed_root = base / "managed-volume"
+            for name in ("logs", "commands", "images", "mount", "stage"):
+                (managed_root / name).mkdir(parents=True, exist_ok=True)
+            managed = qualify.Qualification(
+                {"profile": qualify.MANAGED_VOLUME_PROFILE,
+                 "source_commits": {}, "go_test_name": qualify.MANAGED_VOLUME_GO_TEST_NAME},
+                b"{}", {}, managed_root)
+
+            self.assertEqual(set(legacy.logs_out),
+                             {"events", "serial", "vmm", "go_host_test", "rust_test"})
+            self.assertEqual(legacy.logs_out["go_host_test"],
+                             str(legacy.logs / "guest-go-host-test.log"))
+            self.assertEqual(set(managed.logs_out), {"events", "serial", "vmm", "managed_volume_test"})
+            self.assertEqual(managed.logs_out["managed_volume_test"],
+                             str(managed.logs / "guest-managed-volume-test.log"))
+            self.assertNotIn("go_host_test", managed.logs_out)
+            self.assertNotIn("rust_test", managed.logs_out)
+
     def test_driver_surfaces_guest_failure_before_requiring_pass_logs(self):
         with tempfile.TemporaryDirectory() as directory:
             qualification = self.make_qualification(Path(directory) / "run")

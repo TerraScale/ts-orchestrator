@@ -1229,11 +1229,11 @@ class Qualification:
             "events": str(self.logs / "events.json"),
             "serial": str(self.logs / "guest-serial.log"),
             "vmm": str(self.logs / "firecracker-vmm.log"),
-            "go_host_test": str(self.logs / "guest-go-host-test.log"),
         }
         if self.managed_volume_profile:
             self.logs_out["managed_volume_test"] = str(self.logs / "guest-managed-volume-test.log")
         else:
+            self.logs_out["go_host_test"] = str(self.logs / "guest-go-host-test.log")
             self.logs_out["rust_test"] = str(self.logs / "guest-rust-test.log")
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.local_source_paths = {
