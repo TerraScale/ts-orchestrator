@@ -21,6 +21,13 @@ var errSessionRequestDenied = errors.New("host session request was denied")
 var errSessionBackendUnavailable = errors.New("host session backend temporarily unavailable")
 
 func transientSessionTransport(err error) bool {
+	if api, ok := errors.AsType[*nats.APIError](err); ok && api.Code == 503 && api.ErrorCode == 10008 {
+		// A surviving JetStream quorum can briefly report no metadata leader.
+		return true
+	}
+	if api, ok := errors.AsType[*jetstream.APIError](err); ok && api.Code == 503 && api.ErrorCode == 10008 {
+		return true
+	}
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
 		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
 		errors.Is(err, jetstream.ErrNoStreamResponse)
@@ -49,6 +56,9 @@ func sessionErrorClass(err error) string {
 	case errors.Is(err, errSessionRequestDenied):
 		return "denied"
 	default:
+		if api, ok := errors.AsType[*nats.APIError](err); ok && api.Code >= 500 {
+			return "backend_unavailable"
+		}
 		if api, ok := errors.AsType[*jetstream.APIError](err); ok && api.Code >= 500 {
 			return "backend_unavailable"
 		}

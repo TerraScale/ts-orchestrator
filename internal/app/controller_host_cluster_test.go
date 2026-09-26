@@ -7,9 +7,11 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -163,13 +165,23 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	var agentRunner host.Runner = runner
+	var stopRunner *r3TimedStopRunner
+	var acceptedExpiry atomic.Int64
 	if production {
-		agentRunner = &r3StopOnCloseRunner{inMemoryRunner: runner}
+		baseRunner := &r3StopOnCloseRunner{inMemoryRunner: runner}
+		agentRunner = baseRunner
+		if blackhole {
+			stopRunner = &r3TimedStopRunner{r3StopOnCloseRunner: baseRunner}
+			agentRunner = stopRunner
+			originalLogger := slog.Default()
+			slog.SetDefault(slog.New(r3AcceptedSessionHandler{next: slog.NewTextHandler(os.Stderr, nil), expiry: &acceptedExpiry}))
+			defer slog.SetDefault(originalLogger)
+		}
 	}
 	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: agentRunner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
-		ClockCheck: controllerClockCheck(clock)})
+		ClockCheck: controllerClockCheck(clock), SessionTrace: production && blackhole})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,8 +247,14 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			if err == nil || errors.Is(err, context.Canceled) {
 				t.Fatalf("host did not fail closed on quorum loss: %v", err)
 			}
-			if !time.Now().Before(lastSession.SessionExpiresAt.Add(-5 * time.Second)) {
-				t.Fatalf("host failed after session execution reserve: expiry=%s err=%v", lastSession.SessionExpiresAt, err)
+			if !strings.Contains(err.Error(), "host session execution reserve exhausted") {
+				t.Fatalf("host stopped for a reason other than signed lease reserve: %v", err)
+			}
+			stoppedAt := stopRunner.stoppedAt.Load()
+			acceptedUntil := acceptedExpiry.Load()
+			if stoppedAt == 0 || acceptedUntil == 0 || !time.Unix(0, stoppedAt).Before(time.Unix(0, acceptedUntil)) {
+				t.Fatalf("host workload stop missed accepted signed expiry: stopped_at=%s accepted_expiry=%s observed_expiry=%s err=%v",
+					time.Unix(0, stoppedAt), time.Unix(0, acceptedUntil), lastSession.SessionExpiresAt, err)
 			}
 			observed, observeErr := runner.Observe(ctx, "terrabase")
 			if observeErr != nil || observed.Running {
@@ -256,6 +274,54 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			stopControllerChild(t, child)
 		}
 	}
+}
+
+type r3TimedStopRunner struct {
+	*r3StopOnCloseRunner
+	stoppedAt atomic.Int64
+}
+
+func (r *r3TimedStopRunner) Close(ctx context.Context) error {
+	err := r.r3StopOnCloseRunner.Close(ctx)
+	if err == nil {
+		r.stoppedAt.CompareAndSwap(0, time.Now().UnixNano())
+	}
+	return err
+}
+
+type r3AcceptedSessionHandler struct {
+	next   slog.Handler
+	expiry *atomic.Int64
+}
+
+func (h r3AcceptedSessionHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h r3AcceptedSessionHandler) Handle(ctx context.Context, record slog.Record) error {
+	if record.Message == "host session accepted" {
+		record.Attrs(func(attr slog.Attr) bool {
+			if attr.Key == "expires_at" {
+				if expiry, err := time.Parse(time.RFC3339Nano, attr.Value.String()); err == nil {
+					for prior := h.expiry.Load(); expiry.UnixNano() > prior; prior = h.expiry.Load() {
+						if h.expiry.CompareAndSwap(prior, expiry.UnixNano()) {
+							break
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+	return h.next.Handle(ctx, record)
+}
+
+func (h r3AcceptedSessionHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return r3AcceptedSessionHandler{next: h.next.WithAttrs(attrs), expiry: h.expiry}
+}
+
+func (h r3AcceptedSessionHandler) WithGroup(name string) slog.Handler {
+	return r3AcceptedSessionHandler{next: h.next.WithGroup(name), expiry: h.expiry}
 }
 
 func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime, priorEpoch uint64, failedPeer int) authority.Snapshot {

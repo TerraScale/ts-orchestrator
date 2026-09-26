@@ -423,12 +423,16 @@ func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing
 }
 
 func TestSessionRetryClassificationAndReserve(t *testing.T) {
-	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected, jetstream.ErrNoStreamResponse, errSessionBackendUnavailable} {
+	clusterUnavailable := &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+	for _, err := range []error{context.DeadlineExceeded, nats.ErrTimeout, nats.ErrNoResponders, nats.ErrDisconnected, jetstream.ErrNoStreamResponse, errSessionBackendUnavailable, clusterUnavailable,
+		&jetstream.APIError{Code: 503, ErrorCode: 10008}} {
 		if !retrySessionExchange(err) {
 			t.Fatalf("transient session error was terminal: %v", err)
 		}
 	}
-	for _, err := range []error{errSessionOwned, errSessionRequestDenied, errors.New("renewed session binding mismatch"), nats.ErrConnectionClosed} {
+	for _, err := range []error{errSessionOwned, errSessionRequestDenied, errors.New("renewed session binding mismatch"), nats.ErrConnectionClosed,
+		&nats.APIError{Code: 403, ErrorCode: 10008}, &nats.APIError{Code: 503, ErrorCode: 10076},
+		&jetstream.APIError{Code: 403, ErrorCode: 10008}, &jetstream.APIError{Code: 503, ErrorCode: jetstream.JSErrCodeJetStreamNotEnabled}} {
 		if retrySessionExchange(err) {
 			t.Fatalf("terminal session error was retryable: %v", err)
 		}
@@ -452,6 +456,8 @@ func TestSignedTransientSessionBackendRetriesWithinLease(t *testing.T) {
 	}{
 		{"deadline exceeded", context.DeadlineExceeded},
 		{"no stream response", jetstream.ErrNoStreamResponse},
+		{"legacy JetStream cluster temporarily unavailable", &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}},
+		{"modern JetStream cluster temporarily unavailable", &jetstream.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}},
 	} {
 		t.Run(test.name, func(t *testing.T) { testSignedTransientSessionBackend(t, test.err) })
 	}
@@ -525,6 +531,83 @@ func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	mutations.mu.Unlock()
 	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionRequestDenied) || retrySessionExchange(err) {
 		t.Fatalf("signed revocation denial became retryable: %v", err)
+	}
+	stopController()
+	<-controllerDone
+}
+
+func TestSignedJetStreamUnavailableStopsAtExecutionReserve(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	backendErr := &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+	read := c.readLeaderSession
+	var unavailable atomic.Bool
+	var failures atomic.Int32
+	c.sessionRead = func(ctx context.Context, key string) (session, uint64, bool, error) {
+		if unavailable.Load() {
+			failures.Add(1)
+			return session{}, 0, false, backendErr
+		}
+		return read(ctx, key)
+	}
+	controllerCtx, stopController := context.WithCancel(t.Context())
+	defer stopController()
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- c.Run(controllerCtx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	key := sessionKey("gru", "node-a")
+	stored, revision, exists, err := read(t.Context(), key)
+	if err != nil || !exists {
+		t.Fatalf("read acquired session: exists=%t err=%v", exists, err)
+	}
+	agent.mu.RLock()
+	short := agent.session
+	agent.mu.RUnlock()
+	short.ExpiresAt = time.Now().Add(9 * time.Second)
+	if err := agent.acceptSession(short); err != nil {
+		t.Fatal(err)
+	}
+	agent.mu.RLock()
+	safeUntil := agent.sessionSafeUntil
+	agent.mu.RUnlock()
+	unavailable.Store(true)
+	monitorCtx, stopMonitor := context.WithCancel(t.Context())
+	defer stopMonitor()
+	lost := make(chan error, 1)
+	go agent.maintainSession(monitorCtx, stopMonitor, lost)
+	select {
+	case err := <-lost:
+		t.Fatalf("temporary backend loss stopped a usable signed session: %v", err)
+	case <-time.After(1200 * time.Millisecond):
+	}
+	if _, _, err := agent.executionLease(); err != nil {
+		t.Fatalf("usable signed session was lost before its reserve: %v", err)
+	}
+	select {
+	case err := <-lost:
+		if !errors.Is(err, errSessionExecutionReserve) || !agent.sessionLost.Load() || time.Now().Before(safeUntil) {
+			t.Fatalf("backend outage did not stop at signed execution reserve: err=%v lost=%t safe_until=%s", err, agent.sessionLost.Load(), safeUntil)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("backend outage continued beyond signed execution reserve")
+	}
+	if failures.Load() == 0 {
+		t.Fatal("controller did not return a signed temporary backend failure")
+	}
+	current, currentRevision, exists, err := read(t.Context(), key)
+	if err != nil || !exists || currentRevision != revision || !sameJSON(current, stored) {
+		t.Fatalf("failed renewals changed the stored session: exists=%t err=%v revision=%d -> %d", exists, err, revision, currentRevision)
 	}
 	stopController()
 	<-controllerDone
