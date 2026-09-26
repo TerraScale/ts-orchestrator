@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
 const (
@@ -209,7 +210,7 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read OCI host placement profile: %w", err)
 		}
-		if !found || profileIntent.Shape != f.config.Shape || !cloudMatchesPlacementProfile(cloud, profileIntent) {
+		if !found || profileIntent.Shape != f.config.Shape || !cloudMatchesLaunchBinding(cloud, profileIntent) {
 			slog.Warn("withholding OCI instance that does not match its signed placement compute profile", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
 			continue
 		}
@@ -234,6 +235,18 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		request.MemoryInGBs, request.PlacementProfileDigest, request.PlacementGeneration) {
 		return Instance{}, ErrPlacementProfileMismatch
 	}
+	descriptor, err := f.hostBootDescriptor(request)
+	if err != nil {
+		return Instance{}, fmt.Errorf("%w: %v", ErrHostBootBindingMismatch, err)
+	}
+	descriptorWire, err := descriptor.CanonicalBytes()
+	if err != nil {
+		return Instance{}, fmt.Errorf("%w: encode descriptor: %v", ErrHostBootBindingMismatch, err)
+	}
+	descriptorDigest, err := descriptor.Digest()
+	if err != nil {
+		return Instance{}, fmt.Errorf("%w: digest descriptor: %v", ErrHostBootBindingMismatch, err)
+	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
 		return Instance{}, err
@@ -244,6 +257,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	intent.MemoryInGBs = request.MemoryInGBs
 	intent.PlacementProfileDigest = request.PlacementProfileDigest
 	intent.PlacementGeneration = request.PlacementGeneration
+	intent.ImageID = f.config.ImageID
+	intent.BootDescriptor = string(descriptorWire)
+	intent.BootDescriptorSHA256 = descriptorDigest
 	if err := f.recordIntent(ctx, epoch, intent); err != nil {
 		return Instance{}, err
 	}
@@ -306,6 +322,8 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		MemoryInGBs:            operationIntent.MemoryInGBs,
 		PlacementProfileDigest: operationIntent.PlacementProfileDigest,
 		PlacementGeneration:    operationIntent.PlacementGeneration,
+		ImageID:                operationIntent.ImageID,
+		BootDescriptor:         operationIntent.BootDescriptor,
 		FreeformTags: placementProfileTags(
 			hostTags(f.config, request.CreateKey), operationIntent.PlacementProfileDigest, operationIntent.PlacementGeneration,
 		),
@@ -840,6 +858,25 @@ func (f *fleet) reobserveInstance(ctx context.Context, instanceID string) (Cloud
 		cloud.AvailabilityDomain != f.config.AvailabilityDomain || !validLifecycleState(cloud.LifecycleState) {
 		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: instance %s has missing or mismatched scope tags", ErrForeignResource, instanceID)
 	}
+	operation, found, err := f.journal.GetOperation(ctx, OperationScope{
+		Action: actionLaunch, Key: createKey, Region: f.config.Region,
+		Generation: f.config.Generation, Owner: f.config.Owner,
+	})
+	if err != nil {
+		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("read OCI host launch binding: %w", err)
+	}
+	if !found || operation.ImageID != f.config.ImageID {
+		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s has no matching durable image and boot descriptor", ErrForeignResource, ErrHostBootBindingMismatch, instanceID)
+	}
+	if cloud.ImageID != operation.ImageID {
+		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s image differs from immutable launch intent", ErrForeignResource, ErrImageNotQualified, instanceID)
+	}
+	if !cloudMatchesPlacementProfile(cloud, operation) {
+		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s compute profile differs from immutable launch intent", ErrForeignResource, ErrPlacementProfileMismatch, instanceID)
+	}
+	if !cloudMatchesLaunchBinding(cloud, operation) {
+		return CloudInstance{}, ResourceIdentity{}, fmt.Errorf("%w: %w: instance %s metadata differs from immutable launch intent", ErrForeignResource, ErrHostBootBindingMismatch, instanceID)
+	}
 	return cloud, identity, nil
 }
 
@@ -859,6 +896,15 @@ func (f *fleet) ownedInstance(ctx context.Context, instanceID string) (CloudInst
 }
 
 func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, identity ResourceIdentity, profile OperationIntent) (Instance, error) {
+	observedDescriptor, err := hostboot.Parse([]byte(cloud.Metadata[hostboot.MetadataKey]))
+	if err != nil {
+		return Instance{}, fmt.Errorf("%w: observed descriptor: %v", ErrHostBootBindingMismatch, err)
+	}
+	observedDigest, err := observedDescriptor.Digest()
+	if err != nil || cloud.Metadata[hostboot.MetadataKey] != profile.BootDescriptor ||
+		observedDigest != profile.BootDescriptorSHA256 || cloud.ImageID != profile.ImageID {
+		return Instance{}, ErrHostBootBindingMismatch
+	}
 	attachments, err := f.provider.ListVolumeAttachments(ctx, f.config.CompartmentID, cloud.ID)
 	if err != nil {
 		return Instance{}, fmt.Errorf("observe OCI host volume attachments: %w", err)
@@ -871,7 +917,8 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		Region: f.config.Region, Generation: f.config.Generation, Owner: f.config.Owner,
 		FaultDomain: cloud.FaultDomain, Shape: profile.Shape, WholeOCPUs: profile.WholeOCPUs,
 		MemoryInGBs: profile.MemoryInGBs, PlacementProfileDigest: profile.PlacementProfileDigest,
-		PlacementGeneration: profile.PlacementGeneration, ETag: cloud.ETag,
+		PlacementGeneration: profile.PlacementGeneration, ImageID: cloud.ImageID,
+		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
 	for _, listed := range attachments {

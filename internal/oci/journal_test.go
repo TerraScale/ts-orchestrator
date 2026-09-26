@@ -307,11 +307,26 @@ func TestJournalConcurrentConflictingResultsHaveOneImmutableWinner(t *testing.T)
 }
 
 func testLaunchIntent(createKey string) OperationIntent {
+	config, _ := testRegionConfig()
+	request := testEnsureRequest(createKey)
+	descriptor, err := (&fleet{config: config}).hostBootDescriptor(request)
+	if err != nil {
+		panic(err)
+	}
+	wire, err := descriptor.CanonicalBytes()
+	if err != nil {
+		panic(err)
+	}
+	digest, err := descriptor.Digest()
+	if err != nil {
+		panic(err)
+	}
 	return OperationIntent{
 		Action: actionLaunch, Key: createKey, Region: RegionGRU, Generation: 7,
 		Owner: "orchestrator", CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1",
 		Shape: "VM.Standard.E5.Flex", WholeOCPUs: 1, MemoryInGBs: 6,
 		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
+		ImageID: config.ImageID, BootDescriptor: string(wire), BootDescriptorSHA256: digest,
 		CreatedAt: time.Now().UTC(),
 	}
 }

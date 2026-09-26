@@ -88,6 +88,11 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 		CreateKey: "clock-fenced-host", FaultDomain: "FAULT-DOMAIN-1",
 		Shape: region.Shape, WholeOCPUs: 1, MemoryInGBs: 6,
 		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 1,
+		BootPins: oci.HostBootPins{
+			DatabaseID: "db-clock", PartitionID: "partition-clock", SeatID: "permanent-gru",
+			HostAttempt: 1, IntentPayloadDigest: strings.Repeat("b", 64),
+			CanonicalRosterDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
+		},
 	})
 	if !errors.Is(err, authority.ErrClockUnhealthy) {
 		t.Fatalf("OCI launch with clock lost between snapshot and Guard = %v", err)

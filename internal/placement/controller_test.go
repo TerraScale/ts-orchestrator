@@ -12,6 +12,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -799,6 +800,7 @@ func startTestPlacementController(t *testing.T, store Store, fleet oci.Fleet, ho
 	controller, err := StartController(t.Context(), Config{
 		Cell: "gru", Region: oci.RegionGRU, FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		ManagedOwner: "owner-a", FleetGeneration: 1, Environment: "production", MemberRole: "terrabase",
+		ImageID:   "ocid1.image.oc1..placement-test",
 		Resources: Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30}, OnHold: onHold,
 	}, store, placementTestFencer{}, fleet, hosts, writer,
 		func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
@@ -893,12 +895,25 @@ func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 	instances := make([]oci.Instance, 0, len(seats))
 	for _, seat := range seats {
 		state := testMemberState(t, intent, seat, StageAwaitingRuntimeContract)
+		descriptor := hostboot.Descriptor{
+			SchemaVersion: hostboot.SchemaVersion, Cell: "gru", Region: "GRU", Node: state.HostNode,
+			Owner: "owner-a", CreateKey: state.CreateKey, ImageID: "ocid1.image.oc1..placement-test",
+			FleetGeneration: 1, DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+			SeatID: state.MemberID, HostAttempt: state.HostAttempt, IntentGeneration: state.IntentGeneration,
+			IntentPayloadDigest: state.IntentPayloadDigest, CanonicalRosterDigest: state.CanonicalRosterDigest,
+			ManagedHostProfileDigest: state.ManagedHostProfileDigest, RuntimeManifestDigest: state.RuntimeManifestDigest,
+		}
+		bootDigest, err := descriptor.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
 		instances = append(instances, oci.Instance{
 			ID: state.InstanceID, Node: state.HostNode, CreateKey: state.CreateKey, Region: seat.Region,
 			Generation: 1, Owner: "owner-a", FaultDomain: seat.FailureDomain,
 			Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 			MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
 			PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
+			ImageID: descriptor.ImageID, BootDescriptorSHA256: bootDigest,
 			ETag: state.InstanceETag, State: "RUNNING",
 			Attachments: []oci.Attachment{{ID: state.AttachmentID, VolumeID: state.VolumeID, InstanceID: state.InstanceID, ETag: "attachment-etag", State: "ATTACHED"}},
 		})

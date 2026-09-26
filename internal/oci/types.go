@@ -19,6 +19,7 @@ var (
 	ErrOutcomeUnknown                = errors.New("OCI provider mutation outcome is unknown")
 	ErrCreateRecoveryHold            = errors.New("OCI create requires operator reconciliation")
 	ErrPlacementProfileMismatch      = errors.New("OCI host does not match its signed placement compute profile")
+	ErrHostBootBindingMismatch       = errors.New("OCI host does not match its durable public boot descriptor")
 )
 
 // CreateRecoveryHoldError stops automatic retries when the original OCI
@@ -52,6 +53,8 @@ type Instance struct {
 	MemoryInGBs            uint32
 	PlacementProfileDigest string
 	PlacementGeneration    uint64
+	ImageID                string
+	BootDescriptorSHA256   string
 	ETag                   string
 	State                  string
 	DataVolumes            []string
@@ -83,6 +86,20 @@ type EnsureRequest struct {
 	MemoryInGBs            uint32
 	PlacementProfileDigest string
 	PlacementGeneration    uint64
+	BootPins               HostBootPins
+}
+
+// HostBootPins are the placement-owned commitments for one managed host
+// attempt. Fleet adds its region, node, owner, image, and generation before
+// persisting the public, non-authorizing OCI boot descriptor.
+type HostBootPins struct {
+	DatabaseID            string
+	PartitionID           string
+	SeatID                string
+	HostAttempt           uint64
+	IntentPayloadDigest   string
+	CanonicalRosterDigest string
+	RuntimeManifestDigest string
 }
 
 // VolumeAttachRequest attaches an already-owned retained data volume. The
@@ -193,6 +210,9 @@ type OperationIntent struct {
 	MemoryInGBs                    uint32    `json:"memory_in_gbs,omitzero"`
 	PlacementProfileDigest         string    `json:"placement_profile_digest,omitempty"`
 	PlacementGeneration            uint64    `json:"placement_generation,omitzero"`
+	ImageID                        string    `json:"image_id,omitempty"`
+	BootDescriptor                 string    `json:"boot_descriptor,omitempty"`
+	BootDescriptorSHA256           string    `json:"boot_descriptor_sha256,omitempty"`
 	VolumeID                       string    `json:"volume_id,omitempty"`
 	AvailabilityDomain             string    `json:"availability_domain,omitempty"`
 	SizeGB                         int64     `json:"size_gb,omitempty"`
@@ -291,6 +311,7 @@ type CloudInstance struct {
 	ETag                          string
 	ImageID                       string
 	ConsistentVolumeNamingEnabled *bool
+	Metadata                      map[string]string
 	FreeformTags                  map[string]string
 }
 
@@ -347,5 +368,7 @@ type LaunchRequest struct {
 	MemoryInGBs            uint32
 	PlacementProfileDigest string
 	PlacementGeneration    uint64
+	ImageID                string
+	BootDescriptor         string
 	FreeformTags           map[string]string
 }

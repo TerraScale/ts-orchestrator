@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
 func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
@@ -47,6 +48,71 @@ func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
 	}
 	if provider.launches != 1 || again.ID != want.ID || again.Node != want.Node {
 		t.Fatalf("retry created or changed host: launches=%d first=%+v retry=%+v", provider.launches, want, again)
+	}
+}
+
+func TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry(t *testing.T) {
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fencer := &fakeFencer{snapshot: writableSnapshot()}
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testEnsureRequest("node-immutable-boot")
+	if _, err := fleet.EnsureHost(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	changed := request
+	changed.BootPins.RuntimeManifestDigest = strings.Repeat("e", 64)
+	if _, err := fleet.EnsureHost(t.Context(), changed); err == nil || provider.launches != 1 {
+		t.Fatalf("changed runtime pin reused launch key: launches=%d err=%v", provider.launches, err)
+	}
+	changedConfig := config
+	changedConfig.ImageID = "ocid1.image.oc1.sa-saopaulo-1.changed"
+	restarted, err := newTestFleet(changedConfig, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restarted.EnsureHost(t.Context(), request); err == nil || provider.launches != 1 {
+		t.Fatalf("changed image pin reused launch key: launches=%d err=%v", provider.launches, err)
+	}
+	if observed, err := restarted.Observe(t.Context()); err != nil || len(observed) != 0 {
+		t.Fatalf("image-drifted fleet observed original host: observed=%+v err=%v", observed, err)
+	}
+}
+
+func TestObserveWithholdsLegacyLaunchWithoutBootDescriptor(t *testing.T) {
+	config, regionIntent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	createKey := "node-legacy-unbound"
+	operation := testLaunchIntent(createKey)
+	operation.BootDescriptor, operation.BootDescriptorSHA256 = "", ""
+	if err := journal.RecordIntent(t.Context(), operation); err != nil {
+		t.Fatal(err)
+	}
+	instanceID := "ocid1.instance.oc1..legacy-unbound"
+	provider.instances[instanceID] = CloudInstance{
+		ID: instanceID, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
+		FaultDomain: operation.FaultDomain, Shape: operation.Shape, Ocpus: new(float32(operation.WholeOCPUs)),
+		MemoryInGBs: new(float32(operation.MemoryInGBs)), LifecycleState: "RUNNING", ETag: "legacy-etag",
+		ImageID: config.ImageID, ConsistentVolumeNamingEnabled: new(true),
+		FreeformTags: placementProfileTags(hostTags(config, createKey), operation.PlacementProfileDigest, operation.PlacementGeneration),
+	}
+	if err := journal.RecordResult(t.Context(), OperationResult{Intent: operation, ResourceID: instanceID, ETag: "legacy-etag"}); err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := newTestFleet(config, regionIntent, provider, journal, &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if observed, err := fleet.Observe(t.Context()); err != nil || len(observed) != 0 {
+		t.Fatalf("old unbound host was observed: observed=%+v err=%v", observed, err)
+	}
+	if _, err := fleet.EnsureHost(t.Context(), testEnsureRequest(createKey)); err == nil || provider.launches != 0 {
+		t.Fatalf("old unbound launch was retried or adopted: launches=%d err=%v", provider.launches, err)
 	}
 }
 
@@ -1152,6 +1218,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 		ID: instanceID, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
 		FaultDomain: "FAULT-DOMAIN-1", Shape: operation.Shape, Ocpus: new(float32(operation.WholeOCPUs)),
 		MemoryInGBs: new(float32(operation.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "unknown-etag",
+		ImageID: config.ImageID, Metadata: map[string]string{hostboot.MetadataKey: operation.BootDescriptor},
 		FreeformTags: placementProfileTags(hostTags(config, createKey), operation.PlacementProfileDigest, operation.PlacementGeneration),
 	}
 	provider.launchRetryTokens[retryToken(strings.Join([]string{
@@ -1194,14 +1261,28 @@ func testEnsureRequest(createKey string) EnsureRequest {
 	return EnsureRequest{
 		CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
 		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
+		BootPins: HostBootPins{
+			DatabaseID: "db-main", PartitionID: "partition-main", SeatID: "permanent-gru",
+			HostAttempt: 1, IntentPayloadDigest: strings.Repeat("b", 64),
+			CanonicalRosterDigest: strings.Repeat("c", 64), RuntimeManifestDigest: strings.Repeat("d", 64),
+		},
 	}
 }
 
 func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
+	descriptor, err := hostboot.Parse([]byte(intent.BootDescriptor))
+	if err != nil {
+		panic(err)
+	}
 	return EnsureRequest{
 		CreateKey: intent.CreateKey, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
 		WholeOCPUs: intent.WholeOCPUs, MemoryInGBs: intent.MemoryInGBs,
 		PlacementProfileDigest: intent.PlacementProfileDigest, PlacementGeneration: intent.PlacementGeneration,
+		BootPins: HostBootPins{
+			DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID, SeatID: descriptor.SeatID,
+			HostAttempt: descriptor.HostAttempt, IntentPayloadDigest: descriptor.IntentPayloadDigest,
+			CanonicalRosterDigest: descriptor.CanonicalRosterDigest, RuntimeManifestDigest: descriptor.RuntimeManifestDigest,
+		},
 	}
 }
 
@@ -1209,6 +1290,7 @@ func sameLaunchProfile(a, b LaunchRequest) bool {
 	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.FaultDomain == b.FaultDomain &&
 		a.Shape == b.Shape && a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
 		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
+		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&
 		maps.Equal(a.FreeformTags, b.FreeformTags)
 }
 
@@ -1472,6 +1554,7 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 		FaultDomain: request.FaultDomain, Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
 		ConsistentVolumeNamingEnabled: new(true),
+		Metadata:                      map[string]string{hostboot.MetadataKey: request.BootDescriptor, "terrascale_host_node": request.Node},
 		FreeformTags:                  cloneStringMap(request.FreeformTags),
 	}
 	if p.launchObservationMutation != nil {
@@ -1633,6 +1716,7 @@ func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateReque
 
 func cloneCloudInstance(instance CloudInstance) CloudInstance {
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
+	instance.Metadata = maps.Clone(instance.Metadata)
 	if instance.Ocpus != nil {
 		instance.Ocpus = new(*instance.Ocpus)
 	}

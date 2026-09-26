@@ -10,6 +10,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -89,6 +90,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	controller, err := placement.StartController(ctx, placement.Config{
 		Cell: "gru", Region: oci.RegionGRU, FaultDomains: regionConfig.FaultDomains,
 		ManagedOwner: regionConfig.Owner, FleetGeneration: regionConfig.Generation,
+		ImageID:     regionConfig.ImageID,
 		Environment: "production", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30},
 	}, store, fencer, fleet, placementSizingHosts{}, placementSizingHosts{}, testPlacementAdmittedArtifact(intent))
@@ -126,6 +128,35 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatalf("provider launches = %d, want one", len(provider.launches))
 	}
 	launch := provider.launches[0]
+	descriptor, err := hostboot.Parse([]byte(launch.BootDescriptor))
+	if err != nil {
+		t.Fatalf("provider did not receive canonical public boot descriptor: %v", err)
+	}
+	descriptorDigest, err := descriptor.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if descriptor.Cell != "gru" || descriptor.Region != "GRU" || descriptor.Node != launch.Node ||
+		descriptor.Owner != regionConfig.Owner || descriptor.FleetGeneration != regionConfig.Generation ||
+		descriptor.CreateKey != prepared.State.CreateKey || descriptor.ImageID != regionConfig.ImageID ||
+		descriptor.DatabaseID != prepared.State.DatabaseID || descriptor.PartitionID != prepared.State.PartitionID ||
+		descriptor.SeatID != prepared.State.MemberID || descriptor.HostAttempt != prepared.State.HostAttempt ||
+		descriptor.IntentGeneration != prepared.State.IntentGeneration ||
+		descriptor.IntentPayloadDigest != prepared.State.IntentPayloadDigest ||
+		descriptor.CanonicalRosterDigest != prepared.State.CanonicalRosterDigest ||
+		descriptor.ManagedHostProfileDigest != prepared.State.ManagedHostProfileDigest ||
+		descriptor.RuntimeManifestDigest != prepared.State.RuntimeManifestDigest ||
+		launch.ImageID != regionConfig.ImageID {
+		t.Fatalf("provider launch descriptor differs from prepared member and pinned OCI image: %+v", descriptor)
+	}
+	storedLaunch, found, err := journal.GetOperation(ctx, oci.OperationScope{
+		Action: "launch", Key: prepared.State.CreateKey, Region: regionConfig.Region,
+		Generation: regionConfig.Generation, Owner: regionConfig.Owner,
+	})
+	if err != nil || !found || storedLaunch.BootDescriptor != launch.BootDescriptor ||
+		storedLaunch.BootDescriptorSHA256 != descriptorDigest || storedLaunch.ImageID != regionConfig.ImageID {
+		t.Fatalf("OCI journal did not persist exact launch descriptor/image: found=%v intent=%+v err=%v", found, storedLaunch, err)
+	}
 	if launch.CreateKey != prepared.State.CreateKey || launch.FaultDomain != prepared.State.FailureDomain ||
 		launch.Shape != profile.Compute.Shape || launch.WholeOCPUs != profile.Compute.WholeOCPUs ||
 		launch.MemoryInGBs != profile.Compute.MemoryInGBs || launch.PlacementProfileDigest != profileDigest ||
@@ -144,8 +175,43 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	}
 	observed, err := fleet.Observe(ctx)
 	if err != nil || len(observed) != 1 || observed[0].PlacementProfileDigest != profileDigest ||
-		observed[0].PlacementGeneration != intent.Generation || observed[0].Generation != regionConfig.Generation {
+		observed[0].PlacementGeneration != intent.Generation || observed[0].Generation != regionConfig.Generation ||
+		observed[0].ImageID != regionConfig.ImageID || observed[0].BootDescriptorSHA256 != descriptorDigest {
 		t.Fatalf("real OCI fleet did not reobserve its journal-bound profile: observed=%+v err=%v", observed, err)
+	}
+	restarted, err := oci.NewFleet(regionConfig, regionIntent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := restarted.EnsureHost(ctx, oci.EnsureRequest{
+		CreateKey: prepared.State.CreateKey, FaultDomain: prepared.State.FailureDomain,
+		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
+		MemoryInGBs: profile.Compute.MemoryInGBs, PlacementProfileDigest: profileDigest,
+		PlacementGeneration: prepared.State.IntentGeneration,
+		BootPins: oci.HostBootPins{
+			DatabaseID: prepared.State.DatabaseID, PartitionID: prepared.State.PartitionID,
+			SeatID: prepared.State.MemberID, HostAttempt: prepared.State.HostAttempt,
+			IntentPayloadDigest:   prepared.State.IntentPayloadDigest,
+			CanonicalRosterDigest: prepared.State.CanonicalRosterDigest,
+			RuntimeManifestDigest: prepared.State.RuntimeManifestDigest,
+		},
+	})
+	if err != nil || retry.ID != provider.instance.ID || retry.BootDescriptorSHA256 != descriptorDigest || len(provider.launches) != 1 {
+		t.Fatalf("restart did not reuse exact journal-bound host: retry=%+v launches=%d err=%v", retry, len(provider.launches), err)
+	}
+	drifted := storedLaunch
+	drifted.ImageID = "ocid1.image.oc1..different"
+	if err := journal.RecordIntent(ctx, drifted); err == nil {
+		t.Fatal("journal accepted image drift for the original launch key")
+	}
+	provider.instance.Metadata[hostboot.MetadataKey] = "{}"
+	if driftedHosts, err := restarted.Observe(ctx); err != nil || len(driftedHosts) != 0 {
+		t.Fatalf("metadata-drifted host was observed: hosts=%+v err=%v", driftedHosts, err)
+	}
+	provider.instance.Metadata[hostboot.MetadataKey] = launch.BootDescriptor
+	provider.instance.ImageID = "ocid1.image.oc1..different"
+	if driftedHosts, err := restarted.Observe(ctx); err != nil || len(driftedHosts) != 0 {
+		t.Fatalf("image-drifted host was observed: hosts=%+v err=%v", driftedHosts, err)
 	}
 }
 
@@ -193,6 +259,7 @@ func (p *placementSizingProvider) ListInstances(_ context.Context, compartmentID
 	}
 	instance := p.instance
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
+	instance.Metadata = maps.Clone(instance.Metadata)
 	return []oci.CloudInstance{instance}, nil
 }
 
@@ -202,6 +269,7 @@ func (p *placementSizingProvider) GetInstance(_ context.Context, instanceID stri
 	}
 	instance := p.instance
 	instance.FreeformTags = maps.Clone(instance.FreeformTags)
+	instance.Metadata = maps.Clone(instance.Metadata)
 	return instance, nil
 }
 
@@ -217,6 +285,7 @@ func (p *placementSizingProvider) LaunchInstance(_ context.Context, request oci.
 		Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "etag-1",
 		ImageID: p.config.ImageID, ConsistentVolumeNamingEnabled: new(true),
+		Metadata:     map[string]string{hostboot.MetadataKey: request.BootDescriptor, "terrascale_host_node": request.Node},
 		FreeformTags: maps.Clone(request.FreeformTags),
 	}
 	return p.instance, nil

@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
@@ -51,6 +52,7 @@ type Config struct {
 	FaultDomains    []string
 	ManagedOwner    string
 	FleetGeneration uint64
+	ImageID         string
 	Environment     string
 	MemberRole      string
 	Resources       Resources
@@ -93,6 +95,7 @@ func StartController(ctx context.Context, config Config, store Store, fencer aut
 func (config Config) validate() error {
 	if !validToken(config.Cell) || !knownRegion(config.Region) || !validToken(config.ManagedOwner) ||
 		!validToken(config.Environment) || !validToken(config.MemberRole) || config.FleetGeneration == 0 ||
+		!strings.HasPrefix(config.ImageID, "ocid1.image.") || len(config.ImageID) > 255 || strings.ContainsAny(config.ImageID, " \t\r\n") ||
 		!positive(config.Resources) ||
 		config.Resources.CPU > 4096 || config.Resources.MemoryBytes > 1<<50 || config.Resources.DiskBytes > 1<<50 {
 		return errors.New("placement controller config has an invalid cell, region, owner, role, or resource profile")
@@ -649,6 +652,11 @@ func pinnedEnsureRequest(state MemberState) oci.EnsureRequest {
 		Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 		MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
 		PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
+		BootPins: oci.HostBootPins{
+			DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
+			HostAttempt: state.HostAttempt, IntentPayloadDigest: state.IntentPayloadDigest,
+			CanonicalRosterDigest: state.CanonicalRosterDigest, RuntimeManifestDigest: state.RuntimeManifestDigest,
+		},
 	}
 }
 
@@ -674,9 +682,24 @@ func (controller *Controller) validateObservedInstance(instance oci.Instance, st
 func (controller *Controller) instanceMatchesPinnedProfile(instance oci.Instance, state MemberState) bool {
 	compute := state.ManagedHostProfile.Compute
 	return instance.Owner == controller.config.ManagedOwner && instance.Generation == controller.config.FleetGeneration &&
+		instance.ImageID == controller.config.ImageID && controller.instanceMatchesPinnedBootDescriptor(instance, state) &&
 		instance.Shape == compute.Shape && instance.WholeOCPUs == compute.WholeOCPUs &&
 		instance.MemoryInGBs == compute.MemoryInGBs && instance.PlacementProfileDigest == state.ManagedHostProfileDigest &&
 		instance.PlacementGeneration == state.IntentGeneration
+}
+
+func (controller *Controller) instanceMatchesPinnedBootDescriptor(instance oci.Instance, state MemberState) bool {
+	descriptor := hostboot.Descriptor{
+		SchemaVersion: hostboot.SchemaVersion, Cell: controller.config.Cell, Region: string(controller.config.Region),
+		Node: instance.Node, Owner: controller.config.ManagedOwner, CreateKey: state.CreateKey,
+		ImageID: controller.config.ImageID, FleetGeneration: controller.config.FleetGeneration,
+		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
+		HostAttempt: state.HostAttempt, IntentGeneration: state.IntentGeneration,
+		IntentPayloadDigest: state.IntentPayloadDigest, CanonicalRosterDigest: state.CanonicalRosterDigest,
+		ManagedHostProfileDigest: state.ManagedHostProfileDigest, RuntimeManifestDigest: state.RuntimeManifestDigest,
+	}
+	digest, err := descriptor.Digest()
+	return err == nil && digest == instance.BootDescriptorSHA256
 }
 
 func (controller *Controller) admittedHost(intent Intent, state MemberState, instance oci.Instance, statuses map[string]host.HostStatus) (host.HostStatus, bool) {

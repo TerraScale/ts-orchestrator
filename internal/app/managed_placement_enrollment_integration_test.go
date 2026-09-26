@@ -139,6 +139,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	controller, err := placement.StartController(ctx, placement.Config{
 		Cell: "gru", Region: oci.RegionGRU, FaultDomains: region.FaultDomains,
 		ManagedOwner: region.Owner, FleetGeneration: region.Generation,
+		ImageID:     region.ImageID,
 		Environment: "production", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30},
 	}, store, control, fleet, hostController, hostController, testPlacementAdmittedArtifact(intent))

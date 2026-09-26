@@ -440,6 +440,11 @@ func validateIntent(intent OperationIntent) error {
 		intent.WholeOCPUs, intent.MemoryInGBs, intent.PlacementProfileDigest, intent.PlacementGeneration)) {
 		return errors.New("OCI launch intent requires a complete signed compute profile")
 	}
+	if intent.Action == actionLaunch {
+		if _, err := launchIntentDescriptor(intent); err != nil {
+			return fmt.Errorf("OCI launch intent requires an exact public boot descriptor: %w", err)
+		}
+	}
 	if intent.Action == actionVolumeAttach && (intent.ResourceID == "" || intent.VolumeID == "" ||
 		intent.CreateKey == "" || !validDevicePath(intent.Device) ||
 		intent.IsReadOnly != retainedVolumeReadOnly || intent.IsShareable != retainedVolumeShareable ||
@@ -481,6 +486,8 @@ func sameIntent(a, b OperationIntent) bool {
 		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.Shape == b.Shape &&
 		a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
 		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
+		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&
+		a.BootDescriptorSHA256 == b.BootDescriptorSHA256 &&
 		a.VolumeID == b.VolumeID &&
 		a.AvailabilityDomain == b.AvailabilityDomain && a.SizeGB == b.SizeGB && a.Device == b.Device &&
 		a.IsReadOnly == b.IsReadOnly && a.IsShareable == b.IsShareable &&

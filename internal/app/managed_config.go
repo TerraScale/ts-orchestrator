@@ -31,6 +31,7 @@ func (m managedControllerConfig) placementConfig(cell string, onError func(error
 	return placement.Config{
 		Cell: cell, Region: m.region.Region, FaultDomains: m.region.FaultDomains,
 		ManagedOwner: m.region.Owner, FleetGeneration: m.region.Generation,
+		ImageID:     m.region.ImageID,
 		Environment: settings.Environment, MemberRole: settings.MemberRole, Resources: settings.Resources,
 		TickInterval: time.Duration(settings.TickMillis) * time.Millisecond,
 		OnError:      onError, OnHold: onHold,

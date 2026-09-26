@@ -7,6 +7,7 @@ import (
 	"maps"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -92,6 +93,15 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 			request.PlacementProfileDigest, request.PlacementGeneration) {
 		return CloudInstance{}, ErrPlacementProfileMismatch
 	}
+	descriptor, err := hostboot.Parse([]byte(request.BootDescriptor))
+	if err != nil || request.ImageID != config.ImageID || descriptor.Cell != strings.ToLower(string(config.Region)) ||
+		descriptor.Region != string(config.Region) || descriptor.Node != request.Node ||
+		descriptor.Owner != config.Owner || descriptor.FleetGeneration != config.Generation ||
+		descriptor.CreateKey != request.CreateKey || descriptor.ImageID != request.ImageID ||
+		descriptor.ManagedHostProfileDigest != request.PlacementProfileDigest ||
+		descriptor.IntentGeneration != request.PlacementGeneration {
+		return CloudInstance{}, ErrHostBootBindingMismatch
+	}
 	networkSecurityGroupIDs := append([]string(nil), config.NetworkSecurityGroupIDs...)
 	freeformTags := placementProfileTags(request.FreeformTags, request.PlacementProfileDigest, request.PlacementGeneration)
 	details := core.LaunchInstanceDetails{
@@ -101,6 +111,7 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		FreeformTags:       freeformTags,
 		Metadata: map[string]string{
 			"terrascale_host_node": request.Node,
+			hostboot.MetadataKey:   request.BootDescriptor,
 		},
 		Shape: new(request.Shape),
 		ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
@@ -112,7 +123,7 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 			NsgIds:   networkSecurityGroupIDs,
 		},
 		LaunchOptions: &core.LaunchOptions{IsConsistentVolumeNamingEnabled: new(true)},
-		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new(config.ImageID)},
+		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new(request.ImageID)},
 	}
 	response, err := compute.LaunchInstance(ctx, core.LaunchInstanceRequest{
 		LaunchInstanceDetails: details,
@@ -333,6 +344,7 @@ func cloudInstance(instance core.Instance, etag string) CloudInstance {
 		ETag:                          etag,
 		ImageID:                       stringValue(instance.ImageId),
 		ConsistentVolumeNamingEnabled: consistentVolumeNamingEnabled(instance.LaunchOptions),
+		Metadata:                      cloneStringMap(instance.Metadata),
 		FreeformTags:                  cloneStringMap(instance.FreeformTags),
 	}
 }
