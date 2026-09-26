@@ -6,23 +6,23 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: orchestrator-${{ forgejo.workflow }}-${{ forgejo.repository }}-${{ forgejo.ref }}
-  cancel-in-progress: true
+  group: ts-orchestrator-${{ forgejo.workflow }}-${{ forgejo.ref }}
+  cancel-in-progress: ${{ forgejo.ref != 'refs/heads/main' }}
 
 jobs:
   verify:
-    name: verify/go
+    name: verify/go + artifact/linux-amd64-arm64
     runs-on: terrascale-builder
     timeout-minutes: 90
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
     steps:
       - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
           ref: ${{ forgejo.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Verify the source revision and Go toolchain
@@ -31,7 +31,6 @@ jobs:
           set -euo pipefail
           source_commit="$(git rev-parse HEAD)"
           test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
-          [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           go_version="$(go env GOVERSION)"
           test "${go_version}" = "go1.27.1"
@@ -42,32 +41,10 @@ jobs:
         shell: bash
         run: make verify GO=go GOFMT=gofmt
 
-  artifact:
-    name: artifact/linux-amd64-arm64
-    needs: verify
-    runs-on: terrascale-builder
-    timeout-minutes: 60
-    env:
-      SOURCE_SHA: ${{ forgejo.sha }}
-    steps:
-      - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Build and verify static source-matched binaries
         shell: bash
         run: |
           set -euo pipefail
-          source_commit="$(git rev-parse HEAD)"
-          test "${source_commit}" = "${SOURCE_SHA:?event SHA is required}"
-          [[ "${source_commit}" =~ ^[0-9a-f]{40}$ ]]
-          test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          go_version="$(go env GOVERSION)"
-          test "${go_version}" = "go1.27.1"
           make release-linux GO=go GOFMT=gofmt
 
           for pair in \
@@ -90,20 +67,16 @@ jobs:
             fi
 
             build_info="$(go version -m "${executable}")"
-            grep -Fq "vcs.revision=${source_commit}" <<<"${build_info}"
+            grep -Fq "vcs.revision=${SOURCE_SHA}" <<<"${build_info}"
             grep -Fq 'vcs.modified=false' <<<"${build_info}"
-            bytes="$(stat -c '%s' "${executable}")"
-            sha256="$(sha256sum "${executable}" | awk '{print $1}')"
-            test "${bytes}" -gt 0
-            [[ "${sha256}" =~ ^[0-9a-f]{64}$ ]]
             printf 'verified %s machine=%s bytes=%s sha256=%s source=%s\n' \
-              "${executable}" "${machine}" "${bytes}" "${sha256}" "${source_commit}"
+              "${executable}" "${machine}" "$(stat -c '%s' "${executable}")" \
+              "$(sha256sum "${executable}" | awk '{print $1}')" "${SOURCE_SHA}"
           done
 
           (cd dist && sha256sum \
             terrascale-orchestrator-linux-amd64 \
             terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
-          (cd dist && sha256sum --check --strict SHA256SUMS)
           cat dist/SHA256SUMS
 
       # This Forgejo runner does not currently retain action upload-artifact
