@@ -128,14 +128,14 @@ func TestInstalledArtifactPermissionsAndUnsafeEntries(t *testing.T) {
 }
 
 func TestWorkloadPathBoundariesBeforeNativeProbe(t *testing.T) {
-	root := t.TempDir()
+	root := testAgentInstallParent(t)
 	install := filepath.Join(root, "install")
-	state := filepath.Join(root, "state")
+	state := testAgentStateRoot(t)
 	identity := testAgentIdentity()
 	if err := ValidateWorkloadPaths(install, state, identity); err != nil {
 		t.Fatal(err)
 	}
-	for _, pair := range [][2]string{{install, install}, {root, state}, {install, filepath.Join(install, "state")}} {
+	for _, pair := range [][2]string{{install, install}, {root, install}, {install, filepath.Join(install, "state")}} {
 		if err := ValidateWorkloadPaths(pair[0], pair[1], identity); err == nil || !strings.Contains(err.Error(), "overlap") {
 			t.Fatalf("overlapping paths accepted: %v", pair)
 		}
@@ -165,27 +165,37 @@ func TestWorkloadPathBoundariesBeforeNativeProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := WorkloadIdentity{UID: identity.UID + 1, GID: identity.GID + 1}
-	if err := ValidateWorkloadPaths(install, state, other); err == nil || !strings.Contains(err.Error(), "cannot traverse") {
+	privateInstall := filepath.Join(t.TempDir(), "install")
+	if err := ValidateWorkloadPaths(privateInstall, state, other); err == nil || !strings.Contains(err.Error(), "cannot traverse") {
 		t.Fatalf("untraversable install root parent was accepted: %v", err)
 	}
 	installParent, err := os.MkdirTemp("", "ts-install-boundary-*")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(installParent) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(installParent); err != nil {
+			t.Errorf("remove install boundary parent: %v", err)
+		}
+	})
 	if err := os.Chmod(installParent, 0755); err != nil {
 		t.Fatal(err)
 	}
-	stateParent, err := os.MkdirTemp("", "ts-state-boundary-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(stateParent) })
+	stateParent := filepath.Dir(testAgentStateRoot(t))
+	t.Cleanup(func() {
+		if err := os.Chmod(stateParent, 0o700); err != nil {
+			t.Errorf("restore private state boundary parent: %v", err)
+		}
+	})
 	if err := os.Chmod(stateParent, 0777); err != nil {
 		t.Fatal(err)
 	}
+	writableError := "replace host path"
+	if os.Geteuid() == 0 {
+		writableError = "group- or world-writable"
+	}
 	if err := ValidateWorkloadPaths(filepath.Join(installParent, "install"), filepath.Join(stateParent, "state"), other); err == nil ||
-		!strings.Contains(err.Error(), "replace host path") {
+		!strings.Contains(err.Error(), writableError) {
 		t.Fatalf("tenant-writable state ancestor was accepted: %v", err)
 	}
 	cell := filepath.Join(state, "gru")

@@ -59,12 +59,12 @@ func TestInitialSeedAdmissionRequiresFloorProvisioner(t *testing.T) {
 
 func TestFreshSeedProvisionValidatesSelectionBeforeDurableFloor(t *testing.T) {
 	fixture := newFounderSignerFixture(t)
-	floor := testFounderFloor(t)
+	floor, uid, gid := testServiceFounderFloor(t)
 	reader, err := NewCurrentFounderAuthorityReader(fixture.baked, fixture.accepted, fixture.objects, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reader.provisionInitial(t.Context(), fixture.now, uint32(os.Getuid()), uint32(os.Getgid()), func() error { return nil }); err != nil {
+	if err := reader.provisionInitial(t.Context(), fixture.now, uid, gid, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if err := floor.Check(1, fixture.current.SelectionSHA256); err != nil {
@@ -73,22 +73,22 @@ func TestFreshSeedProvisionValidatesSelectionBeforeDurableFloor(t *testing.T) {
 	if _, err := reader.ReadCurrent(t.Context(), fixture.now); err != nil {
 		t.Fatalf("restart with provisioned floor: %v", err)
 	}
-	if err := reader.provisionInitial(t.Context(), fixture.now, uint32(os.Getuid()), uint32(os.Getgid()), func() error { return nil }); err != nil {
+	if err := reader.provisionInitial(t.Context(), fixture.now, uid, gid, func() error { return nil }); err != nil {
 		t.Fatalf("exact replay after floor-before-marker crash: %v", err)
 	}
 }
 
 func TestFreshSeedProvisionRejectsConflictingPreexistingFloor(t *testing.T) {
 	fixture := newFounderSignerFixture(t)
-	floor := testFounderFloor(t)
-	if err := floor.Initialize(1, digestWire([]byte("different signed selector"))); err != nil {
+	floor, uid, gid := testServiceFounderFloor(t)
+	if err := floor.InitializeForService(1, digestWire([]byte("different signed selector")), gid); err != nil {
 		t.Fatal(err)
 	}
 	reader, err := NewCurrentFounderAuthorityReader(fixture.baked, fixture.accepted, fixture.objects, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := reader.provisionInitial(t.Context(), fixture.now, uint32(os.Getuid()), uint32(os.Getgid()), func() error { return nil }); !errors.Is(err, ErrFounderProvision) {
+	if err := reader.provisionInitial(t.Context(), fixture.now, uid, gid, func() error { return nil }); !errors.Is(err, ErrFounderProvision) {
 		t.Fatalf("conflicting durable floor was reset: %v", err)
 	}
 }
@@ -99,13 +99,13 @@ func TestFreshSeedProvisionRechecksExpiryAtPublication(t *testing.T) {
 	key := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
 		"deployment-a", "GRU", "production")
 	fixture.objects.items[key] = selectionWire
-	floor := testFounderFloor(t)
+	floor, uid, gid := testServiceFounderFloor(t)
 	reader, err := NewCurrentFounderAuthorityReader(fixture.baked, fixture.accepted, fixture.objects, floor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	entryTime := fixture.now.Add(-15 * time.Second)
-	if err := reader.provisionInitial(t.Context(), entryTime, uint32(os.Getuid()), uint32(os.Getgid()),
+	if err := reader.provisionInitial(t.Context(), entryTime, uid, gid,
 		func() error { return nil }); !errors.Is(err, ErrFounderProvision) {
 		t.Fatalf("selector expired after entry time but before publication: %v", err)
 	}
@@ -144,10 +144,10 @@ func TestFreshSeedProvisionHoldsChangedPlanAndLaterGeneration(t *testing.T) {
 				copy.objects.items[key] = value
 			}
 			test.change(&copy)
-			floor := testFounderFloor(t)
+			floor, uid, gid := testServiceFounderFloor(t)
 			reader, err := NewCurrentFounderAuthorityReader(copy.baked, copy.accepted, copy.objects, floor)
 			if err == nil {
-				err = reader.provisionInitial(t.Context(), copy.now, uint32(os.Getuid()), uint32(os.Getgid()), func() error { return nil })
+				err = reader.provisionInitial(t.Context(), copy.now, uid, gid, func() error { return nil })
 			}
 			if err == nil {
 				t.Fatal("invalid initial selection provisioned a floor")

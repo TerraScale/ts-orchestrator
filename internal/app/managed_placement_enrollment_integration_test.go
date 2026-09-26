@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,8 +204,8 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	agent, err := host.NewAgent(host.AgentConfig{
 		Cell: "gru", Node: registration.Node, Environment: "production", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic,
-		Runner: &inMemoryRunner{}, InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"),
-		WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())},
+		Runner: &inMemoryRunner{}, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t),
+		WorkloadIdentity: testHostWorkloadIdentity(),
 		PollInterval:     100 * time.Millisecond, ClockCheck: func() error { return nil },
 	})
 	if err != nil {

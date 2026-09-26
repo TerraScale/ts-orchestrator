@@ -206,8 +206,40 @@ func TestHiddenAdmissionChildPrivilegeGatesInPrivateNamespace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	helper, err := os.Executable()
+	executable, err := os.Executable()
 	if err != nil {
+		t.Fatal(err)
+	}
+	helperDirectory, err := os.MkdirTemp("/tmp", "ts-admission-gate-helper-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(helperDirectory); err != nil {
+			t.Errorf("remove admission gate helper: %v", err)
+		}
+	})
+	if err := os.Chmod(helperDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	helper := filepath.Join(helperDirectory, "app.test")
+	source, err := os.Open(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	destination, err := os.OpenFile(helper, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(destination, source); err != nil {
+		_ = destination.Close()
+		t.Fatal(err)
+	}
+	if err := destination.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(helper, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(t.TempDir(), "child-config.json")

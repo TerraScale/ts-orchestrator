@@ -30,6 +30,47 @@ type inMemoryRunner struct {
 	observed host.Observation
 }
 
+func testHostWorkloadIdentity() host.WorkloadIdentity {
+	if os.Geteuid() == 0 {
+		return host.WorkloadIdentity{UID: 65534, GID: 65534}
+	}
+	return host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}
+}
+
+func testHostInstallRoot(t *testing.T) string {
+	t.Helper()
+	parent, err := os.MkdirTemp("/tmp", "ts-host-install-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(parent); err != nil {
+			t.Errorf("remove test install parent: %v", err)
+		}
+	})
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(parent, "install")
+}
+
+func testHostStateRoot(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() != 0 {
+		return filepath.Join(t.TempDir(), "state")
+	}
+	parent, err := os.MkdirTemp("/var/lib", "ts-host-state-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(parent); err != nil {
+			t.Errorf("remove test state parent: %v", err)
+		}
+	})
+	return filepath.Join(parent, "state")
+}
+
 func (*inMemoryRunner) Recover(context.Context) error { return nil }
 func (r *inMemoryRunner) Apply(_ context.Context, workload host.Workload) error {
 	r.mu.Lock()
@@ -131,9 +172,9 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	runner := &inMemoryRunner{}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
-	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}, Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
+	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
-		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"), PollInterval: 100 * time.Millisecond,
+		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
 		ClockCheck: controllerClockCheck(clock)})
 	if err != nil {
 		t.Fatal(err)

@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +32,8 @@ func TestSessionTraceOnlyRecordsVerifiedAcceptedLeases(t *testing.T) {
 	}
 	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey),
-		Runner: &sessionTraceRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}}, InstallRoot: filepath.Join(t.TempDir(), "install"),
-		StateRoot: filepath.Join(t.TempDir(), "state"), SessionTrace: true})
+		Runner: &sessionTraceRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}}, InstallRoot: testAgentInstallRoot(t),
+		StateRoot: testAgentStateRoot(t), SessionTrace: true})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -471,7 +471,7 @@ func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +552,7 @@ func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,8 +588,8 @@ func TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	install := filepath.Join(t.TempDir(), "install")
-	state := filepath.Join(t.TempDir(), "state")
+	install := testAgentInstallRoot(t)
+	state := testAgentStateRoot(t)
 	runner := &memoryRunner{observed: make(map[string]Observation)}
 	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
 	if err != nil {
@@ -672,7 +672,7 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: oldDigest, Fingerprint: oldDigest}); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1113,7 +1113,7 @@ func TestAgentResumesOpenCycleAfterSignedSessionContention(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1202,7 +1202,7 @@ func TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Role: "terrabase", Digest: digest, Running: true}}}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: time.Hour})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1350,7 +1350,7 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state"), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1776,5 +1776,47 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 }
 
 func testAgentIdentity() WorkloadIdentity {
+	if os.Geteuid() == 0 {
+		return WorkloadIdentity{UID: 65534, GID: 65534}
+	}
 	return WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}
+}
+
+func testAgentInstallParent(t *testing.T) string {
+	t.Helper()
+	parent, err := os.MkdirTemp("/tmp", "ts-host-install-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(parent); err != nil {
+			t.Errorf("remove test install parent: %v", err)
+		}
+	})
+	if err := os.Chmod(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return parent
+}
+
+func testAgentInstallRoot(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(testAgentInstallParent(t), "install")
+}
+
+func testAgentStateRoot(t *testing.T) string {
+	t.Helper()
+	if os.Geteuid() != 0 {
+		return filepath.Join(t.TempDir(), "state")
+	}
+	parent, err := os.MkdirTemp("/var/lib", "ts-host-state-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(parent); err != nil {
+			t.Errorf("remove test state parent: %v", err)
+		}
+	})
+	return filepath.Join(parent, "state")
 }

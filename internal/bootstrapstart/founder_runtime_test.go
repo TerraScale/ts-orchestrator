@@ -652,10 +652,16 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 	if err := os.Mkdir(peerFloorDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	serviceUID, serviceGID := testFounderServiceIdentity()
+	if os.Geteuid() == 0 {
+		if err := os.Chown(peerFloorDirectory, int(serviceUID), int(serviceGID)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	peerFloor := &FounderSelectionFloorStore{directory: peerFloorDirectory,
-		ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true}
+		ownerUID: serviceUID, allowUnsafeAncestors: true}
 	continuation := &FounderPeerContinuation{floor: peerFloor,
-		serviceUID: uint32(os.Getuid()), serviceGID: uint32(os.Getgid()),
+		serviceUID: serviceUID, serviceGID: serviceGID,
 		now: func() time.Time { return fixture.now }}
 	gate := Gate{Roots: fixture.baked.Roots, AnchorWire: fixture.baked.AnchorWire,
 		Expected:   fixture.baked.Identity.AnchorExpectation(),

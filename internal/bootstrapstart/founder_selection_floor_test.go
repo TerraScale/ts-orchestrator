@@ -20,6 +20,32 @@ func testFounderFloor(t *testing.T) *FounderSelectionFloorStore {
 	return &FounderSelectionFloorStore{directory: directory, ownerUID: uint32(os.Geteuid()), allowUnsafeAncestors: true}
 }
 
+func testFounderServiceIdentity() (uint32, uint32) {
+	if os.Geteuid() == 0 {
+		return 65534, 65534
+	}
+	return uint32(os.Geteuid()), uint32(os.Getegid())
+}
+
+func testServiceFounderFloor(t *testing.T) (*FounderSelectionFloorStore, uint32, uint32) {
+	t.Helper()
+	uid, gid := testFounderServiceIdentity()
+	directory := filepath.Join(t.TempDir(), "service-controller")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if os.Geteuid() == 0 {
+		if err := os.Chown(directory, int(uid), int(gid)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &FounderSelectionFloorStore{directory: directory, ownerUID: uid, allowUnsafeAncestors: true}
+	if err := prepareFounderFloorOwner(store, uid, gid); err != nil {
+		t.Fatal(err)
+	}
+	return store, uid, gid
+}
+
 func TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback(t *testing.T) {
 	store := testFounderFloor(t)
 	a := strings.Repeat("a", 64)
@@ -49,13 +75,13 @@ func TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback(t *testing.
 }
 
 func TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp(t *testing.T) {
-	store := testFounderFloor(t)
+	store, uid, gid := testServiceFounderFloor(t)
 	orphan := filepath.Join(store.directory, ".founder-selection-initial.interrupted")
 	if err := os.WriteFile(orphan, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	digest := strings.Repeat("a", 64)
-	if err := store.InitializeForService(1, digest, uint32(os.Getgid())); err != nil {
+	if err := store.InitializeForService(1, digest, gid); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Lstat(filepath.Join(store.directory, founderSelectionFloorName))
@@ -64,21 +90,20 @@ func TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp(t *
 	}
 	var stat unix.Stat_t
 	if err := unix.Stat(filepath.Join(store.directory, founderSelectionFloorName), &stat); err != nil ||
-		stat.Uid != uint32(os.Geteuid()) || stat.Gid != uint32(os.Getgid()) {
+		stat.Uid != uid || stat.Gid != gid {
 		t.Fatalf("published floor has wrong service owner: %v, %v", stat, err)
 	}
 	if err := store.Observe(1, digest); err != nil {
 		t.Fatalf("replay after initial publication: %v", err)
 	}
-	if err := store.InitializeForService(1, digest, uint32(os.Getgid())); err == nil {
+	if err := store.InitializeForService(1, digest, gid); err == nil {
 		t.Fatal("existing floor was silently replaced")
 	}
 }
 
 func TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner(t *testing.T) {
-	store := testFounderFloor(t)
+	store, uid, gid := testServiceFounderFloor(t)
 	a, b := strings.Repeat("a", 64), strings.Repeat("b", 64)
-	gid := uint32(os.Getgid())
 	if err := store.InitializePeerForService(1, a, gid); err != nil {
 		t.Fatalf("first peer floor publication: %v", err)
 	}
@@ -99,7 +124,7 @@ func TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner(t *testing.T) {
 	}
 	var stat unix.Stat_t
 	if err := unix.Stat(filepath.Join(store.directory, founderSelectionFloorName), &stat); err != nil ||
-		stat.Uid != uint32(os.Getuid()) || stat.Gid != gid || stat.Mode&0o777 != 0o600 {
+		stat.Uid != uid || stat.Gid != gid || stat.Mode&0o777 != 0o600 {
 		t.Fatalf("replayed peer floor lost service owner/mode: stat=%+v err=%v", stat, err)
 	}
 }
@@ -141,7 +166,7 @@ func TestServicePeerFloorRootReplayPreservesDistinctServiceOwner(t *testing.T) {
 }
 
 func TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination(t *testing.T) {
-	store := testFounderFloor(t)
+	store, uid, gid := testServiceFounderFloor(t)
 	digest := strings.Repeat("a", 64)
 	path := filepath.Join(store.directory, founderSelectionFloorName)
 	wire, err := protocol.EncodeJSON(founderSelectionFloor{SchemaVersion: 1,
@@ -154,10 +179,15 @@ func TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestina
 	if err := os.WriteFile(path, wire, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if os.Geteuid() == 0 {
+		if err := os.Chown(path, int(uid), int(gid)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := store.Observe(1, digest); err != nil {
 		t.Fatalf("visible exact floor could not be replayed: %v", err)
 	}
-	if err := store.InitializeForService(1, digest, uint32(os.Getgid())); err == nil {
+	if err := store.InitializeForService(1, digest, gid); err == nil {
 		t.Fatal("replay silently replaced an existing floor")
 	}
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
@@ -166,7 +196,7 @@ func TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestina
 	if err := store.Observe(1, digest); !errors.Is(err, ErrFounderSelectionFloor) {
 		t.Fatalf("incomplete published floor was accepted: %v", err)
 	}
-	if err := store.InitializeForService(1, digest, uint32(os.Getgid())); err == nil {
+	if err := store.InitializeForService(1, digest, gid); err == nil {
 		t.Fatal("incomplete published floor was overwritten")
 	}
 }

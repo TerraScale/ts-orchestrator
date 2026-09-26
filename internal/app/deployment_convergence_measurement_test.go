@@ -152,10 +152,10 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	agent, err := host.NewAgent(host.AgentConfig{
-		WorkloadIdentity: host.WorkloadIdentity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())},
+		WorkloadIdentity: testHostWorkloadIdentity(),
 		Cell:             "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
-		InstallRoot: filepath.Join(root, "install"), StateRoot: filepath.Join(root, "state"),
+		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t),
 		PollInterval: convergencePollInterval, ClockCheck: controllerClockCheck(clock),
 	})
 	if err != nil {

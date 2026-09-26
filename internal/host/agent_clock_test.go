@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,7 +43,7 @@ func TestHostClockRejectsStartupAndSession(t *testing.T) {
 	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return errors.New("clock unsynchronized") },
 		WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey), Runner: runner,
-		InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+		InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +82,7 @@ func TestPartitionedHostFencesOnClockLossOrMonotonicExpiry(t *testing.T) {
 				return nil
 			}, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 				Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey), Runner: runner,
-				InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+				InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -165,7 +164,7 @@ func TestClockRecheckBlocksNativeApply(t *testing.T) {
 		return nil
 	}, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey), Runner: runner,
-		InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+		InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +212,7 @@ func TestBlockedRenewalClockWatchdogStopsOnce(t *testing.T) {
 				return nil
 			}, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 				Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey), Runner: runner,
-				InstallRoot: filepath.Join(t.TempDir(), "install"), StateRoot: filepath.Join(t.TempDir(), "state")})
+				InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 			if err != nil {
 				t.Fatal(err)
 			}

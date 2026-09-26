@@ -31,7 +31,7 @@ func TestFounderFloorArtifactsMatchInitializedPeerFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid, gid := uint32(os.Getuid()), uint32(os.Getgid())
+	uid, gid := testFounderServiceIdentity()
 	artifacts, err := BuildVerifiedPeerFloorArtifacts(t.Context(), fixture.baked, accepted,
 		state, fixture.objects, uid, gid, fixture.now)
 	if err != nil || len(artifacts) != 3 {
