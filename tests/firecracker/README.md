@@ -1,5 +1,47 @@
 # Four-VM Firecracker qualification
 
+## Native member-status qualification
+
+Use the dedicated one-guest driver for the native cgroup recovery and
+cross-language member-status tests. It consumes a JSON manifest containing the
+orchestrator and TerraBase source commit IDs, the exact Rust test name, and
+SHA-256 records for these seven inputs: `kernel`, `rootfs`, `firecracker`,
+`go_host_test`, `memberstatus_probe`, `rust_server`, and `rust_test`. Each input
+record has the form `{"path":"/absolute/path/to/file","sha256":"64 lowercase hex digits"}`.
+The source commit fields are recorded as supplied; the per-file hashes bind the
+executed inputs. The driver validates all paths and hashes before creating its
+run directory or any VM resources.
+
+Run it with a new durable evidence directory whose parent already exists:
+
+```sh
+python3 tests/firecracker/memberstatus/qualify.py \
+  --manifest /path/to/member-status-manifest.json \
+  --run-dir /home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-member-driver/run-01
+```
+
+The guest has 6 GiB RAM, two vCPUs, and no network interface. The driver copies
+the supplied ext4 image to a private sparse writable image, stages the four
+executables and one enabled systemd service, and unmounts that copy before
+boot. The service requires systemd 255 or newer and configures root execution,
+`Delegate=yes`, `DelegateSubgroup=supervisor`, `MemoryMax=5G`,
+`NoNewPrivileges=yes`, an empty ambient capability set, and the
+`CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP` bounding set. It runs
+`TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery` with verbose output
+and a 120-second timeout, then runs the manifest's exact Rust test with
+`--exact --nocapture --test-threads=1`. The host accepts a result only when
+both test summaries explicitly pass, the nested Go probe reports
+`MEMBER_STATUS_GO_OK` and its sender-enabled success marker, and the guest emits
+the final `MEMBER_STATUS_QUALIFICATION_RESULT=PASS` sentinel after both tests.
+
+The driver does not build Go or Rust artifacts or configure networking. It
+keeps command logs, guest serial and VMM logs, collected guest test output,
+events, source/input identities, and `summary.json` under `--run-dir`. The
+summary is `PASS`, `FAILED`, or `CLEANUP_FAILED`; only `PASS` returns zero. The
+source rootfs and executable inputs remain unchanged. The private writable
+image is removed only after the VMM is confirmed stopped and the image is
+confirmed unmounted; otherwise the image is retained for inspection.
+
 Run from the repository root on the authorized local lab host:
 
 ```sh
@@ -7,15 +49,28 @@ python3 tests/firecracker/qualify.py check
 python3 tests/firecracker/qualify.py run
 ```
 
-`check` verifies the exact read-only kernel and Ubuntu ext4 image at
-`/tmp/vm-inputs/vmlinux` and `/tmp/vm-inputs/rootfs.ext4`, Firecracker,
+`check` verifies the exact read-only kernel and Ubuntu ext4 image at its
+default paths:
+`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/inputs/vmlinux-6.1.186`
+and
+`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/inputs/rootfs-noble-20260911.ext4`.
+It also checks Firecracker,
 `/dev/kvm`, `/dev/net/tun`, and required host commands. It creates no VMs or
 network devices. `run` needs passwordless `sudo` for `ip`, `mount`, `umount`,
 `install`, `systemctl`, and `nft`. The host also needs `openssl`, `ss`, and the
 pinned Chrony 4.8 binaries named in `qualify.py`. Options
 `--kernel`, `--rootfs`, `--firecracker`, and
 `--run-dir` select alternate assets or a new evidence directory; asset hashes
-must still match. Do not reuse `/tmp/vm-inputs/certs`.
+must still match. The default evidence directory is temporary under `/tmp`;
+pass a new path such as
+`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/run-01`
+to retain logs and guest-side evidence durably. The harness creates fresh
+credentials under each private run directory.
+Firecracker API sockets live in a separate short private directory under
+`/tmp`, so long durable run paths stay within the Unix socket path limit. The
+harness removes that socket directory only after every VMM process group is
+quiescent; failed qualifications and cleanup failures retain private guest
+images for inspection.
 
 The run builds the current static Go binary, checks that Go source did not
 change during the build, creates fresh Ed25519 identities with the actual
@@ -127,11 +182,16 @@ The original kernel and rootfs are never modified.
 
 ## Kernel and runner qualification boundary
 
-Runner and four-VM results apply to the pinned image only: Linux 6.1.155 with
-kernel SHA-256
+The latest recorded four-VM results apply to the older pinned image only: Linux
+6.1.155 with kernel SHA-256
 `e20e46d0c36c55c0d1014eb20576171b3f3d922260d9f792017aeff53af3d4f2` and Ubuntu
 root filesystem SHA-256
-`dd49aee1d9c28f8e781a627bec744db3a961ce4402950130ff9268504c551314`. On this
+`dd49aee1d9c28f8e781a627bec744db3a961ce4402950130ff9268504c551314`. The
+current harness defaults to Linux 6.1.186 with kernel SHA-256
+`586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523` and Ubuntu
+root filesystem SHA-256
+`a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6`; the older
+qualification results below do not apply to those newer inputs. On the 6.1.155
 kernel, the reproduced `cgroup.kill` condition involved `clone3(CLONE_INTO_CGROUP)`
 reading the creator cgroup's `kill_seq` before it resolves the destination.
 The runner recreates an emptied role cgroup before reuse and seals cgroups
