@@ -23,20 +23,35 @@ production IAM, the full bootstrap path, or sustained availability.
 
 ## Baseline and evidence boundaries
 
-The original audit baseline is repository commit
-`90b7ea1f4402967d2cc09b00a50d0e2d9c33c369`; the reviewed OCI create-retry
-slice was later committed as `997498bff9a9c1e6aed29622796515b753ca7b69`.
-The current committed checkpoint is `3aef6fba98a585b04267de25266ea34baac2c062`:
-`043e8f47` contains the local JWT/fencing operator caller and R6 leader-read
-changes, `a54c8b1` contains the eight-file R7 JWT/NTP Firecracker harness,
-`06a3f047` contains delegated host cgroup qualification, and `3aef6fba`
-changes native helper FD preservation. The latter fix has no guest rerun yet.
-The clean detached R7 source is `/tmp/ts-orch-r7-qualification-a54c8b1`;
-its binary builds passed, but the R7 run failed at host Chrony readiness before
-any VM boot. Guest qualification still needs a rerun. Bootstrap integration
-and other shared-tree changes remain unreviewed; the committed host and harness
-corrections also do not close guest gates. `AGENTS.md` is human-owned and is not an
+The accepted source checkpoint for this readiness pass is commit
+`d5fc307f31ae825a664d99897a80a2219c058c3f` (tree
+`647ffbcf601942d5bf4b15e558f1b457332f7168`). It includes the signed founder
+plan, current-selection reader and rollback floor, and the OCI launch adapter.
+Later shared-tree changes are outside this checkpoint and are not covered by
+the findings below. `AGENTS.md` is human-owned and is not an
 implementation target.
+
+Qualification results are revision- and scope-specific. The saved broad Go
+suite/vet packet records Go 1.27.1, `go test -count=1 ./...`, and `go vet ./...`
+passing on its frozen pre-founder snapshot: archive base `93ca72c6` plus 13
+overlays whose hashes match every tracked path changed through the preceding
+`4c284550` enrollment checkpoint. It excludes untracked files and the nested
+`third_party/nats-server` module, and does not cover the later founder commits.
+Focused bootstrap tests and vet are
+recorded in `20260926-founder-core`; the selection package, focused race test,
+and vet are recorded in `20260926-founder-selection`; the current-reader/floor
+and OCI adapter checks are recorded in `20260926-founder-oci`. Those checks
+are bounded package tests, not a later full-suite run or a live OCI
+qualification. The evidence directories are under
+`../.qualification/ts-orchestrator/`.
+
+The OCI SDK now sends Flex OCPU and memory dimensions in `ShapeConfig`, and
+`sdk_test.go` checks that request and response dimensions round-trip. The
+founder OCI adapter likewise receives the signed launch profile. These tests
+do not show that OCI launched or re-observed the proposed E4 dimensions. No
+production `internal/app` caller connects the founder selection reader and
+OCI launch adapter at this checkpoint; founder formation remains an
+unqualified integration path.
 
 The OCI SDK uses instance-principal authentication and launches from a pinned
 region configuration. Its launch request supplies the configured image,
@@ -107,6 +122,13 @@ current placement has two fixed member seats per selected region and could
 create a second host outside this four-VM inventory. The one-host run qualifies
 control-plane and host boundaries, not normal placement or autoscaling.
 
+The candidate resource inventory is four AMD64 E4 Flex VMs at 1 OCPU/6 GB
+each, four 50 GB boot volumes, one protected 50 GB member-data volume, and one
+private VCN with a private subnet. No exact VCN, subnet, route-table, NSG, or
+volume OCIDs are recorded for this plan. The five-volume count is a planning
+assumption; the member-data volume is retained after the run, and boot-volume
+disposition still needs an owner and decision.
+
 Use a separately reviewed canary OpenTofu root/state and run-owned namespace or
 compartment, disjoint from production `ts-infra` state and resources. It may
 own only the exact canary foundation and seed, with an explicit controller
@@ -121,13 +143,16 @@ ledger/HEAD or keys; each retained resource needs a named owner and retention
 decision.
 
 The storage candidate is four 50 GB boot volumes and one 50 GB retained data
-volume, five volumes total, at the balanced 10 VPU/GB tier. The seed boot
-profile is already 50 GB, while the other exact launch/volume settings still
-need review. The OCI SDK currently preserves boot and launch-created data
-volumes on termination and has no boot-volume delete operation in its provider
-interface. Preserve is the current policy; do not silently flip it. An
-OCID-specific boot disposition, deletion authority and post-run verification
-need separate review. The retained member data volume remains protected.
+volume. Price arithmetic below assumes the balanced 10 VPU/GB tier, but this
+is not a selected or requested tier: the Go volume-create request sets size and
+does not set performance, and the volume read-back mapping does not expose the
+performance tier. Set and read back the intended tier in a separately reviewed
+path before treating that price as the canary estimate. The seed boot profile
+is already 50 GB; other exact launch and volume settings still need review. At
+this source checkpoint, instance termination explicitly preserves boot and
+launch-created data volumes, and the OCI provider has no volume-delete
+operation. The protected member-data volume remains retained; every preserved
+boot volume needs a named owner and retention decision.
 
 The network candidate is one reviewed private GRU VCN/subnet in the selected
 AD, with private east-west NATS and health traffic. A GRU service gateway may
@@ -148,11 +173,22 @@ predicate (`TIME_OK`, no `STA_UNSYNC` or `STA_CLOCKERR`, maxerror at most
 250 ms), and actual service reachability must be demonstrated before workload
 admission.
 
-The current Go `RegionConfig` records a shape but no OCPU or memory dimensions,
-and the OCI SDK launch request omits Flex `ShapeConfig`. A reviewed durable
-intent/launch dimension contract, exact SDK request test and OCI re-observation
-of all four VM dimensions are prerequisites for enabling the E4 canary. A
-shape name and quota arithmetic do not prove the requested VM size.
+The `ts-infra` snapshot inspected for this plan is commit
+`32bd267c0f64e74634667c113e13880c1147fd14`: both OCI gates are false and
+`oci_estate_regions` is empty. Its current initial-seed validator accepts only
+`VM.Standard.A1.Flex`, not this E4 candidate. Therefore the existing
+configuration supplies no reviewed GRU CIDRs, subnet key, service-gateway
+service ID/CIDR, or NSG rules for this run. Exact network IDs and effective
+routes remain lookup and review gates; do not infer them from the candidate
+diagram or from the provider's region defaults.
+
+The signed placement profile carries OCPU and memory dimensions through the
+launch request. At this checkpoint the OCI SDK sets Flex `ShapeConfig`, and
+`internal/oci/sdk_test.go` verifies request values and normalized response
+values. The test uses a 2-OCPU/12-GB fixture; it is not a live launch. Recheck
+the proposed 1-OCPU/6-GB E4 dimensions on all four actual instances before
+workload admission. A shape name, unit test, or quota arithmetic alone does
+not prove the launched VM size.
 
 The following public PAYG list-price snapshot was captured on 2026-09-25 at
 `/tmp/oci-public-pricing-20260925T181217+0000.json` (SHA-256
@@ -164,6 +200,9 @@ and [performance](https://apexapps.oracle.com/pls/apex/cetools/api/v1/products/?
 SKU endpoints supplied the storage rates. This is neither a tenancy quote nor
 an all-in estimate. The table's 30-day arithmetic covers only compute and the
 five-volume scenario; its A1 rows are excluded from the concrete E4 canary.
+The block-volume performance rows use the balanced 10 VPU/GB rate only as an
+illustrative assumption; the current Go create/read-back path neither selects
+nor confirms that tier.
 
 | Candidate line item | SKU and rate | 30-day calculation |
 | --- | --- | --- |
@@ -174,9 +213,9 @@ five-volume scenario; its A1 rows are excluded from the concrete E4 canary.
 | A1 compute: memory | `B93298`, $0.0015/GB-hour after the first 18,000 monthly GB-hours | 4 × 6 × 720 × $0.0015 = $25.92 list-tier amount |
 | A1 compute subtotal | A1 branch only | $54.72 list-tier amount; $0.076/hour for four VMs |
 | Block-volume capacity | `B91961`, $0.0255/GB-month | 250 × $0.0255 = $6.375/month |
-| Balanced performance | `B91962`, $0.0017/VPU-GB-month × 10 VPU/GB | 250 × $0.017 = $4.25/month |
-| Five-volume scenario | Capacity plus balanced performance | $10.625/month |
-| E4 priced subtotal | E4 compute plus volume scenario | $108.545 for 30 full days |
+| Assumed balanced performance | `B91962`, $0.0017/VPU-GB-month × assumed 10 VPU/GB | 250 × $0.017 = $4.25/month, if read-back confirms this tier |
+| Five-volume scenario | Capacity plus assumed balanced performance | $10.625/month, conditional on that tier |
+| E4 priced scenario | E4 compute plus assumed five-volume tier | $108.545 for 30 full days, not an approved estimate |
 | A1 priced subtotal | A1 list-tier compute plus volume scenario | $65.345 for 30 full days |
 
 The A1 branch consumes 2,880 OCPU-hours and 17,280 GB-hours in 30 days. Both
@@ -188,20 +227,22 @@ this canary.
 
 For the E4 canary, four VMs cost 4 × (1 × $0.025 + 6 × $0.0015) = $0.136 per
 hour at these list rates, or **$0.272 for the planned two active hours**. A
-safety hold that extends billable VM time increases this compute charge.
-Balanced capacity and performance cost $0.0425/GB-month: five 50 GB volumes exposed
-for a full month would be **$10.625**, while the retained 50 GB data volume
-alone would continue at **$2.125/month** if exact boot deletion were separately
-approved and performed. Oracle's [public price list](https://www.oracle.com/cloud/price-list/)
+safety hold that extends billable VM time increases this compute charge. Under
+the unverified balanced-tier assumption, capacity and performance cost
+$0.0425/GB-month: five 50 GB volumes exposed for a full month would be
+**$10.625**, while the retained 50 GB data volume alone would continue at
+**$2.125/month** if boot deletion were separately approved and performed via a
+separately reviewed path. Oracle's [public price list](https://www.oracle.com/cloud/price-list/)
 says block capacity/performance meter until deletion, with a one-minute
 minimum then per-second proration across the calendar month. The hypothetical
 two-hour charge if **all five** volumes were deleted then is about $0.029514,
-but that is not the current preserve policy and cannot be used as a run cost.
-The proposed **$50 first-billing-period planning envelope is unenforced**:
+but that is not the current preserve behavior in the Go provider and cannot be
+used as a run cost. No approved dollar ceiling is recorded. A prior draft's
+**$50 first-billing-period example is unapproved and illustrative only**:
 under the two-hour compute scenario, $0.272 plus a full month of five volumes
-leaves $39.103 for every other itemized charge. It is not a hard cap, all-in
-quote, or execution approval, and a safety hold can exceed the planned compute
-duration.
+at that assumed tier leaves $39.103 before every other itemized charge. It is
+not a budget decision, hard cap, all-in quote, or execution approval, and a
+safety hold can extend billable compute beyond the planned duration.
 Image/Object Storage, network/transfer, logs, Vault and continued retention
 must be priced with named owners before any authorization.
 
@@ -264,8 +305,8 @@ workload admission. Passing a later-stage check does not authorize an apply.
    one private GRU VCN/subnet. The owner reviews E4 service limits and live
    capacity, boot-volume preservation versus OCID-specific deletion authority,
    every residual resource's retention owner, and an itemized first-period
-   estimate including unpriced usage. The proposed $50 envelope is unenforced;
-   a budget alert is not a dollar ceiling or a stop mechanism.
+   estimate including unpriced usage. No approved dollar ceiling exists; a
+   budget alert is not a dollar ceiling or a stop mechanism.
 2. The pinned base and custom image, signer/delegation, root-signed manifest,
    first-boot delivery, production NTP, and the image receipt consumer are
    verified on the exact source and image. The signed manifest policy is now
@@ -345,16 +386,18 @@ exact attachment checks, and re-observe its detached state. Terminate only the
 four exact run-owned VMs when those safety
 conditions hold, then verify their terminal states and inventory of preserved
 boot/data volumes, immutable ledger, CAS `HEAD`, and any other retained items.
-Termination alone does not delete the boot or data volumes. Boot deletion, if
-separately approved, is an OCID-specific subsequent operation with its own
-read-back proof; otherwise record each preserved boot volume and its owner.
+Termination alone does not delete the boot or data volumes. The current Go
+provider has no volume-delete operation; any separately approved volume
+disposition therefore needs a reviewed mechanism outside that provider, an
+exact-OCID scope, and read-back proof. Otherwise record each preserved boot
+volume and its owner.
 Remove only clearly disposable run-owned network or test resources after
 exact-OCID/tag checks, then repeat read-only listings and record any residual
 resource for its named owner. Ambiguous ownership or attachment means stop
 and escalate; never broaden cleanup by compartment. These milestones do not
 authorize unsafe detach, termination, or deletion when proof is missing. A
-safety/ownership hold may extend billable compute beyond T+120 and the
-unenforced $50 planning envelope; the named owner must track and resolve it.
+safety/ownership hold may extend billable compute beyond T+120; the named owner
+must track and resolve the resulting charges. There is no approved spend cap.
 
 ## Latest local qualification limits (2026-09-25)
 
@@ -502,7 +545,7 @@ integration gate.
 | --- | --- | --- |
 | OCI operation recovery — `internal/oci/**` | Use the persisted original operation time and stop replaying OCI create requests before the provider retry-token window expires. Hold expired unknown outcomes and disappeared confirmed resources for explicit, authority-fenced, OCID-specific reconciliation. Preserve the immutable create receipt and use the currently observed ETag for the next fenced operation. Real JetStream KV integration tests must prove no additional provider create at the expiry boundary and safe recovery after lost acknowledgements. | IN PROGRESS; implementation committed as `997498bff9a9c1e6aed29622796515b753ca7b69`; fake-journal unit/race tests passed. Real JetStream KV boundary tests, final review, and reconciliation tooling remain open. |
 | Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. No live publication or image mutation is part of this work. | IN PROGRESS; `cmd/ts-release` creates/verifies canonical receipts and conditionally publishes exact OCI objects, but no image or release was signed, imported, published, or run. `internal/bootstrapstart` and `internal/app/bootstrap_controller.go` now contain the intended current/historical image-receipt and running-binary consumer path; this integration is still under review and has no OCI or guest proof. The public receipt/delegation wire remains pinned by the root-signed manifest's exact envelope digest. Controller/host units and an offline installer exist, but first-boot config/enrollment and the corrected host cgroup service layout remain unqualified. The R7 amd64 build passed, but its attempt failed at host Chrony readiness before VM boot; the guest result needs a rerun, and arm64 execution has not been tested. Base-image pinning, installed-binary runtime verification, staged restart/rollback, signer environment review, and OCI IAM/cost authorization remain OPEN. |
-| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Implement the signed immutable bootstrap ledger and exact seed handoff before regional JetStream exists. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; root-to-service admission, anchor/ledger and current/historical restart checks have source and focused tests in `internal/bootstrapstart` and `internal/app/bootstrap_controller.go`, but the current integration is unreviewed and has no guest proof. The founder launcher that reserves a slot and creates the first OCI seed is absent. `ts-infra` foundation/seed gating is committed on draft PR #16 without apply. Exact seed handoff, cold GRU formation and SFO/FRA formation remain OPEN. |
+| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Connect the signed immutable bootstrap ledger, current founder selection/floor, and OCI launch adapter through a reviewed caller. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; founder plan verification, signed current-selection reading, rollback-floor checks, and an offline-testable OCI seed launch adapter have focused package evidence at their recorded source checkpoints. At `d5fc307`, no production `internal/app` caller connects the current-selection reader to the OCI adapter, and no live seed launch or cold-cell qualification exists. `ts-infra` gates remain false; its current GRU seed validator accepts A1 only. Exact seed handoff, cold GRU formation and SFO/FRA formation remain OPEN. |
 | Instance identity and host enrollment — NATS authorization/enrollment, host image/runtime owners | Use least-privilege OCI policies and version-pinned Vault material to issue per-host NATS identity and Ed25519 identity, pin the controller response key, and complete signed registration and rotation for the exact OCI instance. Demonstrate denied foreign-region, stale-generation, revoked, and tag-only identities through the real boot path. The preferred proof is a private HTTPS begin/complete exchange, fresh nonce, and public-only serial-console response; the controller reads console history, verifies exact instance ID and both signatures, and issues a durable one-time grant before NATS JWT issuance. Fail closed on 1 MiB history truncation or missing/replayed proof; do not grant console-connection IAM to the validator. | IN PROGRESS; local signed operator `broker-claim-apply` and R3 JWT/fence caller tests passed at the committed checkpoint, addressing the earlier helper-only review findings. The R7 fixture generates private JWT identities but is not a production issuer. Live OCI console-history/IAM denial, first-boot credential issuance and delivery, retry cleanup, and broker-revocation convergence in guests remain OPEN. |
 | Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; the earlier 8/8 native security run covered nested-supervisor death and child cleanup, but full systemd main-process death and writable-cgroup guest qualification remain OPEN. The earlier one-guest Unix-socket attempt exited status 1 without a captured application result; the later delegated attempt captured a verified journal but failed during native Apply with a Go netpoll fatal error before role and Unix-socket verification. The cause is under runtime investigation. Root-to-service credential handoff has source but its real privileged subprocess and restart caller still require review and qualification. The delegated supervisor leaf reached guest startup, but native workload verification failed. R7 failed before VM boot, so JWT/NTP host evidence still needs a rerun. |
 | TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; placement deliberately holds at `awaiting-runtime-contract` after OCI attachment. Guest block-device discovery, safe format/adoption, filesystem identity, exclusive mount and mount-bound member launch/report are absent. The bounded receiver-only member-status surface has no serving proof. Later mutable producer source includes an outbound sender and `AppliedAck`, but current-source real-peer acceptance, independently observed applied frontiers and a durable serving/drain receipt remain open. |
@@ -516,8 +559,10 @@ integration gate.
 2. Produce retained signed release artifacts and image receipts, then qualify
    systemd and cgroup behavior on a pinned custom image. Keep image creation
    offline until the base image, signer, tenancy, and cost target are approved.
-3. Implement the pre-quorum immutable ledger and split foundation/seed
-   provisioning. Prove seed relinquishment before controller ownership.
+3. Connect the tested pre-quorum ledger, current founder selector/floor, and
+   OCI seed adapter through a reviewed production caller. Then prove split
+   foundation/seed provisioning and seed relinquishment before controller
+   ownership.
 4. Add automatic R3 regional cell formation and least-privilege identity
    enrollment. Prove cold boot and restart paths before TerraBase serving.
 5. Freeze the TerraBase producer contract, then integrate one real member on
