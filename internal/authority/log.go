@@ -32,7 +32,11 @@ type controlRecord struct {
 	Payload     []byte           `json:"payload"`
 }
 
-const authorityAPITimeout = 5 * time.Second
+const (
+	authorityAPITimeout                = 5 * time.Second
+	createdStreamInfoConvergenceWindow = 5 * time.Second
+	createdStreamInfoRetryDelay        = 100 * time.Millisecond
+)
 
 func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int) (jetstream.Stream, error) {
 	config := jetstream.StreamConfig{
@@ -58,6 +62,7 @@ func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int
 	createCtx, cancel := context.WithTimeout(ctx, authorityAPITimeout)
 	stream, err := js.CreateStream(createCtx, config)
 	cancel()
+	created := err == nil
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrStreamNameAlreadyInUse) && !errors.Is(err, jetstream.ErrBucketExists) {
 			return nil, fmt.Errorf("create authority stream: %w", err)
@@ -69,16 +74,56 @@ func openControlStream(ctx context.Context, js jetstream.JetStream, replicas int
 			return nil, fmt.Errorf("lookup existing authority stream: %w", err)
 		}
 	}
-	infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
-	info, err := stream.Info(infoCtx)
-	infoCancel()
+	var info *jetstream.StreamInfo
+	if created {
+		info, err = inspectCreatedControlStream(ctx, stream, createdStreamInfoConvergenceWindow)
+	} else {
+		infoCtx, infoCancel := context.WithTimeout(ctx, authorityAPITimeout)
+		info, err = stream.Info(infoCtx)
+		infoCancel()
+	}
 	if err != nil {
 		return nil, fmt.Errorf("inspect authority stream: %w", err)
+	}
+	if info == nil {
+		return nil, errors.New("authority stream info is missing")
 	}
 	if err := verifyControlStreamConfig(info.Config, replicas); err != nil {
 		return nil, err
 	}
 	return stream, nil
+}
+
+// A new R3 stream may be visible to CreateStream before its metadata leader
+// serves Info. Retry only the exact stream-not-found API response at this one
+// post-create boundary, within both the caller deadline and a short local cap.
+func inspectCreatedControlStream(ctx context.Context, stream jetstream.Stream,
+	convergenceWindow time.Duration,
+) (*jetstream.StreamInfo, error) {
+	windowCtx, cancel := context.WithTimeout(ctx, convergenceWindow)
+	defer cancel()
+	for {
+		infoCtx, infoCancel := context.WithTimeout(windowCtx, authorityAPITimeout)
+		info, err := stream.Info(infoCtx)
+		infoCancel()
+		if err == nil {
+			return info, nil
+		}
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		apiErr, ok := errors.AsType[*jetstream.APIError](err)
+		if !ok || apiErr.Code != 404 || apiErr.ErrorCode != jetstream.JSErrCodeStreamNotFound {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-windowCtx.Done():
+			return nil, err
+		case <-time.After(createdStreamInfoRetryDelay):
+		}
+	}
 }
 
 func verifyControlStreamConfig(actual jetstream.StreamConfig, replicas int) error {
