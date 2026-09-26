@@ -26,10 +26,15 @@ import (
 )
 
 const (
-	imdsHost      = "169.254.169.254"
-	maxRequest    = 64 << 10
-	maxClockSkew  = 5 * time.Minute
-	tokenLifetime = time.Hour
+	imdsHost            = "169.254.169.254"
+	maxRequest          = 64 << 10
+	maxClockSkew        = 5 * time.Minute
+	tokenLifetime       = time.Hour
+	maxSessions         = 64
+	maxRecordedRequests = 8192
+	maxRoutes           = 512
+	maxRouteBody        = 4 << 20
+	maxTotalBodies      = 32 << 20
 )
 
 var signatureRE = regexp.MustCompile(`^Signature version="1",headers="([a-z0-9() -]+)",keyId="([^"]+)",algorithm="rsa-sha256",signature="([A-Za-z0-9+/=]+)"$`)
@@ -45,6 +50,13 @@ type ReadResponse struct {
 	LastModified time.Time
 }
 
+// MissingRead is one exact, deliberately absent OCI object. An unlisted route
+// is never returned as a normal 404.
+type MissingRead struct {
+	Host       string
+	RequestURI string
+}
+
 // Config is fixture material; no value is read from guest-supplied metadata.
 type Config struct {
 	Region          string
@@ -55,13 +67,16 @@ type Config struct {
 	LeafPrivateKey  []byte
 	Intermediate    []byte
 	Reads           []ReadResponse
+	Missing         []MissingRead
 }
 
 type RequestRecord struct {
-	Method     string `json:"method"`
-	Host       string `json:"host"`
-	RequestURI string `json:"requestUri"`
-	Status     int    `json:"status"`
+	Method      string `json:"method"`
+	Host        string `json:"host"`
+	RequestURI  string `json:"requestUri"`
+	RouteSHA256 string `json:"routeSha256,omitempty"`
+	Status      int    `json:"status"`
+	Listed      bool   `json:"listed"`
 }
 
 type routeKey struct{ host, uri string }
@@ -78,13 +93,17 @@ type Simulator struct {
 	config      Config
 	leaf        *x509.Certificate
 	leafKey     *rsa.PrivateKey
+	tokenKey    *rsa.PrivateKey
 	authHost    string
 	computeHost string
 	storageHost string
 	reads       map[routeKey]ReadResponse
+	missing     map[routeKey]struct{}
+	bodyBytes   int64
 	mu          sync.Mutex
 	sessions    map[string]session
 	requests    []RequestRecord
+	overflow    uint64
 	now         func() time.Time
 }
 
@@ -96,6 +115,10 @@ func NewSimulator(config Config) (*Simulator, error) {
 	config.LeafCertificate = bytes.Clone(config.LeafCertificate)
 	config.LeafPrivateKey = bytes.Clone(config.LeafPrivateKey)
 	config.Intermediate = bytes.Clone(config.Intermediate)
+	if len(config.LeafCertificate) > maxRequest || len(config.LeafPrivateKey) > maxRequest ||
+		len(config.Intermediate) > maxRequest || len(config.Reads)+len(config.Missing) > maxRoutes {
+		return nil, errors.New("simulator fixture exceeds material or route bounds")
+	}
 	block, rest := pem.Decode(config.LeafCertificate)
 	if block == nil || block.Type != "CERTIFICATE" || len(bytes.TrimSpace(rest)) != 0 {
 		return nil, errors.New("invalid leaf certificate PEM")
@@ -143,15 +166,25 @@ func NewSimulator(config Config) (*Simulator, error) {
 	if err := leaf.CheckSignatureFrom(issuer); err != nil {
 		return nil, fmt.Errorf("leaf certificate is not signed by fixture intermediate: %w", err)
 	}
+	tokenKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("create host-only federation token key: %w", err)
+	}
 	simulator := &Simulator{
-		config: config, leaf: leaf, leafKey: key,
+		config: config, leaf: leaf, leafKey: key, tokenKey: tokenKey,
 		authHost:    "auth.sa-saopaulo-1.oraclecloud.com",
 		computeHost: "iaas.sa-saopaulo-1.oraclecloud.com",
 		storageHost: "objectstorage.sa-saopaulo-1.oraclecloud.com",
-		reads:       make(map[routeKey]ReadResponse), sessions: make(map[string]session), now: time.Now,
+		reads:       make(map[routeKey]ReadResponse), missing: make(map[routeKey]struct{}),
+		sessions: make(map[string]session), now: time.Now,
 	}
 	for _, response := range config.Reads {
 		if err := simulator.addRead(response); err != nil {
+			return nil, err
+		}
+	}
+	for _, missing := range config.Missing {
+		if err := simulator.addMissing(missing); err != nil {
 			return nil, err
 		}
 	}
@@ -159,27 +192,61 @@ func NewSimulator(config Config) (*Simulator, error) {
 }
 
 func (simulator *Simulator) addRead(response ReadResponse) error {
-	if len(response.Body) == 0 || response.ETag == "" || response.LastModified.IsZero() ||
-		response.RequestURI == "" || strings.Contains(response.RequestURI, "#") {
+	if len(simulator.reads)+len(simulator.missing) >= maxRoutes ||
+		len(response.Body) == 0 || len(response.Body) > maxRouteBody ||
+		simulator.bodyBytes+int64(len(response.Body)) > maxTotalBodies ||
+		response.ETag == "" || response.LastModified.IsZero() {
 		return errors.New("OCI read response requires exact path, bytes, ETag, and Last-Modified")
 	}
-	uri, err := url.ParseRequestURI(response.RequestURI)
-	if err != nil || uri.IsAbs() || uri.Path == "" || strings.Contains(uri.Path, "..") ||
-		strings.Contains(uri.Path, "//") {
-		return errors.New("OCI read response has noncanonical request URI")
+	key, err := simulator.validateRoute(response.Host, response.RequestURI)
+	if err != nil {
+		return err
 	}
-	allowed := response.Host == simulator.computeHost && simulator.allowedComputeRead(uri) ||
-		response.Host == simulator.storageHost && allowedObjectRead(uri)
-	if !allowed {
-		return fmt.Errorf("OCI read response host/path is outside pinned endpoints: %s%s", response.Host, response.RequestURI)
-	}
-	key := routeKey{response.Host, response.RequestURI}
 	if _, exists := simulator.reads[key]; exists {
 		return errors.New("duplicate OCI read response")
 	}
+	if _, exists := simulator.missing[key]; exists {
+		return errors.New("OCI route cannot be present and expected missing")
+	}
 	response.Body = bytes.Clone(response.Body)
 	simulator.reads[key] = response
+	simulator.bodyBytes += int64(len(response.Body))
 	return nil
+}
+
+func (simulator *Simulator) addMissing(missing MissingRead) error {
+	if len(simulator.reads)+len(simulator.missing) >= maxRoutes || missing.Host != simulator.storageHost {
+		return errors.New("expected missing routes must be bounded exact Object Storage GETs")
+	}
+	key, err := simulator.validateRoute(missing.Host, missing.RequestURI)
+	if err != nil {
+		return err
+	}
+	if _, exists := simulator.reads[key]; exists {
+		return errors.New("OCI route cannot be present and expected missing")
+	}
+	if _, exists := simulator.missing[key]; exists {
+		return errors.New("duplicate expected-missing OCI route")
+	}
+	simulator.missing[key] = struct{}{}
+	return nil
+}
+
+func (simulator *Simulator) validateRoute(host, requestURI string) (routeKey, error) {
+	if requestURI == "" || len(requestURI) > 4096 || strings.Contains(requestURI, "#") {
+		return routeKey{}, errors.New("OCI route requires exact request URI")
+	}
+	uri, err := url.ParseRequestURI(requestURI)
+	if err != nil || uri.IsAbs() || uri.Path == "" || strings.Contains(uri.Path, "..") ||
+		strings.Contains(uri.Path, "//") {
+		return routeKey{}, errors.New("OCI route has noncanonical request URI")
+	}
+	allowed := host == simulator.computeHost && simulator.allowedComputeRead(uri) ||
+		host == simulator.storageHost && allowedObjectRead(uri)
+	if !allowed {
+		return routeKey{}, fmt.Errorf("OCI read route is outside pinned endpoints: %s%s", host, requestURI)
+	}
+	return routeKey{host, requestURI}, nil
 }
 
 func (simulator *Simulator) allowedComputeRead(uri *url.URL) bool {
@@ -221,13 +288,73 @@ func (simulator *Simulator) Requests() []RequestRecord {
 	return slices.Clone(simulator.requests)
 }
 
+// OverflowCount is nonzero if the bounded audit could not retain all requests.
+// Qualification must require zero, even if all retained requests succeeded.
+func (simulator *Simulator) OverflowCount() uint64 {
+	simulator.mu.Lock()
+	defer simulator.mu.Unlock()
+	return simulator.overflow
+}
+
 func (simulator *Simulator) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	record := simulator.auditRecord(request)
+	simulator.mu.Lock()
+	if len(simulator.requests) >= maxRecordedRequests {
+		if simulator.overflow < ^uint64(0) {
+			simulator.overflow++
+		}
+		simulator.mu.Unlock()
+		reject(writer, http.StatusTooManyRequests)
+		return
+	}
+	index := len(simulator.requests)
+	simulator.requests = append(simulator.requests, record)
+	simulator.mu.Unlock()
 	status := simulator.serve(writer, request)
 	simulator.mu.Lock()
-	simulator.requests = append(simulator.requests, RequestRecord{
-		Method: request.Method, Host: request.Host, RequestURI: request.URL.RequestURI(), Status: status,
-	})
+	simulator.requests[index].Status = status
 	simulator.mu.Unlock()
+}
+
+func (simulator *Simulator) auditRecord(request *http.Request) RequestRecord {
+	uri := request.URL.RequestURI()
+	key := routeKey{request.Host, uri}
+	_, found := simulator.reads[key]
+	_, missing := simulator.missing[key]
+	listed := request.Method == http.MethodGet && (found || missing ||
+		request.Host == imdsHost && slices.Contains([]string{
+			"/opc/v2/instance/id", "/opc/v2/instance/metadata/terrascale-bootstrap",
+			"/opc/v2/instance/region", "/opc/v2/identity/cert.pem",
+			"/opc/v2/identity/key.pem", "/opc/v2/identity/intermediate.pem",
+		}, uri)) || request.Method == http.MethodPost && request.Host == simulator.authHost && uri == "/v1/x509"
+	digest := sha256.Sum256([]byte(request.Method + "\n" + request.Host + "\n" + uri))
+	method := request.Method
+	host := request.Host
+	if listed {
+		uri = request.URL.EscapedPath()
+		if request.URL.RawQuery != "" {
+			uri += "?[redacted]"
+		}
+	} else {
+		uri = "[unlisted]"
+		if !slices.Contains([]string{imdsHost, simulator.authHost, simulator.computeHost, simulator.storageHost}, host) {
+			host = "[unlisted]"
+		}
+		if !slices.Contains([]string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}, method) {
+			method = "[unlisted]"
+		}
+	}
+	return RequestRecord{
+		Method: boundAuditText(method, 16), Host: boundAuditText(host, 255),
+		RequestURI: boundAuditText(uri, 4096), RouteSHA256: hex.EncodeToString(digest[:]), Listed: listed,
+	}
+}
+
+func boundAuditText(value string, maximum int) string {
+	if len(value) > maximum {
+		return value[:maximum] + "[truncated]"
+	}
+	return value
 }
 
 func (simulator *Simulator) serve(writer http.ResponseWriter, request *http.Request) int {
@@ -250,7 +377,7 @@ func (simulator *Simulator) serve(writer http.ResponseWriter, request *http.Requ
 		case "/opc/v2/identity/intermediate.pem":
 			body = simulator.config.Intermediate
 		default:
-			return reject(writer, http.StatusNotFound)
+			return reject(writer, http.StatusMisdirectedRequest)
 		}
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write(body)
@@ -265,12 +392,18 @@ func (simulator *Simulator) serve(writer http.ResponseWriter, request *http.Requ
 	if request.ContentLength != 0 {
 		return reject(writer, http.StatusBadRequest)
 	}
-	response, exists := simulator.reads[routeKey{request.Host, request.URL.RequestURI()}]
-	if !exists {
-		return reject(writer, http.StatusNotFound)
-	}
 	if err := simulator.verifyService(request); err != nil {
 		return reject(writer, http.StatusForbidden)
+	}
+	key := routeKey{request.Host, request.URL.RequestURI()}
+	if _, missing := simulator.missing[key]; missing {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Date", simulator.now().UTC().Format(http.TimeFormat))
+		return reject(writer, http.StatusNotFound)
+	}
+	response, exists := simulator.reads[key]
+	if !exists {
+		return reject(writer, http.StatusMisdirectedRequest)
 	}
 	writer.Header().Set("Content-Type", response.ContentType)
 	writer.Header().Set("ETag", response.ETag)
@@ -329,11 +462,21 @@ func (simulator *Simulator) federate(writer http.ResponseWriter, request *http.R
 		return reject(writer, http.StatusForbidden)
 	}
 	expires := simulator.now().Add(tokenLifetime)
+	simulator.mu.Lock()
+	for prior, entry := range simulator.sessions {
+		if !simulator.now().Before(entry.expires) {
+			delete(simulator.sessions, prior)
+		}
+	}
+	if len(simulator.sessions) >= maxSessions {
+		simulator.mu.Unlock()
+		return reject(writer, http.StatusTooManyRequests)
+	}
 	token, err := simulator.newToken(expires)
 	if err != nil {
+		simulator.mu.Unlock()
 		return reject(writer, http.StatusInternalServerError)
 	}
-	simulator.mu.Lock()
 	simulator.sessions[token] = session{public: public, expires: expires}
 	simulator.mu.Unlock()
 	response, err := json.Marshal(struct {
@@ -373,7 +516,7 @@ func (simulator *Simulator) newToken(expires time.Time) (string, error) {
 	}
 	message := header + "." + base64.RawURLEncoding.EncodeToString(payload)
 	digest := sha256.Sum256([]byte(message))
-	signature, err := rsa.SignPKCS1v15(rand.Reader, simulator.leafKey, crypto.SHA256, digest[:])
+	signature, err := rsa.SignPKCS1v15(rand.Reader, simulator.tokenKey, crypto.SHA256, digest[:])
 	if err != nil {
 		return "", err
 	}

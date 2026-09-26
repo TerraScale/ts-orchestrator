@@ -20,6 +20,9 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 const (
@@ -180,12 +183,12 @@ func TestSimulatorAuthenticatesFederationAndExactServiceRead(t *testing.T) {
 		want int
 	}{
 		{"wrong RSA key for token", func() *http.Request { return signedRead(t, simulator, wrongKey, token, testURI) }, http.StatusForbidden},
-		{"unknown exact key", func() *http.Request { return signedRead(t, simulator, sessionKey, token, testURI+"/other") }, http.StatusNotFound},
+		{"unknown exact key", func() *http.Request { return signedRead(t, simulator, sessionKey, token, testURI+"/other") }, http.StatusMisdirectedRequest},
 		{"changed signed target", func() *http.Request {
 			request := signedRead(t, simulator, sessionKey, token, testURI)
 			request.URL.RawQuery = "page=other"
 			return request
-		}, http.StatusNotFound},
+		}, http.StatusForbidden},
 		{"OCI write", func() *http.Request {
 			return httptest.NewRequest(http.MethodPut, "https://"+simulator.computeHost+testURI, nil)
 		}, http.StatusMethodNotAllowed},
@@ -325,14 +328,14 @@ func TestSimulatorPinsIMDSAndRejectsUnlistedRoutes(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer Oracle")
 		response := httptest.NewRecorder()
 		simulator.ServeHTTP(response, request)
-		if response.Code != http.StatusNotFound {
+		if response.Code != http.StatusMisdirectedRequest {
 			t.Fatalf("unlisted IMDS %s = %d", uri, response.Code)
 		}
 	}
 	response := httptest.NewRecorder()
 	simulator.ServeHTTP(response, httptest.NewRequest(http.MethodGet,
 		"https://iaas.us-ashburn-1.oraclecloud.com"+testURI, nil))
-	if response.Code != http.StatusNotFound {
+	if response.Code != http.StatusForbidden {
 		t.Fatalf("unlisted OCI host status = %d", response.Code)
 	}
 	for _, uri := range []string{
@@ -345,5 +348,192 @@ func TestSimulatorPinsIMDSAndRejectsUnlistedRoutes(t *testing.T) {
 			Body: []byte("{}"), ETag: "fixture", LastModified: simulator.now()}); err == nil {
 			t.Fatalf("unlisted Compute route was accepted: %s", uri)
 		}
+	}
+}
+
+type simulatorDispatcher struct {
+	simulator *Simulator
+}
+
+func (dispatcher simulatorDispatcher) Do(request *http.Request) (*http.Response, error) {
+	// The real SDK constructs and signs the original request. This in-memory
+	// transport only replaces dialing. net/http normally writes URL.Host as
+	// Host when Request.Host is empty; reproduce that wire-level behavior.
+	request = request.Clone(request.Context())
+	if request.Host == "" {
+		request.Host = request.URL.Host
+	}
+	response := httptest.NewRecorder()
+	dispatcher.simulator.ServeHTTP(response, request)
+	result := response.Result()
+	result.Request = request
+	return result, nil
+}
+
+func TestSimulatorAcceptsRealInstancePrincipalSDKRequests(t *testing.T) {
+	simulator, _ := testSimulator(t)
+	objectURI := "/n/fixture-namespace/b/fixture-records/o/bootstrap/v1/record.json"
+	missingURI := "/n/fixture-namespace/b/fixture-records/o/bootstrap/v1/missing.json"
+	if err := simulator.addRead(ReadResponse{
+		Host: simulator.storageHost, RequestURI: objectURI, Body: []byte("fixture-record"),
+		ContentType: "application/json", ETag: `"record-etag"`, LastModified: simulator.now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := simulator.addMissing(MissingRead{Host: simulator.storageHost, RequestURI: missingURI}); err != nil {
+		t.Fatal(err)
+	}
+	attachmentsURI := "/20160918/vnicAttachments?compartmentId=ocid1.compartment.oc1..aaaa&instanceId=" + testInstance + "&limit=50"
+	if err := simulator.addRead(ReadResponse{
+		Host: simulator.computeHost, RequestURI: attachmentsURI, Body: []byte(`[]`),
+		ContentType: "application/json", ETag: `"vnic-list"`, LastModified: simulator.now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := simulatorDispatcher{simulator: simulator}
+	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(
+		common.Region("sa-saopaulo-1"),
+		func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) { return dispatcher, nil })
+	if err != nil {
+		t.Fatalf("real SDK provider IMDS sequence: %v", err)
+	}
+	if _, err := provider.KeyID(); err != nil {
+		t.Fatalf("real SDK federation: %v; routes=%#v", err, simulator.Requests())
+	}
+	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute.HTTPClient = dispatcher
+	instance, err := compute.GetInstance(t.Context(), core.GetInstanceRequest{InstanceId: new(testInstance)})
+	if err != nil || *instance.Id != testInstance {
+		t.Fatalf("real SDK Compute GetInstance decode: instance=%#v err=%v", instance.Instance, err)
+	}
+	_, err = compute.ListVnicAttachments(t.Context(), core.ListVnicAttachmentsRequest{
+		CompartmentId: new("ocid1.compartment.oc1..aaaa"), InstanceId: new(testInstance), Limit: new(50),
+	})
+	if err != nil {
+		t.Fatalf("real SDK signed exact-query VNIC list: %v", err)
+	}
+	storage, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storage.HTTPClient = dispatcher
+	read := func(name string) (objectstorage.GetObjectResponse, error) {
+		return storage.GetObject(t.Context(), objectstorage.GetObjectRequest{
+			NamespaceName: new("fixture-namespace"), BucketName: new("fixture-records"), ObjectName: new(name),
+			RequestMetadata: common.RequestMetadata{RetryPolicy: new(common.NoRetryPolicy())},
+		})
+	}
+	object, err := read("bootstrap/v1/record.json")
+	if err != nil {
+		t.Fatalf("real SDK Object Storage GET: %v", err)
+	}
+	wire, err := io.ReadAll(object.Content)
+	if err != nil || string(wire) != "fixture-record" || object.ETag == nil || *object.ETag != `"record-etag"` {
+		t.Fatalf("real SDK object decode: body=%q etag=%v err=%v", wire, object.ETag, err)
+	}
+	_ = object.Content.Close()
+	_, err = read("bootstrap/v1/missing.json")
+	if serviceErr, ok := common.IsServiceError(err); !ok || serviceErr.GetHTTPStatusCode() != http.StatusNotFound {
+		t.Fatalf("expected missing exact object must decode as SDK 404, err=%v", err)
+	}
+	_, err = read("bootstrap/v1/unlisted.json")
+	if serviceErr, ok := common.IsServiceError(err); !ok || serviceErr.GetHTTPStatusCode() != http.StatusMisdirectedRequest {
+		t.Fatalf("unlisted object must be hard rejection, err=%v", err)
+	}
+	if got := simulator.Requests(); len(got) < 9 {
+		t.Fatalf("actual SDK request inventory too short: %#v", got)
+	} else {
+		for _, record := range got[:len(got)-1] {
+			if !record.Listed {
+				t.Fatalf("real SDK expected path is unlisted: %#v", record)
+			}
+		}
+		if got[len(got)-1].Listed || got[len(got)-1].Status != http.StatusMisdirectedRequest {
+			t.Fatalf("unlisted SDK object was not audited as hard rejection: %#v", got[len(got)-1])
+		}
+	}
+}
+
+func TestSimulatorExpectedMissingNeedsAuthentication(t *testing.T) {
+	simulator, leafKey := testSimulator(t)
+	uri := "/n/fixture-namespace/b/fixture-records/o/bootstrap/v1/missing.json"
+	if err := simulator.addMissing(MissingRead{Host: simulator.storageHost, RequestURI: uri}); err != nil {
+		t.Fatal(err)
+	}
+	unsigned := httptest.NewRequest(http.MethodGet, "https://"+simulator.storageHost+uri, nil)
+	response := httptest.NewRecorder()
+	simulator.ServeHTTP(response, unsigned)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("unsigned expected-missing object = %d, want 403", response.Code)
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := federate(t, simulator, leafKey, key)
+	signed := httptest.NewRequest(http.MethodGet, "https://"+simulator.storageHost+uri, nil)
+	signed.Header.Set("Date", simulator.now().UTC().Format(http.TimeFormat))
+	if err := common.DefaultRequestSigner(signingKey{key: key, id: "ST$" + token}).Sign(signed); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	simulator.ServeHTTP(response, signed)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("signed expected-missing object = %d, want 404", response.Code)
+	}
+	got := simulator.Requests()
+	if !got[0].Listed || !got[len(got)-1].Listed {
+		t.Fatalf("expected-missing route was not explicitly listed: %#v", got)
+	}
+}
+
+func TestSimulatorBoundsFixtureSessionsAndRequestAudit(t *testing.T) {
+	simulator, leafKey := testSimulator(t)
+	if err := simulator.addRead(ReadResponse{
+		Host: simulator.storageHost, RequestURI: "/n/ns/b/bucket/o/oversized",
+		Body: bytes.Repeat([]byte{'x'}, maxRouteBody+1),
+		ETag: "fixture", LastModified: simulator.now(),
+	}); err == nil {
+		t.Fatal("oversized response body was accepted")
+	}
+	simulator.mu.Lock()
+	for index := range maxSessions {
+		simulator.sessions[fmt.Sprint(index)] = session{expires: simulator.now().Add(time.Hour)}
+	}
+	simulator.mu.Unlock()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	simulator.ServeHTTP(response, signedFederation(t, simulator, leafKey, key))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("session capacity response = %d", response.Code)
+	}
+	simulator.mu.Lock()
+	simulator.requests = make([]RequestRecord, maxRecordedRequests)
+	simulator.mu.Unlock()
+	response = httptest.NewRecorder()
+	simulator.ServeHTTP(response, httptest.NewRequest(http.MethodGet,
+		"https://"+simulator.computeHost+testURI+"?private=secret-value", nil))
+	if response.Code != http.StatusTooManyRequests || simulator.OverflowCount() != 1 ||
+		len(simulator.Requests()) != maxRecordedRequests {
+		t.Fatalf("request audit overflow was not bounded and detectable")
+	}
+}
+
+func TestSimulatorRedactsUnlistedQuery(t *testing.T) {
+	simulator, _ := testSimulator(t)
+	request := httptest.NewRequest(http.MethodGet,
+		"https://"+simulator.computeHost+testURI+"/private-jwt-value?secret=private-token", nil)
+	response := httptest.NewRecorder()
+	simulator.ServeHTTP(response, request)
+	got := simulator.Requests()[0]
+	if got.Listed || got.Status != http.StatusForbidden || got.RequestURI != "[unlisted]" ||
+		got.RouteSHA256 == "" {
+		t.Fatalf("unlisted path/query audit = %#v", got)
 	}
 }
