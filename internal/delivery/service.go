@@ -20,6 +20,12 @@ const (
 	OperationBucket = "TS_DELIVERY_OPERATIONS"
 	IntentStream    = "TS_DELIVERY_INTENTS"
 	IntentConsumer  = "TS_DELIVERY_WORKER"
+
+	intentPublishTimeout        = 10 * time.Second
+	intentPublishAttemptTimeout = 2 * time.Second
+	intentPublishMaxAttempts    = 5
+	intentPublishInitialBackoff = 100 * time.Millisecond
+	intentPublishMaxBackoff     = 800 * time.Millisecond
 )
 
 // VerifiedEnvelope is returned only after a trusted signature was verified
@@ -220,11 +226,84 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	if len(wire) > MaxIntentBytes+8192 {
 		return fmt.Errorf("%w: signed intent too large", ErrInvalid)
 	}
-	_, err = s.js.Publish(ctx, IntentSubject(intent.Cell), wire, jetstream.WithMsgID(intent.OperationID+"."+fingerprint))
+	err = s.publishIntent(ctx, IntentSubject(intent.Cell), wire, intent.OperationID+"."+fingerprint)
 	if err != nil {
 		return fmt.Errorf("publish delivery intent: %w", err)
 	}
 	return nil
+}
+
+func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte, msgID string) error {
+	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
+	defer cancel()
+
+	backoff := intentPublishInitialBackoff
+	var lastErr error
+	for attempt := 0; attempt < intentPublishMaxAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := retryCtx.Err(); err != nil {
+			if lastErr != nil {
+				return lastErr
+			}
+			return err
+		}
+
+		attemptCtx, cancelAttempt := context.WithTimeout(retryCtx, intentPublishAttemptTimeout)
+		_, publishErr := s.js.Publish(attemptCtx, subject, wire, jetstream.WithMsgID(msgID), jetstream.WithRetryAttempts(0))
+		attemptErr := attemptCtx.Err()
+		cancelAttempt()
+		if publishErr == nil {
+			return nil
+		}
+		lastErr = publishErr
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if retryCtx.Err() != nil {
+			return publishErr
+		}
+		if !retryableIntentPublishError(publishErr, errors.Is(attemptErr, context.DeadlineExceeded)) {
+			return publishErr
+		}
+		if attempt == intentPublishMaxAttempts-1 {
+			return publishErr
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-retryCtx.Done():
+			timer.Stop()
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return publishErr
+		}
+		backoff = min(backoff*2, intentPublishMaxBackoff)
+	}
+	return lastErr
+}
+
+func retryableIntentPublishError(err error, attemptDeadlineExpired bool) bool {
+	if errors.Is(err, jetstream.ErrNoStreamResponse) ||
+		errors.Is(err, nats.ErrNoResponders) ||
+		errors.Is(err, nats.ErrTimeout) ||
+		errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, nats.ErrNoServers) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return attemptDeadlineExpired
+	}
+	if errors.Is(err, jetstream.ErrJetStreamNotEnabled) || errors.Is(err, jetstream.ErrJetStreamNotEnabledForAccount) {
+		return false
+	}
+	if apiErr, ok := errors.AsType[*jetstream.APIError](err); ok {
+		return apiErr.Code >= 500 && apiErr.Code < 600
+	}
+	return false
 }
 
 func operationKey(id string) string {

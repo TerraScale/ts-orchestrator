@@ -30,6 +30,24 @@ type memoryMutations struct {
 	js       jetstream.JetStream
 }
 
+type managedRegistrationVerifierFunc func(context.Context, Registration) error
+
+func (verify managedRegistrationVerifierFunc) VerifyManagedRegistration(ctx context.Context, registration Registration) error {
+	return verify(ctx, registration)
+}
+
+type oneRegistrationConflict struct {
+	authority.HostMutationStore
+	conflict atomic.Bool
+}
+
+func (store *oneRegistrationConflict) CommitHostMutation(ctx context.Context, epoch uint64, kind authority.HostMutationKind, subject, operation string, expected uint64, payload []byte) (uint64, error) {
+	if kind == authority.MutationRegistration && store.conflict.CompareAndSwap(true, false) {
+		return 0, authority.ErrConflict
+	}
+	return store.HostMutationStore.CommitHostMutation(ctx, epoch, kind, subject, operation, expected, payload)
+}
+
 type gatedDesiredRead struct {
 	authority.HostMutationStore
 	blocked atomic.Bool
@@ -197,6 +215,10 @@ func (m *memoryRunner) Close(ctx context.Context) error {
 }
 
 func testController(t *testing.T) (*Controller, *nats.Conn, jetstream.ObjectStore, *memoryMutations, ed25519.PrivateKey) {
+	return testControllerWithVerifier(t, nil)
+}
+
+func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifier) (*Controller, *nats.Conn, jetstream.ObjectStore, *memoryMutations, ed25519.PrivateKey) {
 	t.Helper()
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
@@ -229,7 +251,7 @@ func testController(t *testing.T) (*Controller, *nats.Conn, jetstream.ObjectStor
 		t.Fatal(err)
 	}
 	mutations := &memoryMutations{entries: make(map[string]authority.LogEntry), js: js}
-	c, err := NewController(t.Context(), ControllerConfig{Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey, StateReplicas: 1, HostMutations: mutations, AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil }})
+	c, err := NewController(t.Context(), ControllerConfig{Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey, StateReplicas: 1, HostMutations: mutations, ManagedRegistrationVerifier: verifier, AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +279,11 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 	valid := Registration{
 		Cell: "gru", Node: "host-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
+		ManagedPlacement: &ManagedPlacementBinding{
+			DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
+			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
+			ManagedHostProfileDigest: strings.Repeat("e", 64),
+		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "host-a"},
 		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
@@ -269,6 +296,7 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 		{name: "complete managed binding"},
 		{name: "ordinary host without binding", change: func(r *Registration) {
 			r.ManagedOCI = nil
+			r.ManagedPlacement = nil
 			r.ManagedMember = nil
 			r.SystemReserveBytes = 0
 			r.FailureDomain = "fd-a"
@@ -301,6 +329,8 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 			registration.ManagedOCI = &binding
 			member := *valid.ManagedMember
 			registration.ManagedMember = &member
+			placement := *valid.ManagedPlacement
+			registration.ManagedPlacement = &placement
 			if tt.change != nil {
 				tt.change(&registration)
 			}
@@ -310,6 +340,86 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing.T) {
+	newRegistration := func(t *testing.T) Registration {
+		t.Helper()
+		public, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return Registration{
+			Cell: "gru", Node: "managed-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
+			Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
+			ManagedPlacement: &ManagedPlacementBinding{
+				DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
+				IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
+				ManagedHostProfileDigest: strings.Repeat("e", 64),
+			},
+			ManagedOCI: &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..managed-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "managed-a"},
+			ManagedMember: &ManagedMemberBinding{Scope: MemberScope{
+				ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+				DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1,
+				MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32),
+			}, HostAttempt: 1},
+			SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 5 << 30},
+		}
+	}
+
+	t.Run("missing verifier fails closed", func(t *testing.T) {
+		controller, _, _, mutations, _ := testController(t)
+		unbound := newRegistration(t)
+		unbound.ManagedPlacement = nil
+		if _, err := controller.Register(t.Context(), unbound); err == nil {
+			t.Fatal("managed registration without schema-3 pins was accepted")
+		}
+		if _, err := controller.Register(t.Context(), newRegistration(t)); err == nil {
+			t.Fatal("managed registration succeeded without an injected verifier")
+		}
+		if _, err := mutations.ReadHostMutation(t.Context(), authority.MutationRegistration, "gru.managed-a"); !errors.Is(err, authority.ErrNotFound) {
+			t.Fatalf("missing verifier committed registration: err=%v", err)
+		}
+	})
+
+	t.Run("idempotent replay and CAS retry revalidate", func(t *testing.T) {
+		var calls atomic.Int32
+		controller, _, _, mutations, _ := testControllerWithVerifier(t, managedRegistrationVerifierFunc(func(context.Context, Registration) error {
+			calls.Add(1)
+			return nil
+		}))
+		managed := newRegistration(t)
+		if _, err := controller.Register(t.Context(), managed); err != nil {
+			t.Fatalf("initial managed registration: %v", err)
+		}
+		if _, err := controller.Register(t.Context(), managed); err != nil {
+			t.Fatalf("idempotent managed registration replay: %v", err)
+		}
+		if got := calls.Load(); got != 2 {
+			t.Fatalf("verifier calls after registration and replay = %d, want 2", got)
+		}
+
+		managed.Node = "managed-retry"
+		managed.ManagedOCI.InstanceID = "ocid1.instance.oc1..managed-retry"
+		managed.ManagedOCI.CreateKey = "managed-retry"
+		managed.ManagedMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		conflict := &oneRegistrationConflict{HostMutationStore: mutations}
+		conflict.conflict.Store(true)
+		controller.mutations = conflict
+		var retryCalls atomic.Int32
+		controller.managedVerifier = managedRegistrationVerifierFunc(func(context.Context, Registration) error {
+			if retryCalls.Add(1) == 2 {
+				return errors.New("placement changed during CAS retry")
+			}
+			return nil
+		})
+		if _, err := controller.Register(t.Context(), managed); err == nil || !strings.Contains(err.Error(), "placement changed during CAS retry") {
+			t.Fatalf("CAS retry did not revalidate: err=%v", err)
+		}
+		if got := retryCalls.Load(); got != 2 {
+			t.Fatalf("verifier calls across CAS conflict = %d, want 2", got)
+		}
+	})
 }
 
 func TestSessionRetryClassificationAndReserve(t *testing.T) {
@@ -1431,8 +1541,9 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	c, err := NewController(t.Context(), ControllerConfig{
 		Cell: "gru", Conn: conn, JS: js, Artifacts: store, ResponseKey: controllerKey,
 		StateReplicas: 1, HostMutations: authorityRuntime,
-		AuthorityEpoch: func() uint64 { return authorityRuntime.Current().Epoch },
-		AuthorityGuard: authorityRuntime.Guard,
+		ManagedRegistrationVerifier: managedRegistrationVerifierFunc(func(context.Context, Registration) error { return nil }),
+		AuthorityEpoch:              func() uint64 { return authorityRuntime.Current().Epoch },
+		AuthorityGuard:              authorityRuntime.Guard,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1444,6 +1555,11 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	registration := Registration{
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
+		ManagedPlacement: &ManagedPlacementBinding{
+			DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
+			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
+			ManagedHostProfileDigest: strings.Repeat("e", 64),
+		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "terrabase-host-a"},
 		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},

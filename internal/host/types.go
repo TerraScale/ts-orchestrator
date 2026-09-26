@@ -36,17 +36,30 @@ var ErrDesiredConflict = errors.New("desired generation or target conflicts with
 // Registration is the controller's durable allowlist for one host identity.
 // PublicKey is a base64 encoded Ed25519 key; a higher Generation rotates it.
 type Registration struct {
-	Cell               string                `json:"cell"`
-	Node               string                `json:"node"`
-	FailureDomain      string                `json:"failure_domain"`
-	Environment        string                `json:"environment"`
-	Roles              []string              `json:"roles"`
-	PublicKey          string                `json:"public_key"`
-	Generation         uint64                `json:"generation"`
-	Capacity           Capacity              `json:"capacity"`
-	ManagedOCI         *ManagedOCIBinding    `json:"managed_oci,omitempty"`
-	ManagedMember      *ManagedMemberBinding `json:"managed_member,omitempty"`
-	SystemReserveBytes int64                 `json:"system_reserve_bytes,omitzero"`
+	Cell               string                   `json:"cell"`
+	Node               string                   `json:"node"`
+	FailureDomain      string                   `json:"failure_domain"`
+	Environment        string                   `json:"environment"`
+	Roles              []string                 `json:"roles"`
+	PublicKey          string                   `json:"public_key"`
+	Generation         uint64                   `json:"generation"`
+	Capacity           Capacity                 `json:"capacity"`
+	ManagedPlacement   *ManagedPlacementBinding `json:"managed_placement,omitempty"`
+	ManagedOCI         *ManagedOCIBinding       `json:"managed_oci,omitempty"`
+	ManagedMember      *ManagedMemberBinding    `json:"managed_member,omitempty"`
+	SystemReserveBytes int64                    `json:"system_reserve_bytes,omitzero"`
+}
+
+// ManagedPlacementBinding fixes a managed host registration to one business
+// placement seat and the current schema-3 placement pins.
+type ManagedPlacementBinding struct {
+	DatabaseID               string `json:"database_id"`
+	PartitionID              string `json:"partition_id"`
+	SeatID                   string `json:"seat_id"`
+	IntentGeneration         uint64 `json:"intent_generation"`
+	IntentPayloadDigest      string `json:"intent_payload_digest"`
+	CanonicalRosterDigest    string `json:"canonical_roster_digest"`
+	ManagedHostProfileDigest string `json:"managed_host_profile_digest"`
 }
 
 // ManagedMemberBinding fixes one logical member and host attempt to this host.
@@ -146,17 +159,24 @@ type AgentConfig struct {
 }
 
 type ControllerConfig struct {
-	Cell           string
-	Conn           *nats.Conn
-	JS             jetstream.JetStream
-	State          jetstream.KeyValue
-	Artifacts      ArtifactStore
-	ResponseKey    ed25519.PrivateKey
-	StateReplicas  int
-	AuthorityEpoch func() uint64
-	AuthorityGuard func(context.Context, uint64) error
-	HostMutations  authority.HostMutationStore
-	ControlLog     jetstream.Stream
+	Cell                        string
+	Conn                        *nats.Conn
+	JS                          jetstream.JetStream
+	State                       jetstream.KeyValue
+	Artifacts                   ArtifactStore
+	ResponseKey                 ed25519.PrivateKey
+	StateReplicas               int
+	AuthorityEpoch              func() uint64
+	AuthorityGuard              func(context.Context, uint64) error
+	HostMutations               authority.HostMutationStore
+	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ControlLog                  jetstream.Stream
+}
+
+// ManagedRegistrationVerifier checks a managed registration against current
+// admitted placement, durable member state, and OCI observation.
+type ManagedRegistrationVerifier interface {
+	VerifyManagedRegistration(context.Context, Registration) error
 }
 
 type ReaderConfig struct {
@@ -207,6 +227,13 @@ func validateRegistration(r Registration, cell string) error {
 			len(r.Roles) != 1 || r.Roles[0] != "terrabase" {
 			return errors.New("managed host requires one terrabase role, member binding and signed memory reserve")
 		}
+		// Stored pre-schema-3 registrations remain readable for inspection;
+		// Controller.Register separately requires these pins for admission.
+		if r.ManagedPlacement != nil {
+			if err := validateManagedPlacementBinding(*r.ManagedPlacement); err != nil {
+				return err
+			}
+		}
 		if err := validateManagedMemberBinding(*r.ManagedMember); err != nil {
 			return err
 		}
@@ -215,8 +242,8 @@ func validateRegistration(r Registration, cell string) error {
 			return err
 		}
 	}
-	if r.ManagedOCI == nil && (r.ManagedMember != nil || r.SystemReserveBytes != 0) {
-		return errors.New("generic host cannot carry managed member or memory reserve")
+	if r.ManagedOCI == nil && (r.ManagedPlacement != nil || r.ManagedMember != nil || r.SystemReserveBytes != 0) {
+		return errors.New("generic host cannot carry managed placement, member or memory reserve")
 	}
 	if r.Generation == 0 || len(r.Roles) == 0 || len(r.Roles) > 32 {
 		return errors.New("invalid registration generation or roles")
@@ -236,6 +263,48 @@ func validateRegistration(r Registration, cell string) error {
 	}
 	if r.Capacity.CPU < 0 || r.Capacity.MemoryBytes < 0 || r.Capacity.DiskBytes < 0 {
 		return errors.New("negative host capacity")
+	}
+	return nil
+}
+
+func validateManagedPlacementBinding(binding ManagedPlacementBinding) error {
+	if err := validateToken(binding.DatabaseID, "managed placement database id"); err != nil {
+		return err
+	}
+	if err := validateToken(binding.PartitionID, "managed placement partition id"); err != nil {
+		return err
+	}
+	if err := validateToken(binding.SeatID, "managed placement seat id"); err != nil {
+		return err
+	}
+	if binding.IntentGeneration == 0 || validateDigest(binding.IntentPayloadDigest) != nil ||
+		validateDigest(binding.CanonicalRosterDigest) != nil || validateDigest(binding.ManagedHostProfileDigest) != nil {
+		return errors.New("managed placement pins are invalid")
+	}
+	return nil
+}
+
+// ManagedRegistrationPins describes the current values that a managed
+// registration must match before it can be admitted or used by placement.
+type ManagedRegistrationPins struct {
+	Placement              ManagedPlacementBinding
+	Member                 ManagedMemberBinding
+	OCI                    ManagedOCIBinding
+	FailureDomain          string
+	AllocatableMemoryBytes uint64
+	SystemReserveBytes     uint64
+}
+
+// ValidateManagedRegistrationPins rejects a registration that does not match
+// the current schema-3 placement, member attempt, OCI host, and memory pins.
+func ValidateManagedRegistrationPins(registration Registration, pins ManagedRegistrationPins) error {
+	if registration.ManagedPlacement == nil || *registration.ManagedPlacement != pins.Placement ||
+		registration.ManagedMember == nil || *registration.ManagedMember != pins.Member ||
+		registration.ManagedOCI == nil || *registration.ManagedOCI != pins.OCI ||
+		registration.FailureDomain != pins.FailureDomain || pins.AllocatableMemoryBytes > math.MaxInt64 ||
+		registration.Capacity.MemoryBytes != int64(pins.AllocatableMemoryBytes) || pins.SystemReserveBytes > math.MaxInt64 ||
+		registration.SystemReserveBytes != int64(pins.SystemReserveBytes) {
+		return errors.New("managed registration differs from current placement pins")
 	}
 	return nil
 }

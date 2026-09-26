@@ -30,6 +30,7 @@ type Controller struct {
 	controlLog       jetstream.Stream
 	readOnly         bool
 	mutations        authority.HostMutationStore
+	managedVerifier  ManagedRegistrationVerifier
 	artifacts        ArtifactStore
 	responseKey      ed25519.PrivateKey
 	registrationMu   sync.Mutex
@@ -90,7 +91,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -214,6 +215,9 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	if err := validateRegistration(r, c.cell); err != nil {
 		return Receipt{}, err
 	}
+	if r.ManagedOCI != nil && r.ManagedPlacement == nil {
+		return Receipt{}, errors.New("managed host registration requires current schema-3 placement pins")
+	}
 	c.registrationMu.Lock()
 	defer c.registrationMu.Unlock()
 	authorityEpoch := c.authorityEpoch()
@@ -227,6 +231,12 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	key := registrationSubjectKey(c.cell, r.Node)
 	for range 8 {
 		if r.ManagedMember != nil {
+			if c.managedVerifier == nil {
+				return Receipt{}, errors.New("managed host registration requires a current placement verifier")
+			}
+			if err := c.managedVerifier.VerifyManagedRegistration(ctx, r); err != nil {
+				return Receipt{}, fmt.Errorf("verify managed host registration: %w", err)
+			}
 			if err := c.requireExclusiveManagedMember(ctx, r); err != nil {
 				return Receipt{}, err
 			}

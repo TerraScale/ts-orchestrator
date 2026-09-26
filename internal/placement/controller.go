@@ -336,7 +336,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(instance, statuses)
+		status, admitted := controller.admittedHost(intent, state, instance, statuses)
 		if !admitted {
 			return false, nil
 		}
@@ -359,7 +359,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(instance, statuses)
+		status, admitted := controller.admittedHost(intent, state, instance, statuses)
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			controller.hold(fmt.Sprintf("member %s has no current exact host registration; retained volume creation is withheld", seat.MemberID))
 			return false, nil
@@ -400,7 +400,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(instance, statuses)
+		status, admitted := controller.admittedHost(intent, state, instance, statuses)
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			return false, nil
 		}
@@ -448,7 +448,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(instance, statuses)
+		status, admitted := controller.admittedHost(intent, state, instance, statuses)
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			return false, nil
 		}
@@ -487,7 +487,7 @@ func (controller *Controller) advanceMember(
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 			return false, err
 		}
-		status, admitted := controller.admittedHost(instance, statuses)
+		status, admitted := controller.admittedHost(intent, state, instance, statuses)
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			controller.hold(fmt.Sprintf("member %s is awaiting an exact managed OCI registration and current host session", seat.MemberID))
 			return false, nil
@@ -510,7 +510,7 @@ func (controller *Controller) advanceMember(
 			if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 				return false, err
 			}
-			if status, admitted := controller.admittedHost(instance, statuses); admitted &&
+			if status, admitted := controller.admittedHost(intent, state, instance, statuses); admitted &&
 				status.Registration.Generation == state.HostGeneration && hasAttachedVolume(instance, state) {
 				observedHealthy = hasCurrentProcessReport(status, state, controller.config)
 			}
@@ -596,7 +596,7 @@ func (controller *Controller) instanceMatchesPinnedProfile(instance oci.Instance
 		instance.PlacementGeneration == state.IntentGeneration
 }
 
-func (controller *Controller) admittedHost(instance oci.Instance, statuses map[string]host.HostStatus) (host.HostStatus, bool) {
+func (controller *Controller) admittedHost(intent Intent, state MemberState, instance oci.Instance, statuses map[string]host.HostStatus) (host.HostStatus, bool) {
 	status, exists := statuses[instance.Node]
 	if !exists {
 		return host.HostStatus{}, false
@@ -613,6 +613,32 @@ func (controller *Controller) admittedHost(instance oci.Instance, statuses map[s
 		binding.Region != string(controller.config.Region) || binding.InstanceID != instance.ID ||
 		binding.Owner != controller.config.ManagedOwner || binding.FleetGeneration != controller.config.FleetGeneration ||
 		binding.CreateKey != instance.CreateKey {
+		return host.HostStatus{}, false
+	}
+	row := state.CanonicalRosterRow
+	roster := intent.CanonicalRoster
+	pins := host.ManagedRegistrationPins{
+		Placement: host.ManagedPlacementBinding{
+			DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
+			IntentGeneration: state.IntentGeneration, IntentPayloadDigest: state.IntentPayloadDigest,
+			CanonicalRosterDigest: state.CanonicalRosterDigest, ManagedHostProfileDigest: state.ManagedHostProfileDigest,
+		},
+		Member: host.ManagedMemberBinding{
+			Scope: host.MemberScope{
+				ClusterID: roster.ClusterID, TenantID: roster.TenantID, DatabaseID: roster.DatabaseID,
+				ShardID: roster.ShardID, MemberID: row.MemberID, Incarnation: row.Incarnation,
+			},
+			HostAttempt: state.HostAttempt,
+		},
+		OCI: host.ManagedOCIBinding{
+			Region: string(instance.Region), InstanceID: instance.ID, Owner: instance.Owner,
+			FleetGeneration: instance.Generation, CreateKey: instance.CreateKey,
+		},
+		FailureDomain:          row.FailureDomain,
+		AllocatableMemoryBytes: state.ManagedHostProfile.AllocatableMemoryBytes,
+		SystemReserveBytes:     state.ManagedHostProfile.SystemReserveBytes,
+	}
+	if err := host.ValidateManagedRegistrationPins(registration, pins); err != nil {
 		return host.HostStatus{}, false
 	}
 	return status, true

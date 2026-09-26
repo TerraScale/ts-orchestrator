@@ -27,6 +27,24 @@ import (
 
 type testCodec struct{}
 
+type interceptedPublish struct {
+	jetstream.JetStream
+	publish func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error)
+}
+
+func (js *interceptedPublish) Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	return js.publish(ctx, subject, payload, opts...)
+}
+
+type publishCall struct {
+	subject string
+	payload []byte
+}
+
+func recordPublishCall(calls *[]publishCall, subject string, payload []byte) {
+	*calls = append(*calls, publishCall{subject: subject, payload: bytes.Clone(payload)})
+}
+
 func (testCodec) Sign(_ context.Context, payload []byte) ([]byte, error) { return payload, nil }
 func (testCodec) Verify(_ context.Context, wire []byte) (VerifiedEnvelope, error) {
 	return VerifiedEnvelope{Payload: wire, Actor: "operator"}, nil
@@ -206,6 +224,260 @@ func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 		t.Fatal(err)
 	}
 	return Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-one", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil), AuthorityEpoch: 1}
+}
+
+func TestSubmitRetriesTransientPublishWithSameSignedPayload(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := make([]publishCall, 0, 2)
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(_ context.Context, subject string, payload []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		recordPublishCall(&calls, subject, payload)
+		if len(calls) == 1 {
+			return nil, jetstream.ErrNoStreamResponse
+		}
+		return &jetstream.PubAck{}, nil
+	}}
+
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("publish attempts=%d, want 2", len(calls))
+	}
+	if calls[0].subject != IntentSubject(intent.Cell) || calls[1].subject != calls[0].subject {
+		t.Fatalf("publish subjects changed across retry: %q, %q", calls[0].subject, calls[1].subject)
+	}
+	if !bytes.Equal(calls[0].payload, calls[1].payload) {
+		t.Fatal("signed payload changed across retry")
+	}
+}
+
+func TestSubmitRetriesOtherTypedTransientPublishErrors(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	for index, transientErr := range []error{nats.ErrNoResponders, nats.ErrTimeout, nats.ErrDisconnected, nats.ErrNoServers} {
+		t.Run(transientErr.Error(), func(t *testing.T) {
+			calls := 0
+			service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+				calls++
+				if calls == 1 {
+					return nil, transientErr
+				}
+				return &jetstream.PubAck{}, nil
+			}}
+			attempt := intent
+			attempt.OperationID = fmt.Sprintf("transient-%d", index)
+			if err := service.Submit(ctx, attempt); err != nil {
+				t.Fatal(err)
+			}
+			if calls != 2 {
+				t.Fatalf("publish attempts=%d, want 2", calls)
+			}
+		})
+	}
+}
+
+func TestSubmitRetriesWhenPublishAttemptDeadlineExpires(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(publishCtx context.Context, _ string, _ []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		if calls == 1 {
+			<-publishCtx.Done()
+			return nil, publishCtx.Err()
+		}
+		return &jetstream.PubAck{}, nil
+	}}
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if ctx.Err() != nil || calls != 2 {
+		t.Fatalf("parent context error=%v publish attempts=%d, want valid parent and 2 attempts", ctx.Err(), calls)
+	}
+}
+
+func TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication(t *testing.T) {
+	writer := &testWriter{}
+	service, _, ctx := testServiceWithRuntime(t, writer)
+	intent := testIntent(t, service, ctx)
+	calls := make([]publishCall, 0, 2)
+	acks := make([]*jetstream.PubAck, 0, 2)
+	base := service.js
+	service.js = &interceptedPublish{JetStream: base, publish: func(publishCtx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		recordPublishCall(&calls, subject, payload)
+		ack, err := base.Publish(publishCtx, subject, payload, opts...)
+		if err != nil {
+			return nil, err
+		}
+		acks = append(acks, ack)
+		if len(calls) == 1 {
+			return nil, jetstream.ErrNoStreamResponse
+		}
+		return ack, nil
+	}}
+
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 2 || len(acks) != 2 {
+		t.Fatalf("publish attempts=%d acknowledgements=%d, want two each", len(calls), len(acks))
+	}
+	if acks[0].Sequence != acks[1].Sequence || !acks[1].Duplicate {
+		t.Fatalf("retry acknowledgement did not deduplicate: first=%+v second=%+v", acks[0], acks[1])
+	}
+	if calls[0].subject != calls[1].subject || !bytes.Equal(calls[0].payload, calls[1].payload) {
+		t.Fatal("ambiguous publish retry changed subject or signed payload")
+	}
+	stream, err := base.Stream(ctx, IntentStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 1 {
+		t.Fatalf("ambiguous retry stored %d messages, want one", info.State.Msgs)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- service.Run(runCtx) }()
+	defer func() { cancel(); <-done }()
+	deadline := time.NewTimer(5 * time.Second)
+	defer deadline.Stop()
+	for {
+		receipt, err := service.Status(ctx, intent.OperationID)
+		if err == nil {
+			if receipt.Status != "accepted" || writer.count() != 1 {
+				t.Fatalf("receipt=%+v desired writes=%d", receipt, writer.count())
+			}
+			break
+		}
+		if !errors.Is(err, ErrPending) {
+			t.Fatal(err)
+		}
+		select {
+		case <-deadline.C:
+			t.Fatal("deduplicated delivery did not complete")
+		case <-time.After(20 * time.Millisecond):
+		}
+	}
+}
+
+func TestSubmitPublishRetryExhaustionAndCallerCancellation(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		return nil, nats.ErrNoResponders
+	}}
+	if err := service.Submit(ctx, intent); !errors.Is(err, nats.ErrNoResponders) {
+		t.Fatalf("exhausted retry error=%v", err)
+	}
+	if calls != intentPublishMaxAttempts {
+		t.Fatalf("publish attempts=%d, want %d", calls, intentPublishMaxAttempts)
+	}
+
+	started := make(chan struct{})
+	calls = 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(publishCtx context.Context, _ string, _ []byte, _ ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		close(started)
+		<-publishCtx.Done()
+		return nil, publishCtx.Err()
+	}}
+	canceledCtx, cancel := context.WithCancel(ctx)
+	result := make(chan error, 1)
+	go func() { result <- service.Submit(canceledCtx, intent) }()
+	<-started
+	cancel()
+	if err := <-result; !errors.Is(err, context.Canceled) {
+		t.Fatalf("caller cancellation error=%v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("publish attempts after caller cancellation=%d, want 1", calls)
+	}
+}
+
+func TestSubmitPublishStopsImmediatelyForPermanentErrors(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "JetStream disabled", err: jetstream.ErrJetStreamNotEnabled},
+		{name: "JetStream disabled for account", err: jetstream.ErrJetStreamNotEnabledForAccount},
+		{name: "missing stream", err: jetstream.ErrStreamNotFound},
+		{name: "invalid acknowledgement", err: jetstream.ErrInvalidJSAck},
+		{name: "invalid publish option", err: jetstream.ErrInvalidOption},
+		{name: "permission denied", err: nats.ErrPermissionViolation},
+		{name: "API 4xx", err: &jetstream.APIError{Code: 400, Description: "bad request"}},
+		{name: "unknown", err: errors.New("unclassified publish failure")},
+	}
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+				calls++
+				return nil, test.err
+			}}
+			attempt := intent
+			attempt.OperationID = fmt.Sprintf("permanent-%d", index)
+			if err := service.Submit(ctx, attempt); !errors.Is(err, test.err) {
+				t.Fatalf("Submit error=%v, want %v", err, test.err)
+			}
+			if calls != 1 {
+				t.Fatalf("publish attempts=%d, want 1", calls)
+			}
+		})
+	}
+}
+
+func TestSubmitPublishRetriesGenericAPI5xxButNotJetStreamDisabledCodes(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	calls := 0
+	service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		calls++
+		if calls == 1 {
+			return nil, &jetstream.APIError{Code: 503, Description: "temporary service failure"}
+		}
+		return &jetstream.PubAck{}, nil
+	}}
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Fatalf("generic API 5xx attempts=%d, want 2", calls)
+	}
+
+	for index, test := range []struct {
+		name string
+		err  error
+	}{
+		{name: "JetStream disabled", err: jetstream.ErrJetStreamNotEnabled},
+		{name: "JetStream disabled for account", err: jetstream.ErrJetStreamNotEnabledForAccount},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			service.js = &interceptedPublish{JetStream: service.js, publish: func(context.Context, string, []byte, ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+				calls++
+				return nil, test.err
+			}}
+			attempt := intent
+			attempt.OperationID = fmt.Sprintf("disabled-%d", index)
+			if err := service.Submit(ctx, attempt); !errors.Is(err, test.err) {
+				t.Fatalf("Submit error=%v, want %v", err, test.err)
+			}
+			if calls != 1 {
+				t.Fatalf("publish attempts=%d, want 1", calls)
+			}
+		})
+	}
 }
 
 func TestArtifactAdmissionBindsSourceAndReadback(t *testing.T) {

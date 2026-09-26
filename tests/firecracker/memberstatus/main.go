@@ -253,12 +253,15 @@ func run() (resultErr error) {
 	duplicate := exec.CommandContext(ctx, executable, memberArgs(config, duplicateData, socket, duplicateAdmin, duplicateReplication, pki)...)
 	duplicate.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: identity.UID, Gid: identity.GID}}
 	duplicateOutput, duplicateErr := duplicate.CombinedOutput()
-	if duplicateErr == nil || !strings.Contains(string(duplicateOutput), "Address already in use") {
+	if !isRequestedMemberSocketBindFailure(duplicateOutput, duplicateErr, socket) {
 		return fmt.Errorf("duplicate socket bind was not rejected: output=%q error=%v", duplicateOutput, duplicateErr)
 	}
 	after, err := os.Lstat(socket)
 	if err != nil || !os.SameFile(before, after) {
 		return fmt.Errorf("duplicate bind changed live socket: %w", err)
+	}
+	if _, err := host.ReadMemberStatus(ctx, runner, expected); err != nil {
+		return fmt.Errorf("existing member socket stopped responding after duplicate bind: %w", err)
 	}
 	fmt.Println("memberstatus: existing socket retained after duplicate bind")
 
@@ -317,6 +320,25 @@ func run() (resultErr error) {
 	}
 	fmt.Println("memberstatus: authenticated Go client accepted real sender-enabled process")
 	return nil
+}
+
+func isRequestedMemberSocketBindFailure(output []byte, err error, socket string) bool {
+	exitErr, ok := errors.AsType[*exec.ExitError](err)
+	if !ok || exitErr.ExitCode() != 1 {
+		return false
+	}
+	prefix := "terrabase-server: member-control socket bind " + socket + ": "
+	for line := range strings.SplitSeq(string(output), "\n") {
+		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "(os error 98)") {
+			continue
+		}
+		// The OS error wording differs between the pinned guest and host toolchains.
+		message := strings.TrimSuffix(strings.TrimPrefix(line, prefix), "(os error 98)")
+		if strings.TrimSpace(message) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func reportPhase(phase string) {

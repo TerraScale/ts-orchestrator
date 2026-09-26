@@ -136,19 +136,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
-		func(attempt context.Context) (*host.Controller, error) {
-			return host.NewController(attempt, host.ControllerConfig{
-				Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), Artifacts: service.Artifacts(),
-				StateReplicas: cfg.NATS.Replicas, ResponseKey: responseKey, HostMutations: control,
-				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
-			})
-		}, nil)
-	if err != nil {
-		return err
-	}
-	planner.hosts = hostController
 	var managedController *placement.Controller
+	var registrationVerifier host.ManagedRegistrationVerifier
+	var placementStore placement.Store
+	var fleet oci.Fleet
 	if managed != nil {
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,
 			func(attempt context.Context) (*oci.KVJournal, error) {
@@ -157,11 +148,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fleet, err := oci.NewInstancePrincipalFleet(managed.region, managed.intent, journal, control, nil, nil)
+		fleet, err = oci.NewInstancePrincipalFleet(managed.region, managed.intent, journal, control, nil, nil)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
-		placementStore, _, err := retryControllerOpen(ctx, "open regional placement state", fullClusterReady, false,
+		placementStore, _, err = retryControllerOpen(ctx, "open regional placement state", fullClusterReady, false,
 			func(attempt context.Context) (placement.Store, error) {
 				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
 					admittedPlacementReader{cell: cfg.NATS.Cell, store: control})
@@ -169,6 +160,28 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		registrationVerifier, err = newManagedRegistrationVerifier(
+			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
+			control, placementStore, fleet,
+		)
+		if err != nil {
+			return fmt.Errorf("configure managed host enrollment: %w", err)
+		}
+	}
+	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
+		func(attempt context.Context) (*host.Controller, error) {
+			return host.NewController(attempt, host.ControllerConfig{
+				Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), Artifacts: service.Artifacts(),
+				StateReplicas: cfg.NATS.Replicas, ResponseKey: responseKey, HostMutations: control,
+				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
+				ManagedRegistrationVerifier: registrationVerifier,
+			})
+		}, nil)
+	if err != nil {
+		return err
+	}
+	planner.hosts = hostController
+	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
 			func(err error) { log.Printf("TerraBase placement reconciliation: %v", err) },
 			func(reason string) { log.Printf("TerraBase placement held: %s", reason) }),

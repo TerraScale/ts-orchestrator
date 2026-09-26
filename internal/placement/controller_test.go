@@ -460,6 +460,47 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 	}
 }
 
+func TestControllerRejectsStaleManagedRegistrationBeforeAdmissionOrVolume(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seatID := permanentMember(oci.RegionGRU)
+	for _, stage := range []MemberStage{StageAwaitingHost, StagePreparedVolume} {
+		for _, test := range []struct {
+			name   string
+			change func(*host.Registration)
+		}{
+			{"missing placement", func(r *host.Registration) { r.ManagedPlacement = nil }},
+			{"intent generation", func(r *host.Registration) { r.ManagedPlacement.IntentGeneration++ }},
+			{"payload digest", func(r *host.Registration) { r.ManagedPlacement.IntentPayloadDigest = "stale" }},
+			{"roster digest", func(r *host.Registration) { r.ManagedPlacement.CanonicalRosterDigest = "stale" }},
+			{"profile digest", func(r *host.Registration) { r.ManagedPlacement.ManagedHostProfileDigest = "stale" }},
+			{"member incarnation", func(r *host.Registration) { r.ManagedMember.Scope.Incarnation = "stale" }},
+			{"host attempt", func(r *host.Registration) { r.ManagedMember.HostAttempt++ }},
+			{"allocatable memory", func(r *host.Registration) { r.Capacity.MemoryBytes++ }},
+			{"system reserve", func(r *host.Registration) { r.SystemReserveBytes++ }},
+		} {
+			t.Run(string(stage)+"/"+test.name, func(t *testing.T) {
+				store := newPlacementMemoryStore(t, intent)
+				member := store.members[seatID]
+				member.State.Stage = stage
+				member.State.VolumeID = ""
+				member.State.AttachmentID = ""
+				store.members[seatID] = member
+				fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
+				hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+				test.change(&hosts.statuses[0].Registration)
+				controller := startTestPlacementController(t, store, fleet, hosts, nil)
+				if err := controller.Tick(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+				if state := store.members[seatID].State; state.Stage != stage || store.casCalls != 0 ||
+					fleet.volumeCalls != 0 || fleet.ensureCalls != 0 || fleet.attachCalls != 0 {
+					t.Fatalf("stale registration advanced %s or caused OCI effects: state=%+v CAS=%d fleet=%+v", stage, state, store.casCalls, fleet)
+				}
+			})
+		}
+	}
+}
+
 func TestControllerUsesStartOfTickPlacementAndHoldsItOnNextTick(t *testing.T) {
 	intentA := committedTestIntent(t, validIntent(oci.RegionGRU))
 	intentB := validIntent(oci.RegionGRU)
@@ -632,19 +673,30 @@ func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 func admittedStatuses(t *testing.T, intent Intent) []host.HostStatus {
 	t.Helper()
 	statuses := make([]host.HostStatus, 0, 2)
-	for index, seat := range []Seat{
+	for _, seat := range []Seat{
 		{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent},
 		{MemberID: elasticMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-2", Kind: MemberElastic},
 	} {
 		state := testMemberState(t, intent, seat, StageAwaitingRuntimeContract)
+		roster := intent.CanonicalRoster
+		row := state.CanonicalRosterRow
 		statuses = append(statuses, host.HostStatus{Verified: true, SessionExpiresAt: time.Now().Add(time.Minute), Registration: host.Registration{
 			Cell: "gru", Node: state.HostNode, FailureDomain: seat.FailureDomain, Environment: "production",
 			Roles: []string{"terrabase"}, Generation: 1,
-			Capacity: host.Capacity{CPU: 4, MemoryBytes: 8 << 30, DiskBytes: 128 << 30},
+			Capacity:           host.Capacity{CPU: 4, MemoryBytes: int64(state.ManagedHostProfile.AllocatableMemoryBytes), DiskBytes: 128 << 30},
+			SystemReserveBytes: int64(state.ManagedHostProfile.SystemReserveBytes),
 			ManagedOCI: &host.ManagedOCIBinding{Region: string(oci.RegionGRU), InstanceID: state.InstanceID,
 				Owner: "owner-a", FleetGeneration: 1, CreateKey: state.CreateKey},
+			ManagedMember: &host.ManagedMemberBinding{Scope: host.MemberScope{
+				ClusterID: roster.ClusterID, TenantID: roster.TenantID, DatabaseID: roster.DatabaseID,
+				ShardID: roster.ShardID, MemberID: row.MemberID, Incarnation: row.Incarnation,
+			}, HostAttempt: state.HostAttempt},
+			ManagedPlacement: &host.ManagedPlacementBinding{
+				DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID,
+				IntentGeneration: state.IntentGeneration, IntentPayloadDigest: state.IntentPayloadDigest,
+				CanonicalRosterDigest: state.CanonicalRosterDigest, ManagedHostProfileDigest: state.ManagedHostProfileDigest,
+			},
 		}})
-		_ = index
 	}
 	return statuses
 }
