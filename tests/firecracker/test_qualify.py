@@ -584,6 +584,177 @@ class ChronyControlTests(unittest.TestCase):
             self.assertIsNone(lab.chrony_control_dir)
 
 
+class PrivateNTPFirewallTests(unittest.TestCase):
+    @staticmethod
+    def lab():
+        lab = object.__new__(qualify.Lab)
+        lab.bridge = "tsfabc123b"
+        lab.subnet = ipaddress.ip_network("198.19.7.0/24")
+        lab.ntp_rule_comment = None
+        lab.ntp_rule_handle = None
+        lab.note = Mock()
+        return lab
+
+    @staticmethod
+    def chain(owned=None, *, hook="input", has_nixos_jump=True):
+        entries = [{"chain": {"family": "ip", "table": "filter", "name": "INPUT",
+                               "type": "filter", "hook": hook}}]
+        if owned is not None:
+            entries.append({"rule": owned})
+        if has_nixos_jump:
+            entries.append({"rule": {"family": "ip", "table": "filter", "chain": "INPUT",
+                                     "handle": 17, "expr": [{"jump": {"target": "nixos-fw"}}]}})
+        return json.dumps({"nftables": entries})
+
+    @staticmethod
+    def rule(comment, *, destination="198.19.7.1", handle=101):
+        return {"family": "ip", "table": "filter", "chain": "INPUT", "handle": handle,
+                "comment": comment,
+                "expr": [
+                    {"match": {"op": "==", "left": {"meta": {"key": "iifname"}},
+                               "right": "tsfabc123b"}},
+                    {"match": {"op": "==", "left": {"payload": {"protocol": "ip",
+                                                                 "field": "saddr"}},
+                               "right": {"prefix": {"addr": "198.19.7.0", "len": 24}}}},
+                    {"match": {"op": "==", "left": {"payload": {"protocol": "ip",
+                                                                 "field": "daddr"}},
+                               "right": destination}},
+                    {"match": {"op": "==", "left": {"payload": {"protocol": "udp",
+                                                                 "field": "dport"}},
+                               "right": 123}},
+                    {"counter": {"packets": 3, "bytes": 228}}, {"accept": None}]}
+
+    def test_installs_exact_owned_udp_rule_in_active_input_and_removes_by_handle(self):
+        lab = self.lab()
+        active = {"rule": None}
+        commands = []
+
+        def sudo(*args, **_kwargs):
+            commands.append(args)
+            if args[:5] == ("nft", "-j", "-a", "list", "chain"):
+                return SimpleNamespace(stdout=self.chain(active["rule"]), returncode=0)
+            if args[:3] == ("nft", "insert", "rule"):
+                active["rule"] = self.rule(args[-1])
+            elif args[:3] == ("nft", "delete", "rule"):
+                self.assertEqual(args[-2:], ("handle", "101"))
+                active["rule"] = None
+            return SimpleNamespace(stdout="", returncode=0)
+
+        lab.sudo = Mock(side_effect=sudo)
+        with patch.object(qualify.secrets, "token_hex", return_value="a" * 24):
+            lab.install_ntp_firewall_rule()
+        comment = "ts-orch-fc-ntp-" + "a" * 24
+        self.assertEqual(lab.ntp_rule_handle, 101)
+        self.assertEqual(commands[1],
+                         ("nft", "insert", "rule", "ip", "filter", "INPUT",
+                          "iifname", "tsfabc123b", "ip", "saddr", "198.19.7.0/24",
+                          "ip", "daddr", "198.19.7.1", "udp", "dport", "123",
+                          "counter", "accept", "comment", comment))
+        lab.remove_ntp_firewall_rule()
+        lab.remove_ntp_firewall_rule()  # cleanup is idempotent
+        self.assertIsNone(lab.ntp_rule_comment)
+        self.assertEqual(len([cmd for cmd in commands if cmd[:3] ==
+                              ("nft", "delete", "rule")]), 1)
+
+    def test_install_rejects_inactive_or_unexpected_host_backend(self):
+        for hook, has_jump in (("forward", True), ("input", False)):
+            with self.subTest(hook=hook, has_jump=has_jump):
+                lab = self.lab()
+                lab.sudo = Mock(return_value=SimpleNamespace(
+                    stdout=self.chain(hook=hook, has_nixos_jump=has_jump)))
+                with self.assertRaises(RuntimeError):
+                    lab.install_ntp_firewall_rule()
+                self.assertIsNone(lab.ntp_rule_comment)
+                self.assertEqual(lab.sudo.call_count, 1)
+
+    def test_partial_insert_is_owned_for_cleanup_and_changed_scope_is_not_deleted(self):
+        lab = self.lab()
+        active = {"rule": None}
+        deleted = []
+
+        def sudo(*args, **_kwargs):
+            if args[:5] == ("nft", "-j", "-a", "list", "chain"):
+                return SimpleNamespace(stdout=self.chain(active["rule"]))
+            if args[:3] == ("nft", "insert", "rule"):
+                active["rule"] = self.rule(args[-1])
+                raise RuntimeError("ambiguous insert result")
+            if args[:3] == ("nft", "delete", "rule"):
+                deleted.append(args)
+                active["rule"] = None
+            return SimpleNamespace(returncode=0)
+
+        lab.sudo = Mock(side_effect=sudo)
+        with patch.object(qualify.secrets, "token_hex", return_value="b" * 24):
+            with self.assertRaisesRegex(RuntimeError, "ambiguous insert"):
+                lab.install_ntp_firewall_rule()
+        self.assertIsNotNone(lab.ntp_rule_comment)
+        lab.session_probe_process = None
+        lab.created_nft_tables = []
+        lab.vms = {}
+        lab.mounted = []
+        lab.chrony_process = None
+        lab.chrony_control_dir = None
+        lab.created_links = []
+        lab.images = Path("/tmp/unused-ntp-images")
+        lab.secrets = Path("/tmp/unused-ntp-secrets")
+        lab.stage = Path("/tmp/unused-ntp-stage")
+        active["rule"] = self.rule(lab.ntp_rule_comment, destination="198.19.7.99")
+        with patch.object(qualify.shutil, "rmtree"):
+            errors = lab.cleanup(preserve_images=True)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("scope changed", errors[0])
+        self.assertEqual(deleted, [])
+        self.assertIsNotNone(lab.ntp_rule_comment)
+        active["rule"] = self.rule(lab.ntp_rule_comment)
+        with patch.object(qualify.shutil, "rmtree"):
+            self.assertEqual(lab.cleanup(preserve_images=True), [])
+        self.assertEqual(len(deleted), 1)
+        self.assertIsNone(lab.ntp_rule_comment)
+
+    def test_reordered_accept_is_not_treated_as_owned_scoped_rule(self):
+        lab = self.lab()
+        rule = self.rule("ts-orch-fc-ntp-owned")
+        rule["expr"].insert(0, rule["expr"].pop())
+
+        self.assertFalse(lab._exact_ntp_rule(rule))
+
+    def test_clock_failure_diagnostics_are_bounded_and_include_firewall_counters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lab = self.lab()
+            lab.logs = Path(directory) / "logs"
+            lab.stage = Path(directory) / "stage"
+            lab.logs.mkdir()
+            lab.stage.mkdir()
+            (lab.stage / "chrony.conf").write_text("bindaddress 198.19.7.1\nport 123\n")
+            lab.chrony_control_dir = Path("/run/ts-orch-fc-chrony.test1234")
+            lab.ntp_rule_comment = "ts-orch-fc-ntp-owned"
+            lab.ntp_rule_handle = 101
+            lab.clock_diagnostics_captured = set()
+            lab.ssh = Mock(return_value=SimpleNamespace(
+                returncode=1, stdout="timeout waiting for 198.19.7.1:123\n" * 3000,
+                stderr=""))
+            with patch.object(qualify, "run", return_value=SimpleNamespace(
+                    returncode=0, stdout="counter packets 3 bytes 228\n" * 3000,
+                    stderr="")) as command:
+                lab.capture_clock_diagnostics("c1")
+                lab.capture_clock_diagnostics("c1")
+
+            record = json.loads((lab.logs / "c1-clock-diagnostics.json").read_text())
+            self.assertTrue(record["guest_time"]["truncated"])
+            self.assertLessEqual(len(record["guest_time"]["stdout"]),
+                                 qualify.NTP_DIAGNOSTIC_BYTES)
+            self.assertTrue(record["host_input_rules"]["truncated"])
+            self.assertIn("counter packets 3", record["host_input_rules"]["stdout"])
+            self.assertEqual(record["ntp_rule_handle"], 101)
+            self.assertEqual(record["chrony_config"], "bindaddress 198.19.7.1\nport 123\n")
+            self.assertEqual(lab.ssh.call_count, 1)
+            commands = [entry.args[0] for entry in command.call_args_list]
+            self.assertTrue(any(str(qualify.CHRONYC) in entry and "tracking" in entry
+                                for entry in commands))
+            self.assertTrue(any(entry[-1] == "INPUT" for entry in commands))
+            self.assertTrue(any(entry[-1] == "nixos-fw" for entry in commands))
+
+
 class ClockReadinessTests(unittest.TestCase):
     @staticmethod
     def lab(measurements):
@@ -665,6 +836,18 @@ class ClockReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(TimeoutError, "NTP clock"):
             lab.release_synchronized_guest_clock("c1")
         self.assertEqual(lab.ssh.call_count, 2)
+
+    def test_clock_diagnostic_failure_does_not_replace_original_timeout(self):
+        lab = self.lab([])
+        lab.wait = Mock(side_effect=TimeoutError("NTP clock remained unsynchronized"))
+        lab.capture_clock_diagnostics = Mock(side_effect=OSError("diagnostic storage unavailable"))
+
+        with self.assertRaisesRegex(TimeoutError, "remained unsynchronized"):
+            lab.wait_synchronized_guest_clock("c1")
+
+        lab.capture_clock_diagnostics.assert_called_once_with("c1")
+        lab.note.assert_called_once_with("clock_diagnostics", guest="c1",
+                                         status="capture_failed", error_type="OSError")
 
     def test_existing_service_refuses_clock_release(self):
         lab = self.lab([(-1_414_932_418, 139_698_286)])

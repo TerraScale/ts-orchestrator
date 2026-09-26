@@ -59,6 +59,7 @@ CHRONYD = Path("/nix/store/zinbanwvmabvr9lk7x5qaac0al3v18ml-chrony-4.8/bin/chron
 CHRONYC = CHRONYD.with_name("chronyc")
 CHRONYD_SHA = "bcfa87ddfc6b61c079ed764b541c82de7e1f279c56ad50b6757c679d6c3b05dd"
 CHRONYC_SHA = "10fbfd50c1efe52f56e2a1f1643ab8855b41a6954b5f93242bba1404d8fc7875"
+NTP_DIAGNOSTIC_BYTES = 32 << 10
 
 
 def _default_slog_attributes(message: str, event: str,
@@ -429,6 +430,10 @@ class Lab:
         self.addresses = {name: str(self.subnet[index + 10]) for index, name in enumerate(GUESTS, 1)}
         self.created_links: list[str] = []
         self.created_nft_tables: list[str] = []
+        self.ntp_rule_comment: str | None = None
+        self.ntp_rule_handle: int | None = None
+        self.clock_diagnostics_captured: set[str] = set()
+        self.clock_host_diagnostics: dict[str, Any] | None = None
         self.mounted: list[Path] = []
         self.vms: dict[str, VM] = {}
         self.binary = self.root / "terrascale-orchestrator"
@@ -669,6 +674,102 @@ class Lab:
             self.sudo("ip", "link", "set", tap, "master", self.bridge)
             self.sudo("ip", "link", "set", tap, "up")
         self.note("network", bridge=self.bridge, subnet=str(self.subnet), taps=self.taps)
+
+    def _input_firewall_rules(self) -> list[dict[str, Any]]:
+        """Read the active IPv4 INPUT chain, including handles and counters."""
+        output = self.sudo("nft", "-j", "-a", "list", "chain", "ip", "filter", "INPUT")
+        entries = json.loads(output.stdout)["nftables"]
+        chains = [item["chain"] for item in entries if "chain" in item]
+        if (len(chains) != 1 or chains[0].get("family") != "ip" or
+                chains[0].get("table") != "filter" or chains[0].get("name") != "INPUT" or
+                chains[0].get("type") != "filter" or chains[0].get("hook") != "input"):
+            raise RuntimeError("host IPv4 filter INPUT is not the active input hook")
+        return [item["rule"] for item in entries if "rule" in item]
+
+    def _owned_ntp_rules(self) -> list[dict[str, Any]]:
+        comment = self.ntp_rule_comment
+        if comment is None:
+            return []
+        return [rule for rule in self._input_firewall_rules()
+                if rule.get("family") == "ip" and rule.get("table") == "filter" and
+                rule.get("chain") == "INPUT" and rule.get("comment") == comment]
+
+    def _exact_ntp_rule(self, rule: dict[str, Any]) -> bool:
+        """Do not treat a reused comment on a different rule as our resource."""
+        expected = [
+            ("meta", "iifname", self.bridge),
+            ("payload", "ip", "saddr", {
+                "prefix": {"addr": str(self.subnet.network_address), "len": 24}}),
+            ("payload", "ip", "daddr", str(self.subnet[1])),
+            ("payload", "udp", "dport", 123),
+        ]
+        expressions = rule.get("expr")
+        if not isinstance(expressions, list) or len(expressions) != 6:
+            return False
+        for expression, wanted in zip(expressions[:4], expected, strict=True):
+            match = expression.get("match", {})
+            if match.get("op") != "==" or match.get("right") != wanted[-1]:
+                return False
+            left = match.get("left", {})
+            if wanted[0] == "meta":
+                if left != {"meta": {"key": wanted[1]}}:
+                    return False
+            elif left != {"payload": {"protocol": wanted[1], "field": wanted[2]}}:
+                return False
+        return "counter" in expressions[4] and len(expressions[4]) == 1 and \
+            "accept" in expressions[5] and len(expressions[5]) == 1
+
+    def install_ntp_firewall_rule(self) -> None:
+        """Admit only the owned guests' NTP requests before NixOS's INPUT drop."""
+        if self.ntp_rule_comment is not None:
+            raise RuntimeError("private NTP firewall rule was already attempted")
+        if (re.fullmatch(r"tsf[0-9a-f]{6}b", self.bridge) is None or
+                self.subnet.prefixlen != 24 or
+                not self.subnet.subnet_of(ipaddress.ip_network("198.19.0.0/16"))):
+            raise RuntimeError("private NTP firewall rule requires the owned bridge and /24")
+        rules = self._input_firewall_rules()
+        if not any(any(expr.get("jump", {}).get("target") == "nixos-fw"
+                       for expr in rule.get("expr", [])) for rule in rules):
+            raise RuntimeError("host INPUT does not route through the expected NixOS firewall")
+        comment = "ts-orch-fc-ntp-" + secrets.token_hex(12)
+        self.ntp_rule_comment = comment  # retain ownership even if insertion partly succeeds
+        self.sudo("nft", "insert", "rule", "ip", "filter", "INPUT",
+                  "iifname", self.bridge,
+                  "ip", "saddr", str(self.subnet),
+                  "ip", "daddr", str(self.subnet[1]),
+                  "udp", "dport", "123", "counter", "accept", "comment", comment)
+        owned = self._owned_ntp_rules()
+        if (len(owned) != 1 or not self._exact_ntp_rule(owned[0]) or
+                not isinstance(owned[0].get("handle"), int)):
+            raise RuntimeError("cannot identify the private NTP firewall rule after insertion")
+        self.ntp_rule_handle = owned[0]["handle"]
+        self.note("ntp_firewall_rule", bridge=self.bridge, source=str(self.subnet),
+                  destination=str(self.subnet[1]), protocol="udp", port=123,
+                  comment=comment, handle=self.ntp_rule_handle)
+
+    def remove_ntp_firewall_rule(self) -> None:
+        """Delete only the uniquely tagged rule, including after partial setup."""
+        if getattr(self, "ntp_rule_comment", None) is None:
+            return
+        owned = self._owned_ntp_rules()
+        if len(owned) > 1:
+            raise RuntimeError("private NTP firewall comment matched multiple rules")
+        if not owned:
+            self.ntp_rule_comment = None
+            self.ntp_rule_handle = None
+            return
+        if not self._exact_ntp_rule(owned[0]):
+            raise RuntimeError("private NTP firewall rule scope changed")
+        handle = owned[0].get("handle")
+        if (not isinstance(handle, int) or handle < 1 or
+                (self.ntp_rule_handle is not None and handle != self.ntp_rule_handle)):
+            raise RuntimeError("private NTP firewall handle changed")
+        self.sudo("nft", "delete", "rule", "ip", "filter", "INPUT", "handle", str(handle))
+        if self._owned_ntp_rules():
+            raise RuntimeError("private NTP firewall rule remains after deletion")
+        self.note("ntp_firewall_rule_removed", comment=self.ntp_rule_comment, handle=handle)
+        self.ntp_rule_comment = None
+        self.ntp_rule_handle = None
 
     def chrony_socket_path(self) -> Path:
         created = self.sudo("mktemp", "-d", "-p", "/run", "ts-orch-fc-chrony.XXXXXXXX")
@@ -1070,10 +1171,18 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             self.note("guest_kernel_clock", name=name, **evidence)
             return True
 
-        self.wait(f"ntp-clock-{name}", synchronized, timeout=180, period=2)
-        offset, uncertainty = self.measure_guest_clock(name)
-        if abs(offset) + uncertainty > CLOCK_BOUND_NS:
-            raise RuntimeError(f"{name} NTP clock differs from lab host by over one second")
+        try:
+            self.wait(f"ntp-clock-{name}", synchronized, timeout=180, period=2)
+            offset, uncertainty = self.measure_guest_clock(name)
+            if abs(offset) + uncertainty > CLOCK_BOUND_NS:
+                raise RuntimeError(f"{name} NTP clock differs from lab host by over one second")
+        except (RuntimeError, TimeoutError):
+            try:
+                self.capture_clock_diagnostics(name)
+            except Exception as error:
+                self.note("clock_diagnostics", guest=name, status="capture_failed",
+                          error_type=type(error).__name__)
+            raise
 
     def release_synchronized_guest_clock(self, name: str) -> None:
         guard = (f"test ! -e {CLOCK_READY} && "
@@ -1485,8 +1594,84 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             return
         self.note("host_status_diagnostics", label=label, path=str(path), status=snapshot["status"])
 
+    def capture_clock_diagnostics(self, name: str) -> None:
+        """Keep bounded guest, Chrony, and effective firewall evidence before cleanup."""
+        captured = getattr(self, "clock_diagnostics_captured", set())
+        if name in captured:
+            return
+        captured.add(name)
+        self.clock_diagnostics_captured = captured
+        path = self.logs / f"{name}-clock-diagnostics.json"
+        snapshot: dict[str, Any] = {"captured_at": datetime.now(timezone.utc).isoformat(),
+                                    "guest": name}
+
+        def record(label: str, command: list[str] | None = None, *,
+                   guest_command: str | None = None) -> None:
+            try:
+                result = (self.ssh(name, guest_command, timeout=12, allow_failure=True)
+                          if guest_command is not None else
+                          run(command or [], timeout=10, allow_failure=True))
+                stdout = result.stdout or ""
+                stderr = result.stderr or ""
+                snapshot[label] = {"exit_code": result.returncode,
+                                   "stdout": stdout[:NTP_DIAGNOSTIC_BYTES],
+                                   "stderr": stderr[:2048],
+                                   "truncated": len(stdout) > NTP_DIAGNOSTIC_BYTES or
+                                   len(stderr) > 2048}
+            except Exception as error:
+                snapshot[label] = {"error_type": type(error).__name__,
+                                   "error": str(error)[:512]}
+
+        guest_command = """set +e
+printf '\\n=== timesyncd status ===\\n'
+systemctl status systemd-timesyncd.service --no-pager --full
+printf '\\n=== timedatectl ===\\n'
+timedatectl show -p NTPSynchronized -p NTP
+timedatectl timesync-status --no-pager
+printf '\\n=== timesyncd journal ===\\n'
+journalctl -u systemd-timesyncd.service -b -n 80 --no-pager -o short-iso-precise
+printf '\\n=== private NTP config and route ===\\n'
+cat /etc/systemd/timesyncd.conf.d/ts-orch-fc.conf
+ip -4 route show
+printf '\\n=== kernel clock predicate ===\\n'
+/usr/local/bin/ts-orch-clockprobe
+"""
+        record("guest_time", guest_command=guest_command)
+        host_evidence = getattr(self, "clock_host_diagnostics", None)
+        if host_evidence is None:
+            snapshot["host_clock_captured_at"] = datetime.now(timezone.utc).isoformat()
+            control_dir = getattr(self, "chrony_control_dir", None)
+            if control_dir is not None:
+                socket_path = str(control_dir / "chronyd.sock")
+                for suffix in ("sources", "tracking", "clients"):
+                    record(f"chrony_{suffix}",
+                           ["sudo", "-n", str(CHRONYC), "-n", "-h", socket_path, suffix])
+            try:
+                snapshot["chrony_config"] = (self.stage / "chrony.conf").read_text()[:4096]
+            except OSError as error:
+                snapshot["chrony_config"] = {"error_type": type(error).__name__}
+            record("chrony_listener", ["sudo", "-n", "ss", "-H", "-lun"])
+            record("host_input_rules", ["sudo", "-n", "nft", "-j", "-a", "list", "chain",
+                                        "ip", "filter", "INPUT"])
+            record("host_nixos_firewall", ["sudo", "-n", "nft", "-j", "-a", "list", "chain",
+                                           "ip", "filter", "nixos-fw"])
+            snapshot["ntp_rule_comment"] = getattr(self, "ntp_rule_comment", None)
+            snapshot["ntp_rule_handle"] = getattr(self, "ntp_rule_handle", None)
+            host_evidence = {key: value for key, value in snapshot.items()
+                             if key not in ("captured_at", "guest", "guest_time")}
+            self.clock_host_diagnostics = host_evidence
+        else:
+            snapshot.update(host_evidence)
+        try:
+            write_json(path, snapshot)
+            self.note("clock_diagnostics", guest=name, path=str(path))
+        except OSError as error:
+            self.note("clock_diagnostics", guest=name, status="write_failed",
+                      error_type=type(error).__name__)
+
     def scenario(self) -> None:
         self.network()
+        self.install_ntp_firewall_rule()
         self.start_chrony()
         for name in GUESTS:
             self.prepare_guest(name)
@@ -1724,6 +1909,10 @@ find /var/lib/ts-orch-install -type f -print -exec stat -c '%a %u:%g %s %n' {} \
                     process.kill()
                     process.wait(timeout=5)
             self.session_probe_process = None
+        try:
+            self.remove_ntp_firewall_rule()
+        except Exception as error:
+            errors.append(f"remove owned private NTP firewall rule: {error}")
         for table in reversed(self.created_nft_tables.copy()):
             try:
                 result = self.sudo("nft", "delete", "table", "bridge", table, allow_failure=True)
