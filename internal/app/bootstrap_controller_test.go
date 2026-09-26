@@ -55,6 +55,29 @@ func TestBootstrapControllerCommandDispatchesSameBinary(t *testing.T) {
 	}
 }
 
+func TestRootBootstrapExistingMarkerDelegatesToControllerRestartAdmission(t *testing.T) {
+	called := 0
+	present, err := acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
+		called++
+		return bootstrapstart.AcceptedInstall{}, nil
+	})
+	if err != nil || !present || called != 1 {
+		t.Fatalf("existing accepted marker: present=%t calls=%d err=%v", present, called, err)
+	}
+	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
+		return bootstrapstart.AcceptedInstall{}, os.ErrNotExist
+	})
+	if err != nil || present {
+		t.Fatalf("first install marker absence: present=%t err=%v", present, err)
+	}
+	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
+		return bootstrapstart.AcceptedInstall{}, errors.New("invalid accepted marker")
+	})
+	if err == nil || present {
+		t.Fatalf("invalid accepted marker was treated as an initial install: present=%t err=%v", present, err)
+	}
+}
+
 func TestDirectControllerRunChecksBakedAdmissionBeforeNATS(t *testing.T) {
 	priorPresent := controllerBakedInputsPresent
 	priorProduction := controllerBootstrapProduction

@@ -1,0 +1,1605 @@
+package bootstrapstart
+
+import (
+	"bytes"
+	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+)
+
+type founderStoredObject struct {
+	wire     []byte
+	etag     string
+	modified time.Time
+}
+
+type founderLedgerObjects struct {
+	objects      map[string]founderStoredObject
+	now          time.Time
+	rejectSuffix string
+	rejectPart   string
+	afterGet     func(string)
+	writes       int
+}
+
+func (store *founderLedgerObjects) PutObject(_ context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
+	if request.NamespaceName == nil || request.BucketName == nil || request.ObjectName == nil ||
+		request.OpcSseKmsKeyId == nil || request.PutObjectBody == nil {
+		return objectstorage.PutObjectResponse{}, errors.New("incomplete founder ledger write")
+	}
+	wire, err := io.ReadAll(request.PutObjectBody)
+	if err != nil {
+		return objectstorage.PutObjectResponse{}, err
+	}
+	_ = request.PutObjectBody.Close()
+	if request.ContentLength == nil || *request.ContentLength != int64(len(wire)) ||
+		request.OpcContentSha256 == nil || *request.OpcContentSha256 != base64Digest(wire) {
+		return objectstorage.PutObjectResponse{}, errors.New("founder ledger write changed content")
+	}
+	if store.rejectSuffix != "" && strings.HasSuffix(*request.ObjectName, store.rejectSuffix) ||
+		store.rejectPart != "" && strings.Contains(*request.ObjectName, store.rejectPart) {
+		return objectstorage.PutObjectResponse{}, errors.New("injected founder ledger write failure")
+	}
+	key := *request.BucketName + "/" + *request.ObjectName
+	previous, exists := store.objects[key]
+	if request.IfNoneMatch != nil && *request.IfNoneMatch == "*" && exists ||
+		request.IfMatch != nil && (!exists || previous.etag != *request.IfMatch) {
+		return objectstorage.PutObjectResponse{}, founderStorageError(http.StatusPreconditionFailed)
+	}
+	if request.IfNoneMatch == nil && request.IfMatch == nil {
+		return objectstorage.PutObjectResponse{}, errors.New("unconditional founder ledger write")
+	}
+	hash := sha256.Sum256(wire)
+	etag := `"` + hex.EncodeToString(hash[:8]) + `"`
+	store.objects[key] = founderStoredObject{wire: bytes.Clone(wire), etag: etag, modified: store.now}
+	store.writes++
+	return objectstorage.PutObjectResponse{ETag: new(etag)}, nil
+}
+
+func (store *founderLedgerObjects) GetObject(_ context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	if request.NamespaceName == nil || request.BucketName == nil || request.ObjectName == nil {
+		return objectstorage.GetObjectResponse{}, errors.New("incomplete founder ledger read")
+	}
+	object, ok := store.objects[*request.BucketName+"/"+*request.ObjectName]
+	if !ok {
+		return objectstorage.GetObjectResponse{}, founderStorageError(http.StatusNotFound)
+	}
+	headers := make(http.Header)
+	headers.Set("Date", store.now.Format(http.TimeFormat))
+	length := int64(len(object.wire))
+	modified := common.SDKTime{Time: object.modified}
+	if store.afterGet != nil {
+		store.afterGet(*request.ObjectName)
+	}
+	return objectstorage.GetObjectResponse{RawResponse: &http.Response{Header: headers},
+		Content: io.NopCloser(bytes.NewReader(object.wire)), ContentLength: &length,
+		ETag: new(object.etag), LastModified: &modified}, nil
+}
+
+type founderStorageError int
+
+func (err founderStorageError) Error() string           { return http.StatusText(int(err)) }
+func (err founderStorageError) GetHTTPStatusCode() int  { return int(err) }
+func (err founderStorageError) GetMessage() string      { return err.Error() }
+func (err founderStorageError) GetCode() string         { return "FounderTest" }
+func (err founderStorageError) GetOpcRequestID() string { return "founder-test" }
+
+func base64Digest(wire []byte) string {
+	hash := sha256.Sum256(wire)
+	return base64.StdEncoding.EncodeToString(hash[:])
+}
+
+func signFounderLedgerValue(t *testing.T, key []byte, domain string, scope bootstrap.BootstrapScope,
+	value any, now time.Time,
+) []byte {
+	t.Helper()
+	payload, err := trust.EncodePayload(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, trust.Scope{Domain: domain, DeploymentID: scope.DeploymentID,
+		Cell: scope.Cell, Environment: "production", Role: "controller", Slot: scope.Slot},
+		now.Add(-time.Minute), now.Add(time.Hour), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wire
+}
+
+func reserveFounderPeer(t *testing.T, fixture *founderSignerFixture, ledger *bootstrap.Ledger, slot string) {
+	t.Helper()
+	var row bootstrap.FounderPeerRow
+	for _, peer := range fixture.plan.Peers {
+		if peer.Slot == slot {
+			row = peer
+		}
+	}
+	if row.Slot == "" {
+		t.Fatalf("missing founder row %q", slot)
+	}
+	profile := bootstrap.LaunchProfile{Slot: slot, CompartmentOCID: row.CompartmentOCID,
+		AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain,
+		SubnetOCID: row.SubnetOCID, NetworkSecurityGroupOCIDs: row.NetworkSecurityGroupOCIDs, Shape: row.Shape}
+	profileWire, err := trust.EncodePayload(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rowDigest, err := bootstrap.FounderPeerRowDigest(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := bootstrap.BootstrapScope{DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: slot}
+	manifestEnvelope, err := trust.DecodeEnvelope(fixture.manifests[slot])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest bootstrap.Manifest
+	if err := protocol.DecodeStrict(manifestEnvelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil {
+		t.Fatal(err)
+	}
+	intent := bootstrap.Intent{SchemaVersion: 2, Mode: bootstrap.IntentModeManaged,
+		DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: "production", Role: "controller",
+		Slot: slot, Attempt: 1, Generation: 1, ManifestDigest: row.ManifestSHA256,
+		ReleaseReceiptDigest: manifest.ReleaseReceiptSHA256, ImageOCID: row.ImageOCID,
+		RegionIntentGeneration: fixture.current.Anchor.Anchor().InitialRegionIntentGeneration,
+		RegionIntentDigest:     fixture.current.Anchor.Anchor().InitialRegionIntentSHA256,
+		LaunchRequestDigest:    digestWire(profileWire), FounderPlanSHA256: fixture.current.Plan.Digest(),
+		PeerRowDigest: rowDigest, CreateKey: "founder-create-" + slot, RetryToken: "founder-retry-" + slot,
+		CreatedAt: fixture.now.Add(-time.Minute), OCIRegion: "sa-saopaulo-1", CompartmentOCID: row.CompartmentOCID,
+		AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain,
+		SubnetOCID: row.SubnetOCID, NetworkSecurityGroupIDs: row.NetworkSecurityGroupOCIDs,
+		Shape: row.Shape, Node: slot}
+	intentWire := signFounderLedgerValue(t, fixture.ledgerKey, "bootstrap-intent", scope, intent, fixture.now)
+	head := bootstrap.SlotHead{SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		Environment: "production", Role: "controller", Slot: slot, Attempt: 1, Generation: 1,
+		IntentDigest: digestWire(intentWire)}
+	headWire := signFounderLedgerValue(t, fixture.ledgerKey, "bootstrap-slot-head", scope, head, fixture.now)
+	if _, err := ledger.ReserveSlot(t.Context(), scope, intentWire, headWire); err != nil {
+		t.Fatalf("reserve founder %s: %v", slot, err)
+	}
+}
+
+func newFounderRuntimeFixture(t *testing.T) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
+	return newFounderRuntimeFixtureWithSetup(t, nil)
+}
+
+func newFounderRuntimeFixtureWithSetup(t *testing.T, setup func(*founderSignerFixture)) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
+	t.Helper()
+	fixture := newFounderSignerFixture(t)
+	if setup != nil {
+		setup(fixture)
+	}
+	objects := &founderLedgerObjects{objects: make(map[string]founderStoredObject), now: fixture.now}
+	config, err := currentLedgerConfig(fixture.current.Anchor, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.VerificationNow = func() time.Time { return fixture.now }
+	ledger, err := bootstrap.NewLedger(objects, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range fixture.plan.Peers {
+		reserveFounderPeer(t, fixture, ledger, row.Slot)
+	}
+	fake := &founderFakeOCI{rows: make(map[string]bootstrap.FounderPeerRow), now: fixture.now}
+	for _, row := range fixture.plan.Peers {
+		fake.rows[row.Slot] = row
+	}
+	caller := &founderCaller{reader: fixture.reader(t), roots: fixture.baked.Roots,
+		accepted: fixture.accepted, signers: fixture.store,
+		adapter: &FounderOCI{region: oci.RegionGRU, compute: fake, network: fake, volume: fake},
+		openLedger: func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
+			return ledger, nil
+		}}
+	return fixture, caller, objects, fake
+}
+
+func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFixture) {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicWire, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const revision = "0123456789abcdef0123456789abcdef01234567"
+	imageID := fixture.plan.Peers[0].ImageOCID
+	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
+		SubjectKeyID: keyID, SubjectPublicKey: publicWire, Capabilities: []trust.Capability{{
+			Domain: release.ImageDomain, DeploymentID: revision, Cell: "GRU", Environment: "production",
+			Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"},
+		}}}, fixture.now.Add(-10*time.Minute), fixture.now.Add(2*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageReceipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
+		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13,
+		BinarySHA256: strings.Repeat("a", 64), BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base",
+		BaseImageRegion: "GRU", BaseImageSHA256: strings.Repeat("b", 64),
+		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
+		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
+		OCIImageOCID: imageID, OCIRegion: "GRU"}
+	imageEnvelope, err := release.SignImageReceipt(imageReceipt, "production", grant, fixture.baked.Roots,
+		private, fixture.now.Add(-time.Minute), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageWire, err := trust.EncodeEnvelope(imageEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for slot, wire := range fixture.manifests {
+		envelope, err := trust.DecodeEnvelope(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest bootstrap.Manifest
+		if err := protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil {
+			t.Fatal(err)
+		}
+		manifest.ReleaseReceiptSHA256 = digestWire(imageWire)
+		manifest.ReleaseImageReceiptWire = imageWire
+		manifest.ReleaseDelegationWire = grantWire
+		envelope, err = bootstrap.SignManifest(manifest, fixture.now.Add(-time.Minute),
+			fixture.now.Add(22*time.Hour), fixture.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixture.manifests[slot], err = trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.accepted.ManifestSHA256 = digestWire(fixture.manifests[fixture.accepted.Slot])
+	fixture.plan.SeedManifestSHA256 = fixture.accepted.ManifestSHA256
+	for index := range fixture.plan.Peers {
+		fixture.plan.Peers[index].ManifestSHA256 = digestWire(fixture.manifests[fixture.plan.Peers[index].Slot])
+	}
+	payload, err := trust.EncodePayload(fixture.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planEnvelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
+		DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
+		Environment: fixture.plan.Environment, Role: "controller", Slot: fixture.plan.SeedSlot},
+		fixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.planWire, err = trust.EncodeEnvelope(planEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.selection.Generation = 2
+	fixture.selection.PlanSHA256 = digestWire(fixture.planWire)
+	for index := range fixture.selection.Manifests {
+		fixture.selection.Manifests[index].SHA256 = digestWire(fixture.manifests[fixture.selection.Manifests[index].Slot])
+	}
+	fixture.publish(t, fixture.selection)
+	fixture.current, err = fixture.reader(t).ReadCurrent(t.Context(), fixture.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func founderFixtureWithShortLaunchDeadline(t *testing.T, fixture *founderSignerFixture) {
+	t.Helper()
+	founderFixtureWithAdmissibleRelease(t, fixture)
+	fixture.plan.LaunchDeadline = fixture.now.Add(3 * time.Minute)
+	payload, err := trust.EncodePayload(fixture.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
+		DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
+		Environment: fixture.plan.Environment, Role: "controller", Slot: fixture.plan.SeedSlot},
+		fixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.planWire, err = trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.selection.Generation++
+	fixture.selection.PlanSHA256 = digestWire(fixture.planWire)
+	fixture.publish(t, fixture.selection)
+	fixture.current, err = fixture.reader(t).ReadCurrent(t.Context(), fixture.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent(t *testing.T) {
+	_, caller, _, fake := newFounderRuntimeFixture(t)
+	for _, slot := range []string{"controller-a", "controller-b"} {
+		if err := caller.runPeer(t.Context(), slot); err != nil {
+			t.Fatalf("complete %s: %v", slot, err)
+		}
+		if err := caller.runPeer(t.Context(), slot); err != nil {
+			t.Fatalf("restart %s: %v", slot, err)
+		}
+	}
+	if fake.launches != 2 || fake.observations != 2 {
+		t.Fatalf("three-controller founding effects: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	const slot = "controller-a"
+	snapshot, err := caller.fresh(t.Context(), slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID, err := caller.adapter.Launch(t.Context(), attempt, caller.peerRefresh(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := caller.pinCandidate(t.Context(), snapshot, slot, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	if fake.launches != 1 || fake.observations != 0 {
+		t.Fatalf("candidate-only setup performed unexpected effects: launches=%d observations=%d",
+			fake.launches, fake.observations)
+	}
+	if err := caller.runPeer(t.Context(), slot); err != nil {
+		t.Fatalf("candidate-only recovery: %v", err)
+	}
+	if fake.launches != 1 || fake.observations != 1 {
+		t.Fatalf("candidate-only recovery relaunched or missed exact observation: launches=%d observations=%d",
+			fake.launches, fake.observations)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+		DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: slot})
+	if err != nil || state.Result == nil || state.Candidate == nil ||
+		state.Result.InstanceOCID != state.Candidate.InstanceOCID ||
+		state.Head.CandidateDigest != state.CandidateRecord.SHA256 {
+		t.Fatalf("completed candidate binding invalid: state=%+v err=%v", state, err)
+	}
+}
+
+func TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixture(t)
+	const slot = "controller-a"
+	if err := caller.runPeer(t.Context(), slot); err != nil {
+		t.Fatalf("initial founder completion: %v", err)
+	}
+	later := fixture.now.Add(6 * time.Minute)
+	changed := false
+	for key, object := range objects.objects {
+		if strings.Contains(key, "/result-") && strings.HasSuffix(key, ".json") {
+			object.modified = later
+			objects.objects[key] = object
+			changed = true
+		}
+	}
+	if !changed {
+		t.Fatal("completed founder peer had no immutable result object")
+	}
+	fixture.now, objects.now, fake.now = later, later, later
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := bootstrap.BootstrapScope{DeploymentID: fixture.accepted.DeploymentID,
+		Cell: fixture.accepted.Cell, Slot: slot}
+	if _, err := ledger.ReadSlot(t.Context(), scope); !errors.Is(err, bootstrap.ErrManagedPeerProofQuarantined) {
+		t.Fatalf("late result was not quarantined for historical admission: %v", err)
+	}
+	if err := caller.runPeer(t.Context(), slot); err != nil {
+		t.Fatalf("repair quarantined founder result: %v", err)
+	}
+	if fake.launches != 1 || fake.observations != 2 {
+		t.Fatalf("quarantine repair relaunched or missed reobservation: launches=%d observations=%d",
+			fake.launches, fake.observations)
+	}
+	state, err := ledger.ReadSlot(t.Context(), scope)
+	if err != nil || state.Result == nil || !state.Result.ObservedAt.Equal(later) {
+		t.Fatalf("quarantine repair did not publish a fresh signed result: state=%+v err=%v", state, err)
+	}
+}
+
+func TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	for _, row := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+			t.Fatalf("complete %s: %v", row.Slot, err)
+		}
+	}
+	if _, err := fixture.reader(t).ReadCurrent(t.Context(), fixture.now.Add(2*time.Hour)); err == nil {
+		t.Fatal("fixture selected launch authority did not expire")
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reads := make(map[string]int, len(fixture.objects.reads))
+	for key, count := range fixture.objects.reads {
+		reads[key] = count
+	}
+	launches, observations, imageReads := fake.launches, fake.observations, fake.imageReads
+	completed := func(ctx context.Context, _ BakedInputs, accepted AcceptedInstall) (bool, error) {
+		return founderPeersComplete(ctx, fixture.current.Anchor.Anchor(), accepted, ledger)
+	}
+	if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
+		fixture.floor, completed); err != nil {
+		t.Fatalf("completed cell restart required an expired launch plan: %v", err)
+	}
+	if fake.launches != launches || fake.observations != observations || fake.imageReads != imageReads {
+		t.Fatal("completed cell restart touched founder OCI")
+	}
+	for key, count := range reads {
+		if fixture.objects.reads[key] != count {
+			t.Fatal("completed cell restart read the expired selector")
+		}
+	}
+}
+
+func TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor(t *testing.T) {
+	for _, damage := range []string{"missing floor", "invalid floor", "missing lock"} {
+		t.Run(damage, func(t *testing.T) {
+			fixture := newFounderSignerFixture(t)
+			floorPath := filepath.Join(fixture.floor.directory, founderSelectionFloorName)
+			switch damage {
+			case "missing floor":
+				if err := os.Remove(floorPath); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid floor":
+				if err := os.WriteFile(floorPath, []byte(`{"schemaVersion":1}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "missing lock":
+				if err := os.Remove(filepath.Join(fixture.floor.directory, founderSelectionLockName)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			called := false
+			completed := func(context.Context, BakedInputs, AcceptedInstall) (bool, error) {
+				called = true
+				return true, nil
+			}
+			if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
+				fixture.floor, completed); !errors.Is(err, ErrFounderSelectionFloor) || called {
+				t.Fatalf("%s bypassed durable floor: %v called=%v", damage, err, called)
+			}
+		})
+	}
+}
+
+type founderSupersedingHead struct {
+	SlotReader
+	slot string
+}
+
+func (reader founderSupersedingHead) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+	state, err := reader.SlotReader.ReadSlot(ctx, scope)
+	if err != nil || scope.Slot != reader.slot {
+		return state, err
+	}
+	state.Head.Attempt++
+	state.Head.Generation++
+	state.Head.ResultDigest = ""
+	state.Result = nil
+	state.ResultRecord = nil
+	state.PeerReceipt = nil
+	state.PeerReceiptRecord = nil
+	return state, nil
+}
+
+func TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding(t *testing.T) {
+	fixture, caller, _, _ := newFounderRuntimeFixture(t)
+	for _, row := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete, err := founderPeersComplete(t.Context(), fixture.current.Anchor.Anchor(), fixture.accepted,
+		founderSupersedingHead{SlotReader: ledger, slot: fixture.plan.Peers[0].Slot})
+	if err != nil || complete {
+		t.Fatalf("new pending HEAD was bypassed by old completion: complete=%v err=%v", complete, err)
+	}
+}
+
+type founderMalformedPositiveHead struct {
+	SlotReader
+	slot string
+}
+
+func (reader founderMalformedPositiveHead) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+	state, err := reader.SlotReader.ReadSlot(ctx, scope)
+	if err == nil && scope.Slot == reader.slot {
+		state.PeerReceipt = nil
+		state.PeerReceiptRecord = nil
+	}
+	return state, err
+}
+
+func TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding(t *testing.T) {
+	fixture, caller, _, _ := newFounderRuntimeFixture(t)
+	for _, row := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	complete, err := founderPeersComplete(t.Context(), fixture.current.Anchor.Anchor(), fixture.accepted,
+		founderMalformedPositiveHead{SlotReader: ledger, slot: fixture.plan.Peers[0].Slot})
+	if complete || !errors.Is(err, ErrFounderRuntime) {
+		t.Fatalf("malformed positive HEAD skipped founding: complete=%v err=%v", complete, err)
+	}
+}
+
+func TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor(t *testing.T) {
+	fixture := newFounderSignerFixture(t)
+	accepted := fixture.accepted
+	accepted.AnchorSHA256 = strings.Repeat("b", 64)
+	if complete, err := completedAdmittedFounder(t.Context(), fixture.baked, accepted); complete ||
+		!errors.Is(err, ErrFounderRuntime) {
+		t.Fatalf("wrong accepted anchor reached historical ledger: complete=%v err=%v", complete, err)
+	}
+}
+
+type founderAdmissionLedger struct {
+	ledger  *bootstrap.Ledger
+	onFirst func()
+	reads   int
+}
+
+type founderAdmissionCredentials struct{ calls int }
+
+func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string) error {
+	checker.calls++
+	if len(expected) == 0 {
+		return ErrLiveCredentials
+	}
+	return nil
+}
+
+func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
+	_ trust.Keyring,
+) (SlotReader, error) {
+	if !anchor.IsVerified() {
+		return nil, ErrAdmission
+	}
+	return reader, nil
+}
+
+func (reader *founderAdmissionLedger) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
+	_ trust.Keyring,
+) (SlotReader, error) {
+	if !anchor.IsVerified() {
+		return nil, ErrAdmission
+	}
+	return reader, nil
+}
+
+func (reader *founderAdmissionLedger) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+	state, err := reader.ledger.ReadSlot(ctx, scope)
+	if err != nil {
+		return bootstrap.SlotState{}, err
+	}
+	reader.reads++
+	if reader.reads == 1 && reader.onFirst != nil {
+		reader.onFirst()
+	}
+	return state, nil
+}
+
+func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *founderAdmissionLedger,
+	row bootstrap.FounderPeerRow,
+) (Gate, *countingMaterialChecker, *founderAdmissionCredentials) {
+	t.Helper()
+	instanceID := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot
+	material := new(countingMaterialChecker)
+	credentials := new(founderAdmissionCredentials)
+	markerDirectory := filepath.Join(t.TempDir(), "marker")
+	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	peerFloorDirectory := filepath.Join(t.TempDir(), "peer-floor")
+	if err := os.Mkdir(peerFloorDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	peerFloor := &FounderSelectionFloorStore{directory: peerFloorDirectory,
+		ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true}
+	continuation := &FounderPeerContinuation{floor: peerFloor,
+		serviceUID: uint32(os.Getuid()), serviceGID: uint32(os.Getgid()),
+		now: func() time.Time { return fixture.now }}
+	gate := Gate{Roots: fixture.baked.Roots, AnchorWire: fixture.baked.AnchorWire,
+		Expected:   fixture.baked.Identity.AnchorExpectation(),
+		Descriptor: fixedDescriptor{slot: row.Slot, instance: instanceID},
+		Instances: fakeInstanceObserver{InstanceObservation{InstanceOCID: instanceID,
+			CompartmentOCID: row.CompartmentOCID, ImageOCID: row.ImageOCID,
+			AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain, Shape: row.Shape,
+			SubnetOCID: row.SubnetOCID, NSGOCIDs: row.NetworkSecurityGroupOCIDs,
+			PrimaryVNICOCID:  "ocid1.vnic.oc1.sa-saopaulo-1." + row.Slot,
+			PrimaryPrivateIP: row.PrivateIP, PrimaryVNIC: true, LifecycleState: "RUNNING"}},
+		Ledgers: reader, Binary: fixedBinaryChecker{}, Material: material, Credentials: credentials,
+		Continuation: continuation,
+		Markers:      MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
+		ClockCheck:   func() error { return nil }, Now: func() time.Time { return fixture.now },
+		InitialPeerFloor: func(ctx context.Context, marker AcceptedInstall, state bootstrap.SlotState,
+			now time.Time,
+		) error {
+			selectionReader, err := NewCurrentFounderAuthorityReader(fixture.baked, marker,
+				fixture.objects, peerFloor)
+			if err != nil {
+				return err
+			}
+			continuation.reader = selectionReader
+			return continuation.Initialize(ctx, marker, state, now)
+		}}
+	return gate, material, credentials
+}
+
+func TestFounderRuntimePeerGateWaitsForRealLedgerCompletion(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := fixture.plan.Peers[0]
+	reader := &founderAdmissionLedger{ledger: ledger}
+	gate, material, credentials := newFounderPeerGate(t, fixture, reader, row)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	var retryDeadline *time.Timer
+	defer func() {
+		if retryDeadline != nil {
+			retryDeadline.Stop()
+		}
+	}()
+	reader.onFirst = func() {
+		if material.initialCalls != 0 || credentials.calls != 0 {
+			t.Fatal("pending peer reached material or credential effects")
+		}
+		founderCtx, stopFounder := context.WithTimeout(t.Context(), initialAdmissionWaitLimit)
+		defer stopFounder()
+		if err := caller.runPeer(founderCtx, row.Slot); err != nil {
+			t.Fatalf("complete peer after first Gate read: %v", err)
+		}
+		// The first ReadSlot synchronously commits the peer. Start the retry
+		// deadline only after that potentially slow signed ledger work finishes.
+		retryDeadline = time.AfterFunc(30*time.Second, cancel)
+	}
+	accepted, err := gate.admitInitialWhenReady(ctx, time.Millisecond)
+	if err != nil {
+		t.Fatalf("peer did not recover after founder committed: %v", err)
+	}
+	if reader.reads != 2 || accepted.Slot != row.Slot || accepted.SeedSlot != fixture.plan.SeedSlot ||
+		material.initialCalls != 1 || credentials.calls != 1 || fake.launches != 1 || fake.observations != 1 {
+		t.Fatalf("peer did not cross the exact completion gate: marker=%+v reads=%d material=%d credentials=%d launches=%d observations=%d",
+			accepted, reader.reads, material.initialCalls, credentials.calls, fake.launches, fake.observations)
+	}
+	stored, err := gate.Markers.Read()
+	if err != nil || stored.Slot != row.Slot || stored.SeedSlot != fixture.plan.SeedSlot {
+		t.Fatalf("persisted peer marker = %+v, %v", stored, err)
+	}
+}
+
+func TestFounderRuntimePeerGateWaitsForQuarantineRepair(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatalf("initial founder completion: %v", err)
+	}
+	later := fixture.now.Add(6 * time.Minute)
+	changed := false
+	for key, object := range objects.objects {
+		if strings.Contains(key, "/result-") && strings.HasSuffix(key, ".json") {
+			object.modified = later
+			objects.objects[key] = object
+			changed = true
+		}
+	}
+	if !changed {
+		t.Fatal("completed founder peer had no immutable result object")
+	}
+	fixture.now, objects.now, fake.now = later, later, later
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &founderAdmissionLedger{ledger: ledger}
+	gate, material, credentials := newFounderPeerGate(t, fixture, reader, row)
+	if _, err := gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmissionPending) ||
+		!errors.Is(err, bootstrap.ErrManagedPeerProofQuarantined) {
+		t.Fatalf("quarantined peer Gate admission was not pending: %v", err)
+	}
+	if material.initialCalls != 0 || credentials.calls != 0 {
+		t.Fatal("quarantined peer reached material or credential effects")
+	}
+	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("quarantined peer left an accepted marker: %v", err)
+	}
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatalf("repair quarantined founder result: %v", err)
+	}
+	accepted, err := gate.AdmitInitial(t.Context())
+	if err != nil || accepted.Slot != row.Slot || material.initialCalls != 1 || credentials.calls != 1 ||
+		fake.launches != 1 || fake.observations != 2 {
+		t.Fatalf("repaired peer Gate admission: accepted=%+v err=%v material=%d credentials=%d launches=%d observations=%d",
+			accepted, err, material.initialCalls, credentials.calls, fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	for _, row := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+			t.Fatalf("complete %s: %v", row.Slot, err)
+		}
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := fixture.plan.Peers[0]
+	gate, material, credentials := newFounderPeerGate(t, fixture,
+		&founderAdmissionLedger{ledger: ledger}, row)
+	initial, err := gate.AdmitInitial(t.Context())
+	if err != nil {
+		t.Fatalf("initial completed peer admission: %v", err)
+	}
+	launches, observations, imageReads, writes := fake.launches, fake.observations, fake.imageReads, objects.writes
+	fixture.now = fixture.now.Add(6 * time.Minute)
+	objects.now, fake.now = fixture.now, fixture.now
+	for _, peer := range fixture.plan.Peers {
+		state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+			DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: peer.Slot})
+		if err != nil || state.Head.ResultDigest == "" {
+			t.Fatalf("timely completed peer %q was not historical evidence after progress expiry: state=%+v err=%v",
+				peer.Slot, state, err)
+		}
+	}
+	complete, err := founderPeersComplete(t.Context(), fixture.current.Anchor.Anchor(), fixture.accepted, ledger)
+	if err != nil || !complete {
+		t.Fatalf("timely completed founder cell required new work after progress expiry: complete=%v err=%v", complete, err)
+	}
+	restarted, err := gate.AdmitRestart(t.Context())
+	if err != nil || restarted.Slot != initial.Slot || material.restartCalls != 1 || credentials.calls != 2 {
+		t.Fatalf("completed peer restart admission: marker=%+v err=%v material=%d credentials=%d",
+			restarted, err, material.restartCalls, credentials.calls)
+	}
+	completed := func(ctx context.Context, _ BakedInputs, accepted AcceptedInstall) (bool, error) {
+		return founderPeersComplete(ctx, fixture.current.Anchor.Anchor(), accepted, ledger)
+	}
+	if err := runAdmittedFounder(t.Context(), fixture.baked, fixture.accepted, 1000, 1000,
+		fixture.floor, completed); err != nil {
+		t.Fatalf("completed seed founder restart: %v", err)
+	}
+	for _, peer := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), peer.Slot); err != nil {
+			t.Fatalf("idempotent completed peer restart %q: %v", peer.Slot, err)
+		}
+	}
+	if fake.launches != launches || fake.observations != observations ||
+		fake.imageReads != imageReads || objects.writes != writes {
+		t.Fatalf("completed peer restart performed founder effects: launches=%d→%d observations=%d→%d image reads=%d→%d writes=%d→%d",
+			launches, fake.launches, observations, fake.observations, imageReads, fake.imageReads, writes, objects.writes)
+	}
+}
+
+func TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithShortLaunchDeadline(t, fixture)
+	})
+	for _, row := range fixture.plan.Peers {
+		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+			t.Fatalf("complete %s before launch deadline: %v", row.Slot, err)
+		}
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := fixture.plan.Peers[0]
+	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	launches, observations, writes := fake.launches, fake.observations, objects.writes
+	fixture.now = fixture.now.Add(6 * time.Minute)
+	objects.now, fake.now = fixture.now, fixture.now
+	if !fixture.now.After(fixture.plan.LaunchDeadline) {
+		t.Fatal("fixture did not advance beyond launch deadline")
+	}
+	if complete, err := founderPeersComplete(t.Context(), fixture.current.Anchor.Anchor(), fixture.accepted,
+		ledger); err != nil || !complete {
+		t.Fatalf("completed founder cell after launch deadline: complete=%v err=%v", complete, err)
+	}
+	if _, err := gate.AdmitRestart(t.Context()); err != nil {
+		t.Fatalf("completed peer restart under current selected proof after launch deadline: %v", err)
+	}
+	if fake.launches != launches || fake.observations != observations || objects.writes != writes {
+		t.Fatalf("completed peer restart after launch deadline performed founder effects: launches=%d→%d observations=%d→%d writes=%d→%d",
+			launches, fake.launches, observations, fake.observations, writes, objects.writes)
+	}
+}
+
+func TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithShortLaunchDeadline(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatalf("complete founder peer before deadline: %v", err)
+	}
+	fixture.now = fixture.now.Add(6 * time.Minute)
+	objects.now, fake.now = fixture.now, fixture.now
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+		DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: row.Slot})
+	if err != nil || state.Head.ResultDigest == "" || state.PeerReceiptRecord == nil {
+		t.Fatalf("timely peer completion disappeared after receipt expiry: state=%+v err=%v", state, err)
+	}
+	receiptEnvelope, err := trust.DecodeEnvelope(state.PeerReceiptRecord.Bytes)
+	if err != nil || !fixture.now.After(receiptEnvelope.ExpiresAt) {
+		t.Fatalf("fixture receipt was not expired: expires=%v now=%v err=%v",
+			receiptEnvelope.ExpiresAt, fixture.now, err)
+	}
+	gate, material, credentials := newFounderPeerGate(t, fixture,
+		&founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err == nil {
+		t.Fatal("first install used historical completion after its material receipt expired")
+	}
+	if material.initialCalls != 0 || credentials.calls != 0 {
+		t.Fatal("expired first-install receipt reached material or credential effects")
+	}
+	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired first-install receipt left accepted marker: %v", err)
+	}
+}
+
+func TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, material, credentials := newFounderPeerGate(t, fixture,
+		&founderAdmissionLedger{ledger: ledger}, row)
+	provisionFloor := gate.InitialPeerFloor
+	gate.InitialPeerFloor = func(ctx context.Context, marker AcceptedInstall, state bootstrap.SlotState,
+		at time.Time,
+	) error {
+		if err := provisionFloor(ctx, marker, state, at); err != nil {
+			return err
+		}
+		fixture.now = fixture.now.Add(6 * time.Minute)
+		objects.now, fake.now = fixture.now, fixture.now
+		return nil
+	}
+	if _, err := gate.AdmitInitial(t.Context()); err == nil {
+		t.Fatal("first install published marker after receipt expired during floor provision")
+	}
+	if material.initialCalls != 1 || credentials.calls != 1 {
+		t.Fatalf("fixture did not reach floor after material and credential checks: material=%d credentials=%d",
+			material.initialCalls, credentials.calls)
+	}
+	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expired floor publication left accepted marker: %v", err)
+	}
+}
+
+func TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithShortLaunchDeadline(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatalf("complete founder peer before simulated late storage: %v", err)
+	}
+	late := fixture.now.Add(4 * time.Minute)
+	changed := false
+	for key, object := range objects.objects {
+		if strings.Contains(key, "/result-") && strings.HasSuffix(key, ".json") {
+			object.modified = late
+			objects.objects[key] = object
+			changed = true
+		}
+	}
+	if !changed {
+		t.Fatal("completed founder peer had no immutable result object")
+	}
+	fixture.now, objects.now, fake.now = late, late, late
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, material, credentials := newFounderPeerGate(t, fixture,
+		&founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmissionPending) {
+		t.Fatalf("late/quarantined result reached first admission: %v", err)
+	}
+	if material.initialCalls != 0 || credentials.calls != 0 {
+		t.Fatal("late/quarantined result reached material or credential effects")
+	}
+	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("late/quarantined result left accepted marker: %v", err)
+	}
+}
+
+func TestFounderRuntimePeerRestartRejectsObservedSelectorRollbackWithinReceiptLifetime(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
+		fixture.accepted.DeploymentID, fixture.accepted.Cell, fixture.baked.Identity.Environment)
+	original := bytes.Clone(fixture.objects.items[selectorKey])
+	fixture.selection.Generation++
+	fixture.publish(t, fixture.selection)
+	if _, err := gate.AdmitRestart(t.Context()); err != nil {
+		t.Fatalf("current superseding selector should advance peer floor: %v", err)
+	}
+	fixture.objects.items[selectorKey] = original // Simulate a rollback after generation two was observed.
+	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
+		t.Fatalf("rolled-back but still-current selector admitted peer: %v", err)
+	}
+	if fake.launches != 1 || fake.observations != 1 {
+		t.Fatalf("selector rollback touched founder OCI: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimePeerRestartRejectsSupersedingPlanWithinReceiptLifetime(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, material, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	launches, observations, writes := fake.launches, fake.observations, objects.writes
+	fixture.plan.LaunchDeadline = fixture.plan.LaunchDeadline.Add(-time.Minute)
+	payload, err := trust.EncodePayload(fixture.plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
+		DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
+		Environment: fixture.plan.Environment, Role: "controller", Slot: fixture.plan.SeedSlot},
+		fixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.planWire, err = trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.selection.Generation++
+	fixture.selection.PlanSHA256 = digestWire(fixture.planWire)
+	fixture.publish(t, fixture.selection)
+	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
+		t.Fatalf("superseding signed plan admitted old managed peer: %v", err)
+	}
+	if fake.launches != launches || fake.observations != observations || objects.writes != writes ||
+		material.restartCalls != 1 {
+		t.Fatalf("superseding plan caused founder effects or skipped installed-material check: launches=%d→%d observations=%d→%d writes=%d→%d material=%d",
+			launches, fake.launches, observations, fake.observations, writes, objects.writes, material.restartCalls)
+	}
+}
+
+func TestFounderRuntimePeerRestartRequiresDurableSelectorFloor(t *testing.T) {
+	fixture, caller, _, _ := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	continuation := gate.Continuation.(*FounderPeerContinuation)
+	if err := os.Remove(filepath.Join(continuation.floor.directory, founderSelectionFloorName)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
+		t.Fatalf("missing peer floor admitted within current receipt lifetime: %v", err)
+	}
+}
+
+func TestFounderRuntimePeerRestartRechecksSelectorAfterCurrentProof(t *testing.T) {
+	fixture, caller, _, _ := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	clockReads := 0
+	gate.Now = func() time.Time {
+		clockReads++
+		if clockReads == 3 {
+			fixture.now = fixture.now.Add(2 * time.Hour)
+		}
+		return fixture.now
+	}
+	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
+		t.Fatalf("selector expired after current receipt proof was checked: %v", err)
+	}
+}
+
+func TestFounderRuntimePeerContinuationRechecksPlanAfterFinalSelectorRead(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
+		founderFixtureWithAdmissibleRelease(t, fixture)
+	})
+	row := fixture.plan.Peers[0]
+	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
+	if _, err := gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatalf("initial peer admission: %v", err)
+	}
+	initial := fixture.now
+	fixture.selection.Generation++
+	selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
+		fixture.accepted.DeploymentID, fixture.accepted.Cell, fixture.baked.Identity.Environment)
+	fixture.objects.items[selectorKey] = fixture.signSelection(t, fixture.selection, initial.Add(23*time.Hour))
+	fixture.now = initial.Add(21*time.Hour + 59*time.Minute)
+	objects.now, fake.now = fixture.now, fixture.now
+	baseline := fixture.objects.reads[selectorKey]
+	fixture.objects.onGet = func(key string, count int) {
+		if key == selectorKey && count == baseline+5 {
+			// The selector remains signed/current, but the original plan and
+			// manifests expire during the last exact-key consistency GET.
+			fixture.now = initial.Add(22*time.Hour + time.Minute)
+		}
+	}
+	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
+		t.Fatalf("plan expiry during final selector GET admitted peer: %v", err)
+	}
+}
+
+func TestFounderRuntimeMissingSignerCannotTouchOCI(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	if err := os.Remove(filepath.Join(fixture.store.directory, "founder-ledger.key")); err != nil {
+		t.Fatal(err)
+	}
+	if err := caller.runPeer(t.Context(), "controller-a"); !errors.Is(err, ErrFounderSigner) {
+		t.Fatalf("missing ledger signer was not held: %v", err)
+	}
+	if fake.launches != 0 || fake.observations != 0 || fake.imageReads != 0 {
+		t.Fatal("founder OCI was touched without both exact signers")
+	}
+}
+
+func TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixture(t)
+	writes := objects.writes
+	advanced := false
+	objects.afterGet = func(name string) {
+		if !advanced && strings.HasSuffix(name, "/intent.json") {
+			objects.now = fixture.now.Add(2 * time.Hour)
+			advanced = true
+		}
+	}
+	if err := caller.runPeer(t.Context(), "controller-a"); !errors.Is(err, ErrFounderRuntime) {
+		t.Fatalf("stale intent server Date authorized expired selection: %v", err)
+	}
+	if !advanced || objects.writes != writes || fake.imageReads != 0 || fake.launches != 0 || fake.observations != 0 {
+		t.Fatalf("late server time reached founder effects: advanced=%v writes=%d/%d imageReads=%d launches=%d observations=%d",
+			advanced, objects.writes, writes, fake.imageReads, fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixture(t)
+	const slot = "controller-a"
+	snapshot, err := caller.fresh(t.Context(), slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID, err := caller.adapter.Launch(t.Context(), attempt, caller.peerRefresh(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := caller.pinCandidate(t.Context(), snapshot, slot, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = caller.fresh(t.Context(), slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationAttempt, err := NewFounderOCIObservationAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := caller.adapter.Observe(t.Context(), observationAttempt, caller.peerRefresh(slot), instanceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
+	fake.now = fixture.now.Add(2 * time.Second)
+	objects.now = fake.now
+	if err := caller.completePeer(t.Context(), slot, observed); err != nil {
+		t.Fatalf("stale exact observation did not reobserve: %v", err)
+	}
+	if fake.launches != 1 || fake.observations != 2 {
+		t.Fatalf("stale observation relaunched or skipped reobservation: launches=%d observations=%d",
+			fake.launches, fake.observations)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+		DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: slot})
+	if err != nil || state.Result == nil || !state.Result.ObservedAt.Equal(fake.now) {
+		t.Fatalf("positive result relabeled old observation: result=%+v err=%v", state.Result, err)
+	}
+}
+
+func TestFounderRuntimeResultKeepsActualOCIObservationDate(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	fake.now = fixture.now.Add(-2 * time.Second)
+	if err := caller.runPeer(t.Context(), "controller-a"); err != nil {
+		t.Fatalf("complete founder peer with earlier OCI observation Date: %v", err)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+		DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: "controller-a"})
+	if err != nil || state.Result == nil || state.ResultRecord == nil {
+		t.Fatalf("read completed peer result: state=%+v err=%v", state, err)
+	}
+	envelope, err := trust.DecodeEnvelope(state.ResultRecord.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Result.ObservedAt.Equal(fake.now) || !envelope.IssuedAt.Equal(fixture.now) {
+		t.Fatalf("result changed OCI observation Date or signing time: observed=%v issued=%v",
+			state.Result.ObservedAt, envelope.IssuedAt)
+	}
+}
+
+func TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance(t *testing.T) {
+	fixture, caller, objects, fake := newFounderRuntimeFixture(t)
+	advanced := false
+	fake.afterBoot = func() {
+		if !advanced {
+			objects.now = fixture.now.Add(12 * time.Second)
+			fake.now = objects.now
+			advanced = true
+		}
+	}
+	if err := caller.runPeer(t.Context(), "controller-a"); err != nil {
+		t.Fatalf("complete peer after trusted age crossed the result write gate: %v", err)
+	}
+	if !advanced || fake.launches != 1 || fake.observations != 2 {
+		t.Fatalf("stale result did not reobserve exact instance: advanced=%v launches=%d observations=%d",
+			advanced, fake.launches, fake.observations)
+	}
+	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := ledger.ReadSlot(t.Context(), bootstrap.BootstrapScope{
+		DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: "controller-a"})
+	if err != nil || state.Result == nil || !state.Result.ObservedAt.Equal(fake.now) {
+		t.Fatalf("trusted-age retry reused stale OCI observation: result=%+v err=%v", state.Result, err)
+	}
+}
+
+func TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete(t *testing.T) {
+	_, caller, objects, fake := newFounderRuntimeFixture(t)
+	const slot = "controller-a"
+	snapshot, err := caller.fresh(t.Context(), slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instanceID, err := caller.adapter.Launch(t.Context(), attempt, caller.peerRefresh(slot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := caller.pinCandidate(t.Context(), snapshot, slot, instanceID); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err = caller.fresh(t.Context(), slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationAttempt, err := NewFounderOCIObservationAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := caller.adapter.Observe(t.Context(), observationAttempt, caller.peerRefresh(slot), instanceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
+	fake.instanceChanged = true
+	writes := objects.writes
+	if err := caller.completePeer(t.Context(), slot, observed); err == nil {
+		t.Fatal("changed instance produced a positive result from stale facts")
+	}
+	if fake.launches != 1 || fake.observations <= 1 || objects.writes != writes {
+		t.Fatalf("changed instance touched founder ledger or relaunched: launches=%d observations=%d writes=%d/%d",
+			fake.launches, fake.observations, objects.writes, writes)
+	}
+}
+
+func TestFounderRuntimeMissingOCIObservationDateCannotComplete(t *testing.T) {
+	_, caller, objects, fake := newFounderRuntimeFixture(t)
+	fake.omitBootDate = true
+	writes := objects.writes
+	if err := caller.runPeer(t.Context(), "controller-a"); err == nil {
+		t.Fatal("OCI observation without server Date produced a positive result")
+	}
+	if fake.launches != 1 || fake.observations == 0 || objects.writes != writes+2 {
+		t.Fatalf("missing observation Date touched founder ledger or relaunched: launches=%d observations=%d writes=%d/%d",
+			fake.launches, fake.observations, objects.writes, writes)
+	}
+}
+
+func TestFounderRuntimeOCIContextEndsWithSelectedAuthority(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	snapshot, err := caller.fresh(t.Context(), "controller-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effectCtx, cancel, err := caller.adapter.beforeEffect(t.Context(), attempt, caller.peerRefresh("controller-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	deadline, ok := effectCtx.Deadline()
+	trustedRemaining := fixture.current.SelectionExpiresAt.Sub(snapshot.recovery.ServerDate().Add(time.Second))
+	if !ok || time.Until(deadline) > trustedRemaining+time.Second ||
+		time.Until(deadline) < trustedRemaining-5*time.Second {
+		t.Fatalf("OCI effect context was not bounded by selected authority: remaining=%v trusted=%v",
+			time.Until(deadline), trustedRemaining)
+	}
+	if fake.imageReads != 0 || fake.launches != 0 || fake.observations != 0 {
+		t.Fatal("effect context construction touched OCI")
+	}
+}
+
+func TestFounderRuntimeWrongSignerCannotTouchOCI(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	if err := os.WriteFile(filepath.Join(fixture.store.directory, "founder-ledger.key"), fixture.peerKey, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := caller.runPeer(t.Context(), "controller-a"); !errors.Is(err, ErrFounderSigner) {
+		t.Fatalf("wrong ledger signer was not held: %v", err)
+	}
+	if fake.launches != 0 || fake.observations != 0 || fake.imageReads != 0 {
+		t.Fatal("founder OCI was touched with wrong-role signer material")
+	}
+}
+
+func TestFounderRuntimeStagedResultRestartReplaysWithoutOCI(t *testing.T) {
+	_, caller, objects, fake := newFounderRuntimeFixture(t)
+	objects.rejectPart = "/result-"
+	if err := caller.runPeer(t.Context(), "controller-a"); err == nil {
+		t.Fatal("result write failure did not stop founding")
+	}
+	launches := fake.launches
+	if launches != 1 {
+		t.Fatalf("first attempt launches = %d", launches)
+	}
+	objects.rejectPart = ""
+	if err := caller.runPeer(t.Context(), "controller-a"); err != nil {
+		t.Fatalf("receipt-only restart: %v", err)
+	}
+	if fake.launches != launches || fake.observations != 1 {
+		t.Fatalf("staged result restart repeated OCI despite exact persisted proof: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI(t *testing.T) {
+	_, caller, objects, fake := newFounderRuntimeFixture(t)
+	objects.rejectSuffix = "/head.json"
+	if err := caller.runPeer(t.Context(), "controller-a"); err == nil {
+		t.Fatal("HEAD update failure did not stop founding")
+	}
+	var resultWire []byte
+	for key, object := range objects.objects {
+		if strings.Contains(key, "/result-") && strings.HasSuffix(key, ".json") {
+			resultWire = bytes.Clone(object.wire)
+		}
+	}
+	if len(resultWire) == 0 || fake.launches != 1 || fake.observations != 1 {
+		t.Fatalf("failed HEAD stage did not leave exact result: result=%d launches=%d observations=%d",
+			len(resultWire), fake.launches, fake.observations)
+	}
+	objects.rejectSuffix = ""
+	if err := caller.runPeer(t.Context(), "controller-a"); err != nil {
+		t.Fatalf("result-ready restart: %v", err)
+	}
+	if fake.launches != 1 || fake.observations != 1 {
+		t.Fatalf("result-ready restart touched OCI: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+	found := false
+	for key, object := range objects.objects {
+		if strings.Contains(key, "/result-") && strings.HasSuffix(key, ".json") {
+			found = bytes.Equal(object.wire, resultWire)
+		}
+	}
+	if !found {
+		t.Fatal("result-ready restart replaced exact persisted result bytes")
+	}
+}
+
+func TestFounderRuntimeSupersededSelectionStopsBeforeLaunch(t *testing.T) {
+	fixture, caller, _, fake := newFounderRuntimeFixture(t)
+	fake.afterImage = func() {
+		fixture.resignSelectedAnchorAndPlan(t)
+		selection := fixture.selection
+		selection.Generation = 2
+		selection.PlanSHA256 = digestWire(fixture.planWire)
+		selection.AnchorSHA256 = digestWire(fixture.anchorWire)
+		fixture.publish(t, selection)
+		fake.afterImage = nil
+	}
+	if err := caller.runPeer(t.Context(), "controller-a"); err == nil {
+		t.Fatal("superseded selected plan authorized old intent launch")
+	}
+	if fake.launches != 0 || fake.observations != 0 {
+		t.Fatalf("superseded plan allowed OCI effect: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+}
+
+type founderFakeOCI struct {
+	rows            map[string]bootstrap.FounderPeerRow
+	now             time.Time
+	instanceChanged bool
+	omitBootDate    bool
+	launches        int
+	observations    int
+	imageReads      int
+	afterImage      func()
+	afterBoot       func()
+}
+
+func (fake *founderFakeOCI) rowForInstance(id string) (bootstrap.FounderPeerRow, bool) {
+	for slot, row := range fake.rows {
+		if id == "ocid1.instance.oc1.sa-saopaulo-1."+slot {
+			return row, true
+		}
+	}
+	return bootstrap.FounderPeerRow{}, false
+}
+
+func (fake *founderFakeOCI) GetImage(_ context.Context, request core.GetImageRequest) (core.GetImageResponse, error) {
+	fake.imageReads++
+	if fake.afterImage != nil {
+		fake.afterImage()
+	}
+	for _, row := range fake.rows {
+		if request.ImageId != nil && *request.ImageId == row.ImageOCID {
+			return core.GetImageResponse{Image: core.Image{Id: new(row.ImageOCID),
+				CompartmentId: new(row.ImageCompartmentOCID), LifecycleState: core.ImageLifecycleStateAvailable}}, nil
+		}
+	}
+	return core.GetImageResponse{}, errors.New("unknown founder image")
+}
+
+func (fake *founderFakeOCI) LaunchInstance(_ context.Context, request core.LaunchInstanceRequest) (core.LaunchInstanceResponse, error) {
+	if request.DisplayName == nil || request.OpcRetryToken == nil {
+		return core.LaunchInstanceResponse{}, errors.New("unpinned founder launch")
+	}
+	row, ok := fake.rows[*request.DisplayName]
+	if !ok {
+		return core.LaunchInstanceResponse{}, errors.New("unknown founder slot")
+	}
+	fake.launches++
+	return core.LaunchInstanceResponse{Instance: core.Instance{
+		Id:            new("ocid1.instance.oc1.sa-saopaulo-1." + row.Slot),
+		CompartmentId: new(row.CompartmentOCID), ImageId: new(row.ImageOCID)}}, nil
+}
+
+func (fake *founderFakeOCI) GetInstance(_ context.Context, request core.GetInstanceRequest) (core.GetInstanceResponse, error) {
+	if request.InstanceId == nil {
+		return core.GetInstanceResponse{}, errors.New("missing founder instance")
+	}
+	row, ok := fake.rowForInstance(*request.InstanceId)
+	if !ok {
+		return core.GetInstanceResponse{}, errors.New("unknown founder instance")
+	}
+	fake.observations++
+	lifecycle := core.InstanceLifecycleStateRunning
+	if fake.instanceChanged {
+		lifecycle = core.InstanceLifecycleStateTerminated
+	}
+	return core.GetInstanceResponse{Instance: core.Instance{
+		Id: request.InstanceId, CompartmentId: new(row.CompartmentOCID), ImageId: new(row.ImageOCID),
+		AvailabilityDomain: new(row.AvailabilityDomain), FaultDomain: new(row.FaultDomain), Shape: new(row.Shape),
+		LifecycleState: lifecycle,
+		ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(row.WholeOCPUs)),
+			MemoryInGBs: new(float32(row.MemoryInGB))},
+		Metadata: map[string]string{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"` + row.Slot + `"}`},
+	}, Etag: new("founder-instance-etag-" + row.Slot)}, nil
+}
+
+func (fake *founderFakeOCI) ListVnicAttachments(_ context.Context, request core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error) {
+	if request.InstanceId == nil {
+		return core.ListVnicAttachmentsResponse{}, errors.New("missing founder instance")
+	}
+	row, ok := fake.rowForInstance(*request.InstanceId)
+	if !ok {
+		return core.ListVnicAttachmentsResponse{}, errors.New("unknown founder instance")
+	}
+	return core.ListVnicAttachmentsResponse{Items: []core.VnicAttachment{{
+		VnicId: new("ocid1.vnic.oc1.sa-saopaulo-1." + row.Slot), InstanceId: request.InstanceId,
+		CompartmentId: new(row.CompartmentOCID), SubnetId: new(row.SubnetOCID),
+		LifecycleState: core.VnicAttachmentLifecycleStateAttached,
+	}}}, nil
+}
+
+func (fake *founderFakeOCI) GetVnic(_ context.Context, request core.GetVnicRequest) (core.GetVnicResponse, error) {
+	if request.VnicId == nil {
+		return core.GetVnicResponse{}, errors.New("missing founder VNIC")
+	}
+	for slot, row := range fake.rows {
+		if *request.VnicId == "ocid1.vnic.oc1.sa-saopaulo-1."+slot {
+			return core.GetVnicResponse{Vnic: core.Vnic{
+				Id: request.VnicId, CompartmentId: new(row.CompartmentOCID),
+				AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
+				PrivateIp: new(row.PrivateIP), IsPrimary: new(true),
+				LifecycleState: core.VnicLifecycleStateAvailable,
+				NsgIds:         row.NetworkSecurityGroupOCIDs,
+			}}, nil
+		}
+	}
+	return core.GetVnicResponse{}, errors.New("unknown founder VNIC")
+}
+
+func (fake *founderFakeOCI) ListBootVolumeAttachments(_ context.Context, request core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {
+	if request.InstanceId == nil {
+		return core.ListBootVolumeAttachmentsResponse{}, errors.New("missing founder instance")
+	}
+	row, ok := fake.rowForInstance(*request.InstanceId)
+	if !ok {
+		return core.ListBootVolumeAttachmentsResponse{}, errors.New("unknown founder instance")
+	}
+	return core.ListBootVolumeAttachmentsResponse{Items: []core.BootVolumeAttachment{{
+		BootVolumeId: new("ocid1.bootvolume.oc1.sa-saopaulo-1." + row.Slot),
+		InstanceId:   request.InstanceId, CompartmentId: new(row.CompartmentOCID),
+		AvailabilityDomain: new(row.AvailabilityDomain),
+		LifecycleState:     core.BootVolumeAttachmentLifecycleStateAttached,
+	}}}, nil
+}
+
+func (fake *founderFakeOCI) GetBootVolume(_ context.Context, request core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error) {
+	if request.BootVolumeId == nil {
+		return core.GetBootVolumeResponse{}, errors.New("missing founder boot volume")
+	}
+	for slot, row := range fake.rows {
+		if *request.BootVolumeId == "ocid1.bootvolume.oc1.sa-saopaulo-1."+slot {
+			headers := make(http.Header)
+			if !fake.omitBootDate {
+				headers.Set("Date", fake.now.Format(http.TimeFormat))
+			}
+			if fake.afterBoot != nil {
+				fake.afterBoot()
+			}
+			return core.GetBootVolumeResponse{RawResponse: &http.Response{Header: headers}, BootVolume: core.BootVolume{
+				Id: request.BootVolumeId, CompartmentId: new(row.CompartmentOCID),
+				AvailabilityDomain: new(row.AvailabilityDomain), ImageId: new(row.ImageOCID),
+				SizeInGBs: new(int64(row.BootVolumeGB)), VpusPerGB: new(int64(10)),
+				LifecycleState: core.BootVolumeLifecycleStateAvailable,
+			}}, nil
+		}
+	}
+	return core.GetBootVolumeResponse{}, errors.New("unknown founder boot volume")
+}

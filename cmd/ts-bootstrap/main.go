@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -42,17 +43,19 @@ func run(args []string) error {
 
 func runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-anchor [flags] | sign-manifest [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-ledger-delegation [flags] | sign-anchor [flags] | sign-manifest [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
 		return verifyBootstrapAnchorAt(args[1:], now)
+	case "sign-ledger-delegation":
+		return signLedgerDelegationAt(args[1:], now)
 	case "sign-anchor":
 		return signBootstrapAnchorAt(args[1:], now)
 	case "sign-manifest":
 		return signManifestAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-anchor [flags] | sign-manifest [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-ledger-delegation [flags] | sign-anchor [flags] | sign-manifest [flags]")
 	}
 }
 
@@ -171,6 +174,114 @@ func verifyBootstrapAnchorAt(args []string, now time.Time) error {
 	if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
 		return fmt.Errorf("write verified bootstrap anchor summary: %w", err)
 	}
+	return nil
+}
+
+// signLedgerDelegationAt issues only the exact current anchor ledger grant.
+// It runs on the offline signer; the seed receives this public envelope and
+// the separate delegated private key through its version-pinned Vault secret.
+func signLedgerDelegationAt(args []string, now time.Time) error {
+	flags := flag.NewFlagSet("sign-ledger-delegation", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	deploymentID := flags.String("deployment", "", "reviewed deployment identity")
+	cell := flags.String("cell", "", "reviewed region cell: GRU, SFO, or FRA")
+	environment := flags.String("environment", "", "reviewed environment: production or canary")
+	var slots stringListFlag
+	flags.Var(&slots, "slot", "reviewed controller slot, in ascending order (repeatable)")
+	signerPublicPath := flags.String("signer-public-key", "", "delegated ledger signer Ed25519 public key PEM")
+	rootPublicPath := flags.String("root-key", "", "offline root Ed25519 public key PEM")
+	rootPrivatePath := flags.String("signing-key", "", "owner-only offline root Ed25519 PKCS#8 private key PEM")
+	outputPath := flags.String("out", "", "new canonical signed ledger delegation envelope")
+	issuedAtText := flags.String("issued-at", "", "explicit UTC RFC3339 grant issue time")
+	expiresAtText := flags.String("expires-at", "", "explicit UTC RFC3339 grant expiry time")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *deploymentID == "" || *cell == "" || *environment == "" || len(slots) == 0 ||
+		*signerPublicPath == "" || *rootPublicPath == "" || *rootPrivatePath == "" || *outputPath == "" ||
+		*issuedAtText == "" || *expiresAtText == "" || flags.NArg() != 0 {
+		return errors.New("sign-ledger-delegation requires deployment, cell, environment, ordered slots, signer public key, root public/private keys, issue/expiry times, and output")
+	}
+	if *environment != "production" && *environment != "canary" ||
+		!slices.IsSorted(slots) || len(slots) > bootstrap.MaxBootstrapAnchorSlots {
+		return errors.New("ledger grant environment or ordered controller slots are invalid")
+	}
+	if _, err := oci.Region(*cell).OCIRegion(); err != nil {
+		return err
+	}
+	issuedAt, err := time.Parse(time.RFC3339, *issuedAtText)
+	if err != nil || issuedAt.Location() != time.UTC {
+		return errors.New("ledger grant issued-at must be UTC RFC3339")
+	}
+	expiresAt, err := time.Parse(time.RFC3339, *expiresAtText)
+	if err != nil || expiresAt.Location() != time.UTC || !expiresAt.After(issuedAt) ||
+		expiresAt.Sub(issuedAt) > bootstrap.MaxBootstrapAnchorLifetime || now.Before(issuedAt) || !now.Before(expiresAt) {
+		return errors.New("ledger grant must have a current UTC interval no longer than the anchor maximum")
+	}
+	rootPublic, err := readRootPublicKey(*rootPublicPath)
+	if err != nil {
+		return err
+	}
+	signerPublic, err := readRootPublicKey(*signerPublicPath)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(rootPublic, signerPublic) {
+		return errors.New("delegated ledger signer must differ from the offline root")
+	}
+	rootPrivate, err := readRootPrivateKey(*rootPrivatePath)
+	if err != nil {
+		return err
+	}
+	defer clear(rootPrivate)
+	if !bytes.Equal(rootPrivate.Public().(ed25519.PublicKey), rootPublic) {
+		return errors.New("offline root signing key does not match the supplied root public key")
+	}
+	signerID, err := trust.KeyID(signerPublic)
+	if err != nil {
+		return err
+	}
+	signerWire, err := trust.EncodeDelegatedPublicKey(signerPublic)
+	if err != nil {
+		return err
+	}
+	domains := bootstrap.BootstrapLedgerCapabilityDomains()
+	capabilities := make([]trust.Capability, 0, len(domains))
+	for _, domain := range domains {
+		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: *deploymentID,
+			Cell: *cell, Environment: *environment, Role: "controller", Slots: slices.Clone(slots), Actions: []string{"sign"}})
+	}
+	grant := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID,
+		SubjectPublicKey: signerWire, Capabilities: capabilities}
+	signed, err := trust.SignDelegation(grant, issuedAt, expiresAt, rootPrivate)
+	if err != nil {
+		return fmt.Errorf("sign exact ledger delegation: %w", err)
+	}
+	roots, err := trust.ParseKeyring(rootPublic)
+	if err != nil {
+		return err
+	}
+	verified, err := trust.VerifyDelegationCurrent(signed, roots, now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil || verified.SubjectKeyID() != signerID || !slices.EqualFunc(verified.Capabilities(), capabilities,
+		func(a, b trust.Capability) bool {
+			return a.Domain == b.Domain && a.DeploymentID == b.DeploymentID && a.Cell == b.Cell &&
+				a.Environment == b.Environment && a.Role == b.Role && slices.Equal(a.Slots, b.Slots) &&
+				slices.Equal(a.Actions, b.Actions)
+		}) {
+		return errors.New("signed ledger delegation failed exact-scope verification")
+	}
+	encoded, err := trust.EncodeEnvelope(signed)
+	if err != nil {
+		return err
+	}
+	if len(encoded) > bootstrap.MaxBootstrapLedgerGrantBytes {
+		return errors.New("signed ledger delegation exceeds anchor size limit")
+	}
+	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("signed ledger delegation deployment=%s cell=%s signer=%s digest=%x expires=%s\n",
+		*deploymentID, *cell, signerID, sha256.Sum256(encoded), expiresAt.Format(time.RFC3339))
 	return nil
 }
 

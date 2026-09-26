@@ -43,6 +43,7 @@ type AcceptedInstall struct {
 	DeploymentID       string            `json:"deploymentId"`
 	Cell               string            `json:"cell"`
 	Slot               string            `json:"slot"`
+	SeedSlot           string            `json:"seedSlot"`
 	ImageOCID          string            `json:"imageOcid"`
 	InstanceOCID       string            `json:"instanceOcid"`
 	PrimaryVNICOCID    string            `json:"primaryVnicOcid"`
@@ -60,7 +61,8 @@ func (marker AcceptedInstall) validate() error {
 		!markerDigestRE.MatchString(marker.AnchorSHA256) || !markerDigestRE.MatchString(marker.ManifestSHA256) ||
 		!markerDigestRE.MatchString(marker.ReceiptSHA256) || !markerDigestRE.MatchString(marker.ImageReceiptSHA256) ||
 		!markerDigestRE.MatchString(marker.ResultSHA256) || !markerDigestRE.MatchString(marker.BinarySHA256) ||
-		marker.DeploymentID == "" || marker.Cell == "" || marker.Slot == "" ||
+		marker.DeploymentID == "" || marker.Cell == "" || !descriptorSlotRE.MatchString(marker.Slot) ||
+		!descriptorSlotRE.MatchString(marker.SeedSlot) ||
 		!strings.HasPrefix(marker.ImageOCID, "ocid1.image.") || !strings.HasPrefix(marker.InstanceOCID, "ocid1.instance.") ||
 		!strings.HasPrefix(marker.PrimaryVNICOCID, "ocid1.vnic.") || !validPrivateIPv4(marker.PrimaryPrivateIP) ||
 		len(marker.MaterialSHA256) == 0 || len(marker.MaterialSHA256) > 64 ||

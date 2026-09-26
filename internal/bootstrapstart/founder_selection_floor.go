@@ -57,11 +57,74 @@ func (store *FounderSelectionFloorStore) Initialize(generation uint64, selection
 	defer unix.Close(dir)
 	if err := store.withLock(dir, func() error {
 		return store.writeNew(dir, founderSelectionFloor{SchemaVersion: 1,
-			Generation: generation, SelectionSHA256: selectionSHA256}, true)
+			Generation: generation, SelectionSHA256: selectionSHA256}, true, nil)
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+// InitializeForService is the initial root admission's one-time publication.
+// It writes the file with the service directory's exact owner before fsyncing
+// either the file or directory, so a crash cannot expose a durable root-owned
+// floor that the unprivileged seed cannot replay.
+func (store *FounderSelectionFloorStore) InitializeForService(generation uint64, selectionSHA256 string,
+	serviceGID uint32,
+) error {
+	if store == nil || store.ownerUID == 0 || serviceGID == 0 || generation != 1 ||
+		!validFounderDigest(selectionSHA256) {
+		return ErrFounderSelectionFloor
+	}
+	return store.initializeForService(generation, selectionSHA256, serviceGID, false)
+}
+
+// InitializePeerForService records the root-verified selector seen at first
+// managed-peer admission. A prior floor can replay an interrupted install,
+// but it can never move backward or change digest at the same generation.
+func (store *FounderSelectionFloorStore) InitializePeerForService(generation uint64, selectionSHA256 string,
+	serviceGID uint32,
+) error {
+	if store == nil || store.ownerUID == 0 || serviceGID == 0 || generation == 0 ||
+		!validFounderDigest(selectionSHA256) {
+		return ErrFounderSelectionFloor
+	}
+	return store.initializeForService(generation, selectionSHA256, serviceGID, true)
+}
+
+func (store *FounderSelectionFloorStore) initializeForService(generation uint64, selectionSHA256 string,
+	serviceGID uint32, allowReplay bool,
+) error {
+	dir, err := store.openDirectory()
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dir)
+	var stat unix.Stat_t
+	if err := unix.Fstat(dir, &stat); err != nil || stat.Gid != serviceGID {
+		return ErrFounderSelectionFloor
+	}
+	owner := struct{ uid, gid uint32 }{store.ownerUID, serviceGID}
+	return store.withLock(dir, func() error {
+		if allowReplay {
+			current, readErr := store.read(dir)
+			if readErr == nil {
+				if generation < current.Generation ||
+					generation == current.Generation && selectionSHA256 != current.SelectionSHA256 {
+					return ErrFounderSelectionFloor
+				}
+				if generation == current.Generation {
+					return unix.Fsync(dir)
+				}
+				return store.writeNew(dir, founderSelectionFloor{SchemaVersion: 1,
+					Generation: generation, SelectionSHA256: selectionSHA256}, false, &owner)
+			}
+			if !errors.Is(readErr, os.ErrNotExist) {
+				return readErr
+			}
+		}
+		return store.writeNew(dir, founderSelectionFloor{SchemaVersion: 1,
+			Generation: generation, SelectionSHA256: selectionSHA256}, true, &owner)
+	})
 }
 
 // Check refuses rollback before any payload reads. Observe repeats this check
@@ -93,7 +156,7 @@ func (store *FounderSelectionFloorStore) inspect(generation uint64, selectionSHA
 		}
 		if advance && generation > current.Generation {
 			return store.writeNew(dir, founderSelectionFloor{SchemaVersion: 1,
-				Generation: generation, SelectionSHA256: selectionSHA256}, false)
+				Generation: generation, SelectionSHA256: selectionSHA256}, false, nil)
 		}
 		if advance {
 			// A prior Renameat may have succeeded while its directory fsync
@@ -161,7 +224,7 @@ func (store *FounderSelectionFloorStore) withLock(dir int, work func() error) er
 func (store *FounderSelectionFloorStore) read(dir int) (founderSelectionFloor, error) {
 	fd, err := unix.Openat(dir, founderSelectionFloorName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		return founderSelectionFloor{}, fmt.Errorf("%w: %v", ErrFounderSelectionFloor, err)
+		return founderSelectionFloor{}, fmt.Errorf("%w: %w", ErrFounderSelectionFloor, err)
 	}
 	file := os.NewFile(uintptr(fd), founderSelectionFloorName)
 	defer file.Close()
@@ -187,18 +250,45 @@ func (store *FounderSelectionFloorStore) read(dir int) (founderSelectionFloor, e
 	return floor, nil
 }
 
-func (store *FounderSelectionFloorStore) writeNew(dir int, floor founderSelectionFloor, initialize bool) error {
-	wire, err := protocol.EncodeJSON(floor)
-	if err != nil || len(wire) > founderSelectionFloorMax {
+func (store *FounderSelectionFloorStore) writeNew(dir int, floor founderSelectionFloor, initialize bool,
+	owner *struct{ uid, gid uint32 },
+) error {
+	wire, err := encodeFounderSelectionFloor(floor.Generation, floor.SelectionSHA256)
+	if err != nil || floor.SchemaVersion != 1 {
 		return ErrFounderSelectionFloor
 	}
 	if initialize {
-		fd, err := unix.Openat(dir, founderSelectionFloorName,
+		var nonce [12]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return err
+		}
+		temporary := ".founder-selection-initial." + hex.EncodeToString(nonce[:])
+		fd, err := unix.Openat(dir, temporary,
 			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 		if err != nil {
 			return err
 		}
-		file := os.NewFile(uintptr(fd), founderSelectionFloorName)
+		remove := true
+		defer func() {
+			if remove {
+				_ = unix.Unlinkat(dir, temporary, 0)
+			}
+		}()
+		file := os.NewFile(uintptr(fd), temporary)
+		if owner != nil {
+			var stat unix.Stat_t
+			if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
+				stat.Mode&0o777 != 0o600 || stat.Nlink != 1 {
+				_ = file.Close()
+				return ErrFounderSelectionFloor
+			}
+			if stat.Uid != owner.uid || stat.Gid != owner.gid {
+				if err := unix.Fchown(fd, int(owner.uid), int(owner.gid)); err != nil {
+					_ = file.Close()
+					return err
+				}
+			}
+		}
 		written, writeErr := file.Write(wire)
 		if written != len(wire) && writeErr == nil {
 			writeErr = io.ErrShortWrite
@@ -208,6 +298,10 @@ func (store *FounderSelectionFloorStore) writeNew(dir int, floor founderSelectio
 		if err := errors.Join(writeErr, syncErr, closeErr); err != nil {
 			return err
 		}
+		if err := unix.Renameat2(dir, temporary, dir, founderSelectionFloorName, unix.RENAME_NOREPLACE); err != nil {
+			return err
+		}
+		remove = false
 		return unix.Fsync(dir)
 	}
 	var nonce [12]byte
@@ -226,6 +320,20 @@ func (store *FounderSelectionFloorStore) writeNew(dir int, floor founderSelectio
 		}
 	}()
 	file := os.NewFile(uintptr(fd), temporary)
+	if owner != nil {
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
+			stat.Mode&0o777 != 0o600 || stat.Nlink != 1 {
+			_ = file.Close()
+			return ErrFounderSelectionFloor
+		}
+		if stat.Uid != owner.uid || stat.Gid != owner.gid {
+			if err := unix.Fchown(fd, int(owner.uid), int(owner.gid)); err != nil {
+				_ = file.Close()
+				return err
+			}
+		}
+	}
 	written, writeErr := file.Write(wire)
 	if written != len(wire) && writeErr == nil {
 		writeErr = io.ErrShortWrite
@@ -240,4 +348,16 @@ func (store *FounderSelectionFloorStore) writeNew(dir int, floor founderSelectio
 	}
 	remove = false
 	return unix.Fsync(dir)
+}
+
+func encodeFounderSelectionFloor(generation uint64, selectionSHA256 string) ([]byte, error) {
+	if generation == 0 || !validFounderDigest(selectionSHA256) {
+		return nil, ErrFounderSelectionFloor
+	}
+	wire, err := protocol.EncodeJSON(founderSelectionFloor{SchemaVersion: 1,
+		Generation: generation, SelectionSHA256: selectionSHA256})
+	if err != nil || len(wire) > founderSelectionFloorMax {
+		return nil, ErrFounderSelectionFloor
+	}
+	return wire, nil
 }

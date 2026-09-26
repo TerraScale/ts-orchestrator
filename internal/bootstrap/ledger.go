@@ -106,11 +106,23 @@ type Ledger struct {
 	client    ObjectStorageClient
 	config    LedgerConfig
 	maxRecord int
+	readOnly  bool
 }
 
 // NewLedger validates the fixed storage scope. The caller provisions and
 // authorizes the private KMS bucket before constructing the ledger.
 func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error) {
+	return newLedger(client, config, false)
+}
+
+// NewHistoricalLedger constructs an evidence-only reader for a schema-v2
+// anchor carrying the legacy three-domain ledger grant. Its write paths remain
+// disabled even if the caller later invokes a mutation method.
+func NewHistoricalLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error) {
+	return newLedger(client, config, true)
+}
+
+func newLedger(client ObjectStorageClient, config LedgerConfig, historical bool) (*Ledger, error) {
 	if client == nil || validateLedgerAnchor(config) != nil || !ledgerIDPattern.MatchString(config.Namespace) ||
 		!ledgerNamePattern.MatchString(config.Bucket) || !strings.HasPrefix(config.KMSKeyID, "ocid1.key.") ||
 		len(config.KMSKeyID) > 255 || strings.ContainsAny(config.KMSKeyID, " \t\r\n") || !validLedgerPrefix(config.Prefix) ||
@@ -119,7 +131,7 @@ func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error)
 		strings.ContainsAny(config.HeadKMSKeyID, " \t\r\n") ||
 		!ledgerIDPattern.MatchString(config.Environment) || config.TrustPolicy.MaxLifetime <= 0 || config.TrustPolicy.ClockSkew < 0 ||
 		len(config.ControllerSlots) == 0 || len(config.ControllerSlots) > 64 || hasDuplicate(config.ControllerSlots) ||
-		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config) != nil {
+		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config, historical) != nil {
 		return nil, errors.New("bootstrap ledger requires separate immutable and coordination buckets, KMS keys, environment, trust policy, and a valid Object Storage client")
 	}
 	for _, slot := range config.ControllerSlots {
@@ -137,17 +149,24 @@ func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error)
 	if config.VerificationNow == nil {
 		config.VerificationNow = time.Now
 	}
-	return &Ledger{client: client, config: config, maxRecord: maxLedgerRecordBytes}, nil
+	return &Ledger{client: client, config: config, maxRecord: maxLedgerRecordBytes, readOnly: historical}, nil
 }
 
-func validateLedgerDelegations(config LedgerConfig) error {
+func validateLedgerDelegations(config LedgerConfig, historical bool) error {
 	if len(config.Delegations) != 1 {
 		return errors.New("bootstrap ledger requires exactly one anchor-verified ledger delegation")
 	}
 	wantDomains := []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult}
 	capabilities := config.Delegations[0].Capabilities()
+	if historical {
+		if len(capabilities) == 5 {
+			wantDomains = append(wantDomains, domainBootstrapCandidate, domainBootstrapProgress)
+		}
+	} else {
+		wantDomains = append(wantDomains, domainBootstrapCandidate, domainBootstrapProgress)
+	}
 	if len(capabilities) != len(wantDomains) {
-		return errors.New("bootstrap ledger delegation must contain exactly HEAD, intent, and result grants")
+		return fmt.Errorf("bootstrap ledger delegation must contain exactly %d record grants", len(wantDomains))
 	}
 	seen := make(map[string]struct{}, len(capabilities))
 	for _, capability := range capabilities {
@@ -193,6 +212,7 @@ type ledgerRecordKind string
 const (
 	ledgerIntent      ledgerRecordKind = "intent"
 	ledgerResult      ledgerRecordKind = "result"
+	ledgerCandidate   ledgerRecordKind = "candidate"
 	ledgerManifest    ledgerRecordKind = "manifest"
 	ledgerRetirement  ledgerRecordKind = "retirement"
 	ledgerPeerReceipt ledgerRecordKind = "peer-receipt"
@@ -206,7 +226,18 @@ func (ledger *Ledger) createOrRead(ctx context.Context, scope BootstrapScope, at
 	if attempt == 0 || len(body) == 0 || len(body) > ledger.maxRecord {
 		return StoredRecord{}, errors.New("bootstrap ledger record is empty or exceeds its size bound")
 	}
-	objectName := ledger.objectName(scope, attempt, kind)
+	return ledger.createOrReadNamed(ctx, scope, attempt, kind, ledger.objectName(scope, attempt, kind), body)
+}
+
+func (ledger *Ledger) createOrReadNamed(ctx context.Context, scope BootstrapScope, attempt uint64,
+	kind ledgerRecordKind, objectName string, body []byte,
+) (StoredRecord, error) {
+	if err := validateLedgerScope(scope); err != nil {
+		return StoredRecord{}, err
+	}
+	if attempt == 0 || objectName == "" || len(body) == 0 || len(body) > ledger.maxRecord {
+		return StoredRecord{}, errors.New("bootstrap ledger record is empty or exceeds its size bound")
+	}
 	sourceDigest := sha256.Sum256(body)
 	ifNoneMatch := "*"
 	digestHeader := base64.StdEncoding.EncodeToString(sourceDigest[:])
@@ -249,11 +280,52 @@ func (ledger *Ledger) createOrRead(ctx context.Context, scope BootstrapScope, at
 	return stored, nil
 }
 
+func (ledger *Ledger) createOrReadContent(ctx context.Context, scope BootstrapScope, attempt uint64,
+	kind ledgerRecordKind, body []byte,
+) (StoredRecord, error) {
+	if kind != ledgerResult && kind != ledgerPeerReceipt {
+		return StoredRecord{}, fmt.Errorf("%w: unsupported content-addressed record kind %q", ErrInvalidRecord, kind)
+	}
+	digest := objectDigest(body)
+	name := ledger.objectName(scope, attempt, kind)[:len(ledger.objectName(scope, attempt, kind))-len(".json")] + "-" + digest + ".json"
+	return ledger.createOrReadNamed(ctx, scope, attempt, kind, name, body)
+}
+
+func (ledger *Ledger) readContent(ctx context.Context, scope BootstrapScope, attempt uint64,
+	kind ledgerRecordKind, digest string,
+) (StoredRecord, error) {
+	if kind != ledgerResult && kind != ledgerPeerReceipt || !validDigest(digest) {
+		return StoredRecord{}, fmt.Errorf("%w: unsupported content-addressed record reference", ErrInvalidRecord)
+	}
+	base := ledger.objectName(scope, attempt, kind)
+	name := base[:len(base)-len(".json")] + "-" + digest + ".json"
+	return ledger.readObject(ctx, ledger.config.Bucket, name)
+}
+
+func (ledger *Ledger) readContentExact(ctx context.Context, scope BootstrapScope, attempt uint64,
+	kind ledgerRecordKind, body []byte,
+) (StoredRecord, bool, error) {
+	record, err := ledger.readContent(ctx, scope, attempt, kind, objectDigest(body))
+	if errors.Is(err, ErrRecordMissing) {
+		return StoredRecord{}, false, nil
+	}
+	if err != nil {
+		return StoredRecord{}, false, err
+	}
+	if !bytes.Equal(record.Bytes, body) {
+		return StoredRecord{}, false, ErrImmutableConflict
+	}
+	return record, true, nil
+}
+
 // validateCurrentAuthority bounds current writes and OCI launch tokens. A
 // verified anchor cannot grant effects beyond either its own expiry or the
 // delegated ledger grant; anchor verification guarantees its expiry is at or
 // before the grant expiry.
 func (ledger *Ledger) validateCurrentAuthority() error {
+	if ledger.readOnly {
+		return fmt.Errorf("%w: historical bootstrap ledger is read-only", ErrRecordAuthorization)
+	}
 	if !ledger.config.AnchorExpiresAt.IsZero() && !ledger.now().Before(ledger.config.AnchorExpiresAt) {
 		return fmt.Errorf("%w: current bootstrap anchor has expired", ErrRecordAuthorization)
 	}
@@ -340,6 +412,9 @@ func (ledger *Ledger) readObject(ctx context.Context, bucket, objectName string)
 }
 
 func (ledger *Ledger) objectName(scope BootstrapScope, attempt uint64, kind ledgerRecordKind) string {
+	if kind == ledgerCandidate {
+		return ledger.managedPeerObjectName(scope, attempt, "candidate.json")
+	}
 	identity := sha256.Sum256([]byte(scope.Cell + "\x00controller\x00" + scope.Slot))
 	name := "bootstrap/v1/" + scope.DeploymentID + "/" + hex.EncodeToString(identity[:]) +
 		fmt.Sprintf("/attempt-%020d/%s.json", attempt, kind)

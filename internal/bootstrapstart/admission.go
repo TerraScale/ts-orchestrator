@@ -17,6 +17,10 @@ import (
 )
 
 var ErrAdmission = errors.New("controller bootstrap admission failed")
+var ErrAdmissionPending = errors.New("managed controller peer is awaiting its signed positive bootstrap result")
+
+const initialAdmissionWaitLimit = 4 * time.Minute
+const initialAdmissionRetryInterval = 2 * time.Second
 
 // InstanceObservation is assembled only from OCI GetInstance and the attached
 // primary VNIC. The IMDS identity merely selects which instance to observe.
@@ -85,19 +89,21 @@ type CurrentContinuationChecker interface {
 // local deployment identity must come from the baked image, never the IMDS
 // descriptor or a mutable instance tag.
 type Gate struct {
-	Roots        trust.Keyring
-	AnchorWire   []byte
-	Expected     bootstrap.BootstrapAnchorExpectation
-	Descriptor   DescriptorSource
-	Instances    InstanceObserver
-	Ledgers      LedgerOpener
-	Binary       BinaryChecker
-	Material     MaterialChecker
-	Credentials  LiveCredentialChecker
-	Continuation CurrentContinuationChecker
-	Markers      MarkerStore
-	ClockCheck   func() error
-	Now          func() time.Time
+	Roots               trust.Keyring
+	AnchorWire          []byte
+	Expected            bootstrap.BootstrapAnchorExpectation
+	Descriptor          DescriptorSource
+	Instances           InstanceObserver
+	Ledgers             LedgerOpener
+	Binary              BinaryChecker
+	Material            MaterialChecker
+	Credentials         LiveCredentialChecker
+	Continuation        CurrentContinuationChecker
+	Markers             MarkerStore
+	ClockCheck          func() error
+	Now                 func() time.Time
+	InitialFounderFloor func(context.Context, AcceptedInstall, time.Time) error
+	InitialPeerFloor    func(context.Context, AcceptedInstall, bootstrap.SlotState, time.Time) error
 }
 
 type executableBinaryChecker struct{}
@@ -241,12 +247,48 @@ func readSlot(ctx context.Context, ledger SlotReader, scope bootstrap.BootstrapS
 	}
 	state, err := ledger.ReadSlot(ctx, scope)
 	if err != nil {
+		if errors.Is(err, bootstrap.ErrManagedPeerProofQuarantined) {
+			return bootstrap.SlotState{}, fmt.Errorf("%w: %w", ErrAdmissionPending, err)
+		}
 		return bootstrap.SlotState{}, fmt.Errorf("read signed slot ledger: %w", err)
+	}
+	if state.Intent.Mode == bootstrap.IntentModeManaged && state.Head.ResultDigest == "" {
+		return bootstrap.SlotState{}, ErrAdmissionPending
 	}
 	if state.ManifestRecord == nil || len(state.ManifestRecord.Bytes) == 0 {
 		return bootstrap.SlotState{}, fmt.Errorf("%w: signed manifest is absent from exact slot ledger", ErrAdmission)
 	}
+	if state.Result == nil || state.ResultRecord == nil {
+		return bootstrap.SlotState{}, fmt.Errorf("%w: signed positive slot result is absent", ErrAdmission)
+	}
 	return state, nil
+}
+
+// AdmitInitialWhenReady waits only for a verified managed peer slot whose
+// positive result has not yet reached HEAD, or whose historical completion is
+// quarantined pending fresh proof. Every attempt repeats the complete current
+// admission; malformed records and all other failures return at once.
+func (gate Gate) AdmitInitialWhenReady(ctx context.Context) (AcceptedInstall, error) {
+	ctx, cancel := context.WithTimeout(ctx, initialAdmissionWaitLimit)
+	defer cancel()
+	return gate.admitInitialWhenReady(ctx, initialAdmissionRetryInterval)
+}
+
+func (gate Gate) admitInitialWhenReady(ctx context.Context, retryInterval time.Duration) (AcceptedInstall, error) {
+	if retryInterval <= 0 {
+		return AcceptedInstall{}, ErrAdmission
+	}
+	for {
+		accepted, err := gate.AdmitInitial(ctx)
+		if err == nil || !errors.Is(err, ErrAdmissionPending) {
+			return accepted, err
+		}
+		select {
+		case <-ctx.Done():
+			return AcceptedInstall{}, ctx.Err()
+		case <-time.After(retryInterval):
+		}
+	}
 }
 
 func proofEnvelope(body []byte) (trust.Envelope, error) {
@@ -266,7 +308,8 @@ func expectedMaterials(manifest bootstrap.Manifest, slot string) map[string]stri
 	for _, reference := range manifest.Secrets {
 		if reference.Purpose == bootstrap.SecretRegionalShared ||
 			reference.Purpose == bootstrap.SecretController && reference.Slot == slot ||
-			reference.Purpose == bootstrap.SecretSeedFounder && slot == manifest.SeedSlot {
+			(reference.Purpose == bootstrap.SecretSeedFounder || reference.Purpose == bootstrap.SecretSeedLedgerSigner) &&
+				slot == manifest.SeedSlot {
 			materials[reference.TargetFile] = reference.SHA256
 		}
 	}
@@ -423,6 +466,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 		SchemaVersion: 1, AnchorSHA256: anchor.Digest(), ManifestSHA256: state.ManifestRecord.SHA256,
 		ReceiptSHA256: receiptRecord.SHA256, ImageReceiptSHA256: digest(manifest.Manifest().ReleaseImageReceiptWire),
 		DeploymentID: scope.DeploymentID, Cell: scope.Cell, Slot: scope.Slot,
+		SeedSlot:  manifest.Manifest().SeedSlot,
 		ImageOCID: state.Intent.ImageOCID, InstanceOCID: instanceID,
 		PrimaryVNICOCID: observed.PrimaryVNICOCID, PrimaryPrivateIP: observed.PrimaryPrivateIP,
 		HeadAttempt: state.Head.Attempt, HeadGeneration: state.Head.Generation,
@@ -432,6 +476,42 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err := verifyCurrent(time.Time{}); err != nil {
 		return AcceptedInstall{}, err
 	}
+	if state.Intent.Slot == manifest.Manifest().SeedSlot {
+		if gate.InitialFounderFloor == nil {
+			return AcceptedInstall{}, fmt.Errorf("%w: initial seed founder floor provisioner is absent", ErrAdmission)
+		}
+		if state.Intent.Mode != bootstrap.IntentModeExternalSeed || state.Head.Attempt != 1 ||
+			state.Head.Generation != 1 {
+			return AcceptedInstall{}, fmt.Errorf("%w: seed floor requires the first external-seed attempt", ErrAdmission)
+		}
+		if err := gate.InitialFounderFloor(ctx, marker, acceptedAt); err != nil {
+			return AcceptedInstall{}, fmt.Errorf("%w: provision initial seed founder floor: %v", ErrAdmission, err)
+		}
+	} else if state.Intent.Mode == bootstrap.IntentModeManaged {
+		if gate.InitialPeerFloor == nil {
+			return AcceptedInstall{}, fmt.Errorf("%w: initial managed peer floor provisioner is absent", ErrAdmission)
+		}
+		if err := gate.InitialPeerFloor(ctx, marker, state, acceptedAt); err != nil {
+			return AcceptedInstall{}, fmt.Errorf("%w: provision initial peer founder floor: %v", ErrAdmission, err)
+		}
+	}
+	if err := verifyCurrent(time.Time{}); err != nil {
+		return AcceptedInstall{}, err
+	}
+	finalAt, err := gate.checkedNow()
+	if err != nil {
+		return AcceptedInstall{}, err
+	}
+	if !coveredAt(anchor.IssuedAt(), anchor.ExpiresAt(), finalAt) ||
+		!coveredAt(manifestEnvelope.IssuedAt, manifestEnvelope.ExpiresAt, finalAt) ||
+		!coveredAt(image.IssuedAt(), image.ExpiresAt(), finalAt) ||
+		!coveredAt(receiptEnvelope.IssuedAt, receiptEnvelope.ExpiresAt, finalAt) {
+		return AcceptedInstall{}, fmt.Errorf("%w: signed proofs do not cover final marker publication time", ErrAdmission)
+	}
+	if err := ctx.Err(); err != nil {
+		return AcceptedInstall{}, fmt.Errorf("%w: initial admission ended before marker publication: %w", ErrAdmission, err)
+	}
+	marker.AcceptedAt = finalAt
 	if err := gate.Markers.WriteNew(marker); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("persist accepted-install marker: %w", err)
 	}
@@ -508,6 +588,9 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical manifest is invalid: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
+	if marker.SeedSlot != payload.SeedSlot {
+		return AcceptedInstall{}, fmt.Errorf("%w: accepted seed role differs from signed manifest", ErrAdmission)
+	}
 	if payload.ReleaseReceiptSHA256 != marker.ImageReceiptSHA256 ||
 		digest(payload.ReleaseImageReceiptWire) != marker.ImageReceiptSHA256 ||
 		payload.ImageOCID != marker.ImageOCID {
@@ -563,6 +646,7 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
+	peerContinuation := !seed && state.Intent.Mode == bootstrap.IntentModeManaged
 	now, err := gate.checkedNow()
 	if err != nil {
 		return AcceptedInstall{}, err
@@ -574,7 +658,7 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		_, _, _, currentErr = gate.initialProofs(state, currentAnchor, observed, now)
 		currentProof = currentErr == nil
 	}
-	if !currentProof {
+	if !currentProof && !peerContinuation {
 		if gate.Continuation == nil {
 			return AcceptedInstall{}, fmt.Errorf("%w: historical install has no current continuation authority", ErrAdmission)
 		}
@@ -590,6 +674,14 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 	}
 	if _, err := gate.checkedNow(); err != nil {
 		return AcceptedInstall{}, err
+	}
+	if peerContinuation {
+		if gate.Continuation == nil {
+			return AcceptedInstall{}, fmt.Errorf("%w: managed peer has no current selected-plan continuation", ErrAdmission)
+		}
+		if err := gate.Continuation.VerifyCurrentContinuation(ctx, marker, observed, state); err != nil {
+			return AcceptedInstall{}, fmt.Errorf("verify current managed-peer continuation: %w", err)
+		}
 	}
 	return marker, nil
 }

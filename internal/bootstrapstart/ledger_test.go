@@ -1,10 +1,14 @@
 package bootstrapstart
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"slices"
 	"testing"
@@ -13,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, bootstrap.HistoricalBootstrapAnchor,
@@ -41,8 +46,8 @@ func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boo
 		t.Fatal(err)
 	}
 	slots := []string{"broker-a"}
-	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+	capabilities := make([]trust.Capability, 0, 5)
+	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"} {
 		capabilities = append(capabilities, trust.Capability{Domain: domain, DeploymentID: "deployment-a",
 			Cell: "GRU", Environment: "production", Role: "controller", Slots: slices.Clone(slots), Actions: []string{"sign"}})
 	}
@@ -88,6 +93,25 @@ func verifiedAnchorFixture(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boo
 		t.Fatal(err)
 	}
 	return current, historical, roots, rootPrivate, anchorWire
+}
+
+func TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly(t *testing.T) {
+	_, historical, roots, _, _ := verifiedAnchorFixture(t)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..test", "ocid1.user.oc1..test",
+		"sa-saopaulo-1", "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00", string(private), nil)
+	opener := InstancePrincipalLedgerOpener{provider: provider}
+	reader, err := opener.OpenHistoricalLedger(context.Background(), historical, roots)
+	if err != nil {
+		t.Fatalf("production restart cannot open historical v3 anchor ledger: %v", err)
+	}
+	if _, ok := reader.(readOnlyLedger); !ok {
+		t.Fatalf("historical ledger opener returned a write-capable reader: %T", reader)
+	}
 }
 
 func TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots(t *testing.T) {

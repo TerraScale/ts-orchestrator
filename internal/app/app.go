@@ -105,6 +105,9 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err := host.ValidatePrivateHostState(cfg.Host.StateRoot, cfg.NATS.Cell, cfg.Host.Node); err != nil {
 		return fmt.Errorf("host private state: %w", err)
 	}
+	if err := host.ValidateManagedRuntimeRoot(cfg.Host.ManagedRuntimeRoot, cfg.Host.InstallRoot, cfg.Host.StateRoot, identity); err != nil {
+		return fmt.Errorf("host managed runtime root: %w", err)
+	}
 	clockCheck := controllerClockCheck(hostClockProbe())
 	if err := clockCheck(); err != nil {
 		return fmt.Errorf("host NTP clock health: %w", err)
@@ -124,8 +127,9 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
 		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, ControllerPublicKey: controllerKey,
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
-		WorkloadIdentity: identity,
-		PollInterval:     time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
+		ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
+		WorkloadIdentity:   identity,
+		PollInterval:       time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
 		ClockCheck: clockCheck,
 	})
 	if err != nil {

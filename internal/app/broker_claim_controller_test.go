@@ -131,15 +131,18 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	previousPresence := controllerBakedInputsPresent
 	previousAdmission := controllerBootstrapProduction
+	previousFounder := controllerFounderProduction
 	previousProbe := controllerBrokerClockProbe
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
 	controllerBootstrapProduction = func(context.Context, Config) error { return nil }
+	controllerFounderProduction = func(context.Context) error { return nil }
 	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
 	t.Cleanup(func() {
 		controllerBakedInputsPresent = previousPresence
 		controllerBootstrapProduction = previousAdmission
+		controllerFounderProduction = previousFounder
 		controllerBrokerClockProbe = previousProbe
 	})
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(wrongPublic)), 0o600); err != nil {

@@ -63,6 +63,19 @@ type CurrentFounderAuthority struct {
 	ManifestWires       map[string][]byte
 }
 
+// currentFounderPeerSelection carries only read-only completed-peer identity.
+// It never contains a launch-capable VerifiedFounderPlan.
+type currentFounderPeerSelection struct {
+	SelectionGeneration uint64
+	SelectionSHA256     string
+	SelectionExpiresAt  time.Time
+	Plan                bootstrap.VerifiedCompletedFounderPlan
+	Anchor              bootstrap.VerifiedBootstrapAnchor
+	PlanWire            []byte
+	AnchorWire          []byte
+	ManifestWires       map[string][]byte
+}
+
 // CurrentFounderAuthorityReader uses only the accepted seed's baked anchor
 // storage domain for discovery. It does not accept object names or endpoints
 // from IMDS, the selector, a founder plan, or a caller.
@@ -171,6 +184,23 @@ func founderObjectPrefix(domain bootstrap.StorageDomain, deploymentID, scopeHash
 }
 
 func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, now time.Time) (CurrentFounderAuthority, error) {
+	return reader.readCurrent(ctx, now, true)
+}
+
+// The peer paths share current signature and exact-key verification with the
+// seed reader. Initial peer admission establishes its floor only after this
+// read; every subsequent continuation checks and advances that floor.
+func (reader *CurrentFounderAuthorityReader) readCurrentPeerInitial(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
+	return reader.readCurrentCompletedPeer(ctx, now, false)
+}
+
+func (reader *CurrentFounderAuthorityReader) readCurrentPeerContinuation(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
+	return reader.readCurrentCompletedPeer(ctx, now, true)
+}
+
+func (reader *CurrentFounderAuthorityReader) readCurrent(ctx context.Context, now time.Time,
+	useFloor bool,
+) (CurrentFounderAuthority, error) {
 	if reader == nil || reader.objects == nil || reader.floor == nil ||
 		now.IsZero() || now.Location() != time.UTC {
 		return CurrentFounderAuthority{}, ErrFounderSelection
@@ -186,8 +216,10 @@ func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, no
 	if err != nil {
 		return CurrentFounderAuthority{}, err
 	}
-	if err := reader.floor.Check(selection.Generation, selectionDigest); err != nil {
-		return CurrentFounderAuthority{}, err
+	if useFloor {
+		if err := reader.floor.Check(selection.Generation, selectionDigest); err != nil {
+			return CurrentFounderAuthority{}, err
+		}
 	}
 	getImmutable := func(digest string) ([]byte, error) {
 		name := FounderImmutableObjectName(reader.domain, selection.DeploymentID, selection.Cell, selection.Environment, digest)
@@ -235,13 +267,14 @@ func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, no
 	if err != nil {
 		return CurrentFounderAuthority{}, fmt.Errorf("%w: selected founder proof: %v", ErrFounderSelection, err)
 	}
-	if plan.Plan().SeedSlot != reader.accepted.Slot ||
-		plan.Plan().SeedManifestSHA256 != reader.accepted.ManifestSHA256 ||
-		plan.Digest() != selection.PlanSHA256 {
+	if plan.Digest() != selection.PlanSHA256 || plan.Plan().SeedSlot != reader.accepted.Slot ||
+		plan.Plan().SeedManifestSHA256 != reader.accepted.ManifestSHA256 {
 		return CurrentFounderAuthority{}, fmt.Errorf("%w: selected plan does not match accepted seed", ErrFounderSelection)
 	}
-	if err := reader.floor.Observe(selection.Generation, selectionDigest); err != nil {
-		return CurrentFounderAuthority{}, err
+	if useFloor {
+		if err := reader.floor.Observe(selection.Generation, selectionDigest); err != nil {
+			return CurrentFounderAuthority{}, err
+		}
 	}
 	if err := reader.confirmSelector(ctx, selectorKey, firstWire, firstETag); err != nil {
 		return CurrentFounderAuthority{}, err
@@ -253,6 +286,161 @@ func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, no
 		SelectionExpiresAt: selectionExpiresAt,
 		Plan:               plan, Anchor: anchor, PlanWire: bytes.Clone(planWire), AnchorWire: bytes.Clone(anchorWire),
 		ManifestWires: manifests}, nil
+}
+
+func (reader *CurrentFounderAuthorityReader) readCurrentCompletedPeer(ctx context.Context, now time.Time,
+	useFloor bool,
+) (currentFounderPeerSelection, error) {
+	if reader == nil || reader.objects == nil || reader.floor == nil ||
+		now.IsZero() || now.Location() != time.UTC || reader.accepted.Slot == reader.accepted.SeedSlot {
+		return currentFounderPeerSelection{}, ErrFounderSelection
+	}
+	started := time.Now()
+	selectorKey := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
+		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)
+	firstWire, firstETag, err := reader.getExact(ctx, reader.domain.HeadBucket, selectorKey, founderSelectionMaxBytes)
+	if err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	selection, selectionDigest, selectionExpiresAt, err := reader.verifySelection(firstWire, now)
+	if err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	if useFloor {
+		if err := reader.floor.Check(selection.Generation, selectionDigest); err != nil {
+			return currentFounderPeerSelection{}, err
+		}
+	}
+	getImmutable := func(digest string) ([]byte, error) {
+		name := FounderImmutableObjectName(reader.domain, selection.DeploymentID, selection.Cell, selection.Environment, digest)
+		wire, _, err := reader.getExact(ctx, reader.domain.LedgerBucket, name, founderObjectMaxBytes)
+		if err != nil {
+			return nil, err
+		}
+		if digestWire(wire) != digest {
+			return nil, fmt.Errorf("%w: immutable object digest differs from selector", ErrFounderSelection)
+		}
+		return wire, nil
+	}
+	planWire, err := getImmutable(selection.PlanSHA256)
+	if err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	anchorWire, err := getImmutable(selection.AnchorSHA256)
+	if err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	manifests := make(map[string][]byte, len(selection.Manifests))
+	for _, pin := range selection.Manifests {
+		wire, err := getImmutable(pin.SHA256)
+		if err != nil {
+			return currentFounderPeerSelection{}, err
+		}
+		manifests[pin.Slot] = wire
+	}
+	if err := reader.confirmSelector(ctx, selectorKey, firstWire, firstETag); err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	currentNow := now.Add(time.Since(started))
+	anchorEnvelope, err := trust.DecodeEnvelope(anchorWire)
+	if err != nil {
+		return currentFounderPeerSelection{}, ErrFounderSelection
+	}
+	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, reader.baked.Roots,
+		reader.baked.Identity.AnchorExpectation(), currentNow, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil || anchor.Digest() != selection.AnchorSHA256 || anchor.StorageDomain() != reader.domain ||
+		anchor.Anchor().ClusterID != reader.acceptedClusterID || anchor.Digest() != reader.accepted.AnchorSHA256 {
+		return currentFounderPeerSelection{}, ErrFounderSelection
+	}
+	plan, err := bootstrap.VerifyFounderPlanForCompletedPeerContinuation(planWire, reader.baked.Roots,
+		anchorWire, manifests, currentNow,
+		trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew})
+	if err != nil || plan.Digest() != selection.PlanSHA256 || plan.SeedSlot() != reader.accepted.SeedSlot {
+		return currentFounderPeerSelection{}, fmt.Errorf("%w: selected completed-peer plan is invalid: %v", ErrFounderSelection, err)
+	}
+	selected := currentFounderPeerSelection{SelectionGeneration: selection.Generation,
+		SelectionSHA256: selectionDigest, SelectionExpiresAt: selectionExpiresAt,
+		Plan: plan, Anchor: anchor, PlanWire: bytes.Clone(planWire), AnchorWire: bytes.Clone(anchorWire),
+		ManifestWires: manifests}
+	if useFloor {
+		if err := reader.floor.Observe(selection.Generation, selectionDigest); err != nil {
+			return currentFounderPeerSelection{}, err
+		}
+	}
+	if err := reader.confirmSelector(ctx, selectorKey, firstWire, firstETag); err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	if err := reader.confirmCurrentPeerSelection(ctx, selected,
+		func() time.Time { return now.Add(time.Since(started)) }); err != nil {
+		return currentFounderPeerSelection{}, err
+	}
+	return selected, nil
+}
+
+func (reader *CurrentFounderAuthorityReader) confirmCurrentPeerSelection(ctx context.Context,
+	selected currentFounderPeerSelection, clock func() time.Time,
+) error {
+	if reader == nil || ctx.Err() != nil || selected.SelectionGeneration == 0 ||
+		!validFounderDigest(selected.SelectionSHA256) || clock == nil {
+		return ErrFounderSelection
+	}
+	key := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
+		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)
+	wire, _, err := reader.getExact(ctx, reader.domain.HeadBucket, key, founderSelectionMaxBytes)
+	if err != nil {
+		return err
+	}
+	// Recheck all captured current intervals after the final OCI read and any
+	// durable floor fsync; selector consistency alone is not enough at expiry.
+	finalNow := clock().Round(0).UTC()
+	if finalNow.IsZero() {
+		return ErrFounderSelection
+	}
+	selection, digest, expiresAt, err := reader.verifySelection(wire, finalNow)
+	if err != nil || digest != selected.SelectionSHA256 || selection.Generation != selected.SelectionGeneration ||
+		selection.PlanSHA256 != selected.Plan.Digest() || selection.AnchorSHA256 != selected.Anchor.Digest() ||
+		!finalNow.Before(expiresAt) {
+		return ErrFounderSelection
+	}
+	anchorEnvelope, err := trust.DecodeEnvelope(selected.AnchorWire)
+	if err != nil {
+		return ErrFounderSelection
+	}
+	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, reader.baked.Roots,
+		reader.baked.Identity.AnchorExpectation(), finalNow, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil || anchor.Digest() != selected.Anchor.Digest() || anchor.Digest() != reader.accepted.AnchorSHA256 {
+		return ErrFounderSelection
+	}
+	plan, err := bootstrap.VerifyFounderPlanForCompletedPeerContinuation(selected.PlanWire,
+		reader.baked.Roots, selected.AnchorWire, selected.ManifestWires, finalNow,
+		trust.Policy{MaxLifetime: 24 * time.Hour, ClockSkew: bootstrap.ManifestClockSkew})
+	if err != nil || plan.Digest() != selected.Plan.Digest() || plan.SeedSlot() != reader.accepted.SeedSlot ||
+		ctx.Err() != nil {
+		return ErrFounderSelection
+	}
+	return nil
+}
+
+func (reader *CurrentFounderAuthorityReader) confirmCurrentSelection(ctx context.Context,
+	selected CurrentFounderAuthority, now time.Time,
+) error {
+	if reader == nil || selected.SelectionGeneration == 0 || !validFounderDigest(selected.SelectionSHA256) ||
+		now.IsZero() || now.Location() != time.UTC {
+		return ErrFounderSelection
+	}
+	key := FounderSelectionObjectName(reader.domain, reader.baked.Identity.DeploymentID,
+		string(reader.baked.Identity.Cell), reader.baked.Identity.Environment)
+	wire, _, err := reader.getExact(ctx, reader.domain.HeadBucket, key, founderSelectionMaxBytes)
+	if err != nil {
+		return err
+	}
+	selection, digest, expiresAt, err := reader.verifySelection(wire, now)
+	if err != nil || digest != selected.SelectionSHA256 || selection.Generation != selected.SelectionGeneration ||
+		selection.PlanSHA256 != selected.Plan.Digest() || selection.AnchorSHA256 != selected.Anchor.Digest() ||
+		!now.Before(expiresAt) {
+		return ErrFounderSelection
+	}
+	return nil
 }
 
 func (reader *CurrentFounderAuthorityReader) verifySelection(wire []byte, now time.Time) (FounderSelection, string, time.Time, error) {

@@ -6,9 +6,12 @@ Requires=systemd-timesyncd.service systemd-time-wait-sync.service
 After=systemd-timesyncd.service systemd-time-wait-sync.service
 ConditionPathExists=/etc/terrascale-orchestrator/controller.json
 Before=terrascale-orchestrator-controller.service
+OnSuccess=terrascale-orchestrator-controller.service
 
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=10s
 User=root
 Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
@@ -22,7 +25,7 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL
 AmbientCapabilities=
 ProtectSystem=strict
-ReadWritePaths=/var/lib/terrascale-orchestrator-bootstrap /var/lib/terrascale-orchestrator-secrets /run/terrascale-orchestrator-bootstrap
+ReadWritePaths=/var/lib/terrascale-orchestrator-bootstrap /var/lib/terrascale-orchestrator-secrets /var/lib/terrascale-orchestrator-controller /run/terrascale-orchestrator-bootstrap
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

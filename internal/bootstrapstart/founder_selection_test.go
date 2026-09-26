@@ -83,7 +83,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	domain := bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
 		LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",
 		HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap"}
-	ledgerWire := signTestDelegation(t, root, ledgerPublic, []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"}, slots, now.Add(-time.Hour), now.Add(24*time.Hour))
+	ledgerWire := signTestDelegation(t, root, ledgerPublic, []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"}, slots, now.Add(-time.Hour), now.Add(24*time.Hour))
 	regionWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 4,
 		BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}})
 	if err != nil {

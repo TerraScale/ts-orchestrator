@@ -16,7 +16,7 @@ func testMarker() AcceptedInstall {
 	return AcceptedInstall{
 		SchemaVersion: 1, AnchorSHA256: digest, ManifestSHA256: digest,
 		ReceiptSHA256: digest, ImageReceiptSHA256: digest,
-		DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-a",
+		DeploymentID: "deployment-a", Cell: "GRU", Slot: "controller-a", SeedSlot: "seed-a",
 		ImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.example",
 		InstanceOCID:    "ocid1.instance.oc1.sa-saopaulo-1.example",
 		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.example", PrimaryPrivateIP: "10.0.0.3",
@@ -36,6 +36,19 @@ func TestMarkerRequiresPrimaryVNICIdentity(t *testing.T) {
 	marker.PrimaryPrivateIP = "127.0.0.1"
 	if !errors.Is(marker.validate(), ErrInvalidMarker) {
 		t.Fatal("accepted marker with loopback primary address")
+	}
+}
+
+func TestMarkerRequiresSignedSeedRole(t *testing.T) {
+	marker := testMarker()
+	marker.SeedSlot = ""
+	if !errors.Is(marker.validate(), ErrInvalidMarker) {
+		t.Fatal("accepted marker without seed role")
+	}
+	marker = testMarker()
+	marker.SeedSlot = "not a slot"
+	if !errors.Is(marker.validate(), ErrInvalidMarker) {
+		t.Fatal("accepted marker with malformed seed role")
 	}
 }
 

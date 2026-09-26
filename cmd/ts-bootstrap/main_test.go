@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,8 +135,8 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 		t.Fatal(err)
 	}
 	ledgerExpiresAt := now.Add(bootstrap.MaxBootstrapAnchorLifetime - 24*time.Hour)
-	ledgerCapabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+	ledgerCapabilities := make([]trust.Capability, 0, len(bootstrap.BootstrapLedgerCapabilityDomains()))
+	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
 		ledgerCapabilities = append(ledgerCapabilities, trust.Capability{
 			Domain: domain, DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell),
 			Environment: manifest.Environment, Role: manifest.ControllerRole,
@@ -280,8 +281,8 @@ func (fixture *manifestFixture) setLedgerGrant(t *testing.T, slots []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+	capabilities := make([]trust.Capability, 0, len(bootstrap.BootstrapLedgerCapabilityDomains()))
+	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
 		capabilities = append(capabilities, trust.Capability{
 			Domain: domain, DeploymentID: fixture.manifest.DeploymentID, Cell: string(fixture.manifest.Cell),
 			Environment: fixture.manifest.Environment, Role: fixture.manifest.ControllerRole,
@@ -312,8 +313,8 @@ func signTestLedgerGrant(t *testing.T, root ed25519.PrivateKey, public ed25519.P
 	if err != nil {
 		t.Fatal(err)
 	}
-	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result"} {
+	capabilities := make([]trust.Capability, 0, len(bootstrap.BootstrapLedgerCapabilityDomains()))
+	for _, domain := range bootstrap.BootstrapLedgerCapabilityDomains() {
 		capabilities = append(capabilities, trust.Capability{
 			Domain: domain, DeploymentID: deployment, Cell: string(cell), Environment: environment,
 			Role: "controller", Slots: append([]string(nil), slots...), Actions: []string{"sign"},
@@ -326,6 +327,108 @@ func signTestLedgerGrant(t *testing.T, root ed25519.PrivateKey, public ed25519.P
 		t.Fatal(err)
 	}
 	return grant
+}
+
+func TestSignLedgerDelegationIssuesExactCurrentGrant(t *testing.T) {
+	fixture := newManifestFixture(t, 30*24*time.Hour, 20*24*time.Hour)
+	rootDER, err := x509.MarshalPKIXPublicKey(fixture.ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerPath := filepath.Join(fixture.directory, "ledger-signer.pub")
+	writeFixture(t, signerPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rootDER}), 0o644)
+	output := filepath.Join(fixture.directory, "new-ledger-grant.json")
+	issuedAt := fixture.now.Add(-time.Minute)
+	expiresAt := fixture.now.Add(24 * time.Hour)
+	args := []string{"sign-ledger-delegation", "--deployment", fixture.manifest.DeploymentID,
+		"--cell", string(fixture.manifest.Cell), "--environment", fixture.manifest.Environment,
+		"--signer-public-key", signerPath, "--root-key", fixture.rootPath,
+		"--signing-key", fixture.privatePath, "--issued-at", issuedAt.Format(time.RFC3339),
+		"--expires-at", expiresAt.Format(time.RFC3339), "--out", output}
+	for _, slot := range fixture.manifest.ControllerSlots {
+		args = append(args, "--slot", slot)
+	}
+	if err := runAt(args, fixture.now); err != nil {
+		t.Fatalf("sign current ledger grant: %v", err)
+	}
+	wire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := trust.VerifyDelegationCurrent(envelope, fixture.roots, fixture.now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	domains := bootstrap.BootstrapLedgerCapabilityDomains()
+	if len(verified.Capabilities()) != len(domains) {
+		t.Fatalf("grant capabilities=%d want=%d", len(verified.Capabilities()), len(domains))
+	}
+	for i, capability := range verified.Capabilities() {
+		if capability.Domain != domains[i] || capability.DeploymentID != fixture.manifest.DeploymentID ||
+			capability.Cell != string(fixture.manifest.Cell) || capability.Environment != fixture.manifest.Environment ||
+			capability.Role != "controller" || !slices.Equal(capability.Slots, fixture.manifest.ControllerSlots) ||
+			!slices.Equal(capability.Actions, []string{"sign"}) {
+			t.Fatalf("wrong grant capability[%d]: %+v", i, capability)
+		}
+	}
+	if err := runAt(args, fixture.now); !errors.Is(err, os.ErrExist) {
+		t.Fatalf("grant output was overwritten: %v", err)
+	}
+	writeFixture(t, fixture.ledgerDelegationPath, wire, 0o600)
+	anchor := fixture.anchor
+	anchor.LedgerDelegationWire = nil
+	fixture.writeAnchorCandidate(t, anchor)
+	anchorOutput := filepath.Join(fixture.directory, "issued-anchor.json")
+	if err := runAt(append([]string{"sign-anchor"}, fixture.anchorArgs(anchorOutput, "")...),
+		fixture.now.Add(time.Minute)); err != nil {
+		t.Fatalf("default sign-anchor could not consume the new grant: %v", err)
+	}
+	anchorWire, err := os.ReadFile(anchorOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorEnvelope, err := trust.DecodeEnvelope(anchorWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !anchorEnvelope.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("default anchor expiry=%s, want grant bound %s", anchorEnvelope.ExpiresAt, expiresAt)
+	}
+}
+
+func TestSignLedgerDelegationRejectsWrongScopeAndKey(t *testing.T) {
+	fixture := newManifestFixture(t, 30*24*time.Hour, 20*24*time.Hour)
+	rootDER, err := x509.MarshalPKIXPublicKey(fixture.ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerPath := filepath.Join(fixture.directory, "ledger-signer.pub")
+	writeFixture(t, signerPath, pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rootDER}), 0o644)
+	base := []string{"sign-ledger-delegation", "--deployment", fixture.manifest.DeploymentID,
+		"--cell", string(fixture.manifest.Cell), "--environment", fixture.manifest.Environment,
+		"--signer-public-key", signerPath, "--root-key", fixture.rootPath,
+		"--signing-key", fixture.privatePath, "--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
+		"--expires-at", fixture.now.Add(time.Hour).Format(time.RFC3339),
+		"--out", filepath.Join(fixture.directory, "rejected-grant.json")}
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "missing slots", args: base},
+		{name: "duplicate slots", args: append(append([]string(nil), base...), "--slot", "seed-a", "--slot", "seed-a")},
+		{name: "wrong cell", args: append(append([]string(nil), base...), "--cell", "OTHER", "--slot", "seed-a")},
+		{name: "root as signer", args: append(append([]string(nil), base...), "--signer-public-key", fixture.rootPath, "--slot", "seed-a")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := runAt(test.args, fixture.now); err == nil {
+				t.Fatal("invalid offline grant request succeeded")
+			}
+		})
+	}
 }
 
 func (fixture *manifestFixture) anchorForSlots(t *testing.T, slots []string) bootstrap.BootstrapAnchor {

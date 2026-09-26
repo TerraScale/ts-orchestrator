@@ -37,6 +37,7 @@ func (reader fixedSlotReader) ReadSlot(context.Context, bootstrap.BootstrapScope
 type countingLedgerOpener struct {
 	state                      bootstrap.SlotState
 	currentCalls, historyCalls int
+	onCurrent                  func(int)
 }
 
 func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
@@ -46,7 +47,59 @@ func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor 
 		return nil, ErrLedgerGrant
 	}
 	opener.currentCalls++
+	if opener.onCurrent != nil {
+		opener.onCurrent(opener.currentCalls)
+	}
 	return fixedSlotReader{opener.state}, nil
+}
+
+func TestManagedPeerInitialAdmissionWaitsForPositiveHEAD(t *testing.T) {
+	fixture := newPeerAdmissionFlowFixture(t)
+	complete := fixture.ledger.state
+	pending := complete
+	pending.Head.ResultDigest = ""
+	pending.ManifestRecord = nil
+	pending.Result = nil
+	pending.ResultRecord = nil
+	pending.PeerReceiptRecord = nil
+	fixture.ledger.state = pending
+	fixture.ledger.onCurrent = func(call int) {
+		if call == 2 {
+			if fixture.material.initialCalls != 0 || fixture.credentials.calls != 0 {
+				t.Fatal("pending peer reached material or credential effects")
+			}
+			fixture.ledger.state = complete
+		}
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	marker, err := fixture.gate.admitInitialWhenReady(ctx, time.Millisecond)
+	if err != nil || marker.Slot != complete.Intent.Slot || fixture.ledger.currentCalls != 2 {
+		t.Fatalf("pending peer admission did not resume after signed result: marker=%+v calls=%d err=%v",
+			marker, fixture.ledger.currentCalls, err)
+	}
+}
+
+func TestManagedPeerPendingClassifierPreservesMalformedPositiveResult(t *testing.T) {
+	fixture := newPeerAdmissionFlowFixture(t)
+	state := fixture.ledger.state
+	state.Head.ResultDigest = ""
+	state.ManifestRecord = nil
+	state.Result = nil
+	state.ResultRecord = nil
+	state.PeerReceiptRecord = nil
+	fixture.ledger.state = state
+	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmissionPending) {
+		t.Fatalf("managed peer before signed result: %v", err)
+	}
+	if fixture.material.initialCalls != 0 || fixture.credentials.calls != 0 {
+		t.Fatal("pending peer reached material or credential effects")
+	}
+	state.Head.ResultDigest = strings.Repeat("e", 64)
+	fixture.ledger.state = state
+	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) || errors.Is(err, ErrAdmissionPending) {
+		t.Fatalf("positive HEAD missing manifest was classified as pending: %v", err)
+	}
 }
 
 func (opener *countingLedgerOpener) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
@@ -141,9 +194,39 @@ type admissionFlowFixture struct {
 }
 
 func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
+	return newAdmissionFlowFixtureForRole(t, false)
+}
+
+func newPeerAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
+	return newAdmissionFlowFixtureForRole(t, true)
+}
+
+func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixture {
 	t.Helper()
 	anchor, _, roots, rootPrivate, anchorWire := verifiedAnchorFixture(t)
 	now := time.Now().UTC().Truncate(time.Second)
+	if peer {
+		anchored := anchor.Anchor()
+		anchored.ControllerSlots = []string{"broker-a", "seed-a"}
+		ledgerPublic, _, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		anchored.LedgerDelegationWire = signTestDelegation(t, rootPrivate, ledgerPublic,
+			[]string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"},
+			anchored.ControllerSlots, now.Add(-time.Hour), now.Add(2*time.Hour))
+		envelope, err := bootstrap.SignBootstrapAnchor(anchored, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		anchorWire = envelopeWire(t, envelope)
+		anchor, err = bootstrap.VerifyBootstrapAnchor(envelope, roots, bootstrap.BootstrapAnchorExpectation{
+			DeploymentID: anchored.DeploymentID, Environment: anchored.Environment, Cell: anchored.Cell},
+			now, bootstrap.BootstrapAnchorTrustPolicy())
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	imageID := "ocid1.image.oc1.sa-saopaulo-1.image-a"
 	instanceID := "ocid1.instance.oc1.sa-saopaulo-1.example"
 	compartmentID := "ocid1.compartment.oc1..example"
@@ -200,6 +283,27 @@ func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 			{Purpose: bootstrap.SecretRegionalShared,
 				SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 1,
 				SHA256: digest([]byte("regional fixture")), MaxBytes: 128, TargetFile: "regional.creds"}}}
+	var peerPrivate ed25519.PrivateKey
+	if peer {
+		manifest.SeedSlot = "seed-a"
+		manifest.ControllerSlots = []string{"broker-a", "seed-a"}
+		seedProfile := profile
+		seedProfile.Slot = "seed-a"
+		manifest.Profiles = append(manifest.Profiles, seedProfile)
+		peerPublic, private, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		peerPrivate = private
+		delegationWire := signTestDelegation(t, rootPrivate, peerPublic,
+			[]string{"terrascale.bootstrap.peer-receipt"}, []string{"broker-a"},
+			now.Add(-10*time.Minute), now.Add(2*time.Hour))
+		delegation, err := trust.DecodeEnvelope(delegationWire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.PeerReceiptDelegation = &delegation
+	}
 	manifestEnvelope, err := bootstrap.SignManifest(manifest, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +319,8 @@ func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 	}
 	state := bootstrap.SlotState{
 		Head: bootstrap.SlotHead{Attempt: 1, Generation: 1, ResultDigest: strings.Repeat("e", 64)},
-		Intent: bootstrap.Intent{DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
+		Intent: bootstrap.Intent{Mode: bootstrap.IntentModeExternalSeed,
+			DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
 			Cell: string(anchored.Cell), Role: "controller", Slot: "broker-a", ImageOCID: imageID,
 			ManifestDigest: verifiedManifest.Digest(), ReleaseReceiptDigest: digest(imageWire),
 			CompartmentOCID: compartmentID, CreateKey: "create-a", OCIRegion: anchored.OCIRegion,
@@ -228,6 +333,10 @@ func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 			CompartmentOCID: compartmentID, CreateKey: "create-a", Shape: profile.Shape},
 		ResultRecord: &bootstrap.StoredRecord{SHA256: strings.Repeat("e", 64)},
 	}
+	if peer {
+		state.Intent.Mode = bootstrap.IntentModeManaged
+		state.Intent.SchemaVersion = 2
+	}
 	observation := InstanceObservation{InstanceOCID: instanceID, CompartmentOCID: compartmentID, ImageOCID: imageID,
 		AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
 		Shape: profile.Shape, SubnetOCID: profile.SubnetOCID, NSGOCIDs: profile.NetworkSecurityGroupOCIDs,
@@ -237,13 +346,23 @@ func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiptEnvelope, err := bootstrap.SignSeedReceipt(verifiedManifest, observed.Facts,
-		now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
+	var receiptEnvelope trust.Envelope
+	if peer {
+		receiptEnvelope, err = bootstrap.SignPeerReceipt(verifiedManifest, observed.Facts,
+			now.Add(-time.Minute), now.Add(time.Hour), peerPrivate)
+	} else {
+		receiptEnvelope, err = bootstrap.SignSeedReceipt(verifiedManifest, observed.Facts,
+			now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	receiptWire := envelopeWire(t, receiptEnvelope)
-	state.SeedReceiptRecord = &bootstrap.StoredRecord{Bytes: receiptWire, SHA256: digest(receiptWire)}
+	if peer {
+		state.PeerReceiptRecord = &bootstrap.StoredRecord{Bytes: receiptWire, SHA256: digest(receiptWire)}
+	} else {
+		state.SeedReceiptRecord = &bootstrap.StoredRecord{Bytes: receiptWire, SHA256: digest(receiptWire)}
+	}
 	markerDirectory := filepath.Join(t.TempDir(), "marker")
 	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
 		t.Fatal(err)
@@ -255,9 +374,13 @@ func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment, Cell: anchored.Cell},
 		Descriptor: fixedDescriptor{slot: "broker-a", instance: instanceID}, Instances: fakeInstanceObserver{observation},
 		Ledgers: ledger, Binary: fixedBinaryChecker{}, Material: material, Credentials: credentials,
-		Markers:    MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
-		ClockCheck: func() error { return nil },
-		Now:        func() time.Time { return now },
+		Markers:             MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
+		ClockCheck:          func() error { return nil },
+		Now:                 func() time.Time { return now },
+		InitialFounderFloor: func(context.Context, AcceptedInstall, time.Time) error { return nil },
+		InitialPeerFloor: func(context.Context, AcceptedInstall, bootstrap.SlotState, time.Time) error {
+			return nil
+		},
 	}
 	return admissionFlowFixture{gate: gate, ledger: ledger, material: material, credentials: credentials, now: &now}
 }

@@ -16,13 +16,19 @@ import (
 )
 
 const (
-	roleController        = "controller"
-	domainBootstrapIntent = "bootstrap-intent"
-	domainBootstrapResult = "bootstrap-result"
-	domainBootstrapHead   = "bootstrap-slot-head"
-	domainSlotRetirement  = "bootstrap-slot-retirement"
-	domainSeedHandoff     = "seed-handoff"
+	roleController           = "controller"
+	domainBootstrapIntent    = "bootstrap-intent"
+	domainBootstrapResult    = "bootstrap-result"
+	domainBootstrapHead      = "bootstrap-slot-head"
+	domainBootstrapCandidate = "bootstrap-candidate"
+	domainBootstrapProgress  = "bootstrap-progress"
+	domainSlotRetirement     = "bootstrap-slot-retirement"
+	domainSeedHandoff        = "seed-handoff"
 )
+
+// ManagedPeerObservationMaxAge bounds the time between the final exact OCI
+// reobservation and the initial durable positive-result write.
+const ManagedPeerObservationMaxAge = 10 * time.Second
 
 type IntentMode string
 
@@ -32,16 +38,19 @@ const (
 )
 
 var (
-	ErrRecordAuthorization        = errors.New("bootstrap ledger record is not authorized")
-	ErrInvalidRecord              = errors.New("bootstrap ledger record is invalid")
-	ErrSlotHeadConflict           = errors.New("bootstrap slot HEAD changed concurrently")
-	ErrSlotNotReserved            = errors.New("bootstrap slot is not reserved by the expected intent")
-	ErrRetirementInvalid          = errors.New("bootstrap slot retirement evidence is invalid")
-	ErrSlotAlreadyComplete        = errors.New("bootstrap slot already has a positive OCI result")
-	ErrSlotResultPendingHead      = errors.New("bootstrap result exists but its slot HEAD update is unresolved")
-	ErrSlotAdvancePendingHead     = errors.New("bootstrap next-attempt intent exists but its slot HEAD update is unresolved")
-	ErrExternalSeedMode           = errors.New("external seed intent is not authorized for an OCI create")
-	ErrManagedPeerReceiptRequired = errors.New("managed slot completion requires a verified delegated peer receipt")
+	ErrRecordAuthorization         = errors.New("bootstrap ledger record is not authorized")
+	ErrManagedPeerObservationStale = errors.New("managed peer OCI observation is outside its durable freshness window")
+	ErrManagedPeerProofQuarantined = errors.New("managed-peer proof or HEAD is quarantined")
+	ErrManagedPeerCandidatePinned  = errors.New("managed-peer candidate is pinned; another launch is forbidden")
+	ErrInvalidRecord               = errors.New("bootstrap ledger record is invalid")
+	ErrSlotHeadConflict            = errors.New("bootstrap slot HEAD changed concurrently")
+	ErrSlotNotReserved             = errors.New("bootstrap slot is not reserved by the expected intent")
+	ErrRetirementInvalid           = errors.New("bootstrap slot retirement evidence is invalid")
+	ErrSlotAlreadyComplete         = errors.New("bootstrap slot already has a positive OCI result")
+	ErrSlotResultPendingHead       = errors.New("bootstrap result exists but its slot HEAD update is unresolved")
+	ErrSlotAdvancePendingHead      = errors.New("bootstrap next-attempt intent exists but its slot HEAD update is unresolved")
+	ErrExternalSeedMode            = errors.New("external seed intent is not authorized for an OCI create")
+	ErrManagedPeerReceiptRequired  = errors.New("managed slot completion requires a verified delegated peer receipt")
 
 	sha256DigestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	createTokenPattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$`)
@@ -110,24 +119,75 @@ type Result struct {
 	ObservedAt             time.Time  `json:"observedAt"`
 }
 
+// ManagedPeerCandidate is the immutable signed identity pin for the one
+// instance that may have been created for a managed peer attempt. It grants
+// observation of InstanceOCID only; it never grants another launch.
+type ManagedPeerCandidate struct {
+	SchemaVersion       int    `json:"schemaVersion"`
+	DeploymentID        string `json:"deploymentId"`
+	Cell                string `json:"cell"`
+	Environment         string `json:"environment"`
+	Role                string `json:"role"`
+	Slot                string `json:"slot"`
+	Attempt             uint64 `json:"attempt"`
+	Generation          uint64 `json:"generation"`
+	IntentDigest        string `json:"intentDigest"`
+	CreateKey           string `json:"createKey"`
+	FounderPlanSHA256   string `json:"founderPlanSha256"`
+	PeerRowDigest       string `json:"peerRowDigest"`
+	ManifestDigest      string `json:"manifestDigest"`
+	LaunchProfileDigest string `json:"launchProfileDigest"`
+	InstanceOCID        string `json:"instanceOcid"`
+}
+
+// ManagedPeerProgressPhase identifies the exact durable transition stage.
+type ManagedPeerProgressPhase string
+
+const (
+	ManagedPeerProgressCandidate ManagedPeerProgressPhase = "candidate-pinned"
+	ManagedPeerProgressReceipt   ManagedPeerProgressPhase = "receipt-staged"
+	ManagedPeerProgressResult    ManagedPeerProgressPhase = "result-staged"
+)
+
+// ManagedPeerProgress is the signed CAS record that pins candidate identity
+// and stages exact bounded proof bytes before their content-addressed writes.
+type ManagedPeerProgress struct {
+	SchemaVersion      int                      `json:"schemaVersion"`
+	DeploymentID       string                   `json:"deploymentId"`
+	Cell               string                   `json:"cell"`
+	Environment        string                   `json:"environment"`
+	Role               string                   `json:"role"`
+	Slot               string                   `json:"slot"`
+	Attempt            uint64                   `json:"attempt"`
+	Generation         uint64                   `json:"generation"`
+	Sequence           uint64                   `json:"sequence"`
+	CandidateDigest    string                   `json:"candidateDigest"`
+	Phase              ManagedPeerProgressPhase `json:"phase"`
+	PendingProofKind   string                   `json:"pendingProofKind,omitzero"`
+	PendingProofDigest string                   `json:"pendingProofDigest,omitzero"`
+	PendingProofWire   []byte                   `json:"pendingProofWire,omitzero"`
+}
+
 // SlotHead is the signed mutable current-attempt pointer stored in the
 // separately writable coordination bucket. Only ETag-guarded CAS changes it.
 type SlotHead struct {
-	SchemaVersion        int    `json:"schemaVersion"`
-	DeploymentID         string `json:"deploymentId"`
-	Cell                 string `json:"cell"`
-	Environment          string `json:"environment"`
-	Role                 string `json:"role"`
-	Slot                 string `json:"slot"`
-	Attempt              uint64 `json:"attempt"`
-	Generation           uint64 `json:"generation"`
-	IntentDigest         string `json:"intentDigest"`
-	ResultDigest         string `json:"resultDigest,omitzero"`
-	PreviousAttempt      uint64 `json:"previousAttempt,omitzero"`
-	PreviousGeneration   uint64 `json:"previousGeneration,omitzero"`
-	PreviousIntentDigest string `json:"previousIntentDigest,omitzero"`
-	PreviousResultDigest string `json:"previousResultDigest,omitzero"`
-	RetirementDigest     string `json:"retirementDigest,omitzero"`
+	SchemaVersion           int    `json:"schemaVersion"`
+	DeploymentID            string `json:"deploymentId"`
+	Cell                    string `json:"cell"`
+	Environment             string `json:"environment"`
+	Role                    string `json:"role"`
+	Slot                    string `json:"slot"`
+	Attempt                 uint64 `json:"attempt"`
+	Generation              uint64 `json:"generation"`
+	IntentDigest            string `json:"intentDigest"`
+	ResultDigest            string `json:"resultDigest,omitzero"`
+	CandidateDigest         string `json:"candidateDigest,omitzero"`
+	PreviousAttempt         uint64 `json:"previousAttempt,omitzero"`
+	PreviousGeneration      uint64 `json:"previousGeneration,omitzero"`
+	PreviousIntentDigest    string `json:"previousIntentDigest,omitzero"`
+	PreviousResultDigest    string `json:"previousResultDigest,omitzero"`
+	PreviousCandidateDigest string `json:"previousCandidateDigest,omitzero"`
+	RetirementDigest        string `json:"retirementDigest,omitzero"`
 }
 
 // RetirementEvidence is a signed, typed claim by the configured retirement
@@ -237,8 +297,8 @@ func (ledger *Ledger) decodeResult(scope BootstrapScope, body []byte, current bo
 		result.Mode == IntentModeExternalSeed && (result.PeerReceiptDigest != "" || !validDigest(result.SeedReceiptDigest)) {
 		return Result{}, fmt.Errorf("%w: result receipt binding does not match its mode", ErrInvalidRecord)
 	}
-	if !result.ObservedAt.Equal(envelope.IssuedAt) {
-		return Result{}, fmt.Errorf("%w: result observation time differs from its signed issue time", ErrInvalidRecord)
+	if result.ObservedAt.After(envelope.IssuedAt.Add(ledger.config.TrustPolicy.ClockSkew)) {
+		return Result{}, fmt.Errorf("%w: result observation time is after its signed issue time", ErrInvalidRetryClock)
 	}
 	return result, nil
 }
@@ -252,13 +312,19 @@ func (ledger *Ledger) decodeHead(scope BootstrapScope, body []byte, current bool
 	if err := decodeCanonicalPayload(payload, &head); err != nil || !head.matches(scope, ledger.config.Environment) {
 		return SlotHead{}, fmt.Errorf("%w: HEAD payload does not match signed scope", ErrInvalidRecord)
 	}
-	if head.SchemaVersion != 1 || head.Attempt == 0 || head.Generation == 0 || !validDigest(head.IntentDigest) ||
+	if head.SchemaVersion != 1 && head.SchemaVersion != 2 || head.Attempt == 0 || head.Generation == 0 || !validDigest(head.IntentDigest) ||
 		(head.ResultDigest != "" && !validDigest(head.ResultDigest)) {
 		return SlotHead{}, fmt.Errorf("%w: malformed slot HEAD", ErrInvalidRecord)
 	}
+	if head.SchemaVersion == 1 && (head.CandidateDigest != "" || head.PreviousCandidateDigest != "") ||
+		head.SchemaVersion == 2 && (head.CandidateDigest != "" && !validDigest(head.CandidateDigest) ||
+			head.PreviousCandidateDigest != "" && !validDigest(head.PreviousCandidateDigest)) {
+		return SlotHead{}, fmt.Errorf("%w: malformed candidate binding in slot HEAD", ErrInvalidRecord)
+	}
 	if head.Attempt == 1 {
 		if head.Generation != 1 || head.PreviousAttempt != 0 || head.PreviousGeneration != 0 ||
-			head.PreviousIntentDigest != "" || head.PreviousResultDigest != "" || head.RetirementDigest != "" {
+			head.PreviousIntentDigest != "" || head.PreviousResultDigest != "" ||
+			head.PreviousCandidateDigest != "" || head.RetirementDigest != "" {
 			return SlotHead{}, fmt.Errorf("%w: initial slot HEAD has predecessor fields", ErrInvalidRecord)
 		}
 	} else if head.PreviousAttempt+1 != head.Attempt || head.PreviousGeneration+1 != head.Generation ||
@@ -266,6 +332,85 @@ func (ledger *Ledger) decodeHead(scope BootstrapScope, body []byte, current bool
 		return SlotHead{}, fmt.Errorf("%w: advanced slot HEAD has invalid predecessor fields", ErrInvalidRecord)
 	}
 	return head, nil
+}
+
+func (ledger *Ledger) decodeManagedPeerCandidate(scope BootstrapScope, body []byte,
+	current bool,
+) (ManagedPeerCandidate, trust.Envelope, error) {
+	envelope, payload, err := ledger.signedPayload(body, scope, domainBootstrapCandidate, current)
+	if err != nil {
+		return ManagedPeerCandidate{}, trust.Envelope{}, err
+	}
+	var candidate ManagedPeerCandidate
+	if err := decodeCanonicalPayload(payload, &candidate); err != nil || !candidate.matches(scope, ledger.config.Environment) ||
+		candidate.SchemaVersion != 1 || candidate.Attempt == 0 || candidate.Generation == 0 ||
+		!validDigest(candidate.IntentDigest) || !createTokenPattern.MatchString(candidate.CreateKey) ||
+		!validDigest(candidate.FounderPlanSHA256) || !validDigest(candidate.PeerRowDigest) ||
+		!validDigest(candidate.ManifestDigest) || !validDigest(candidate.LaunchProfileDigest) ||
+		!isOCID(candidate.InstanceOCID, "instance") {
+		return ManagedPeerCandidate{}, trust.Envelope{}, fmt.Errorf("%w: managed-peer candidate is malformed or outside its signed scope", ErrInvalidRecord)
+	}
+	return candidate, envelope, nil
+}
+
+func (candidate ManagedPeerCandidate) matches(scope BootstrapScope, environment string) bool {
+	return candidate.DeploymentID == scope.DeploymentID && candidate.Cell == scope.Cell &&
+		candidate.Environment == environment && candidate.Role == roleController && candidate.Slot == scope.Slot
+}
+
+func validateManagedPeerCandidateForIntent(candidate ManagedPeerCandidate, intent Intent, intentDigest,
+	founderPlanDigest, peerRowDigest, manifestDigest string,
+) error {
+	if intent.Mode != IntentModeManaged || intent.SchemaVersion != 2 || candidate.DeploymentID != intent.DeploymentID ||
+		candidate.Cell != intent.Cell || candidate.Environment != intent.Environment || candidate.Role != intent.Role ||
+		candidate.Slot != intent.Slot || candidate.Attempt != intent.Attempt || candidate.Generation != intent.Generation ||
+		candidate.IntentDigest != intentDigest || candidate.CreateKey != intent.CreateKey ||
+		candidate.FounderPlanSHA256 != intent.FounderPlanSHA256 || candidate.FounderPlanSHA256 != founderPlanDigest ||
+		candidate.PeerRowDigest != intent.PeerRowDigest || candidate.PeerRowDigest != peerRowDigest ||
+		candidate.ManifestDigest != intent.ManifestDigest || candidate.ManifestDigest != manifestDigest ||
+		candidate.LaunchProfileDigest != intent.LaunchRequestDigest {
+		return fmt.Errorf("%w: managed-peer candidate does not match the pinned launch intent", ErrRecordAuthorization)
+	}
+	return nil
+}
+
+func (ledger *Ledger) decodeManagedPeerProgress(scope BootstrapScope, body []byte,
+	current bool,
+) (ManagedPeerProgress, trust.Envelope, error) {
+	envelope, payload, err := ledger.signedPayload(body, scope, domainBootstrapProgress, current)
+	if err != nil {
+		return ManagedPeerProgress{}, trust.Envelope{}, err
+	}
+	var progress ManagedPeerProgress
+	if err := decodeCanonicalPayload(payload, &progress); err != nil || !progress.matches(scope, ledger.config.Environment) ||
+		progress.SchemaVersion != 1 || progress.Attempt == 0 || progress.Generation == 0 || progress.Sequence == 0 ||
+		!validDigest(progress.CandidateDigest) {
+		return ManagedPeerProgress{}, trust.Envelope{}, fmt.Errorf("%w: managed-peer progress is malformed or outside its signed scope", ErrInvalidRecord)
+	}
+	switch progress.Phase {
+	case ManagedPeerProgressCandidate:
+		if progress.PendingProofKind != "" || progress.PendingProofDigest != "" || len(progress.PendingProofWire) != 0 {
+			return ManagedPeerProgress{}, trust.Envelope{}, fmt.Errorf("%w: candidate progress cannot stage proof bytes", ErrInvalidRecord)
+		}
+	case ManagedPeerProgressReceipt, ManagedPeerProgressResult:
+		wantKind := "receipt"
+		if progress.Phase == ManagedPeerProgressResult {
+			wantKind = "result"
+		}
+		if progress.PendingProofKind != wantKind || !validDigest(progress.PendingProofDigest) ||
+			len(progress.PendingProofWire) == 0 || len(progress.PendingProofWire) > maxLedgerRecordBytes ||
+			objectDigest(progress.PendingProofWire) != progress.PendingProofDigest {
+			return ManagedPeerProgress{}, trust.Envelope{}, fmt.Errorf("%w: staged progress proof is incomplete or has a mismatched digest", ErrInvalidRecord)
+		}
+	default:
+		return ManagedPeerProgress{}, trust.Envelope{}, fmt.Errorf("%w: unknown managed-peer progress phase %q", ErrInvalidRecord, progress.Phase)
+	}
+	return progress, envelope, nil
+}
+
+func (progress ManagedPeerProgress) matches(scope BootstrapScope, environment string) bool {
+	return progress.DeploymentID == scope.DeploymentID && progress.Cell == scope.Cell &&
+		progress.Environment == environment && progress.Role == roleController && progress.Slot == scope.Slot
 }
 
 func (ledger *Ledger) decodeRetirement(scope BootstrapScope, body []byte, current bool) (RetirementEvidence, trust.Envelope, error) {

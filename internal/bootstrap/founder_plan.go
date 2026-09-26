@@ -19,6 +19,8 @@ const (
 	MaxFounderPlanBytes      = 64 << 10
 	FounderPlanDomain        = "terrascale.bootstrap.founder-plan"
 	founderPlanPeerCount     = 2
+	founderMinBootVolumeGB   = 50
+	founderMaxBootVolumeGB   = 32768
 )
 
 var (
@@ -134,6 +136,18 @@ type VerifiedFounderPlan struct {
 	verified      bool
 }
 
+// VerifiedCompletedFounderPlan carries only current signed identity for an
+// already completed peer. It cannot authorize a launch, observation, or
+// managed-peer repair, and its verification does not use LaunchDeadline as a
+// restart-admission deadline.
+type VerifiedCompletedFounderPlan struct {
+	seedSlot       string
+	peers          []FounderPeerRow
+	launchDeadline time.Time
+	digest         string
+	verified       bool
+}
+
 // VerifiedFounderPeer is a short-lived, typed pre-quorum launch capability.
 // Before each OCI effect and retry, callers must freshly read the currently
 // selected plan, anchor, and manifests, verify that snapshot, and obtain a new
@@ -142,6 +156,7 @@ type VerifiedFounderPeer struct {
 	row            FounderPeerRow
 	manifest       VerifiedManifest
 	launch         LaunchAuthorization
+	recovery       *ManagedPeerRecoveryAuthorization
 	planDigest     string
 	rowDigest      string
 	effectDeadline time.Time
@@ -166,6 +181,15 @@ type FounderPeerLaunchRequest struct {
 	RetryToken        string
 	HeadETag          string
 	Row               FounderPeerRow
+}
+
+// FounderPeerObservationRequest carries the exact receipt-bound instance
+// identity for the observation-only recovery path. Its Launch fields provide
+// the pinned region, profile, and intent identity; this request does not grant
+// permission to create or retry an instance.
+type FounderPeerObservationRequest struct {
+	Launch       FounderPeerLaunchRequest
+	InstanceOCID string
 }
 
 // Validate checks the closed structural and resource-budget constraints.
@@ -237,7 +261,8 @@ func (row FounderPeerRow) validate(region string) error {
 		strings.TrimSpace(row.AvailabilityDomain) == "" || strings.ContainsAny(row.AvailabilityDomain, " \t\r\n") ||
 		len(row.AvailabilityDomain) > 128 || !faultDomainRE.MatchString(row.FaultDomain) ||
 		!localRegionOCID(row.SubnetOCID, "subnet", region, false) || !shapeRE.MatchString(row.Shape) ||
-		row.WholeOCPUs == 0 || row.MemoryInGB == 0 || row.BootVolumeGB == 0 ||
+		row.WholeOCPUs == 0 || row.MemoryInGB == 0 ||
+		row.BootVolumeGB < founderMinBootVolumeGB || row.BootVolumeGB > founderMaxBootVolumeGB ||
 		!validFounderBootVolumeTier(row.BootVolumeTier) || !validPrivateIPv4(row.PrivateIP) ||
 		len(row.NetworkSecurityGroupOCIDs) > 16 || hasDuplicate(row.NetworkSecurityGroupOCIDs) ||
 		!slices.IsSorted(row.NetworkSecurityGroupOCIDs) {
@@ -343,6 +368,39 @@ func VerifyFounderPlan(
 	now time.Time,
 	policy trust.Policy,
 ) (VerifiedFounderPlan, error) {
+	return verifyFounderPlan(wire, roots, anchorWire, manifestWires, now, policy, true)
+}
+
+// VerifyFounderPlanForCompletedPeerContinuation verifies the exact current
+// root-signed plan, anchor, and manifests for read-only restart admission. A
+// completed peer may restart after the launch deadline while all signatures
+// and the selector remain current; launch APIs still use VerifyFounderPlan.
+func VerifyFounderPlanForCompletedPeerContinuation(
+	wire []byte,
+	roots trust.Keyring,
+	anchorWire []byte,
+	manifestWires map[string][]byte,
+	now time.Time,
+	policy trust.Policy,
+) (VerifiedCompletedFounderPlan, error) {
+	current, err := verifyFounderPlan(wire, roots, anchorWire, manifestWires, now, policy, false)
+	if err != nil {
+		return VerifiedCompletedFounderPlan{}, err
+	}
+	return VerifiedCompletedFounderPlan{seedSlot: current.plan.SeedSlot,
+		peers: cloneFounderPlan(current.plan).Peers, launchDeadline: current.plan.LaunchDeadline,
+		digest: current.digest, verified: true}, nil
+}
+
+func verifyFounderPlan(
+	wire []byte,
+	roots trust.Keyring,
+	anchorWire []byte,
+	manifestWires map[string][]byte,
+	now time.Time,
+	policy trust.Policy,
+	requireCurrentLaunch bool,
+) (VerifiedFounderPlan, error) {
 	if !validFounderNow(now) {
 		return VerifiedFounderPlan{}, fmt.Errorf("%w: current UTC verification time is required", ErrFounderPlanAuthorization)
 	}
@@ -380,7 +438,7 @@ func VerifyFounderPlan(
 		plan.Environment != scope.Environment || plan.SeedSlot != scope.Slot {
 		return VerifiedFounderPlan{}, fmt.Errorf("%w: founder-plan payload differs from its signed scope", ErrFounderPlanAuthorization)
 	}
-	if !now.Before(plan.LaunchDeadline) || !plan.LaunchDeadline.After(envelope.IssuedAt) ||
+	if requireCurrentLaunch && !now.Before(plan.LaunchDeadline) || !plan.LaunchDeadline.After(envelope.IssuedAt) ||
 		plan.LaunchDeadline.After(envelope.IssuedAt.Add(maxRetryAge)) || plan.LaunchDeadline.After(envelope.ExpiresAt) {
 		return VerifiedFounderPlan{}, ErrFounderPlanExpired
 	}
@@ -453,6 +511,33 @@ func VerifyFounderPlan(
 		anchorWire: bytes.Clone(anchorWire), manifestWires: canonicalManifestWires,
 		manifests: verifiedManifests, digest: digest, verified: true,
 	}, nil
+}
+
+func (verified VerifiedCompletedFounderPlan) IsVerified() bool { return verified.verified }
+func (verified VerifiedCompletedFounderPlan) Digest() string   { return verified.digest }
+func (verified VerifiedCompletedFounderPlan) SeedSlot() string { return verified.seedSlot }
+
+// StoredCompletionBeforeLaunchDeadline checks the latest possible instant
+// represented by OCI's whole-second LastModified timestamps. It authorizes no
+// new effect; delayed admission may use only proof completed before launch
+// authority ended.
+func (verified VerifiedCompletedFounderPlan) StoredCompletionBeforeLaunchDeadline(resultStored, headStored time.Time) bool {
+	return verified.verified && !resultStored.IsZero() && !headStored.IsZero() &&
+		resultStored.Location() == time.UTC && headStored.Location() == time.UTC &&
+		!resultStored.Add(time.Second).After(verified.launchDeadline) &&
+		!headStored.Add(time.Second).After(verified.launchDeadline)
+}
+
+func (verified VerifiedCompletedFounderPlan) PeerRow(slot string) (FounderPeerRow, bool) {
+	if !verified.verified {
+		return FounderPeerRow{}, false
+	}
+	for _, row := range verified.peers {
+		if row.Slot == slot {
+			return cloneFounderPeerRow(row), true
+		}
+	}
+	return FounderPeerRow{}, false
 }
 
 func verifyFounderManifest(
@@ -558,6 +643,9 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 	if intent.SchemaVersion != 2 {
 		return VerifiedFounderPeer{}, ErrFounderPlanRequired
 	}
+	if !launch.ServerDate().IsZero() && now.Before(launch.ServerDate()) {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: founder-plan verification time predates the OCI launch read", ErrFounderPeerAuthorization)
+	}
 	if err := validateLaunchTokenBinding(launch, current, row, rowDigest); err != nil {
 		return VerifiedFounderPeer{}, err
 	}
@@ -578,6 +666,183 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 	return VerifiedFounderPeer{
 		row: cloneFounderPeerRow(row), manifest: manifest, launch: launch,
 		planDigest: current.digest, rowDigest: rowDigest, effectDeadline: deadline, verified: true,
+	}, nil
+}
+
+// AuthorizePeerRecovery binds a freshly read ledger recovery state to this
+// exact currently verified founder plan and its immutable intent pins. The
+// returned capability is phase-limited: only clean and manifest-only phases
+// can construct launch requests, while receipt-only provides an observation
+// request for its persisted instance OCID.
+func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
+	slot string,
+	recovery ManagedPeerRecoveryAuthorization,
+	roots trust.Keyring,
+	now time.Time,
+	selectorExpiresAt time.Time,
+	policy trust.Policy,
+) (VerifiedFounderPeer, error) {
+	if !verified.verified || !recovery.verified || !validFounderNow(now) || !validFounderNow(selectorExpiresAt) {
+		return VerifiedFounderPeer{}, ErrFounderPeerAuthorization
+	}
+	serverDate := recovery.ServerDate()
+	authorizationTime := recovery.AuthorizationTime()
+	if serverDate.IsZero() || authorizationTime.IsZero() {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: recovery token has no trusted OCI clock", ErrFounderPeerAuthorization)
+	}
+	// The OCI Date header is a conservative lower bound for checking not-before
+	// times. The final successful read plus one-second header precision and
+	// monotonic elapsed time is the conservative upper bound for expiry checks.
+	// Never let a stale caller-supplied time move either bound backward.
+	if now.After(authorizationTime) {
+		authorizationTime = now
+	}
+	if !selectorExpiresAt.After(authorizationTime) {
+		return VerifiedFounderPeer{}, ErrFounderPlanExpired
+	}
+	lowerBoundPlan, err := VerifyFounderPlan(verified.wire, roots, verified.anchorWire, verified.manifestWires, serverDate, policy)
+	if err != nil {
+		return VerifiedFounderPeer{}, err
+	}
+	current, err := VerifyFounderPlan(verified.wire, roots, verified.anchorWire, verified.manifestWires, authorizationTime, policy)
+	if err != nil {
+		return VerifiedFounderPeer{}, err
+	}
+	if current.digest != lowerBoundPlan.digest || current.anchor.Digest() != lowerBoundPlan.anchor.Digest() {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: root-authorized founder proof changed between trusted clock bounds", ErrFounderPeerAuthorization)
+	}
+	index := slices.IndexFunc(current.plan.Peers, func(row FounderPeerRow) bool { return row.Slot == slot })
+	if index < 0 {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: slot %q is not a planned peer", ErrFounderPeerAuthorization, slot)
+	}
+	row := current.plan.Peers[index]
+	rowDigest, err := FounderPeerRowDigest(row)
+	if err != nil {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: hash peer row: %v", ErrFounderPeerAuthorization, err)
+	}
+	state := recovery.state
+	intent := state.Intent
+	if recovery.scope != (BootstrapScope{DeploymentID: current.plan.DeploymentID, Cell: string(current.plan.Cell), Slot: slot}) ||
+		intent.Mode != IntentModeManaged || intent.SchemaVersion != 2 || intent.Attempt != state.Head.Attempt ||
+		intent.Generation != state.Head.Generation || state.IntentRecord.SHA256 != state.Head.IntentDigest ||
+		objectDigest(state.IntentRecord.Bytes) != state.IntentRecord.SHA256 ||
+		state.Head.ResultDigest != "" && recovery.phase != ManagedPeerRecoveryComplete && recovery.phase != ManagedPeerRecoveryQuarantined ||
+		state.Head.ResultDigest == "" && recovery.phase == ManagedPeerRecoveryComplete ||
+		intent.FounderPlanSHA256 != current.digest || intent.PeerRowDigest != rowDigest ||
+		intent.ManifestDigest != row.ManifestSHA256 || intent.ImageOCID != row.ImageOCID ||
+		!sameProfile(launchProfileForIntent(intent), LaunchProfile{
+			Slot: row.Slot, CompartmentOCID: row.CompartmentOCID, AvailabilityDomain: row.AvailabilityDomain,
+			FaultDomain: row.FaultDomain, SubnetOCID: row.SubnetOCID,
+			NetworkSecurityGroupOCIDs: row.NetworkSecurityGroupOCIDs, Shape: row.Shape,
+		}) || recovery.serverDate.IsZero() {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: recovery state does not pin this exact founder plan row", ErrFounderPeerAuthorization)
+	}
+	manifest := current.manifests[slot]
+	if manifest.Digest() != row.ManifestSHA256 {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: selected manifest digest differs from its founder row", ErrFounderPeerAuthorization)
+	}
+	if state.ManifestRecord != nil && (state.Manifest == nil || state.ManifestRecord.SHA256 != row.ManifestSHA256 ||
+		objectDigest(state.ManifestRecord.Bytes) != state.ManifestRecord.SHA256) {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: persisted manifest differs from the selected founder row", ErrFounderPeerAuthorization)
+	}
+	if state.PeerReceiptRecord != nil && (state.PeerReceipt == nil ||
+		state.PeerReceiptRecord.SHA256 == "" || objectDigest(state.PeerReceiptRecord.Bytes) != state.PeerReceiptRecord.SHA256 ||
+		validatePeerReceiptForIntent(*state.PeerReceipt, intent, state.IntentRecord.SHA256) != nil) {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: persisted peer receipt differs from the current intent", ErrFounderPeerAuthorization)
+	}
+	if state.ResultRecord != nil && (state.Result == nil || state.PeerReceiptRecord == nil ||
+		objectDigest(state.ResultRecord.Bytes) != state.ResultRecord.SHA256 ||
+		validateResultForIntent(*state.Result, intent, state.IntentRecord.SHA256) != nil ||
+		state.Result.PeerReceiptDigest != state.PeerReceiptRecord.SHA256) {
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: persisted result differs from the current intent and receipt", ErrFounderPeerAuthorization)
+	}
+	if state.CandidateRecord != nil {
+		if state.Candidate == nil || state.CandidateRecord.SHA256 == "" ||
+			objectDigest(state.CandidateRecord.Bytes) != state.CandidateRecord.SHA256 ||
+			validateManagedPeerCandidateForIntent(*state.Candidate, intent, state.IntentRecord.SHA256,
+				current.digest, rowDigest, row.ManifestSHA256) != nil {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: persisted candidate differs from the exact current intent and founder row", ErrFounderPeerAuthorization)
+		}
+	}
+	if state.ProgressRecord != nil {
+		if state.Progress == nil || state.ProgressRecord.SHA256 == "" ||
+			objectDigest(state.ProgressRecord.Bytes) != state.ProgressRecord.SHA256 || state.CandidateRecord == nil ||
+			state.Progress.CandidateDigest != state.CandidateRecord.SHA256 ||
+			state.Progress.Attempt != intent.Attempt || state.Progress.Generation != intent.Generation {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: persisted progress does not bind the verified candidate and current intent", ErrFounderPeerAuthorization)
+		}
+	}
+	switch recovery.phase {
+	case ManagedPeerRecoveryClean:
+		if state.ManifestRecord != nil || state.PeerReceiptRecord != nil || state.ResultRecord != nil || state.CandidateRecord != nil ||
+			state.ProgressRecord != nil || state.Head.ResultDigest != "" || state.Head.CandidateDigest != "" {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: clean recovery phase contains durable peer proofs", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryManifestOnly:
+		if state.ManifestRecord == nil || state.PeerReceiptRecord != nil || state.ResultRecord != nil || state.CandidateRecord != nil ||
+			state.ProgressRecord != nil || state.Head.ResultDigest != "" || state.Head.CandidateDigest != "" {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: manifest-only recovery phase has inconsistent records", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryCandidateOnly:
+		if state.CandidateRecord == nil || state.PeerReceiptRecord != nil || state.ResultRecord != nil || state.Head.ResultDigest != "" ||
+			state.Progress != nil && state.Progress.Phase != ManagedPeerProgressCandidate {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: candidate-only recovery phase has inconsistent records", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryProofStaged:
+		if state.CandidateRecord == nil || state.ProgressRecord == nil || state.Progress == nil ||
+			state.Progress.Phase != ManagedPeerProgressReceipt && state.Progress.Phase != ManagedPeerProgressResult {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: proof-staged recovery phase has inconsistent progress", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryQuarantined:
+		if state.CandidateRecord == nil && state.PeerReceipt == nil && state.Result == nil {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: quarantined recovery state has no persisted instance identity", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryReceiptOnly:
+		if state.ManifestRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil ||
+			state.ResultRecord != nil || state.Head.ResultDigest != "" {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: receipt-only recovery phase has inconsistent records", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryResultReady:
+		if state.ManifestRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil ||
+			state.ResultRecord == nil || state.Head.ResultDigest != "" {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: result-ready recovery phase has inconsistent records", ErrFounderPeerAuthorization)
+		}
+	case ManagedPeerRecoveryComplete:
+		if state.ManifestRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil || state.ResultRecord == nil ||
+			state.Head.ResultDigest != state.ResultRecord.SHA256 || state.Head.CandidateDigest != state.CandidateRecord.SHA256 {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: complete recovery phase has inconsistent records", ErrFounderPeerAuthorization)
+		}
+	default:
+		return VerifiedFounderPeer{}, fmt.Errorf("%w: recovery phase is malformed", ErrFounderPeerAuthorization)
+	}
+	deadline := earlierTime(current.plan.LaunchDeadline, current.envelope.ExpiresAt,
+		current.anchor.ExpiresAt(), manifest.expiresAt, selectorExpiresAt)
+	if recovery.phase == ManagedPeerRecoveryClean || recovery.phase == ManagedPeerRecoveryManifestOnly {
+		intentEnvelope, decodeErr := trust.DecodeEnvelope(state.IntentRecord.Bytes)
+		if decodeErr != nil || !intentEnvelope.ExpiresAt.After(authorizationTime) {
+			return VerifiedFounderPeer{}, ErrFounderPlanExpired
+		}
+		if err := CheckRetryWindow(StoredRecord{
+			LastModified: state.IntentRecord.LastModified,
+			ServerDate:   authorizationTime,
+		}); err != nil {
+			return VerifiedFounderPeer{}, fmt.Errorf("%w: original intent retry window is not current: %v", ErrFounderPlanExpired, err)
+		}
+		deadline = earlierTime(deadline, intentEnvelope.ExpiresAt, state.IntentRecord.LastModified.Add(maxRetryAge))
+	}
+	if !authorizationTime.Before(deadline) {
+		return VerifiedFounderPeer{}, ErrFounderPlanExpired
+	}
+	launch := LaunchAuthorization{
+		scope: recovery.scope, intent: intent, intentRecord: cloneStoredRecord(state.IntentRecord),
+		head: state.Head, headRecord: cloneStoredRecord(state.HeadRecord),
+	}
+	recoveryCopy := recovery
+	recoveryCopy.state = cloneSlotState(state)
+	return VerifiedFounderPeer{
+		row: cloneFounderPeerRow(row), manifest: manifest, launch: launch,
+		recovery: &recoveryCopy, planDigest: current.digest, rowDigest: rowDigest,
+		effectDeadline: deadline, verified: true,
 	}, nil
 }
 
@@ -628,8 +893,10 @@ func validateLaunchTokenBinding(launch LaunchAuthorization, plan VerifiedFounder
 // IsVerified reports whether this value came from VerifiedFounderPlan.AuthorizePeer.
 func (verified VerifiedFounderPeer) IsVerified() bool { return verified.verified }
 
-// EffectDeadline is the earliest plan, anchor, manifest, intent, or original
-// OCI retry deadline. It never extends the immutable intent's 23-hour window.
+// EffectDeadline is the earliest signed-plan, anchor, or manifest deadline.
+// Launchable recovery phases also include the original intent and OCI retry
+// deadlines; observation and already-written-result recovery do not renew or
+// depend on that retry window.
 func (verified VerifiedFounderPeer) EffectDeadline() time.Time { return verified.effectDeadline }
 
 // Manifest returns the exact current root-verified peer manifest.
@@ -648,9 +915,32 @@ func (verified VerifiedFounderPeer) LaunchRequest(now time.Time) (FounderPeerLau
 	if !verified.verified || !validFounderNow(now) {
 		return FounderPeerLaunchRequest{}, ErrFounderPeerAuthorization
 	}
+	if verified.recovery != nil {
+		authorizationTime := verified.recovery.AuthorizationTime()
+		if authorizationTime.IsZero() {
+			return FounderPeerLaunchRequest{}, ErrFounderPeerAuthorization
+		}
+		if now.Before(authorizationTime) {
+			now = authorizationTime
+		}
+	}
+	if !verified.launch.intentRecord.ServerDate.IsZero() && now.Before(verified.launch.intentRecord.ServerDate) {
+		return FounderPeerLaunchRequest{}, fmt.Errorf("%w: request time predates the OCI launch read", ErrFounderPeerAuthorization)
+	}
+	if verified.recovery != nil && now.Before(verified.recovery.serverDate.Add(time.Second)) {
+		return FounderPeerLaunchRequest{}, fmt.Errorf("%w: request time predates the final OCI recovery read", ErrFounderPeerAuthorization)
+	}
 	if !now.Before(verified.effectDeadline) {
 		return FounderPeerLaunchRequest{}, ErrFounderPlanExpired
 	}
+	if verified.recovery != nil && verified.recovery.phase != ManagedPeerRecoveryClean &&
+		verified.recovery.phase != ManagedPeerRecoveryManifestOnly {
+		return FounderPeerLaunchRequest{}, fmt.Errorf("%w: recovery phase %q does not authorize an OCI launch", ErrFounderPeerAuthorization, verified.recovery.phase)
+	}
+	return verified.launchRequest(), nil
+}
+
+func (verified VerifiedFounderPeer) launchRequest() FounderPeerLaunchRequest {
 	intent := verified.launch.intent
 	return FounderPeerLaunchRequest{
 		DeploymentID: intent.DeploymentID, Cell: oci.Region(intent.Cell), Environment: intent.Environment,
@@ -659,6 +949,47 @@ func (verified VerifiedFounderPeer) LaunchRequest(now time.Time) (FounderPeerLau
 		PeerRowSHA256: verified.rowDigest, ManifestSHA256: verified.row.ManifestSHA256,
 		CreateKey: intent.CreateKey, RetryToken: intent.RetryToken, HeadETag: verified.launch.headRecord.ETag,
 		Row: cloneFounderPeerRow(verified.row),
+	}
+}
+
+// ObservationRequest authorizes observing only the exact instance already
+// named by a persisted, verified peer receipt. Other recovery phases have no
+// observation-only capability.
+func (verified VerifiedFounderPeer) ObservationRequest(now time.Time) (FounderPeerObservationRequest, error) {
+	if !verified.verified || verified.recovery == nil ||
+		verified.recovery.phase != ManagedPeerRecoveryReceiptOnly &&
+			verified.recovery.phase != ManagedPeerRecoveryCandidateOnly &&
+			verified.recovery.phase != ManagedPeerRecoveryProofStaged &&
+			verified.recovery.phase != ManagedPeerRecoveryQuarantined || !validFounderNow(now) {
+		return FounderPeerObservationRequest{}, ErrFounderPeerAuthorization
+	}
+	authorizationTime := verified.recovery.AuthorizationTime()
+	if authorizationTime.IsZero() {
+		return FounderPeerObservationRequest{}, ErrFounderPeerAuthorization
+	}
+	if now.Before(authorizationTime) {
+		now = authorizationTime
+	}
+	if now.Before(verified.recovery.serverDate.Add(time.Second)) {
+		return FounderPeerObservationRequest{}, fmt.Errorf("%w: request time predates the OCI recovery read", ErrFounderPeerAuthorization)
+	}
+	if !now.Before(verified.effectDeadline) {
+		return FounderPeerObservationRequest{}, ErrFounderPlanExpired
+	}
+	state := verified.recovery.state
+	instanceOCID := ""
+	if state.Candidate != nil {
+		instanceOCID = state.Candidate.InstanceOCID
+	} else if state.PeerReceipt != nil {
+		instanceOCID = state.PeerReceipt.InstanceOCID
+	} else if state.Result != nil {
+		instanceOCID = state.Result.InstanceOCID
+	}
+	if !isOCID(instanceOCID, "instance") {
+		return FounderPeerObservationRequest{}, fmt.Errorf("%w: recovery state has no verified instance identity", ErrFounderPeerAuthorization)
+	}
+	return FounderPeerObservationRequest{
+		Launch: verified.launchRequest(), InstanceOCID: instanceOCID,
 	}, nil
 }
 

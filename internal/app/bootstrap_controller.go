@@ -64,7 +64,28 @@ func bootstrapController(ctx context.Context, cfg Config) error {
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
+	present, err = acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().Read)
+	if err != nil {
+		return err
+	}
+	if present {
+		// The service-account controller performs full restart admission.
+		return nil
+	}
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-initial", "/proc/self/exe")
+}
+
+func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedInstall, error)) (bool, error) {
+	if read == nil {
+		return false, errors.New("accepted controller install reader is unavailable")
+	}
+	if _, err := read(); err == nil {
+		return true, nil
+	} else if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	} else {
+		return false, fmt.Errorf("read accepted controller install: %w", err)
+	}
 }
 
 func superviseControllerRestart(ctx context.Context, cfg Config) error {
@@ -201,6 +222,22 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		ClockCheck: clockCheck,
 	}
 	if initial {
+		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall,
+			state bootstrap.SlotState, now time.Time,
+		) error {
+			checker, err := bootstrapstart.NewOCIFounderPeerContinuation(baked, marker, serviceUID, serviceGID)
+			if err != nil {
+				return err
+			}
+			return checker.Initialize(ctx, marker, state, now)
+		}
+		floor, err := bootstrapstart.NewServiceFounderSelectionFloorStore(serviceUID)
+		if err != nil {
+			return err
+		}
+		gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
+			return bootstrapstart.ProvisionInitialFounderFloor(ctx, baked, marker, floor, serviceUID, serviceGID, now, clockCheck)
+		}
 		if err := clockCheck(); err != nil {
 			return fmt.Errorf("production controller startup NTP clock health: %w", err)
 		}
@@ -221,7 +258,7 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		if err != nil {
 			return err
 		}
-		_, err = gate.AdmitInitial(ctx)
+		_, err = gate.AdmitInitialWhenReady(ctx)
 		return err
 	}
 	marker, err := markers.Read()
@@ -243,6 +280,12 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	gate.Material, err = bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
 	if err != nil {
 		return err
+	}
+	if marker.Slot != marker.SeedSlot {
+		gate.Continuation, err = bootstrapstart.NewOCIFounderPeerContinuation(baked, marker, serviceUID, serviceGID)
+		if err != nil {
+			return err
+		}
 	}
 	_, err = gate.AdmitRestart(ctx)
 	return err

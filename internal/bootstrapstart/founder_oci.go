@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
@@ -26,15 +27,33 @@ const (
 // FounderPeerRefresh must strongly read the current selected root authority and
 // the current ledger HEAD and intent, then return a newly authorized peer and
 // fresh OCI server time. It is called immediately before every SDK request.
-type FounderPeerRefresh func(context.Context) (bootstrap.VerifiedFounderPeer, time.Time, error)
+type FounderPeerRefresh func(context.Context) (bootstrap.VerifiedFounderPeer, time.Time, time.Time, error)
 
 // FounderOCIAttempt pins the original request and deadline across lost-response
 // retries. A subsequent selected plan or ledger attempt cannot silently replace
 // the retry token or extend the original 23-hour window.
 type FounderOCIAttempt struct {
-	request  bootstrap.FounderPeerLaunchRequest
-	deadline time.Time
-	valid    bool
+	request         bootstrap.FounderPeerLaunchRequest
+	deadline        time.Time
+	observationOnly bool
+	candidateID     string
+	valid           bool
+}
+
+// NewFounderOCIObservationAttempt permits only reobservation of the exact
+// candidate named by an already durable delegated peer receipt. It cannot be
+// passed to Launch to create another instance.
+func NewFounderOCIObservationAttempt(peer bootstrap.VerifiedFounderPeer, now time.Time) (FounderOCIAttempt, error) {
+	request, err := peer.ObservationRequest(now)
+	if err != nil {
+		return FounderOCIAttempt{}, err
+	}
+	if !peer.IsVerified() || peer.EffectDeadline().IsZero() || request.Launch.RetryToken == "" ||
+		!instanceIDRE.MatchString(request.InstanceOCID) {
+		return FounderOCIAttempt{}, ErrFounderOCI
+	}
+	return FounderOCIAttempt{request: request.Launch, deadline: peer.EffectDeadline(),
+		observationOnly: true, candidateID: request.InstanceOCID, valid: true}, nil
 }
 
 func NewFounderOCIAttempt(peer bootstrap.VerifiedFounderPeer, now time.Time) (FounderOCIAttempt, error) {
@@ -110,22 +129,39 @@ func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider) (*F
 }
 
 func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh) (context.Context, context.CancelFunc, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if adapter == nil || adapter.compute == nil || adapter.network == nil || adapter.volume == nil ||
 		!attempt.valid || refresh == nil || attempt.request.Cell != adapter.region {
 		return nil, nil, ErrFounderOCI
 	}
-	peer, now, err := refresh(ctx)
+	refreshStarted := time.Now()
+	peer, now, selectionExpiresAt, err := refresh(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("refresh founder authority: %w", err)
 	}
-	current, err := peer.LaunchRequest(now)
-	if err != nil {
-		return nil, nil, err
+	var current bootstrap.FounderPeerLaunchRequest
+	if attempt.observationOnly {
+		observation, observationErr := peer.ObservationRequest(now)
+		if observationErr != nil || observation.InstanceOCID != attempt.candidateID {
+			return nil, nil, ErrFounderOCI
+		}
+		current = observation.Launch
+	} else {
+		current, err = peer.LaunchRequest(now)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	if !sameFounderAttempt(attempt, current, peer.EffectDeadline(), now) {
 		return nil, nil, ErrFounderOCI
 	}
-	remaining := min(peer.EffectDeadline().Sub(now), attempt.deadline.Sub(now))
+	if selectionExpiresAt.IsZero() || selectionExpiresAt.Location() != time.UTC {
+		return nil, nil, ErrFounderOCI
+	}
+	remaining := min(peer.EffectDeadline().Sub(now), attempt.deadline.Sub(now), selectionExpiresAt.Sub(now)) -
+		time.Since(refreshStarted)
 	if remaining <= 0 {
 		return nil, nil, bootstrap.ErrFounderPlanExpired
 	}
@@ -166,6 +202,9 @@ func (adapter *FounderOCI) checkImage(ctx context.Context, attempt FounderOCIAtt
 // retry only by calling Launch again with the same attempt and a fresh reader.
 // No tag or display-name search can recover or adopt an instance here.
 func (adapter *FounderOCI) Launch(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh) (string, error) {
+	if attempt.observationOnly {
+		return "", ErrFounderOCI
+	}
 	if err := adapter.checkImage(ctx, attempt, refresh); err != nil {
 		return "", err
 	}
@@ -176,6 +215,9 @@ func (adapter *FounderOCI) Launch(ctx context.Context, attempt FounderOCIAttempt
 	defer cancel()
 	request, err := founderLaunchSDKRequest(attempt.request)
 	if err != nil {
+		return "", err
+	}
+	if err := effectCtx.Err(); err != nil {
 		return "", err
 	}
 	response, err := adapter.compute.LaunchInstance(effectCtx, request)
@@ -245,12 +287,23 @@ type FounderOCIObservation struct {
 	MemoryInGB    uint32
 	BootVolumeGB  uint32
 	BootVPUsPerGB uint32
+	ObservedAt    time.Time
+	observedMono  time.Time
+}
+
+func (observed FounderOCIObservation) fresh() bool {
+	if observed.InstanceOCID == "" || observed.ObservedAt.IsZero() || observed.observedMono.IsZero() {
+		return false
+	}
+	age := time.Since(observed.observedMono)
+	return age >= 0 && age <= bootstrap.ManagedPeerObservationMaxAge
 }
 
 // Observe rereads Compute, image, VNIC and boot-volume facts. Each OCI read is
 // individually preceded by refresh; a partial observation is never evidence.
 func (adapter *FounderOCI) Observe(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh, instanceID string) (FounderOCIObservation, error) {
-	if !instanceIDRE.MatchString(instanceID) {
+	started := time.Now()
+	if !instanceIDRE.MatchString(instanceID) || attempt.observationOnly && instanceID != attempt.candidateID {
 		return FounderOCIObservation{}, ErrFounderOCI
 	}
 	row := attempt.request.Row
@@ -270,7 +323,7 @@ func (adapter *FounderOCI) Observe(ctx context.Context, attempt FounderOCIAttemp
 	if err != nil {
 		return FounderOCIObservation{}, err
 	}
-	if !founderInstanceMatches(instance, instanceID, row, string(descriptor)) {
+	if !founderInstanceMatches(instance, instanceID, row, string(descriptor)) || value(instanceResponse.Etag) == "" {
 		return FounderOCIObservation{}, ErrFounderOCI
 	}
 	if err := adapter.checkImage(ctx, attempt, refresh); err != nil {
@@ -280,11 +333,15 @@ func (adapter *FounderOCI) Observe(ctx context.Context, attempt FounderOCIAttemp
 	if err != nil {
 		return FounderOCIObservation{}, err
 	}
-	bootID, volume, err := adapter.observeFounderBootVolume(ctx, attempt, refresh, instanceID)
+	bootID, volume, observedAt, err := adapter.observeFounderBootVolume(ctx, attempt, refresh, instanceID)
 	if err != nil {
 		return FounderOCIObservation{}, err
 	}
 	if !founderObservationImageProven(instance, volume, row) {
+		return FounderOCIObservation{}, ErrFounderOCI
+	}
+	finished := time.Now()
+	if finished.Sub(started) > bootstrap.ManagedPeerObservationMaxAge || observedAt.IsZero() || observedAt.Location() != time.UTC {
 		return FounderOCIObservation{}, ErrFounderOCI
 	}
 	return FounderOCIObservation{
@@ -292,6 +349,7 @@ func (adapter *FounderOCI) Observe(ctx context.Context, attempt FounderOCIAttemp
 		BootVolumeID: bootID, CompartmentID: row.CompartmentOCID, ImageID: row.ImageOCID,
 		PrivateIP: row.PrivateIP, Shape: row.Shape, WholeOCPUs: row.WholeOCPUs,
 		MemoryInGB: row.MemoryInGB, BootVolumeGB: row.BootVolumeGB, BootVPUsPerGB: 10,
+		ObservedAt: observedAt, observedMono: finished,
 	}, nil
 }
 
@@ -383,11 +441,11 @@ func (adapter *FounderOCI) observeFounderVNIC(ctx context.Context, attempt Found
 	return vnicID, nil
 }
 
-func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh, instanceID string) (string, core.BootVolume, error) {
+func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh, instanceID string) (string, core.BootVolume, time.Time, error) {
 	row := attempt.request.Row
 	effectCtx, cancel, err := adapter.beforeEffect(ctx, attempt, refresh)
 	if err != nil {
-		return "", core.BootVolume{}, err
+		return "", core.BootVolume{}, time.Time{}, err
 	}
 	attachments, err := adapter.compute.ListBootVolumeAttachments(effectCtx, core.ListBootVolumeAttachmentsRequest{
 		AvailabilityDomain: new(row.AvailabilityDomain), CompartmentId: new(row.CompartmentOCID),
@@ -395,10 +453,10 @@ func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt
 	})
 	cancel()
 	if err != nil {
-		return "", core.BootVolume{}, fmt.Errorf("ListBootVolumeAttachments founder candidate: %w", err)
+		return "", core.BootVolume{}, time.Time{}, fmt.Errorf("ListBootVolumeAttachments founder candidate: %w", err)
 	}
 	if value(attachments.OpcNextPage) != "" || len(attachments.Items) != 1 {
-		return "", core.BootVolume{}, ErrFounderOCI
+		return "", core.BootVolume{}, time.Time{}, ErrFounderOCI
 	}
 	attachment := attachments.Items[0]
 	bootID := value(attachment.BootVolumeId)
@@ -406,24 +464,31 @@ func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt
 		value(attachment.AvailabilityDomain) != row.AvailabilityDomain ||
 		attachment.LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
 		!strings.HasPrefix(bootID, "ocid1.bootvolume.") {
-		return "", core.BootVolume{}, ErrFounderOCI
+		return "", core.BootVolume{}, time.Time{}, ErrFounderOCI
 	}
 	effectCtx, cancel, err = adapter.beforeEffect(ctx, attempt, refresh)
 	if err != nil {
-		return "", core.BootVolume{}, err
+		return "", core.BootVolume{}, time.Time{}, err
 	}
 	response, err := adapter.volume.GetBootVolume(effectCtx, core.GetBootVolumeRequest{
 		BootVolumeId: new(bootID), RequestMetadata: noFounderSDKRetry(),
 	})
 	cancel()
 	if err != nil {
-		return "", core.BootVolume{}, fmt.Errorf("GetBootVolume exact founder boot volume: %w", err)
+		return "", core.BootVolume{}, time.Time{}, fmt.Errorf("GetBootVolume exact founder boot volume: %w", err)
 	}
 	volume := response.BootVolume
 	if !founderBootVolumeMatches(volume, bootID, row) {
-		return "", core.BootVolume{}, ErrFounderOCI
+		return "", core.BootVolume{}, time.Time{}, ErrFounderOCI
 	}
-	return bootID, volume, nil
+	if response.RawResponse == nil {
+		return "", core.BootVolume{}, time.Time{}, ErrFounderOCI
+	}
+	observedAt, err := http.ParseTime(response.RawResponse.Header.Get("Date"))
+	if err != nil || observedAt.IsZero() {
+		return "", core.BootVolume{}, time.Time{}, ErrFounderOCI
+	}
+	return bootID, volume, observedAt.UTC(), nil
 }
 
 func founderVNICMatches(vnic core.Vnic, vnicID string, row bootstrap.FounderPeerRow) bool {

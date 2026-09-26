@@ -15,6 +15,7 @@ BUILDER = ROOT / "deploy/image/build-offline.sh"
 BOOTSTRAP_DIRECTORY = "/etc/terrascale-orchestrator/bootstrap"
 MARKER_DIRECTORY = "/var/lib/terrascale-orchestrator-bootstrap"
 SECRETS_DIRECTORY = "/var/lib/terrascale-orchestrator-secrets"
+CONTROLLER_DIRECTORY = "/var/lib/terrascale-orchestrator-controller"
 TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 BAKED_LOADER = ROOT / "internal/bootstrapstart/baked.go"
@@ -364,6 +365,10 @@ printf '{}\\n'
             f"install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 {SECRETS_DIRECTORY}",
             guest_commands,
         )
+        self.assertIn(
+            f"install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 {CONTROLLER_DIRECTORY}",
+            guest_commands,
+        )
         self.assertIn(f"chmod 0755 {BOOTSTRAP_DIRECTORY} {BOOTSTRAP_DIRECTORY}/trust-roots", guest_commands)
         self.assertIn(
             f"chmod 0444 {BOOTSTRAP_DIRECTORY}/anchor.json {BOOTSTRAP_DIRECTORY}/identity.json {BOOTSTRAP_DIRECTORY}/trust-roots/*.pem",
@@ -506,8 +511,16 @@ printf '{}\\n'
             bootstrap_unit,
         )
         self.assertIn("TimeoutStartSec=300s", bootstrap_unit)
+        self.assertIn("Type=oneshot", bootstrap_unit)
+        self.assertIn("Restart=on-failure", bootstrap_unit)
+        self.assertIn("RestartSec=10s", bootstrap_unit)
+        self.assertIn("OnSuccess=terrascale-orchestrator-controller.service", bootstrap_unit)
         self.assertIn(
             "CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL",
+            bootstrap_unit,
+        )
+        self.assertIn(
+            f"ReadWritePaths={MARKER_DIRECTORY} {SECRETS_DIRECTORY} {CONTROLLER_DIRECTORY} /run/terrascale-orchestrator-bootstrap",
             bootstrap_unit,
         )
         self.assertIn(

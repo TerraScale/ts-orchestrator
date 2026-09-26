@@ -197,9 +197,9 @@ func authorizeSecretMaterialization(manifest VerifiedManifest, receipt VerifiedR
 	switch reference.Purpose {
 	case SecretRegionalShared:
 		return nil
-	case SecretSeedFounder:
+	case SecretSeedFounder, SecretSeedLedgerSigner:
 		if receipt.receipt.Slot != manifest.manifest.SeedSlot {
-			return fmt.Errorf("%w: founder secret requires the exact seed receipt", ErrReceiptInvalid)
+			return fmt.Errorf("%w: seed signer secret requires the exact seed receipt", ErrReceiptInvalid)
 		}
 	case SecretController:
 		if reference.Slot != receipt.receipt.Slot {

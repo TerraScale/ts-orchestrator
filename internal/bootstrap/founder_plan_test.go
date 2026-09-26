@@ -248,6 +248,67 @@ func (fixture founderPlanFixture) verify(t *testing.T) VerifiedFounderPlan {
 	return verified
 }
 
+func TestCompletedFounderPlanVerificationSurvivesLaunchDeadlineOnly(t *testing.T) {
+	fixture := newFounderPlanFixture(t)
+	fixture.plan.LaunchDeadline = fixture.now.Add(3 * time.Minute)
+	fixture.planWire = signFounderPlanWire(t, fixture.plan, fixture.plan.SeedSlot,
+		fixture.authority.rootPrivate, fixture.now.Add(-time.Minute), fixture.now.Add(23*time.Hour))
+	restartedAt := fixture.now.Add(4 * time.Minute)
+	if _, err := VerifyFounderPlan(fixture.planWire, fixture.authority.roots, fixture.anchorWire,
+		fixture.manifestWires, restartedAt, fixture.policy); !errors.Is(err, ErrFounderPlanExpired) {
+		t.Fatalf("launch-capable verifier accepted expired launch window: %v", err)
+	}
+	completed, err := VerifyFounderPlanForCompletedPeerContinuation(fixture.planWire,
+		fixture.authority.roots, fixture.anchorWire, fixture.manifestWires, restartedAt, fixture.policy)
+	if err != nil || !completed.IsVerified() || completed.Digest() != digestBytes(fixture.planWire) ||
+		completed.SeedSlot() != fixture.plan.SeedSlot {
+		t.Fatalf("read-only completed plan verification: %+v err=%v", completed, err)
+	}
+	if !completed.StoredCompletionBeforeLaunchDeadline(fixture.plan.LaunchDeadline.Add(-time.Second),
+		fixture.plan.LaunchDeadline.Add(-time.Second)) ||
+		completed.StoredCompletionBeforeLaunchDeadline(fixture.plan.LaunchDeadline, fixture.plan.LaunchDeadline) {
+		t.Fatal("completed plan did not conservatively enforce durable proof timing")
+	}
+	deadline := fixture.plan.LaunchDeadline
+	for _, test := range []struct {
+		name         string
+		resultStored time.Time
+		headStored   time.Time
+		want         bool
+	}{
+		{name: "both durably before deadline", resultStored: deadline.Add(-2 * time.Second),
+			headStored: deadline.Add(-time.Second), want: true},
+		{name: "result timely but head late", resultStored: deadline.Add(-2 * time.Second),
+			headStored: deadline, want: false},
+		{name: "result late but head timely", resultStored: deadline,
+			headStored: deadline.Add(-time.Second), want: false},
+		{name: "result in deadline second", resultStored: deadline.Add(-time.Second / 2),
+			headStored: deadline.Add(-2 * time.Second), want: false},
+		{name: "head in deadline second", resultStored: deadline.Add(-2 * time.Second),
+			headStored: deadline.Add(-time.Second / 2), want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := completed.StoredCompletionBeforeLaunchDeadline(test.resultStored, test.headStored); got != test.want {
+				t.Fatalf("stored completion before deadline = %t, want %t", got, test.want)
+			}
+		})
+	}
+	row, ok := completed.PeerRow("controller-a")
+	if !ok || row.ManifestSHA256 != fixture.plan.Peers[0].ManifestSHA256 {
+		t.Fatalf("completed plan lost exact peer row: %+v ok=%v", row, ok)
+	}
+	row.NetworkSecurityGroupOCIDs[0] = "changed"
+	rowAgain, _ := completed.PeerRow("controller-a")
+	if rowAgain.NetworkSecurityGroupOCIDs[0] == "changed" {
+		t.Fatal("read-only peer row exposed mutable plan storage")
+	}
+	if _, err := VerifyFounderPlanForCompletedPeerContinuation(fixture.planWire,
+		fixture.authority.roots, fixture.anchorWire, fixture.manifestWires,
+		fixture.now.Add(24*time.Hour), fixture.policy); err == nil {
+		t.Fatal("expired signed plan authorized completed-peer continuation")
+	}
+}
+
 func TestVerifyFounderPlanAndAuthorizePeerFromExactLaunchToken(t *testing.T) {
 	fixture := newFounderPlanFixture(t)
 	verified := fixture.verify(t)
@@ -352,6 +413,8 @@ func TestFounderPlanValidatesExactPeersBudgetAndBoundedTopology(t *testing.T) {
 		{name: "missing peer", mutate: func(plan *FounderPlan) { plan.Peers = plan.Peers[:1] }},
 		{name: "invalid image compartment", mutate: func(plan *FounderPlan) { plan.Peers[0].ImageCompartmentOCID = "ocid1.tenancy.oc1..imageowner" }},
 		{name: "unsupported boot tier", mutate: func(plan *FounderPlan) { plan.Peers[0].BootVolumeTier = FounderBootVolumeTier("custom") }},
+		{name: "boot volume below OCI minimum", mutate: func(plan *FounderPlan) { plan.Peers[0].BootVolumeGB = 49 }},
+		{name: "boot volume above OCI maximum", mutate: func(plan *FounderPlan) { plan.Peers[0].BootVolumeGB = 32769 }},
 		{name: "duplicate slot", mutate: func(plan *FounderPlan) { plan.Peers[1].Slot = plan.Peers[0].Slot }},
 		{name: "duplicate IP", mutate: func(plan *FounderPlan) { plan.Peers[1].PrivateIP = plan.Peers[0].PrivateIP }},
 		{name: "duplicate seed IP", mutate: func(plan *FounderPlan) { plan.Peers[0].PrivateIP = plan.SeedPrivateIP }},
@@ -375,6 +438,13 @@ func TestFounderPlanValidatesExactPeersBudgetAndBoundedTopology(t *testing.T) {
 	}
 	if err := fixture.plan.Validate(); err != nil {
 		t.Fatalf("valid exact-two-peer budget/topology: %v", err)
+	}
+	maxVolumePlan := cloneFounderPlan(fixture.plan)
+	maxVolumePlan.Peers[0].BootVolumeGB = 32768
+	maxVolumePlan.Peers[1].BootVolumeGB = 32768
+	maxVolumePlan.Budget.BootVolumeGB = 65536
+	if err := maxVolumePlan.Validate(); err != nil {
+		t.Fatalf("maximum OCI boot-volume size should be accepted: %v", err)
 	}
 	if vpusPerGB, supported := FounderBootVolumeTierBalanced.VPUsPerGB(); !supported || vpusPerGB != 10 {
 		t.Fatalf("balanced boot-volume VPUs/GB = %d, supported %v; want 10, true", vpusPerGB, supported)
@@ -494,7 +564,8 @@ func (fixture founderPlanFixture) launchAuthorization(
 	client.setNow(fixture.now)
 	controllerSlots := slices.Clone(fixture.plan.ControllerSlots)
 	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult} {
+	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult,
+		domainBootstrapCandidate, domainBootstrapProgress} {
 		capabilities = append(capabilities, trust.Capability{
 			Domain: domain, DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
 			Environment: fixture.plan.Environment, Role: roleController, Slots: slices.Clone(controllerSlots), Actions: []string{"sign"},
@@ -579,7 +650,7 @@ func (fixture founderPlanFixture) launchAuthorization(
 		t.Fatal(err)
 	}
 	head := SlotHead{
-		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: anchor.Environment,
+		SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: anchor.Environment,
 		Role: roleController, Slot: row.Slot, Attempt: 1, Generation: 1, IntentDigest: digestBytes(intentWire),
 	}
 	headPayload, err := trust.EncodePayload(head)

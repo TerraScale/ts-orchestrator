@@ -402,6 +402,7 @@ chown root:root /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrasca
 chmod 0444 /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json /etc/terrascale-orchestrator/bootstrap/trust-roots/*.pem
 install -d -o root -g root -m 0755 /var/lib/terrascale-orchestrator-bootstrap
 install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-secrets
+install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-controller
 chown root:root /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf
 SYSTEMD_OFFLINE=1 systemctl enable systemd-timesyncd.service systemd-time-wait-sync.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service
 for time_unit in systemd-timesyncd.service systemd-time-wait-sync.service; do

@@ -13,6 +13,7 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -27,11 +28,62 @@ import (
 // qualification source. Production startup and broker authority share a probe.
 var controllerBrokerClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
+var controllerFounderProduction = runAdmittedControllerFounder
+
+func runAdmittedControllerFounder(ctx context.Context) error {
+	// The admission child is a process boundary. Reread the trusted public
+	// inputs and accepted marker in this process before any founder work.
+	baked, err := bootstrapstart.LoadBakedInputs()
+	if err != nil {
+		return fmt.Errorf("reread baked controller founder inputs: %w", err)
+	}
+	accepted, err := bootstrapstart.NewMarkerStore().Read()
+	if err != nil {
+		return fmt.Errorf("reread accepted controller founder install: %w", err)
+	}
+	serviceUID, serviceGID, err := controllerServiceIdentity()
+	if err != nil {
+		return err
+	}
+	return bootstrapstart.RunAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID)
+}
+
 func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 	return func() error {
 		_, err := brokerauth.MeasureHealthyClock(probe)
 		return err
 	}
+}
+
+// The seed must start peer founding while the embedded broker waits for its
+// regional quorum. Both paths must succeed before controller authority starts.
+func waitForFounderAndCluster(ctx context.Context, waitCluster,
+	foundPeers func(context.Context) error,
+) error {
+	if foundPeers == nil {
+		return waitCluster(ctx)
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type startupResult struct {
+		name string
+		err  error
+	}
+	results := make(chan startupResult, 2)
+	go func() { results <- startupResult{name: "wait for regional NATS cluster", err: waitCluster(runCtx)} }()
+	go func() { results <- startupResult{name: "found admitted seed peers", err: foundPeers(runCtx)} }()
+	var firstErr error
+	for range 2 {
+		result := <-results
+		if result.err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", result.name, result.err)
+			cancel()
+		}
+	}
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
 }
 
 func runController(ctx context.Context, cfg Config, output io.Writer) error {
@@ -91,10 +143,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer runtime.Close()
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
-	_, _, err = retryControllerOpen(ctx, "wait for regional NATS cluster", fullClusterReady, false,
-		func(attempt context.Context) (struct{}, error) {
-			return struct{}{}, runtime.WaitForCluster(attempt, cfg.NATS.Replicas)
-		}, nil)
+	waitCluster := func(waitCtx context.Context) error {
+		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
+			func(attempt context.Context) (struct{}, error) {
+				return struct{}{}, runtime.WaitForCluster(attempt, cfg.NATS.Replicas)
+			}, nil)
+		return err
+	}
+	var foundPeers func(context.Context) error
+	if !cfg.NATS.Lab {
+		foundPeers = controllerFounderProduction
+	}
+	err = waitForFounderAndCluster(ctx, waitCluster, foundPeers)
 	if err != nil {
 		return err
 	}

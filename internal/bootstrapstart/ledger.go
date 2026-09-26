@@ -31,6 +31,34 @@ func (opener InstancePrincipalLedgerOpener) OpenCurrentLedger(ctx context.Contex
 	return openInstancePrincipalLedger(ctx, config, opener.provider)
 }
 
+// OpenSelectedFounderLedger gives the admitted seed the launch-capable ledger
+// for the currently selected anchor. A historical baked anchor cannot grant
+// writes after selection changes.
+func OpenSelectedFounderLedger(ctx context.Context, selected CurrentFounderAuthority,
+	roots trust.Keyring,
+) (*bootstrap.Ledger, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	config, err := currentLedgerConfig(selected.Anchor, roots)
+	if err != nil || !selected.Plan.IsVerified() ||
+		selected.Plan.Plan().AnchorSHA256 != selected.Anchor.Digest() {
+		return nil, ErrLedgerGrant
+	}
+	provider, err := newOCIAdmissionProvider(config)
+	if err != nil {
+		return nil, err
+	}
+	ledger, err := bootstrap.NewInstancePrincipalLedgerWithProvider(config.Cell, config, provider)
+	if err != nil {
+		return nil, fmt.Errorf("open selected founder ledger: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return ledger, nil
+}
+
 // currentLedgerConfig derives Object Storage scope only from a root-verified,
 // currently valid baked anchor and its single verified ledger grant.
 func currentLedgerConfig(verified bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring) (bootstrap.LedgerConfig, error) {
@@ -53,7 +81,7 @@ func (opener InstancePrincipalLedgerOpener) OpenHistoricalLedger(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	return openInstancePrincipalLedger(ctx, config, opener.provider)
+	return openHistoricalInstancePrincipalLedger(ctx, config, opener.provider)
 }
 
 // historicalLedgerConfig is only for historical ReadSlot evidence.
@@ -134,6 +162,28 @@ func openInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerCon
 	}
 	if err != nil {
 		return nil, fmt.Errorf("open anchor-scoped OCI bootstrap ledger: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return readOnlyLedger{ledger: ledger}, nil
+}
+
+func openHistoricalInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerConfig,
+	provider common.ConfigurationProvider,
+) (SlotReader, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var ledger *bootstrap.Ledger
+	var err error
+	if provider == nil {
+		ledger, err = bootstrap.NewHistoricalInstancePrincipalLedger(config.Cell, config)
+	} else {
+		ledger, err = bootstrap.NewHistoricalInstancePrincipalLedgerWithProvider(config.Cell, config, provider)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("open historical anchor-scoped OCI bootstrap ledger: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

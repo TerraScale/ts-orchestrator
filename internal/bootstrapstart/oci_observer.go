@@ -34,13 +34,9 @@ type OCIInstanceObserver struct {
 }
 
 func NewOCIInstanceObserver(region oci.Region, provider common.ConfigurationProvider) (*OCIInstanceObserver, error) {
-	ociRegion, err := region.OCIRegion()
-	if err != nil || provider == nil {
-		return nil, ErrInstanceObservation
-	}
-	providerRegion, err := provider.Region()
-	if err != nil || providerRegion != ociRegion {
-		return nil, ErrInstanceObservation
+	ociRegion, err := observerRegion(region, provider)
+	if err != nil {
+		return nil, err
 	}
 	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
 	if err != nil {
@@ -61,6 +57,18 @@ func NewOCIInstanceObserver(region oci.Region, provider common.ConfigurationProv
 		return nil, fmt.Errorf("configure OCI Networking HTTP transport: %w", err)
 	}
 	return &OCIInstanceObserver{compute: &compute, network: &network}, nil
+}
+
+func observerRegion(region oci.Region, provider common.ConfigurationProvider) (string, error) {
+	ociRegion, err := region.OCIRegion()
+	if err != nil || provider == nil {
+		return "", ErrInstanceObservation
+	}
+	providerRegion, err := provider.Region()
+	if err != nil || providerRegion != ociRegion {
+		return "", ErrInstanceObservation
+	}
+	return ociRegion, nil
 }
 
 // ObserveInstance positively identifies the candidate instance and exactly one

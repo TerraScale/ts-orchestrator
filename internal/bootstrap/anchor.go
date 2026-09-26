@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	BootstrapAnchorSchemaVersion   = 2
+	BootstrapAnchorSchemaVersion   = 3
+	bootstrapAnchorV2SchemaVersion = 2
 	MaxBootstrapAnchorBytes        = 64 << 10
 	MaxInitialRegionIntentBytes    = 16 << 10
 	MaxBootstrapAnchorSlots        = 64
@@ -52,7 +53,7 @@ type BootstrapAnchor struct {
 // canonical intent bytes, and redundant generation and digest pins.
 func (anchor BootstrapAnchor) Validate() error {
 	ociRegion, err := anchor.Cell.OCIRegion()
-	if err != nil || anchor.SchemaVersion != BootstrapAnchorSchemaVersion ||
+	if err != nil || anchor.SchemaVersion != BootstrapAnchorSchemaVersion && anchor.SchemaVersion != bootstrapAnchorV2SchemaVersion ||
 		!deploymentRE.MatchString(anchor.DeploymentID) || !clusterRE.MatchString(anchor.ClusterID) ||
 		(anchor.Environment != "production" && anchor.Environment != "canary") || anchor.OCIRegion != ociRegion {
 		return fmt.Errorf("%w: required identity or region binding", ErrBootstrapAnchorInvalid)
@@ -267,9 +268,19 @@ func BootstrapAnchorTrustPolicy() trust.Policy {
 	return trust.Policy{MaxLifetime: MaxBootstrapAnchorLifetime, ClockSkew: ManifestClockSkew}
 }
 
+// BootstrapLedgerCapabilityDomains returns the exact delegated signing domains
+// required by current schema-v3 anchors.
+func BootstrapLedgerCapabilityDomains() []string {
+	return []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult,
+		domainBootstrapCandidate, domainBootstrapProgress}
+}
+
 // SignBootstrapAnchor canonicalizes and signs a valid immutable anchor with
 // the offline root key.
 func SignBootstrapAnchor(anchor BootstrapAnchor, issuedAt, expiresAt time.Time, rootPrivateKey ed25519.PrivateKey) (trust.Envelope, error) {
+	if anchor.SchemaVersion != BootstrapAnchorSchemaVersion {
+		return trust.Envelope{}, fmt.Errorf("%w: new anchors must use schema version %d", ErrBootstrapAnchorInvalid, BootstrapAnchorSchemaVersion)
+	}
 	if err := anchor.Validate(); err != nil {
 		return trust.Envelope{}, err
 	}
@@ -368,6 +379,9 @@ func verifyBootstrapAnchor(envelope trust.Envelope, roots trust.Keyring, expecte
 	if err := anchor.Validate(); err != nil {
 		return VerifiedBootstrapAnchor{}, err
 	}
+	if !historical && anchor.SchemaVersion != BootstrapAnchorSchemaVersion {
+		return VerifiedBootstrapAnchor{}, fmt.Errorf("%w: current anchor requires schema version %d", ErrBootstrapAnchorInvalid, BootstrapAnchorSchemaVersion)
+	}
 	if anchor.DeploymentID != expected.DeploymentID || anchor.Environment != expected.Environment || anchor.Cell != expected.Cell {
 		return VerifiedBootstrapAnchor{}, fmt.Errorf("%w: anchor does not match fixed local boot identity", ErrBootstrapAnchorInvalid)
 	}
@@ -459,8 +473,11 @@ func validateVerifiedBootstrapLedgerCapabilities(delegation trust.VerifiedDelega
 
 func validateBootstrapLedgerCapabilitySet(capabilities []trust.Capability, anchor BootstrapAnchor) error {
 	wantDomains := []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult}
+	if anchor.SchemaVersion == BootstrapAnchorSchemaVersion {
+		wantDomains = append(wantDomains, domainBootstrapCandidate, domainBootstrapProgress)
+	}
 	if len(capabilities) != len(wantDomains) {
-		return fmt.Errorf("%w: ledger grant must contain exactly three capabilities", ErrBootstrapAnchorInvalid)
+		return fmt.Errorf("%w: ledger grant must contain exactly %d capabilities", ErrBootstrapAnchorInvalid, len(wantDomains))
 	}
 	seen := make(map[string]struct{}, len(capabilities))
 	for _, capability := range capabilities {

@@ -320,7 +320,8 @@ func ledgerConfigForRegion(t *testing.T, fixture *ledgerFixture, region oci.Regi
 		t.Fatal(err)
 	}
 	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult} {
+	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult,
+		domainBootstrapCandidate, domainBootstrapProgress} {
 		capabilities = append(capabilities, trust.Capability{
 			Domain: domain, DeploymentID: config.DeploymentID, Cell: string(region), Environment: config.Environment,
 			Role: roleController, Slots: slices.Clone(config.ControllerSlots), Actions: []string{"sign"},

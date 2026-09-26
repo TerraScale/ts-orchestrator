@@ -39,6 +39,20 @@ func founderOCIRequestFixture() bootstrap.FounderPeerLaunchRequest {
 	}
 }
 
+func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testing.T) {
+	request := founderOCIRequestFixture()
+	attempt := FounderOCIAttempt{request: request, deadline: time.Now().UTC().Add(time.Hour),
+		observationOnly: true, candidateID: founderTestInstanceID, valid: true}
+	adapter := &FounderOCI{region: oci.RegionGRU}
+	if _, err := adapter.Launch(t.Context(), attempt, nil); !errors.Is(err, ErrFounderOCI) {
+		t.Fatalf("observation-only attempt reached launch path: %v", err)
+	}
+	if _, err := adapter.Observe(t.Context(), attempt, nil,
+		"ocid1.instance.oc1.sa-saopaulo-1.other"); !errors.Is(err, ErrFounderOCI) {
+		t.Fatalf("observation-only attempt changed exact candidate: %v", err)
+	}
+}
+
 type lostResponseCompute struct {
 	requests []core.LaunchInstanceRequest
 }

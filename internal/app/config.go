@@ -67,6 +67,7 @@ type HostConfig struct {
 	ControllerPublicKey string   `json:"controller_public_key"`
 	InstallRoot         string   `json:"install_root"`
 	StateRoot           string   `json:"state_root"`
+	ManagedRuntimeRoot  string   `json:"managed_runtime_root,omitempty"`
 	WorkloadUID         uint32   `json:"workload_uid"`
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`

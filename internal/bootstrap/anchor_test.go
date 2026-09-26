@@ -79,8 +79,9 @@ func signBootstrapLedgerGrant(t *testing.T, root ed25519.PrivateKey, ledger ed25
 	deployment string, cell oci.Region, environment string, slots []string, issuedAt, expiresAt time.Time,
 ) trust.Envelope {
 	t.Helper()
-	capabilities := make([]trust.Capability, 0, 3)
-	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult} {
+	capabilities := make([]trust.Capability, 0, 5)
+	for _, domain := range []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult,
+		domainBootstrapCandidate, domainBootstrapProgress} {
 		capabilities = append(capabilities, trust.Capability{
 			Domain: domain, DeploymentID: deployment, Cell: string(cell), Environment: environment,
 			Role: roleController, Slots: append([]string(nil), slots...), Actions: []string{"sign"},

@@ -50,9 +50,10 @@ var (
 type SecretPurpose string
 
 const (
-	SecretRegionalShared SecretPurpose = "regional-shared"
-	SecretSeedFounder    SecretPurpose = "seed-founder"
-	SecretController     SecretPurpose = "controller"
+	SecretRegionalShared   SecretPurpose = "regional-shared"
+	SecretSeedFounder      SecretPurpose = "seed-founder"
+	SecretSeedLedgerSigner SecretPurpose = "seed-ledger-signer"
+	SecretController       SecretPurpose = "controller"
 )
 
 // SecretReference pins a Vault secret OCID, immutable numeric version, exact
@@ -401,6 +402,10 @@ func (secret SecretReference) validate(manifest Manifest) error {
 	case SecretSeedFounder:
 		if secret.Slot != manifest.SeedSlot {
 			return fmt.Errorf("%w: founder secret must be seed-slot-bound", ErrManifestInvalid)
+		}
+	case SecretSeedLedgerSigner:
+		if secret.Slot != manifest.SeedSlot {
+			return fmt.Errorf("%w: ledger signer secret must be seed-slot-bound", ErrManifestInvalid)
 		}
 	case SecretController:
 		if !slices.Contains(manifest.ControllerSlots, secret.Slot) {
