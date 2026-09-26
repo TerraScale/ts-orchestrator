@@ -530,6 +530,51 @@ func TestGateRejectsFailedLiveCredentialsBeforeMarkerAndExpiredRestart(t *testin
 	}
 }
 
+func TestGateMarkedSeedRestartUsesCurrentContinuationAfterOriginalExpiry(t *testing.T) {
+	fixture := newAdmissionFlowFixture(t)
+	marker, err := fixture.gate.AdmitInitial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Slot != marker.SeedSlot {
+		t.Fatalf("fixture did not install seed: %+v", marker)
+	}
+	continuation := new(countingContinuationChecker)
+	fixture.gate.Continuation = continuation
+	*fixture.now = fixture.now.Add(2 * time.Hour)
+	if _, err := fixture.gate.AdmitRestart(t.Context()); err != nil {
+		t.Fatalf("marked seed with current continuation: %v", err)
+	}
+	if continuation.calls != 1 || fixture.material.restartCalls != 1 || fixture.credentials.calls != 2 {
+		t.Fatalf("seed restart skipped current or installed-state checks: continuation=%d material=%d credentials=%d",
+			continuation.calls, fixture.material.restartCalls, fixture.credentials.calls)
+	}
+}
+
+func TestGateMarkedSeedRechecksOriginalProofAfterSlowRestart(t *testing.T) {
+	fixture := newAdmissionFlowFixture(t)
+	if _, err := fixture.gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	continuation := new(countingContinuationChecker)
+	fixture.gate.Continuation = continuation
+	base := *fixture.now
+	reads := 0
+	fixture.gate.Now = func() time.Time {
+		reads++
+		if reads >= 3 {
+			return base.Add(2 * time.Hour)
+		}
+		return base
+	}
+	if _, err := fixture.gate.AdmitRestart(t.Context()); err != nil {
+		t.Fatalf("current proof expired during restart but continuation was valid: %v", err)
+	}
+	if continuation.calls != 1 {
+		t.Fatalf("final proof recheck did not consult continuation: %d calls", continuation.calls)
+	}
+}
+
 func TestGateRechecksCurrentProofBetweenObservationAndEachMaterialEffect(t *testing.T) {
 	for _, expireAfter := range []int{0, 1} {
 		fixture := newAdmissionFlowFixture(t)

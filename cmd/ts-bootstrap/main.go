@@ -43,7 +43,7 @@ func run(args []string) error {
 
 func runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-ledger-delegation [flags] | sign-anchor [flags] | sign-manifest [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
@@ -54,8 +54,14 @@ func runAt(args []string, now time.Time) error {
 		return signBootstrapAnchorAt(args[1:], now)
 	case "sign-manifest":
 		return signManifestAt(args[1:], now)
+	case "sign-founder-continuity":
+		return signFounderContinuityAt(args[1:], now)
+	case "sign-founder-selection":
+		return signFounderSelectionAt(args[1:], now)
+	case "publish-founder-selection":
+		return publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-bootstrap verify-anchor [flags] | sign-ledger-delegation [flags] | sign-anchor [flags] | sign-manifest [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 }
 

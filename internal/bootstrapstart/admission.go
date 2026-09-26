@@ -672,8 +672,24 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 	if err := ctx.Err(); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("%w: restart admission ended before acceptance: %w", ErrAdmission, err)
 	}
-	if _, err := gate.checkedNow(); err != nil {
+	finalNow, err := gate.checkedNow()
+	if err != nil {
 		return AcceptedInstall{}, err
+	}
+	if currentProof && !peerContinuation {
+		finalAnchor, proofErr := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, gate.Roots, gate.Expected,
+			finalNow, bootstrap.BootstrapAnchorTrustPolicy())
+		if proofErr == nil && finalAnchor.Digest() == marker.AnchorSHA256 {
+			_, _, _, proofErr = gate.initialProofs(state, finalAnchor, observed, finalNow)
+		}
+		if proofErr != nil || finalAnchor.Digest() != marker.AnchorSHA256 {
+			if gate.Continuation == nil {
+				return AcceptedInstall{}, fmt.Errorf("%w: current proof expired before restart acceptance: %v", ErrAdmission, proofErr)
+			}
+			if err := gate.Continuation.VerifyCurrentContinuation(ctx, marker, observed, state); err != nil {
+				return AcceptedInstall{}, fmt.Errorf("verify current controller continuation after proof expiry: %w", err)
+			}
+		}
 	}
 	if peerContinuation {
 		if gate.Continuation == nil {

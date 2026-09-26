@@ -281,11 +281,9 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err != nil {
 		return err
 	}
-	if marker.Slot != marker.SeedSlot {
-		gate.Continuation, err = bootstrapstart.NewOCIFounderPeerContinuation(baked, marker, serviceUID, serviceGID)
-		if err != nil {
-			return err
-		}
+	gate.Continuation, err = bootstrapstart.NewOCIFounderInstallContinuation(baked, marker, checker, serviceUID)
+	if err != nil {
+		return err
 	}
 	_, err = gate.AdmitRestart(ctx)
 	return err
