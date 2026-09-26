@@ -45,11 +45,19 @@ GO_SUCCESS = "PASS"
 MEMBER_STATUS_SUCCESS = "MEMBER_STATUS_GO_OK"
 SENDER_SUCCESS = "memberstatus: authenticated Go client accepted real sender-enabled process"
 RUNNER_SUCCESS = "MEMBER_STATUS_QUALIFICATION_RESULT=PASS"
+RUNNER_RESULT_PREFIX = "MEMBER_STATUS_QUALIFICATION_RESULT="
+RUNNER_FAILURE = re.compile(
+    r"^MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=(?P<stage>[a-z0-9-]+) "
+    r"status=(?P<status>[1-9][0-9]{0,2})$")
+RUNNER_STAGES = {"go-host-test", "rust-test", "runner"}
+_SERIAL_SERVICE_LINE = re.compile(
+    r"^\[\s*\d+(?:\.\d+)?\]\s+ts-member-status-qualification\[\d+\]: (?P<payload>.*)$")
 SERVICE_NAME = "ts-member-status-qualification.service"
 BOOT_ARGS = "console=ttyS0 reboot=k panic=-1 pci=off root=/dev/vda rw systemd.unit=multi-user.target"
 GUEST_RAM_MIB = 6144
 GUEST_VCPUS = 2
 GUEST_DEADLINE_SECONDS = 300
+GUEST_SERVICE_TIMEOUT_SECONDS = 270
 API_SOCKET_SECONDS = 20
 GO_TEST_TIMEOUT = "120s"
 MAX_COMMAND_LOG_BYTES = 8 << 20
@@ -291,23 +299,52 @@ def parse_rust_test_output(output: str, returncode: int,
             **counts}
 
 
+def _serial_payload_lines(serial_output: str) -> list[str]:
+    payloads = []
+    for line in serial_output.splitlines():
+        line = line.strip()
+        match = _SERIAL_SERVICE_LINE.fullmatch(line)
+        payloads.append(match.group("payload") if match else line)
+    return payloads
+
+
 def parse_qualification_result(go_output: str, go_returncode: int,
                                rust_output: str, rust_returncode: int,
                                serial_output: str,
                                rust_test_name: str) -> dict[str, dict[str, Any]]:
     go_result = parse_go_test_output(go_output, go_returncode)
     rust_result = parse_rust_test_output(rust_output, rust_returncode, rust_test_name)
-    if serial_output.count(RUNNER_SUCCESS) != 1:
-        raise QualificationError("guest serial output must contain exactly one final runner PASS sentinel")
-    sentinel_position = serial_output.index(RUNNER_SUCCESS)
-    if serial_output.find(SENDER_SUCCESS) < 0 or sentinel_position < serial_output.find(SENDER_SUCCESS):
+    runner_result = parse_runner_result(serial_output)
+    if runner_result["status"] != "PASS":
+        raise QualificationError(
+            f"guest command failed stage={runner_result['stage']} status={runner_result['exit_status']}")
+    serial = "\n".join(_serial_payload_lines(serial_output))
+    sentinel_position = serial.index(RUNNER_SUCCESS)
+    if serial.find(SENDER_SUCCESS) < 0 or sentinel_position < serial.find(SENDER_SUCCESS):
         raise QualificationError("guest runner PASS sentinel appeared before the Go sender probe succeeded")
     if not go_output.rstrip().endswith(GO_SUCCESS):
         raise QualificationError("guest Go command output did not end with its explicit PASS result")
-    rust_summary_position = serial_output.rfind("test result: ok.")
+    rust_summary_position = serial.rfind("test result: ok.")
     if rust_summary_position < 0 or sentinel_position < rust_summary_position:
         raise QualificationError("guest runner PASS sentinel appeared before the Rust test result")
     return {"go_host_test": go_result, "rust_test": rust_result}
+
+
+def parse_runner_result(serial_output: str) -> dict[str, Any]:
+    """Parse one terminal guest result, preserving an explicit command failure."""
+    result_lines = [line for line in _serial_payload_lines(serial_output)
+                    if line.startswith(RUNNER_RESULT_PREFIX)]
+    if len(result_lines) != 1:
+        raise QualificationError(
+            f"guest serial must contain exactly one terminal runner result; found {len(result_lines)}")
+    result = result_lines[0]
+    if result == RUNNER_SUCCESS:
+        return {"status": "PASS"}
+    failure = RUNNER_FAILURE.fullmatch(result)
+    if failure is None or failure.group("stage") not in RUNNER_STAGES:
+        raise QualificationError(f"guest serial contains a malformed runner result: {result}")
+    return {"status": "FAILED", "stage": failure.group("stage"),
+            "exit_status": int(failure.group("status")), "sentinel": result}
 
 
 def _send_group_signal(process: subprocess.Popen[bytes], sig: signal.Signals) -> None:
@@ -777,14 +814,49 @@ class FirecrackerVM:
 
 
 def _shell_runner(go_test: Path, member_probe: Path, rust_server: Path,
-                  rust_test: Path, rust_test_name: str) -> str:
+                  rust_test: Path, rust_test_name: str, *,
+                  guest_root: Path = Path("/")) -> str:
+    def guest_path(path: str) -> str:
+        return str(guest_root / path.lstrip("/"))
+
     go_run = f"-test.run=^{GO_TEST_NAME}$"
     rust_name = shlex.quote(rust_test_name)
-    probe = shlex.quote("/opt/ts-member-status/memberstatus-probe")
-    server = shlex.quote("/opt/ts-member-status/tb-server")
+    log_dir = shlex.quote(guest_path("/var/log/ts-member-status-qualification"))
+    probe = shlex.quote(guest_path("/opt/ts-member-status/memberstatus-probe"))
+    server = shlex.quote(guest_path("/opt/ts-member-status/tb-server"))
+    go_binary = shlex.quote(guest_path("/opt/ts-member-status/go-host-test"))
+    rust_binary = shlex.quote(guest_path("/opt/ts-member-status/rust-test"))
     script = f"""#!/bin/sh
 set -eu
-LOG_DIR=/var/log/ts-member-status-qualification
+RUNNER_STAGE=runner
+RUNNER_LOG=
+RUNNER_RESULT=FAILED
+
+finish() {{
+    status=$?
+    trap - EXIT
+    if [ "$RUNNER_RESULT" = PASS ] && [ "$status" -eq 0 ]; then
+        result='{RUNNER_SUCCESS}'
+    else
+        if [ "$status" -eq 0 ]; then
+            status=1
+        fi
+        result="{RUNNER_RESULT_PREFIX}FAILED stage=$RUNNER_STAGE status=$status"
+        if [ -n "$RUNNER_LOG" ]; then
+            printf '%s\\n' "$result" >>"$RUNNER_LOG" || :
+        fi
+    fi
+    printf '%s\\n' "$result" >&2
+    sync || :
+    systemctl --no-wall poweroff || :
+    exit "$status"
+}}
+
+trap finish EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+LOG_DIR={log_dir}
 mkdir -p "$LOG_DIR"
 export TB_MEMBER_STATUS_PROBE_BINARY={probe}
 export TB_SERVER_TEST_BINARY={server}
@@ -793,21 +865,22 @@ run_capture() {{
     label=$1
     shift
     output="$LOG_DIR/$label.log"
+    RUNNER_STAGE=$label
+    RUNNER_LOG=$output
     if "$@" >"$output" 2>&1; then
         cat "$output"
+        RUNNER_LOG=
     else
         status=$?
         cat "$output"
-        printf 'MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=%s status=%s\\n' "$label" "$status" >&2
         exit "$status"
     fi
 }}
 
-run_capture go-host-test /opt/ts-member-status/go-host-test -test.v -test.timeout={GO_TEST_TIMEOUT} {go_run}
-run_capture rust-test /opt/ts-member-status/rust-test --exact {rust_name} --nocapture --test-threads=1
-printf '%s\\n' '{RUNNER_SUCCESS}'
-sync
-systemctl --no-wall poweroff
+run_capture go-host-test {go_binary} -test.v -test.timeout={GO_TEST_TIMEOUT} {go_run}
+run_capture rust-test {rust_binary} --exact {rust_name} --nocapture --test-threads=1
+RUNNER_RESULT=PASS
+exit 0
 """
     return script
 
@@ -827,7 +900,7 @@ MemoryMax=5G
 NoNewPrivileges=yes
 AmbientCapabilities=
 CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}
-TimeoutStartSec={GUEST_DEADLINE_SECONDS}s
+TimeoutStartSec={GUEST_SERVICE_TIMEOUT_SECONDS}s
 KillMode=control-group
 StandardOutput=journal+console
 StandardError=journal+console
@@ -1115,13 +1188,24 @@ class Qualification:
         serial_path = self.logs / "guest-serial.log"
         go_path = self.logs / "guest-go-host-test.log"
         rust_path = self.logs / "guest-rust-test.log"
-        for path in (serial_path, go_path, rust_path):
+        if not serial_path.is_file():
+            raise QualificationError(f"required guest evidence log is missing: {serial_path}")
+        serial, serial_oversized = _read_text_bounded(serial_path, MAX_SERIAL_LOG_BYTES)
+        if serial_oversized:
+            raise QualificationError("guest serial log exceeded its collection bound")
+        runner_result = parse_runner_result(serial)
+        if runner_result["status"] == "FAILED":
+            self.test_results = {"runner": runner_result}
+            self.events.add("test_results", results=self.test_results)
+            raise QualificationError(
+                f"guest test command failed stage={runner_result['stage']} "
+                f"status={runner_result['exit_status']}")
+        for path in (go_path, rust_path):
             if not path.is_file():
                 raise QualificationError(f"required guest evidence log is missing: {path}")
-        serial, serial_oversized = _read_text_bounded(serial_path, MAX_SERIAL_LOG_BYTES)
         go, go_oversized = _read_text_bounded(go_path, MAX_GUEST_LOG_BYTES)
         rust, rust_oversized = _read_text_bounded(rust_path, MAX_GUEST_LOG_BYTES)
-        if serial_oversized or go_oversized or rust_oversized:
+        if go_oversized or rust_oversized:
             raise QualificationError("a guest evidence log exceeded its collection bound")
         self.test_results = parse_qualification_result(
             go, 0, rust, 0, serial, self.manifest["rust_test_name"])

@@ -38,6 +38,15 @@ class ResultParserTests(unittest.TestCase):
         self.assertEqual(results["rust_test"]["status"], "PASS")
         self.assertEqual(results["rust_test"]["sender_marker"], qualify.SENDER_SUCCESS)
 
+    def test_accepts_systemd_prefixed_console_output(self):
+        raw = GO_PASS + RUST_PASS + qualify.RUNNER_SUCCESS + "\n"
+        serial = "\n".join(
+            f"[   33.785579] ts-member-status-qualification[770]: {line}"
+            for line in raw.splitlines())
+        results = qualify.parse_qualification_result(GO_PASS, 0, RUST_PASS, 0, serial, RUST_NAME)
+
+        self.assertEqual(results["rust_test"]["status"], "PASS")
+
     def test_go_parser_rejects_skip_missing_multiple_zero_wrong_name_and_failure(self):
         cases = (
             ("skip", GO_PASS.replace("--- PASS:", "--- SKIP:"), 0),
@@ -80,8 +89,28 @@ class ResultParserTests(unittest.TestCase):
 
     def test_qualification_parser_rejects_missing_runner_sentinel(self):
         serial = GO_PASS + RUST_PASS
-        with self.assertRaisesRegex(qualify.QualificationError, "runner PASS sentinel"):
+        with self.assertRaisesRegex(qualify.QualificationError, "terminal runner result"):
             qualify.parse_qualification_result(GO_PASS, 0, RUST_PASS, 0, serial, RUST_NAME)
+
+    def test_runner_failure_parser_reports_actual_prefixed_serial_stage_and_status(self):
+        serial = ("[   33.785579] ts-member-status-qualification[770]: "
+                  "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=rust-test status=101\n")
+
+        result = qualify.parse_runner_result(serial)
+
+        self.assertEqual(result["status"], "FAILED")
+        self.assertEqual(result["stage"], "rust-test")
+        self.assertEqual(result["exit_status"], 101)
+
+    def test_runner_result_parser_rejects_missing_or_duplicate_terminal_results(self):
+        cases = (
+            "guest shut down unexpectedly\n",
+            qualify.RUNNER_SUCCESS + "\n" + qualify.RUNNER_SUCCESS + "\n",
+            "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=unknown status=101\n",
+        )
+        for serial in cases:
+            with self.subTest(serial=serial), self.assertRaises(qualify.QualificationError):
+                qualify.parse_runner_result(serial)
 
     def test_qualification_parser_rejects_sentinel_before_test_results(self):
         serial = qualify.RUNNER_SUCCESS + "\n" + GO_PASS + RUST_PASS
@@ -155,12 +184,102 @@ class BoundedLogTests(unittest.TestCase):
                 vm._finish_output()
 
 
+class GuestRunnerFailureTests(unittest.TestCase):
+    def test_service_timeout_leaves_host_shutdown_fallback(self):
+        self.assertLess(qualify.GUEST_SERVICE_TIMEOUT_SECONDS, qualify.GUEST_DEADLINE_SECONDS)
+        self.assertIn(f"TimeoutStartSec={qualify.GUEST_SERVICE_TIMEOUT_SECONDS}s",
+                      qualify._service_unit())
+
+    def test_successful_guest_commands_record_pass_and_request_poweroff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guest = root / "guest"
+            binary_dir = guest / "opt/ts-member-status"
+            binary_dir.mkdir(parents=True)
+            go_binary = binary_dir / "go-host-test"
+            rust_binary = binary_dir / "rust-test"
+            go_binary.write_text("#!/bin/sh\nprintf 'Go tests passed\\n'\n")
+            rust_binary.write_text("#!/bin/sh\nprintf 'Rust test passed\\n'\n")
+            go_binary.chmod(0o755)
+            rust_binary.chmod(0o755)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            poweroff_record = root / "poweroff-args"
+            fake_systemctl = fake_bin / "systemctl"
+            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(poweroff_record)!r}\n")
+            fake_systemctl.chmod(0o755)
+            script = root / "runner.sh"
+            script.write_text(qualify._shell_runner(
+                Path("unused-go"), Path("unused-probe"), Path("unused-server"),
+                Path("unused-rust"), RUST_NAME, guest_root=guest))
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+
+            process = subprocess.run(["/bin/sh", str(script)], stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, env=environment, timeout=5,
+                                     check=False, text=True)
+
+            self.assertEqual(process.returncode, 0)
+            self.assertEqual(process.stdout.count(qualify.RUNNER_SUCCESS), 1)
+            self.assertNotIn("MEMBER_STATUS_QUALIFICATION_RESULT=FAILED", process.stdout)
+            self.assertEqual(poweroff_record.read_text().strip(), "--no-wall poweroff")
+
+    def test_failed_guest_command_records_stage_and_requests_poweroff(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            guest = root / "guest"
+            go_binary = guest / "opt/ts-member-status/go-host-test"
+            go_binary.parent.mkdir(parents=True)
+            go_binary.write_text("#!/bin/sh\nprintf 'focused Go failure\\n'\nexit 37\n")
+            go_binary.chmod(0o755)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            poweroff_record = root / "poweroff-args"
+            fake_systemctl = fake_bin / "systemctl"
+            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(poweroff_record)!r}\n")
+            fake_systemctl.chmod(0o755)
+            script = root / "runner.sh"
+            script.write_text(qualify._shell_runner(
+                Path("unused-go"), Path("unused-probe"), Path("unused-server"),
+                Path("unused-rust"), RUST_NAME, guest_root=guest))
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}{os.pathsep}{environment['PATH']}"
+
+            process = subprocess.run(["/bin/sh", str(script)], stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT, env=environment, timeout=5,
+                                     check=False, text=True)
+            output = guest / "var/log/ts-member-status-qualification/go-host-test.log"
+
+            self.assertEqual(process.returncode, 37)
+            self.assertEqual(process.stdout.count(
+                "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=go-host-test status=37"), 1)
+            self.assertNotIn(qualify.RUNNER_SUCCESS, process.stdout)
+            self.assertEqual(poweroff_record.read_text().strip(), "--no-wall poweroff")
+            self.assertIn("stage=go-host-test status=37", output.read_text())
+            result = qualify.parse_runner_result(process.stdout)
+            self.assertEqual(result["stage"], "go-host-test")
+            self.assertEqual(result["exit_status"], 37)
+
+
 class QualificationCleanupTests(unittest.TestCase):
     def make_qualification(self, root: Path) -> qualify.Qualification:
         for name in ("logs", "commands", "images", "mount", "stage"):
             (root / name).mkdir(parents=True, exist_ok=True)
         return qualify.Qualification(
             {"source_commits": {}, "rust_test_name": RUST_NAME}, b"{}", {}, root)
+
+    def test_driver_surfaces_guest_failure_before_requiring_pass_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            qualification = self.make_qualification(Path(directory) / "run")
+            (qualification.logs / "guest-serial.log").write_text(
+                "[   33.785579] ts-member-status-qualification[770]: "
+                "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=rust-test status=101\n")
+
+            with self.assertRaisesRegex(qualify.QualificationError, "stage=rust-test status=101"):
+                qualification._check_results()
+
+            self.assertEqual(qualification.test_results["runner"]["stage"], "rust-test")
+            self.assertEqual(qualification.test_results["runner"]["exit_status"], 101)
 
     def test_private_image_is_retained_after_qualification_failure(self):
         with tempfile.TemporaryDirectory() as directory:

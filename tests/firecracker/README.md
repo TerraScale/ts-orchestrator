@@ -33,6 +33,10 @@ and a 120-second timeout, then runs the manifest's exact Rust test with
 both test summaries explicitly pass, the nested Go probe reports
 `MEMBER_STATUS_GO_OK` and its sender-enabled success marker, and the guest emits
 the final `MEMBER_STATUS_QUALIFICATION_RESULT=PASS` sentinel after both tests.
+On any runner exit, the guest records one terminal PASS or a FAILED stage and
+exit status, then requests poweroff. The guest service has a 270-second start
+timeout and the host retains a 300-second shutdown deadline for stuck guests;
+completed test failures are reported with their exact stage and status.
 
 The driver does not build Go or Rust artifacts or configure networking. It
 keeps command logs, guest serial and VMM logs, collected guest test output,
