@@ -57,8 +57,12 @@ the shipped binary's production credential check under the service account.
 It then verifies that networkd, timesyncd, time-wait-sync, SSH and the
 controller unit are enabled. The host trust store is untouched.
 
-Add `--run` to perform the VM qualification. The driver starts a private
-bridge and tap for each VM, drops all forwarding except signed peer NATS
+Add `--run` to perform the VM qualification. After checking host routes and
+host NTP, the driver enters a private network namespace. Its bridge, taps,
+firewall, NTP server, OCI simulator, VMMs, and SSH client remain inside that
+namespace, so the host's separate INPUT firewall cannot discard guest
+requests after the fixture firewall accepts them. The driver drops all
+forwarding except signed peer NATS
 ports, and allows only the per-slot packet-backed IMDS/OCI HTTPS simulator
 and the bridge NTP service. It requires the host clock to be NTP synchronized
 before serving NTP to the guests. It starts all three VMs, checks guest NTP
@@ -69,7 +73,9 @@ request audit. A pass requires zero unlisted or write requests, no simulator
 overflow or unknown sources, expected IMDS/federation/Compute/ledger reads,
 NTP replies for every VM, and zero unexpected firewall drops. The driver
 removes owned processes, mounts, links and nft tables on every exit and writes
-`report.json` and logs in its private run directory.
+`report.json` and logs in its private run directory. Even on failure, the
+report records per-slot NTP requests and replies and saves counters from only
+its owned firewall tables before deleting them.
 
 `simulator.go` has no OCI client or upstream proxy. It permits exactly six
 fixed IMDS GETs, a signed `POST /v1/x509` on the pinned GRU Auth host, and

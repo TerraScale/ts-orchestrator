@@ -22,6 +22,7 @@ import socket
 import stat
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -89,6 +90,26 @@ def check_network_collision() -> None:
                 raise RuntimeError(f"host address collides with isolated fixture: {local}")
 
 
+def ensure_run_network_namespace(run: bool) -> None:
+    if not run or not os.path.samefile("/proc/self/ns/net", "/proc/1/ns/net"):
+        return
+    if os.geteuid() != 0:
+        raise RuntimeError("production Firecracker qualification requires root")
+    # These checks must see the host before unshare hides its interfaces.
+    check_network_collision()
+    if command("timedatectl", "show", "-p", "NTPSynchronized", "--value").stdout.strip() != "yes":
+        raise RuntimeError("host clock is not NTP synchronized")
+    unshare = shutil.which("unshare")
+    if unshare is None:
+        raise RuntimeError("unshare is required for isolated production qualification")
+    # The bridge, taps, nft rules, NTP server, OCI simulator, VMMs and SSH
+    # client all inherit this namespace. Host INPUT firewall chains cannot
+    # later discard packets accepted by the fixture's own nft chains.
+    os.execv(unshare, [unshare, "--net", "--", sys.executable,
+                       str(Path(__file__).resolve()), *sys.argv[1:]])
+    raise AssertionError("unshare returned without executing the driver")
+
+
 def ntp_timestamp(moment: float) -> bytes:
     seconds = moment + 2208988800
     whole = int(seconds)
@@ -118,7 +139,9 @@ class NTPServer:
         self.socket.bind((BRIDGE_IP, 123))
         self.socket.settimeout(0.5)
         self.stop_event = threading.Event()
+        self.requests = {slot: 0 for slot in SLOTS}
         self.counts = {slot: 0 for slot in SLOTS}
+        self.send_errors = {slot: 0 for slot in SLOTS}
         self.unknown = 0
         self.thread = threading.Thread(target=self.serve, daemon=True)
         self.thread.start()
@@ -136,10 +159,13 @@ class NTPServer:
             if slot is None:
                 self.unknown += 1
                 continue
+            self.requests[slot] += 1
             try:
                 self.socket.sendto(ntp_response(request, time.time()), peer)
             except ValueError:
                 self.unknown += 1
+            except OSError:
+                self.send_errors[slot] += 1
             else:
                 self.counts[slot] += 1
 
@@ -436,6 +462,9 @@ class Qualification:
         self.report["serviceIdentity"] = identities
 
     def network(self) -> None:
+        if os.path.samefile("/proc/self/ns/net", "/proc/1/ns/net"):
+            raise RuntimeError("production fixture network requires a private namespace")
+        command("ip", "link", "set", "lo", "up")
         command("ip", "link", "add", self.bridge, "type", "bridge")
         self.created_links.append(self.bridge)
         command("ip", "address", "add", "10.44.0.1/24", "dev", self.bridge)
@@ -459,9 +488,9 @@ class Qualification:
         for slot in SLOTS:
             inet.append(f'iifname "{self.taps[slot]}" ip saddr != {ADDRESSES[slot]} counter drop')
         inet += [f"iifname {{ {taps} }} ct state established,related accept",
-                 f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} tcp dport 443 accept",
-                 f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} udp dport 123 accept",
-                 f"iifname {{ {taps} }} ip daddr 169.254.169.254 tcp dport 80 accept",
+                 f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} tcp dport 443 counter accept",
+                 f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} udp dport 123 counter accept",
+                 f"iifname {{ {taps} }} ip daddr 169.254.169.254 tcp dport 80 counter accept",
                  f"iifname {{ {taps} }} counter drop", "}",
                  "chain vm_forward { type filter hook forward priority -100; policy accept;"]
         for slot in SLOTS:
@@ -483,9 +512,9 @@ class Qualification:
         for slot in SLOTS:
             bridge.append(f'iifname "{self.taps[slot]}" ip saddr != {ADDRESSES[slot]} counter drop')
         bridge += [f"iifname {{ {taps} }} ct state established,related accept",
-                   f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} tcp dport 443 accept",
-                   f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} udp dport 123 accept",
-                   f"iifname {{ {taps} }} ip daddr 169.254.169.254 tcp dport 80 accept",
+                   f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} tcp dport 443 counter accept",
+                   f"iifname {{ {taps} }} ip daddr {BRIDGE_IP} udp dport 123 counter accept",
+                   f"iifname {{ {taps} }} ip daddr 169.254.169.254 tcp dport 80 counter accept",
                    f"iifname {{ {taps} }} counter drop", "}",
                    "chain vm_forward { type filter hook forward priority 0; policy accept;",
                    f"iifname {{ {taps} }} ether type arp accept",
@@ -566,9 +595,12 @@ class Qualification:
         self.simulator = None
         audit = json.loads(self.audit_path.read_text())
         self.report["ociRequests"] = check_audit(audit)
-        if self.ntp is None or self.ntp.unknown != 0 or any(self.ntp.counts[slot] == 0 for slot in SLOTS):
+        if self.ntp is None or self.ntp.unknown != 0 or \
+                any(self.ntp.send_errors.values()) or \
+                any(self.ntp.counts[slot] == 0 for slot in SLOTS):
             raise RuntimeError("NTP server did not serve only the three expected guests")
-        self.report["ntpRequests"] = self.ntp.counts.copy()
+        self.report["ntpRequests"] = self.ntp.requests.copy()
+        self.report["ntpReplies"] = self.ntp.counts.copy()
         drops = sum(nft_drop_packets(name, family) for family, name in self.created_tables)
         if drops:
             raise RuntimeError(f"isolated bridge dropped {drops} unexpected packets")
@@ -603,12 +635,25 @@ class Qualification:
             self.simulator_output.close()
         if self.ntp is not None:
             self.ntp.close()
+            self.report["ntpRequests"] = self.ntp.requests.copy()
+            self.report["ntpReplies"] = self.ntp.counts.copy()
+            self.report["ntpUnknownRequests"] = self.ntp.unknown
+            self.report["ntpSendErrors"] = self.ntp.send_errors.copy()
         for mount in reversed(self.mounted):
             try:
                 command("umount", str(mount))
             except Exception as error:
                 failures.append(f"unmount {mount}: {error}")
         for family, name in reversed(self.created_tables):
+            try:
+                rules = command("nft", "list", "table", family, name).stdout
+                filename = f"firewall-{family}.txt"
+                (self.root / filename).write_text(rules)
+                self.report.setdefault("firewallCounterFiles", {})[family] = filename
+                self.report["firewallDrops"] = self.report.get("firewallDrops", 0) + sum(
+                    int(value) for value in re.findall(r"counter packets (\d+) bytes \d+ drop", rules))
+            except Exception as error:
+                failures.append(f"capture {family} firewall counters: {error}")
             try:
                 command("nft", "delete", "table", family, name)
             except Exception as error:
@@ -648,6 +693,7 @@ def main() -> int:
     args.packet = args.packet.resolve(strict=True)
     args.root_cert = args.root_cert.resolve(strict=True)
     args.source_root = args.source_root.resolve(strict=True)
+    ensure_run_network_namespace(args.run)
     qualification = Qualification(args)
     error = None
     try:

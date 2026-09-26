@@ -12,6 +12,49 @@ import qualify
 
 
 class ProductionDriverContractTests(unittest.TestCase):
+    def test_run_enters_private_network_namespace_after_host_checks(self):
+        class Reexec(Exception):
+            pass
+
+        with patch.object(qualify.os.path, "samefile", return_value=True), \
+                patch.object(qualify.os, "geteuid", return_value=0), \
+                patch.object(qualify, "check_network_collision") as collision, \
+                patch.object(qualify, "command", return_value=types.SimpleNamespace(stdout="yes\n")) as clock, \
+                patch.object(qualify.shutil, "which", return_value="/bin/unshare"), \
+                patch.object(qualify.os, "execv", side_effect=Reexec) as execv:
+            with self.assertRaises(Reexec):
+                qualify.ensure_run_network_namespace(True)
+        collision.assert_called_once_with()
+        clock.assert_called_once_with("timedatectl", "show", "-p", "NTPSynchronized", "--value")
+        argv = execv.call_args.args[1]
+        self.assertEqual(argv[:3], ["/bin/unshare", "--net", "--"])
+        self.assertEqual(argv[3], qualify.sys.executable)
+        self.assertEqual(argv[4], str(Path(qualify.__file__).resolve()))
+
+    def test_prepared_only_and_already_isolated_do_not_reenter_namespace(self):
+        with patch.object(qualify.os.path, "samefile", return_value=False), \
+                patch.object(qualify.os, "execv") as execv:
+            qualify.ensure_run_network_namespace(False)
+            qualify.ensure_run_network_namespace(True)
+        execv.assert_not_called()
+
+    def test_network_requires_private_namespace_and_raises_loopback_first(self):
+        run = qualify.Qualification(types.SimpleNamespace(run=True))
+        try:
+            with patch.object(qualify.os.path, "samefile", return_value=True), \
+                    patch.object(qualify, "command") as command:
+                with self.assertRaisesRegex(RuntimeError, "private namespace"):
+                    run.network()
+                command.assert_not_called()
+            with patch.object(qualify.os.path, "samefile", return_value=False), \
+                    patch.object(qualify, "command") as command, \
+                    patch.object(run, "firewall"):
+                run.network()
+                self.assertEqual(command.call_args_list[0].args,
+                                 ("ip", "link", "set", "lo", "up"))
+        finally:
+            shutil.rmtree(run.root)
+
     def test_ntp_response_echoes_client_transmit_and_uses_server_mode(self):
         request = bytearray(48)
         request[0] = 0x23
@@ -90,7 +133,8 @@ class ProductionDriverContractTests(unittest.TestCase):
         self.assertEqual(len(programs), 2)
         self.assertIn("tcp dport { 4222, 6222 } accept", programs[1])
         self.assertIn("ether type arp accept", programs[1])
-        self.assertIn("169.254.169.254 tcp dport 80 accept", programs[1])
+        self.assertIn("169.254.169.254 tcp dport 80 counter accept", programs[1])
+        self.assertIn("10.44.0.1 udp dport 123 counter accept", programs[1])
         self.assertIn("counter drop", programs[0])
         self.assertIn("counter drop", programs[1])
         self.assertNotIn("policy drop", programs[0])  # host traffic is unaffected
@@ -146,6 +190,42 @@ class ProductionDriverContractTests(unittest.TestCase):
             with patch.object(qualify.os, "killpg", side_effect=signal_process):
                 self.assertEqual(run.cleanup(), ["simulator required SIGKILL during cleanup"])
             self.assertTrue(run.simulator.killed)
+        finally:
+            shutil.rmtree(run.root)
+
+    def test_failed_run_retains_ntp_and_owned_firewall_counters(self):
+        run = qualify.Qualification(types.SimpleNamespace(run=False))
+
+        class NTP:
+            requests = {slot: 2 for slot in qualify.SLOTS}
+            counts = {slot: 0 for slot in qualify.SLOTS}
+            send_errors = {slot: 0 for slot in qualify.SLOTS}
+            unknown = 0
+
+            def close(self):
+                pass
+
+        run.ntp = NTP()
+        run.created_tables = [("bridge", "tspr_test")]
+        rules = ("table bridge tspr_test {\n"
+                 "udp dport 123 counter packets 6 bytes 288 accept\n"
+                 "counter packets 1 bytes 48 drop\n}\n")
+
+        def nft(*args, **kwargs):
+            if args[:3] == ("nft", "list", "table"):
+                return types.SimpleNamespace(stdout=rules)
+            self.assertEqual(args[:3], ("nft", "delete", "table"))
+            return types.SimpleNamespace(stdout="")
+
+        try:
+            with patch.object(qualify, "command", side_effect=nft):
+                self.assertEqual(run.cleanup(), [])
+            self.assertEqual(run.report["ntpRequests"], NTP.requests)
+            self.assertEqual(run.report["ntpReplies"], NTP.counts)
+            self.assertEqual(run.report["firewallDrops"], 1)
+            self.assertIn("counter packets 6 bytes 288 accept",
+                          (run.root / "firewall-bridge.txt").read_text())
+            self.assertEqual(run.report["firewallCounterFiles"], {"bridge": "firewall-bridge.txt"})
         finally:
             shutil.rmtree(run.root)
 
