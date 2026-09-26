@@ -60,6 +60,7 @@ MANAGED_VOLUME_INPUT_NAMES = (
 MANAGED_VOLUME_GO_TEST_NAME = "TestManagedRuntimeFirecrackerMountedVolume"
 MANAGED_VOLUME_UUID = "76f1b43d-7d79-4f41-9a6e-cc1f4aaab102"
 MANAGED_VOLUME_IMAGE_SIZE_BYTES = 256 << 20
+MANAGED_VOLUME_DRIVE_ID = "managed_volume"
 MANAGED_RUNTIME_ROOT = Path("/srv/ts-managed")
 MANAGED_MEMBER_DIR = Path("/srv/ts-managed/6efe9447512debbf02bcd921c78d666c")
 MANAGED_MOUNT_PATH = MANAGED_MEMBER_DIR / "volume"
@@ -67,6 +68,8 @@ MANAGED_MATERIAL_PATH = MANAGED_MEMBER_DIR / "material"
 MANAGED_CONTROL_PATH = MANAGED_MEMBER_DIR / "control"
 MANAGED_VOLUME_SETUP_SERVICE_NAME = "ts-member-status-managed-volume-setup.service"
 MANAGED_VOLUME_SETUP_SCRIPT = "/usr/local/sbin/ts-member-status-managed-volume-setup"
+# The pinned Ubuntu Noble rootfs installs util-linux blkid under /usr/sbin.
+MANAGED_VOLUME_BLKID_PATH = Path("/usr/sbin/blkid")
 MANAGED_VOLUME_RESULT_PREFIX = "TS_MANAGED_VOLUME_QUALIFICATION_RESULT="
 MANAGED_VOLUME_RUNNER_SUCCESS = MANAGED_VOLUME_RESULT_PREFIX + "PASS"
 MANAGED_VOLUME_RUNNER_FAILURE = re.compile(
@@ -858,8 +861,9 @@ class FirecrackerVM:
             "is_read_only": False,
         })
         if self.managed_volume is not None:
-            self._api("PUT", "/drives/managed-volume", {
-                "drive_id": "managed-volume",
+            drive_id = MANAGED_VOLUME_DRIVE_ID
+            self._api("PUT", f"/drives/{drive_id}", {
+                "drive_id": drive_id,
                 "path_on_host": str(self.managed_volume),
                 "is_root_device": False,
                 "is_read_only": False,
@@ -1065,6 +1069,7 @@ EXPECTED_UUID='{MANAGED_VOLUME_UUID}'
 DEVICE=/dev/vdb
 ALIAS=/dev/oracleoci/oraclevdb
 MOUNT={shlex.quote(str(MANAGED_MOUNT_PATH))}
+BLKID={shlex.quote(str(MANAGED_VOLUME_BLKID_PATH))}
 
 if [ "${{TS_FC_VOLUME_UUID:-}}" != "$EXPECTED_UUID" ]; then
     echo "managed volume UUID environment is missing or unexpected" >&2
@@ -1083,7 +1088,8 @@ if [ "$attempt" -ge 120 ]; then
     echo "managed volume did not appear with the pinned UUID" >&2
     exit 1
 fi
-if [ "$(blkid -s UUID -o value "$DEVICE")" != "$EXPECTED_UUID" ]; then
+observed_uuid=$("$BLKID" -s UUID -o value "$DEVICE")
+if [ "$observed_uuid" != "$EXPECTED_UUID" ]; then
     echo "managed volume device UUID differs from the pin" >&2
     exit 1
 fi
@@ -1424,8 +1430,8 @@ class Qualification:
                 self.mount_path, Path("/usr/lib/systemd/systemd"))
             if not systemd_binary.is_file():
                 raise QualificationError(f"guest rootfs has no systemd binary at {systemd_binary}")
-            required_binaries = (("usr/bin/systemctl", "usr/bin/blkid", "usr/bin/findmnt",
-                                  "usr/bin/mountpoint", "usr/bin/readlink")
+            required_binaries = (("usr/bin/systemctl", str(MANAGED_VOLUME_BLKID_PATH).lstrip("/"),
+                                  "usr/bin/findmnt", "usr/bin/mountpoint", "usr/bin/readlink")
                                  if self.managed_volume_profile else
                                  ("usr/bin/setpriv", "usr/bin/curl", "usr/bin/systemctl"))
             for required in required_binaries:

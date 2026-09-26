@@ -274,7 +274,7 @@ class BoundedLogTests(unittest.TestCase):
 
 
 class ManagedVolumeAttachTests(unittest.TestCase):
-    def test_volume_drive_is_registered_before_instance_start(self):
+    def test_volume_drive_uses_valid_matching_resource_id_before_instance_start(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             socket_dir = root / "socket"
@@ -303,13 +303,75 @@ class ManagedVolumeAttachTests(unittest.TestCase):
                 vm.start()
 
             drive_index = next(index for index, call in enumerate(calls)
-                               if call[1] == "/drives/managed-volume")
+                               if call[1] == f"/drives/{qualify.MANAGED_VOLUME_DRIVE_ID}")
+            rootfs_index = next(index for index, call in enumerate(calls)
+                                if call[1] == "/drives/rootfs")
             start_index = next(index for index, call in enumerate(calls)
                                if call[1] == "/actions" and call[2]["action_type"] == "InstanceStart")
+            drive_path = calls[drive_index][1]
+            drive_request = calls[drive_index][2]
+            resource_id_pattern = r"\A[A-Za-z0-9_]+\Z"
+            self.assertRegex(qualify.MANAGED_VOLUME_DRIVE_ID, resource_id_pattern)
+            self.assertNotRegex("-" + qualify.MANAGED_VOLUME_DRIVE_ID, resource_id_pattern)
+            self.assertEqual(drive_path, f"/drives/{qualify.MANAGED_VOLUME_DRIVE_ID}")
+            self.assertEqual(drive_request["drive_id"], qualify.MANAGED_VOLUME_DRIVE_ID)
+            self.assertEqual(drive_path.rsplit("/", 1)[-1], drive_request["drive_id"])
+            self.assertLess(rootfs_index, drive_index)
             self.assertLess(drive_index, start_index)
-            self.assertEqual(calls[drive_index][2], {
-                "drive_id": "managed-volume", "path_on_host": str(root / "managed-volume.ext4"),
+            self.assertEqual(drive_request, {
+                "drive_id": qualify.MANAGED_VOLUME_DRIVE_ID,
+                "path_on_host": str(root / "managed-volume.ext4"),
                 "is_root_device": False, "is_read_only": False})
+
+
+class ManagedVolumeRootfsPreflightTests(unittest.TestCase):
+    def make_qualification(self, root: Path, blkid_path: str) -> tuple[qualify.Qualification, Path]:
+        guest = root / "guest"
+        for relative in (
+                "usr/lib/systemd/systemd", "usr/bin/systemctl", "usr/bin/findmnt",
+                "usr/bin/mountpoint", "usr/bin/readlink", blkid_path,
+                "var/lib/dpkg/status"):
+            path = guest / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8\n"
+                if relative == "var/lib/dpkg/status" else "")
+            if relative != "var/lib/dpkg/status":
+                path.chmod(0o755)
+
+        qualification = qualify.Qualification.__new__(qualify.Qualification)
+        qualification.managed_volume_profile = True
+        qualification.mount_path = guest
+        qualification.events = qualify.EventLog(root / "events.json")
+        return qualification, guest
+
+    def test_pinned_noble_sbin_blkid_passes_preflight_and_matches_setup_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            qualification, guest = self.make_qualification(root, "usr/sbin/blkid")
+            with patch.object(qualification, "_mount"), \
+                    patch.object(qualification, "_unmount"), \
+                    patch.object(qualification, "_stage_managed_volume_guest") as stage:
+                qualification._stage_guest()
+
+            self.assertTrue((guest / "usr/sbin/blkid").is_file())
+            self.assertFalse((guest / "usr/bin/blkid").exists())
+            stage.assert_called_once_with()
+            script = qualify._managed_volume_setup_script()
+            self.assertIn(f"BLKID={qualify.MANAGED_VOLUME_BLKID_PATH}", script)
+            self.assertIn('observed_uuid=$("$BLKID" -s UUID -o value "$DEVICE")', script)
+
+    def test_missing_pinned_blkid_path_still_fails_preflight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            qualification, _ = self.make_qualification(root, "usr/bin/blkid")
+            with patch.object(qualification, "_mount"), \
+                    patch.object(qualification, "_unmount"), \
+                    patch.object(qualification, "_stage_managed_volume_guest") as stage:
+                with self.assertRaisesRegex(
+                        qualify.QualificationError, "missing required probe executable: /usr/sbin/blkid"):
+                    qualification._stage_guest()
+            stage.assert_not_called()
 
 
 class GuestRunnerFailureTests(unittest.TestCase):
@@ -428,6 +490,7 @@ class GuestRunnerFailureTests(unittest.TestCase):
 
         self.assertIn('ln -s ../vdb "$ALIAS"', script)
         self.assertIn(f"mount -t ext4 -o rw \"$ALIAS\" \"$MOUNT\"", script)
+        self.assertIn(f"BLKID={qualify.MANAGED_VOLUME_BLKID_PATH}", script)
         self.assertNotIn("replication/shard", script)
         self.assertIn("Environment=TS_FC_VOLUME_UUID=", setup)
         self.assertIn(f"Before={qualify.SERVICE_NAME}", setup)

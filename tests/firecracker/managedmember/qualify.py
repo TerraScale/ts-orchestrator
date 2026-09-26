@@ -67,7 +67,7 @@ MEMBER_IDS = {
 }
 MEMBER_DIRS = {
     "a": Path("/srv/ts-managed/6efe9447512debbf02bcd921c78d666c"),
-    "b": Path("/srv/ts-managed/279d69fc39201c2050b6940e191369a1"),
+    "b": Path("/srv/ts-managed/948d999055329358cc417bcc96edb470"),
 }
 CONTROL_PORT = 9540
 REPLICATION_PORT = 7000
@@ -83,10 +83,25 @@ RESULT_FAIL = re.compile(r"^TS_MANAGED_MEMBER_QUALIFICATION_RESULT=FAILED status
 TEST_PHASE_PASS = re.compile(r"^TS_MANAGED_MEMBER_PHASE=PASS node=node-[ab]$")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _COMMIT = re.compile(r"[0-9a-f]{40,64}\Z")
+_FIRECRACKER_ID = re.compile(r"[A-Za-z0-9_]+\Z")
 
 
 class QualificationError(RuntimeError):
     pass
+
+
+def firecracker_drive_request(identifier: str, path: Path, root: bool) -> tuple[str, dict[str, Any]]:
+    if not _FIRECRACKER_ID.fullmatch(identifier):
+        raise QualificationError(f"invalid Firecracker drive resource ID: {identifier}")
+    return f"/drives/{identifier}", {"drive_id": identifier, "path_on_host": str(path),
+                                      "is_root_device": root, "is_read_only": False}
+
+
+def firecracker_network_request(identifier: str, tap: str, mac: str) -> tuple[str, dict[str, Any]]:
+    if not _FIRECRACKER_ID.fullmatch(identifier):
+        raise QualificationError(f"invalid Firecracker network resource ID: {identifier}")
+    return f"/network-interfaces/{identifier}", {"iface_id": identifier,
+                                                   "host_dev_name": tap, "guest_mac": mac}
 
 
 def sha256_file(path: Path) -> str:
@@ -325,6 +340,15 @@ def guest_path(mount: Path, destination: Path) -> Path:
     return current
 
 
+def check_guest_tools(mount: Path) -> None:
+    required = (Path("/usr/lib/systemd/systemd"), Path("/usr/sbin/blkid"),
+                *(Path("/usr/bin") / command for command in
+                  ("mount", "findmnt", "mountpoint", "readlink", "systemctl", "ip")))
+    for destination in required:
+        if not guest_path(mount, destination).is_file():
+            raise QualificationError(f"guest rootfs lacks {destination}")
+
+
 def volume_setup_script(member: str) -> str:
     mount = MEMBER_DIRS[member] / "volume"
     uuid = VOLUME_UUIDS[member]
@@ -342,7 +366,7 @@ while [ "$attempt" -lt 120 ]; do
   attempt=$((attempt + 1)); sleep 0.5
 done
 [ "$attempt" -lt 120 ] || exit 1
-[ "$(blkid -s UUID -o value "$DEVICE")" = "$UUID" ] || exit 1
+[ "$(/usr/sbin/blkid -s UUID -o value "$DEVICE")" = "$UUID" ] || exit 1
 for directory in /srv/ts-managed {MEMBER_DIRS[member]} {material} {MEMBER_DIRS[member] / 'control'} "$MOUNT"; do
   [ ! -L "$directory" ] && [ -d "$directory" ] || exit 1
 done
@@ -497,9 +521,17 @@ class VM:
         finally:
             connection.close()
 
+    def resource_requests(self) -> tuple[tuple[str, dict[str, Any]], ...]:
+        return (
+            firecracker_drive_request("rootfs", self.lab.images / f"{self.member}-rootfs.ext4", True),
+            firecracker_drive_request("managed_volume", self.lab.images / f"{self.member}-volume.ext4", False),
+            firecracker_network_request("eth0", self.lab.taps[self.member], GUEST_MACS[self.member]),
+        )
+
     def start(self) -> None:
         if len(os.fsencode(self.socket)) >= 100:
             raise QualificationError("Firecracker API socket path is too long")
+        resource_requests = self.resource_requests()
         command = [str(self.lab.manifest["inputs"]["firecracker"]["path"]),
                    "--api-sock", str(self.socket), "--log-path", "/dev/stderr"]
         self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -523,13 +555,8 @@ class VM:
         self.api("PUT", "/machine-config", {"vcpu_count": 2, "mem_size_mib": RAM_MIB, "smt": False})
         self.api("PUT", "/boot-source", {"kernel_image_path": str(self.lab.manifest["inputs"]["kernel"]["path"]),
                                           "boot_args": BOOT_ARGS})
-        self.api("PUT", "/drives/rootfs", {"drive_id": "rootfs", "path_on_host": str(self.lab.images / f"{self.member}-rootfs.ext4"),
-                                             "is_root_device": True, "is_read_only": False})
-        self.api("PUT", "/drives/managed-volume", {"drive_id": "managed-volume",
-                                                     "path_on_host": str(self.lab.images / f"{self.member}-volume.ext4"),
-                                                     "is_root_device": False, "is_read_only": False})
-        self.api("PUT", "/network-interfaces/eth0", {"iface_id": "eth0", "host_dev_name": self.lab.taps[self.member],
-                                                       "guest_mac": GUEST_MACS[self.member]})
+        for route, body in resource_requests:
+            self.api("PUT", route, body)
         self.api("PUT", "/actions", {"action_type": "InstanceStart"})
         self.lab.note("vm_started", member=self.member, pid=self.process.pid)
 
@@ -732,11 +759,7 @@ class Lab:
     def stage_guest(self, member: str) -> None:
         mount = self.mount_root(member)
         try:
-            if not guest_path(mount, Path("/usr/lib/systemd/systemd")).is_file():
-                raise QualificationError("guest rootfs lacks systemd")
-            for command in ("blkid", "mount", "findmnt", "mountpoint", "readlink", "systemctl", "ip"):
-                if not guest_path(mount, Path("/usr/bin") / command).is_file():
-                    raise QualificationError(f"guest rootfs lacks {command}")
+            check_guest_tools(mount)
             self.install(mount, self.manifest["inputs"]["go_host_test"]["path"],
                          Path("/opt/ts-managed-member/host.test"), "0755")
             self.install(mount, self.manifest["inputs"]["tb_server"]["path"],

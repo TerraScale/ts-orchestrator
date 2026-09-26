@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -18,6 +19,63 @@ _SPEC.loader.exec_module(qualify)
 
 
 class InputContractTests(unittest.TestCase):
+    def test_firecracker_resource_routes_match_valid_body_ids(self) -> None:
+        lab = SimpleNamespace(socket_dir=Path("/tmp"), images=Path("/private/images"),
+                              taps={"a": "tap_a", "b": "tap_b"})
+        for member in ("a", "b"):
+            requests = qualify.VM(lab, member).resource_requests()
+            with self.subTest(member=member):
+                self.assertEqual([route for route, _ in requests],
+                                 ["/drives/rootfs", "/drives/managed_volume", "/network-interfaces/eth0"])
+                self.assertEqual([body["drive_id"] for _, body in requests[:2]],
+                                 ["rootfs", "managed_volume"])
+                self.assertEqual(requests[2][1]["iface_id"], "eth0")
+                self.assertEqual(requests[1][1]["path_on_host"],
+                                 str(lab.images / f"{member}-volume.ext4"))
+                self.assertEqual(requests[2][1]["host_dev_name"], lab.taps[member])
+                self.assertEqual(requests[2][1]["guest_mac"], qualify.GUEST_MACS[member])
+        for bad_id in ("managed-volume", "managed/volume", "", "volumé"):
+            with self.subTest(bad_id=bad_id):
+                with self.assertRaisesRegex(qualify.QualificationError, "resource ID"):
+                    qualify.firecracker_drive_request(bad_id, Path("/private/volume.ext4"), False)
+                with self.assertRaisesRegex(qualify.QualificationError, "resource ID"):
+                    qualify.firecracker_network_request(bad_id, "tap_a", qualify.GUEST_MACS["a"])
+        vm = qualify.VM(lab, "a")
+        with (mock.patch.object(vm, "resource_requests", side_effect=qualify.QualificationError("invalid resource ID")),
+              mock.patch.object(qualify.subprocess, "Popen") as spawn):
+            with self.assertRaisesRegex(qualify.QualificationError, "resource ID"):
+                vm.start()
+            spawn.assert_not_called()
+
+    def test_guest_tool_layout_requires_canonical_sbin_blkid(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            mount = Path(root)
+            required = (Path("/usr/lib/systemd/systemd"), Path("/usr/sbin/blkid"),
+                        *(Path("/usr/bin") / command for command in
+                          ("mount", "findmnt", "mountpoint", "readlink", "systemctl", "ip")))
+            for destination in required:
+                target = qualify.guest_path(mount, destination)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"tool")
+            qualify.check_guest_tools(mount)
+            self.assertIn("$(/usr/sbin/blkid -s UUID", qualify.volume_setup_script("a"))
+            qualify.guest_path(mount, Path("/usr/sbin/blkid")).unlink()
+            qualify.guest_path(mount, Path("/usr/bin/blkid")).write_bytes(b"wrong location")
+            with self.assertRaisesRegex(qualify.QualificationError, "/usr/sbin/blkid"):
+                qualify.check_guest_tools(mount)
+
+    def test_signed_members_derive_distinct_runtime_directories(self) -> None:
+        shared = {"cluster_id": "aa" * 16,
+                  "tenant_id": "018f0000-0000-7000-8000-000000000001",
+                  "database_id": "018f0000-0000-7000-8000-000000000001",
+                  "shard_id": 1}
+        for member in ("a", "b"):
+            scope = {**shared, "member_id": qualify.MEMBER_IDS[member],
+                     "incarnation": ("bb" if member == "a" else "cc") * 16}
+            with self.subTest(member=member):
+                self.assertEqual(qualify.member_directory(scope, 1), qualify.MEMBER_DIRS[member])
+        self.assertNotEqual(qualify.MEMBER_DIRS["a"], qualify.MEMBER_DIRS["b"])
+
     def test_rejects_symlink_and_changed_input(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
