@@ -274,16 +274,21 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 	databaseID := "db-main"
 	manifests := make([]placement.RuntimeManifest, 0, len(rows))
 	for index, row := range rows {
+		peer := rows[index^1]
 		manifests = append(manifests, placement.RuntimeManifest{
 			Region: row.Region, SeatID: row.SeatID,
 			ArtifactDigest: strings.Repeat("d", 64), SourceDigest: strings.Repeat("e", 64),
 			ManagedRuntimeRoot: "/srv/terrascale-managed",
 			FileSystemUUID:     fmt.Sprintf("%08x-1234-1234-1234-123456789abc", index+1),
 			FileSystemType:     "ext4", TrustedKeySHA256: strings.Repeat("c", 64),
-			ServerCertificateSHA256:  strings.Repeat("1", 64),
-			ServerPrivateKeySHA256:   strings.Repeat("2", 64),
-			ClientCARootsSHA256:      strings.Repeat("3", 64),
-			ReplicationListenAddress: fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			ServerCertificateSHA256:             strings.Repeat("1", 64),
+			ServerPrivateKeySHA256:              strings.Repeat("2", 64),
+			ClientCARootsSHA256:                 strings.Repeat("3", 64),
+			ClientManagedMaterialManifestSHA256: strings.Repeat("4", 64),
+			ReplicationListenAddress:            fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			ReplicationPeerMemberID:             peer.MemberID,
+			ReplicationPeerAddress:              fmt.Sprintf("127.0.0.1:%d", 7000+(index^1)),
+			ReplicationServerCASHA256:           strings.Repeat("a", 64),
 		})
 	}
 	return placement.Intent{

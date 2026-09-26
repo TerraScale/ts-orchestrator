@@ -94,28 +94,29 @@ type CanonicalRosterRow struct {
 // contract. OCI attachment identity and device are observed later, never
 // accepted from this operator payload.
 type RuntimeManifest struct {
-	Region                    oci.Region `json:"region"`
-	SeatID                    string     `json:"seat_id"`
-	ArtifactDigest            string     `json:"artifact_digest"`
-	SourceDigest              string     `json:"source_digest"`
-	ManagedRuntimeRoot        string     `json:"managed_runtime_root"`
-	FileSystemUUID            string     `json:"filesystem_uuid"`
-	FileSystemType            string     `json:"filesystem_type"`
-	TrustedKeySHA256          string     `json:"trusted_key_sha256"`
-	ServerCertificateSHA256   string     `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256    string     `json:"server_private_key_sha256"`
-	ClientCARootsSHA256       string     `json:"client_ca_roots_sha256"`
-	ReplicationListenAddress  string     `json:"replication_listen_address"`
-	ReplicationPeerMemberID   string     `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress    string     `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256 string     `json:"replication_server_ca_sha256,omitempty"`
+	Region                              oci.Region `json:"region"`
+	SeatID                              string     `json:"seat_id"`
+	ArtifactDigest                      string     `json:"artifact_digest"`
+	SourceDigest                        string     `json:"source_digest"`
+	ManagedRuntimeRoot                  string     `json:"managed_runtime_root"`
+	FileSystemUUID                      string     `json:"filesystem_uuid"`
+	FileSystemType                      string     `json:"filesystem_type"`
+	TrustedKeySHA256                    string     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string     `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string     `json:"client_managed_material_manifest_sha256,omitempty"`
+	ReplicationListenAddress            string     `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string     `json:"replication_server_ca_sha256,omitempty"`
 }
 
 func (manifest RuntimeManifest) Validate() error {
-	return manifest.validateWithIdentity(canonicalTerraBaseUUID)
+	return manifest.validateWithIdentity(canonicalTerraBaseUUID, true)
 }
 
-func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) bool) error {
+func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) bool, requireManagedClient bool) error {
 	if !knownRegion(manifest.Region) || !validToken(manifest.SeatID) ||
 		!validLowerSHA256Digest(manifest.ArtifactDigest) || !validLowerSHA256Digest(manifest.SourceDigest) ||
 		!filepath.IsAbs(manifest.ManagedRuntimeRoot) || filepath.Clean(manifest.ManagedRuntimeRoot) != manifest.ManagedRuntimeRoot ||
@@ -135,15 +136,21 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 		!validLowerSHA256Digest(manifest.ReplicationServerCASHA256)) {
 		return fmt.Errorf("%w: incomplete runtime peer triple", ErrInvalidIntent)
 	}
+	if requireManagedClient && (!validLowerSHA256Digest(manifest.ClientManagedMaterialManifestSHA256) || !peer) {
+		return fmt.Errorf("%w: schema-5 managed HTTPS requires a pinned client material manifest and outbound peer", ErrInvalidIntent)
+	}
+	if !requireManagedClient && manifest.ClientManagedMaterialManifestSHA256 != "" {
+		return fmt.Errorf("%w: historical runtime manifest cannot carry managed client material", ErrInvalidIntent)
+	}
 	return nil
 }
 
 func (manifest RuntimeManifest) Digest() (string, error) {
-	return manifest.digestWithIdentity(canonicalTerraBaseUUID)
+	return manifest.digestWithIdentity(canonicalTerraBaseUUID, true)
 }
 
-func (manifest RuntimeManifest) digestWithIdentity(validMemberID func(string) bool) (string, error) {
-	if err := manifest.validateWithIdentity(validMemberID); err != nil {
+func (manifest RuntimeManifest) digestWithIdentity(validMemberID func(string) bool, requireManagedClient bool) (string, error) {
+	if err := manifest.validateWithIdentity(validMemberID, requireManagedClient); err != nil {
 		return "", err
 	}
 	encoded, err := protocol.EncodeJSON(manifest)
@@ -280,7 +287,7 @@ func (intent Intent) Validate() error {
 	uuids := make(map[string]struct{}, len(intent.RuntimeManifests))
 	for index, manifest := range intent.RuntimeManifests {
 		row := intent.CanonicalRoster.Rows[index]
-		if err := manifest.validateWithIdentity(validMemberID); err != nil {
+		if err := manifest.validateWithIdentity(validMemberID, intent.SchemaVersion == IntentSchemaVersion); err != nil {
 			return err
 		}
 		if manifest.Region != row.Region || manifest.SeatID != row.SeatID ||
@@ -829,7 +836,7 @@ func (state MemberState) Validate() error {
 		!validLowerSHA256Digest(state.RuntimeManifestDigest) {
 		return errors.New("invalid TerraBase member runtime manifest pin")
 	}
-	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID)
+	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID, state.SchemaVersion == placementSchemaVersion)
 	if err != nil || digest != state.RuntimeManifestDigest {
 		return errors.New("invalid TerraBase member runtime manifest digest")
 	}

@@ -1,0 +1,897 @@
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3249,6 +3249,7 @@
+  "pg_query",
+  "rcgen",
+  "reqwest",
++ "rustix 1.1.5",
+  "rustls",
+  "serde",
+  "serde_json",
+--- a/crates/tb-server/Cargo.toml
++++ b/crates/tb-server/Cargo.toml
+@@ -31,6 +31,7 @@
+ object_store.workspace = true
+ pg_query = "=6.1.1"
+ rustls.workspace = true
++rustix = { workspace = true, features = ["process"] }
+ serde.workspace = true
+ serde_json.workspace = true
+ sha2.workspace = true
+--- a/crates/tb-server/src/lib.rs
++++ b/crates/tb-server/src/lib.rs
+@@ -11,6 +11,7 @@
+ mod http;
+ mod lifecycle;
+ mod local_v1_runtime;
++mod managed_client_material;
+ mod member_control;
+ mod memory_metrics;
+ mod memory_pressure;
+@@ -45,6 +46,7 @@
+     AuthorizedDocumentRequest, DocumentWorkerHandle, PreparedClientResponse, ResponseLease,
+     WorkerOperation,
+ };
++pub use managed_client_material::ManagedClientMaterial;
+ pub use member_control::{MemberControlIdentity, bind_member_control, serve_member_control};
+ pub use memory_metrics::MemoryMetricsSnapshot;
+ pub use memory_pressure::{CgroupMemoryMonitor, MemoryPressureError};
+--- a/crates/tb-server/src/main.rs
++++ b/crates/tb-server/src/main.rs
+@@ -6,10 +6,10 @@
+ 
+ use clap::Parser;
+ use tb_server::{
+-    CgroupMemoryMonitor, DEFAULT_LISTEN_PORT, LocalServerState, ReplicationConfig,
+-    ReplicationServer, ServerConfig, bind_member_control, install_prometheus_recorder,
+-    parse_fixed_hex, parse_local_authority_scope, run_distributed_process, run_local_v1_process,
+-    serve, serve_member_control,
++    CgroupMemoryMonitor, DEFAULT_LISTEN_PORT, LocalServerState, ManagedClientMaterial,
++    ReplicationConfig, ReplicationServer, ServerConfig, bind_member_control,
++    install_prometheus_recorder, parse_fixed_hex, parse_local_authority_scope,
++    run_distributed_process, run_local_v1_process, serve, serve_member_control,
+ };
+ use tokio::net::TcpListener;
+ use tokio::sync::{oneshot, watch};
+@@ -48,6 +48,14 @@
+     #[arg(long, requires = "client_config")]
+     client_allow_nonloopback: bool,
+ 
++    /// Root-provisioned signed-v2 client material pin manifest.
++    #[arg(long, requires = "client_config")]
++    client_managed_material_manifest: Option<PathBuf>,
++
++    /// Signed SHA-256 of the exact managed material manifest bytes.
++    #[arg(long, requires = "client_managed_material_manifest")]
++    client_managed_material_manifest_sha256: Option<String>,
++
+     /// Public mTLS replication gRPC listener. Supplying this enables network mode.
+     #[arg(long)]
+     replication_listen_addr: Option<SocketAddr>,
+@@ -159,6 +167,28 @@
+         return Err(io::Error::new(
+             io::ErrorKind::InvalidInput,
+             "--client-allow-nonloopback requires --client-config",
++        )
++        .into());
++    }
++    if arguments.client_managed_material_manifest.is_some()
++        != arguments.client_managed_material_manifest_sha256.is_some()
++    {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "managed client material requires both manifest and SHA-256",
++        )
++        .into());
++    }
++    if arguments.client_managed_material_manifest.is_some()
++        && (arguments.local_v1_config.is_some()
++            || replication_config
++                .as_ref()
++                .and_then(ReplicationConfig::outbound_peer)
++                .is_none())
++    {
++        return Err(io::Error::new(
++            io::ErrorKind::InvalidInput,
++            "managed client material requires signed-v2 distributed HTTPS",
+         )
+         .into());
+     }
+@@ -197,6 +227,20 @@
+     }
+     if let Some(client_config_path) = arguments.client_config.as_deref() {
+         let prometheus = install_prometheus_recorder().map_err(std::io::Error::other)?;
++        let managed = arguments
++            .client_managed_material_manifest
++            .as_ref()
++            .map(|path| {
++                ManagedClientMaterial::open(
++                    path,
++                    arguments
++                        .client_managed_material_manifest_sha256
++                        .as_deref()
++                        .expect("validated paired digest"),
++                    client_config_path,
++                )
++            })
++            .transpose()?;
+         return run_distributed_process(
+             config,
+             listener,
+@@ -204,6 +248,7 @@
+                 .take()
+                 .expect("validated signed-v2 replication mode"),
+             client_config_path,
++            managed,
+             arguments.client_allow_nonloopback,
+             arguments.member_control_socket.as_deref(),
+             prometheus,
+--- a/crates/tb-server/src/config.rs
++++ b/crates/tb-server/src/config.rs
+@@ -441,7 +441,7 @@
+     }
+ }
+ 
+-fn parse_client_config(bytes: &[u8]) -> Result<ClientConfig, ClientConfigError> {
++pub(crate) fn parse_client_config(bytes: &[u8]) -> Result<ClientConfig, ClientConfigError> {
+     let file: ClientFile = serde_json::from_slice(bytes).map_err(|_| ClientConfigError::Invalid)?;
+     if file.version != 1 {
+         return Err(ClientConfigError::Invalid);
+--- a/crates/tb-server/src/client_auth.rs
++++ b/crates/tb-server/src/client_auth.rs
+@@ -25,7 +25,7 @@
+ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+ use zeroize::Zeroize;
+ 
+-use crate::LocalV1Scope;
++use crate::{LocalV1Scope, ManagedClientMaterial};
+ 
+ const MAX_REGISTRY_FILE_BYTES: usize = 256 * 1024;
+ const MAX_KEYS: usize = 128;
+@@ -145,8 +145,32 @@
+             .try_reserve_work(attribution, REGISTRY_RESERVATION_BYTES, 1)
+             .map_err(|_| AuthLoadError::Capacity)?;
+         let bytes = read_protected_bounded(path)?;
++        Self::parse_generation(&bytes, scope, reservation)
++    }
++
++    pub(crate) fn load_managed_generation(
++        path: &Path,
++        managed: &ManagedClientMaterial,
++        scope: &LocalV1Scope,
++        budget: &MemoryBudget,
++        attribution: Attribution,
++    ) -> Result<Self, AuthLoadError> {
++        let reservation = budget
++            .try_reserve_work(attribution, REGISTRY_RESERVATION_BYTES, 1)
++            .map_err(|_| AuthLoadError::Capacity)?;
++        let mut bytes = managed.read_registry(path).map_err(AuthLoadError::Io)?;
++        let result = Self::parse_generation(&bytes, scope, reservation);
++        bytes.zeroize();
++        result
++    }
++
++    fn parse_generation(
++        bytes: &[u8],
++        scope: &LocalV1Scope,
++        reservation: WorkReservation,
++    ) -> Result<Self, AuthLoadError> {
+         let parsed: RegistryFile =
+-            serde_json::from_slice(&bytes).map_err(|_| AuthLoadError::InvalidRegistry)?;
++            serde_json::from_slice(bytes).map_err(|_| AuthLoadError::InvalidRegistry)?;
+         if parsed.version != 1 || parsed.keys.len() > MAX_KEYS {
+             return Err(AuthLoadError::InvalidRegistry);
+         }
+--- a/crates/tb-server/src/client_http.rs
++++ b/crates/tb-server/src/client_http.rs
+@@ -31,6 +31,7 @@
+ use tower::service_fn;
+ use zeroize::Zeroize;
+ 
++use crate::ManagedClientMaterial;
+ use crate::client_auth::{
+     AuthError, AuthLoadError, AuthRegistry, AuthenticatedKey, ClientPermission, ClientTarget,
+     KeyAdmission,
+@@ -77,10 +78,56 @@
+         budget: &MemoryBudget,
+         attribution: Attribution,
+     ) -> Result<Self, ClientGenerationError> {
++        Self::load_with_material(
++            certificate_path,
++            private_key_path,
++            registry_path,
++            scope,
++            budget,
++            attribution,
++            None,
++        )
++    }
++
++    pub(crate) fn load_managed(
++        certificate_path: &Path,
++        private_key_path: &Path,
++        registry_path: &Path,
++        scope: &crate::LocalV1Scope,
++        budget: &MemoryBudget,
++        attribution: Attribution,
++        managed: &ManagedClientMaterial,
++    ) -> Result<Self, ClientGenerationError> {
++        Self::load_with_material(
++            certificate_path,
++            private_key_path,
++            registry_path,
++            scope,
++            budget,
++            attribution,
++            Some(managed),
++        )
++    }
++
++    fn load_with_material(
++        certificate_path: &Path,
++        private_key_path: &Path,
++        registry_path: &Path,
++        scope: &crate::LocalV1Scope,
++        budget: &MemoryBudget,
++        attribution: Attribution,
++        managed: Option<&ManagedClientMaterial>,
++    ) -> Result<Self, ClientGenerationError> {
+         let tls_reservation = budget
+             .try_reserve_work(attribution, TLS_RESERVATION_BYTES, 1)
+             .map_err(|_| ClientGenerationError::Capacity)?;
+-        let certificate_bytes = read_tls_file(certificate_path, false)?;
++        let certificate_bytes = if let Some(managed) = managed {
++            managed
++                .read_certificate(certificate_path)
++                .map_err(ClientGenerationError::Io)?
++        } else {
++            read_tls_file(certificate_path, false)?
++        };
+         let mut certificates: Vec<CertificateDer<'static>> = Vec::new();
+         for certificate in CertificateDer::pem_slice_iter(&certificate_bytes) {
+             if certificates.len() == MAX_CERTIFICATES {
+@@ -91,7 +138,13 @@
+         if certificates.is_empty() {
+             return Err(ClientGenerationError::InvalidTls);
+         }
+-        let mut private_key_bytes = read_tls_file(private_key_path, true)?;
++        let mut private_key_bytes = if let Some(managed) = managed {
++            managed
++                .read_private_key(private_key_path)
++                .map_err(ClientGenerationError::Io)?
++        } else {
++            read_tls_file(private_key_path, true)?
++        };
+         let key_result = PrivateKeyDer::from_pem_slice(&private_key_bytes);
+         private_key_bytes.zeroize();
+         let private_key = key_result.map_err(|_| ClientGenerationError::InvalidTls)?;
+@@ -104,7 +157,17 @@
+         .with_single_cert(certificates, private_key)
+         .map_err(|_| ClientGenerationError::InvalidTls)?;
+         tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+-        let auth = AuthRegistry::load_generation(registry_path, scope, budget, attribution)?;
++        let auth = if let Some(managed) = managed {
++            AuthRegistry::load_managed_generation(
++                registry_path,
++                managed,
++                scope,
++                budget,
++                attribution,
++            )?
++        } else {
++            AuthRegistry::load_generation(registry_path, scope, budget, attribution)?
++        };
+         Ok(Self {
+             tls: Arc::new(tls),
+             auth,
+--- a/crates/tb-server/src/local_v1_runtime.rs
++++ b/crates/tb-server/src/local_v1_runtime.rs
+@@ -27,6 +27,7 @@
+ use tokio::task::JoinHandle as TokioJoinHandle;
+ 
+ use crate::LocalDurableCommit;
++use crate::ManagedClientMaterial;
+ use crate::client_auth::{
+     AuthError, AuthenticatedKey, ClientPermission, ClientTarget, KeyAdmission,
+ };
+@@ -83,6 +84,7 @@
+ 
+ struct ClientReloadContext {
+     config: ClientConfig,
++    managed: Option<ManagedClientMaterial>,
+     scope: LocalV1Scope,
+     budget: MemoryBudget,
+     attribution: Attribution,
+@@ -181,6 +183,7 @@
+     let reload_task = spawn_client_reload_task(
+         ClientReloadContext {
+             config: client_config,
++            managed: None,
+             scope,
+             budget,
+             attribution,
+@@ -242,6 +245,7 @@
+     admin_listener: TcpListener,
+     replication_config: ReplicationConfig,
+     client_config_path: &Path,
++    managed: Option<ManagedClientMaterial>,
+     allow_nonloopback: bool,
+     member_control_socket: Option<&Path>,
+     prometheus: PrometheusHandle,
+@@ -258,7 +262,11 @@
+     } = register_local_v1_signals()?;
+     let member_control_listener = member_control_socket.map(bind_member_control).transpose()?;
+     let replication_listener = TcpListener::bind(replication_config.listen_addr).await?;
+-    let client_config = load_client_config(client_config_path).map_err(io::Error::other)?;
++    let client_config = if let Some(managed) = &managed {
++        managed.load_client_config()?
++    } else {
++        load_client_config(client_config_path).map_err(io::Error::other)?
++    };
+     client_config
+         .validate_bind(allow_nonloopback)
+         .map_err(io::Error::other)?;
+@@ -288,6 +296,7 @@
+     let attribution = ServerConfig::local_v1_attribution(document.authority.view().tenant());
+     let generation = load_client_generation(
+         client_config.clone(),
++        managed.clone(),
+         scope.clone(),
+         budget.clone(),
+         attribution,
+@@ -327,6 +336,7 @@
+     let reload_task = spawn_client_reload_task(
+         ClientReloadContext {
+             config: client_config.clone(),
++            managed,
+             scope,
+             budget,
+             attribution,
+@@ -483,6 +493,7 @@
+     let attribution = ServerConfig::local_v1_attribution(local_config.tenant);
+     let initial_generation = load_client_generation(
+         client_config.clone(),
++        None,
+         scope.clone(),
+         budget.clone(),
+         attribution,
+@@ -535,19 +546,41 @@
+ 
+ async fn load_client_generation(
+     config: ClientConfig,
++    managed: Option<ManagedClientMaterial>,
+     scope: LocalV1Scope,
+     budget: MemoryBudget,
+     attribution: Attribution,
+ ) -> Result<ClientGeneration, io::Error> {
+     tokio::task::spawn_blocking(move || {
+-        ClientGeneration::load(
+-            config.certificate_chain(),
+-            config.private_key(),
+-            config.api_key_registry(),
+-            &scope,
+-            &budget,
+-            attribution,
+-        )
++        if let Some(managed) = &managed {
++            let verified = managed.load_client_config()?;
++            if verified != config {
++                return Err(io::Error::new(
++                    io::ErrorKind::InvalidData,
++                    "managed client configuration changed",
++                ));
++            }
++            ClientGeneration::load_managed(
++                config.certificate_chain(),
++                config.private_key(),
++                config.api_key_registry(),
++                &scope,
++                &budget,
++                attribution,
++                managed,
++            )
++            .map_err(io::Error::other)
++        } else {
++            ClientGeneration::load(
++                config.certificate_chain(),
++                config.private_key(),
++                config.api_key_registry(),
++                &scope,
++                &budget,
++                attribution,
++            )
++            .map_err(io::Error::other)
++        }
+     })
+     .await
+     .map_err(io::Error::other)?
+@@ -562,6 +595,7 @@
+     tokio::spawn(async move {
+         let ClientReloadContext {
+             config,
++            managed,
+             scope,
+             budget,
+             attribution,
+@@ -583,6 +617,7 @@
+                         }
+                         let reload = load_client_generation(
+                             config.clone(),
++                            managed.clone(),
+                             scope.clone(),
+                             budget.clone(),
+                             attribution,
+@@ -607,6 +642,7 @@
+         {
+             let _ = (
+                 config,
++                managed,
+                 scope,
+                 budget,
+                 attribution,
+--- a/crates/tb-server/tests/distributed_client_process.rs
++++ b/crates/tb-server/tests/distributed_client_process.rs
+@@ -15,6 +15,9 @@
+     KeyUsagePurpose, PKCS_ED25519, SanType,
+ };
+ use serde_json::{Value, json};
++use sha2::{Digest, Sha256};
++#[cfg(unix)]
++use std::os::unix::fs::{PermissionsExt, chown, symlink};
+ use tb_core::{
+     CollectionId, DatabaseId, DocumentId, MembershipEpoch, OriginId, ReplicaId, ShardId, TenantId,
+ };
+@@ -469,6 +472,26 @@
+             "local",
+             "replication",
+             "server.log",
++            None,
++        )
++    }
++
++    #[cfg(unix)]
++    fn spawn_managed(&self, material: &ManagedMaterialFixture, digest: &str) -> RunningServer {
++        self.spawn_node(
++            LOCAL,
++            LOCAL_INCARNATION,
++            REMOTE,
++            "127.0.0.1:1".into(),
++            &self.member_certificate,
++            &self.member_key,
++            &material.config,
++            self.admin_port,
++            self.replication_port,
++            "managed-local",
++            "managed-replication",
++            "managed-server.log",
++            Some((&material.manifest, digest)),
+         )
+     }
+ 
+@@ -486,6 +509,7 @@
+             "local-a",
+             "replication-a",
+             "server-a.log",
++            None,
+         )
+     }
+ 
+@@ -503,6 +527,7 @@
+             "local-b",
+             "replication-b",
+             "server-b.log",
++            None,
+         )
+     }
+ 
+@@ -521,10 +546,12 @@
+         local_dir: &str,
+         replication_dir: &str,
+         log_name: &str,
++        managed: Option<(&Path, &str)>,
+     ) -> RunningServer {
+         let log_path = self.directory.join(log_name);
+         let log = File::create(&log_path).expect("server log");
+-        let child = Command::new(crate::server_fixture::server_binary())
++        let mut command = Command::new(crate::server_fixture::server_binary());
++        command
+             .arg("--data-dir")
+             .arg(self.directory.join(local_dir))
+             .arg("--memory-limit-bytes")
+@@ -566,7 +593,15 @@
+             .arg("--member-incarnation")
+             .arg(hex(&incarnation))
+             .arg("--client-config")
+-            .arg(client_config)
++            .arg(client_config);
++        if let Some((manifest, digest)) = managed {
++            command
++                .arg("--client-managed-material-manifest")
++                .arg(manifest)
++                .arg("--client-managed-material-manifest-sha256")
++                .arg(digest);
++        }
++        let child = command
+             .stdin(Stdio::null())
+             .stdout(Stdio::null())
+             .stderr(Stdio::from(log))
+@@ -841,3 +876,192 @@
+     }
+     output
+ }
++
++#[cfg(unix)]
++struct ManagedMaterialFixture {
++    directory: PathBuf,
++    config: PathBuf,
++    certificate: PathBuf,
++    key: PathBuf,
++    registry: PathBuf,
++    manifest: PathBuf,
++    manifest_sha256: String,
++}
++
++#[cfg(unix)]
++impl ManagedMaterialFixture {
++    fn new(fixture: &Fixture) -> Self {
++        let directory = PathBuf::from(format!(
++            "/run/tb-managed-material-test-{}-{}",
++            std::process::id(),
++            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed),
++        ));
++        fs::create_dir(&directory).expect("create protected managed directory");
++        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
++            .expect("protect managed directory");
++        let certificate = directory.join("client.pem");
++        let key = directory.join("client-key.pem");
++        let registry = directory.join("registry.json");
++        fs::copy(fixture.directory.join("client.pem"), &certificate).expect("copy HTTPS cert");
++        fs::copy(fixture.directory.join("client-key.pem"), &key).expect("copy HTTPS key");
++        fs::copy(&fixture.registry, &registry).expect("copy API registry");
++        let config = directory.join("client.json");
++        fs::write(
++            &config,
++            serde_json::to_vec(&json!({
++                "version": 1,
++                "listen_addr": format!("127.0.0.1:{}", fixture.client_port),
++                "certificate_chain": &certificate,
++                "private_key": &key,
++                "api_key_registry": &registry,
++                "handshake_timeout_ms": 1000,
++            }))
++            .expect("managed client config JSON"),
++        )
++        .expect("write managed client config");
++        let manifest = directory.join("manifest.json");
++        let mut material = Self {
++            directory,
++            config,
++            certificate,
++            key,
++            registry,
++            manifest,
++            manifest_sha256: String::new(),
++        };
++        material.write_manifest();
++        material.manifest_sha256 = sha256_file(&material.manifest);
++        material
++    }
++
++    fn write_manifest(&self) {
++        let bytes = serde_json::to_vec(&json!({
++            "version": 1,
++            "client_config_sha256": sha256_file(&self.config),
++            "certificate_chain_sha256": sha256_file(&self.certificate),
++            "private_key_sha256": sha256_file(&self.key),
++            "api_key_registry_sha256": sha256_file(&self.registry),
++        }))
++        .expect("managed manifest JSON");
++        fs::write(&self.manifest, bytes).expect("write managed manifest");
++        for path in [
++            &self.config,
++            &self.certificate,
++            &self.key,
++            &self.registry,
++            &self.manifest,
++        ] {
++            fs::set_permissions(path, fs::Permissions::from_mode(0o440))
++                .expect("set managed exact mode");
++        }
++    }
++}
++
++#[cfg(unix)]
++impl Drop for ManagedMaterialFixture {
++    fn drop(&mut self) {
++        let _ = fs::remove_dir_all(&self.directory);
++    }
++}
++
++#[cfg(unix)]
++fn sha256_file(path: &Path) -> String {
++    hex(&Sha256::digest(
++        fs::read(path).expect("read managed material"),
++    ))
++}
++
++#[cfg(unix)]
++async fn wait_managed_startup_failure(server: &mut RunningServer) {
++    let deadline = Instant::now() + STARTUP_TIMEOUT;
++    loop {
++        if let Some(status) = server.child.try_wait().expect("poll managed process") {
++            assert!(!status.success(), "unsafe managed material was accepted");
++            assert!(!server.ready().await, "unsafe material exposed readiness");
++            return;
++        }
++        assert!(
++            Instant::now() < deadline,
++            "managed startup did not fail: {}",
++            server.stderr()
++        );
++        tokio::time::sleep(Duration::from_millis(25)).await;
++    }
++}
++
++#[cfg(unix)]
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn signed_v2_managed_material_pins_close_reload_and_original_pins_recover() {
++    if rustix::process::geteuid().as_raw() != 0 {
++        return; // The exact root-owned file contract is exercised in the root VM fast suite.
++    }
++    let fixture = Fixture::new();
++    let material = ManagedMaterialFixture::new(&fixture);
++    let mut server = fixture.spawn_managed(&material, &material.manifest_sha256);
++    fixture.wait_ready(&mut server).await;
++    fixture
++        .commit_on(&fixture.https_client(), fixture.client_port, DOCUMENT, 0x91)
++        .await;
++
++    for path in [
++        &material.registry,
++        &material.certificate,
++        &material.key,
++        &material.config,
++    ] {
++        let original = fs::read(path).expect("read original managed material");
++        let mut valid_but_unpinned = original.clone();
++        valid_but_unpinned.push(b'\n');
++        fs::write(path, valid_but_unpinned).expect("replace valid material bytes");
++        // Even a coherent replacement manifest cannot alter frozen startup pins.
++        material.write_manifest();
++        server.signal_hup();
++        fixture.wait_unready(&mut server).await;
++        assert!(
++            server
++                .stderr()
++                .contains("client reload rejected; admissions closed")
++        );
++        fs::write(path, original).expect("restore pinned material");
++        server.signal_hup();
++        fixture.wait_ready(&mut server).await;
++    }
++    assert!(server.terminate().success(), "{}", server.stderr());
++}
++
++#[cfg(unix)]
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn signed_v2_managed_material_rejects_manifest_pin_and_unsafe_files() {
++    if rustix::process::geteuid().as_raw() != 0 {
++        return; // Requires root to create both accepted and deliberately wrong ownership.
++    }
++    let fixture = Fixture::new();
++    let material = ManagedMaterialFixture::new(&fixture);
++    let mut wrong_manifest = fixture.spawn_managed(&material, &"00".repeat(32));
++    wait_managed_startup_failure(&mut wrong_manifest).await;
++    assert!(
++        !fixture.directory.join("managed-local").exists(),
++        "manifest mismatch touched storage"
++    );
++
++    fs::set_permissions(&material.key, fs::Permissions::from_mode(0o444)).expect("wrong key mode");
++    let mut wrong_mode = fixture.spawn_managed(&material, &material.manifest_sha256);
++    wait_managed_startup_failure(&mut wrong_mode).await;
++    fs::set_permissions(&material.key, fs::Permissions::from_mode(0o440))
++        .expect("restore key mode");
++
++    chown(&material.key, Some(0), Some(65534)).expect("wrong key GID");
++    let mut wrong_gid = fixture.spawn_managed(&material, &material.manifest_sha256);
++    wait_managed_startup_failure(&mut wrong_gid).await;
++    chown(&material.key, Some(0), Some(0)).expect("restore key GID");
++
++    chown(&material.key, Some(65534), Some(0)).expect("wrong key UID");
++    let mut wrong_uid = fixture.spawn_managed(&material, &material.manifest_sha256);
++    wait_managed_startup_failure(&mut wrong_uid).await;
++    chown(&material.key, Some(0), Some(0)).expect("restore key UID");
++
++    fs::remove_file(&material.key).expect("remove key for symlink case");
++    symlink(&material.certificate, &material.key).expect("create key symlink");
++    let mut symlink_key = fixture.spawn_managed(&material, &material.manifest_sha256);
++    wait_managed_startup_failure(&mut symlink_key).await;
++}
+--- /dev/null
++++ b/crates/tb-server/src/managed_client_material.rs
+@@ -0,0 +1,184 @@
++//! Narrow root-provisioned file policy for signed-v2 HTTPS client material.
++//! The independent manifest digest is supplied by the signed process plan.
++
++use std::fs::{self, OpenOptions};
++use std::io::{self, Read};
++use std::path::{Component, Path, PathBuf};
++
++use serde::Deserialize;
++use sha2::{Digest, Sha256};
++use zeroize::Zeroize;
++
++use crate::config::{ClientConfig, parse_client_config};
++
++const MAX_MANIFEST_BYTES: usize = 4 * 1024;
++const MAX_CONFIG_BYTES: usize = 16 * 1024;
++pub(crate) const MAX_TLS_BYTES: usize = 2 * 1024 * 1024;
++pub(crate) const MAX_REGISTRY_BYTES: usize = 256 * 1024;
++
++#[derive(Clone, Debug)]
++pub struct ManagedClientMaterial {
++    config_path: PathBuf,
++    config_sha256: [u8; 32],
++    certificate_chain_sha256: [u8; 32],
++    private_key_sha256: [u8; 32],
++    api_key_registry_sha256: [u8; 32],
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Manifest {
++    version: u64,
++    client_config_sha256: String,
++    certificate_chain_sha256: String,
++    private_key_sha256: String,
++    api_key_registry_sha256: String,
++}
++
++impl ManagedClientMaterial {
++    /// Verify the independently signed manifest hash before accepting its pins.
++    /// Pins remain fixed for this process, including every SIGHUP reload.
++    pub fn open(
++        manifest_path: &Path,
++        manifest_sha256: &str,
++        config_path: &Path,
++    ) -> io::Result<Self> {
++        let expected = lower_sha256(manifest_sha256)?;
++        let bytes = read_pinned(manifest_path, MAX_MANIFEST_BYTES, expected, false)?;
++        let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|_| invalid_material())?;
++        if manifest.version != 1 {
++            return Err(invalid_material());
++        }
++        Ok(Self {
++            config_path: config_path.to_owned(),
++            config_sha256: lower_sha256(&manifest.client_config_sha256)?,
++            certificate_chain_sha256: lower_sha256(&manifest.certificate_chain_sha256)?,
++            private_key_sha256: lower_sha256(&manifest.private_key_sha256)?,
++            api_key_registry_sha256: lower_sha256(&manifest.api_key_registry_sha256)?,
++        })
++    }
++
++    pub(crate) fn load_client_config(&self) -> io::Result<ClientConfig> {
++        let bytes = read_pinned(
++            &self.config_path,
++            MAX_CONFIG_BYTES,
++            self.config_sha256,
++            false,
++        )?;
++        parse_client_config(&bytes).map_err(|_| invalid_material())
++    }
++
++    pub(crate) fn read_certificate(&self, path: &Path) -> io::Result<Vec<u8>> {
++        read_pinned(path, MAX_TLS_BYTES, self.certificate_chain_sha256, false)
++    }
++
++    pub(crate) fn read_private_key(&self, path: &Path) -> io::Result<Vec<u8>> {
++        read_pinned(path, MAX_TLS_BYTES, self.private_key_sha256, true)
++    }
++
++    pub(crate) fn read_registry(&self, path: &Path) -> io::Result<Vec<u8>> {
++        read_pinned(path, MAX_REGISTRY_BYTES, self.api_key_registry_sha256, true)
++    }
++}
++
++fn lower_sha256(value: &str) -> io::Result<[u8; 32]> {
++    if value.len() != 64 {
++        return Err(invalid_material());
++    }
++    let mut digest = [0_u8; 32];
++    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
++        let hi = lower_hex(pair[0]).ok_or_else(invalid_material)?;
++        let lo = lower_hex(pair[1]).ok_or_else(invalid_material)?;
++        digest[index] = (hi << 4) | lo;
++    }
++    Ok(digest)
++}
++
++fn lower_hex(byte: u8) -> Option<u8> {
++    match byte {
++        b'0'..=b'9' => Some(byte - b'0'),
++        b'a'..=b'f' => Some(byte - b'a' + 10),
++        _ => None,
++    }
++}
++
++fn invalid_material() -> io::Error {
++    io::Error::new(
++        io::ErrorKind::InvalidData,
++        "managed client material is invalid",
++    )
++}
++
++#[cfg(unix)]
++fn read_pinned(path: &Path, limit: usize, expected: [u8; 32], secret: bool) -> io::Result<Vec<u8>> {
++    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
++
++    if !path.is_absolute() {
++        return Err(invalid_material());
++    }
++    let mut ancestor = PathBuf::from("/");
++    let mut components = path.components().peekable();
++    if components.next() != Some(Component::RootDir) {
++        return Err(invalid_material());
++    }
++    while let Some(component) = components.next() {
++        let Component::Normal(name) = component else {
++            return Err(invalid_material());
++        };
++        if components.peek().is_none() {
++            break;
++        }
++        ancestor.push(name);
++        let metadata = fs::symlink_metadata(&ancestor).map_err(|_| invalid_material())?;
++        if !metadata.file_type().is_dir()
++            || metadata.uid() != 0
++            || metadata.permissions().mode() & 0o022 != 0
++        {
++            return Err(invalid_material());
++        }
++    }
++    let path_metadata = fs::symlink_metadata(path).map_err(|_| invalid_material())?;
++    let mut options = OpenOptions::new();
++    options
++        .read(true)
++        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
++    let file = options.open(path).map_err(|_| invalid_material())?;
++    let metadata = file.metadata().map_err(|_| invalid_material())?;
++    let gid = rustix::process::getegid().as_raw();
++    for candidate in [&path_metadata, &metadata] {
++        if !candidate.file_type().is_file()
++            || candidate.len() > limit as u64
++            || candidate.uid() != 0
++            || candidate.gid() != gid
++            || candidate.permissions().mode() & 0o7777 != 0o440
++        {
++            return Err(invalid_material());
++        }
++    }
++    if path_metadata.dev() != metadata.dev() || path_metadata.ino() != metadata.ino() {
++        return Err(invalid_material());
++    }
++    let mut bytes = Vec::with_capacity(metadata.len() as usize);
++    let read_result = file.take(limit as u64 + 1).read_to_end(&mut bytes);
++    if read_result.is_err() || bytes.len() > limit || Sha256::digest(&bytes).as_slice() != expected
++    {
++        if secret {
++            bytes.zeroize();
++        }
++        return Err(invalid_material());
++    }
++    Ok(bytes)
++}
++
++#[cfg(not(unix))]
++fn read_pinned(
++    _path: &Path,
++    _limit: usize,
++    _expected: [u8; 32],
++    _secret: bool,
++) -> io::Result<Vec<u8>> {
++    Err(io::Error::new(
++        io::ErrorKind::Unsupported,
++        "managed client material requires Unix",
++    ))
++}

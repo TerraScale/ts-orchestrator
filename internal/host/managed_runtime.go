@@ -466,6 +466,10 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if pool := x509.NewCertPool(); !pool.AppendCertsFromPEM(contents["client-ca.pem"]) {
 		return Workload{}, managedMount{}, "", errors.New("member client CA roots are invalid")
 	}
+	clientArgs, err := readManagedClientMaterial(paths.material, launch.Runtime.ClientManagedMaterialManifestSHA256, identity, 0)
+	if err != nil {
+		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
+	}
 	args := []string{
 		"--data-dir", filepath.Join(paths.mount, "data"),
 		"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
@@ -497,6 +501,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 			"--replication-peer-addr", launch.Runtime.ReplicationPeerAddress,
 			"--replication-server-ca-roots", filepath.Join(paths.material, "server-ca.pem"))
 	}
+	args = append(args, clientArgs...)
 	keepMount = true
 	return Workload{Role: d.Role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable,
 		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}, mount, paths.socket, nil

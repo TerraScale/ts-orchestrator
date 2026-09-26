@@ -124,18 +124,19 @@ type ManagedMemberLaunch struct {
 // may be attached to this signed member desired. Missing pins keep it held.
 // The corresponding files are installed outside NATS by a trusted operator.
 type ManagedRuntimePins struct {
-	DevicePath                string `json:"device_path"`
-	MountPath                 string `json:"mount_path"`
-	FileSystemUUID            string `json:"filesystem_uuid"`
-	FileSystemType            string `json:"filesystem_type"`
-	TrustedKeySHA256          string `json:"trusted_key_sha256"`
-	ServerCertificateSHA256   string `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256    string `json:"server_private_key_sha256"`
-	ClientCARootsSHA256       string `json:"client_ca_roots_sha256"`
-	ReplicationListenAddress  string `json:"replication_listen_address"`
-	ReplicationPeerMemberID   string `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress    string `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256 string `json:"replication_server_ca_sha256,omitempty"`
+	DevicePath                          string `json:"device_path"`
+	MountPath                           string `json:"mount_path"`
+	FileSystemUUID                      string `json:"filesystem_uuid"`
+	FileSystemType                      string `json:"filesystem_type"`
+	TrustedKeySHA256                    string `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string `json:"client_managed_material_manifest_sha256"`
+	ReplicationListenAddress            string `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string `json:"replication_server_ca_sha256,omitempty"`
 }
 
 type Receipt struct {
@@ -488,12 +489,13 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		pins.FileSystemType != "ext4" && pins.FileSystemType != "xfs" ||
 		!lowerHex(pins.TrustedKeySHA256, 64) || !lowerHex(pins.ServerCertificateSHA256, 64) ||
 		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
+		!lowerHex(pins.ClientManagedMaterialManifestSHA256, 64) ||
 		!validSocketAddress(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
 	}
 	peer := pins.ReplicationPeerMemberID != "" || pins.ReplicationPeerAddress != "" || pins.ReplicationServerCASHA256 != ""
-	if peer && (!canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
-		!lowerHex(pins.ReplicationServerCASHA256, 64)) {
+	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
+		!lowerHex(pins.ReplicationServerCASHA256, 64) {
 		return errors.New("managed runtime outbound peer pins are incomplete")
 	}
 	return nil

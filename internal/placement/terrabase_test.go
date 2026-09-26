@@ -117,8 +117,14 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 		}},
 		{"wrong trusted key", func(intent *Intent) { intent.RuntimeManifests[0].TrustedKeySHA256 = strings.Repeat("f", 64) }},
 		{"missing artifact digest", func(intent *Intent) { intent.RuntimeManifests[0].ArtifactDigest = "" }},
+		{"missing managed HTTPS manifest", func(intent *Intent) { intent.RuntimeManifests[0].ClientManagedMaterialManifestSHA256 = "" }},
+		{"missing outbound peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerMemberID = ""
+			intent.RuntimeManifests[0].ReplicationPeerAddress = ""
+			intent.RuntimeManifests[0].ReplicationServerCASHA256 = ""
+		}},
 		{"incomplete peer", func(intent *Intent) {
-			intent.RuntimeManifests[0].ReplicationPeerMemberID = intent.CanonicalRoster.Rows[1].MemberID
+			intent.RuntimeManifests[0].ReplicationPeerAddress = ""
 		}},
 		{"foreign peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = "018f0000-0000-7000-8000-000000000016"
@@ -534,7 +540,8 @@ func TestMemberStateSchemaFourPinsNativeUUIDAndReadsSchemaThreeAsHistory(t *test
 	historical.RuntimeManifest.ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
 	historical.RuntimeManifest.ReplicationPeerAddress = "127.0.0.1:7001"
 	historical.RuntimeManifest.ReplicationServerCASHA256 = strings.Repeat("a", 64)
-	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID)
+	historical.RuntimeManifest.ClientManagedMaterialManifestSHA256 = ""
+	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -784,16 +791,21 @@ func validIntent(regions ...oci.Region) Intent {
 	roster := testCanonicalRoster(active)
 	manifests := make([]RuntimeManifest, 0, len(roster.Rows))
 	for index, row := range roster.Rows {
+		peer := roster.Rows[index^1]
 		manifests = append(manifests, RuntimeManifest{
 			Region: row.Region, SeatID: row.SeatID,
 			ArtifactDigest: strings.Repeat("d", 64), SourceDigest: strings.Repeat("e", 64),
 			ManagedRuntimeRoot: "/srv/terrascale-managed",
 			FileSystemUUID:     fmt.Sprintf("%08x-1234-1234-1234-123456789abc", index+1),
 			FileSystemType:     "ext4", TrustedKeySHA256: roster.Authority.TrustedKeySHA256,
-			ServerCertificateSHA256:  strings.Repeat("1", 64),
-			ServerPrivateKeySHA256:   strings.Repeat("2", 64),
-			ClientCARootsSHA256:      strings.Repeat("3", 64),
-			ReplicationListenAddress: fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			ServerCertificateSHA256:             strings.Repeat("1", 64),
+			ServerPrivateKeySHA256:              strings.Repeat("2", 64),
+			ClientCARootsSHA256:                 strings.Repeat("3", 64),
+			ClientManagedMaterialManifestSHA256: strings.Repeat("4", 64),
+			ReplicationListenAddress:            fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			ReplicationPeerMemberID:             peer.MemberID,
+			ReplicationPeerAddress:              fmt.Sprintf("127.0.0.1:%d", 7000+(index^1)),
+			ReplicationServerCASHA256:           strings.Repeat("a", 64),
 		})
 	}
 	return Intent{
@@ -844,6 +856,10 @@ func makeHistoricalULIDRoster(intent *Intent) {
 	intent.CanonicalRoster.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAR"
 	for index := range intent.CanonicalRoster.Rows {
 		intent.CanonicalRoster.Rows[index].MemberID = fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%d", index+1)
+	}
+	for index := range intent.RuntimeManifests {
+		intent.RuntimeManifests[index].ClientManagedMaterialManifestSHA256 = ""
+		intent.RuntimeManifests[index].ReplicationPeerMemberID = intent.CanonicalRoster.Rows[index^1].MemberID
 	}
 }
 
