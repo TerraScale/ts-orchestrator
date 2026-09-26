@@ -62,6 +62,52 @@ func TestReserveSlotRecoversLostAcknowledgementAndSurvivesRestart(t *testing.T) 
 	}
 }
 
+func TestLegacyManagedIntentCannotReserveOrAuthorizeLaunch(t *testing.T) {
+	scope := testBootstrapScope()
+	fixture := newLedgerFixture(t)
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "legacy-create-key", "legacy-retry-token")
+	intent.SchemaVersion = 1
+	intent.FounderPlanSHA256 = ""
+	intent.PeerRowDigest = ""
+	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
+	if err := validateIntent(intent); err != nil {
+		t.Fatalf("historical schema-v1 intent should remain readable: %v", err)
+	}
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrFounderPlanRequired) {
+		t.Fatalf("ReserveSlot() error = %v, want ErrFounderPlanRequired", err)
+	}
+	if got := fixture.client.objectCount(); got != 0 {
+		t.Fatalf("legacy reservation wrote %d ledger objects before rejection", got)
+	}
+
+	// Model an already durable legacy slot. Historical reads remain available,
+	// but a current launch token cannot be minted from its schema-v1 intent.
+	fixture = newLedgerFixture(t)
+	intentBytes, intent = fixture.intentBytes(t, scope, 1, "legacy-create-key", "legacy-retry-token")
+	intent.SchemaVersion = 1
+	intent.FounderPlanSHA256 = ""
+	intent.PeerRowDigest = ""
+	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
+	headBytes = fixture.headBytes(t, scope, intentBytes, 1)
+	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerIntent, intentBytes); err != nil {
+		t.Fatalf("store historical intent fixture: %v", err)
+	}
+	head, err := fixture.ledger.decodeHead(scope, headBytes, true)
+	if err != nil {
+		t.Fatalf("decode legacy HEAD fixture: %v", err)
+	}
+	if _, _, err := fixture.ledger.writeInitialHead(t.Context(), scope, head, headBytes, true); err != nil {
+		t.Fatalf("store historical HEAD fixture: %v", err)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrFounderPlanRequired) {
+		t.Fatalf("ReadForLaunch() error = %v, want ErrFounderPlanRequired", err)
+	}
+	if _, err := fixture.ledger.RecordManagedPeer(t.Context(), scope, nil, nil, InstanceFacts{}, nil, nil); !errors.Is(err, ErrFounderPlanRequired) {
+		t.Fatalf("RecordManagedPeer() error = %v, want ErrFounderPlanRequired for a historical intent", err)
+	}
+}
+
 func TestConcurrentInitialReservationAndManifestConflict(t *testing.T) {
 	fixture := newLedgerFixture(t)
 	scope := testBootstrapScope()
@@ -293,7 +339,10 @@ func TestFirstResultRequiresCurrentManifestAndReceipt(t *testing.T) {
 			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
 			if mode == IntentModeExternalSeed {
 				intent.Mode = mode
+				intent.SchemaVersion = 1
 				intent.RetryToken = ""
+				intent.FounderPlanSHA256 = ""
+				intent.PeerRowDigest = ""
 				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
 				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 			}
@@ -362,7 +411,10 @@ func TestResultCommittedAtExpiredReceiptBoundaryCannotBeCompletedOrRepaired(t *t
 			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
 			if mode == IntentModeExternalSeed {
 				intent.Mode = mode
+				intent.SchemaVersion = 1
 				intent.RetryToken = ""
+				intent.FounderPlanSHA256 = ""
+				intent.PeerRowDigest = ""
 				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
 				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 			}
@@ -537,7 +589,10 @@ func TestExpiredHistoricalResultCannotRecreateMissingReceipt(t *testing.T) {
 			intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
 			if mode == IntentModeExternalSeed {
 				intent.Mode = mode
+				intent.SchemaVersion = 1
 				intent.RetryToken = ""
+				intent.FounderPlanSHA256 = ""
+				intent.PeerRowDigest = ""
 				intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
 				intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 			}
@@ -857,7 +912,10 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 	scope := testBootstrapScope()
 	intentBytes, intent := fixture.intentBytes(t, scope, 1, "bootstrap-create-a", "retry-token-1")
 	intent.Mode = IntentModeExternalSeed
+	intent.SchemaVersion = 1
 	intent.RetryToken = ""
+	intent.FounderPlanSHA256 = ""
+	intent.PeerRowDigest = ""
 	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
 	intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
@@ -908,7 +966,10 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 	retirementBytes := fixture.sign(t, scope, domainSlotRetirement, evidence, fixture.now)
 	nextIntentBytes, nextIntent := fixture.intentBytes(t, scope, 2, "bootstrap-create-b", "retry-token-2")
 	nextIntent.Mode = IntentModeExternalSeed
+	nextIntent.SchemaVersion = 1
 	nextIntent.RetryToken = ""
+	nextIntent.FounderPlanSHA256 = ""
+	nextIntent.PeerRowDigest = ""
 	nextIntent.ReviewedPlanDigest = bodyDigest([]byte("reviewed replacement OpenTofu plan"))
 	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 	nextIntentBytes, nextIntent = fixture.bindIntentManifest(t, scope, nextIntent, fixture.now)
@@ -955,7 +1016,10 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 	scope := testBootstrapScope()
 	intentBytes, intent := fixture.intentBytes(t, scope, 1, "bootstrap-create-a", "retry-token-1")
 	intent.Mode = IntentModeExternalSeed
+	intent.SchemaVersion = 1
 	intent.RetryToken = ""
+	intent.FounderPlanSHA256 = ""
+	intent.PeerRowDigest = ""
 	intent.ReviewedPlanDigest = bodyDigest([]byte("reviewed OpenTofu plan"))
 	intentBytes, intent = fixture.bindIntentManifest(t, scope, intent, fixture.now)
 	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
@@ -1154,11 +1218,12 @@ func (fixture *ledgerFixture) intentBytes(t *testing.T, scope BootstrapScope, at
 		t.Fatal(err)
 	}
 	intent := Intent{
-		SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: attempt, Generation: attempt,
 		ReleaseReceiptDigest: bodyDigest([]byte("release")), RegionIntentGeneration: 4,
 		ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image-a", RegionIntentDigest: bodyDigest([]byte("region-intent")),
-		LaunchRequestDigest: launchDigest, CreateKey: createKey, RetryToken: retryToken,
+		LaunchRequestDigest: launchDigest, FounderPlanSHA256: bodyDigest([]byte("founder-plan")),
+		PeerRowDigest: bodyDigest([]byte("founder-peer-row")), CreateKey: createKey, RetryToken: retryToken,
 		CreatedAt: fixture.now, OCIRegion: "sa-saopaulo-1", CompartmentOCID: "ocid1.compartment.oc1.sa-saopaulo-1.compartment-a",
 		AvailabilityDomain: "AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.subnet-a",
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.nsg-a"}, Shape: "VM.Standard.E5.Flex", Node: "controller-a",

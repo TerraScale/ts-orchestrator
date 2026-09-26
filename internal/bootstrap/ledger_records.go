@@ -66,6 +66,8 @@ type Intent struct {
 	RegionIntentDigest      string     `json:"regionIntentDigest"`
 	LaunchRequestDigest     string     `json:"launchRequestDigest"`
 	ReviewedPlanDigest      string     `json:"reviewedPlanDigest,omitzero"`
+	FounderPlanSHA256       string     `json:"founderPlanSha256,omitzero"`
+	PeerRowDigest           string     `json:"peerRowDigest,omitzero"`
 	RetirementDigest        string     `json:"retirementDigest,omitzero"`
 	CreateKey               string     `json:"createKey"`
 	RetryToken              string     `json:"retryToken,omitzero"`
@@ -310,7 +312,7 @@ func decodeCanonicalPayload(data []byte, destination any) error {
 }
 
 func validateIntent(intent Intent) error {
-	if intent.SchemaVersion != 1 || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
+	if intent.SchemaVersion != 1 && intent.SchemaVersion != 2 || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
 		!validDigest(intent.ManifestDigest) || !validDigest(intent.ReleaseReceiptDigest) || !isOCID(intent.ImageOCID, "image") ||
 		!validDigest(intent.RegionIntentDigest) || !validDigest(intent.LaunchRequestDigest) || !createTokenPattern.MatchString(intent.CreateKey) ||
 		intent.CreatedAt.IsZero() || intent.CreatedAt.Location() != time.UTC ||
@@ -326,11 +328,14 @@ func validateIntent(intent Intent) error {
 	}
 	switch intent.Mode {
 	case IntentModeManaged:
-		if !createTokenPattern.MatchString(intent.RetryToken) || intent.ReviewedPlanDigest != "" {
-			return fmt.Errorf("%w: managed intent requires an OCI retry token and omits an external plan digest", ErrInvalidRecord)
+		if !createTokenPattern.MatchString(intent.RetryToken) || intent.ReviewedPlanDigest != "" ||
+			intent.SchemaVersion == 1 && (intent.FounderPlanSHA256 != "" || intent.PeerRowDigest != "") ||
+			intent.SchemaVersion == 2 && (!validDigest(intent.FounderPlanSHA256) || !validDigest(intent.PeerRowDigest)) {
+			return fmt.Errorf("%w: managed intent requires a retry token and schema-v2 founder-plan/peer-row pins", ErrInvalidRecord)
 		}
 	case IntentModeExternalSeed:
-		if intent.RetryToken != "" || !validDigest(intent.ReviewedPlanDigest) {
+		if intent.SchemaVersion != 1 || intent.RetryToken != "" || !validDigest(intent.ReviewedPlanDigest) ||
+			intent.FounderPlanSHA256 != "" || intent.PeerRowDigest != "" {
 			return fmt.Errorf("%w: external seed intent requires a reviewed plan digest and omits the OCI retry token", ErrInvalidRecord)
 		}
 	default:

@@ -17,20 +17,15 @@ import (
 )
 
 // LaunchAuthorization is an unforgeable in-process token returned only after
-// the signed intent and signed stable-slot HEAD have been read back. Provider
-// callers should use Intent and IntentDigest from this value for one OCI call.
+// the signed intent and signed stable-slot HEAD have been read back. Managed
+// peer callers must bind it through VerifiedFounderPlan.AuthorizePeer before
+// any pre-quorum OCI effect; the raw intent is deliberately not exposed.
 type LaunchAuthorization struct {
 	scope        BootstrapScope
 	intent       Intent
 	intentRecord StoredRecord
 	head         SlotHead
 	headRecord   StoredRecord
-}
-
-func (authorization LaunchAuthorization) Intent() Intent {
-	intent := authorization.intent
-	intent.NetworkSecurityGroupIDs = append([]string(nil), intent.NetworkSecurityGroupIDs...)
-	return intent
 }
 
 func (authorization LaunchAuthorization) IntentDigest() string {
@@ -77,6 +72,9 @@ func (ledger *Ledger) ReserveSlot(ctx context.Context, scope BootstrapScope, int
 	intent, intentEnvelope, intentErr := ledger.decodeIntent(scope, intentBytes, true)
 	if intentErr != nil {
 		return SlotState{}, intentErr
+	}
+	if intent.Mode == IntentModeManaged && intent.SchemaVersion != 2 {
+		return SlotState{}, ErrFounderPlanRequired
 	}
 	if intent.Attempt != 1 || intent.Generation != 1 {
 		return SlotState{}, fmt.Errorf("%w: an initial reservation must begin at attempt and generation one", ErrInvalidRecord)
@@ -156,6 +154,9 @@ func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (
 	}
 	if state.Intent.Mode == IntentModeExternalSeed {
 		return LaunchAuthorization{}, ErrExternalSeedMode
+	}
+	if state.Intent.SchemaVersion != 2 {
+		return LaunchAuthorization{}, ErrFounderPlanRequired
 	}
 	if state.Head.Attempt == ^uint64(0) {
 		return LaunchAuthorization{}, fmt.Errorf("%w: slot attempt sequence is exhausted", ErrInvalidRecord)
@@ -772,6 +773,9 @@ func (ledger *Ledger) RecordManagedPeer(
 	if state.Intent.Mode != IntentModeManaged {
 		return SlotState{}, ErrExternalSeedMode
 	}
+	if state.Intent.SchemaVersion != 2 {
+		return SlotState{}, ErrFounderPlanRequired
+	}
 	result, err := ledger.decodeResult(scope, resultBytes, false)
 	if err != nil {
 		return SlotState{}, err
@@ -991,6 +995,9 @@ func (ledger *Ledger) AdvanceSlot(
 	historicalIntent, _, err := ledger.decodeIntent(scope, nextIntentBytes, false)
 	if err != nil {
 		return SlotState{}, err
+	}
+	if historicalIntent.Mode == IntentModeManaged && historicalIntent.SchemaVersion != 2 {
+		return SlotState{}, ErrFounderPlanRequired
 	}
 	if historicalIntent.Attempt != state.Head.Attempt+1 || historicalIntent.Generation != state.Head.Generation+1 {
 		return SlotState{}, fmt.Errorf("%w: next attempt and generation must each advance once", ErrInvalidRecord)
