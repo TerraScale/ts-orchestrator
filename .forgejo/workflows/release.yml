@@ -47,11 +47,11 @@ jobs:
       RELEASE_PUBLISH: ${{ inputs.publish }}
     steps:
       - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
           ref: ${{ forgejo.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Fail closed on source, target, and approval settings
