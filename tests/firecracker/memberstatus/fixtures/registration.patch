@@ -1,0 +1,18 @@
+--- a/crates/tb-server/Cargo.toml
++++ b/crates/tb-server/Cargo.toml
+@@ -68,6 +68,10 @@
+ path = "tests/slow.rs"
+ required-features = ["slow-tests"]
+ 
++[[test]]
++name = "member_control_managed"
++path = "tests/member_control_managed.rs"
++
+ [dev-dependencies]
+ aws-lc-rs.workspace = true
+ crc32c.workspace = true
+--- /dev/null
++++ b/crates/tb-server/tests/member_control_managed.rs
+@@ -0,0 +1,2 @@
++#[path = "support/server/member_control_managed.rs"]
++mod member_control_managed;

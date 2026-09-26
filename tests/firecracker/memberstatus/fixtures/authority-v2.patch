@@ -1,0 +1,20 @@
+# TerraBase source commit: 12850214606652f036e9fde000695fe5743b374b
+# Baseline helper SHA-256: a803c675e4ed16411457d74c7be351029953f29de7a72f24d0d454e0a63c4117
+diff --git a/crates/tb-server/tests/support/server/member_control_managed.rs b/crates/tb-server/tests/support/server/member_control_managed.rs
+--- a/crates/tb-server/tests/support/server/member_control_managed.rs
++++ b/crates/tb-server/tests/support/server/member_control_managed.rs
+@@ -380,11 +380,12 @@
+-    let payload = AuthorityPayload::encode(
++    let payload = AuthorityPayload::encode_v2(
+         AuthorityCertificateScope {
+             cluster: CLUSTER,
+             tenant: TENANT,
+             database: DATABASE,
+             shard: SHARD,
+             epoch: MembershipEpoch::new(1),
+         },
+         &members,
+         &schemas,
++        &[schemas[0].binding],
+     )
+     .expect("encode signed authority payload");

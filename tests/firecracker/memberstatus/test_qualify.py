@@ -190,7 +190,7 @@ class GuestRunnerFailureTests(unittest.TestCase):
         self.assertIn(f"TimeoutStartSec={qualify.GUEST_SERVICE_TIMEOUT_SECONDS}s",
                       qualify._service_unit())
 
-    def test_successful_guest_commands_record_pass_and_request_poweroff(self):
+    def test_successful_guest_commands_record_pass_and_request_reboot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             guest = root / "guest"
@@ -204,9 +204,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             rust_binary.chmod(0o755)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            poweroff_record = root / "poweroff-args"
+            reboot_record = root / "reboot-args"
             fake_systemctl = fake_bin / "systemctl"
-            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(poweroff_record)!r}\n")
+            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
             fake_systemctl.chmod(0o755)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
@@ -222,9 +222,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             self.assertEqual(process.returncode, 0)
             self.assertEqual(process.stdout.count(qualify.RUNNER_SUCCESS), 1)
             self.assertNotIn("MEMBER_STATUS_QUALIFICATION_RESULT=FAILED", process.stdout)
-            self.assertEqual(poweroff_record.read_text().strip(), "--no-wall poweroff")
+            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
 
-    def test_failed_guest_command_records_stage_and_requests_poweroff(self):
+    def test_failed_guest_command_records_stage_and_requests_reboot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             guest = root / "guest"
@@ -234,9 +234,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             go_binary.chmod(0o755)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            poweroff_record = root / "poweroff-args"
+            reboot_record = root / "reboot-args"
             fake_systemctl = fake_bin / "systemctl"
-            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(poweroff_record)!r}\n")
+            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
             fake_systemctl.chmod(0o755)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
@@ -254,7 +254,7 @@ class GuestRunnerFailureTests(unittest.TestCase):
             self.assertEqual(process.stdout.count(
                 "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=go-host-test status=37"), 1)
             self.assertNotIn(qualify.RUNNER_SUCCESS, process.stdout)
-            self.assertEqual(poweroff_record.read_text().strip(), "--no-wall poweroff")
+            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
             self.assertIn("stage=go-host-test status=37", output.read_text())
             result = qualify.parse_runner_result(process.stdout)
             self.assertEqual(result["stage"], "go-host-test")

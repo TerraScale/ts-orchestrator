@@ -848,7 +848,7 @@ finish() {{
     fi
     printf '%s\\n' "$result" >&2
     sync || :
-    systemctl --no-wall poweroff || :
+    systemctl --no-wall reboot || :
     exit "$status"
 }}
 
