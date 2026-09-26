@@ -1,0 +1,155 @@
+package fixturegen
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/tests/firecracker/production"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"github.com/oracle/oci-go-sdk/v65/core"
+)
+
+const fixtureTenancyOCID = "ocid1.tenancy.oc1..restartfixture"
+
+type packetSimulatorDispatcher struct{ simulator *production.Simulator }
+
+func (dispatcher packetSimulatorDispatcher) Do(request *http.Request) (*http.Response, error) {
+	request = request.Clone(request.Context())
+	if request.Host == "" {
+		request.Host = request.URL.Host
+	}
+	response := httptest.NewRecorder()
+	dispatcher.simulator.ServeHTTP(response, request)
+	result := response.Result()
+	result.Request = request
+	return result, nil
+}
+
+// assertPacketComputeSDK exercises the signed packet's exact routes through
+// the real instance-principal SDK. The fixturetest build also repeats these
+// reads through the production instance observer.
+func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
+	observed ObservedController, vnic GuestObservation,
+) {
+	t.Helper()
+	config, err := packet.SimulatorConfig(slot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	simulator, err := production.NewSimulator(config)
+	if err != nil {
+		t.Fatalf("%s simulator rejected packet routes: %v", slot, err)
+	}
+	dispatcher := packetSimulatorDispatcher{simulator: simulator}
+	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(
+		common.Region("sa-saopaulo-1"),
+		func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) { return dispatcher, nil })
+	if err != nil {
+		t.Fatalf("%s instance principal configuration: %v", slot, err)
+	}
+	if _, err := provider.KeyID(); err != nil {
+		t.Fatalf("%s instance principal federation: %v; requests=%#v", slot, err, simulator.Requests())
+	}
+	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute.HTTPClient = dispatcher
+	network, err := core.NewVirtualNetworkClientWithConfigurationProvider(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	network.HTTPClient = dispatcher
+	instance, err := compute.GetInstance(t.Context(), core.GetInstanceRequest{InstanceId: new(observed.InstanceOCID)})
+	if err != nil || instance.Id == nil || *instance.Id != observed.InstanceOCID ||
+		instance.Etag == nil || *instance.Etag != observed.ETag ||
+		instance.CompartmentId == nil || instance.ImageId == nil ||
+		instance.AvailabilityDomain == nil || instance.FaultDomain == nil || instance.Shape == nil ||
+		instance.LifecycleState != core.InstanceLifecycleStateRunning {
+		t.Fatalf("%s SDK GetInstance decoded unexpected response: %+v, %v", slot, instance, err)
+	}
+	attachments, err := compute.ListVnicAttachments(t.Context(), core.ListVnicAttachmentsRequest{
+		CompartmentId: instance.CompartmentId, InstanceId: new(observed.InstanceOCID), Limit: new(50),
+	})
+	if err != nil || len(attachments.Items) != 1 ||
+		attachments.Items[0].VnicId == nil || *attachments.Items[0].VnicId != vnic.PrimaryVNICOCID ||
+		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached {
+		t.Fatalf("%s SDK ListVnicAttachments decoded unexpected response: %+v, %v", slot, attachments, err)
+	}
+	primary, err := network.GetVnic(t.Context(), core.GetVnicRequest{VnicId: new(vnic.PrimaryVNICOCID)})
+	if err != nil || primary.Id == nil || *primary.Id != vnic.PrimaryVNICOCID ||
+		primary.PrivateIp == nil || *primary.PrivateIp != vnic.PrimaryPrivateIP ||
+		primary.SubnetId == nil ||
+		primary.IsPrimary == nil || !*primary.IsPrimary ||
+		primary.LifecycleState != core.VnicLifecycleStateAvailable {
+		t.Fatalf("%s SDK GetVnic decoded unexpected response: %+v, %v", slot, primary, err)
+	}
+	additionalComputeReads := assertPacketComputeObserver(t, provider, &compute, &network,
+		observed, vnic, instance, primary)
+	computeReads := 0
+	for _, request := range simulator.Requests() {
+		if !request.Listed || request.Status != http.StatusOK {
+			t.Fatalf("%s SDK used an unlisted or failed route: %+v", slot, request)
+		}
+		if request.Host == "iaas.sa-saopaulo-1.oraclecloud.com" {
+			computeReads++
+		}
+	}
+	if computeReads != 3+additionalComputeReads || simulator.OverflowCount() != 0 {
+		t.Fatalf("%s SDK Compute request count = %d, audit overflow = %d", slot,
+			computeReads, simulator.OverflowCount())
+	}
+}
+
+func fixtureInstanceCertificate(t *testing.T) (certificate, key, intermediate []byte) {
+	t.Helper()
+	issuerKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	issuerTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "offline fixture intermediate"},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(2 * time.Hour),
+		KeyUsage: x509.KeyUsageCertSign, IsCA: true, BasicConstraintsValid: true,
+	}
+	issuerDER, err := x509.CreateCertificate(rand.Reader, issuerTemplate, issuerTemplate,
+		&issuerKey.PublicKey, issuerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer, err := x509.ParseCertificate(issuerDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: pkix.Name{
+			CommonName: "offline fixture instance",
+			ExtraNames: []pkix.AttributeTypeAndValue{{Type: []int{2, 5, 4, 13},
+				Value: "opc-tenant:" + fixtureTenancyOCID}},
+		},
+		NotBefore: now.Add(-time.Hour), NotAfter: now.Add(2 * time.Hour),
+		KeyUsage: x509.KeyUsageDigitalSignature,
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTemplate, issuer,
+		&leafKey.PublicKey, issuerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
+		pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)}),
+		pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: issuerDER})
+}
