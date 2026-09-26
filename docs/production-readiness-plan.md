@@ -109,6 +109,14 @@ has been run or authorized. In the committed `ts-infra` defaults,
 OCI budgets are soft alerts evaluated about once every 24 hours, not spend caps
 or an automatic shutdown mechanism.
 
+**Current scope: plan preparation only.** This instruction supersedes the
+archived [readiness decision](evidence/oci-readiness-2026-09-20.md),
+which recorded GO for one disposable GRU staging canary. No live OCI calls,
+plans, applies, or resource creation are authorized as part of this work. The
+E4 canary below remains a proposed future qualification candidate, not current
+permission to run it; any execution requires separate authorization after its
+gates are reviewed. Production remains **NOT PRODUCTION READY**.
+
 The only concrete candidate is one private control-plane canary in GRU
 `sa-saopaulo-1`, using one selected availability domain and a planned two-hour
 active compute target. The previously observed GRU AD is
@@ -128,6 +136,12 @@ private VCN with a private subnet. No exact VCN, subnet, route-table, NSG, or
 volume OCIDs are recorded for this plan. The five-volume count is a planning
 assumption; the member-data volume is retained after the run, and boot-volume
 disposition still needs an owner and decision.
+
+Still unselected or unverified are the target tenancy and canary compartments,
+the pinned image OCID, exact network and service-gateway identifiers and
+effective routes, current GRU AD capacity and E4 quota, the volume performance
+tier, boot-volume dispositions and named retention owners, and an itemized
+first-period estimate. There is no approved dollar ceiling.
 
 Use a separately reviewed canary OpenTofu root/state and run-owned namespace or
 compartment, disjoint from production `ts-infra` state and resources. It may
@@ -190,7 +204,8 @@ the proposed 1-OCPU/6-GB E4 dimensions on all four actual instances before
 workload admission. A shape name, unit test, or quota arithmetic alone does
 not prove the launched VM size.
 
-The following public PAYG list-price snapshot was captured on 2026-09-25 at
+The following public PAYG list-price snapshot was captured on
+2026-09-25T18:12:17Z. The snapshot is
 `/tmp/oci-public-pricing-20260925T181217+0000.json` (SHA-256
 `d9311eeb05bae5e7e6434586deb3d7ff0479787be639b9c55617241d0b4041be`).
 The [Oracle product catalog](https://apexapps.oracle.com/pls/apex/cetools/api/v1/products/?partNumber=B93113)
@@ -398,6 +413,15 @@ and escalate; never broaden cleanup by compartment. These milestones do not
 authorize unsafe detach, termination, or deletion when proof is missing. A
 safety/ownership hold may extend billable compute beyond T+120; the named owner
 must track and resolve the resulting charges. There is no approved spend cap.
+The T+90/T+105/T+120 milestones are targets, not an implemented expiry timer or
+spend cutoff. Before any separately authorized execution, review and test a
+run-scoped enforcement and operator-response plan that blocks new creates by
+T+90, starts the controlled stop by T+105, and defines escalation when safety
+evidence prevents detach or termination. Verify the stop against the exact
+run-owned OCIDs and confirm terminal instance states, volume attachments, and
+the residual-resource inventory. No such enforcement path is qualified here;
+because a safety hold can keep compute billable, the two-hour target is not a
+hard runtime or spend cap.
 
 ## Latest local qualification limits (2026-09-25)
 
