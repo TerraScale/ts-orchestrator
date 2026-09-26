@@ -194,7 +194,7 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 		PlacementGeneration: committed.Generation, ETag: "etag-a", State: "RUNNING",
 	}
 	state := placement.MemberState{
-		SchemaVersion: 2, DatabaseID: committed.DatabaseID, PartitionID: committed.PartitionID,
+		SchemaVersion: 4, DatabaseID: committed.DatabaseID, PartitionID: committed.PartitionID,
 		MemberID: row.SeatID, Region: oci.RegionGRU, FailureDomain: row.FailureDomain,
 		Kind: placement.MemberPermanent, Stage: placement.StageAwaitingHost, CreateKey: instance.CreateKey,
 		HostNode: instance.Node, InstanceID: instance.ID, HostAttempt: 1,
@@ -202,6 +202,11 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 		ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest,
 		AuthorityReference: committed.CanonicalRoster.Authority, OperationID: "prepare-a", UpdatedAt: time.Now().UTC(),
+	}
+	state.RuntimeManifest = committed.RuntimeManifests[0]
+	state.RuntimeManifestDigest, err = state.RuntimeManifest.Digest()
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := state.Validate(); err != nil {
 		t.Fatalf("fixture member state: %v", err)

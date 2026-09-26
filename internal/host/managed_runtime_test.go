@@ -28,6 +28,7 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		ReplicationListenAddress: "127.0.0.1:7000",
 	}
 	desired.ManagedMember.Runtime = &pins
+	desired.ManagedMember.AttachmentETag = "etag-current"
 	if err := validateDesired(desired, registration.Cell, registration); err != nil {
 		t.Fatal(err)
 	}

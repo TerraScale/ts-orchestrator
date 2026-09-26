@@ -103,6 +103,49 @@ func TestManagedIntentRoundTripsCanonicalPayloadAndRegionProfileDigest(t *testin
 	}
 }
 
+func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		change func(*Intent)
+	}{
+		{"missing seat", func(intent *Intent) { intent.RuntimeManifests = intent.RuntimeManifests[:1] }},
+		{"out of seat order", func(intent *Intent) {
+			intent.RuntimeManifests[0], intent.RuntimeManifests[1] = intent.RuntimeManifests[1], intent.RuntimeManifests[0]
+		}},
+		{"duplicate filesystem UUID", func(intent *Intent) {
+			intent.RuntimeManifests[1].FileSystemUUID = intent.RuntimeManifests[0].FileSystemUUID
+		}},
+		{"wrong trusted key", func(intent *Intent) { intent.RuntimeManifests[0].TrustedKeySHA256 = strings.Repeat("f", 64) }},
+		{"missing artifact digest", func(intent *Intent) { intent.RuntimeManifests[0].ArtifactDigest = "" }},
+		{"incomplete peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerMemberID = intent.CanonicalRoster.Rows[1].MemberID
+		}},
+		{"foreign peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerMemberID = "018f0000-0000-7000-8000-000000000016"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			intent := validIntent(oci.RegionGRU)
+			test.change(&intent)
+			if err := intent.ValidateForAdmission(); err == nil {
+				t.Fatal("incomplete signed runtime manifest was admitted")
+			}
+		})
+	}
+	old := validIntent(oci.RegionGRU)
+	old.SchemaVersion = rosterIntentSchemaVersion
+	old.RuntimeManifests = nil
+	makeHistoricalULIDRoster(&old)
+	if err := old.Validate(); err != nil {
+		t.Fatalf("historical roster intent cannot be read for hold: %v", err)
+	}
+	if err := old.ValidateForAdmission(); err == nil {
+		t.Fatal("schema-3 intent authorized a new runtime launch")
+	}
+}
+
 func TestManagedIntentRejectsIncompleteForeignDuplicateAndUnsafeProfiles(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -207,8 +250,8 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 		mutate func(*Intent)
 	}{
 		{name: "wrong cluster ID", mutate: func(intent *Intent) { intent.CanonicalRoster.ClusterID = strings.Repeat("0", 32) }},
-		{name: "noncanonical roster database ULID", mutate: func(intent *Intent) {
-			intent.CanonicalRoster.DatabaseID = strings.ToLower(intent.CanonicalRoster.DatabaseID)
+		{name: "noncanonical roster database UUID", mutate: func(intent *Intent) {
+			intent.CanonicalRoster.DatabaseID = strings.ToUpper(intent.CanonicalRoster.DatabaseID)
 		}},
 		{name: "unknown authority version", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Version = 1 }},
 		{name: "zero authority epoch", mutate: func(intent *Intent) { intent.CanonicalRoster.Authority.Epoch = 0 }},
@@ -260,7 +303,7 @@ func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testin
 
 	rotatedMember := validIntent(oci.RegionGRU)
 	rotatedMember.Generation = 2
-	rotatedMember.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+	rotatedMember.CanonicalRoster.Rows[0].MemberID = "018f0000-0000-7000-8000-000000000010"
 	if err := rotatedMember.ValidateSupersession(previous); err == nil {
 		t.Fatal("ordinary generation increment authorized member identity rotation")
 	}
@@ -316,7 +359,11 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	}
 
 	state := validMemberStateForPins()
+	state.SchemaVersion = rosterMemberStateSchemaVersion
 	intent := validIntent(oci.RegionGRU)
+	intent.SchemaVersion = rosterIntentSchemaVersion
+	intent.RuntimeManifests = nil
+	makeHistoricalULIDRoster(&intent)
 	profile := intent.ManagedHostProfiles[0]
 	profileDigest, err := profile.ProfileDigest()
 	if err != nil {
@@ -332,10 +379,12 @@ func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	state.ManagedHostProfile = profile
 	state.ManagedHostProfileDigest = profileDigest
 	state.CanonicalRosterRow = intent.CanonicalRoster.Rows[0]
-	state.CanonicalRosterDigest, err = intent.CanonicalRosterDigest()
+	rosterBytes, err := protocol.EncodeJSON(intent.CanonicalRoster)
 	if err != nil {
 		t.Fatal(err)
 	}
+	rosterHash := sha256.Sum256(rosterBytes)
+	state.CanonicalRosterDigest = hex.EncodeToString(rosterHash[:])
 	state.AuthorityReference = intent.CanonicalRoster.Authority
 	if err := state.Validate(); err != nil {
 		t.Fatalf("valid member-state V2 pins were rejected: %v", err)
@@ -400,6 +449,101 @@ func TestHistoricalIntentIsReadableButNotAdmissible(t *testing.T) {
 	}
 	if err := decoded.ValidateForAdmission(); err == nil {
 		t.Fatal("historical schema-1 intent authorized a new managed placement")
+	}
+}
+
+func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
+	current := validIntent(oci.RegionGRU)
+	if err := current.ValidateForAdmission(); err != nil {
+		t.Fatalf("native UUID placement rejected: %v", err)
+	}
+	for _, change := range []struct {
+		name   string
+		mutate func(*Intent)
+	}{
+		{"ULID tenant", func(intent *Intent) { intent.CanonicalRoster.TenantID = "01ARZ3NDEKTSV4RRFFQ69G5FAS" }},
+		{"ULID database", func(intent *Intent) { intent.CanonicalRoster.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAR" }},
+		{"ULID member", func(intent *Intent) { intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV" }},
+		{"ULID peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
+		}},
+		{"noncanonical UUID", func(intent *Intent) {
+			intent.CanonicalRoster.Rows[0].MemberID = strings.ToUpper(intent.CanonicalRoster.Rows[0].MemberID)
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			candidate := validIntent(oci.RegionGRU)
+			change.mutate(&candidate)
+			if err := candidate.ValidateForAdmission(); err == nil {
+				t.Fatal("schema 5 admitted a non-native identity")
+			}
+		})
+	}
+
+	historical := validIntent(oci.RegionGRU)
+	historical.SchemaVersion = ulidRuntimeIntentSchemaVersion
+	makeHistoricalULIDRoster(&historical)
+	encoded, err := protocol.EncodeJSON(historical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeCommittedIntent(encoded)
+	if err != nil || decoded.PayloadDigest() == "" {
+		t.Fatalf("historical schema-4 decode = %+v, %v", decoded, err)
+	}
+	if err := decoded.ValidateForAdmission(); err == nil {
+		t.Fatal("historical ULID placement was admitted again")
+	}
+	if err := current.ValidateSupersession(decoded); err == nil {
+		t.Fatal("schema-5 generation reinterpreted historical ULID authority")
+	}
+}
+
+func TestMemberStateSchemaFourPinsNativeUUIDAndReadsSchemaThreeAsHistory(t *testing.T) {
+	intent := validIntent(oci.RegionGRU)
+	state := validMemberStateForPins()
+	state.IntentPayloadDigest = strings.Repeat("a", 64)
+	state.ManagedHostProfile = intent.ManagedHostProfiles[0]
+	var err error
+	state.ManagedHostProfileDigest, err = state.ManagedHostProfile.ProfileDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.CanonicalRosterRow = intent.CanonicalRoster.Rows[0]
+	rosterBytes, err := protocol.EncodeJSON(intent.CanonicalRoster)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rosterHash := sha256.Sum256(rosterBytes)
+	state.CanonicalRosterDigest = hex.EncodeToString(rosterHash[:])
+	state.AuthorityReference = intent.CanonicalRoster.Authority
+	state.RuntimeManifest = intent.RuntimeManifests[0]
+	state.RuntimeManifestDigest, err = state.RuntimeManifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("native UUID member state rejected: %v", err)
+	}
+
+	historical := state
+	historical.SchemaVersion = ulidMemberStateSchemaVersion
+	historical.CanonicalRosterRow.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	historical.RuntimeManifest.ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	historical.RuntimeManifest.ReplicationPeerAddress = "127.0.0.1:7001"
+	historical.RuntimeManifest.ReplicationServerCASHA256 = strings.Repeat("a", 64)
+	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := historical.Validate(); err != nil {
+		t.Fatalf("historical ULID member state unreadable: %v", err)
+	}
+	historical.SchemaVersion = placementSchemaVersion
+	if err := historical.Validate(); err == nil {
+		t.Fatal("new member-state schema accepted historical ULID identity")
 	}
 }
 
@@ -637,14 +781,30 @@ func validIntent(regions ...oci.Region) Intent {
 		active = append(active, region)
 		profiles = append(profiles, testManagedHostProfile(region))
 	}
+	roster := testCanonicalRoster(active)
+	manifests := make([]RuntimeManifest, 0, len(roster.Rows))
+	for index, row := range roster.Rows {
+		manifests = append(manifests, RuntimeManifest{
+			Region: row.Region, SeatID: row.SeatID,
+			ArtifactDigest: strings.Repeat("d", 64), SourceDigest: strings.Repeat("e", 64),
+			ManagedRuntimeRoot: "/srv/terrascale-managed",
+			FileSystemUUID:     fmt.Sprintf("%08x-1234-1234-1234-123456789abc", index+1),
+			FileSystemType:     "ext4", TrustedKeySHA256: roster.Authority.TrustedKeySHA256,
+			ServerCertificateSHA256:  strings.Repeat("1", 64),
+			ServerPrivateKeySHA256:   strings.Repeat("2", 64),
+			ClientCARootsSHA256:      strings.Repeat("3", 64),
+			ReplicationListenAddress: fmt.Sprintf("127.0.0.1:%d", 7000+index),
+		})
+	}
 	return Intent{
 		SchemaVersion:       IntentSchemaVersion,
 		DatabaseID:          testDatabaseID,
 		PartitionID:         "partition-a",
 		ActiveRegions:       active,
 		Generation:          1,
-		CanonicalRoster:     testCanonicalRoster(active),
+		CanonicalRoster:     roster,
 		ManagedHostProfiles: profiles,
+		RuntimeManifests:    manifests,
 	}
 }
 
@@ -652,31 +812,38 @@ const testDatabaseID = "db-main"
 
 func testCanonicalRoster(regions []oci.Region) CanonicalRoster {
 	rows := make([]CanonicalRosterRow, 0, len(regions)*2)
-	memberSuffixes := "VWXYZ0"
 	for regionIndex, region := range regions {
 		rows = append(rows,
 			CanonicalRosterRow{
 				Region: region, SeatID: permanentMember(region), FailureDomain: "FAULT-DOMAIN-1",
-				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[regionIndex*2]),
+				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", regionIndex*2+1),
 				Incarnation: fmt.Sprintf("%032x", regionIndex*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			CanonicalRosterRow{
 				Region: region, SeatID: elasticMember(region), FailureDomain: "FAULT-DOMAIN-2",
-				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[regionIndex*2+1]),
+				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", regionIndex*2+2),
 				Incarnation: fmt.Sprintf("%032x", regionIndex*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", regionIndex*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
 	}
 	return CanonicalRoster{
-		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAS",
-		DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAR", ShardID: 1,
+		ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "018f0000-0000-7000-8000-000000000100",
+		DatabaseID: "018f0000-0000-7000-8000-000000000101", ShardID: 1,
 		Authority: AuthorityReference{
 			Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
 			CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
 		},
 		Rows: rows,
+	}
+}
+
+func makeHistoricalULIDRoster(intent *Intent) {
+	intent.CanonicalRoster.TenantID = "01ARZ3NDEKTSV4RRFFQ69G5FAS"
+	intent.CanonicalRoster.DatabaseID = "01ARZ3NDEKTSV4RRFFQ69G5FAR"
+	for index := range intent.CanonicalRoster.Rows {
+		intent.CanonicalRoster.Rows[index].MemberID = fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%d", index+1)
 	}
 }
 

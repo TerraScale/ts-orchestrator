@@ -91,7 +91,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		ManagedOwner: regionConfig.Owner, FleetGeneration: regionConfig.Generation,
 		Environment: "production", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30},
-	}, store, fencer, fleet, placementSizingHosts{})
+	}, store, fencer, fleet, placementSizingHosts{}, placementSizingHosts{}, testPlacementAdmittedArtifact(intent))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,6 +168,14 @@ func (f placementSizingFencer) Guard(ctx context.Context, epoch uint64) error {
 type placementSizingHosts struct{}
 
 func (placementSizingHosts) ListHosts(context.Context) ([]host.HostStatus, error) { return nil, nil }
+
+func (placementSizingHosts) ListDesired(context.Context, string) ([]host.Desired, error) {
+	return nil, nil
+}
+
+func (placementSizingHosts) ApplyDesired(context.Context, host.Desired) (host.Receipt, error) {
+	return host.Receipt{}, errors.New("sizing fixture must not apply desired state")
+}
 
 type placementSizingProvider struct {
 	oci.Provider

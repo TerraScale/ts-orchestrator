@@ -185,7 +185,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
 			func(err error) { log.Printf("TerraBase placement reconciliation: %v", err) },
 			func(reason string) { log.Printf("TerraBase placement held: %s", reason) }),
-			placementStore, control, fleet, hostController)
+			placementStore, control, fleet, hostController, hostController,
+			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
+				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
+				if err != nil {
+					return placement.AdmittedArtifact{}, err
+				}
+				return placement.AdmittedArtifact{Digest: record.Digest, SourceDigest: record.Source.TreeDigest}, nil
+			})
 		if err != nil {
 			return fmt.Errorf("start regional TerraBase placement: %w", err)
 		}

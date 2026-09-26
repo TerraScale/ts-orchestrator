@@ -21,7 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-func TestPlacementAdmissionCommitsSignedCanonicalV3AndExposesDigests(t *testing.T) {
+func TestPlacementAdmissionCommitsSignedCanonicalV5AndExposesDigests(t *testing.T) {
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	control := newPlacementAdmissionControl()
 	intent := testManagedPlacementIntent()
@@ -147,7 +147,7 @@ func TestPlacementAdmissionEnforcesRosterContinuityOnSupersession(t *testing.T) 
 			*intent = testManagedPlacementIntentForRegions(oci.RegionGRU)
 		}},
 		{name: "member rotation", mutate: func(intent *placement.Intent) {
-			intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+			intent.CanonicalRoster.Rows[0].MemberID = "018f0000-0000-7000-8000-000000000010"
 		}},
 		{name: "incarnation rotation", mutate: func(intent *placement.Intent) {
 			intent.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
@@ -220,6 +220,20 @@ func testManagedPlacementIntent() placement.Intent {
 	return testManagedPlacementIntentForRegions(oci.RegionGRU)
 }
 
+func testPlacementAdmittedArtifact(intent placement.Intent) placement.ArtifactResolver {
+	return func(_ context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
+		if role != "terrabase" || environment != "production" {
+			return placement.AdmittedArtifact{}, fmt.Errorf("unexpected runtime artifact scope %s/%s", role, environment)
+		}
+		for _, manifest := range intent.RuntimeManifests {
+			if manifest.ArtifactDigest == digest {
+				return placement.AdmittedArtifact{Digest: digest, SourceDigest: manifest.SourceDigest}, nil
+			}
+		}
+		return placement.AdmittedArtifact{}, fmt.Errorf("runtime artifact %s is not in signed fixture", digest)
+	}
+}
+
 func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Intent {
 	selected := make(map[oci.Region]struct{}, len(regions))
 	for _, region := range regions {
@@ -228,7 +242,6 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 	active := make([]oci.Region, 0, len(selected))
 	profiles := make([]placement.ManagedHostProfile, 0, len(selected))
 	rows := make([]placement.CanonicalRosterRow, 0, len(selected)*2)
-	memberSuffixes := "VWXYZ0"
 	regionOrder := [...]oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA}
 	for _, region := range regionOrder {
 		if _, exists := selected[region]; !exists {
@@ -246,25 +259,39 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 		rows = append(rows,
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: permanentSeatID(region), FailureDomain: "FAULT-DOMAIN-1",
-				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[index*2]),
+				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", index*2+1),
 				Incarnation: fmt.Sprintf("%032x", index*2+1), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+1),
 				ServerName: fmt.Sprintf("permanent-%s.tb.example", strings.ToLower(string(region))),
 			},
 			placement.CanonicalRosterRow{
 				Region: region, SeatID: elasticSeatID(region), FailureDomain: "FAULT-DOMAIN-2",
-				MemberID:    fmt.Sprintf("01ARZ3NDEKTSV4RRFFQ69G5FA%c", memberSuffixes[index*2+1]),
+				MemberID:    fmt.Sprintf("018f0000-0000-7000-8000-%012x", index*2+2),
 				Incarnation: fmt.Sprintf("%032x", index*2+2), TLSLeafSHA256: fmt.Sprintf("%064x", index*2+2),
 				ServerName: fmt.Sprintf("elastic-%s.tb.example", strings.ToLower(string(region))),
 			},
 		)
 	}
 	databaseID := "db-main"
+	manifests := make([]placement.RuntimeManifest, 0, len(rows))
+	for index, row := range rows {
+		manifests = append(manifests, placement.RuntimeManifest{
+			Region: row.Region, SeatID: row.SeatID,
+			ArtifactDigest: strings.Repeat("d", 64), SourceDigest: strings.Repeat("e", 64),
+			ManagedRuntimeRoot: "/srv/terrascale-managed",
+			FileSystemUUID:     fmt.Sprintf("%08x-1234-1234-1234-123456789abc", index+1),
+			FileSystemType:     "ext4", TrustedKeySHA256: strings.Repeat("c", 64),
+			ServerCertificateSHA256:  strings.Repeat("1", 64),
+			ServerPrivateKeySHA256:   strings.Repeat("2", 64),
+			ClientCARootsSHA256:      strings.Repeat("3", 64),
+			ReplicationListenAddress: fmt.Sprintf("127.0.0.1:%d", 7000+index),
+		})
+	}
 	return placement.Intent{
 		SchemaVersion: placement.IntentSchemaVersion, DatabaseID: databaseID, PartitionID: "partition-a",
 		ActiveRegions: active, Generation: 7,
 		CanonicalRoster: placement.CanonicalRoster{
-			ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAS",
-			DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAR", ShardID: 1,
+			ClusterID: "0123456789abcdef0123456789abcdef", TenantID: "018f0000-0000-7000-8000-000000000100",
+			DatabaseID: "018f0000-0000-7000-8000-000000000101", ShardID: 1,
 			Authority: placement.AuthorityReference{
 				Version: 2, Epoch: 7, ConfigurationID: strings.Repeat("a", 64),
 				CertificateSHA256: strings.Repeat("b", 64), TrustedKeySHA256: strings.Repeat("c", 64),
@@ -272,6 +299,7 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 			Rows: rows,
 		},
 		ManagedHostProfiles: profiles,
+		RuntimeManifests:    manifests,
 	}
 }
 

@@ -29,10 +29,69 @@ type managedRuntimePaths struct {
 }
 
 type managedMount struct {
-	id     uint64
-	device string
-	uuid   string
-	fsType string
+	id      uint64
+	device  string
+	uuid    string
+	fsType  string
+	witness *managedDevice
+}
+
+type managedDevice struct {
+	fd   int
+	stat syscall.Stat_t
+}
+
+func (device *managedDevice) close() {
+	if device != nil && device.fd >= 0 {
+		_ = unix.Close(device.fd)
+		device.fd = -1
+	}
+}
+
+func (mount managedMount) close() { mount.witness.close() }
+
+func sameManagedMount(left, right managedMount) bool {
+	return left.id == right.id && left.device == right.device && left.uuid == right.uuid &&
+		left.fsType == right.fsType && left.witness != nil && right.witness != nil &&
+		sameDeviceObject(left.witness.stat, right.witness.stat)
+}
+
+func verifyManagedMountPair(left, right managedMount) error {
+	if !sameManagedMount(left, right) {
+		return errors.New("managed mount identity changed")
+	}
+	if err := verifyManagedDeviceWitness(left); err != nil {
+		return err
+	}
+	return verifyManagedDeviceWitness(right)
+}
+
+// ManagedMountPath is the deterministic host-owned mount target for a signed
+// member attempt. The operator provisions this path below the configured root.
+func ManagedMountPath(root string, member ManagedMemberBinding) (string, error) {
+	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
+	if err != nil {
+		return "", err
+	}
+	return paths.mount, nil
+}
+
+// ValidateManagedRuntimeRoot rejects an unsafe configured root before native
+// startup. An absent root is allowed only for a host that keeps managed launch
+// on its deliberate hold path.
+func ValidateManagedRuntimeRoot(root, installRoot, stateRoot string, identity WorkloadIdentity) error {
+	if root == "" {
+		return nil
+	}
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root || root == "/" ||
+		root == installRoot || root == stateRoot ||
+		strings.HasPrefix(root, installRoot+string(filepath.Separator)) ||
+		strings.HasPrefix(root, stateRoot+string(filepath.Separator)) ||
+		strings.HasPrefix(installRoot, root+string(filepath.Separator)) ||
+		strings.HasPrefix(stateRoot, root+string(filepath.Separator)) {
+		return errors.New("managed runtime root must be clean, absolute and separate from host roots")
+	}
+	return verifyManagedDirectory(root, identity, 0750)
 }
 
 func runtimePaths(root string, launch ManagedMemberLaunch) (managedRuntimePaths, error) {
@@ -99,27 +158,28 @@ func verifyManagedMaterial(path, digest string, identity WorkloadIdentity, maxim
 	return data, nil
 }
 
-func verifyManagedMount(paths managedRuntimePaths, pins ManagedRuntimePins, identity WorkloadIdentity) (managedMount, error) {
+func verifyManagedMount(paths managedRuntimePaths, pins ManagedRuntimePins, identity WorkloadIdentity) (_ managedMount, err error) {
 	if paths.mount != pins.MountPath {
 		return managedMount{}, errors.New("managed mount path differs from signed pin")
 	}
 	if err := verifyManagedDirectory(paths.memberDir, identity, 0750); err != nil {
 		return managedMount{}, err
 	}
-	deviceInfo, err := os.Lstat(pins.DevicePath)
+	device, err := managedBlockDevice(pins.DevicePath)
 	if err != nil {
 		return managedMount{}, err
 	}
-	device, ok := deviceInfo.Sys().(*syscall.Stat_t)
-	if !ok || deviceInfo.Mode()&os.ModeDevice == 0 || deviceInfo.Mode()&os.ModeCharDevice != 0 || deviceInfo.Mode()&os.ModeSymlink != 0 || device.Uid != 0 {
-		return managedMount{}, errors.New("managed device is not an exact root-owned block device")
-	}
+	defer func() {
+		if err != nil {
+			device.close()
+		}
+	}()
 	uuidInfo, err := os.Stat(filepath.Join("/dev/disk/by-uuid", pins.FileSystemUUID))
 	if err != nil {
 		return managedMount{}, err
 	}
 	uuidDevice, ok := uuidInfo.Sys().(*syscall.Stat_t)
-	if !ok || uuidDevice.Rdev != device.Rdev {
+	if !ok || uuidDevice.Rdev != device.stat.Rdev {
 		return managedMount{}, errors.New("filesystem UUID does not identify the signed device")
 	}
 	mountInfo, err := os.Lstat(paths.mount)
@@ -130,10 +190,10 @@ func verifyManagedMount(paths managedRuntimePaths, pins ManagedRuntimePins, iden
 		return managedMount{}, errors.New("managed volume mountpoint is unsafe")
 	}
 	mountedStat, ok := mountInfo.Sys().(*syscall.Stat_t)
-	if !ok || !validManagedMountRoot(mountedStat, mountInfo.Mode(), identity, device.Rdev) {
+	if !ok || !validManagedMountRoot(mountedStat, mountInfo.Mode(), identity, device.stat.Rdev) {
 		return managedMount{}, errors.New("managed volume root is tenant-writable or has wrong device")
 	}
-	mount, err := findExclusiveMount("/proc/self/mountinfo", paths.mount, device.Rdev, pins.FileSystemType)
+	mount, err := findExclusiveMount("/proc/self/mountinfo", paths.mount, device.stat.Rdev, pins.FileSystemType)
 	if err != nil {
 		return managedMount{}, err
 	}
@@ -143,12 +203,154 @@ func verifyManagedMount(paths managedRuntimePaths, pins ManagedRuntimePins, iden
 			return managedMount{}, err
 		}
 		owner, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || owner.Dev != device.Rdev ||
+		if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || owner.Dev != device.stat.Rdev ||
 			owner.Uid != identity.UID || owner.Gid != identity.GID || info.Mode().Perm() != 0700 {
 			return managedMount{}, fmt.Errorf("unsafe managed volume %s directory", child)
 		}
 	}
-	return managedMount{id: mount, device: pins.DevicePath, uuid: pins.FileSystemUUID, fsType: pins.FileSystemType}, nil
+	result := managedMount{id: mount, device: pins.DevicePath, uuid: pins.FileSystemUUID, fsType: pins.FileSystemType, witness: device}
+	if err := verifyManagedDeviceWitness(result); err != nil {
+		return managedMount{}, err
+	}
+	return result, nil
+}
+
+// OCI's /dev/oracleoci names are commonly one root-owned symlink to a block
+// device directly below /dev. Resolve only that form and pin the opened rdev.
+func managedBlockDevice(devicePath string) (*managedDevice, error) {
+	resolved := devicePath
+	ancestors, err := managedDeviceAncestors(devicePath)
+	if err != nil {
+		return nil, err
+	}
+	for _, directory := range ancestors {
+		info, err := os.Lstat(directory)
+		if err != nil {
+			return nil, err
+		}
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || !validManagedDeviceAncestor(info.Mode(), owner) {
+			return nil, errors.New("managed device ancestor is writable or untrusted")
+		}
+	}
+	if len(ancestors) == 2 {
+		info, err := os.Lstat(devicePath)
+		if err != nil {
+			return nil, err
+		}
+		owner, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || info.Mode()&os.ModeSymlink == 0 || owner.Uid != 0 {
+			return nil, errors.New("OCI device alias is not a root-owned symlink")
+		}
+		target, err := os.Readlink(devicePath)
+		if err != nil {
+			return nil, err
+		}
+		resolved, err = oracleOCIAliasTarget(devicePath, target)
+		if err != nil {
+			return nil, err
+		}
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	device, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || info.Mode()&os.ModeDevice == 0 || info.Mode()&os.ModeCharDevice != 0 ||
+		info.Mode()&os.ModeSymlink != 0 || device.Uid != 0 {
+		return nil, errors.New("managed device is not an exact root-owned block device")
+	}
+	fd, err := unix.Open(resolved, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
+	var opened syscall.Stat_t
+	if err := syscall.Fstat(fd, &opened); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
+	if opened.Mode&syscall.S_IFMT != syscall.S_IFBLK || opened.Uid != 0 || opened.Rdev != device.Rdev {
+		_ = unix.Close(fd)
+		return nil, errors.New("opened managed block device differs from signed alias target")
+	}
+	return &managedDevice{fd: fd, stat: opened}, nil
+}
+
+func managedDeviceAncestors(path string) ([]string, error) {
+	switch filepath.Dir(path) {
+	case "/dev":
+		return []string{"/dev"}, nil
+	case "/dev/oracleoci":
+		return []string{"/dev", "/dev/oracleoci"}, nil
+	default:
+		return nil, errors.New("managed block device must be a direct /dev node or OCI alias")
+	}
+}
+
+func validManagedDeviceAncestor(mode os.FileMode, owner *syscall.Stat_t) bool {
+	return owner != nil && mode.IsDir() && mode&os.ModeSymlink == 0 && owner.Uid == 0 && mode.Perm()&0022 == 0
+}
+
+func verifyOpenDeviceIdentity(fd int, expected syscall.Stat_t) error {
+	if expected.Mode&syscall.S_IFMT != syscall.S_IFBLK || expected.Uid != 0 {
+		return errors.New("managed block device witness is not a root-owned block device")
+	}
+	current, err := statOpenWitness(fd)
+	if err != nil {
+		return err
+	}
+	if current.Mode&syscall.S_IFMT != syscall.S_IFBLK || current.Uid != 0 ||
+		!sameDeviceObject(current, expected) {
+		return errors.New("managed block device witness changed")
+	}
+	return nil
+}
+
+func statOpenWitness(fd int) (syscall.Stat_t, error) {
+	if fd < 0 {
+		return syscall.Stat_t{}, errors.New("managed block device witness is closed")
+	}
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(fd, &stat); err != nil {
+		return syscall.Stat_t{}, err
+	}
+	return stat, nil
+}
+
+func sameDeviceObject(left, right syscall.Stat_t) bool {
+	return left.Mode&syscall.S_IFMT == right.Mode&syscall.S_IFMT && left.Uid == right.Uid &&
+		left.Rdev == right.Rdev && left.Dev == right.Dev && left.Ino == right.Ino
+}
+
+func verifyManagedDeviceWitness(mount managedMount) error {
+	if mount.witness == nil {
+		return errors.New("managed mount has no open block device witness")
+	}
+	if err := verifyOpenDeviceIdentity(mount.witness.fd, mount.witness.stat); err != nil {
+		return err
+	}
+	current, err := managedBlockDevice(mount.device)
+	if err != nil {
+		return err
+	}
+	defer current.close()
+	if !sameDeviceObject(current.stat, mount.witness.stat) {
+		return errors.New("managed device path changed from held block device")
+	}
+	return nil
+}
+
+func oracleOCIAliasTarget(alias, target string) (string, error) {
+	if filepath.Dir(alias) != "/dev/oracleoci" || filepath.IsAbs(target) ||
+		target != "../"+filepath.Base(target) || filepath.Base(target) == "." ||
+		strings.ContainsAny(target, " \t\r\n\x00") {
+		return "", errors.New("invalid OCI device alias target")
+	}
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(alias), target))
+	if filepath.Dir(resolved) != "/dev" {
+		return "", errors.New("OCI device alias must resolve to one /dev block node")
+	}
+	return resolved, nil
 }
 
 func validManagedMountRoot(stat *syscall.Stat_t, mode os.FileMode, identity WorkloadIdentity, device uint64) bool {
@@ -227,6 +429,12 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if err != nil {
 		return Workload{}, managedMount{}, "", err
 	}
+	keepMount := false
+	defer func() {
+		if !keepMount {
+			mount.close()
+		}
+	}()
 	files := []struct {
 		name, digest string
 		maximum      int64
@@ -263,7 +471,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
 		"--memory-headroom-bytes", strconv.FormatUint(launch.MemoryHeadroomBytes, 10),
 		"--replication-listen-addr", launch.Runtime.ReplicationListenAddress,
-		"--replication-data-dir", filepath.Join(paths.mount, "replication"),
+		"--replication-data-dir", managedShardPath(paths),
 		"--authority-certificate", filepath.Join(paths.material, "authority.tbca"),
 		"--trusted-public-key", filepath.Join(paths.material, "trusted-public-key"),
 		"--replication-server-certificate", filepath.Join(paths.material, "server.crt"),
@@ -289,6 +497,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 			"--replication-peer-addr", launch.Runtime.ReplicationPeerAddress,
 			"--replication-server-ca-roots", filepath.Join(paths.material, "server-ca.pem"))
 	}
+	keepMount = true
 	return Workload{Role: d.Role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable,
 		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}, mount, paths.socket, nil
 }
@@ -369,7 +578,19 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	defer mount.close()
 	if current.Running && current.Digest == d.Digest && current.Fingerprint == fingerprint {
+		paths, err := runtimePaths(a.cfg.ManagedRuntimeRoot, *launch)
+		if err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
+		certificate, err := verifyManagedMaterial(filepath.Join(paths.material, "authority.tbca"), launch.Authority.CertificateSHA256, a.cfg.WorkloadIdentity, 1<<20)
+		if err == nil {
+			err = inspectManagedVolumeClaim(paths, *launch, a.cfg.WorkloadIdentity, mount, certificate)
+		}
+		if err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
 		return a.reportManagedStatus(ctx, d, mount, socket)
 	}
 	if err := a.runner.Stop(ctx, d.Role); err != nil {
@@ -439,11 +660,41 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	// Material and the mounted block device are rechecked across the network
 	// round trips. A changed or absent binding never reaches native Apply.
 	_, currentMount, currentSocket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
-	if err != nil || currentMount != mount || currentSocket != socket {
+	if err != nil {
 		return errors.Join(errors.New("managed mount or material changed before apply"), err)
+	}
+	defer currentMount.close()
+	if currentSocket != socket {
+		return errors.New("managed control socket changed before apply")
+	}
+	if err := verifyManagedMountPair(currentMount, mount); err != nil {
+		return errors.Join(errors.New("managed mount or material changed before apply"), err)
+	}
+	paths, err := runtimePaths(a.cfg.ManagedRuntimeRoot, *launch)
+	if err != nil {
+		return err
+	}
+	if err := requireManagedRoleQuiescent(a.runner, d.Role); err != nil {
+		return err
+	}
+	certificate, err := verifyManagedMaterial(filepath.Join(paths.material, "authority.tbca"), launch.Authority.CertificateSHA256, a.cfg.WorkloadIdentity, 1<<20)
+	if err != nil {
+		return err
+	}
+	if _, _, err := a.executionLease(); err != nil {
+		return err
+	}
+	if err := ensureManagedVolumeClaim(paths, *launch, a.cfg.WorkloadIdentity, currentMount, certificate); err != nil {
+		return fmt.Errorf("managed retained volume claim held: %w", err)
+	}
+	if _, _, err := a.executionLease(); err != nil {
+		return err
 	}
 	if err := a.runner.Apply(ctx, workload); err != nil {
 		return err
+	}
+	if err := verifyManagedMountPair(currentMount, mount); err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
 	if err := a.reportManagedStatus(ctx, d, mount, socket); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -456,6 +707,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 }
 
 func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount managedMount, socket string) error {
+	if err := verifyManagedDeviceWitness(mount); err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
+	}
 	status, start, cgroup, err := readManagedStatus(ctx, a.runner, d, socket)
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -468,13 +722,21 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	// authority and certifying the local TLS leaf. Recheck host-owned byte pins
 	// and the mount after that native validation, before publishing any report.
 	_, check, checkSocket, err := prepareManagedRuntime(ctx, a.cfg, d, "", "")
-	if err != nil || check != mount || checkSocket != socket || paths.mount != d.ManagedMember.Runtime.MountPath {
+	if err != nil {
+		return errors.Join(errors.New("managed mount or material changed while reading process status"), err, a.runner.Stop(ctx, d.Role))
+	}
+	defer check.close()
+	if checkSocket != socket || paths.mount != d.ManagedMember.Runtime.MountPath {
+		return errors.Join(errors.New("managed control socket or mount path changed while reading process status"), a.runner.Stop(ctx, d.Role))
+	}
+	if err := verifyManagedMountPair(check, mount); err != nil {
 		return errors.Join(errors.New("managed mount or material changed while reading process status"), err, a.runner.Stop(ctx, d.Role))
 	}
 	report := a.reportFor(d, "running", nil)
 	report.Managed = &ManagedRuntimeReport{
 		Member: d.ManagedMember.Member, Authority: d.ManagedMember.Authority, OCI: d.ManagedMember.OCI,
 		VolumeID: d.ManagedMember.VolumeID, AttachmentID: d.ManagedMember.AttachmentID,
+		AttachmentETag: d.ManagedMember.AttachmentETag,
 		FileSystemUUID: mount.uuid, FileSystemType: mount.fsType,
 		MountDevice: mount.device, MountPath: paths.mount, MountID: mount.id,
 		ProcessPID: status.Process.PID, ProcessStart: start, ProcessCgroup: cgroup,
@@ -504,6 +766,7 @@ func validateManagedReportForDesired(report Report, desired Desired) error {
 	if launch.Runtime == nil || observation == nil || observation.Member != launch.Member ||
 		observation.Authority != launch.Authority || observation.OCI != launch.OCI ||
 		observation.VolumeID != launch.VolumeID || observation.AttachmentID != launch.AttachmentID ||
+		observation.AttachmentETag != launch.AttachmentETag ||
 		observation.FileSystemUUID != launch.Runtime.FileSystemUUID ||
 		observation.FileSystemType != launch.Runtime.FileSystemType ||
 		observation.MountDevice != launch.Runtime.DevicePath || observation.MountPath != launch.Runtime.MountPath ||

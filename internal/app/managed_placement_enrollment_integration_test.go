@@ -142,7 +142,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		ManagedOwner: region.Owner, FleetGeneration: region.Generation,
 		Environment: "production", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30},
-	}, store, control, fleet, hostController)
+	}, store, control, fleet, hostController, hostController, testPlacementAdmittedArtifact(intent))
 	if err != nil {
 		t.Fatal(err)
 	}

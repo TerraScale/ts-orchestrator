@@ -20,7 +20,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 8 << 30}, SystemReserveBytes: 1 << 30,
 		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "node-a"},
-		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
 	}
 	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Generation: 1, AuthorityEpoch: 1, Digest: strings.Repeat("a", 64),
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
@@ -51,7 +51,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 		}},
 		{name: "another host attempt", change: func(_ *Registration, d *Desired) { d.ManagedMember.Member.HostAttempt++ }},
 		{name: "another member", change: func(_ *Registration, d *Desired) {
-			d.ManagedMember.Member.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+			d.ManagedMember.Member.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
 		}},
 		{name: "wrong attachment", change: func(_ *Registration, d *Desired) { d.ManagedMember.AttachmentID = "" }},
 		{name: "generic arguments", change: func(_ *Registration, d *Desired) { d.Args = []string{"--memory-limit-bytes", "1"} }},

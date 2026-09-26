@@ -285,7 +285,7 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 			ManagedHostProfileDigest: strings.Repeat("e", 64),
 		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "host-a"},
-		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	tests := []struct {
@@ -359,9 +359,9 @@ func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing
 			},
 			ManagedOCI: &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..managed-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "managed-a"},
 			ManagedMember: &ManagedMemberBinding{Scope: MemberScope{
-				ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-				DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1,
-				MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32),
+				ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001",
+				DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1,
+				MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32),
 			}, HostAttempt: 1},
 			SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 5 << 30},
 		}
@@ -402,7 +402,7 @@ func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing
 		managed.Node = "managed-retry"
 		managed.ManagedOCI.InstanceID = "ocid1.instance.oc1..managed-retry"
 		managed.ManagedOCI.CreateKey = "managed-retry"
-		managed.ManagedMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		managed.ManagedMember.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
 		conflict := &oneRegistrationConflict{HostMutationStore: mutations}
 		conflict.conflict.Store(true)
 		controller.mutations = conflict
@@ -1561,7 +1561,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 			ManagedHostProfileDigest: strings.Repeat("e", 64),
 		},
 		ManagedOCI:         &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..host-a", Owner: "terrascale", FleetGeneration: 4, CreateKey: "terrabase-host-a"},
-		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", ShardID: 1, MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
+		ManagedMember:      &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
 		SystemReserveBytes: 1 << 30, Capacity: Capacity{MemoryBytes: 8 << 30},
 	}
 	registrationReceipt, err := c.Register(t.Context(), registration)
@@ -1595,7 +1595,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	convertedOCI.InstanceID = "ocid1.instance.oc1..node-e"
 	converted.ManagedOCI = &convertedOCI
 	convertedMember := *registration.ManagedMember
-	convertedMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
+	convertedMember.Scope.MemberID = "018f0000-0000-7000-8000-000000000003"
 	converted.ManagedMember = &convertedMember
 	if _, err := c.Register(t.Context(), converted); err == nil {
 		t.Fatal("generic registration converted to managed")
@@ -1618,7 +1618,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		binding.InstanceID = "ocid1.instance.oc1.." + node
 		candidate.ManagedOCI = &binding
 		member := *registration.ManagedMember
-		member.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+		member.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
 		candidate.ManagedMember = &member
 		registrations.Go(func() { _, err := c.Register(t.Context(), candidate); results <- err })
 	}
@@ -1639,7 +1639,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	newIncarnationOCI.InstanceID = "ocid1.instance.oc1..node-d"
 	newIncarnation.ManagedOCI = &newIncarnationOCI
 	newIncarnationMember := *registration.ManagedMember
-	newIncarnationMember.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	newIncarnationMember.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
 	newIncarnationMember.Scope.Incarnation = strings.Repeat("c", 32)
 	newIncarnation.ManagedMember = &newIncarnationMember
 	if _, err := c.Register(t.Context(), newIncarnation); err == nil {

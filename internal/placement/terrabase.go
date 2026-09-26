@@ -7,9 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -17,12 +20,16 @@ import (
 
 const (
 	// IntentSchemaVersion is the only schema accepted for new managed
-	// placement admissions. Schemas 1 and 2 remain readable for historical hold.
-	IntentSchemaVersion            = 3
+	// placement admissions. Older schemas remain readable for historical hold.
+	IntentSchemaVersion            = 5
 	legacyIntentSchemaVersion      = 1
 	profileIntentSchemaVersion     = 2
+	rosterIntentSchemaVersion      = 3
+	ulidRuntimeIntentSchemaVersion = 4
 	legacyMemberStateSchemaVersion = 1
-	placementSchemaVersion         = 2
+	rosterMemberStateSchemaVersion = 2
+	ulidMemberStateSchemaVersion   = 3
+	placementSchemaVersion         = 4
 	maxDatabaseIDLength            = 63
 	maxPartitionIDLength           = 63
 	maxIntentPayloadBytes          = 16 << 10
@@ -44,6 +51,7 @@ type Intent struct {
 	Generation          uint64               `json:"generation"`
 	CanonicalRoster     CanonicalRoster      `json:"canonical_roster,omitzero"`
 	ManagedHostProfiles []ManagedHostProfile `json:"managed_host_profiles,omitempty"`
+	RuntimeManifests    []RuntimeManifest    `json:"runtime_manifests,omitempty"`
 	committedPayloadSHA string
 }
 
@@ -80,6 +88,70 @@ type CanonicalRosterRow struct {
 	Incarnation   string     `json:"incarnation"`
 	TLSLeafSHA256 string     `json:"tls_leaf_sha256"`
 	ServerName    string     `json:"server_name"`
+}
+
+// RuntimeManifest is an operator-signed, per-seat preprovisioned runtime
+// contract. OCI attachment identity and device are observed later, never
+// accepted from this operator payload.
+type RuntimeManifest struct {
+	Region                    oci.Region `json:"region"`
+	SeatID                    string     `json:"seat_id"`
+	ArtifactDigest            string     `json:"artifact_digest"`
+	SourceDigest              string     `json:"source_digest"`
+	ManagedRuntimeRoot        string     `json:"managed_runtime_root"`
+	FileSystemUUID            string     `json:"filesystem_uuid"`
+	FileSystemType            string     `json:"filesystem_type"`
+	TrustedKeySHA256          string     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256   string     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256    string     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256       string     `json:"client_ca_roots_sha256"`
+	ReplicationListenAddress  string     `json:"replication_listen_address"`
+	ReplicationPeerMemberID   string     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress    string     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256 string     `json:"replication_server_ca_sha256,omitempty"`
+}
+
+func (manifest RuntimeManifest) Validate() error {
+	return manifest.validateWithIdentity(canonicalTerraBaseUUID)
+}
+
+func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) bool) error {
+	if !knownRegion(manifest.Region) || !validToken(manifest.SeatID) ||
+		!validLowerSHA256Digest(manifest.ArtifactDigest) || !validLowerSHA256Digest(manifest.SourceDigest) ||
+		!filepath.IsAbs(manifest.ManagedRuntimeRoot) || filepath.Clean(manifest.ManagedRuntimeRoot) != manifest.ManagedRuntimeRoot ||
+		manifest.ManagedRuntimeRoot == "/" || len(manifest.ManagedRuntimeRoot) > 54 ||
+		!validFilesystemUUID(manifest.FileSystemUUID) ||
+		manifest.FileSystemType != "ext4" && manifest.FileSystemType != "xfs" ||
+		!validLowerSHA256Digest(manifest.TrustedKeySHA256) ||
+		!validLowerSHA256Digest(manifest.ServerCertificateSHA256) ||
+		!validLowerSHA256Digest(manifest.ServerPrivateKeySHA256) ||
+		!validLowerSHA256Digest(manifest.ClientCARootsSHA256) ||
+		!validIPAddressPort(manifest.ReplicationListenAddress) {
+		return fmt.Errorf("%w: incomplete runtime manifest", ErrInvalidIntent)
+	}
+	peer := manifest.ReplicationPeerMemberID != "" || manifest.ReplicationPeerAddress != "" || manifest.ReplicationServerCASHA256 != ""
+	if peer && (!validMemberID(manifest.ReplicationPeerMemberID) ||
+		!validIPAddressPort(manifest.ReplicationPeerAddress) ||
+		!validLowerSHA256Digest(manifest.ReplicationServerCASHA256)) {
+		return fmt.Errorf("%w: incomplete runtime peer triple", ErrInvalidIntent)
+	}
+	return nil
+}
+
+func (manifest RuntimeManifest) Digest() (string, error) {
+	return manifest.digestWithIdentity(canonicalTerraBaseUUID)
+}
+
+func (manifest RuntimeManifest) digestWithIdentity(validMemberID func(string) bool) (string, error) {
+	if err := manifest.validateWithIdentity(validMemberID); err != nil {
+		return "", err
+	}
+	encoded, err := protocol.EncodeJSON(manifest)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 // ComputeTuple is the explicit Flex compute shape pinned by a signed profile.
@@ -151,6 +223,7 @@ func (profile ManagedHostProfile) Validate() error {
 
 func (intent Intent) Validate() error {
 	if intent.SchemaVersion != legacyIntentSchemaVersion && intent.SchemaVersion != profileIntentSchemaVersion &&
+		intent.SchemaVersion != rosterIntentSchemaVersion && intent.SchemaVersion != ulidRuntimeIntentSchemaVersion &&
 		intent.SchemaVersion != IntentSchemaVersion ||
 		!validBoundedToken(intent.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(intent.PartitionID, maxPartitionIDLength) || intent.Generation == 0 ||
@@ -166,7 +239,7 @@ func (intent Intent) Validate() error {
 		}
 	}
 	if intent.SchemaVersion == legacyIntentSchemaVersion {
-		if len(intent.ManagedHostProfiles) != 0 || !intent.CanonicalRoster.isZero() {
+		if len(intent.ManagedHostProfiles) != 0 || !intent.CanonicalRoster.isZero() || len(intent.RuntimeManifests) != 0 {
 			return fmt.Errorf("%w: historical schema 1 cannot carry managed profiles or a canonical roster", ErrInvalidIntent)
 		}
 		return nil
@@ -183,18 +256,52 @@ func (intent Intent) Validate() error {
 		}
 	}
 	if intent.SchemaVersion == profileIntentSchemaVersion {
-		if !intent.CanonicalRoster.isZero() {
+		if !intent.CanonicalRoster.isZero() || len(intent.RuntimeManifests) != 0 {
 			return fmt.Errorf("%w: historical schema 2 cannot carry a canonical roster", ErrInvalidIntent)
 		}
 		return nil
 	}
-	if err := intent.CanonicalRoster.Validate(intent.ActiveRegions); err != nil {
+	validMemberID := canonicalLegacyMemberID
+	if intent.SchemaVersion == IntentSchemaVersion {
+		validMemberID = canonicalTerraBaseUUID
+	}
+	if err := intent.CanonicalRoster.validateWithIdentity(intent.ActiveRegions, validMemberID); err != nil {
 		return err
+	}
+	if intent.SchemaVersion == rosterIntentSchemaVersion {
+		if len(intent.RuntimeManifests) != 0 {
+			return fmt.Errorf("%w: historical schema 3 cannot carry runtime manifests", ErrInvalidIntent)
+		}
+		return nil
+	}
+	if len(intent.RuntimeManifests) != len(intent.CanonicalRoster.Rows) {
+		return fmt.Errorf("%w: runtime manifests must cover every canonical roster seat", ErrInvalidIntent)
+	}
+	uuids := make(map[string]struct{}, len(intent.RuntimeManifests))
+	for index, manifest := range intent.RuntimeManifests {
+		row := intent.CanonicalRoster.Rows[index]
+		if err := manifest.validateWithIdentity(validMemberID); err != nil {
+			return err
+		}
+		if manifest.Region != row.Region || manifest.SeatID != row.SeatID ||
+			manifest.TrustedKeySHA256 != intent.CanonicalRoster.Authority.TrustedKeySHA256 ||
+			manifest.ReplicationPeerMemberID == row.MemberID {
+			return fmt.Errorf("%w: runtime manifest does not match canonical roster seat", ErrInvalidIntent)
+		}
+		if manifest.ReplicationPeerMemberID != "" && !slices.ContainsFunc(intent.CanonicalRoster.Rows, func(peer CanonicalRosterRow) bool {
+			return peer.MemberID == manifest.ReplicationPeerMemberID
+		}) {
+			return fmt.Errorf("%w: runtime peer is outside the signed roster", ErrInvalidIntent)
+		}
+		if _, exists := uuids[manifest.FileSystemUUID]; exists {
+			return fmt.Errorf("%w: duplicate runtime filesystem UUID", ErrInvalidIntent)
+		}
+		uuids[manifest.FileSystemUUID] = struct{}{}
 	}
 	return nil
 }
 
-// ValidateForAdmission limits newly signed managed placements to schema 3.
+// ValidateForAdmission limits newly signed managed placements to schema 5.
 // Historical schemas remain decodable for explicit per-intent hold.
 func (intent Intent) ValidateForAdmission() error {
 	if intent.SchemaVersion != IntentSchemaVersion {
@@ -209,8 +316,12 @@ func (roster CanonicalRoster) isZero() bool {
 }
 
 func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
+	return roster.validateWithIdentity(activeRegions, canonicalTerraBaseUUID)
+}
+
+func (roster CanonicalRoster) validateWithIdentity(activeRegions []oci.Region, validMemberID func(string) bool) error {
 	if !lowerHex(roster.ClusterID, 32) || allZeroHex(roster.ClusterID) ||
-		!canonicalMemberID(roster.TenantID) || !canonicalMemberID(roster.DatabaseID) ||
+		!validMemberID(roster.TenantID) || !validMemberID(roster.DatabaseID) ||
 		roster.ShardID == 0 || roster.Authority.Validate() != nil ||
 		len(roster.Rows) != len(activeRegions)*2 {
 		return fmt.Errorf("%w: canonical roster shared scope or row count", ErrInvalidIntent)
@@ -227,7 +338,7 @@ func (roster CanonicalRoster) Validate(activeRegions []oci.Region) error {
 			seatID = elasticMember(region)
 		}
 		if row.Region != region || row.SeatID != seatID || !validFailureDomain(row.FailureDomain) ||
-			!canonicalMemberID(row.MemberID) || !lowerHex(row.Incarnation, 32) || allZeroHex(row.Incarnation) ||
+			!validMemberID(row.MemberID) || !lowerHex(row.Incarnation, 32) || allZeroHex(row.Incarnation) ||
 			!validLowerSHA256Digest(row.TLSLeafSHA256) || !validServerName(row.ServerName) {
 			return fmt.Errorf("%w: invalid or noncanonical row %d in TerraBase member roster", ErrInvalidIntent, index)
 		}
@@ -305,7 +416,7 @@ func (intent Intent) ValidateSupersession(previous Intent) error {
 	}
 	if previous.SchemaVersion != IntentSchemaVersion || previous.DatabaseID != intent.DatabaseID ||
 		previous.PartitionID != intent.PartitionID || intent.Generation <= previous.Generation {
-		return fmt.Errorf("%w: supersession requires a later schema-3 generation with the same business identity", ErrInvalidIntent)
+		return fmt.Errorf("%w: supersession requires a later schema-5 generation with the same business identity", ErrInvalidIntent)
 	}
 	oldScope, newScope := previous.CanonicalRoster, intent.CanonicalRoster
 	if oldScope.ClusterID != newScope.ClusterID || oldScope.TenantID != newScope.TenantID ||
@@ -344,7 +455,12 @@ func seatIDForKind(region oci.Region, kind MemberKind) string {
 	}
 }
 
-func canonicalMemberID(value string) bool {
+func canonicalTerraBaseUUID(value string) bool {
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed != uuid.Nil() && parsed.String() == value
+}
+
+func canonicalLegacyMemberID(value string) bool {
 	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
 		return false
 	}
@@ -427,6 +543,19 @@ func (intent Intent) ManagedHostProfile(region oci.Region) (ManagedHostProfile, 
 		return ManagedHostProfile{}, fmt.Errorf("%w: region %q is not selected", ErrInvalidIntent, region)
 	}
 	return intent.ManagedHostProfiles[index], nil
+}
+
+// RuntimeManifestForSeat returns the exact operator-signed runtime contract.
+func (intent Intent) RuntimeManifestForSeat(seat Seat) (RuntimeManifest, error) {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return RuntimeManifest{}, err
+	}
+	for _, manifest := range intent.RuntimeManifests {
+		if manifest.Region == seat.Region && manifest.SeatID == seat.MemberID {
+			return manifest, nil
+		}
+	}
+	return RuntimeManifest{}, fmt.Errorf("%w: no runtime manifest for seat %s/%s", ErrInvalidIntent, seat.Region, seat.MemberID)
 }
 
 // ProfileDigest returns the verified profile digest for one selected region.
@@ -612,6 +741,8 @@ type MemberState struct {
 	InstanceETag             string             `json:"instance_etag,omitempty"`
 	VolumeID                 string             `json:"volume_id,omitempty"`
 	AttachmentID             string             `json:"attachment_id,omitempty"`
+	AttachmentDevice         string             `json:"attachment_device,omitempty"`
+	AttachmentETag           string             `json:"attachment_etag,omitempty"`
 	HostAttempt              uint64             `json:"host_attempt"`
 	WriterEpoch              uint64             `json:"writer_epoch,omitzero"`
 	IntentGeneration         uint64             `json:"intent_generation"`
@@ -621,6 +752,8 @@ type MemberState struct {
 	CanonicalRosterRow       CanonicalRosterRow `json:"canonical_roster_row,omitzero"`
 	CanonicalRosterDigest    string             `json:"canonical_roster_digest,omitempty"`
 	AuthorityReference       AuthorityReference `json:"authority_reference,omitzero"`
+	RuntimeManifest          RuntimeManifest    `json:"runtime_manifest,omitzero"`
+	RuntimeManifestDigest    string             `json:"runtime_manifest_digest,omitempty"`
 	DesiredGeneration        uint64             `json:"desired_generation"`
 	HostGeneration           uint64             `json:"host_generation"`
 	OperationID              string             `json:"operation_id"`
@@ -629,10 +762,11 @@ type MemberState struct {
 
 func (state MemberState) Validate() error {
 	validStateFailureDomain := validBoundedToken(strings.ToLower(state.FailureDomain), 63)
-	if state.SchemaVersion == placementSchemaVersion {
+	if state.SchemaVersion >= rosterMemberStateSchemaVersion {
 		validStateFailureDomain = validFailureDomain(state.FailureDomain)
 	}
-	if state.SchemaVersion != legacyMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion ||
+	if state.SchemaVersion != legacyMemberStateSchemaVersion && state.SchemaVersion != rosterMemberStateSchemaVersion &&
+		state.SchemaVersion != ulidMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion ||
 		!validBoundedToken(state.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(state.PartitionID, maxPartitionIDLength) || !validToken(state.MemberID) ||
 		!knownRegion(state.Region) || !validStateFailureDomain ||
@@ -657,10 +791,15 @@ func (state MemberState) Validate() error {
 	}
 	if state.SchemaVersion == legacyMemberStateSchemaVersion {
 		if state.CanonicalRosterRow != (CanonicalRosterRow{}) || state.CanonicalRosterDigest != "" ||
-			state.AuthorityReference != (AuthorityReference{}) {
+			state.AuthorityReference != (AuthorityReference{}) || state.RuntimeManifest != (RuntimeManifest{}) ||
+			state.RuntimeManifestDigest != "" || state.AttachmentDevice != "" || state.AttachmentETag != "" {
 			return errors.New("invalid legacy TerraBase member state roster pin")
 		}
 		return nil
+	}
+	validMemberID := canonicalLegacyMemberID
+	if state.SchemaVersion == placementSchemaVersion {
+		validMemberID = canonicalTerraBaseUUID
 	}
 	if !validLowerSHA256Digest(state.IntentPayloadDigest) ||
 		!validLowerSHA256Digest(state.ManagedHostProfileDigest) ||
@@ -668,7 +807,7 @@ func (state MemberState) Validate() error {
 		state.CanonicalRosterRow.Region != state.Region || state.CanonicalRosterRow.SeatID != state.MemberID ||
 		state.CanonicalRosterRow.FailureDomain != state.FailureDomain ||
 		!validFailureDomain(state.CanonicalRosterRow.FailureDomain) ||
-		!canonicalMemberID(state.CanonicalRosterRow.MemberID) ||
+		!validMemberID(state.CanonicalRosterRow.MemberID) ||
 		!lowerHex(state.CanonicalRosterRow.Incarnation, 32) || allZeroHex(state.CanonicalRosterRow.Incarnation) ||
 		!validLowerSHA256Digest(state.CanonicalRosterRow.TLSLeafSHA256) ||
 		!validServerName(state.CanonicalRosterRow.ServerName) ||
@@ -679,6 +818,26 @@ func (state MemberState) Validate() error {
 		state.Kind == MemberElastic && state.CanonicalRosterRow.SeatID != elasticMember(state.Region) {
 		return errors.New("invalid TerraBase member state seat pin")
 	}
+	if state.SchemaVersion == rosterMemberStateSchemaVersion {
+		if state.RuntimeManifest != (RuntimeManifest{}) || state.RuntimeManifestDigest != "" ||
+			state.AttachmentDevice != "" || state.AttachmentETag != "" {
+			return errors.New("historical member state cannot carry runtime pins")
+		}
+		return nil
+	}
+	if state.RuntimeManifest.Region != state.Region || state.RuntimeManifest.SeatID != state.MemberID ||
+		!validLowerSHA256Digest(state.RuntimeManifestDigest) {
+		return errors.New("invalid TerraBase member runtime manifest pin")
+	}
+	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID)
+	if err != nil || digest != state.RuntimeManifestDigest {
+		return errors.New("invalid TerraBase member runtime manifest digest")
+	}
+	if state.Stage == StagePreparedDesired || state.Stage == StageAwaitingHealthy {
+		if state.AttachmentDevice == "" || state.AttachmentETag == "" || state.DesiredGeneration == 0 {
+			return errors.New("prepared desired lacks observed attachment or generation pin")
+		}
+	}
 	return nil
 }
 
@@ -688,6 +847,40 @@ func validLowerSHA256Digest(value string) bool {
 	}
 	digest, err := hex.DecodeString(value)
 	return err == nil && hex.EncodeToString(digest) == value
+}
+
+func validFilesystemUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, character := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if character != '-' {
+				return false
+			}
+		} else if character < '0' || character > '9' && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func validIPAddressPort(value string) bool {
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || net.ParseIP(host) == nil || port == "" {
+		return false
+	}
+	var number uint64
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+		number = number*10 + uint64(digit-'0')
+		if number > 65535 {
+			return false
+		}
+	}
+	return number > 0
 }
 
 func knownStage(stage MemberStage) bool {

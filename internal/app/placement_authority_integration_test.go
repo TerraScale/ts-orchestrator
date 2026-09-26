@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,12 +100,12 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 	}
 
 	wrong := intent
-	wrong.DatabaseID = intent.CanonicalRoster.DatabaseID
+	wrong.DatabaseID = strings.ToUpper(intent.CanonicalRoster.DatabaseID)
 	if _, err := verifyAndApplyPlacement(ctx, sign(wrong), "gru", policy, control); err == nil {
-		t.Fatal("canonical uppercase database ID was accepted as the lowercase business key")
+		t.Fatal("uppercase UUID was accepted as the lowercase business key")
 	}
 	if _, err := control.ReadPlacementIntent(ctx, wrong.DatabaseID, wrong.PartitionID); err == nil {
-		t.Fatal("authority accepted the uppercase canonical ID as a placement subject key")
+		t.Fatal("authority accepted the uppercase UUID as a placement subject key")
 	}
 	entries, err := reader.ListPlacementIntents(ctx)
 	if err != nil || len(entries) != 1 || entries[0].SubjectKey != entry.SubjectKey || entries[0].Sequence != receipt.Sequence {

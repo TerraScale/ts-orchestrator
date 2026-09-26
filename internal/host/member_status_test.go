@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-const memberStatusFixture = `{"schema_version":1,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","database_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW","shard_id":0,"member_id":"01ARZ3NDEKTSV4RRFFQ69G5FAX","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":true,"serving":false,"capabilities":{"serving_proof":false,"durable_drain":false}}`
+const memberStatusFixture = `{"schema_version":1,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"018f0000-0000-7000-8000-000000000001","database_id":"018f0000-0000-7000-8000-000000000002","shard_id":1,"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":true,"serving":false,"capabilities":{"serving_proof":false,"durable_drain":false}}`
 
 func memberFixtureExpectation() ExpectedMemberStatus {
 	return ExpectedMemberStatus{
 		Scope: MemberScope{
-			ClusterID: "00000000000000000000000000000003", TenantID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-			DatabaseID: "01ARZ3NDEKTSV4RRFFQ69G5FAW", ShardID: 0,
-			MemberID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", Incarnation: "00000000000000000000000000000004",
+			ClusterID: "00000000000000000000000000000003", TenantID: "018f0000-0000-7000-8000-000000000001",
+			DatabaseID: "018f0000-0000-7000-8000-000000000002", ShardID: 1,
+			MemberID: "018f0000-0000-7000-8000-000000000003", Incarnation: "00000000000000000000000000000004",
 		},
 		Authority: MemberAuthority{
 			Epoch: 1, ConfigurationID: strings.Repeat("a", 64),
@@ -92,6 +92,34 @@ func TestDecodeMemberStatusSenderRoleDoesNotClaimServing(t *testing.T) {
 				t.Fatalf("unexpected capability accepted: %v", err)
 			}
 		})
+	}
+}
+
+func TestMemberStatusRequiresNativeCanonicalUUID(t *testing.T) {
+	if !canonicalMemberID("018f0000-0000-7000-8000-000000000001") {
+		t.Fatal("native canonical UUID was rejected")
+	}
+	for _, value := range []string{
+		"01ARZ3NDEKTSV4RRFFQ69G5FAV",
+		"018F0000-0000-7000-8000-000000000001",
+		"018f0000000070008000000000000001",
+		"00000000-0000-0000-0000-000000000000",
+	} {
+		if canonicalMemberID(value) {
+			t.Fatalf("noncanonical or historical identity accepted: %q", value)
+		}
+	}
+	expected := memberFixtureExpectation()
+	expected.Scope.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	legacyBody := strings.Replace(memberStatusFixture, "018f0000-0000-7000-8000-000000000003", expected.Scope.MemberID, 1)
+	if _, err := decodeMemberStatus([]byte(legacyBody), "00000000000000000000000000000001", 123, expected); err == nil {
+		t.Fatal("historical ULID member status was accepted even with matching expectation")
+	}
+	zeroShard := strings.Replace(memberStatusFixture, `"shard_id":1`, `"shard_id":0`, 1)
+	expected = memberFixtureExpectation()
+	expected.Scope.ShardID = 0
+	if _, err := decodeMemberStatus([]byte(zeroShard), "00000000000000000000000000000001", 123, expected); err == nil {
+		t.Fatal("zero-shard member status was accepted")
 	}
 }
 

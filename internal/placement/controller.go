@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -23,12 +25,25 @@ const (
 	bytesPerGiB         = int64(1 << 30)
 )
 
-// HostView is the controller's read-only view of durable host registration and
-// current-session reports. The current TerraBase runtime contract is absent,
-// so this controller deliberately has no desired-state writer capability.
+// HostView reads durable host registrations, current-session reports and
+// committed desired state before a prepared placement effect is replayed.
 type HostView interface {
 	ListHosts(context.Context) ([]host.HostStatus, error)
+	ListDesired(context.Context, string) ([]host.Desired, error)
 }
+
+type DesiredWriter interface {
+	ApplyDesired(context.Context, host.Desired) (host.Receipt, error)
+}
+
+// AdmittedArtifact is the current content and asserted source identity of an
+// artifact that passed durable delivery admission and byte verification.
+type AdmittedArtifact struct {
+	Digest       string
+	SourceDigest string
+}
+
+type ArtifactResolver func(context.Context, string, string, string) (AdmittedArtifact, error)
 
 type Config struct {
 	Cell            string
@@ -45,24 +60,26 @@ type Config struct {
 }
 
 type Controller struct {
-	config Config
-	store  Store
-	fencer authority.Fencer
-	fleet  oci.Fleet
-	hosts  HostView
+	config          Config
+	store           Store
+	fencer          authority.Fencer
+	fleet           oci.Fleet
+	hosts           HostView
+	desired         DesiredWriter
+	resolveArtifact ArtifactResolver
 }
 
 // StartController validates one region-bound reconciler. Run owns the periodic
 // lifecycle; Tick is exposed for deterministic callers and tests.
-func StartController(ctx context.Context, config Config, store Store, fencer authority.Fencer, fleet oci.Fleet, hosts HostView) (*Controller, error) {
+func StartController(ctx context.Context, config Config, store Store, fencer authority.Fencer, fleet oci.Fleet, hosts HostView, desired DesiredWriter, resolveArtifact ArtifactResolver) (*Controller, error) {
 	if ctx == nil || ctx.Err() != nil {
 		return nil, errors.New("placement controller requires a live context")
 	}
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	if store == nil || fencer == nil || fleet == nil || hosts == nil {
-		return nil, errors.New("placement controller requires durable state, authority, OCI fleet, and host view")
+	if store == nil || fencer == nil || fleet == nil || hosts == nil || desired == nil || resolveArtifact == nil {
+		return nil, errors.New("placement controller requires durable state, authority, OCI fleet, host view, desired writer and artifact admission")
 	}
 	if fleet.Region() != config.Region {
 		return nil, errors.New("placement controller region differs from its pinned OCI fleet")
@@ -70,7 +87,7 @@ func StartController(ctx context.Context, config Config, store Store, fencer aut
 	if config.TickInterval == 0 {
 		config.TickInterval = defaultTickInterval
 	}
-	return &Controller{config: config, store: store, fencer: fencer, fleet: fleet, hosts: hosts}, nil
+	return &Controller{config: config, store: store, fencer: fencer, fleet: fleet, hosts: hosts, desired: desired, resolveArtifact: resolveArtifact}, nil
 }
 
 func (config Config) validate() error {
@@ -181,6 +198,10 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			controller.hold(fmt.Sprintf("database %s/%s has no admitted managed placement profile; host reconciliation is held", intent.DatabaseID, intent.PartitionID))
 			continue
 		}
+		if len(intent.ActiveRegions) != 1 {
+			controller.hold(fmt.Sprintf("database %s/%s has %d regions; current TerraBase outbound sender supports exactly two members in one region", intent.DatabaseID, intent.PartitionID, len(intent.ActiveRegions)))
+			continue
+		}
 		members, err := controller.store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
 		if err != nil {
 			return err
@@ -203,6 +224,8 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			return err
 		}
 		rowsBySeat := make(map[string]CanonicalRosterRow, len(seats))
+		manifestsBySeat := make(map[string]RuntimeManifest, len(seats))
+		manifestDigestsBySeat := make(map[string]string, len(seats))
 		rosterHeld := false
 		for _, seat := range seats {
 			row, err := intent.RosterRowForSeat(seat)
@@ -212,6 +235,18 @@ func (controller *Controller) Tick(ctx context.Context) error {
 				break
 			}
 			rowsBySeat[seat.MemberID] = row
+			manifest, err := intent.RuntimeManifestForSeat(seat)
+			if err != nil {
+				controller.hold(fmt.Sprintf("member %s has no signed runtime manifest: %v", seat.MemberID, err))
+				rosterHeld = true
+				break
+			}
+			manifestDigest, err := manifest.Digest()
+			if err != nil {
+				return err
+			}
+			manifestsBySeat[seat.MemberID] = manifest
+			manifestDigestsBySeat[seat.MemberID] = manifestDigest
 		}
 		if rosterHeld {
 			continue
@@ -246,6 +281,8 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			}
 			if state.SchemaVersion != placementSchemaVersion ||
 				state.CanonicalRosterRow != rowsBySeat[seat.MemberID] ||
+				state.RuntimeManifest != manifestsBySeat[seat.MemberID] ||
+				state.RuntimeManifestDigest != manifestDigestsBySeat[seat.MemberID] ||
 				state.CanonicalRosterDigest != rosterDigest ||
 				state.AuthorityReference != intent.CanonicalRoster.Authority ||
 				state.IntentPayloadDigest == "" || state.ManagedHostProfileDigest == "" ||
@@ -267,7 +304,8 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		for _, seat := range seats {
 			versioned, exists := memberByID[seat.MemberID]
 			if !exists {
-				state := controller.initialState(intent, seat, rowsBySeat[seat.MemberID], rosterDigest, profile, profileDigest, 1)
+				state := controller.initialState(intent, seat, rowsBySeat[seat.MemberID], rosterDigest,
+					profile, profileDigest, manifestsBySeat[seat.MemberID], manifestDigestsBySeat[seat.MemberID], 1)
 				if _, err := controller.persist(ctx, epoch, 0, state); err != nil {
 					return err
 				}
@@ -297,6 +335,9 @@ func (controller *Controller) advanceMember(
 	state := versioned.State
 	switch state.Stage {
 	case StagePreparedHost:
+		if !controller.runtimeArtifactReady(ctx, state, seat) {
+			return false, nil
+		}
 		if err := controller.guard(ctx, epoch); err != nil {
 			return false, err
 		}
@@ -319,6 +360,9 @@ func (controller *Controller) advanceMember(
 		if !exists {
 			// Retrying EnsureHost with the same durable create key recovers an
 			// unknown launch outcome without adopting a tag-matched resource.
+			if !controller.runtimeArtifactReady(ctx, state, seat) {
+				return false, nil
+			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -374,6 +418,9 @@ func (controller *Controller) advanceMember(
 		if err != nil {
 			return false, err
 		}
+		if !controller.runtimeArtifactReady(ctx, state, seat) {
+			return false, nil
+		}
 		if err := controller.guard(ctx, epoch); err != nil {
 			return false, err
 		}
@@ -415,6 +462,9 @@ func (controller *Controller) advanceMember(
 			}
 		}
 		if attachment == nil {
+			if !controller.runtimeArtifactReady(ctx, state, seat) {
+				return false, nil
+			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -472,11 +522,34 @@ func (controller *Controller) advanceMember(
 		controller.hold(fmt.Sprintf("member %s retained volume attachment is not positively observed; desired state remains withheld", seat.MemberID))
 		return false, nil
 	case StagePreparedDesired:
-		// Recover old prepared records conservatively; the current host agent
-		// has no TerraBase volume-mount or per-member launch contract.
-		state.Stage = StageAwaitingRuntimeContract
-		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
-		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
+		if !controller.preparedPinsMatch(intent, state, seat) {
+			controller.hold(fmt.Sprintf("member %s prepared desired pins changed; launch is held", seat.MemberID))
+			return false, nil
+		}
+		fresh, err := controller.freshPreparedInputs(ctx, epoch, intent, seat, state)
+		if err != nil {
+			return false, err
+		}
+		if !fresh {
+			return false, nil
+		}
+		desired, err := controller.memberDesired(epoch, intent, state, seat)
+		if err != nil {
+			return false, err
+		}
+		if err := controller.guard(ctx, epoch); err != nil {
+			return false, err
+		}
+		receipt, err := controller.desired.ApplyDesired(ctx, desired)
+		if err != nil {
+			return false, fmt.Errorf("apply prepared TerraBase desired for %s: %w", seat.MemberID, err)
+		}
+		if receipt.Generation != state.DesiredGeneration || receipt.Revision == 0 {
+			return false, errors.New("host desired writer returned a mismatched receipt")
+		}
+		state.Stage = StageAwaitingHealthy
+		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "await-healthy")
+		_, err = controller.persist(ctx, epoch, versioned.Revision, state)
 		return true, err
 	case StageAwaitingRuntimeContract:
 		instance, exists := instances[state.InstanceID]
@@ -492,18 +565,27 @@ func (controller *Controller) advanceMember(
 			controller.hold(fmt.Sprintf("member %s is awaiting an exact managed OCI registration and current host session", seat.MemberID))
 			return false, nil
 		}
-		if !hasAttachedVolume(instance, state) {
+		attachment, attached := observedAttachment(instance, state)
+		if !attached || !validObservedAttachment(attachment) {
 			controller.hold(fmt.Sprintf("member %s retained volume is not observed ATTACHED; desired state remains withheld", seat.MemberID))
 			return false, nil
 		}
-		controller.hold(fmt.Sprintf("member %s retained volume is attached, but no verified TerraBase runtime and mount contract is available; desired state remains withheld", seat.MemberID))
-		return false, nil
-	case StageAwaitingHealthy:
-		state.Stage = StageAwaitingRuntimeContract
-		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
+		if !controller.runtimeArtifactReady(ctx, state, seat) {
+			return false, nil
+		}
+		if _, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state)); err != nil {
+			controller.hold(fmt.Sprintf("member %s has no safe managed mount path: %v", seat.MemberID, err))
+			return false, nil
+		}
+		state.AttachmentDevice, state.AttachmentETag = attachment.Device, attachment.ETag
+		state.DesiredGeneration = state.IntentGeneration
+		state.Stage = StagePreparedDesired
+		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "prepare-desired")
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
-		controller.hold(fmt.Sprintf("member %s is held because a production TerraBase launch and volume-mount contract is not available", seat.MemberID))
 		return true, err
+	case StageAwaitingHealthy:
+		controller.hold(fmt.Sprintf("member %s awaits independent TerraBase serving proof", seat.MemberID))
+		return false, nil
 	case StageServing:
 		observedHealthy := false
 		if instance, exists := instances[state.InstanceID]; exists {
@@ -548,12 +630,13 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 	}, nil
 }
 
-func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, attempt uint64) MemberState {
+func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, manifest RuntimeManifest, manifestDigest string, attempt uint64) MemberState {
 	return MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain, Kind: seat.Kind,
 		Stage: StagePreparedHost, CreateKey: hostCreateKey(intent, seat, attempt), HostAttempt: attempt,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
+		RuntimeManifest: manifest, RuntimeManifestDigest: manifestDigest,
 		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, OperationID: memberOperationID(intent, seat.MemberID, attempt, "prepare"),
 		UpdatedAt: time.Now().UTC(),
@@ -713,14 +796,205 @@ func volumeSizeGB(bytes int64) (int64, error) {
 }
 
 func hasAttachedVolume(instance oci.Instance, state MemberState) bool {
+	_, attached := observedAttachment(instance, state)
+	return attached
+}
+
+func observedAttachment(instance oci.Instance, state MemberState) (oci.Attachment, bool) {
 	if state.VolumeID == "" || state.AttachmentID == "" {
-		return false
+		return oci.Attachment{}, false
 	}
 	for _, attachment := range instance.Attachments {
 		if attachment.ID == state.AttachmentID && attachment.VolumeID == state.VolumeID &&
 			attachment.InstanceID == state.InstanceID && attachment.State == "ATTACHED" {
-			return true
+			return attachment, true
 		}
 	}
-	return false
+	return oci.Attachment{}, false
+}
+
+func validObservedAttachment(attachment oci.Attachment) bool {
+	return attachment.ETag != "" && strings.HasPrefix(attachment.Device, "/dev/") &&
+		filepath.Clean(attachment.Device) == attachment.Device && len(attachment.Device) <= 255 &&
+		!strings.ContainsAny(attachment.Device, " \t\r\n\x00") &&
+		!attachment.IsReadOnly && !attachment.IsShareable && attachment.IsPvEncryptionInTransitEnabled
+}
+
+func (controller *Controller) memberBinding(intent Intent, state MemberState) host.ManagedMemberBinding {
+	roster, row := intent.CanonicalRoster, state.CanonicalRosterRow
+	return host.ManagedMemberBinding{
+		Scope: host.MemberScope{
+			ClusterID: roster.ClusterID, TenantID: roster.TenantID, DatabaseID: roster.DatabaseID,
+			ShardID: roster.ShardID, MemberID: row.MemberID, Incarnation: row.Incarnation,
+		},
+		HostAttempt: state.HostAttempt,
+	}
+}
+
+func (controller *Controller) admittedRuntimeArtifact(ctx context.Context, state MemberState) (AdmittedArtifact, error) {
+	manifest := state.RuntimeManifest
+	artifact, err := controller.resolveArtifact(ctx, manifest.ArtifactDigest, controller.config.MemberRole, controller.config.Environment)
+	if err != nil {
+		return AdmittedArtifact{}, err
+	}
+	if artifact.Digest != manifest.ArtifactDigest || artifact.SourceDigest != manifest.SourceDigest {
+		return AdmittedArtifact{}, errors.New("admitted runtime artifact differs from signed source and byte pins")
+	}
+	return artifact, nil
+}
+
+func (controller *Controller) runtimeArtifactReady(ctx context.Context, state MemberState, seat Seat) bool {
+	if _, err := controller.admittedRuntimeArtifact(ctx, state); err != nil {
+		controller.hold(fmt.Sprintf("member %s runtime artifact is not currently admitted: %v", seat.MemberID, err))
+		return false
+	}
+	return true
+}
+
+func (controller *Controller) memberDesired(epoch uint64, intent Intent, state MemberState, seat Seat) (host.Desired, error) {
+	manifest := state.RuntimeManifest
+	binding := controller.memberBinding(intent, state)
+	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, binding)
+	if err != nil {
+		return host.Desired{}, err
+	}
+	return host.Desired{
+		Cell: controller.config.Cell, Node: state.HostNode, Environment: controller.config.Environment,
+		Role: controller.config.MemberRole, Digest: manifest.ArtifactDigest,
+		Generation: state.DesiredGeneration, AuthorityEpoch: epoch,
+		ManagedMember: &host.ManagedMemberLaunch{
+			OCI: host.ManagedOCIBinding{
+				Region: string(seat.Region), InstanceID: state.InstanceID, Owner: controller.config.ManagedOwner,
+				FleetGeneration: controller.config.FleetGeneration, CreateKey: state.CreateKey,
+			},
+			Member: binding,
+			Authority: host.MemberAuthority{
+				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
+				CertificateSHA256: state.AuthorityReference.CertificateSHA256,
+				TLSLeafSHA256:     state.CanonicalRosterRow.TLSLeafSHA256,
+			},
+			SourceDigest: manifest.SourceDigest, VolumeID: state.VolumeID,
+			AttachmentID: state.AttachmentID, AttachmentETag: state.AttachmentETag,
+			ProcessMemoryBytes:   state.ManagedHostProfile.ProcessMemoryBytes,
+			MemoryHeadroomBytes:  state.ManagedHostProfile.MemoryHeadroomBytes,
+			CgroupMemoryMaxBytes: state.ManagedHostProfile.CgroupMemoryMaxBytes,
+			Runtime: &host.ManagedRuntimePins{
+				DevicePath: state.AttachmentDevice, MountPath: mountPath,
+				FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType,
+				TrustedKeySHA256:          manifest.TrustedKeySHA256,
+				ServerCertificateSHA256:   manifest.ServerCertificateSHA256,
+				ServerPrivateKeySHA256:    manifest.ServerPrivateKeySHA256,
+				ClientCARootsSHA256:       manifest.ClientCARootsSHA256,
+				ReplicationListenAddress:  manifest.ReplicationListenAddress,
+				ReplicationPeerMemberID:   manifest.ReplicationPeerMemberID,
+				ReplicationPeerAddress:    manifest.ReplicationPeerAddress,
+				ReplicationServerCASHA256: manifest.ReplicationServerCASHA256,
+			},
+		},
+	}, nil
+}
+
+func (controller *Controller) preparedPinsMatch(intent Intent, state MemberState, seat Seat) bool {
+	manifest, err := intent.RuntimeManifestForSeat(seat)
+	if err != nil || manifest != state.RuntimeManifest || state.Validate() != nil {
+		return false
+	}
+	digest, err := manifest.Digest()
+	return err == nil && digest == state.RuntimeManifestDigest
+}
+
+func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uint64, intent Intent, seat Seat, state MemberState) (bool, error) {
+	if _, err := controller.admittedRuntimeArtifact(ctx, state); err != nil {
+		controller.hold(fmt.Sprintf("member %s runtime artifact admission changed: %v", seat.MemberID, err))
+		return false, nil
+	}
+	if err := controller.guard(ctx, epoch); err != nil {
+		return false, err
+	}
+	currentIntents, err := controller.store.ListIntents(ctx)
+	if err != nil {
+		return false, err
+	}
+	foundIntent := false
+	for _, current := range currentIntents {
+		if current.DatabaseID == state.DatabaseID && current.PartitionID == state.PartitionID {
+			if foundIntent || current.PayloadDigest() != intent.PayloadDigest() || current.Generation != intent.Generation {
+				controller.hold(fmt.Sprintf("member %s placement intent changed before desired effect", seat.MemberID))
+				return false, nil
+			}
+			foundIntent = true
+		}
+	}
+	if !foundIntent {
+		controller.hold(fmt.Sprintf("member %s placement intent disappeared before desired effect", seat.MemberID))
+		return false, nil
+	}
+	instances, err := controller.fleet.Observe(ctx)
+	if err != nil {
+		return false, err
+	}
+	var currentInstance oci.Instance
+	instanceCount := 0
+	for _, instance := range instances {
+		if instance.ID == state.InstanceID {
+			currentInstance = instance
+			instanceCount++
+		}
+	}
+	if instanceCount != 1 || controller.validateObservedInstance(currentInstance, state, seat) != nil {
+		controller.hold(fmt.Sprintf("member %s owned OCI host changed before desired effect", seat.MemberID))
+		return false, nil
+	}
+	attachment, attached := observedAttachment(currentInstance, state)
+	if !attached || !validObservedAttachment(attachment) ||
+		attachment.Device != state.AttachmentDevice || attachment.ETag != state.AttachmentETag {
+		controller.hold(fmt.Sprintf("member %s OCI attachment device or ETag changed before desired effect", seat.MemberID))
+		return false, nil
+	}
+	statuses, err := controller.hosts.ListHosts(ctx)
+	if err != nil {
+		return false, err
+	}
+	var currentStatus host.HostStatus
+	statusCount := 0
+	for _, status := range statuses {
+		if status.Registration.Node == state.HostNode {
+			currentStatus = status
+			statusCount++
+		}
+	}
+	if statusCount != 1 {
+		controller.hold(fmt.Sprintf("member %s exact host registration disappeared before desired effect", seat.MemberID))
+		return false, nil
+	}
+	status, admitted := controller.admittedHost(intent, state, currentInstance, map[string]host.HostStatus{state.HostNode: currentStatus})
+	if !admitted || status.Registration.Generation != state.HostGeneration {
+		controller.hold(fmt.Sprintf("member %s host session or registration changed before desired effect", seat.MemberID))
+		return false, nil
+	}
+	currentDesired, err := controller.hosts.ListDesired(ctx, controller.config.MemberRole)
+	if err != nil {
+		return false, err
+	}
+	want, err := controller.memberDesired(epoch, intent, state, seat)
+	if err != nil {
+		return false, err
+	}
+	seenDesired := false
+	for _, existing := range currentDesired {
+		if existing.Node != state.HostNode || existing.Role != controller.config.MemberRole {
+			continue
+		}
+		if seenDesired {
+			controller.hold(fmt.Sprintf("member %s host view returned duplicate desired targets", seat.MemberID))
+			return false, nil
+		}
+		seenDesired = true
+		want.AuthorityEpoch, existing.AuthorityEpoch = 0, 0
+		if !reflect.DeepEqual(existing, want) {
+			controller.hold(fmt.Sprintf("member %s host desired target differs from prepared pins", seat.MemberID))
+			return false, nil
+		}
+	}
+	return true, nil
 }

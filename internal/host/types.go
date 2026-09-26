@@ -113,6 +113,7 @@ type ManagedMemberLaunch struct {
 	SourceDigest         string               `json:"source_digest"`
 	VolumeID             string               `json:"volume_id"`
 	AttachmentID         string               `json:"attachment_id"`
+	AttachmentETag       string               `json:"attachment_etag,omitempty"`
 	ProcessMemoryBytes   uint64               `json:"process_memory_bytes,omitzero"`
 	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes,omitzero"`
 	CgroupMemoryMaxBytes uint64               `json:"cgroup_memory_max_bytes,omitzero"`
@@ -165,6 +166,7 @@ type ManagedRuntimeReport struct {
 	OCI              ManagedOCIBinding    `json:"oci"`
 	VolumeID         string               `json:"volume_id"`
 	AttachmentID     string               `json:"attachment_id"`
+	AttachmentETag   string               `json:"attachment_etag"`
 	FileSystemUUID   string               `json:"filesystem_uuid"`
 	FileSystemType   string               `json:"filesystem_type"`
 	MountDevice      string               `json:"mount_device"`
@@ -449,7 +451,7 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		!strings.HasPrefix(launch.AttachmentID, "ocid1.volumeattachment.") ||
 		len(launch.VolumeID) > 255 || len(launch.AttachmentID) > 255 ||
 		strings.ContainsFunc(launch.VolumeID, unicode.IsSpace) || strings.ContainsFunc(launch.AttachmentID, unicode.IsSpace) ||
-		launch.Authority.Epoch != d.AuthorityEpoch || launch.Authority.Epoch == 0 ||
+		launch.Authority.Epoch == 0 ||
 		!lowerHex(launch.Authority.ConfigurationID, 64) ||
 		!lowerHex(launch.Authority.CertificateSHA256, 64) ||
 		!lowerHex(launch.Authority.TLSLeafSHA256, 64) {
@@ -469,6 +471,9 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		return errors.New("managed process memory, headroom or cgroup cap is invalid")
 	}
 	if launch.Runtime != nil {
+		if launch.AttachmentETag == "" {
+			return errors.New("managed runtime requires an exact attachment ETag")
+		}
 		if err := validateManagedRuntimePins(*launch.Runtime); err != nil {
 			return err
 		}

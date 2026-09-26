@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -35,7 +36,11 @@ func TestManagedControllerConfigRejectsGenericMemberRole(t *testing.T) {
 		t.Fatal(err)
 	}
 	controller, err := placement.StartController(t.Context(), managed.placementConfig(cfg.NATS.Cell, nil, nil),
-		struct{ placement.Store }{}, struct{ authority.Fencer }{}, regionOnlyFleet{region: managed.region.Region}, struct{ placement.HostView }{})
+		struct{ placement.Store }{}, struct{ authority.Fencer }{}, regionOnlyFleet{region: managed.region.Region},
+		struct{ placement.HostView }{}, struct{ placement.DesiredWriter }{},
+		func(context.Context, string, string, string) (placement.AdmittedArtifact, error) {
+			return placement.AdmittedArtifact{}, nil
+		})
 	if err != nil || controller == nil {
 		t.Fatalf("managed placement constructor rejected validated config: %v", err)
 	}

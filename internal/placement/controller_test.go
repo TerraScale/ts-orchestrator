@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-func TestControllerHoldsAfterAttachedVolumeWithoutRuntimeContract(t *testing.T) {
+func TestControllerHoldsAfterAttachedVolumeWithoutObservedDevice(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
 	fleet := &placementTestFleet{instances: attachedInstances(t, intent)}
@@ -38,6 +40,220 @@ func TestControllerHoldsAfterAttachedVolumeWithoutRuntimeContract(t *testing.T) 
 	}
 	if len(holds) != 2 {
 		t.Fatalf("hold callbacks = %d, want one per member", len(holds))
+	}
+}
+
+func TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU, oci.RegionSFO))
+	store := &placementMemoryStore{intents: []Intent{intent}, members: make(map[string]VersionedMemberState)}
+	fleet := &placementTestFleet{}
+	hosts := &placementTestHosts{}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, hosts, func(reason string) { holds = append(holds, reason) })
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(holds) != 1 || !strings.Contains(holds[0], "exactly two members in one region") ||
+		store.casCalls != 0 || fleet.ensureCalls != 0 || fleet.volumeCalls != 0 || fleet.attachCalls != 0 || hosts.desiredWrites != 0 {
+		t.Fatalf("unsupported runtime caused an effect or unclear hold: holds=%q CAS=%d fleet=%+v desired=%d", holds, store.casCalls, fleet, hosts.desiredWrites)
+	}
+}
+
+func TestControllerAppliesOnlyPreparedObservedManagedDesired(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	instances := attachedInstances(t, intent)
+	for index := range instances {
+		instances[index].Attachments[0].Device = "/dev/oracleoci/oraclevdb"
+		instances[index].Attachments[0].IsPvEncryptionInTransitEnabled = true
+	}
+	fleet := &placementTestFleet{instances: instances}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	controller := startTestPlacementController(t, store, fleet, hosts, nil)
+	seatID := permanentMember(oci.RegionGRU)
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	prepared := store.members[seatID].State
+	if prepared.Stage != StagePreparedDesired || prepared.AttachmentDevice != "/dev/oracleoci/oraclevdb" ||
+		prepared.AttachmentETag != "attachment-etag" || hosts.desiredWrites != 0 {
+		t.Fatalf("attached member was not durably prepared before desired effect: %+v writes=%d", prepared, hosts.desiredWrites)
+	}
+	// Reconstructing the controller must replay the same durable prepared pins.
+	controller = startTestPlacementController(t, store, fleet, hosts, nil)
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if hosts.desiredWrites != 1 || store.members[seatID].State.Stage != StageAwaitingHealthy {
+		t.Fatalf("prepared desired was not applied and held for serving proof: writes=%d state=%+v", hosts.desiredWrites, store.members[seatID].State)
+	}
+	desired := hosts.desired[0]
+	if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
+		desired.AuthorityEpoch != 1 || desired.ManagedMember.Authority.Epoch != 7 ||
+		desired.ManagedMember.Runtime.DevicePath != prepared.AttachmentDevice ||
+		desired.ManagedMember.AttachmentETag != prepared.AttachmentETag ||
+		desired.ManagedMember.SourceDigest != prepared.RuntimeManifest.SourceDigest ||
+		desired.Digest != prepared.RuntimeManifest.ArtifactDigest {
+		t.Fatalf("applied desired lost signed or observed pins: %+v", desired)
+	}
+	mount, err := host.ManagedMountPath(prepared.RuntimeManifest.ManagedRuntimeRoot, desired.ManagedMember.Member)
+	if err != nil || desired.ManagedMember.Runtime.MountPath != mount {
+		t.Fatalf("managed mount path = %q, %v; want %q", desired.ManagedMember.Runtime.MountPath, err, mount)
+	}
+}
+
+func TestControllerWithholdsPreparedDesiredWhenFreshInputsChange(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		freshOCI bool
+		change   func(*placementTestFleet, *placementTestHosts)
+	}{
+		{"attachment device", true, func(f *placementTestFleet, _ *placementTestHosts) {
+			f.instances[0].Attachments[0].Device = "/dev/sdc"
+		}},
+		{"attachment ETag", true, func(f *placementTestFleet, _ *placementTestHosts) {
+			f.instances[0].Attachments[0].ETag = "changed"
+		}},
+		{"host session", false, func(_ *placementTestFleet, h *placementTestHosts) {
+			h.statuses[0].SessionExpiresAt = time.Now().Add(-time.Second)
+		}},
+		{"host desired target", false, func(_ *placementTestFleet, h *placementTestHosts) {
+			h.desired = []host.Desired{{Cell: "gru", Node: "node-permanent-a", Role: "terrabase", Digest: "different"}}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+			store := newPlacementMemoryStore(t, intent)
+			instances := attachedInstances(t, intent)
+			for index := range instances {
+				instances[index].Attachments[0].Device = "/dev/sdb"
+				instances[index].Attachments[0].IsPvEncryptionInTransitEnabled = true
+			}
+			fleet := &placementTestFleet{instances: instances}
+			hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+			controller := startTestPlacementController(t, store, fleet, hosts, nil)
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if store.members[permanentMember(oci.RegionGRU)].State.Stage != StagePreparedDesired {
+				t.Fatal("member did not reach prepared desired")
+			}
+			if test.freshOCI {
+				observations := 0
+				fleet.onObserve = func() {
+					observations++
+					if observations == 2 {
+						test.change(fleet, hosts)
+					}
+				}
+			} else if test.name == "host session" {
+				reads := 0
+				hosts.onListHosts = func() {
+					reads++
+					if reads == 2 {
+						test.change(fleet, hosts)
+					}
+				}
+			} else {
+				test.change(fleet, hosts)
+			}
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if hosts.desiredWrites != 0 || store.members[permanentMember(oci.RegionGRU)].State.Stage != StagePreparedDesired {
+				t.Fatalf("changed evidence applied desired: writes=%d state=%+v", hosts.desiredWrites, store.members[permanentMember(oci.RegionGRU)].State)
+			}
+		})
+	}
+}
+
+func TestControllerHoldsUnadmittedRuntimeAndReplaysPreparedCASConflict(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	instances := attachedInstances(t, intent)
+	for index := range instances {
+		instances[index].Attachments[0].Device = "/dev/sdb"
+		instances[index].Attachments[0].IsPvEncryptionInTransitEnabled = true
+	}
+	fleet := &placementTestFleet{instances: instances}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	controller := startTestPlacementController(t, store, fleet, hosts, nil)
+	controller.resolveArtifact = func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
+		return AdmittedArtifact{Digest: digest, SourceDigest: strings.Repeat("f", 64)}, nil
+	}
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	seatID := permanentMember(oci.RegionGRU)
+	if store.members[seatID].State.Stage != StageAwaitingRuntimeContract || hosts.desiredWrites != 0 {
+		t.Fatal("unadmitted source reached prepared desired")
+	}
+	controller = startTestPlacementController(t, store, fleet, hosts, nil)
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if store.members[seatID].State.Stage != StagePreparedDesired {
+		t.Fatal("admitted runtime did not reach prepared desired")
+	}
+	store.onCAS = func(state MemberState) error {
+		if state.Stage == StageAwaitingHealthy {
+			store.onCAS = nil
+			return ErrStoreConflict
+		}
+		return nil
+	}
+	if err := controller.Tick(t.Context()); !errors.Is(err, ErrStoreConflict) {
+		t.Fatalf("post-effect CAS conflict = %v, want ErrStoreConflict", err)
+	}
+	if hosts.desiredWrites != 1 || store.members[seatID].State.Stage != StagePreparedDesired {
+		t.Fatal("post-effect CAS conflict did not retain prepared replay")
+	}
+	controller = startTestPlacementController(t, store, fleet, hosts, nil)
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if hosts.desiredWrites != 2 || store.members[seatID].State.Stage != StageAwaitingHealthy ||
+		!reflect.DeepEqual(hosts.desired[0], hosts.desired[1]) {
+		t.Fatalf("prepared replay changed desired target: writes=%d state=%+v", hosts.desiredWrites, store.members[seatID].State)
+	}
+}
+
+func TestControllerRequiresCurrentArtifactAdmissionBeforeEveryManagedOCIEffect(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seatID := permanentMember(oci.RegionGRU)
+	for _, stage := range []MemberStage{StagePreparedHost, StageAwaitingHost, StagePreparedVolume, StagePreparedAttach} {
+		t.Run(string(stage), func(t *testing.T) {
+			store := newPlacementMemoryStore(t, intent)
+			member := store.members[seatID]
+			member.State.Stage = stage
+			if stage == StagePreparedHost || stage == StageAwaitingHost {
+				member.State.HostGeneration = 0
+			}
+			if stage == StagePreparedVolume {
+				member.State.VolumeID, member.State.AttachmentID = "", ""
+			}
+			store.members[seatID] = member
+			instances := attachedInstances(t, intent)
+			if stage == StageAwaitingHost {
+				instances = nil
+			}
+			if stage == StagePreparedAttach {
+				instances[0].Attachments = nil
+			}
+			fleet := &placementTestFleet{instances: instances}
+			hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+			controller := startTestPlacementController(t, store, fleet, hosts, nil)
+			controller.resolveArtifact = func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
+				return AdmittedArtifact{Digest: digest, SourceDigest: strings.Repeat("f", 64)}, nil
+			}
+			if err := controller.Tick(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if fleet.ensureCalls != 0 || fleet.volumeCalls != 0 || fleet.attachCalls != 0 || hosts.desiredWrites != 0 {
+				t.Fatalf("unadmitted artifact caused OCI or host effect: ensure=%d volume=%d attach=%d desired=%d",
+					fleet.ensureCalls, fleet.volumeCalls, fleet.attachCalls, hosts.desiredWrites)
+			}
+		})
 	}
 }
 
@@ -356,6 +572,7 @@ func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *
 	profileDraft.SchemaVersion = profileIntentSchemaVersion
 	profileDraft.DatabaseID = "1-profile"
 	profileDraft.CanonicalRoster = CanonicalRoster{}
+	profileDraft.RuntimeManifests = nil
 	profileOnly := committedTestIntent(t, profileDraft)
 	managedDraft := validIntent(oci.RegionGRU)
 	managedDraft.DatabaseID = "z-managed"
@@ -575,11 +792,18 @@ func TestControllerAllowsLiveETagChurnButRejectsImmutableInstanceDrift(t *testin
 
 func startTestPlacementController(t *testing.T, store Store, fleet oci.Fleet, hosts HostView, onHold func(string)) *Controller {
 	t.Helper()
+	writer, ok := hosts.(DesiredWriter)
+	if !ok {
+		t.Fatal("test host view lacks desired writer")
+	}
 	controller, err := StartController(t.Context(), Config{
 		Cell: "gru", Region: oci.RegionGRU, FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		ManagedOwner: "owner-a", FleetGeneration: 1, Environment: "production", MemberRole: "terrabase",
 		Resources: Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 32 << 30}, OnHold: onHold,
-	}, store, placementTestFencer{}, fleet, hosts)
+	}, store, placementTestFencer{}, fleet, hosts, writer,
+		func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
+			return AdmittedArtifact{Digest: digest, SourceDigest: strings.Repeat("e", 64)}, nil
+		})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -629,6 +853,14 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifest, err := intent.RuntimeManifestForSeat(seat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestDigest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
 	attempt := uint64(1)
 	state := MemberState{
 		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
@@ -638,12 +870,16 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 		InstanceETag: "etag-1", VolumeID: "volume-" + seat.MemberID,
 		AttachmentID: "attachment-" + seat.MemberID, HostGeneration: 1,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
+		RuntimeManifest: manifest, RuntimeManifestDigest: manifestDigest,
 		IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile, ManagedHostProfileDigest: profileDigest,
 		IntentGeneration: intent.Generation, DesiredGeneration: 1,
 		OperationID: memberOperationID(intent, seat.MemberID, attempt, "test"), UpdatedAt: time.Now().UTC(),
 	}
 	if stage == StagePreparedHost || stage == StageAwaitingHost {
 		state.HostGeneration = 0
+	}
+	if stage == StagePreparedDesired || stage == StageAwaitingHealthy {
+		state.AttachmentDevice, state.AttachmentETag = "/dev/sdb", "attachment-etag"
 	}
 	return state
 }
@@ -705,6 +941,7 @@ type placementMemoryStore struct {
 	intents  []Intent
 	members  map[string]VersionedMemberState
 	casCalls int
+	onCAS    func(MemberState) error
 }
 
 func (store *placementMemoryStore) ListIntents(context.Context) ([]Intent, error) {
@@ -730,6 +967,11 @@ func (store *placementMemoryStore) ReadMember(_ context.Context, databaseID, par
 }
 
 func (store *placementMemoryStore) CompareAndSwap(_ context.Context, expected uint64, state MemberState) (uint64, error) {
+	if store.onCAS != nil {
+		if err := store.onCAS(state); err != nil {
+			return 0, err
+		}
+	}
 	current, exists := store.members[state.MemberID]
 	if expected == 0 && exists || expected != 0 && (!exists || current.Revision != expected) {
 		return 0, ErrStoreConflict
@@ -753,22 +995,26 @@ func (placementTestFencer) Guard(context.Context, uint64) error { return nil }
 
 type placementTestHosts struct {
 	statuses      []host.HostStatus
+	desired       []host.Desired
 	desiredWrites int
+	onListHosts   func()
 }
 
 func (hosts *placementTestHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
+	if hosts.onListHosts != nil {
+		hosts.onListHosts()
+	}
 	return slices.Clone(hosts.statuses), nil
 }
 
-// These methods are intentionally extra methods: the controller's HostView is
-// read-only, and the hold test verifies that no hidden desired writer is used.
 func (hosts *placementTestHosts) ListDesired(context.Context, string) ([]host.Desired, error) {
-	return nil, nil
+	return slices.Clone(hosts.desired), nil
 }
 
-func (hosts *placementTestHosts) ApplyDesired(context.Context, host.Desired) (host.Receipt, error) {
+func (hosts *placementTestHosts) ApplyDesired(_ context.Context, desired host.Desired) (host.Receipt, error) {
 	hosts.desiredWrites++
-	return host.Receipt{}, nil
+	hosts.desired = append(hosts.desired, desired)
+	return host.Receipt{Generation: desired.Generation, Revision: uint64(hosts.desiredWrites)}, nil
 }
 
 type placementTestFleet struct {

@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"uuid"
 
 	"golang.org/x/sys/unix"
 )
@@ -227,7 +228,7 @@ func validateMemberExpectation(expected ExpectedMemberStatus, p *processRunner) 
 	if os.Geteuid() != 0 || p.identity.UID == 0 || p.identity.GID == 0 {
 		return errors.New("member status requires a root supervisor and non-root tenant")
 	}
-	if !lowerHex(expected.Scope.ClusterID, 32) || !lowerHex(expected.Scope.Incarnation, 32) ||
+	if !lowerHex(expected.Scope.ClusterID, 32) || !lowerHex(expected.Scope.Incarnation, 32) || expected.Scope.ShardID == 0 ||
 		!canonicalMemberID(expected.Scope.TenantID) || !canonicalMemberID(expected.Scope.DatabaseID) || !canonicalMemberID(expected.Scope.MemberID) ||
 		!lowerHex(expected.Authority.ConfigurationID, 64) || !lowerHex(expected.Authority.CertificateSHA256, 64) ||
 		!lowerHex(expected.Authority.TLSLeafSHA256, 64) || expected.Authority.Epoch == 0 {
@@ -264,15 +265,8 @@ func lowerHex(value string, length int) bool {
 }
 
 func canonicalMemberID(value string) bool {
-	if len(value) != 26 || value[0] > '7' || value[0] < '0' {
-		return false
-	}
-	for i := range len(value) {
-		if !strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", rune(value[i])) {
-			return false
-		}
-	}
-	return true
+	parsed, err := uuid.Parse(value)
+	return err == nil && parsed != uuid.Nil() && parsed.String() == value
 }
 
 type memberPathSnapshot struct {
@@ -391,6 +385,8 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 		Capabilities: MemberCapabilities{ServingProof: *wire.Capabilities.ServingProof, DurableDrain: *wire.Capabilities.DurableDrain},
 	}
 	if status.SchemaVersion != 1 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
+		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||
+		!canonicalMemberID(status.Scope.DatabaseID) || !canonicalMemberID(status.Scope.MemberID) ||
 		status.Scope != expected.Scope || status.Authority != expected.Authority ||
 		status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
 		return MemberStatus{}, errors.New("member status identity or capability mismatch")
