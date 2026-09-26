@@ -149,8 +149,18 @@ func (c *Controller) storeReport(ctx context.Context, req request, r Registratio
 	if !exists || report.Generation != desired.Generation || report.Digest != desired.Digest {
 		return nil, errors.New("report target is not current")
 	}
+	if err := validateManagedReportForDesired(report, desired); err != nil {
+		return nil, err
+	}
 	key := reportKey(c.cell, req.Node, report.Role)
 	for range 8 {
+		current, _, exists, err := c.readDesired(ctx, req.Node, report.Role)
+		if err != nil || !exists || !sameJSON(current, desired) {
+			return nil, errors.New("desired changed before report commit")
+		}
+		if _, _, err := c.authorize(ctx, req); err != nil {
+			return nil, err
+		}
 		var old Report
 		revision, exists, err := c.get(ctx, key, &old)
 		if err != nil {
@@ -166,6 +176,10 @@ func (c *Controller) storeReport(ctx context.Context, req request, r Registratio
 		}
 		_, err = c.cas(ctx, key, report, revision)
 		if err == nil {
+			current, _, exists, checkErr := c.readDesired(ctx, req.Node, report.Role)
+			if checkErr != nil || !exists || !sameJSON(current, desired) {
+				return nil, errors.New("desired changed during report commit")
+			}
 			return struct {
 				Accepted bool `json:"accepted"`
 			}{true}, nil

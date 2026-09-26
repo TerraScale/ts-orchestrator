@@ -441,7 +441,8 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 				if err != nil {
 					return nil, err
 				}
-				if !ok || report.Generation != desired.Generation || report.Digest != desired.Digest || desired.Withdrawn && report.State == "running" {
+				if !ok || report.Generation != desired.Generation || report.Digest != desired.Digest || desired.Withdrawn && report.State == "running" ||
+					validateManagedReportForDesired(report, desired) != nil {
 					continue
 				}
 				confirmed, confirmedRevision, ok, err := c.readDesired(ctx, r.Node, role)
@@ -451,6 +452,7 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 				check, _, ok, err := c.reportSnapshot(ctx, reportKey(c.cell, r.Node, role))
 				if err != nil || !ok || check.ObservedAt.Before(report.ObservedAt) || !sameReportMeaning(check, report) ||
 					check.SessionID != s.SessionID || check.Epoch != s.Epoch || check.Generation != desired.Generation || check.Digest != desired.Digest ||
+					validateManagedReportForDesired(check, desired) != nil ||
 					time.Since(check.ObservedAt) >= 30*time.Second || check.ObservedAt.After(time.Now().Add(maxClockSkew)) || desired.Withdrawn && check.State == "running" {
 					return nil, errors.New("report changed during host status read")
 				}

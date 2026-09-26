@@ -82,6 +82,16 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if err := ValidatePrivateHostState(cfg.StateRoot, cfg.Cell, cfg.Node); err != nil {
 		return nil, err
 	}
+	if cfg.ManagedRuntimeRoot != "" {
+		if !filepath.IsAbs(cfg.ManagedRuntimeRoot) || filepath.Clean(cfg.ManagedRuntimeRoot) != cfg.ManagedRuntimeRoot ||
+			cfg.ManagedRuntimeRoot == cfg.InstallRoot || cfg.ManagedRuntimeRoot == cfg.StateRoot ||
+			strings.HasPrefix(cfg.ManagedRuntimeRoot, cfg.InstallRoot+string(filepath.Separator)) ||
+			strings.HasPrefix(cfg.ManagedRuntimeRoot, cfg.StateRoot+string(filepath.Separator)) ||
+			strings.HasPrefix(cfg.InstallRoot, cfg.ManagedRuntimeRoot+string(filepath.Separator)) ||
+			strings.HasPrefix(cfg.StateRoot, cfg.ManagedRuntimeRoot+string(filepath.Separator)) {
+			return nil, errors.New("managed runtime root must be clean, absolute and separate from host roots")
+		}
+	}
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = 5 * time.Second
 	}
@@ -611,25 +621,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	if d.ManagedMember != nil {
-		memoryWorkload := managedMemoryWorkload(d)
-		current, err := a.runner.Observe(ctx, role)
-		if err != nil {
-			return errors.Join(err, a.runner.Stop(ctx, role))
-		}
-		if err := a.runner.Stop(ctx, role); err != nil {
-			return err
-		}
-		if current.Running && current.CgroupMemoryMaxBytes != memoryWorkload.CgroupMemoryMaxBytes {
-			return errors.New("managed role memory.max drifted from desired cap")
-		}
-		check := a.memoryCheck
-		if check == nil {
-			check = validateManagedHostMemory
-		}
-		if err := check(*target.Registration); err != nil {
-			return err
-		}
-		return errors.New("managed member launch awaits verified mount, artifact, authority material and member identity")
+		return a.reconcileManaged(ctx, d, target)
 	}
 	fingerprint, err := desiredFingerprint(d)
 	if err != nil {

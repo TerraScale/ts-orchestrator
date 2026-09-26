@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -30,6 +32,7 @@ const (
 var tokenPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var managedFaultDomainPattern = regexp.MustCompile(`^FAULT-DOMAIN-[1-3]$`)
+var filesystemUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 var ErrDesiredConflict = errors.New("desired generation or target conflicts with committed state")
 
@@ -113,6 +116,25 @@ type ManagedMemberLaunch struct {
 	ProcessMemoryBytes   uint64               `json:"process_memory_bytes,omitzero"`
 	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes,omitzero"`
 	CgroupMemoryMaxBytes uint64               `json:"cgroup_memory_max_bytes,omitzero"`
+	Runtime              *ManagedRuntimePins  `json:"runtime,omitempty"`
+}
+
+// ManagedRuntimePins names the exact preprovisioned, preformatted runtime that
+// may be attached to this signed member desired. Missing pins keep it held.
+// The corresponding files are installed outside NATS by a trusted operator.
+type ManagedRuntimePins struct {
+	DevicePath                string `json:"device_path"`
+	MountPath                 string `json:"mount_path"`
+	FileSystemUUID            string `json:"filesystem_uuid"`
+	FileSystemType            string `json:"filesystem_type"`
+	TrustedKeySHA256          string `json:"trusted_key_sha256"`
+	ServerCertificateSHA256   string `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256    string `json:"server_private_key_sha256"`
+	ClientCARootsSHA256       string `json:"client_ca_roots_sha256"`
+	ReplicationListenAddress  string `json:"replication_listen_address"`
+	ReplicationPeerMemberID   string `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress    string `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256 string `json:"replication_server_ca_sha256,omitempty"`
 }
 
 type Receipt struct {
@@ -121,17 +143,39 @@ type Receipt struct {
 }
 
 type Report struct {
-	Cell        string    `json:"cell"`
-	Node        string    `json:"node"`
-	Environment string    `json:"environment"`
-	Role        string    `json:"role"`
-	Digest      string    `json:"digest"`
-	Generation  uint64    `json:"generation"`
-	SessionID   string    `json:"session_id"`
-	Epoch       uint64    `json:"epoch"`
-	State       string    `json:"state"`
-	Error       string    `json:"error,omitempty"`
-	ObservedAt  time.Time `json:"observed_at"`
+	Cell        string                `json:"cell"`
+	Node        string                `json:"node"`
+	Environment string                `json:"environment"`
+	Role        string                `json:"role"`
+	Digest      string                `json:"digest"`
+	Generation  uint64                `json:"generation"`
+	SessionID   string                `json:"session_id"`
+	Epoch       uint64                `json:"epoch"`
+	State       string                `json:"state"`
+	Error       string                `json:"error,omitempty"`
+	ObservedAt  time.Time             `json:"observed_at"`
+	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
+}
+
+// ManagedRuntimeReport is a host-process and mounted-volume observation only.
+// It does not assert client serving, catch-up, or a writer fence.
+type ManagedRuntimeReport struct {
+	Member           ManagedMemberBinding `json:"member"`
+	Authority        MemberAuthority      `json:"authority"`
+	OCI              ManagedOCIBinding    `json:"oci"`
+	VolumeID         string               `json:"volume_id"`
+	AttachmentID     string               `json:"attachment_id"`
+	FileSystemUUID   string               `json:"filesystem_uuid"`
+	FileSystemType   string               `json:"filesystem_type"`
+	MountDevice      string               `json:"mount_device"`
+	MountPath        string               `json:"mount_path"`
+	MountID          uint64               `json:"mount_id"`
+	ProcessPID       int                  `json:"process_pid"`
+	ProcessStart     string               `json:"process_start"`
+	ProcessCgroup    string               `json:"process_cgroup"`
+	ProcessBootID    string               `json:"process_boot_id"`
+	StorageRecovered bool                 `json:"storage_recovered"`
+	ListenerReady    bool                 `json:"listener_ready"`
 }
 
 type HostStatus struct {
@@ -152,6 +196,7 @@ type AgentConfig struct {
 	Runner              Runner
 	InstallRoot         string
 	StateRoot           string
+	ManagedRuntimeRoot  string
 	WorkloadIdentity    WorkloadIdentity
 	PollInterval        time.Duration
 	SessionTrace        bool
@@ -411,7 +456,7 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		return errors.New("managed launch source, volume or authority is invalid")
 	}
 	if d.Withdrawn {
-		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 {
+		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 || launch.Runtime != nil {
 			return errors.New("withdrawn managed desired contains memory execution data")
 		}
 		return nil
@@ -423,5 +468,46 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		p > math.MaxInt64 || h > math.MaxInt64 || p%uint64(os.Getpagesize()) != 0 || h%uint64(os.Getpagesize()) != 0 {
 		return errors.New("managed process memory, headroom or cgroup cap is invalid")
 	}
+	if launch.Runtime != nil {
+		if err := validateManagedRuntimePins(*launch.Runtime); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateManagedRuntimePins(pins ManagedRuntimePins) error {
+	if !strings.HasPrefix(pins.DevicePath, "/dev/") || filepath.Clean(pins.DevicePath) != pins.DevicePath ||
+		!filepath.IsAbs(pins.MountPath) || filepath.Clean(pins.MountPath) != pins.MountPath ||
+		!filesystemUUIDPattern.MatchString(pins.FileSystemUUID) ||
+		pins.FileSystemType != "ext4" && pins.FileSystemType != "xfs" ||
+		!lowerHex(pins.TrustedKeySHA256, 64) || !lowerHex(pins.ServerCertificateSHA256, 64) ||
+		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
+		!validSocketAddress(pins.ReplicationListenAddress) {
+		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
+	}
+	peer := pins.ReplicationPeerMemberID != "" || pins.ReplicationPeerAddress != "" || pins.ReplicationServerCASHA256 != ""
+	if peer && (!canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
+		!lowerHex(pins.ReplicationServerCASHA256, 64)) {
+		return errors.New("managed runtime outbound peer pins are incomplete")
+	}
+	return nil
+}
+
+func validSocketAddress(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || net.ParseIP(host) == nil || port == "" {
+		return false
+	}
+	var number uint64
+	for _, digit := range port {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+		number = number*10 + uint64(digit-'0')
+		if number > 65535 {
+			return false
+		}
+	}
+	return number > 0
 }
