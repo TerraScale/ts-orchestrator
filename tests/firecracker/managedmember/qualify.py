@@ -293,7 +293,7 @@ def check_subnet_collision() -> None:
 
 
 def prerequisites() -> None:
-    required = ("sudo", "ip", "mount", "umount", "install", "ln", "cp", "e2fsck", "resize2fs", "blkid", "sha256sum")
+    required = ("sudo", "ip", "mount", "umount", "install", "ln", "cp", "e2fsck", "resize2fs", "blkid", "sha256sum", "stat")
     missing = [name for name in required if shutil.which(name) is None]
     if missing:
         raise QualificationError(f"host commands missing: {missing}")
@@ -347,6 +347,13 @@ def check_guest_tools(mount: Path) -> None:
     for destination in required:
         if not guest_path(mount, destination).is_file():
             raise QualificationError(f"guest rootfs lacks {destination}")
+
+
+def managed_directories(member: str) -> tuple[tuple[Path, int], ...]:
+    member_dir = MEMBER_DIRS[member]
+    return ((Path("/srv/ts-managed"), 0o750), (member_dir, 0o750),
+            (member_dir / "material", 0o750), (member_dir / "control", 0o730),
+            (member_dir / "volume", 0o750))
 
 
 def volume_setup_script(member: str) -> str:
@@ -450,7 +457,7 @@ DelegateSubgroup=supervisor
 MemoryMax=8G
 NoNewPrivileges=yes
 AmbientCapabilities=
-CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP
+CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_DAC_READ_SEARCH
 TimeoutStartSec=510s
 KillMode=control-group
 StandardOutput=journal+console
@@ -748,6 +755,45 @@ class Lab:
         self.run_cmd("install-dir-" + destination.name, ["install", "-d", "-o", "root", "-g", group,
                       "-m", mode, str(target)], sudo=True, timeout=30)
 
+    def stage_managed_material(self, mount: Path, member: str, inputs: dict[str, dict[str, Any]]) -> None:
+        directories = managed_directories(member)
+        # The mount is a private image beneath a 0700 run directory. Keep only
+        # traversal open during staging so the unprivileged host can reject
+        # symlinks in every component before privileged installs and hashes.
+        for destination, _ in directories:
+            self.install_dir(mount, destination, "0755", "65534")
+        for key, filename in MATERIAL.items():
+            destination = MEMBER_DIRS[member] / "material" / filename
+            self.install(mount, inputs[key]["path"], destination, "0440", "65534")
+            if self.staged_sha256(mount, destination) != inputs[key]["sha256"]:
+                raise QualificationError(f"{member}: staged {key} changed")
+        self.lock_managed_layout(mount, member, directories)
+
+    def lock_managed_layout(self, mount: Path, member: str,
+                            directories: tuple[tuple[Path, int], ...]) -> None:
+        # Resolve and inspect all paths while they remain traversable. No
+        # unprivileged path walk occurs after the protected parent is locked.
+        expected = [(guest_path(mount, destination), mode, True) for destination, mode in directories]
+        expected.extend((guest_path(mount, MEMBER_DIRS[member] / "material" / filename), 0o440, False)
+                        for filename in MATERIAL.values())
+        for destination, mode in reversed(directories):
+            self.install_dir(mount, destination, f"{mode:04o}", "65534")
+        output = self.run_cmd(f"verify-{member}-managed-layout",
+                              ["stat", "-c", "%u:%g:%f", "--", *(str(path) for path, _, _ in expected)],
+                              sudo=True, timeout=30)
+        lines = output.splitlines()
+        if len(lines) != len(expected):
+            raise QualificationError(f"{member}: managed layout stat count mismatch")
+        for (path, mode, directory), line in zip(expected, lines, strict=True):
+            try:
+                uid, gid, bits = line.split(":")
+                observed = int(bits, 16)
+            except ValueError as error:
+                raise QualificationError(f"{member}: malformed managed layout stat for {path}") from error
+            if (uid != "0" or gid != "65534" or stat.S_IMODE(observed) != mode or
+                    (not stat.S_ISDIR(observed) if directory else not stat.S_ISREG(observed))):
+                raise QualificationError(f"{member}: unsafe final managed layout at {path}")
+
     def enable_unit(self, mount: Path, name: str) -> None:
         wants = guest_path(mount, Path("/etc/systemd/system/multi-user.target.wants"))
         self.run_cmd("wants-dir", ["install", "-d", "-o", "root", "-g", "root", "-m", "0755", str(wants)], sudo=True)
@@ -768,18 +814,8 @@ class Lab:
                                      ("tb_server", Path("/opt/ts-managed-member/tb-server"))):
                 if self.staged_sha256(mount, destination) != self.manifest["inputs"][key]["sha256"]:
                     raise QualificationError(f"{member}: staged {key} changed")
-            member_dir = MEMBER_DIRS[member]
-            for directory, mode in ((Path("/srv/ts-managed"), "0750"), (member_dir, "0750"),
-                                    (member_dir / "material", "0750"),
-                                    (member_dir / "control", "0730"),
-                                    (member_dir / "volume", "0750")):
-                self.install_dir(mount, directory, mode, "65534")
             inputs = self.manifest["members"][member]["inputs"]
-            for key, filename in MATERIAL.items():
-                destination = member_dir / "material" / filename
-                self.install(mount, inputs[key]["path"], destination, "0440", "65534")
-                if self.staged_sha256(mount, destination) != inputs[key]["sha256"]:
-                    raise QualificationError(f"{member}: staged {key} changed")
+            self.stage_managed_material(mount, member, inputs)
             for key, filename in (("client_api_token", "client-api-token"),
                                   ("client_https_ca_pem", "client-https-ca.pem")):
                 destination = Path("/opt/ts-managed-member") / filename

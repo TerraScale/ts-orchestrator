@@ -9,7 +9,7 @@ usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE \
   --delegation FILE --root-key PEM --environment canary|production \
   --release-tool FILE --bootstrap-tool FILE --bootstrap-anchor FILE \
   --bootstrap-identity FILE --bootstrap-root PEM... --timesyncd-config FILE \
-  --out QCOW2
+  [--managed-workload-gid NONZERO_GID] --out QCOW2
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
 It makes no OCI calls and installs no private keys or runtime secrets. The
@@ -17,6 +17,14 @@ release root key verifies the binary; repeatable bootstrap root keys verify
 the baked anchor and are installed as public trust roots. The explicit
 timesyncd configuration supplies deployment NTP endpoints; no endpoint is
 selected or installed by default.
+The optional managed workload GID provisions /srv/ts-managed as root:GID 0750.
+It must match host.workload_gid when host.managed_runtime_root uses that path.
+For another managed root, omit --managed-workload-gid, provision root:GID 0750,
+and use a host-service systemd drop-in that resets the canonical exception:
+[Service]
+ReadWritePaths=
+ReadWritePaths=-/absolute/custom/root
+Install the drop-in before starting the host.
 USAGE
 }
 
@@ -32,6 +40,7 @@ bootstrap_anchor=
 bootstrap_identity=
 bootstrap_roots=()
 timesyncd_config=
+managed_workload_gid=
 bootstrap_root_limit=16
 bootstrap_root_max_bytes=16384
 bootstrap_roots_max_total_bytes=65536
@@ -53,6 +62,7 @@ while (($#)); do
 		--bootstrap-identity) bootstrap_identity=${2:?}; shift 2 ;;
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
+		--managed-workload-gid) managed_workload_gid=${2:?}; shift 2 ;;
 		--out) output=${2:?}; shift 2 ;;
 		*) usage; exit 2 ;;
 	esac
@@ -75,6 +85,16 @@ fi
 for command in cat cp ln mktemp python3 qemu-img realpath virt-customize; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
+if [[ -n "$managed_workload_gid" ]]; then
+	python3 - "$managed_workload_gid" <<'PY'
+import re
+import sys
+
+value = sys.argv[1]
+if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) >= 4294967295:
+	raise SystemExit("managed workload GID must be a canonical nonzero Linux GID")
+PY
+fi
 [[ -x "$release_tool" ]] || { echo "release tool must be executable" >&2; exit 1; }
 [[ -x "$bootstrap_tool" ]] || { echo "bootstrap tool must be executable" >&2; exit 1; }
 base=$(realpath -e -- "$base")
@@ -417,9 +437,29 @@ for time_unit in systemd-timesyncd.service systemd-time-wait-sync.service; do
 done
 COMMAND
 )
+managed_root_commands=()
+if [[ -n "$managed_workload_gid" ]]; then
+	managed_root_setup=$(cat <<'COMMAND'
+set -eu
+[ ! -L /srv ] && [ -d /srv ] && [ "$(stat -c '%u:%g:%a' /srv)" = '0:0:755' ] || {
+	echo 'base /srv must be a direct root:root 0755 directory' >&2
+	exit 1
+}
+[ ! -e /srv/ts-managed ] && [ ! -L /srv/ts-managed ] || {
+	echo 'base /srv/ts-managed must be absent' >&2
+	exit 1
+}
+install -d -o root -g __MANAGED_GID__ -m 0750 /srv/ts-managed
+[ "$(stat -c '%u:%g:%a' /srv/ts-managed)" = '0:__MANAGED_GID__:750' ]
+COMMAND
+	)
+	managed_root_setup=${managed_root_setup//__MANAGED_GID__/$managed_workload_gid}
+	managed_root_commands=(--run-command "$managed_root_setup")
+fi
 virt-customize --no-network -a "$candidate" \
 	--run-command "$bootstrap_directory_setup" \
 	--run-command "$time_sync_setup" \
+	"${managed_root_commands[@]}" \
 	--upload deploy/image/terrascale-orchestrator.sysusers:/etc/sysusers.d/terrascale-orchestrator.conf \
 	--upload deploy/systemd/terrascale-orchestrator-bootstrap.service:/etc/systemd/system/terrascale-orchestrator-bootstrap.service \
 	--upload deploy/systemd/terrascale-orchestrator-controller.service:/etc/systemd/system/terrascale-orchestrator-controller.service \

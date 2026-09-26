@@ -2,7 +2,9 @@ import json
 import hashlib
 import os
 import re
+import secrets
 import shlex
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -16,6 +18,7 @@ BOOTSTRAP_DIRECTORY = "/etc/terrascale-orchestrator/bootstrap"
 MARKER_DIRECTORY = "/var/lib/terrascale-orchestrator-bootstrap"
 SECRETS_DIRECTORY = "/var/lib/terrascale-orchestrator-secrets"
 CONTROLLER_DIRECTORY = "/var/lib/terrascale-orchestrator-controller"
+MANAGED_DIRECTORY = "/srv/ts-managed"
 TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 BAKED_LOADER = ROOT / "internal/bootstrapstart/baked.go"
@@ -217,13 +220,16 @@ printf '{}\\n'
         environment.update(overrides)
         return environment
 
-    def run_builder(self, **environment_overrides: str) -> subprocess.CompletedProcess[str]:
+    def run_builder(self, *, managed_workload_gid: str | None = None,
+                    **environment_overrides: str) -> subprocess.CompletedProcess[str]:
         return self.run_builder_with_roots(
-            [self.bootstrap_root_a, self.bootstrap_root_b], **environment_overrides
+            [self.bootstrap_root_a, self.bootstrap_root_b], managed_workload_gid=managed_workload_gid,
+            **environment_overrides
         )
 
     def run_builder_with_roots(
-        self, bootstrap_roots: list[Path], **environment_overrides: str
+        self, bootstrap_roots: list[Path], *, managed_workload_gid: str | None = None,
+        **environment_overrides: str
     ) -> subprocess.CompletedProcess[str]:
         arguments = [
             str(BUILDER),
@@ -252,6 +258,8 @@ printf '{}\\n'
         ]
         for bootstrap_root in bootstrap_roots:
             arguments.extend(("--bootstrap-root", str(bootstrap_root)))
+        if managed_workload_gid is not None:
+            arguments.extend(("--managed-workload-gid", managed_workload_gid))
         arguments.extend(("--out", str(self.output)))
         return subprocess.run(
             arguments,
@@ -419,6 +427,85 @@ printf '{}\\n'
         self.assertLess(run_commands.index(time_sync_setup), run_commands.index(enable_commands[0]))
         self.assertIn("--no-network", virt_arguments)
         self.assertNotIn("/run/terrascale-orchestrator-bootstrap", guest_commands)
+
+    def test_managed_root_is_opt_in_and_matches_shipped_host_namespace(self) -> None:
+        host_unit = (ROOT / "deploy/systemd/terrascale-orchestrator-host.service").read_text(encoding="utf-8")
+        self.assertIn("ProtectSystem=strict\n", host_unit)
+        self.assertIn(f"ReadWritePaths=-{MANAGED_DIRECTORY}\n", host_unit)
+        self.assertNotIn("ReadWritePaths=/srv\n", host_unit)
+
+        result = self.run_builder()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = json.loads(self.virt_arguments.read_text(encoding="utf-8"))
+        commands = [arguments[index + 1] for index, argument in enumerate(arguments[:-1])
+                    if argument == "--run-command"]
+        self.assertFalse(any(MANAGED_DIRECTORY in command for command in commands))
+
+        self.output.unlink()
+        self.virt_arguments.unlink()
+        result = self.run_builder(managed_workload_gid="65534")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        arguments = json.loads(self.virt_arguments.read_text(encoding="utf-8"))
+        commands = [arguments[index + 1] for index, argument in enumerate(arguments[:-1])
+                    if argument == "--run-command"]
+        managed = [command for command in commands if "install -d -o root -g 65534 -m 0750 /srv/ts-managed"
+                   in command]
+        self.assertEqual(len(managed), 1)
+        self.assertIn("[ ! -L /srv ] && [ -d /srv ]", managed[0])
+        self.assertIn("[ ! -e /srv/ts-managed ] && [ ! -L /srv/ts-managed ]", managed[0])
+        self.assertIn("'0:65534:750'", managed[0])
+        self.assertLess(commands.index(managed[0]), next(index for index, command in enumerate(commands)
+                                                 if "SYSTEMD_OFFLINE=1 systemctl enable" in command))
+
+    def test_managed_workload_gid_rejects_unsafe_values_before_image_effects(self) -> None:
+        for value in ("0", "00", "065534", "-1", "abc", "4294967295", "4294967296"):
+            with self.subTest(gid=value):
+                result = self.run_builder(managed_workload_gid=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("managed workload GID", result.stderr)
+                self.assertFalse(self.events.exists())
+                self.assertFalse(self.virt_arguments.exists())
+                self.assertFalse(self.output.exists())
+
+    def test_shipped_host_sandbox_allows_only_its_writable_managed_path(self) -> None:
+        if os.geteuid() == 0 or any(shutil.which(command) is None for command in
+                                    ("sudo", "systemctl", "systemd-run", "install", "touch", "sh")):
+            self.skipTest("requires a nonroot host user, systemd and passwordless sudo")
+        if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+            self.skipTest("passwordless sudo is unavailable")
+        if subprocess.run(["systemctl", "show", "--property=Version", "--value"],
+                          capture_output=True).returncode != 0:
+            self.skipTest("systemd system manager is unavailable")
+
+        unit = (ROOT / "deploy/systemd/terrascale-orchestrator-host.service").read_text(encoding="utf-8")
+        directives = dict(line.split("=", 1) for line in unit.splitlines()
+                          if "=" in line and not line.startswith("#"))
+        self.assertEqual(directives["ProtectSystem"], "strict")
+        self.assertEqual(directives["ReadWritePaths"], "-" + MANAGED_DIRECTORY)
+        with tempfile.TemporaryDirectory(prefix="ts-managed-sandbox-") as name:
+            base = Path(name)
+            base.chmod(0o755)
+            allowed, denied = base / "allowed", base / "denied"
+            for path in (allowed, denied):
+                subprocess.run(["sudo", "-n", "install", "-d", "-o", "root", "-g", "root",
+                                "-m", "0755", str(path)], check=True, timeout=10)
+            try:
+                script = '"$3" "$1/created" || exit 21; if "$3" "$2/created"; then exit 22; fi; exit 0'
+                properties = ["User", "Group", "ProtectSystem", "NoNewPrivileges",
+                              "CapabilityBoundingSet", "AmbientCapabilities"]
+                result = subprocess.run(
+                    ["sudo", "-n", "systemd-run", "--wait", "--collect",
+                     "--unit=ts-managed-sandbox-" + secrets.token_hex(5),
+                     *("--property=" + key + "=" + directives[key] for key in properties),
+                     "--property=ReadWritePaths=-" + str(allowed), shutil.which("sh"),
+                     "-c", script, "probe", str(allowed), str(denied), shutil.which("touch")],
+                    capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((allowed / "created").exists())
+                self.assertFalse((denied / "created").exists())
+            finally:
+                subprocess.run(["sudo", "-n", "rm", "-rf", "--", str(allowed), str(denied)],
+                               check=True, timeout=10)
 
     def test_timesyncd_configuration_is_required_explicit_and_excludes_lab_range(self) -> None:
         self.timesyncd_config.unlink()

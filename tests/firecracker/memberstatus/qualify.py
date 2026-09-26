@@ -102,6 +102,7 @@ MAX_SERIAL_LOG_BYTES = 32 << 20
 MAX_GUEST_LOG_BYTES = 8 << 20
 IMAGE_MIN_BYTES = 8 << 30
 CAPABILITY_BOUNDING_SET = "CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP"
+MANAGED_VOLUME_CAPABILITY_BOUNDING_SET = f"{CAPABILITY_BOUNDING_SET} CAP_DAC_READ_SEARCH"
 
 
 class QualificationError(RuntimeError):
@@ -1166,9 +1167,11 @@ WantedBy=multi-user.target
 def _service_unit(managed_volume_uuid: str | None = None) -> str:
     volume_ordering = ""
     volume_environment = ""
+    capability_bounding_set = CAPABILITY_BOUNDING_SET
     if managed_volume_uuid is not None:
         volume_ordering = f"Requires={MANAGED_VOLUME_SETUP_SERVICE_NAME}\nAfter={MANAGED_VOLUME_SETUP_SERVICE_NAME}\n"
         volume_environment = f"Environment=TS_FC_VOLUME_UUID={managed_volume_uuid}\n"
+        capability_bounding_set = MANAGED_VOLUME_CAPABILITY_BOUNDING_SET
     return f"""[Unit]
 Description=TerraScale member-status Firecracker qualification
 After=local-fs.target
@@ -1183,7 +1186,7 @@ DelegateSubgroup=supervisor
 MemoryMax=5G
 NoNewPrivileges=yes
 AmbientCapabilities=
-CapabilityBoundingSet={CAPABILITY_BOUNDING_SET}
+CapabilityBoundingSet={capability_bounding_set}
 TimeoutStartSec={GUEST_SERVICE_TIMEOUT_SECONDS}s
 KillMode=control-group
 StandardOutput=journal+console
@@ -1409,6 +1412,50 @@ class Qualification:
         self._sudo_run("install-dir-" + destination.name, "install", "-d", "-o", "root", "-g", group,
                        "-m", mode, target, timeout=30)
 
+    def _hash_staged_guest_file(self, label: str, destination: Path) -> str:
+        target = _guest_path_without_symlinks(self.mount_path, destination)
+        _, log_path = self._sudo_run(label, "sha256sum", "--zero", "--", target, timeout=60)
+        output = log_path.read_bytes()
+        digest, separator, filename = output.partition(b"  ")
+        if (separator != b"  " or filename != os.fsencode(target) + b"\0" or
+                re.fullmatch(rb"[0-9a-f]{64}", digest) is None):
+            raise QualificationError(f"staged guest hash output is malformed for {destination}")
+        return digest.decode("ascii")
+
+    def _lockdown_managed_volume_layout(
+            self, directories: list[tuple[Path, Path, int]], material_files: list[tuple[Path, Path]]) -> None:
+        # Resolve every path while the private offline image remains traversable.
+        # Do not perform an unprivileged path walk after locking /srv/ts-managed.
+        expected = [(target, guest_path, mode, True)
+                    for guest_path, target, mode in directories]
+        expected.extend((target, guest_path, 0o440, False)
+                        for guest_path, target in material_files)
+
+        for guest_path, target, mode in reversed(directories):
+            self._sudo_run("install-dir-" + guest_path.name, "install", "-d", "-o", "root", "-g", "65534",
+                           "-m", f"{mode:04o}", target, timeout=30)
+
+        _, log_path = self._sudo_run(
+            "verify-managed-volume-layout", "stat", "-c", "%u:%g:%f", "--",
+            *(target for target, _, _, _ in expected), timeout=30)
+        lines = log_path.read_text().splitlines()
+        if len(lines) != len(expected):
+            raise QualificationError("managed volume layout stat count mismatch")
+        for (target, guest_path, mode, is_directory), line in zip(expected, lines, strict=True):
+            try:
+                uid, gid, raw_mode = line.split(":")
+                observed = int(raw_mode, 16)
+            except ValueError as error:
+                raise QualificationError(
+                    f"malformed managed volume layout stat for {guest_path}") from error
+            if (uid != "0" or gid != "65534" or stat.S_IMODE(observed) != mode or
+                    (not stat.S_ISDIR(observed) if is_directory else not stat.S_ISREG(observed))):
+                raise QualificationError(f"unsafe final managed volume layout at {guest_path}: {target}")
+        self.events.add("guest_managed_volume_layout_locked",
+                        directories=[{"path": str(path), "mode": f"{mode:04o}"}
+                                     for path, _, mode in directories],
+                        material_files=len(material_files), owner="root", group="65534", file_mode="0440")
+
     def _enable_guest_service(self, service_name: str = SERVICE_NAME) -> None:
         unit_path = Path("/etc/systemd/system") / service_name
         wants_dir = Path("/etc/systemd/system/multi-user.target.wants")
@@ -1499,12 +1546,20 @@ class Qualification:
             raise QualificationError(f"staged go_host_test SHA-256 mismatch: expected {expected}, got {actual}")
         self.events.add("guest_binary_staged", name="go_host_test", path=str(binary), sha256=actual)
 
-        for directory, mode in ((Path("/srv/ts-managed"), "0750"),
-                                (MANAGED_MEMBER_DIR, "0750"),
-                                (MANAGED_MATERIAL_PATH, "0750"),
-                                (MANAGED_CONTROL_PATH, "0730"),
-                                (MANAGED_MOUNT_PATH, "0750")):
-            self._install_directory(directory, mode, "65534")
+        managed_directories = ((Path("/srv/ts-managed"), 0o750),
+                               (MANAGED_MEMBER_DIR, 0o750),
+                               (MANAGED_MATERIAL_PATH, 0o750),
+                               (MANAGED_CONTROL_PATH, 0o730),
+                               (MANAGED_MOUNT_PATH, 0o750))
+        directory_targets = []
+        # The mount is a private offline copy beneath the 0700 run directory.
+        # Permit host-side path validation during staging with traversal-only
+        # modes, then restore the guest's restrictive modes before any VMM starts.
+        for directory, final_mode in managed_directories:
+            target = _guest_path_without_symlinks(self.mount_path, directory)
+            self._sudo_run("install-dir-" + directory.name, "install", "-d", "-o", "root", "-g", "65534",
+                           "-m", "0755", target, timeout=30)
+            directory_targets.append((directory, target, final_mode))
 
         material_names = (
             "authority_tbca", "trusted_public_key", "server_crt", "server_key", "client_ca_pem",
@@ -1523,15 +1578,17 @@ class Qualification:
             "client_private_key": "client-private-key.pem",
             "client_api_keys": "client-api-keys.json",
         }
+        material_targets = []
         for name in material_names:
             source = self.inputs[name]
             destination = MANAGED_MATERIAL_PATH / material_destinations[name]
             self._install(source, destination, "0440", "65534")
-            staged = self.mount_path / destination.relative_to("/")
-            actual = sha256_file(staged)
+            staged = _guest_path_without_symlinks(self.mount_path, destination)
+            actual = self._hash_staged_guest_file("hash-managed-volume-" + name, destination)
             expected = self.manifest["inputs"][name]["sha256"]
             if actual != expected:
                 raise QualificationError(f"staged {name} SHA-256 mismatch: expected {expected}, got {actual}")
+            material_targets.append((destination, staged))
             self.events.add("guest_material_staged", name=name, path=str(destination), sha256=actual)
 
         # The isolated fixture uses one synthetic CA for its server and peer
@@ -1540,12 +1597,15 @@ class Qualification:
         client_ca = self.inputs["client_ca_pem"]
         server_ca_path = MANAGED_MATERIAL_PATH / "server-ca.pem"
         self._install(client_ca, server_ca_path, "0440", "65534")
-        server_ca_staged = self.mount_path / server_ca_path.relative_to("/")
-        server_ca_hash = sha256_file(server_ca_staged)
+        server_ca_staged = _guest_path_without_symlinks(self.mount_path, server_ca_path)
+        server_ca_hash = self._hash_staged_guest_file("hash-managed-volume-server-ca", server_ca_path)
         if server_ca_hash != self.manifest["inputs"]["client_ca_pem"]["sha256"]:
             raise QualificationError("staged server-ca.pem differs from the pinned shared fixture CA")
+        material_targets.append((server_ca_path, server_ca_staged))
         self.events.add("guest_material_staged", name="server_ca_alias", path=str(server_ca_path),
                         sha256=server_ca_hash, source_input="client_ca_pem")
+
+        self._lockdown_managed_volume_layout(directory_targets, material_targets)
 
         runner = self._write_stage_file("managed-volume-runner.sh",
                                         _managed_volume_shell_runner(), 0o700)
@@ -1571,7 +1631,7 @@ class Qualification:
                         runner="/usr/local/sbin/ts-member-status-qualification",
                         delegate=True, delegate_subgroup="supervisor", memory_max="5G",
                         no_new_privileges=True, ambient_capabilities=[],
-                        capability_bounding_set=CAPABILITY_BOUNDING_SET,
+                        capability_bounding_set=MANAGED_VOLUME_CAPABILITY_BOUNDING_SET,
                         profile=MANAGED_VOLUME_PROFILE)
 
     def _make_socket_dir(self) -> None:
@@ -1847,7 +1907,7 @@ def _validate_host_prerequisites(inputs: dict[str, Path], run_dir: Path) -> None
         raise QualificationError(f"--run-dir parent must already exist: {parent}")
     required = ["cp", "e2fsck", "resize2fs", "mount", "umount", "install", "ln"]
     if "volume_ext4" in inputs:
-        required.append("blkid")
+        required.extend(("blkid", "sha256sum", "stat"))
     missing = [name for name in required if shutil.which(name) is None]
     if not Path("/run/wrappers/bin/sudo").is_file() and shutil.which("sudo") is None:
         missing.append("sudo")

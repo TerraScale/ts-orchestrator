@@ -3,6 +3,7 @@ from __future__ import annotations
 import signal
 import json
 import hashlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -241,6 +242,15 @@ class PrivateSocketDirectoryTests(unittest.TestCase):
             directory.rmdir()
 
 
+class SudoLookupTests(unittest.TestCase):
+    def test_sudo_lookup_falls_back_when_nix_wrapper_is_absent(self):
+        qualification = qualify.Qualification.__new__(qualify.Qualification)
+        with patch.object(Path, "is_file", return_value=False), \
+                patch.object(qualify.shutil, "which", return_value="/usr/bin/sudo") as which:
+            self.assertEqual(qualification._sudo(), "/usr/bin/sudo")
+        which.assert_called_once_with("sudo")
+
+
 class BoundedLogTests(unittest.TestCase):
     def test_command_log_truncation_fails_the_command(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -374,6 +384,173 @@ class ManagedVolumeRootfsPreflightTests(unittest.TestCase):
             stage.assert_not_called()
 
 
+class ManagedVolumeStagingPermissionTests(unittest.TestCase):
+    MATERIAL_INPUTS = (
+        "authority_tbca", "trusted_public_key", "server_crt", "server_key", "client_ca_pem",
+        "client_managed_manifest", "client_config", "client_chain", "client_private_key",
+        "client_api_keys",
+    )
+
+    def test_real_staging_recovers_from_uid_1000_denied_protected_parent(self):
+        if os.geteuid() == 0 or 65534 in os.getgroups():
+            self.skipTest("requires a nonroot host user outside the guest material group")
+        sudo = "/run/wrappers/bin/sudo" if Path("/run/wrappers/bin/sudo").is_file() else shutil.which("sudo")
+        if sudo is None:
+            self.skipTest("passwordless sudo is unavailable")
+        try:
+            available = subprocess.run([sudo, "-n", "true"], capture_output=True, timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            self.skipTest("passwordless sudo is unavailable")
+        if available.returncode != 0:
+            self.skipTest("passwordless sudo is unavailable")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            mount = base / "guest-root"
+            mount.mkdir()
+            try:
+                protected = mount / "srv/ts-managed"
+                protected.mkdir(parents=True)
+                child = protected / qualify.MANAGED_MEMBER_DIR.name
+                subprocess.run([sudo, "-n", "install", "-d", "-o", "root", "-g", "65534",
+                                "-m", "0750", str(protected)], check=True, timeout=10)
+                with self.assertRaises(PermissionError):
+                    child.lstat()
+
+                sources: dict[str, Path] = {}
+                input_names = (*self.MATERIAL_INPUTS, "go_host_test")
+                input_hashes = {}
+                for name in input_names:
+                    source = base / f"input-{name}"
+                    payload = f"pinned-{name}".encode()
+                    source.write_bytes(payload)
+                    sources[name] = source
+                    input_hashes[name] = {"sha256": hashlib.sha256(payload).hexdigest()}
+
+                command_root = base / "logs"
+                (command_root / "commands").mkdir(parents=True)
+                stage = base / "stage"
+                stage.mkdir(mode=0o700)
+                events = qualify.EventLog(command_root / "events.json")
+                qualification = qualify.Qualification.__new__(qualify.Qualification)
+                qualification.mount_path = mount
+                qualification.stage = stage
+                qualification.inputs = sources
+                qualification.manifest = {
+                    "inputs": input_hashes,
+                    "managed_volume": {"filesystem_uuid": qualify.MANAGED_VOLUME_UUID},
+                }
+                qualification.events = events
+                qualification.command_runner = qualify.CommandRunner(command_root, events)
+
+                qualification._stage_managed_volume_guest()
+
+                directories = (
+                    (Path("/srv/ts-managed"), 0o750),
+                    (qualify.MANAGED_MEMBER_DIR, 0o750),
+                    (qualify.MANAGED_MATERIAL_PATH, 0o750),
+                    (qualify.MANAGED_CONTROL_PATH, 0o730),
+                    (qualify.MANAGED_MOUNT_PATH, 0o750),
+                )
+                material_paths = [qualify.MANAGED_MATERIAL_PATH / name for name in (
+                    "authority.tbca", "trusted-public-key", "server.crt", "server.key", "client-ca.pem",
+                    "client-managed-manifest.json", "client-config.json", "client-chain.pem",
+                    "client-private-key.pem", "client-api-keys.json", "server-ca.pem",
+                )]
+                targets = [mount / path.relative_to("/") for path, _ in directories]
+                targets.extend(mount / path.relative_to("/") for path in material_paths)
+                result = subprocess.run(
+                    [sudo, "-n", "stat", "-c", "%u:%g:%f", "--", *(str(path) for path in targets)],
+                    capture_output=True, text=True, check=True, timeout=10)
+                self.assertEqual(result.stdout.splitlines(),
+                                 [f"0:65534:{stat.S_IFDIR | mode:x}" for _, mode in directories] +
+                                 [f"0:65534:{stat.S_IFREG | 0o440:x}"] * len(material_paths))
+                with self.assertRaises(PermissionError):
+                    child.lstat()
+                self.assertFalse(os.path.ismount(mount))
+            finally:
+                subprocess.run([sudo, "-n", "rm", "-rf", "--", str(mount)],
+                               check=True, timeout=10)
+
+    def test_lockdown_is_reverse_ordered_and_does_no_unprivileged_walk_afterward(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            mount = base / "guest-root"
+            mount.mkdir()
+            directory_modes = (
+                (Path("/srv/ts-managed"), 0o750),
+                (qualify.MANAGED_MEMBER_DIR, 0o750),
+                (qualify.MANAGED_MATERIAL_PATH, 0o750),
+                (qualify.MANAGED_CONTROL_PATH, 0o730),
+                (qualify.MANAGED_MOUNT_PATH, 0o750),
+            )
+            directory_targets = []
+            for guest_path, mode in directory_modes:
+                target = mount / guest_path.relative_to("/")
+                target.mkdir(parents=True, exist_ok=True, mode=0o755)
+                directory_targets.append((guest_path, target, mode))
+            guest_material_paths = [qualify.MANAGED_MATERIAL_PATH / name for name in (
+                "authority.tbca", "trusted-public-key", "server.crt", "server.key", "client-ca.pem",
+                "client-managed-manifest.json", "client-config.json", "client-chain.pem",
+                "client-private-key.pem", "client-api-keys.json", "server-ca.pem",
+            )]
+            material_targets = []
+            for guest_path in guest_material_paths:
+                target = mount / guest_path.relative_to("/")
+                target.write_text("pinned")
+                target.chmod(0o440)
+                material_targets.append((guest_path, target))
+
+            qualification = qualify.Qualification.__new__(qualify.Qualification)
+            qualification.mount_path = mount
+            qualification.events = qualify.EventLog(base / "events.json")
+            commands = []
+            locked_paths: set[Path] = set()
+            output_path = base / "stat.log"
+
+            def sudo_run(label: str, *args: str | Path, **kwargs: object) -> tuple[int, Path]:
+                command = [str(arg) for arg in args]
+                commands.append((label, command))
+                if command[0] == "install":
+                    target = Path(command[-1])
+                    mode = int(command[command.index("-m") + 1], 8)
+                    target.chmod(mode)
+                    if mode != 0o755:
+                        locked_paths.add(target)
+                    output_path.write_text("")
+                else:
+                    self.assertEqual(command[:4], ["stat", "-c", "%u:%g:%f", "--"])
+                    records = []
+                    for index, target in enumerate(command[4:]):
+                        is_directory = index < len(directory_targets)
+                        mode = directory_modes[index][1] if is_directory else 0o440
+                        file_type = stat.S_IFDIR if is_directory else stat.S_IFREG
+                        records.append(f"0:65534:{file_type | mode:x}")
+                    output_path.write_text("\n".join(records) + "\n")
+                return 0, output_path
+
+            qualification._sudo_run = sudo_run
+            real_guest_path = qualify._guest_path_without_symlinks
+
+            def deny_walk_after_lock(root: Path, guest_path: Path) -> Path:
+                target = real_guest_path(root, guest_path)
+                if any(locked == target or locked in target.parents for locked in locked_paths):
+                    raise PermissionError(f"simulated uid=1000 cannot traverse locked guest path: {target}")
+                return target
+
+            with patch.object(qualify, "_guest_path_without_symlinks", side_effect=deny_walk_after_lock) as walk:
+                qualification._lockdown_managed_volume_layout(directory_targets, material_targets)
+
+            self.assertEqual(walk.call_count, 0)
+            self.assertEqual([label for label, _ in commands],
+                             ["install-dir-volume", "install-dir-control", "install-dir-material",
+                              "install-dir-6efe9447512debbf02bcd921c78d666c", "install-dir-ts-managed",
+                              "verify-managed-volume-layout"])
+            verify_command = commands[-1][1]
+            self.assertEqual(verify_command[4:], [str(target) for _, target, _ in directory_targets] +
+                             [str(target) for _, target in material_targets])
+
+
 class GuestRunnerFailureTests(unittest.TestCase):
     def test_service_timeout_leaves_host_shutdown_fallback(self):
         self.assertLess(qualify.GUEST_SERVICE_TIMEOUT_SECONDS, qualify.GUEST_DEADLINE_SECONDS)
@@ -492,11 +669,19 @@ class GuestRunnerFailureTests(unittest.TestCase):
         self.assertIn(f"mount -t ext4 -o rw \"$ALIAS\" \"$MOUNT\"", script)
         self.assertIn(f"BLKID={qualify.MANAGED_VOLUME_BLKID_PATH}", script)
         self.assertNotIn("replication/shard", script)
+        self.assertIn('chmod 0700 "$MOUNT/data" "$MOUNT/replication"', script)
         self.assertIn("Environment=TS_FC_VOLUME_UUID=", setup)
         self.assertIn(f"Before={qualify.SERVICE_NAME}", setup)
         self.assertIn(f"Requires={qualify.MANAGED_VOLUME_SETUP_SERVICE_NAME}", service)
         self.assertIn("NoNewPrivileges=yes", service)
-        self.assertNotIn("SYS_ADMIN", service)
+        self.assertIn(f"CapabilityBoundingSet={qualify.MANAGED_VOLUME_CAPABILITY_BOUNDING_SET}", service)
+        self.assertIn("CAP_DAC_READ_SEARCH", service)
+        self.assertNotIn("CAP_DAC_OVERRIDE", service)
+
+        legacy_service = qualify._service_unit()
+        self.assertIn(f"CapabilityBoundingSet={qualify.CAPABILITY_BOUNDING_SET}", legacy_service)
+        self.assertNotIn("CAP_DAC_READ_SEARCH", legacy_service)
+        self.assertNotIn("CAP_DAC_OVERRIDE", legacy_service)
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "setup.sh"
