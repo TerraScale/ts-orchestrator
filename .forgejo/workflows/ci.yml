@@ -35,7 +35,7 @@ jobs:
           go_version="$(go env GOVERSION)"
           test "${go_version}" = "go1.27.1"
           printf 'source=%s tree=%s go=%s\n' \
-            "${source_commit}" "$(git rev-parse HEAD^{tree})" "${go_version}"
+            "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
 
       - name: Verify formatting, tests, vet, and race behavior
         shell: bash
