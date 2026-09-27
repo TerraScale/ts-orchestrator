@@ -149,7 +149,12 @@ production apply would use the reviewed `ts-infra` workflow records the
 assumption in this dated checkpoint. The current ownership boundary assigns
 regional foundation and seed setup to the operator through controller A, then
 same-cell peers to `ts-orchestrator`; `ts-infra` owns shared services and
-email. Any source/state migration requires its own reviewed plan.
+email. Its approved state-only handoff subsequently completed without resource
+additions, changes, or destruction; 25 regional resources were removed from
+state and post-apply checks verified four email resources. This state
+transition does not establish regional resource health or a live controller;
+source cleanup is separate. See the
+[manual regional bootstrap runbook](region-bootstrap.md).
 
 Relevant source: [`internal/oci/sdk.go`](../internal/oci/sdk.go),
 [`internal/app/config.go`](../internal/app/config.go),
@@ -679,8 +684,11 @@ not imply production readiness.
   retention behavior, KMS authority, Vault path/version policy, and the
   operator-A to Go-controller identity/authority handoff. The current boundary
   keeps regional foundation and the first seed with the operator until explicit
-  handoff, then assigns same-cell B/C to `ts-orchestrator`; any source/state
-  migration remains a separate reviewed plan. See the
+  handoff, then assigns same-cell B/C to `ts-orchestrator`. The completed
+  `ts-infra` state-only handoff is a separate state operation; it does not
+  establish regional resource health, a live controller, or the required
+  operator-to-orchestrator identity, authority, and inventory handoff. Source
+  cleanup is separate. See the
   [manual regional bootstrap runbook](region-bootstrap.md).
 - Freeze TerraBase v2 identity, readiness, replication, drain, and writer-stop
   contracts with its producer team.

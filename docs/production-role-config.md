@@ -2,7 +2,12 @@
 
 The reviewed controller material input is a public description of one deployment, not a source of instance IDs, Vault OCIDs, or private keys. `generate-controller-material` creates a private local source and a public `Record`. The first controller is the only operator-started instance; after its identity and authority are handed off, `ts-orchestrator` launches the signed peers in that same cell. For the full regional setup and seed sequence, use the [manual regional bootstrap runbook](region-bootstrap.md).
 
-`ts-infra` owns shared services and email resources. The accepted target boundary places regional foundation and seed resources outside its ongoing ownership, but any source/state migration still needs a reviewed plan that identifies exact resources and non-destructive treatment. This page does not imply that migration is complete.
+`ts-infra` owns shared services and email resources. Its approved state-only
+handoff is complete: 25 regional resources were removed from Terraform state
+without adding, changing, or destroying resources, and post-apply checks
+verified the four email resources. This records a state transition only, not
+regional health or a live controller. Source cleanup is a separate matter; see
+the [regional bootstrap runbook](region-bootstrap.md).
 
 ## Controller inputs
 

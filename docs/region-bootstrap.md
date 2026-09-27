@@ -45,11 +45,11 @@ deployed to OCI.
 The handoff is a real ownership boundary. Do not launch B or C manually, run a
 second resource manager against the same regional resources, or infer that
 `ts-infra` Terraform state must provide a foundation-ready receipt for this
-flow. The accepted target boundary keeps regional foundation and seed
-resources out of `ts-infra`; their source/state migration still requires a
-separate reviewed plan that identifies exact resources and non-destructive
-treatment. This runbook does not perform or authorize that migration, and does
-not assert that it has completed.
+flow. The approved state-only `ts-infra` handoff has completed: its apply added,
+changed, or destroyed no resources and removed 25 regional resources from
+Terraform state. Post-apply checks verified the four email resources. This
+records a state transition only, not regional resource health or a live
+controller. Source cleanup is separate from the state handoff.
 
 ## Before creating resources
 
