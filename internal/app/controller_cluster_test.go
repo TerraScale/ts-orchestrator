@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json/v2"
 	"fmt"
 	"net"
 	"os"
@@ -81,6 +83,9 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},
 		})
 	}
+	var durableLeaseSequence uint64
+	var durableLeasePayload []byte
+	var durableLeaseEpoch uint64
 	for boot := 1; boot <= 2; boot++ {
 		children := make([]*controllerChild, 3)
 		for index := 0; index < 2; index++ {
@@ -139,6 +144,52 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 				if err == nil {
 					holder, err = authority.Observe(ctx, probe.JetStream(), "lab")
 				}
+				if err == nil {
+					entry, readErr := stream.GetLastMsgForSubject(ctx, leaseSubject)
+					if readErr != nil {
+						err = fmt.Errorf("read durable authority lease before shutdown: %w", readErr)
+					} else {
+						lease, readErr := controllerLeaseRecordFromData(entry.Data)
+						if readErr != nil {
+							err = fmt.Errorf("decode durable authority lease before shutdown: %w", readErr)
+						} else if entry.Subject != leaseSubject || lease.Epoch != holder.Epoch ||
+							lease.CandidateID != holder.CandidateID || lease.OwnerID != holder.OwnerID || lease.Released {
+							err = fmt.Errorf("durable authority lease does not match observed holder: subject=%q lease=%+v holder=%+v",
+								entry.Subject, lease, holder)
+						} else {
+							durableLeaseEpoch = lease.Epoch
+							durableLeaseSequence = entry.Sequence
+							durableLeasePayload = bytes.Clone(entry.Data)
+						}
+					}
+				}
+			} else if err == nil && boot == 2 {
+				leaseSubject := "ts.control.lab.lease"
+				if durableLeaseSequence == 0 || len(durableLeasePayload) == 0 || durableLeaseEpoch == 0 {
+					err = fmt.Errorf("first boot did not capture a durable authority lease")
+				} else {
+					persisted, readErr := stream.GetMsg(probeCtx, durableLeaseSequence)
+					if readErr != nil {
+						err = fmt.Errorf("reread authority lease sequence %d after restart: %w", durableLeaseSequence, readErr)
+					} else if persisted.Sequence != durableLeaseSequence || persisted.Subject != leaseSubject ||
+						!bytes.Equal(persisted.Data, durableLeasePayload) {
+						err = fmt.Errorf("authority lease changed across restart at sequence %d: subject=%q payload_equal=%t",
+							durableLeaseSequence, persisted.Subject, bytes.Equal(persisted.Data, durableLeasePayload))
+					} else if persistedLease, decodeErr := controllerLeaseRecordFromData(persisted.Data); decodeErr != nil ||
+						persistedLease.Epoch != durableLeaseEpoch {
+						err = fmt.Errorf("authority lease epoch changed across restart at sequence %d: lease=%+v want_epoch=%d err=%v",
+							durableLeaseSequence, persistedLease, durableLeaseEpoch, decodeErr)
+					} else if latest, latestErr := stream.GetLastMsgForSubject(probeCtx, leaseSubject); latestErr != nil {
+						err = fmt.Errorf("read authority lease after restart: %w", latestErr)
+					} else if latest.Sequence <= durableLeaseSequence {
+						err = fmt.Errorf("authority lease did not make durable write progress after restart: sequence=%d captured=%d",
+							latest.Sequence, durableLeaseSequence)
+					} else if latestLease, decodeErr := controllerLeaseRecordFromData(latest.Data); decodeErr != nil ||
+						latestLease.Epoch <= durableLeaseEpoch || latestLease.Released {
+						err = fmt.Errorf("authority lease epoch did not advance after restart: lease=%+v captured_epoch=%d err=%v",
+							latestLease, durableLeaseEpoch, decodeErr)
+					}
+				}
 			}
 		}
 		for _, child := range children {
@@ -189,6 +240,26 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 			waitControllerChildStopped(t, child)
 		}
 	}
+}
+
+type controllerLeaseRecordForTest struct {
+	Scope       string `json:"scope"`
+	CandidateID string `json:"candidate_id"`
+	OwnerID     string `json:"owner_id"`
+	Epoch       uint64 `json:"epoch"`
+	Released    bool   `json:"released"`
+}
+
+func controllerLeaseRecordFromData(data []byte) (controllerLeaseRecordForTest, error) {
+	var lease controllerLeaseRecordForTest
+	if err := json.Unmarshal(data, &lease); err != nil {
+		return lease, err
+	}
+	if lease.Scope != "lab" || lease.CandidateID == "" || lease.OwnerID == "" || lease.Epoch == 0 {
+		return lease, fmt.Errorf("invalid lease identity/scope/epoch: %q/%q/%q/%d",
+			lease.Scope, lease.CandidateID, lease.OwnerID, lease.Epoch)
+	}
+	return lease, nil
 }
 
 type controllerChild struct {

@@ -33,18 +33,32 @@ import (
 )
 
 func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t *testing.T) {
+	for _, testCase := range []struct {
+		cell   string
+		region oci.Region
+	}{
+		{cell: "gru", region: oci.RegionGRU},
+		{cell: "sfo", region: oci.RegionSFO},
+	} {
+		t.Run(testCase.cell, func(t *testing.T) {
+			testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t, testCase.cell, testCase.region)
+		})
+	}
+}
+
+func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t *testing.T, cell string, regionID oci.Region) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: "gru", Instance: "managed-enrollment", Replicas: 1, Lab: true,
+		Cell: cell, Instance: "managed-enrollment", Replicas: 1, Lab: true,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "managed-enrollment", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: cell, CandidateID: "managed-enrollment", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,17 +71,17 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	hostPublic, hostPrivate := testEd25519(t, root, "host.key")
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"production"}, CanRegisterHosts: true, CanPlaceTerraBase: true}
-	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: cell}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{
-		NATS: natscell.Config{Cell: "gru", Instance: "enrollment-operator", Replicas: 1, Lab: true,
+		NATS: natscell.Config{Cell: cell, Instance: "enrollment-operator", Replicas: 1, Lab: true,
 			URL: broker.URL()},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	})
-	placementSubscription, err := servePlacementAdmission(ctx, broker.Conn(), "gru", policy, control)
+	placementSubscription, err := servePlacementAdmission(ctx, broker.Conn(), cell, policy, control)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,17 +102,17 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		}
 		return receipt
 	}
-	intent := testManagedPlacementIntent()
+	intent := testManagedPlacementIntentForRegions(regionID)
 	first := apply("placement-7.json", intent)
 	entry, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
 	if err != nil || entry.Sequence != first.Sequence || entry.SubjectKey != "db-main.partition-a" {
 		t.Fatalf("real authority readback: entry=%+v err=%v", entry, err)
 	}
-	admitted, err := placement.NewAuthorityIntentReader(control, "gru", oci.RegionGRU)
+	admitted, err := placement.NewAuthorityIntentReader(control, cell, regionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := placement.NewJetStreamStore(ctx, broker.JetStream(), "gru", 1, admitted)
+	store, err := placement.NewJetStreamStore(ctx, broker.JetStream(), cell, 1, admitted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,14 +120,24 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	ociRegion, err := regionID.OCIRegion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	regionMappings := []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}
+	if regionID != oci.RegionGRU {
+		regionMappings = append(regionMappings, oci.RegionMapping{Cell: regionID, OCIRegion: ociRegion})
+	}
 	regionIntent := oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU,
-		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
-	region := oci.RegionConfig{Region: oci.RegionGRU, Generation: 1,
-		Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1..owned",
-		ImageCompartmentID: "ocid1.compartment.oc1..image",
+		Regions: regionMappings}
+	region := oci.RegionConfig{Region: regionID, Generation: 1,
+		Endpoint:           "https://iaas." + ociRegion + ".oraclecloud.com",
+		CompartmentID:      "ocid1.compartment.oc1." + ociRegion + ".owned",
+		ImageCompartmentID: "ocid1.compartment.oc1." + ociRegion + ".image",
 		AvailabilityDomain: "AD-1", FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
-		SubnetID: "ocid1.subnet.oc1..owned", ImageID: "ocid1.image.oc1..owned",
-		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		SubnetID:                "ocid1.subnet.oc1." + ociRegion + ".owned",
+		ImageID:                 "ocid1.image.oc1." + ociRegion + ".owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1." + ociRegion + ".owned"},
 		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
 		Shape: "VM.Standard.E4.Flex", Owner: "regional-owner"}
 	provider := &managedEnrollmentProvider{placementSizingProvider: &placementSizingProvider{config: region}}
@@ -121,7 +145,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := newManagedRegistrationVerifier("gru", oci.RegionGRU, region.Owner, region.Generation, control, store, fleet)
+	verifier, err := newManagedRegistrationVerifier(cell, regionID, region.Owner, region.Generation, control, store, fleet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +156,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		t.Fatal(err)
 	}
 	hostController, err := host.NewController(ctx, host.ControllerConfig{
-		Cell: "gru", Conn: broker.Conn(), JS: broker.JetStream(), Artifacts: artifacts,
+		Cell: cell, Conn: broker.Conn(), JS: broker.JetStream(), Artifacts: artifacts,
 		StateReplicas: 1, ResponseKey: controllerPrivate, HostMutations: control,
 		AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
 		ManagedRegistrationVerifier: verifier,
@@ -144,11 +168,11 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	managedEnrollment := &managedHostEnrollment{cell: "gru", region: oci.RegionGRU,
+	managedEnrollment := &managedHostEnrollment{cell: cell, region: regionID,
 		owner: region.Owner, generation: region.Generation, environment: "production", diskBytes: 32 << 30,
 		fleet: fleet, intents: control, members: store, controller: hostController,
 		verifier: verifier, grants: grants, fencer: control}
-	hostSubscription, err := serveHostEnrollment(ctx, broker.Conn(), "gru", policy, control, hostController, managedEnrollment)
+	hostSubscription, err := serveHostEnrollment(ctx, broker.Conn(), cell, policy, control, hostController, managedEnrollment)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +185,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		t.Fatal(ctx.Err())
 	}
 	controller, err := placement.StartController(ctx, placement.Config{
-		Cell: "gru", Region: oci.RegionGRU, FaultDomains: region.FaultDomains,
+		Cell: cell, Region: regionID, FaultDomains: region.FaultDomains,
 		ManagedOwner: region.Owner, FleetGeneration: region.Generation,
 		ImageID:     region.ImageID,
 		Environment: "production", MemberRole: "terrabase",
@@ -175,7 +199,8 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 			t.Fatal(err)
 		}
 	}
-	member, err := store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, "permanent-a")
+	seatID := permanentSeatID(regionID)
+	member, err := store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, seatID)
 	if err != nil || member.State.Stage != placement.StageAwaitingHost || member.Revision == 0 || len(provider.launches) != 1 {
 		t.Fatalf("durable placement did not launch one OCI host: member=%+v launches=%d err=%v", member, len(provider.launches), err)
 	}
@@ -188,6 +213,37 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	descriptor, err := hostboot.Parse([]byte(descriptorWire))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if observed[0].Region != regionID || descriptor.Cell != cell || descriptor.Region != string(regionID) ||
+		!strings.Contains(observed[0].ID, "."+ociRegion+".") {
+		t.Fatalf("launched host has wrong regional identity: instance=%+v descriptor=%+v", observed[0], descriptor)
+	}
+	bundle, issuer, serverCertificate := testHostEnrollmentTLSMaterial(t, controllerPublic)
+	bundle.Cell = cell
+	bundle.Region = string(regionID)
+	issuer.Cell = cell
+	if err := bundle.Validate(); err != nil {
+		t.Fatalf("%s host enrollment public bundle: %v", cell, err)
+	}
+	if regionID == oci.RegionSFO {
+		gruDescriptor := descriptor
+		gruDescriptor.Cell = "gru"
+		gruDescriptor.Region = string(oci.RegionGRU)
+		gruWire, err := gruDescriptor.CanonicalBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		postCalls := 0
+		mismatchErr := runHostSetupWithMetadata(ctx, bundle, hostenroll.InstanceMetadata{
+			InstanceID: observed[0].ID, Descriptor: gruDescriptor, Wire: gruWire,
+		}, t.TempDir(), &bytes.Buffer{}, hostSetupRuntime{ownerUID: uint32(os.Geteuid()),
+			post: func(context.Context, hostenroll.PublicBundle, []byte) ([]byte, error) {
+				postCalls++
+				return nil, errors.New("mismatched descriptor reached the enrollment endpoint")
+			}})
+		if mismatchErr == nil || !strings.Contains(mismatchErr.Error(), "differs from image-pinned regional bundle") || postCalls != 0 {
+			t.Fatalf("SFO bundle accepted a GRU descriptor: err=%v post calls=%d", mismatchErr, postCalls)
+		}
 	}
 	csrKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -243,7 +299,6 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundle, issuer, serverCertificate := testHostEnrollmentTLSMaterial(t, controllerPublic)
 	managedEnrollment.issuer = issuer
 	managedEnrollment.responseKey = controllerPrivate
 	csr, err := hostenroll.ParseCSR(enrollmentRequest.CSRPEM)
@@ -319,13 +374,16 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	networkOutage := false
 	dropNextResponse := false
 	dial := func(ctx context.Context, network, address string) (net.Conn, error) {
-		if networkOutage || address != "10.251.0.11:8443" {
+		if networkOutage || address != bundle.ControllerEndpoints[0] {
 			return nil, errors.New("unused test controller is unavailable")
 		}
 		return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
 	}
 	setupRuntime := hostSetupRuntime{ownerUID: uint32(os.Geteuid()),
 		post: func(ctx context.Context, pinned hostenroll.PublicBundle, wire []byte) ([]byte, error) {
+			if pinned.Cell != cell || pinned.Region != string(regionID) {
+				return nil, errors.New("host enrollment used a controller bundle from another cell")
+			}
 			response, err := postHostEnrollmentWithDial(ctx, pinned, wire, dial)
 			if err == nil && dropNextResponse {
 				dropNextResponse = false
@@ -348,7 +406,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	row := member.State.CanonicalRosterRow
 	roster := intent.CanonicalRoster
 	registration := host.Registration{
-		Cell: "gru", Node: member.State.HostNode, FailureDomain: row.FailureDomain,
+		Cell: cell, Node: member.State.HostNode, FailureDomain: row.FailureDomain,
 		Environment: "production", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey,
 		Generation: 1, Capacity: host.Capacity{CPU: 1, MemoryBytes: int64(member.State.ManagedHostProfile.AllocatableMemoryBytes), DiskBytes: 32 << 30},
 		SystemReserveBytes: int64(member.State.ManagedHostProfile.SystemReserveBytes),
@@ -382,14 +440,14 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err := register("registration.json", registration); err != nil {
 		t.Fatalf("signed exact managed host registration: %v", err)
 	}
-	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "enrolled-host", Replicas: 1,
+	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: cell, Instance: "enrolled-host", Replicas: 1,
 		Lab: true, URL: broker.URL(), ClientRole: "host"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = hostRuntime.Close() })
 	agent, err := host.NewAgent(host.AgentConfig{
-		Cell: "gru", Node: registration.Node, Environment: "production", Roles: []string{"terrabase"},
+		Cell: cell, Node: registration.Node, Environment: "production", Roles: []string{"terrabase"},
 		Conn: hostRuntime.Conn(), Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic,
 		Runner: &inMemoryRunner{}, InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t),
 		WorkloadIdentity: testHostWorkloadIdentity(),
@@ -501,7 +559,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	}
 	hostRevokeNow := time.Now().UTC()
 	hostRevokeEnvelope, err := protocol.SignEnvelope(hostRevokePayload, protocol.EnvelopeScope{
-		Region: "gru", Kind: "host.enrollment.revoke", Actor: "node-a",
+		Region: cell, Kind: "host.enrollment.revoke", Actor: "node-a",
 		OperationID: hostEnrollmentRevokeOperationID(observed[0].ID), Epoch: control.Current().Epoch,
 	}, hostRevokeNow, hostRevokeNow.Add(time.Minute), hostPrivate)
 	if err != nil {
@@ -511,7 +569,7 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostRevokeReply, err := broker.Conn().RequestWithContext(ctx, hostRegistrationSubject("gru"), hostRevokeWire)
+	hostRevokeReply, err := broker.Conn().RequestWithContext(ctx, hostRegistrationSubject(cell), hostRevokeWire)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,6 +640,20 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 type managedEnrollmentProvider struct {
 	*placementSizingProvider
 	volumeCalls int
+}
+
+func (provider *managedEnrollmentProvider) LaunchInstance(ctx context.Context, request oci.LaunchRequest) (oci.CloudInstance, error) {
+	instance, err := provider.placementSizingProvider.LaunchInstance(ctx, request)
+	if err != nil {
+		return oci.CloudInstance{}, err
+	}
+	ociRegion, err := provider.config.Region.OCIRegion()
+	if err != nil {
+		return oci.CloudInstance{}, err
+	}
+	instance.ID = "ocid1.instance.oc1." + ociRegion + ".managed-enrollment-" + strings.ToLower(string(provider.config.Region))
+	provider.instance.ID = instance.ID
+	return instance, nil
 }
 
 func (provider *managedEnrollmentProvider) CreateVolume(context.Context, oci.VolumeCreateRequest, map[string]string, string) (oci.CloudVolume, error) {

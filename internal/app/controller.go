@@ -432,8 +432,13 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 }
 
 func transientControllerBootstrapError(err error) bool {
+	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrLeaseCorrupt) ||
+		errors.Is(err, authority.ErrOutcomeUnknown) {
+		return false
+	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
-		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) {
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, authority.ErrConflict) {
 		return true
 	}
 	var apiErr *jetstream.APIError

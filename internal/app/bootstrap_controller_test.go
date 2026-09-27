@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,10 +12,82 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 )
+
+func TestTransientControllerBootstrapErrorAuthorityClassifications(t *testing.T) {
+	conflict := fmt.Errorf("observe authority lease: %w", authority.ErrConflict)
+	unknownConflict := fmt.Errorf("probe authority outcome: %w", fmt.Errorf("%w: %w",
+		authority.ErrOutcomeUnknown, authority.ErrConflict))
+	for _, test := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "wrapped conflict retries", err: conflict, want: true},
+		{name: "fenced remains permanent", err: fmt.Errorf("open authority: %w", authority.ErrFenced)},
+		{name: "corrupt lease remains permanent", err: fmt.Errorf("open authority: %w", authority.ErrLeaseCorrupt)},
+		{name: "unknown outcome remains permanent", err: unknownConflict},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := transientControllerBootstrapError(test.err); got != test.want {
+				t.Fatalf("transientControllerBootstrapError(%v) = %t, want %t", test.err, got, test.want)
+			}
+		})
+	}
+}
+
+func TestRetryControllerOpenRetriesAuthorityConflict(t *testing.T) {
+	var calls int
+	resource, cancel, err := retryControllerOpen(t.Context(), "start regional authority", func() bool {
+		return true
+	}, false, func(context.Context) (string, error) {
+		calls++
+		if calls == 1 {
+			return "", fmt.Errorf("observe authority lease: %w", authority.ErrConflict)
+		}
+		return "regional authority", nil
+	}, nil)
+	if cancel != nil {
+		cancel()
+	}
+	if err != nil {
+		t.Fatalf("retryControllerOpen() error = %v", err)
+	}
+	if calls != 2 || resource != "regional authority" {
+		t.Fatalf("retryControllerOpen() calls=%d resource=%q, want calls=2 resource=%q", calls, resource, "regional authority")
+	}
+}
+
+func TestRetryControllerOpenDoesNotRetryPermanentAuthorityErrors(t *testing.T) {
+	for _, sentinel := range []struct {
+		name string
+		err  error
+	}{
+		{name: "fenced", err: authority.ErrFenced},
+		{name: "corrupt lease", err: authority.ErrLeaseCorrupt},
+		{name: "unknown outcome", err: fmt.Errorf("%w: %w", authority.ErrOutcomeUnknown, authority.ErrConflict)},
+	} {
+		t.Run(sentinel.name, func(t *testing.T) {
+			var calls int
+			_, _, err := retryControllerOpen(t.Context(), "start regional authority", func() bool {
+				return true
+			}, false, func(context.Context) (string, error) {
+				calls++
+				return "", fmt.Errorf("open authority: %w", sentinel.err)
+			}, nil)
+			if !errors.Is(err, sentinel.err) {
+				t.Fatalf("retryControllerOpen() error = %v, want it to wrap %v", err, sentinel.err)
+			}
+			if calls != 1 {
+				t.Fatalf("retryControllerOpen() attempts=%d, want 1", calls)
+			}
+		})
+	}
+}
 
 type fixedControllerClock struct {
 	bound brokerauth.ClockBound

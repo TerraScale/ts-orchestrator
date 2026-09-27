@@ -346,6 +346,19 @@ printf '{}\\n'
         path.write_bytes(data)
         return path
 
+    def set_sfo_host_bundle(self) -> dict:
+        self.identity.write_bytes(json.dumps({
+            "schemaVersion": 1, "deploymentId": "deployment-sfo",
+            "environment": "canary", "cell": "SFO",
+        }, separators=(",", ":")).encode())
+        bundle = json.loads(self.host_bundle.read_bytes())
+        bundle["cell"] = "sfo"
+        bundle["region"] = "SFO"
+        bundle["controller_endpoints"] = [f"10.52.8.{number}:8443" for number in (101, 102, 103)]
+        bundle["nats_urls"] = [f"tls://10.52.8.{number}:4222" for number in (101, 102, 103)]
+        self.host_bundle.write_bytes(json.dumps(bundle, separators=(",", ":")).encode())
+        return bundle
+
     def assert_baked_loader_accepts_roots(self, filenames: list[str]) -> None:
         source = BAKED_LOADER.read_text(encoding="utf-8")
         pattern_match = re.search(r"rootFilenameRE\s*=\s*regexp\.MustCompile\(`([^`]+)`\)", source)
@@ -836,6 +849,45 @@ printf '{}\\n'
         for unit, target in (("terrascale-orchestrator-host-setup.service", "multi-user.target"),
                              ("terrascale-orchestrator-host-setup.timer", "timers.target")):
             self.assertTrue((root / "etc/systemd/system" / (target + ".wants") / unit).is_symlink())
+
+    def test_sfo_host_bundle_matches_baked_identity_and_is_installed(self) -> None:
+        self.set_sfo_host_bundle()
+        digest = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
+        result = self.run_builder(host_enrollment_public=self.host_bundle,
+                                  host_enrollment_public_sha256=digest)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = self.base_image_root / HOST_ENROLLMENT_GUEST.lstrip("/")
+        self.assertEqual(installed.read_bytes(), self.host_bundle.read_bytes())
+        self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o444)
+        self.assertIn(f"host enrollment image sha256={digest}", result.stdout)
+
+    def test_sfo_host_bundle_mismatches_fail_before_image_effects(self) -> None:
+        bundle = self.set_sfo_host_bundle()
+        cases = (
+            ("cell region mapping", {"region": "FRA"}, None, "cell and region differ"),
+            ("baked identity cell", {}, "FRA", "region differs from bootstrap identity"),
+            ("release environment", {"environment": "production"}, None,
+             "environment differs from release environment"),
+            ("reviewed digest", {}, None, "differs from its reviewed SHA-256"),
+        )
+        original_identity = self.identity.read_bytes()
+        for name, changes, identity_cell, expected_error in cases:
+            with self.subTest(name=name):
+                candidate = {**bundle, **changes}
+                self.host_bundle.write_bytes(json.dumps(candidate, separators=(",", ":")).encode())
+                identity = json.loads(original_identity)
+                if identity_cell is not None:
+                    identity["cell"] = identity_cell
+                self.identity.write_bytes(json.dumps(identity, separators=(",", ":")).encode())
+                digest = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
+                if name == "reviewed digest":
+                    digest = "0" * 64
+                result = self.run_builder(host_enrollment_public=self.host_bundle,
+                                          host_enrollment_public_sha256=digest)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected_error, result.stderr)
+                self.assertFalse(self.events.exists())
+                self.assertFalse(self.output.exists())
 
     def test_host_bundle_requires_paired_digest_before_image_effects(self) -> None:
         for inputs in (

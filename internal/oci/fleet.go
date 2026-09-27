@@ -223,8 +223,9 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 		}
 		instance, err := f.instanceFromCloud(ctx, cloud, identity, profileIntent)
 		if err != nil {
-			if errors.Is(err, ErrAttachmentRecoveryHold) {
-				slog.Warn("withholding OCI instance with an unbound retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region)
+			if errors.Is(err, ErrAttachmentRecoveryHold) || errors.Is(err, ErrForeignResource) ||
+				errors.Is(err, ErrRetainedVolumeUnknown) {
+				slog.Warn("withholding OCI instance with an unverified retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region, "error", err)
 				continue
 			}
 			return nil, err

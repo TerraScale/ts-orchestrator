@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -25,7 +26,7 @@ const (
 )
 
 // renderHostEnrollmentPublicAt emits the exact public enrollment inputs baked
-// into a canary host image. The live, owner-only material source is the source
+// into a regional host image. The live, owner-only material source is the source
 // of the controller CA and authority keys, and the output cannot overwrite a
 // previously reviewed bundle.
 func renderHostEnrollmentPublicAt(args []string, now time.Time) error {
@@ -80,12 +81,10 @@ func renderHostEnrollmentPublicAt(args []string, now time.Time) error {
 }
 
 func hostEnrollmentPublicFromRecord(record bootstrapmaterial.Record, caWire []byte, now time.Time) (hostenroll.PublicBundle, error) {
-	if record.SchemaVersion != 1 || record.Config.Environment != "canary" || record.Config.Region != "sa-saopaulo-1" ||
-		record.Config.Cell != "gru" || record.Config.DeploymentID != "ts-preview-gru-20260926" ||
-		record.Config.ClusterID != "ts-preview-gru-20260926" || record.Config.SubnetCIDR != "10.251.0.0/25" ||
-		record.Config.ValidityHours != 48 || len(record.Config.Slots) != 3 || now.IsZero() ||
-		now.Add(24*time.Hour).After(record.ExpiresAt) {
-		return hostenroll.PublicBundle{}, errors.New("reviewed canary material does not have the accepted identity or image build window")
+	if record.SchemaVersion != 1 || record.Config.Validate() != nil || len(record.Config.Slots) != 3 ||
+		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour ||
+		now.IsZero() || now.Add(24*time.Hour).After(record.ExpiresAt) {
+		return hostenroll.PublicBundle{}, errors.New("reviewed regional material does not have a valid identity or image build window")
 	}
 	var caDigest string
 	for _, file := range record.Files {
@@ -99,15 +98,15 @@ func hostEnrollmentPublicFromRecord(record bootstrapmaterial.Record, caWire []by
 	if caDigest == "" || !matchesSHA256(caWire, caDigest) {
 		return hostenroll.PublicBundle{}, errors.New("regional CA differs from reviewed material")
 	}
-	bundle := hostenroll.PublicBundle{SchemaVersion: 1, Cell: "gru", Region: "GRU", Environment: "canary",
+	bundle := hostenroll.PublicBundle{SchemaVersion: 1, Cell: record.Config.Cell,
+		Region: strings.ToUpper(record.Config.Cell), Environment: record.Config.Environment,
 		CAPEM: string(caWire), ControllerResponsePublicKey: record.Public.ControllerResponsePublicKey,
 		CellAccountNKey: record.Public.CellAccountNKey,
 		InstallRoot:     hostInstallRoot, StateRoot: hostStateRoot, ManagedRuntimeRoot: hostManagedRuntimeRoot,
 		WorkloadUID: hostWorkloadUID, WorkloadGID: hostWorkloadGID}
 	for index, slot := range record.Config.Slots {
-		if slot.Name != fmt.Sprintf("controller-%c", 'a'+index) ||
-			slot.PrivateIP != fmt.Sprintf("10.251.0.%d", 11+index) {
-			return hostenroll.PublicBundle{}, errors.New("reviewed controller endpoint differs from accepted canary slots")
+		if slot.Name != fmt.Sprintf("controller-%c", 'a'+index) {
+			return hostenroll.PublicBundle{}, errors.New("reviewed controller slots are not in canonical order")
 		}
 		bundle.ControllerEndpoints = append(bundle.ControllerEndpoints, slot.PrivateIP+":8443")
 		bundle.NATSURLs = append(bundle.NATSURLs, "tls://"+slot.PrivateIP+":4222")

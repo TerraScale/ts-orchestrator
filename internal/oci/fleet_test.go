@@ -1273,6 +1273,145 @@ func TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances(t *testin
 	}
 }
 
+func TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost(t *testing.T) {
+	providerFailure := errors.New("OCI retained volume read failed")
+	tests := []struct {
+		name      string
+		prepare   func(*fakeProvider, Instance, RetainedVolume) Provider
+		wantError bool
+	}{
+		{
+			name: "foreign attachment scope",
+			prepare: func(provider *fakeProvider, bad Instance, _ RetainedVolume) Provider {
+				provider.attachments["attachment-foreign-scope"] = observeTestAttachment("attachment-foreign-scope", "", bad.ID)
+				return provider
+			},
+		},
+		{
+			name: "foreign retained volume",
+			prepare: func(provider *fakeProvider, bad Instance, owned RetainedVolume) Provider {
+				foreign := provider.volumes[owned.ID]
+				foreign.ID = "ocid1.volume.foreign-observe"
+				foreign.VPUsPerGB++
+				provider.volumes[foreign.ID] = foreign
+				provider.attachments["attachment-foreign-volume"] = observeTestAttachment("attachment-foreign-volume", foreign.ID, bad.ID)
+				return provider
+			},
+		},
+		{
+			name: "unowned tag-shaped retained volume",
+			prepare: func(provider *fakeProvider, bad Instance, owned RetainedVolume) Provider {
+				unowned := provider.volumes[owned.ID]
+				unowned.ID = "ocid1.volume.unowned-observe"
+				provider.volumes[unowned.ID] = unowned
+				provider.attachments["attachment-unowned-volume"] = observeTestAttachment("attachment-unowned-volume", unowned.ID, bad.ID)
+				return provider
+			},
+		},
+		{
+			name: "unconfirmed attachment",
+			prepare: func(provider *fakeProvider, bad Instance, owned RetainedVolume) Provider {
+				provider.attachments["attachment-unconfirmed"] = observeTestAttachment("attachment-unconfirmed", owned.ID, bad.ID)
+				return provider
+			},
+		},
+		{
+			name: "GetVolume provider failure",
+			prepare: func(provider *fakeProvider, bad Instance, owned RetainedVolume) Provider {
+				provider.attachments["attachment-volume-read"] = observeTestAttachment("attachment-volume-read", owned.ID, bad.ID)
+				return &observeFailingGetProvider{fakeProvider: provider, volumeID: owned.ID, failure: providerFailure}
+			},
+			wantError: true,
+		},
+		{
+			name: "GetVolumeAttachment provider failure",
+			prepare: func(provider *fakeProvider, bad Instance, owned RetainedVolume) Provider {
+				provider.attachments["attachment-read"] = observeTestAttachment("attachment-read", owned.ID, bad.ID)
+				return &observeFailingGetProvider{fakeProvider: provider, attachmentID: "attachment-read", failure: providerFailure}
+			},
+			wantError: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			config, intent := testRegionConfig()
+			provider := newFakeProvider(config)
+			journal := newFakeJournal()
+			setup, err := newTestFleet(config, intent, provider, journal,
+				&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bad, err := setup.EnsureHost(ctx, testEnsureRequest("observe-attachment-bad"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			goodRequest := testEnsureRequest("observe-attachment-good")
+			goodRequest.PrivateIP = "10.251.0.22"
+			good, err := setup.EnsureHost(ctx, goodRequest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			owned, err := setup.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: "observe-attachment-volume", SizeGB: 50})
+			if err != nil {
+				t.Fatal(err)
+			}
+			readOnlyJournal := &observeReadOnlyJournal{fakeJournal: journal}
+			readProvider := test.prepare(provider, bad, owned)
+			fleet, err := newTestFleet(config, intent, readProvider, readOnlyJournal,
+				&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			observed, err := fleet.Observe(ctx)
+			if test.wantError {
+				if !errors.Is(err, providerFailure) || errors.Is(err, ErrForeignResource) || len(observed) != 0 {
+					t.Fatalf("provider read failure was withheld: observed=%+v err=%v", observed, err)
+				}
+			} else if err != nil || len(observed) != 1 || observed[0].ID != good.ID {
+				t.Fatalf("unverified attachment hid healthy host or exposed bad host: observed=%+v err=%v", observed, err)
+			}
+			if provider.launches != 2 || provider.attachCalls != 0 || provider.volumeCreates != 1 ||
+				provider.terminations != 0 || readOnlyJournal.writes != 0 || len(journal.attachments) != 0 {
+				t.Fatalf("Observe mutated or adopted resources: launches=%d attaches=%d volumes=%d terminations=%d journal writes=%d owned attachments=%d",
+					provider.launches, provider.attachCalls, provider.volumeCreates, provider.terminations,
+					readOnlyJournal.writes, len(journal.attachments))
+			}
+		})
+	}
+}
+
+func observeTestAttachment(id, volumeID, instanceID string) CloudAttachment {
+	return CloudAttachment{
+		ID: id, VolumeID: volumeID, InstanceID: instanceID, LifecycleState: "ATTACHED",
+		ETag: "observe-etag", Device: "/dev/oracleoci/oraclevdb",
+		IsReadOnly: boolPointer(false), IsShareable: boolPointer(false),
+		IsPvEncryptionInTransitEnabled: boolPointer(true),
+	}
+}
+
+type observeFailingGetProvider struct {
+	*fakeProvider
+	volumeID     string
+	attachmentID string
+	failure      error
+}
+
+func (provider *observeFailingGetProvider) GetVolume(ctx context.Context, id string) (CloudVolume, error) {
+	if id == provider.volumeID {
+		return CloudVolume{}, provider.failure
+	}
+	return provider.fakeProvider.GetVolume(ctx, id)
+}
+
+func (provider *observeFailingGetProvider) GetVolumeAttachment(ctx context.Context, id string) (CloudAttachment, error) {
+	if id == provider.attachmentID {
+		return CloudAttachment{}, provider.failure
+	}
+	return provider.fakeProvider.GetVolumeAttachment(ctx, id)
+}
+
 func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
