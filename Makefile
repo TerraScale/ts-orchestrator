@@ -16,7 +16,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 verify: format-check firecracker-contract-test test vet race-test
 
 format-check:
-	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -print0 | xargs -0 $(GOFMT) -l)"; \
+	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
 	if [ -n "$$unformatted" ]; then \
 		printf 'Go files need gofmt:\n%s\n' "$$unformatted" >&2; \
 		exit 1; \

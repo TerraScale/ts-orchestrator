@@ -575,6 +575,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             fake_systemctl = fake_bin / "systemctl"
             fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
             fake_systemctl.chmod(0o755)
+            fake_sync = fake_bin / "sync"
+            fake_sync.write_text("#!/bin/sh\nexit 0\n")
+            fake_sync.chmod(0o755)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
                 Path("unused-go"), Path("unused-probe"), Path("unused-server"),
@@ -605,6 +608,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             fake_systemctl = fake_bin / "systemctl"
             fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
             fake_systemctl.chmod(0o755)
+            fake_sync = fake_bin / "sync"
+            fake_sync.write_text("#!/bin/sh\nexit 0\n")
+            fake_sync.chmod(0o755)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
                 Path("unused-go"), Path("unused-probe"), Path("unused-server"),
@@ -645,6 +651,9 @@ class GuestRunnerFailureTests(unittest.TestCase):
             fake_systemctl = fake_bin / "systemctl"
             fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
             fake_systemctl.chmod(0o755)
+            fake_sync = fake_bin / "sync"
+            fake_sync.write_text("#!/bin/sh\nexit 0\n")
+            fake_sync.chmod(0o755)
             script = root / "runner.sh"
             script.write_text(qualify._managed_volume_shell_runner(guest_root=guest))
             environment = os.environ.copy()
