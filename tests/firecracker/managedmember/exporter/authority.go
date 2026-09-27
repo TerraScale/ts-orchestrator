@@ -124,7 +124,7 @@ func emptyCatalog() ([]byte, [32]byte, error) {
 	catalog = append(catalog, digest[:]...)
 	catalog = appendU32(catalog, uint32(len(schema)))
 	catalog = append(catalog, schema...)
-	catalog = appendU32(catalog, crc32.Checksum(catalog, crcTable))
+	catalog = appendU32(catalog, 0)
 	binary.LittleEndian.PutUint32(catalog[8:12], uint32(len(catalog)))
 	// The checksum covers the complete record header, including its final length.
 	binary.LittleEndian.PutUint32(catalog[len(catalog)-4:], crc32.Checksum(catalog[:len(catalog)-4], crcTable))

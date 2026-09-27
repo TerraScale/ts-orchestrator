@@ -78,8 +78,12 @@ read-only prerequisite check, then start the live qualification from the
 repository root:
 
 ```bash
-python3 tests/firecracker/qualify.py check
-python3 tests/firecracker/qualify.py run
+python3 tests/firecracker/qualify.py check \
+  --kernel /tmp/vm-inputs/vmlinux \
+  --rootfs /tmp/vm-inputs/rootfs.ext4
+python3 tests/firecracker/qualify.py run \
+  --kernel /tmp/vm-inputs/vmlinux \
+  --rootfs /tmp/vm-inputs/rootfs.ext4
 ```
 
 The harness requires Firecracker, `/dev/kvm`, `/dev/net/tun`, the pinned kernel

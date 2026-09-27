@@ -128,11 +128,39 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
 		t.Fatalf("exact boot and private VNIC refused: %v", err)
 	}
-	reader.boot.VpusPerGB = new(int64(20))
-	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrImageNotQualified) {
-		t.Fatalf("costed boot tier drift was accepted: %v", err)
+	for _, test := range []struct {
+		name    string
+		mutate  func()
+		restore func()
+	}{
+		{"image", func() { reader.boot.ImageId = new("ocid1.image.other") },
+			func() { reader.boot.ImageId = new(config.ImageID) }},
+		{"size", func() { reader.boot.SizeInGBs = new(int64(100)) },
+			func() { reader.boot.SizeInGBs = new(int64(50)) }},
+		{"tier", func() { reader.boot.VpusPerGB = new(int64(20)) },
+			func() { reader.boot.VpusPerGB = new(int64(10)) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.mutate()
+			defer test.restore()
+			_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+			if !errors.Is(err, ErrImageNotQualified) || !errors.Is(err, ErrForeignResource) {
+				t.Fatalf("instance boot drift did not carry both classifications: %v", err)
+			}
+		})
 	}
-	reader.boot.VpusPerGB = new(int64(10))
+	bootGets := reader.bootGets
+	reader.boots.Items[0].BootVolumeId = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) || reader.bootGets != bootGets {
+		t.Fatalf("missing boot ID reached GetBootVolume or was not foreign: err=%v calls=%d", err, reader.bootGets)
+	}
+	reader.boots.Items[0].BootVolumeId = new(bootID)
+	vnicGets := reader.vnicGets
+	reader.attachments.Items[0].VnicId = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) || reader.vnicGets != vnicGets {
+		t.Fatalf("missing VNIC ID reached GetVnic or was not foreign: err=%v calls=%d", err, reader.vnicGets)
+	}
+	reader.attachments.Items[0].VnicId = new(vnicID)
 	reader.vnic.SkipSourceDestCheck = new(true)
 	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("VNIC without source/destination checks was accepted: %v", err)
@@ -149,6 +177,8 @@ type fakeInstanceReadback struct {
 	boot        core.GetBootVolumeResponse
 	attachments core.ListVnicAttachmentsResponse
 	vnic        core.GetVnicResponse
+	bootGets    int
+	vnicGets    int
 }
 
 func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {
@@ -156,6 +186,7 @@ func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, c
 }
 
 func (reader *fakeInstanceReadback) GetBootVolume(context.Context, core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error) {
+	reader.bootGets++
 	return reader.boot, nil
 }
 
@@ -164,6 +195,7 @@ func (reader *fakeInstanceReadback) ListVnicAttachments(context.Context, core.Li
 }
 
 func (reader *fakeInstanceReadback) GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error) {
+	reader.vnicGets++
 	return reader.vnic, nil
 }
 

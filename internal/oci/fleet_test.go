@@ -1,10 +1,14 @@
 package oci
 
 import (
+	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -12,6 +16,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 func TestEnsureHostRecoversLostLaunchResponse(t *testing.T) {
@@ -1533,6 +1539,187 @@ func newTestFleet(
 	writerStop WriterStopVerifier,
 ) (Fleet, error) {
 	return NewFleetWithImageVerifier(config, intent, provider, journal, fencer, drainRequester, writerStop, &fakeImageVerifier{})
+}
+
+// Keep the SDK GetInstance adapter in this regression path. A boot mismatch
+// must be withheld as one foreign host without hiding an unrelated OCI error.
+func TestObserveWithholdsOnlySDKBootDrift(t *testing.T) {
+	config, intent := testRegionConfig()
+	setupProvider := newFakeProvider(config)
+	journal := newFakeJournal()
+	setup, err := newTestFleet(config, intent, setupProvider, journal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	badRequest := testEnsureRequest("sdk-boot-drift")
+	bad, err := setup.EnsureHost(t.Context(), badRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	goodRequest := testEnsureRequest("sdk-healthy")
+	goodRequest.PrivateIP = "10.251.0.22"
+	good, err := setup.EnsureHost(t.Context(), goodRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readback := &observeSDKReadback{config: config, instances: map[string]CloudInstance{
+		bad.ID: setupProvider.instances[bad.ID], good.ID: setupProvider.instances[good.ID],
+	}, badBootID: bad.ID, getInstanceCalls: make(map[string]int)}
+	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
+		UserAgent: "oci-observe-test", Signer: observeSDKSigner{}, HTTPClient: readback}
+	adapter := &sdkProvider{config: config, compute: core.ComputeClient{BaseClient: base},
+		storage: core.BlockstorageClient{BaseClient: base},
+		network: core.VirtualNetworkClient{BaseClient: base}}
+	provider := &observeSDKProvider{sdkProvider: adapter,
+		listed: []CloudInstance{setupProvider.instances[bad.ID], setupProvider.instances[good.ID]}}
+	readOnlyJournal := &observeReadOnlyJournal{fakeJournal: journal}
+	fleet, err := newTestFleet(config, intent, provider, readOnlyJournal,
+		&fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := fleet.Observe(t.Context())
+	if err != nil || len(observed) != 1 || observed[0].ID != good.ID {
+		t.Fatalf("SDK boot drift hid healthy host: observed=%+v err=%v", observed, err)
+	}
+	if readback.getInstanceCalls[bad.ID] != 1 || readback.getInstanceCalls[good.ID] != 1 ||
+		readback.mutations != 0 || readOnlyJournal.writes != 0 {
+		t.Fatalf("Observe skipped SDK reobservation or mutated state: calls=%v OCI writes=%d journal writes=%d",
+			readback.getInstanceCalls, readback.mutations, readOnlyJournal.writes)
+	}
+	providerFailure := errors.New("OCI GetInstance transport failed")
+	readback.failInstanceID, readback.failure = good.ID, providerFailure
+	if _, err := fleet.Observe(t.Context()); !errors.Is(err, providerFailure) || errors.Is(err, ErrForeignResource) {
+		t.Fatalf("genuine SDK provider error was withheld: %v", err)
+	}
+	if readback.mutations != 0 || readOnlyJournal.writes != 0 {
+		t.Fatalf("failed Observe mutated state: OCI writes=%d journal writes=%d", readback.mutations, readOnlyJournal.writes)
+	}
+}
+
+type observeSDKProvider struct {
+	*sdkProvider
+	listed []CloudInstance
+}
+
+func (provider *observeSDKProvider) ListInstances(_ context.Context, compartmentID string) ([]CloudInstance, error) {
+	if compartmentID != provider.config.CompartmentID {
+		return nil, ErrForeignResource
+	}
+	return slices.Clone(provider.listed), nil
+}
+
+func (*observeSDKProvider) ListVolumeAttachments(context.Context, string, string) ([]CloudAttachment, error) {
+	return nil, nil
+}
+
+type observeReadOnlyJournal struct {
+	*fakeJournal
+	writes int
+}
+
+func (journal *observeReadOnlyJournal) RecordIntent(context.Context, OperationIntent) error {
+	journal.writes++
+	return errors.New("Observe attempted to write an intent")
+}
+
+func (journal *observeReadOnlyJournal) RecordResult(context.Context, OperationResult) error {
+	journal.writes++
+	return errors.New("Observe attempted to write a result")
+}
+
+type observeSDKSigner struct{}
+
+func (observeSDKSigner) Sign(*http.Request) error { return nil }
+
+type observeSDKReadback struct {
+	config           RegionConfig
+	instances        map[string]CloudInstance
+	badBootID        string
+	failInstanceID   string
+	failure          error
+	getInstanceCalls map[string]int
+	mutations        int
+}
+
+func (readback *observeSDKReadback) Do(request *http.Request) (*http.Response, error) {
+	if request.Method != http.MethodGet {
+		readback.mutations++
+		return nil, errors.New("unexpected OCI mutation")
+	}
+	var payload any
+	var etag string
+	path := request.URL.Path
+	switch {
+	case strings.HasPrefix(path, "/20160918/instances/"):
+		id := strings.TrimPrefix(path, "/20160918/instances/")
+		readback.getInstanceCalls[id]++
+		if id == readback.failInstanceID {
+			return nil, readback.failure
+		}
+		instance, found := readback.instances[id]
+		if !found {
+			return nil, fmt.Errorf("unknown test instance %s", id)
+		}
+		etag = instance.ETag
+		payload = map[string]any{"id": instance.ID, "compartmentId": instance.CompartmentID,
+			"availabilityDomain": instance.AvailabilityDomain, "faultDomain": instance.FaultDomain,
+			"shape": instance.Shape, "shapeConfig": map[string]any{"ocpus": instance.Ocpus,
+				"memoryInGBs": instance.MemoryInGBs}, "lifecycleState": instance.LifecycleState,
+			"imageId": instance.ImageID, "metadata": instance.Metadata, "freeformTags": instance.FreeformTags}
+	case strings.HasSuffix(path, "/bootVolumeAttachments"):
+		id := request.URL.Query().Get("instanceId")
+		if _, found := readback.instances[id]; !found {
+			return nil, fmt.Errorf("unknown test boot attachment instance %s", id)
+		}
+		payload = []map[string]any{{"bootVolumeId": "ocid1.bootvolume." + id,
+			"instanceId": id, "compartmentId": readback.config.CompartmentID,
+			"availabilityDomain": readback.config.AvailabilityDomain, "lifecycleState": "ATTACHED"}}
+	case strings.HasPrefix(path, "/20160918/bootVolumes/"):
+		id := strings.TrimPrefix(path, "/20160918/bootVolumes/")
+		instanceID := strings.TrimPrefix(id, "ocid1.bootvolume.")
+		if _, found := readback.instances[instanceID]; !found {
+			return nil, fmt.Errorf("unknown test boot volume %s", id)
+		}
+		size := int64(readback.config.BootVolumeGB)
+		if instanceID == readback.badBootID {
+			size++
+		}
+		payload = map[string]any{"id": id, "compartmentId": readback.config.CompartmentID,
+			"imageId": readback.config.ImageID, "sizeInGBs": size,
+			"vpusPerGB": readback.config.BootVolumeVPUsPerGB}
+	case strings.HasSuffix(path, "/vnicAttachments"):
+		id := request.URL.Query().Get("instanceId")
+		if _, found := readback.instances[id]; !found {
+			return nil, fmt.Errorf("unknown test VNIC attachment instance %s", id)
+		}
+		payload = []map[string]any{{"vnicId": "ocid1.vnic." + id, "instanceId": id,
+			"subnetId": readback.config.SubnetID, "lifecycleState": "ATTACHED"}}
+	case strings.HasPrefix(path, "/20160918/vnics/"):
+		id := strings.TrimPrefix(path, "/20160918/vnics/")
+		instanceID := strings.TrimPrefix(id, "ocid1.vnic.")
+		instance, found := readback.instances[instanceID]
+		if !found {
+			return nil, fmt.Errorf("unknown test VNIC %s", id)
+		}
+		payload = map[string]any{"id": id, "subnetId": readback.config.SubnetID,
+			"privateIp": instance.PrivateIP, "nsgIds": readback.config.NetworkSecurityGroupIDs,
+			"skipSourceDestCheck": false, "lifecycleState": "AVAILABLE"}
+	default:
+		return nil, fmt.Errorf("unexpected OCI test request %s", request.URL)
+	}
+	wire, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	header := make(http.Header)
+	header.Set("Content-Type", "application/json")
+	if etag != "" {
+		header.Set("etag", etag)
+	}
+	return &http.Response{StatusCode: http.StatusOK, Header: header,
+		Body: io.NopCloser(bytes.NewReader(wire)), Request: request}, nil
 }
 
 func newAttachTestState(t *testing.T) (RegionConfig, *fakeProvider, *fakeJournal, Fleet, Instance, RetainedVolume) {

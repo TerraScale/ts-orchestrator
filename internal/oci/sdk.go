@@ -126,7 +126,8 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	}
 	if len(boots.Items) != 1 || stringValue(boots.OpcNextPage) != "" ||
 		boots.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
-		stringValue(boots.Items[0].InstanceId) != instance.ID {
+		stringValue(boots.Items[0].InstanceId) != instance.ID ||
+		stringValue(boots.Items[0].BootVolumeId) == "" {
 		return "", fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
 	}
 	boot, err := storage.GetBootVolume(ctx, core.GetBootVolumeRequest{
@@ -140,7 +141,8 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		stringValue(boot.ImageId) != config.ImageID ||
 		int64Value(boot.SizeInGBs) != int64(config.BootVolumeGB) ||
 		int64Value(boot.VpusPerGB) != int64(config.BootVolumeVPUsPerGB) {
-		return "", fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified)
+		return "", errors.Join(ErrForeignResource,
+			fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified))
 	}
 	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
@@ -150,7 +152,8 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	}
 	if len(attachments.Items) != 1 || stringValue(attachments.OpcNextPage) != "" ||
 		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached ||
-		stringValue(attachments.Items[0].InstanceId) != instance.ID {
+		stringValue(attachments.Items[0].InstanceId) != instance.ID ||
+		stringValue(attachments.Items[0].VnicId) == "" {
 		return "", fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
 	}
 	vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
