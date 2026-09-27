@@ -23,7 +23,6 @@ const (
 
 	intentPublishTimeout        = 10 * time.Second
 	intentPublishAttemptTimeout = 2 * time.Second
-	intentPublishMaxAttempts    = 5
 	intentPublishInitialBackoff = 100 * time.Millisecond
 	intentPublishMaxBackoff     = 800 * time.Millisecond
 )
@@ -245,7 +244,7 @@ func retrySubmitOperationRead(ctx context.Context, read func(context.Context) (*
 
 	backoff := intentPublishInitialBackoff
 	var lastErr error
-	for attempt := range intentPublishMaxAttempts {
+	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -266,7 +265,7 @@ func retrySubmitOperationRead(ctx context.Context, read func(context.Context) (*
 		if parentErr := ctx.Err(); parentErr != nil {
 			return nil, parentErr
 		}
-		if retryCtx.Err() != nil || !retryableSubmitOperationReadError(err, attemptExpired) || attempt == intentPublishMaxAttempts-1 {
+		if retryCtx.Err() != nil || !retryableSubmitOperationReadError(err, attemptExpired) {
 			return nil, err
 		}
 		timer := time.NewTimer(backoff)
@@ -281,7 +280,6 @@ func retrySubmitOperationRead(ctx context.Context, read func(context.Context) (*
 		}
 		backoff = min(backoff*2, intentPublishMaxBackoff)
 	}
-	return nil, lastErr
 }
 
 func retryableSubmitOperationReadError(err error, attemptDeadlineExpired bool) bool {
@@ -304,7 +302,7 @@ func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte
 
 	backoff := intentPublishInitialBackoff
 	var lastErr error
-	for attempt := 0; attempt < intentPublishMaxAttempts; attempt++ {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -332,10 +330,6 @@ func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte
 		if !retryableIntentPublishError(publishErr, errors.Is(attemptErr, context.DeadlineExceeded)) {
 			return publishErr
 		}
-		if attempt == intentPublishMaxAttempts-1 {
-			return publishErr
-		}
-
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
@@ -348,7 +342,6 @@ func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte
 		}
 		backoff = min(backoff*2, intentPublishMaxBackoff)
 	}
-	return lastErr
 }
 
 func retryableIntentPublishError(err error, attemptDeadlineExpired bool) bool {
