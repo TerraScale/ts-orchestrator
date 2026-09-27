@@ -1,0 +1,86 @@
+name: Qualified GRU ARM64 image
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Successful ci.yml API run ID for this exact source revision
+        required: true
+        type: string
+      candidate_run_number:
+        description: Forgejo run number for the same ci.yml run
+        required: true
+        type: string
+      image_input_tag:
+        description: Forgejo prerelease tag retaining the pinned public image inputs
+        required: true
+        type: string
+      image_input_manifest_sha256:
+        description: SHA-256 of image-inputs.json on that prerelease
+        required: true
+        type: string
+
+concurrency:
+  group: ts-orchestrator-image-${{ forgejo.sha }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    name: build/qualified-gru-arm64-image
+    runs-on: terrascale-builder
+    timeout-minutes: 240
+    env:
+      SOURCE_SHA: ${{ forgejo.sha }}
+      SOURCE_REF: ${{ forgejo.ref }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_RUN_NUMBER: ${{ inputs.candidate_run_number }}
+      IMAGE_INPUT_TAG: ${{ inputs.image_input_tag }}
+      IMAGE_INPUT_MANIFEST_SHA256: ${{ inputs.image_input_manifest_sha256 }}
+    steps:
+      - name: Check out the exact qualified source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ forgejo.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable source and image toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
+          test "${SOURCE_REF:?event ref is required}" = refs/heads/main
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = go1.27.1
+          for tool in fj jq nix readelf sha256sum; do
+            command -v "${tool}" >/dev/null
+          done
+          printf 'source=%s tree=%s go=%s\n' \
+            "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')" "$(go env GOVERSION)"
+
+      - name: Prepare pinned Forgejo admission client
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Verify, build, and retain exact image candidate
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          tool_flake=github:NixOS/nixpkgs/e554fab72f81915600f3f449b786fd9af40439a5
+          test "$(nix flake metadata --json "${tool_flake}" | jq -r .locked.narHash)" = \
+            'sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM='
+          nix shell \
+            "${tool_flake}#qemu" \
+            "${tool_flake}#guestfs-tools" \
+            "${tool_flake}#libguestfs-with-appliance" \
+            "${tool_flake}#systemd" \
+            "${tool_flake}#gnupg" \
+            --command bash deploy/image/build-ci.sh

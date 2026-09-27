@@ -1,8 +1,17 @@
 # Manual regional bootstrap
 
-This runbook describes the operator-owned setup of a regional foundation and
-its first controller, followed by the identity and authority handoff to
-`ts-orchestrator`. The bootstrap tools accept these fixed cell-to-region
+This runbook describes setup of a regional foundation and its first
+controller, followed by the identity and authority handoff to
+`ts-orchestrator`. The current authorized qualification target is GRU
+(`sa-saopaulo-1`): the assistant operates this runbook for the foundation,
+controller A, and required credential/image prerequisites instead of leaving
+those provisioning steps to the user. Use the OCI CLI to get or create required
+Vault secrets where they are runbook inputs. Publish generated controller
+material through the documented `ts-bootstrap provision-controller-material`
+flow, which binds the material to authenticated readback and current cost
+admission. After the explicit controller-A handoff, `ts-orchestrator` alone
+owns B/C, the ARM workload hosts, and signed TerraBase deployment. The
+bootstrap tools accept these fixed cell-to-region
 mappings: GRU / `sa-saopaulo-1`, SFO / `us-sanjose-1`, and FRA /
 `eu-frankfurt-1`. The checked-in regional plan is a concrete GRU example; a
 different mapped cell needs its own reviewed plan populated with that cell's
@@ -42,7 +51,7 @@ cell has been deployed.
 
 | Resources or action | Owner in this flow |
 | --- | --- |
-| Regional foundation, bootstrap material, and first controller A | Operator, until explicit identity, authority, and inventory handoff |
+| Regional foundation, bootstrap material, and first controller A | Runbook operator; assistant for the currently authorized GRU qualification, until explicit identity, authority, and inventory handoff |
 | Controllers B and C in the admitted cell | `ts-orchestrator` founder after the handoff |
 | ARM managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
 | Shared Email Delivery | `ts-infra` (four email resources) |
@@ -56,8 +65,9 @@ Terraform definitions and regional workflow were removed from that source.
 The preceding state-only handoff removed 24 OCI resource addresses and one
 local propagation marker from Terraform state without creating, changing, or
 destroying OCI resources; this is ownership bookkeeping, not evidence of
-regional resource health or a live controller. The operator prepares the
-regional network, IAM, and bootstrap inputs and starts controller A; after the
+regional resource health or a live controller. For the current GRU lane, the
+assistant as runbook operator prepares the regional network, IAM, and bootstrap
+inputs and starts controller A; after the
 explicit identity, authority, and inventory handoff, `ts-orchestrator` forms
 B/C and manages the ARM workload hosts and TerraBase deployment.
 
@@ -96,9 +106,9 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 4. Prepare an itemized estimate for all required compute, boot and data
    storage, networking, object storage, and retained resources. Include
    quantities and durations, verify free allowances, and keep the combined
-   qualification and preview estimate within the current **US$100/month**
-   ceiling. This ceiling is not a hard spending control or authorization to
-   create resources.
+   qualification and preview estimate within the combined **US$100/month**
+   ceiling. This ceiling is not a hard spending control and does not replace
+   the current GRU authorization or the runbook's remaining gates.
 5. Review the foundation and security configuration against the signed cell
    plan. The controller dynamic group must match only instances in the
    controller compartment, for example:
@@ -141,7 +151,7 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    for any field unless the frozen inspector actually checks it.
 6. A stale inventory, expired admission, mismatched region or resource ID, or
    cost above the ceiling is a stop condition. The ceiling is an admission
-   condition, not authorization to create resources.
+   condition and remains a constraint on each resource action.
 
 ## Bootstrap sequence
 
