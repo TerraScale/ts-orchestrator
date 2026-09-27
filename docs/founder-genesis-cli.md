@@ -11,9 +11,11 @@ material and first-seed commands accept GRU / `sa-saopaulo-1`, SFO /
 plan and signed genesis. After A's signed admission and identity/authority
 handoff, `ts-orchestrator` uses the selected founder plan to launch
 `controller-b` and `controller-c` in the same cell. Do not create either peer
-manually. The host-enrollment public bundle renderer remains fixed to the GRU
-canary; see the [regional bootstrap runbook](region-bootstrap.md) for that
-limit.
+manually. The host-enrollment public bundle renderer accepts matching reviewed
+material for all three mapped cells. See the [regional bootstrap
+runbook](region-bootstrap.md) and [managed host image instructions](production-role-config.md#managed-host-image)
+for the per-cell material inputs; rendering alone does not prove live
+enrollment or regional deployment.
 
 Prepare the signed genesis anchor and one current root-signed manifest for each
 of its three sorted controller slots. The manifest for the seed must contain its
@@ -99,8 +101,9 @@ remain the separate schema-two continuity path after all three installs.
 
 ## First external seed transaction
 
-This is the current manual controller-A seed flow. It replaces the earlier
-`ts-infra` OpenTofu seed apply. Follow the [regional bootstrap runbook](region-bootstrap.md)
+This is the current manual controller-A seed flow. It supersedes the earlier
+proposal to use a `ts-infra` OpenTofu seed apply; current `ts-infra` main has no
+regional seed apply. Follow the [regional bootstrap runbook](region-bootstrap.md)
 for the operator-owned foundation, live inventory, cost admission, readback,
 material provisioning, and launch order. Do not use the historical OpenTofu
 plan hash or Terraform `create_identity` input.

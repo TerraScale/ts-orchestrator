@@ -1,6 +1,16 @@
 # GRU ARM preview admission — 2026-09-26
 
-## Current state and ownership
+> **Historical snapshot, superseded for current ownership.** The inventory and
+> proposed `ts-infra` estate below predate `ts-infra` main commit
+> `e347f13a313ebb2b9d0a0b631ba0aed56af65126`. That revision completed the
+> state-only regional handoff and removed the regional Terraform definitions,
+> workflow, and preview scripts. Current `ts-infra` manages four Email Delivery
+> resources only. Regional networking, IAM, and bootstrap inputs and controller
+> A are operator-managed; use the [current manual bootstrap runbook](../region-bootstrap.md).
+> This snapshot is not an apply plan, current inventory, or authorization for
+> OCI changes. The old `ts-infra` preview commands below are retired.
+
+## Historical state and proposed ownership at the recorded snapshot
 
 Read-only OCI inventory was captured at 2026-09-27 00:37:39 UTC in
 [`oci-preview-20260926.json`](oci-preview-20260926.json). The tenancy is
@@ -21,16 +31,15 @@ retains a higher 57.93 GiB object-storage baseline to cover measurement drift.
 The Forgejo instance, volumes, VCN, buckets, and reserved public IP are outside
 preview ownership.
 
-The preview target is three controller instances and two separate managed
+The proposed preview target is three controller instances and two separate managed
 TerraBase host instances, all GRU `VM.Standard.A1.Flex` at 1 OCPU/6 GB. The
 controllers have 50 GB boot volumes. Each member has a 50 GB boot volume and
 a 50 GB retained data volume. Every volume uses balanced 10 VPUs/GB. The three
-controllers span the three GRU fault domains. `ts-infra` owns the dedicated
-foundation and the single seed through two Forgejo applies. The running orchestrator's
-founder workflow must create the other two controllers; its durable OCI journal
-must create both member hosts and retained volumes, and its host desired-state
-path must launch TerraBase. Direct operator creation of those four hosts would
-not qualify this preview.
+controllers span the three GRU fault domains. The earlier proposed two-apply
+design assigned the dedicated foundation and single seed to `ts-infra`; the
+orchestrator founder would create the other controllers, and its placement path
+would create member hosts and retained volumes and launch TerraBase. This
+proposed ownership was superseded by the manual runbook linked above.
 
 ## Monthly cost admission
 
@@ -83,10 +92,11 @@ HTTP 200 with zero policies directly in the TerraScale parent compartment.
 The tenancy has only its Administrators policy and two Forgejo group grants;
 neither names the proposed preview controller dynamic group. The reviewed
 foundation policy is therefore the first controller grant for this estate.
-It has not been applied. `ts-infra` forbids local apply and state edits; only
-its serialized Forgejo workflow may create the foundation. The $5 miscellaneous
-reserve covers unpriced small foundation services provisionally and must be
-checked against the first actual bill.
+It had not been applied at this snapshot. The then-current `ts-infra` policy
+required its serialized Forgejo workflow for that proposed foundation; that
+regional workflow and source were later removed by `e347f13a`. The $5
+miscellaneous reserve was a provisional estimate for the proposed foundation,
+not a current cost admission.
 
 ## Gates before launch and qualification
 
@@ -107,8 +117,8 @@ image OCID must come from independent launch intent. The read-only
 exact signed receipt bytes and local image candidate, live three-compartment
 foundation, private subnet, and a fresh admission receipt. Neither command
 creates OCI resources. The bootstrap manifest pins shape and network/placement
-identities; the preview plan pins 1 OCPU/6 GB and 50 GB/10 VPU boot dimensions,
-which must be read back after the separate `ts-infra` seed apply. The bootstrap
+identities; this historical preview plan pinned 1 OCPU/6 GB and 50 GB/10 VPU
+boot dimensions for its proposed seed launch. The bootstrap
 manifest has no memory reserve; the managed host reserve is separately pinned
 by the signed placement profile.
 
@@ -124,30 +134,17 @@ the configured preview fleet maximum of 50 GB, and verifies running host boot,
 VNIC and retained data tier read-back. This is local source/test evidence, not
 an OCI launch result.
 
-After the seed is admitted and launched, preserve its exact OCID and signed
-bootstrap handoff. Reconcile founder-created peer OCIDs and journal-created
-member/volume OCIDs against the plan. A running process or health endpoint
-alone is not TerraBase serving proof; the real authenticated write/read,
-replication, restart, recovery, and update paths remain open.
+The old proposal required preserving the seed OCID and signed bootstrap handoff,
+then reconciling peer and member/volume OCIDs against its plan. A running
+process or health endpoint alone is not TerraBase serving proof; the real
+authenticated write/read, replication, restart, recovery, and update paths
+remained open at this snapshot.
 
-## Repeatable read-only commands
+## Retired pre-handoff preview tooling
 
-```sh
-python3 scripts/oci-preview/preview.py inventory --out docs/evidence/oci-preview-20260926.json
-python3 scripts/oci-preview/preview.py admit --inventory docs/evidence/oci-preview-20260926.json --out scripts/oci-preview/admission.json
-python3 -m unittest discover -s scripts/oci-preview -p 'test_*.py'
-```
-
-The inventory command reads all ready subscribed regions for the tenancy root,
-TerraScale parent, Forgejo, and any of the three estate compartments. It includes instances,
-boot/data volumes and backups, reserved public IPs, VCNs, subnets, route tables,
-network security groups, gateways, load balancers, and Standard bucket object
-sizes. Admission fails on stale inventory, unexpected compute, volume
-dimensions, retained backup size, public IPs, unexpected versioned buckets, NAT/load
-balancers, or a projected total above the cap. Its OCI CLI output excludes instance
-metadata, credentials, and object contents. The only allowed versioned buckets
-are the `ts-infra` bootstrap HEAD and managed material buckets; inventory
-counts all their object versions. Cleanup must use exact preview
-resource OCIDs and preserve Forgejo, `ts-infra` resources, bootstrap authority
-records, and retained database state unless their named owner authorizes the
-specific disposition.
+The earlier `ts-infra/scripts/oci-preview/` commands inventoried and admitted
+the proposed estate. That tooling was removed from current `ts-infra` main by
+`e347f13a`; the commands are not executable from current source and are not
+current regional instructions. The old admission and inventory files are
+retained above as dated evidence only. For current operator preparation and
+available read-only checks, use the [manual regional bootstrap runbook](../region-bootstrap.md).

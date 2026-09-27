@@ -27,29 +27,39 @@ The preview plan currently accepts `VM.Standard.A1.Flex` for its host profiles;
 the seed preflight binds controller A to the exact reviewed profile. Other
 shapes are outside this procedure.
 
-The GRU canary's `render-host-enrollment-public` output is fixed to its GRU
-identity, deployment, subnet, and endpoints. Do not use that renderer for SFO or
-FRA. The reusable new-cell procedure currently stops before generic host
-enrollment bundle generation; a separately reviewed per-cell bundle producer
-is required before managed workload-host enrollment in another cell. The
-mapped bootstrap CLI and its tests do not establish that a cell has been
-deployed to OCI.
+`render-host-enrollment-public` accepts reviewed material for all three mapped
+cells. It derives the public bundle's cell, environment, region, and
+controller/NATS endpoints from the material record; the CA comes from its
+matching owner-only source and must match the digest in that record. Use a
+separate reviewed plan and matching material for each cell; do not reuse the
+GRU example for SFO or FRA. See the
+[Managed host image](production-role-config.md#managed-host-image) section for
+the renderer invocation and image binding. The bundle is public JSON pinned by
+SHA-256 during the image build, not a signed envelope. The GRU/SFO
+managed-enrollment integration uses local NATS and a fake OCI provider; it is
+not live OCI or VM qualification, and rendering a bundle does not show that a
+cell has been deployed.
 
 | Resources or action | Owner in this flow |
 | --- | --- |
 | Regional foundation, bootstrap material, and first controller A | Operator, until explicit identity, authority, and inventory handoff |
 | Controllers B and C in the admitted cell | `ts-orchestrator` founder after the handoff |
-| Managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
-| Shared services and email | `ts-infra` |
+| ARM managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
+| Shared Email Delivery | `ts-infra` (four email resources) |
 
 The handoff is a real ownership boundary. Do not launch B or C manually, run a
-second resource manager against the same regional resources, or infer that
-`ts-infra` Terraform state must provide a foundation-ready receipt for this
-flow. The approved state-only `ts-infra` handoff has completed: its apply added,
-changed, or destroyed no resources and removed 25 regional resources from
-Terraform state. Post-apply checks verified the four email resources. This
-records a state transition only, not regional resource health or a live
-controller. Source cleanup is separate from the state handoff.
+second resource manager against the same regional resources, or depend on a
+`ts-infra` output or Terraform receipt to establish regional readiness. As of
+`ts-infra` main commit `e347f13a313ebb2b9d0a0b631ba0aed56af65126`, its guarded
+workflow manages only the four Email Delivery resources. The former regional
+Terraform definitions and regional workflow were removed from that source.
+The preceding state-only handoff removed 24 OCI resource addresses and one
+local propagation marker from Terraform state without creating, changing, or
+destroying OCI resources; this is ownership bookkeeping, not evidence of
+regional resource health or a live controller. The operator prepares the
+regional network, IAM, and bootstrap inputs and starts controller A; after the
+explicit identity, authority, and inventory handoff, `ts-orchestrator` forms
+B/C and manages the ARM workload hosts and TerraBase deployment.
 
 ## Before creating resources
 

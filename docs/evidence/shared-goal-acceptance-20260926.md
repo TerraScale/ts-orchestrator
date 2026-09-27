@@ -5,6 +5,17 @@ workspace goal against the current shared worktrees; it does not qualify a
 deployed candidate. Historical reports and component tests retain only their
 stated scope.
 
+**Later `ts-infra` ownership update:** The inventory, plan, PR, and cost details
+below are from the 2026-09-27 pre-handoff snapshot. `ts-infra` main commit
+`e347f13a313ebb2b9d0a0b631ba0aed56af65126` later removed the regional
+Terraform definitions and workflow after the state-only handoff. Current
+`ts-infra` manages four Email Delivery resources only. Regional networking,
+IAM, bootstrap inputs, and controller A are operator-managed; after handoff,
+`ts-orchestrator` forms B/C and manages ARM workload hosts and TerraBase. This
+source update does not prove regional health or a live controller; see the
+[manual regional bootstrap runbook](../region-bootstrap.md)
+for the current procedure.
+
 **Acceptance completion: 0/16 gates verified (0%).** The fixed denominator is
 the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
@@ -217,7 +228,7 @@ replication are independent facts.
 
 | ID | Acceptance and real caller | Status | Current evidence, exact gap, and completion check |
 | --- | --- | --- | --- |
-| D01 / M1 | One-time bootstrap of the initial controller/foundation and credentials, followed by identity/authority handoff; ts-orchestrator creates the two remaining controller peers and two DB hosts, provisions/enrolls hosts, creates/attaches volumes, verifies mounts, and deploys TerraBase through signed desired state; external authenticated write/read and idempotent setup. | **BLOCKED** | Latest read-only inventory, captured 2026-09-27 03:40:23 UTC, found 9 existing resources and 2 buckets but no preview compartments; `/tmp/ts-infra-live-inventory-20260927.json` SHA-256 `fea2d10567d77f6cf6c7f60f177f70c25cf2e7b1f43802c06e95d3053bef58da`. The sanitized plan remains 24 creates, 0 updates/deletes and no compute/data resources; effects digest `77b397dd5828b3957668e08d4b1e6631089830a516574736823eb8438dc27518`. The prior hold was lifted and PR #20 now points to reviewed candidate `c1cb2057fb0968bca2a8ddce3df77725c55e8b2e` / tree `e0e2e938c8a468b38f3b9e589a4c59dce8b14510`; it remains Draft/Pending and isolated-runner check task #55 is running. The updated PR body SHA-256 is `25b930c2738196db147459e86fdde8c5d720d0c34c17b836f77d200034e64500`. Fresh read-only admission SHA-256 `c90f3db14e2792dbbd0a89c02f73c25727bcee5a8bfb97a106d79063328a4eee` estimates $89.55/month and $10.45 headroom, expires at `2026-09-27T03:55:39Z`, and is informational; apply-time inventory/admission must be refreshed. No OCI apply/effects, merge, seed controller, or preview hosts are reported. No qualified ARM image, bootstrap IAM/network material, managed production member material, deployed-client receipt, or first-controller identity/authority handoff exists. |
+| D01 / M1 | One-time bootstrap of the initial controller/foundation and credentials, followed by identity/authority handoff; `ts-orchestrator` creates the two remaining controller peers and two DB hosts, provisions/enrolls hosts, creates/attaches volumes, verifies mounts, and deploys TerraBase through signed desired state; external authenticated write/read and idempotent setup. | **BLOCKED** | At the 2026-09-27 03:40:23 UTC pre-handoff snapshot, inventory found 9 existing resources and 2 buckets but no preview compartments; `/tmp/ts-infra-live-inventory-20260927.json` SHA-256 `fea2d10567d77f6cf6c7f60f177f70c25cf2e7b1f43802c06e95d3053bef58da`. The then-proposed plan had 24 creates, 0 updates/deletes and no compute/data resources; effects digest `77b397dd5828b3957668e08d4b1e6631089830a516574736823eb8438dc27518`. At that cutoff, PR #20's candidate `c1cb2057fb0968bca2a8ddce3df77725c55e8b2e` / tree `e0e2e938c8a468b38f3b9e589a4c59dce8b14510` was Draft/Pending; its PR-body SHA-256 was `25b930c2738196db147459e86fdde8c5d720d0c34c17b836f77d200034e64500`. The then-fresh read-only admission SHA-256 `c90f3db14e2792dbbd0a89c02f73c25727bcee5a8bfb97a106d79063328a4eee` estimated $89.55/month and $10.45 headroom and expired at `2026-09-27T03:55:39Z`. These are historical planning artifacts, not the current regional deployment procedure or authorization. The later `ts-infra` state-only handoff and source cleanup do not prove OCI resource health, a seed launch, or controller identity/authority handoff. D01 remains blocked on qualified ARM image, bootstrap IAM/network/materials, managed production member material, deployed-client evidence, and live end-to-end acceptance. |
 | D02 / M1 | Document lifecycle and retry: create/read/update/delete and supported upsert/transactions, expected values/errors, idempotent replay and identity-mismatch rejection. | **IN PROGRESS** | Current client route exposes `readDocument` and `commitDocuments`; mutations/tombstones share the transaction path. Local and signed-distributed process cases exist in `tests/client_process.rs` and `tests/distributed_client_process.rs`, but the recorded Fast/Slow aggregate is from an older 153-input packet and no current OCI artifact was exercised. Run the current checks, then the same walkthrough against deployed artifacts with retry and restart evidence. |
 | D03 / M1 | TLS/scoped-key auth, tenant isolation, denied missing/invalid/revoked/wrong-scope requests, private control listeners, and secret-free errors/logs. | **IN PROGRESS** | `client_auth.rs` checks tenant/database/shard, permission, and collection; the request path authorizes before body parsing and at the worker boundary. Current process coverage includes malformed credentials, but managed key rotation/provisioning has no production writer/restart path; NATS bridge ACL and signing-key installation provenance lack live OCI evidence. Isolated correction B at `.qualification/m1-material-security/ts-orchestrator` (inventory SHA-256 `5c18ca4f5b7924cec78361ca1e5c364e8960dba51aca5c0a7b36d4ca1e035eaf`) checks deterministic-object first-writer authority by controller signature over the full bundle/spec/logical locator and OCI namespace/bucket/KMS, binds the customer-envelope digest into the R3 receipt, and verifies the trusted receipt/spec/envelope before CLI output. `operator material-prepare` now requires configured `operator.controller_public_key` (base64 Ed25519 response-verification key). Key changed-source hashes are `config.go` `e016e1af7e31828e06005b3729c05e465a021dd944bae9362c1c4a74e40c253e`, `repository.go` `238d03f28d91e97f4b842dd279017a6c7d05503326d8249f0e5e88eaf5e31393`, `prepare.go` `d74b5ccfe34540c0fffbd4d1734ff84aa1b2ceb9d5ac3ad1a6b401bf331a5d51`, `producer.go` `ab2951303fe68a8ef1761837ce91ef20a16b7279c06416fbacfd43892794d3bd`, `receipt.go` `fe268523b56546e6bf3222d6e677177cc9725980885652055be1ff06928de4be`, and `app/material_preparation.go` `3829ddc707fae625cd023481c53dd953173666efe1a19402da955989d3d1a0ac`. The requested source review passed. A focused Go run later passed `managedmaterial` and failed the controller-loss application test; its result and diagnosis are recorded below. Existing tests cover locator substitution and tampered replies/specs/pins/signer keys. Those reply tests exercise a verifier helper, not the full request path's guarantee that failed verification leaves output empty. Production IAM/KMS policy remains unverified. This correction does not close D03 or M0. Complete on the deployed path, including rotated/revoked material and listener reachability. |
 | D04 / M1 | Two real members replicate writes/deletes through declared visibility frontier, survive disconnect/reconnect/repeated delivery, converge supported concurrent writes, and report received/durable/applied progress correctly. | **BLOCKED** | Corrected M1 TerraBase source is inventoried at commit `a30a6c6` / tree `30c14eb8` (manifest SHA-256 `d5e96d07c27d6390a45b17249a4fdb446190f107a98302d5351a522ce137aac7`). The earlier `cargo check -p tb-server --lib --bins --locked` passed only on pre-correction `9d80e7f` (log SHA-256 `f77b7850276f57948fa7d850868b76f51ab2b565524e0ad620032223685ee2d1`); no fresh compile on `a30a6c6` is recorded. Source changes provide no candidate-bound two-member OCI acknowledgment/profile receipt, disconnect/reconnect result, or durable/applied frontiers. Keep D04 open pending current-source verification and deployed two-member evidence. |
@@ -254,7 +265,13 @@ The corrected-source Fast run now has a retained result. On `b3fe7b6df2d96c7b32e
 | D14 / M1 onward | Deployed `/docs` and `/openapi.json` load in a real browser; expected operations, scoped auth, examples, live success/error responses, correct TLS/CORS/server URL, and CI path coverage. | **IN PROGRESS** | The current immutable source pin is `55ab3bf8b118bdf5f89d7302d90f9f76bec27888` / tree `495cb92ca4677d03834658bc99ab228a47fe4de8`, inventory SHA-256 `4b990680e3347e3cb83ba5c83001be4f973c6dd8bdf0bdca684ee3a2ac965dff`. Scalar 1.72.1 loads from the version-pinned HTTPS CDN script with matching SRI; `/docs` and `/openapi.json` stay on the intended API origin, browser API requests go directly to that origin, and the page contains no embedded credentials or third-party request proxy. Its source-page browser fixture fetched the CDN script, rendered the seven current operations, and observed unauthorized/authorized API responses 401/200. This fixture is not a server-process or deployed HTTPS result. Cargo/process and OCI preview browser runs remain pending; Unix-socket/root-only member routes remain outside the browser reference. |
 | D15 / M1 | On the exact qualified ARM64 image, prove management CPU/memory reservations, workload CPU/memory caps, I/O weights and OOM policy; use highest configured normal scheduler priority (no RT); apply concurrent CPU/memory/I/O pressure; verify management still reconciles or reports a truthful hold and verify process/OOM restart recovery. Record effective systemd/cgroup values. | **BLOCKED** | Controller/host units set normal scheduling (`CPUSchedulingPolicy=other`), `Nice=-20`, `CPUWeight=10000`, `IOWeight=10000`, best-effort I/O priority 0, `OOMScoreAdjust=-1000`, `ManagedOOMPreference=omit`, and restart-on-failure. `ManagedOOMPreference=omit` marks only the unit cgroup; it is nonrecursive. `internal/host/native_boundary.go` explicitly sets and reads back `user.oomd_omit=1` on the host `supervisor` subgroup, clears OOM preference from the native runner and workload roles, and `tests/runtime_priority/qualify.py` checks protected unit/supervisor cgroups against runner/role eligibility. This is source-level policy evidence plus local packaging checks: `python3 -m unittest discover -s tests/deploy -p 'test_build_offline.py'` passed 20/20, and isolated `systemd-analyze verify` returned 0; no verification log was retained. Native supervisor cgroups get CPU/I/O weight 10000 vs 1000 for workload; workload roles receive `cpu.max` derived at 75% of effective ancestor/affinity CPU, leaving one quarter for the manager, and per-role `memory.max`. The 25% CPU headroom is a source policy choice without a measured management CPU need or pressure qualification. The host unit says an image/profile drop-in supplies `MemoryMin/MemoryLow`; `tests/runtime_priority/qualify.py render-drop-ins` can render profile-bound drop-ins into a staging root, and `deploy/image/build-offline.sh` invokes it and packages the generated profile-bound drop-ins. Native Apply requires `0 < MemoryMin <= MemoryLow <=` the signed reserve and ancestor propagation, so absent drop-in/profile values cause a fail-closed launch. The signed memory profile is operator-supplied; source validation requires process memory >=4 GiB, headroom >=max(1 GiB, 25% of process memory), cgroup cap between process memory and allocatable memory, and reserve plus allocatable <= nominal compute memory. No accepted memory values/RSS basis, OCI image systemd version, pressure/OOM exercise, or process/OOM recovery receipt exists. A prior isolated guest passed only a cgroup-accounting/status boundary check (2 vCPU/6 GiB, no guest NIC), which does not qualify D15. The image build runs `render-drop-ins` and packages the profile-bound files; then run `python3 tests/runtime_priority/qualify.py qualify ...` twice on the booted guest (before and after TerraBase launch), with artifact/config/profile, memory-profile and evidence-directory arguments from `tests/runtime_priority/README.md`. The remaining acceptance work is exact ARM image qualification, bounded concurrent CPU/memory/I/O pressure, and process/OOM restart cases with retained effective systemd/cgroup values. |
 
-### Current preliminary cost and inventory evidence
+### Historical preliminary cost and inventory evidence (pre-handoff)
+
+These figures and workflow artifacts record the earlier proposed regional
+estate. They predate `ts-infra` main commit `e347f13a`, which removed the
+regional source and workflow after the state-only handoff. They are retained
+for provenance; do not use them as the current regional plan, admission, or
+instructions for applying regional infrastructure.
 
 A read-only inventory captured at 2026-09-27 03:40:23 UTC found 9 existing
 resources and 2 buckets, with no preview compartments. Its file
@@ -286,7 +303,7 @@ The provisional sanitized foundation plan is
 SHA-256 `566700706440b8aa2141a9fd221525246aa563b8ec4c865d4ba1a85599cda3fc`;
 it contains 24 creates, 0 updates/deletes, and no compute or data resources.
 Its effects digest is `77b397dd5828b3957668e08d4b1e6631089830a516574736823eb8438dc27518`.
-The current cost plan is `/tmp/ts-infra-gru-preview/scripts/oci-preview/plan.json`
+The then-current cost plan was `/tmp/ts-infra-gru-preview/scripts/oci-preview/plan.json`
 (SHA-256 `33e4cf3c782f8092e5bedbdd0e3c9c5aaf66aa23f1a76b9d61784251e53ff9c4`);
 the reviewed approval manifest is
 `/tmp/ts-infra-gru-preview/docs/evidence/oci-apply-approval.json` (SHA-256
@@ -299,21 +316,21 @@ implementation SHA-256 is
 `5ff65a58037ad659768592d6073f0c45638dc9bf5329a41d60365e467001f28d`.
 Earlier local workflow guard checks ran 7 tests and parsed both workflow YAML
 files on their then-current source hashes; no retained test log is available.
-Current PR #20 source candidate `c1cb2057fb0968bca2a8ddce3df77725c55e8b2e`
-is still Draft/Pending, and isolated-runner task #55 is running. Its fresh
-informational admission has SHA-256
+At this pre-handoff snapshot, PR #20 candidate
+`c1cb2057fb0968bca2a8ddce3df77725c55e8b2e` was Draft/Pending and isolated-runner
+task #55 was running. Its then-fresh informational admission has SHA-256
 `c90f3db14e2792dbbd0a89c02f73c25727bcee5a8bfb97a106d79063328a4eee`, estimates
 $89.55/month with $10.45 headroom, and expires at `2026-09-27T03:55:39Z`; refresh
 inventory/admission before any effect. The preview owner reports no OCI
 apply/effects. This plan and inventory are evidence only, not a deployed
 preview or current permission to create resources.
 
-Before creating/enlarging preview resources, retain the itemized estimate and
-resource IDs in the deployment manifest, refresh live inventory and capacity,
-reconcile free-allowance assumptions, and demonstrate the combined cap. Use the
-existing common-infrastructure workflow for `ts-infra`; do not create competing
-resources for infrastructure it owns. No live deployment is verified by this
-preflight.
+This pre-handoff inventory and estimate do not authorize resource creation.
+Current `ts-infra` automation is restricted to Email Delivery and cannot create
+regional foundation or seed resources. Regional networking, IAM, bootstrap
+inputs, and controller A are operator-managed under the
+[manual regional bootstrap runbook](../region-bootstrap.md). No live regional
+deployment is verified by this historical preflight.
 
 ## M2 — supported API backlog
 

@@ -12,16 +12,17 @@ The current regional bootstrap flow is the operator-run
 [manual regional bootstrap](region-bootstrap.md): the operator provisions the
 foundation and starts only controller A for one mapped cell; admitted A
 provisions controller B/C, and `ts-orchestrator` owns managed workload hosts
-and volumes after the cell-specific host-enrollment bundle is available. `ts-infra`
-owns shared services and email resources only; it does not own regional
-foundation or seed resources and does not issue a Terraform state receipt for
-this flow. The OpenTofu seed candidate described later in this dated plan is
-historical and is superseded for current operation by the runbook.
+and volumes after the cell-specific host-enrollment bundle is available.
+`ts-infra` manages shared Email Delivery only (four resource identities);
+regional networking, IAM, and bootstrap inputs remain operator-prepared. The
+OpenTofu seed candidate described later in this dated plan is historical and
+is superseded for current operation by the runbook.
 The material generator and first-seed verifier accept only the fixed GRU /
 `sa-saopaulo-1`, SFO / `us-sanjose-1`, and FRA / `eu-frankfurt-1` mappings.
-The checked-in regional plan is populated for GRU, and the host-enrollment
-public bundle renderer is fixed to the GRU canary. The mapped CLI support and
-its tests are not evidence of a live non-GRU deployment.
+The checked-in regional plan is populated for GRU. The host-enrollment public
+bundle renderer accepts matching reviewed material for all three mappings;
+the mapped CLI support and its tests are not evidence of a live deployment in
+any cell.
 
 Prioritize correct APIs and end-to-end integration, then an early deployed
 preview before full product completion. Use the existing leaderless profile
@@ -148,12 +149,13 @@ usage such as Vault, logging, and data transfer. The statement that a future
 production apply would use the reviewed `ts-infra` workflow records the
 assumption in this dated checkpoint. The current ownership boundary assigns
 regional foundation and seed setup to the operator through controller A, then
-same-cell peers to `ts-orchestrator`; `ts-infra` owns shared services and
-email. Its approved state-only handoff subsequently completed without resource
-additions, changes, or destruction; 25 regional resources were removed from
-state and post-apply checks verified four email resources. This state
-transition does not establish regional resource health or a live controller;
-source cleanup is separate. See the
+same-cell peers to `ts-orchestrator`; `ts-infra` manages shared Email Delivery
+only. Its approved state-only handoff subsequently completed without resource
+additions, changes, or destruction; 25 regional state entries were removed,
+and post-apply checks verified the four email resources. This state transition
+does not establish regional resource health or a live controller. The regional
+Terraform definitions and workflow were later removed from `ts-infra` main
+commit `e347f13a313ebb2b9d0a0b631ba0aed56af65126`. See the
 [manual regional bootstrap runbook](region-bootstrap.md).
 
 Relevant source: [`internal/oci/sdk.go`](../internal/oci/sdk.go),

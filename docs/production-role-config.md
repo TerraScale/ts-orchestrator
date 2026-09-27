@@ -2,12 +2,16 @@
 
 The reviewed controller material input is a public description of one deployment, not a source of instance IDs, Vault OCIDs, or private keys. `generate-controller-material` creates a private local source and a public `Record`. The first controller is the only operator-started instance; after its identity and authority are handed off, `ts-orchestrator` launches the signed peers in that same cell. For the full regional setup and seed sequence, use the [manual regional bootstrap runbook](region-bootstrap.md).
 
-`ts-infra` owns shared services and email resources. Its approved state-only
-handoff is complete: 25 regional resources were removed from Terraform state
-without adding, changing, or destroying resources, and post-apply checks
-verified the four email resources. This records a state transition only, not
-regional health or a live controller. Source cleanup is a separate matter; see
-the [regional bootstrap runbook](region-bootstrap.md).
+`ts-infra` currently manages shared Email Delivery only: four email resource
+identities. Its `main` revision `e347f13a313ebb2b9d0a0b631ba0aed56af65126`
+removed the former regional Terraform definitions and workflow. The preceding
+state-only handoff removed 24 OCI resource addresses and one local propagation
+marker from Terraform state without creating, changing, or destroying OCI
+resources. That records ownership bookkeeping, not regional health or a live
+controller. The operator prepares regional networking, IAM, and bootstrap
+inputs and starts controller A; `ts-orchestrator` forms B/C and manages ARM
+workload hosts after the explicit handoff. See the
+[regional bootstrap runbook](region-bootstrap.md) for the current boundary.
 
 ## Controller inputs
 
@@ -34,11 +38,52 @@ Run `ts-bootstrap render-operator-config` with the reviewed public Record and SH
 
 When the operator reaches a controller through an OCI Bastion local port forward, add `--nats-forward CONTROLLER_PRIVATE_IP:4222=127.0.0.1:LOCAL_PORT` to the `operator` command. Repeat the flag only for other explicitly forwarded controllers. Keep the installed operator config's original controller URLs: the client verifies the controller certificate against each private IP while its TCP connection uses the selected loopback port. In forwarding mode it connects and reconnects only through listed forwards and ignores advertised NATS servers. The loopback forward is transient and is not written to `operator.json`.
 
-No production material can be rendered or installed until the reviewed Record, Vault references, sidecars, operator grant, signing key, and release proofs exist. Do not substitute example OCIDs or keys.
+No production operator config can be rendered or installed until the reviewed
+Record, Vault references, sidecars, operator grant, signing key, and release
+proofs exist. Do not substitute example OCIDs or keys.
 
 ## Managed host image
 
-The offline image builder accepts `--host-enrollment-public` paired with `--host-enrollment-public-sha256` for a managed host image. It checks the exact public bundle against the release environment and baked region, stages its reviewed bytes, and installs it at `/etc/terrascale-orchestrator/host-enrollment-public.json`. The current `render-host-enrollment-public` command emits only the fixed GRU canary bundle; it cannot produce an SFO or FRA bundle. A separately reviewed per-cell producer is needed before using this path in another mapped region. The host setup service creates `/etc/terrascale-orchestrator/host.json` after live enrollment; the setup service and renewal timer are enabled only when the bundle is present.
+Generate a public enrollment bundle from the reviewed material record and the
+matching owner-only material directory created from that cell's reviewed
+`generate-controller-material` configuration. For example, with SFO-specific
+material:
+
+```sh
+material_record=/ABSOLUTE/PATH/sfo/controller-material-record.json
+material_record_sha256=REVIEWED_RECORD_SHA256
+sudo /ABSOLUTE/PATH/ts-bootstrap render-host-enrollment-public \
+  --material-record "$material_record" \
+  --material-record-sha256 "$material_record_sha256" \
+  --material-directory /ABSOLUTE/PATH/sfo/controller-material \
+  --out /ABSOLUTE/PATH/sfo/host-enrollment-public.json
+```
+
+Set the record digest to the separately reviewed SHA-256 of that record. Run the
+renderer as root, use an absolute output path outside the owner-only material
+directory, ensure its parent exists, and choose a new output path. The command
+creates a new public JSON file and will not overwrite an existing path. The
+record and live material directory must match; the renderer checks the live
+files and verifies that `ca.pem` matches its recorded digest. It requires at
+least 24 hours of material validity. The record supplies the cell, environment,
+and ordered controller A/B/C endpoints. The matching owner-only source supplies
+`ca.pem`; use this same record and source for the bundle's image.
+
+Pass the generated file through `--host-enrollment-public` and its exact
+SHA-256 through `--host-enrollment-public-sha256` to
+`deploy/image/build-offline.sh`. The build must use the matching `--environment`
+and `--bootstrap-identity`: its validator checks the bundle digest, mapped
+cell/region against the bootstrap identity, and environment against the release
+environment before installing it at
+`/etc/terrascale-orchestrator/host-enrollment-public.json`. The bundle is public
+JSON pinned by digest, not an independently signed envelope. The host signs its
+enrollment requests, and verifies controller responses with the response
+public key in the bundle.
+
+The host setup service creates `/etc/terrascale-orchestrator/host.json` after
+live enrollment. The setup service and renewal timer are enabled only when the
+bundle is present; the renderer and image validation do not demonstrate a live
+OCI enrollment.
 
 The image and bundle use workload UID/GID `2000:2000` (`terrascale-workload`), install root `/var/lib/terrascale-orchestrator-host/install`, state root `/var/lib/terrascale-orchestrator-host/state`, and managed runtime root `/srv/ts-managed`. The builder rejects conflicting base-image UID/GID assignments and creates `/srv/ts-managed` as root:2000 `0750`. The host runtime verifies each member's separate persistent volume mount before launching TerraBase.
 
