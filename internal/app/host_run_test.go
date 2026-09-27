@@ -69,7 +69,8 @@ func TestHostRejectsZeroWorkloadIdentityBeforeNativeProbe(t *testing.T) {
 	root := t.TempDir()
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	_, _ = testEd25519(t, root, "host.key")
-	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Host: HostConfig{
+	_, natsSeed := testNKey(t)
+	cfg := Config{NATS: natscell.Config{Cell: "gru", NKeySeedFile: natsSeed}, Host: HostConfig{
 		Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		IdentityKeyFile:     filepath.Join(root, "host.key"),
 		ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic),

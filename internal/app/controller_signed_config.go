@@ -35,9 +35,13 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		controllerSHA256(canonical) != manifest.ControllerConfigSHA256 {
 		return Config{}, errors.New("signed controller config must be canonical app.Config JSON")
 	}
+	hostConfig := cfg.Host
+	if len(hostConfig.Roles) == 0 {
+		hostConfig.Roles = nil
+	}
 	if cfg.NATS.Cell != strings.ToLower(string(manifest.Cell)) || cfg.NATS.Instance != manifest.Slot ||
 		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Lab || cfg.NATS.Embedded == nil ||
-		cfg.Controller.CandidateID != manifest.Slot || !reflect.DeepEqual(cfg.Host, HostConfig{}) ||
+		cfg.Controller.CandidateID != manifest.Slot || !reflect.DeepEqual(hostConfig, HostConfig{}) ||
 		cfg.Operator != (OperatorConfig{}) ||
 		cfg.Controller.OciRegionConfig != controllerSidecarPath("oci-region.json") ||
 		cfg.Controller.OciRegionIntentFile != controllerSidecarPath("oci-region-intent.json") ||

@@ -974,6 +974,71 @@ func (fixture *manifestFixture) verifyOutput(t *testing.T, output string, expect
 	return envelope
 }
 
+func TestSignedControllerConfigRoundTripRejectsHostRoleFields(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	fixture.writeCandidate(t, fixture.manifest)
+	candidateWire, err := os.ReadFile(fixture.candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest bootstrap.Manifest
+	if err := protocol.DecodeStrict(candidateWire, &manifest, bootstrap.MaxManifestBytes); err != nil {
+		t.Fatal(err)
+	}
+	manifest.ControllerConfig, err = os.ReadFile(fixture.controllerConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ControllerConfigSHA256 = digest(manifest.ControllerConfig)
+	for index, path := range []string{fixture.intentPath, fixture.regionConfigPath, fixture.placementConfigPath} {
+		wire, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: bootstrap.ControllerConfigFileNames[index], SHA256: digest(wire), Bytes: wire,
+		})
+	}
+	var decoded app.Config
+	if err := protocol.DecodeStrict(manifest.ControllerConfig, &decoded, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Host.Roles == nil || len(decoded.Host.Roles) != 0 {
+		t.Fatalf("canonical empty host roles did not round-trip as an empty slice: %#v", decoded.Host.Roles)
+	}
+	canonical, err := protocol.EncodeJSON(decoded)
+	if err != nil || !bytes.Equal(canonical, manifest.ControllerConfig) {
+		t.Fatalf("controller config lost canonical JSON round trip: %v", err)
+	}
+	if _, err := app.ValidateSignedControllerConfig(manifest, ""); err != nil {
+		t.Fatalf("canonical controller config with no host role fields: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*app.Config)
+	}{
+		{name: "host roles", change: func(cfg *app.Config) { cfg.Host.Roles = []string{"terrabase"} }},
+		{name: "host node", change: func(cfg *app.Config) { cfg.Host.Node = "node-a" }},
+		{name: "host workload UID", change: func(cfg *app.Config) { cfg.Host.WorkloadUID = 2000 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := decoded
+			test.change(&cfg)
+			wire, err := protocol.EncodeJSON(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			modified := manifest
+			modified.ControllerConfig = wire
+			modified.ControllerConfigSHA256 = digest(wire)
+			if _, err := app.ValidateSignedControllerConfig(modified, ""); err == nil ||
+				!strings.Contains(err.Error(), "role, slot, or fixed paths") {
+				t.Fatalf("signed controller config admitted host role field: %v", err)
+			}
+		})
+	}
+}
+
 func TestSignManifestSignsEachSlotWithExactCurrentReleaseProofs(t *testing.T) {
 	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
 	peerPublic, _, err := ed25519.GenerateKey(rand.Reader)

@@ -180,6 +180,14 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			ReleaseReceiptSHA256: historyDigest(imageWire), ReleaseImageReceiptWire: imageWire,
 			ReleaseDelegationWire: releaseGrantWire, PeerReceiptDelegation: &peerGrant,
 			StorageDomain: storage}
+		manifest.ControllerConfig = []byte(`{"nats":{},"controller":{}}`)
+		manifest.ControllerConfigSHA256 = historyDigest(manifest.ControllerConfig)
+		for _, name := range bootstrap.ControllerConfigFileNames {
+			body := []byte(`{}`)
+			manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+				Name: name, SHA256: historyDigest(body), Bytes: body,
+			})
+		}
 		if credentials == nil {
 			manifest.Secrets = []bootstrap.SecretReference{{Purpose: bootstrap.SecretRegionalShared,
 				SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regionalfixture", VersionNumber: 1,
