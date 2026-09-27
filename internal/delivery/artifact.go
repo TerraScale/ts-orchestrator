@@ -292,7 +292,7 @@ func (s *Service) persistArtifactAdmission(ctx context.Context, record ArtifactR
 		return err
 	}
 	for range admissionCASAttempts {
-		entry, getErr := s.admissions.Get(ctx, key)
+		entry, getErr := s.getAdmission(ctx, key)
 		if errors.Is(getErr, jetstream.ErrKeyNotFound) {
 			if _, createErr := s.admissions.Create(ctx, key, encoded); createErr == nil {
 				return s.verifyCurrentAdmission(ctx, record)
@@ -373,8 +373,29 @@ func decodeStoredAdmission(value []byte, digest, cell, role, environment string)
 	return signed, nil
 }
 
+// Admission decisions and CAS revisions must come from the stream leader.
+// KeyValue.Get may read a follower whose direct-get view is stale.
+func (s *Service) getAdmission(ctx context.Context, key string) (*operationValue, error) {
+	if s == nil || s.config.Conn == nil {
+		return nil, errors.New("delivery admission leader read requires NATS connection")
+	}
+	js, err := s.config.Conn.JetStream()
+	if err != nil {
+		return nil, err
+	}
+	subject := "$KV." + AdmissionBucket + "." + key
+	msg, err := js.GetLastMsg("KV_"+AdmissionBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return operationValueFromMsg(subject, msg)
+}
+
 func (s *Service) readAdmission(ctx context.Context, digest, cell, role, environment string) (ArtifactRecord, error) {
-	e, err := s.admissions.Get(ctx, admissionKey(digest, cell, role, environment))
+	e, err := s.getAdmission(ctx, admissionKey(digest, cell, role, environment))
 	if err != nil {
 		return ArtifactRecord{}, err
 	}

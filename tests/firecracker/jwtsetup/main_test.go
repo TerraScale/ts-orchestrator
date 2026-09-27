@@ -312,7 +312,11 @@ func TestGeneratedFixtureReservesProductionR3StoresWithProductionJWTAndTLS(t *te
 			t.Fatalf("wait for production R3 broker cluster: %v", err)
 		}
 	}
-	if err := broker.Bridge().OpenUntil(1, cellJWT, time.Now().Add(10*time.Second)); err != nil {
+	bridgeDeadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("production bridge fixture requires a bounded test context")
+	}
+	if err := broker.Bridge().OpenUntil(1, cellJWT, bridgeDeadline); err != nil {
 		t.Fatalf("open production bridge for the applied JWT: %v", err)
 	}
 

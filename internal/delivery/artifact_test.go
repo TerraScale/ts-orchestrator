@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"sync"
@@ -495,6 +496,144 @@ func TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently(t *tes
 	}
 	if _, err := service.AcceptArtifactClaim(ctx, conflictingEnvelope); !errors.Is(err, ErrConflict) {
 		t.Fatalf("same content with different provenance = %v, want ErrConflict", err)
+	}
+}
+
+func TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact admitted despite stale follower")), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return nil, jetstream.ErrKeyNotFound
+	}}
+	for _, attempt := range []string{"create", "replay"} {
+		admitted, err := service.AcceptArtifactClaim(ctx, envelope)
+		if err != nil || admitted != record {
+			t.Fatalf("%s admission = %+v, %v", attempt, admitted, err)
+		}
+	}
+	resolved, err := service.ResolveAdmittedArtifact(ctx, record.Digest, record.Role, record.Environment)
+	if err != nil || resolved != record {
+		t.Fatalf("resolved admission = %+v, %v", resolved, err)
+	}
+	if followerReads != 0 {
+		t.Fatalf("admission made %d follower reads", followerReads)
+	}
+}
+
+func TestArtifactAdmissionSignerReplacementUsesLeaderRevision(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	oldCodec := artifactTestCodec(t, "old-operator", 0x11)
+	newCodec := artifactTestCodec(t, "new-operator", 0x22)
+	currentActor := "old-operator"
+	service.config.AuthorizeArtifact = func(_ context.Context, actor string, _ ArtifactRecord) error {
+		if actor != currentActor {
+			return ErrUnauthorized
+		}
+		return nil
+	}
+	service.config.ArtifactSigner = oldCodec
+	service.config.ArtifactVerifier = oldCodec
+
+	content := []byte("artifact with replaced signer")
+	record, oldEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, oldEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, staleEntry.Value()); err != nil {
+		t.Fatal(err)
+	}
+	currentActor = "new-operator"
+	service.config.ArtifactSigner = newCodec
+	service.config.ArtifactVerifier = newCodec
+	_, newEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	admitted, err := service.AcceptArtifactClaim(ctx, newEnvelope)
+	if err != nil || admitted != record {
+		t.Fatalf("replacement admission = %+v, %v", admitted, err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := decodeStoredAdmission(currentEntry.Value(), record.Digest, record.Cell, record.Role, record.Environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Actor != "new-operator" || !bytes.Equal(stored.Envelope, newEnvelope) || currentEntry.Revision() <= staleEntry.Revision() {
+		t.Fatalf("replacement did not use leader revision: actor=%q revision=%d stale=%d", stored.Actor, currentEntry.Revision(), staleEntry.Revision())
+	}
+	if followerReads != 0 {
+		t.Fatalf("replacement made %d follower reads", followerReads)
+	}
+}
+
+func TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	content := []byte("same content with conflicting provenance")
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingRequest := artifactTestRequest()
+	conflictingRequest.Source.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	conflictingRecord, conflictingEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), conflictingRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingValue, err := json.Marshal(signedAdmission{Record: conflictingRecord, Envelope: conflictingEnvelope, Actor: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, conflictingValue); err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting leader admission error = %v, want ErrConflict", err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentEntry.Value(), conflictingValue) {
+		t.Fatal("conflicting leader admission was overwritten")
+	}
+	if followerReads != 0 {
+		t.Fatalf("conflict decision made %d follower reads", followerReads)
 	}
 }
 
