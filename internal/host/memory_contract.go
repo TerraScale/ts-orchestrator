@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -76,21 +77,33 @@ func ancestorMemoryLimit(root, membership string) (uint64, error) {
 	if relative == "" {
 		return 0, errors.New("unified memory cgroup membership is absent")
 	}
+	if relative == "/" {
+		return 0, errors.New("managed host requires a non-root memory cgroup membership")
+	}
 	root = filepath.Clean(root)
+	controllers, err := os.ReadFile(filepath.Join(root, "cgroup.controllers"))
+	if err != nil {
+		return 0, fmt.Errorf("read root cgroup controllers: %w", err)
+	}
+	if !slices.Contains(strings.Fields(string(controllers)), "memory") {
+		return 0, errors.New("root cgroup lacks memory controller")
+	}
 	path := filepath.Join(root, strings.TrimPrefix(relative, "/"))
 	limit := uint64(math.MaxUint64)
 	for {
 		data, err := os.ReadFile(filepath.Join(path, "memory.max"))
-		if err != nil {
+		if err != nil && (path != root || !errors.Is(err, os.ErrNotExist)) {
 			return 0, fmt.Errorf("read ancestor memory.max: %w", err)
 		}
-		value := strings.TrimSpace(string(data))
-		if value != "max" {
-			bytes, err := strconv.ParseUint(value, 10, 64)
-			if err != nil {
-				return 0, errors.New("invalid ancestor memory.max")
+		if err == nil {
+			value := strings.TrimSpace(string(data))
+			if value != "max" {
+				bytes, err := strconv.ParseUint(value, 10, 64)
+				if err != nil {
+					return 0, errors.New("invalid ancestor memory.max")
+				}
+				limit = min(limit, bytes)
 			}
-			limit = min(limit, bytes)
 		}
 		if path == root {
 			return limit, nil
