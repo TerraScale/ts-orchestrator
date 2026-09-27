@@ -27,6 +27,36 @@ func testConfig() Config {
 		ValidityHours: 48}
 }
 
+func TestMaterialConfigUsesMappedCellRegion(t *testing.T) {
+	for _, test := range []struct{ cell, region string }{
+		{"gru", "sa-saopaulo-1"}, {"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
+	} {
+		t.Run(test.cell, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Cell, cfg.Region = test.cell, test.region
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("mapped material rejected: %v", err)
+			}
+			directory := filepath.Join(t.TempDir(), "material")
+			record, err := Generate(directory, cfg, time.Now().UTC().Truncate(time.Second))
+			if err != nil || ValidateLive(directory, record) != nil {
+				t.Fatalf("mapped material did not survive live validation: %v", err)
+			}
+			cfg.Region = "sa-saopaulo-1"
+			if test.cell != "gru" && cfg.Validate() == nil {
+				t.Fatal("cell with another OCI region accepted")
+			}
+		})
+	}
+	for _, cell := range []string{"GRU", "unknown", "sfo-extra"} {
+		cfg := testConfig()
+		cfg.Cell = cell
+		if cfg.Validate() == nil {
+			t.Fatalf("unsupported or noncanonical material cell accepted: %s", cell)
+		}
+	}
+}
+
 func TestGenerateStableAndProductionValid(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "material")
 	now := time.Now().UTC().Truncate(time.Second)

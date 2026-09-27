@@ -208,6 +208,79 @@ func (fixture seedCLIFixture) inputArgs() []string {
 	return args
 }
 
+func (fixture seedCLIFixture) reviewedSeedPlan(createIdentity string) reviewedSeedPlan {
+	profile, _ := fixture.manifest.Profile(seedSlot)
+	manifest := fixture.manifest.Manifest()
+	return reviewedSeedPlan{SchemaVersion: 2, Slot: seedSlot, Shape: profile.Shape,
+		OCPUs: 1, MemoryGB: 6, BootGB: 50, BootVPUsPerGB: 10,
+		CompartmentID: profile.CompartmentOCID, AvailabilityDomain: profile.AvailabilityDomain,
+		FaultDomain: profile.FaultDomain, SubnetID: profile.SubnetOCID,
+		NetworkSecurityGroupIDs: slices.Clone(profile.NetworkSecurityGroupOCIDs), ImageID: manifest.ImageOCID,
+		AnchorSHA256: fixture.anchor.Digest(), ManifestSHA256: fixture.manifest.Digest(),
+		ImageReceiptSHA256: manifest.ReleaseReceiptSHA256,
+		AdmissionSHA256:    digest([]byte("cost admission")), InventorySHA256: digest([]byte("live inventory")),
+		AdmissionAdmittedAt: fixture.now.Add(-time.Minute),
+		AdmissionExpiresAt:  fixture.now.Add(14 * time.Minute), MonthlyEstimateUSD: "89.55",
+		CreateIdentity: createIdentity}
+}
+
+func writeReviewedSeedPlan(t *testing.T, plan reviewedSeedPlan) (string, string) {
+	t.Helper()
+	wire, err := protocol.EncodeJSON(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "manual-seed-plan.json")
+	writeFixture(t, path, wire, 0o600)
+	return path, digest(wire)
+}
+
+func TestReviewedManualSeedPlanBindsSignedLaunchAndCreateIdentity(t *testing.T) {
+	fixture := newSeedCLIFixture(t)
+	plan := fixture.reviewedSeedPlan("seed-create-1")
+	check := func(plan reviewedSeedPlan, create string) error {
+		t.Helper()
+		path, sha := writeReviewedSeedPlan(t, plan)
+		_, err := readReviewedSeedPlan(path, sha, create, fixture.seedInputs, fixture.now, true)
+		return err
+	}
+	if err := check(plan, "seed-create-1"); err != nil {
+		t.Fatalf("reviewed manual launch rejected: %v", err)
+	}
+	if err := check(plan, "other-create"); err == nil {
+		t.Fatal("different OCI create identity accepted")
+	}
+	plan.AnchorSHA256 = digest([]byte("other anchor"))
+	if err := check(plan, "seed-create-1"); err == nil {
+		t.Fatal("different signed anchor accepted")
+	}
+	plan = fixture.reviewedSeedPlan("seed-create-1")
+	plan.SubnetID = "ocid1.subnet.oc1.sa-saopaulo-1.other"
+	if err := check(plan, "seed-create-1"); err == nil {
+		t.Fatal("different signed seed subnet accepted")
+	}
+	plan = fixture.reviewedSeedPlan("seed-create-1")
+	plan.AdmissionExpiresAt = fixture.now.Add(-time.Second)
+	if err := check(plan, "seed-create-1"); err == nil {
+		t.Fatal("expired cost admission accepted")
+	}
+	path, sha := writeReviewedSeedPlan(t, plan)
+	if _, err := readReviewedSeedPlan(path, sha, "seed-create-1", fixture.seedInputs,
+		fixture.now, false); err != nil {
+		t.Fatalf("exact seed identity could not be retried after admission expiry: %v", err)
+	}
+	plan = fixture.reviewedSeedPlan("seed-create-1")
+	plan.MonthlyEstimateUSD = "100.01"
+	if err := check(plan, "seed-create-1"); err == nil {
+		t.Fatal("over-budget launch accepted")
+	}
+	plan = fixture.reviewedSeedPlan("seed-create-1")
+	plan.OCPUs = 2
+	if err := check(plan, "seed-create-1"); err == nil {
+		t.Fatal("oversized seed shape configuration accepted")
+	}
+}
+
 func TestExternalSeedSigningBindsReviewedCreateAndExactOCIInstance(t *testing.T) {
 	fixture := newSeedCLIFixture(t)
 	reviewed := digest([]byte("reviewed protected OpenTofu plan"))
@@ -394,8 +467,9 @@ func TestExternalSeedCLIDoesNotOpenOCIWithoutValidSignedInputs(t *testing.T) {
 	keyPath := filepath.Join(fixture.directory, "founder-ledger.key")
 	writeFixture(t, keyPath, fixture.ledgerPrivate, 0o600)
 	reservationPath := filepath.Join(fixture.directory, "reservation.json")
+	reviewedPlanPath, reviewedPlanSHA := writeReviewedSeedPlan(t, fixture.reviewedSeedPlan("seed-create-1"))
 	args := append([]string{"sign-external-seed-reservation"}, fixture.inputArgs()...)
-	args = append(args, "--reviewed-plan-sha256", digest([]byte("reviewed plan")),
+	args = append(args, "--reviewed-plan", reviewedPlanPath, "--reviewed-plan-sha256", reviewedPlanSHA,
 		"--create-identity", "seed-create-1", "--ledger-signing-key", keyPath, "--out", reservationPath)
 	if err := runAt(args, fixture.now); err != nil {
 		t.Fatalf("sign reservation CLI: %v", err)
@@ -451,8 +525,9 @@ func TestExternalSeedSignerConsumesGeneratedLedgerKey(t *testing.T) {
 		t.Fatal("raw delegated ledger key was accepted as a root PEM key")
 	}
 	reservationPath := filepath.Join(fixture.directory, "generated-key-reservation.json")
+	reviewedPlanPath, reviewedPlanSHA := writeReviewedSeedPlan(t, fixture.reviewedSeedPlan("seed-create-generated"))
 	args := append([]string{"sign-external-seed-reservation"}, fixture.inputArgs()...)
-	args = append(args, "--reviewed-plan-sha256", digest([]byte("reviewed plan")),
+	args = append(args, "--reviewed-plan", reviewedPlanPath, "--reviewed-plan-sha256", reviewedPlanSHA,
 		"--create-identity", "seed-create-generated", "--ledger-signing-key", ledgerPath,
 		"--out", reservationPath)
 	if err := runAt(args, fixture.now); err != nil {

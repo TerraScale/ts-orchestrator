@@ -1,5 +1,5 @@
 // Package bootstrapmaterial prepares one durable, owner-only source for the
-// initial GRU controller credentials. Vault publication reads these exact
+// initial regional controller credentials. Vault publication reads these exact
 // bytes; a second invocation never creates replacement keys.
 package bootstrapmaterial
 
@@ -34,6 +34,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -91,11 +92,22 @@ type Record struct {
 	Files         []File    `json:"files"`
 }
 
+// MappedOCIRegion accepts the canonical lower-case material cell name and
+// returns its fixed product OCI region.
+func MappedOCIRegion(cell string) (string, error) {
+	if cell != strings.ToLower(cell) {
+		return "", ErrMaterial
+	}
+	return oci.Region(strings.ToUpper(cell)).OCIRegion()
+}
+
 func (cfg Config) validate() error {
 	if cfg.Environment != "production" && cfg.Environment != "canary" {
 		return ErrMaterial
 	}
-	if cfg.Region != "sa-saopaulo-1" || cfg.Cell != "gru" || !identityRE.MatchString(cfg.DeploymentID) ||
+	region, err := MappedOCIRegion(cfg.Cell)
+	if err != nil || cfg.Region != region ||
+		!identityRE.MatchString(cfg.DeploymentID) ||
 		!clusterRE.MatchString(cfg.ClusterID) ||
 		cfg.ValidityHours < int(minValidity.Hours()) || cfg.ValidityHours > int(MaxValidity.Hours()) ||
 		len(cfg.Slots) != 3 {
@@ -119,6 +131,9 @@ func (cfg Config) validate() error {
 	}
 	return nil
 }
+
+// Validate binds the material cell to the canonical supported OCI region.
+func (cfg Config) Validate() error { return cfg.validate() }
 
 var (
 	identityRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)

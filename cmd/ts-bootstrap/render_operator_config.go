@@ -102,8 +102,7 @@ func operatorConfigFromRecord(record bootstrapmaterial.Record, grant app.Trusted
 	prefix, prefixErr := netip.ParsePrefix(record.Config.SubnetCIDR)
 	controllerPublic, controllerErr := base64.StdEncoding.Strict().DecodeString(record.Public.ControllerResponsePublicKey)
 	ticketPublic, ticketErr := base64.StdEncoding.Strict().DecodeString(record.Public.TicketSignerPublicKey)
-	if record.SchemaVersion != 1 || record.Config.Cell != "gru" ||
-		record.Config.Region != "sa-saopaulo-1" || len(record.Config.Slots) != 3 ||
+	if record.SchemaVersion != 1 || record.Config.Validate() != nil || len(record.Config.Slots) != 3 ||
 		record.Config.Environment != "canary" && record.Config.Environment != "production" ||
 		record.Config.DeploymentID == "" || !now.Before(record.ExpiresAt) ||
 		prefixErr != nil || !prefix.Addr().Is4() || !prefix.Addr().IsPrivate() || prefix.Masked() != prefix ||

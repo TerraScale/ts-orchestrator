@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ type fakeSecret struct {
 
 type fakeVault struct {
 	target          VaultTarget
+	region          string
 	byName          map[string]fakeSecret
 	byID            map[string]fakeSecret
 	create          int
@@ -31,7 +33,8 @@ type fakeVault struct {
 }
 
 func newFakeVault(target VaultTarget) *fakeVault {
-	return &fakeVault{target: target, byName: make(map[string]fakeSecret), byID: make(map[string]fakeSecret)}
+	return &fakeVault{target: target, region: strings.Split(target.VaultOCID, ".")[3],
+		byName: make(map[string]fakeSecret), byID: make(map[string]fakeSecret)}
 }
 
 func (fake *fakeVault) ListSecrets(_ context.Context, request ocivault.ListSecretsRequest) (ocivault.ListSecretsResponse, error) {
@@ -67,7 +70,7 @@ func (fake *fakeVault) CreateSecret(_ context.Context, request ocivault.CreateSe
 		fake.failBeforeStore = false
 		return ocivault.CreateSecretResponse{}, errors.New("create outcome unknown")
 	}
-	item := fakeSecret{id: fmt.Sprintf("ocid1.secret.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.a%d", fake.create), name: *request.SecretName, content: *content.Content}
+	item := fakeSecret{id: fmt.Sprintf("ocid1.secret.oc1.%s.ffvlrlvkaaaw6.a%d", fake.region, fake.create), name: *request.SecretName, content: *content.Content}
 	fake.byName[item.name], fake.byID[item.id] = item, item
 	if fake.uncertain {
 		fake.uncertain = false
@@ -114,7 +117,7 @@ func TestVaultTargetAcceptsActualMultisegmentOCID(t *testing.T) {
 	target := testTarget()
 	target.VaultOCID = "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.abtxeljrrjahmb7sqvwq2hlh3sa75a6qbrp44mcdg4kuof7vcyr2it3qs5oq"
 	target.KMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.aaaakey"
-	if err := target.Validate(); err != nil {
+	if err := target.Validate("sa-saopaulo-1"); err != nil {
 		t.Fatalf("actual GRU Vault OCID shape rejected: %v", err)
 	}
 	for _, wrong := range []VaultTarget{
@@ -123,9 +126,45 @@ func TestVaultTargetAcceptsActualMultisegmentOCID(t *testing.T) {
 		{CompartmentOCID: target.CompartmentOCID, VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.ffvlrlvkaaaw6..aaaavault", KMSKeyOCID: target.KMSKeyOCID},
 		{CompartmentOCID: target.CompartmentOCID, VaultOCID: target.VaultOCID, KMSKeyOCID: "ocid1.secret.oc1.sa-saopaulo-1.ffvlrlvkaaaw6.aaaasecret"},
 	} {
-		if err := wrong.Validate(); err == nil {
+		if err := wrong.Validate("sa-saopaulo-1"); err == nil {
 			t.Fatalf("wrong resource or region accepted: %+v", wrong)
 		}
+	}
+}
+
+func TestMappedRegionalVaultPublicationAndCrossRegionRejection(t *testing.T) {
+	for _, test := range []struct{ cell, region string }{
+		{"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
+	} {
+		t.Run(test.cell, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Cell, cfg.Region = test.cell, test.region
+			directory := filepath.Join(t.TempDir(), "material")
+			if _, err := Generate(directory, cfg, time.Now().UTC().Truncate(time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			target := VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..aaaaaa",
+				VaultOCID:  "ocid1.vault.oc1." + test.region + ".aaaaaa",
+				KMSKeyOCID: "ocid1.key.oc1." + test.region + ".aaaaaa"}
+			if err := target.Validate(test.region); err != nil {
+				t.Fatalf("mapped Vault target rejected: %v", err)
+			}
+			if err := target.Validate("sa-saopaulo-1"); err == nil {
+				t.Fatal("Vault target accepted for another OCI region")
+			}
+			fake := newFakeVault(target)
+			if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil {
+				t.Fatalf("regional material could not be published: %v", err)
+			}
+			if fake.create != 25 {
+				t.Fatalf("regional publication created %d secrets", fake.create)
+			}
+			wrong := target
+			wrong.KMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.aaaaaa"
+			if _, err := Provision(t.Context(), directory, wrong, fake, fake, time.Now().UTC()); err == nil {
+				t.Fatal("cross-region KMS key accepted")
+			}
+		})
 	}
 }
 

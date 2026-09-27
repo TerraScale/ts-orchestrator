@@ -134,7 +134,7 @@ func loadSeedInputs(identityPath, anchorPath, planPath, publicPath string,
 	}
 	if plan.Plan().SeedSlot != seedSlot || !slices.Equal(plan.Plan().ControllerSlots,
 		[]string{"controller-a", "controller-b", "controller-c"}) {
-		return seedInputs{}, fmt.Errorf("%w: reviewed GRU controller-a/b/c topology is required", ErrSeedCLI)
+		return seedInputs{}, fmt.Errorf("%w: reviewed regional controller-a/b/c topology is required", ErrSeedCLI)
 	}
 	manifestWire := manifestWires[seedSlot]
 	manifestEnvelope, err := trust.DecodeEnvelope(manifestWire)
@@ -587,17 +587,22 @@ func signSeedReservationAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-external-seed-reservation", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	inputFlags := addSeedInputFlags(flags)
-	reviewedPlan := flags.String("reviewed-plan-sha256", "", "SHA-256 of the reviewed protected seed OpenTofu plan")
-	createIdentity := flags.String("create-identity", "", "exact Terraform BootstrapCreateKey tag")
+	reviewedPlanPath := flags.String("reviewed-plan", "", "reviewed manual seed launch preflight JSON")
+	reviewedPlanSHA := flags.String("reviewed-plan-sha256", "", "SHA-256 of the exact reviewed manual seed launch preflight")
+	createIdentity := flags.String("create-identity", "", "exact OCI BootstrapCreateKey tag")
 	ledgerKey := flags.String("ledger-signing-key", "", "owner-only raw founder-ledger.key from controller material")
 	output := flags.String("out", "", "new signed reservation bundle")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *ledgerKey == "" || *output == "" || flags.NArg() != 0 {
-		return fmt.Errorf("%w: ledger signing key and new output are required", ErrSeedCLI)
+	if *reviewedPlanPath == "" || *reviewedPlanSHA == "" || *ledgerKey == "" || *output == "" || flags.NArg() != 0 {
+		return fmt.Errorf("%w: reviewed manual seed plan, ledger signing key, and new output are required", ErrSeedCLI)
 	}
 	inputs, err := inputFlags.load(now)
+	if err != nil {
+		return err
+	}
+	_, err = readReviewedSeedPlan(*reviewedPlanPath, *reviewedPlanSHA, *createIdentity, inputs, now, true)
 	if err != nil {
 		return err
 	}
@@ -606,7 +611,7 @@ func signSeedReservationAt(args []string, now time.Time) error {
 		return err
 	}
 	defer clear(private)
-	reservation, err := makeSeedReservation(inputs, *reviewedPlan, *createIdentity, private, now)
+	reservation, err := makeSeedReservation(inputs, *reviewedPlanSHA, *createIdentity, private, now)
 	if err != nil {
 		return err
 	}
@@ -690,15 +695,18 @@ func observeExternalSeedAt(args []string, now time.Time) error {
 	flags.SetOutput(io.Discard)
 	inputFlags := addSeedInputFlags(flags)
 	reservationPath := flags.String("reservation", "", "published signed reservation bundle")
-	instanceID := flags.String("instance-ocid", "", "exact protected Terraform seed instance OCID")
+	reviewedPlanPath := flags.String("reviewed-plan", "", "exact reviewed manual seed launch preflight JSON")
+	reviewedPlanSHA := flags.String("reviewed-plan-sha256", "", "SHA-256 of the exact reviewed manual seed launch preflight")
+	instanceID := flags.String("instance-ocid", "", "exact manually created OCI seed instance OCID")
 	configPath := flags.String("oci-config", "", "reviewed OCI operator API-key configuration")
 	profile := flags.String("oci-profile", "DEFAULT", "reviewed OCI config profile")
 	output := flags.String("out", "", "new read-only OCI seed observation")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *reservationPath == "" || *instanceID == "" || *output == "" || flags.NArg() != 0 {
-		return fmt.Errorf("%w: reservation, exact instance OCID, and output are required", ErrSeedCLI)
+	if *reservationPath == "" || *reviewedPlanPath == "" || *reviewedPlanSHA == "" ||
+		*instanceID == "" || *output == "" || flags.NArg() != 0 {
+		return fmt.Errorf("%w: reservation, reviewed plan, exact instance OCID, and output are required", ErrSeedCLI)
 	}
 	inputs, err := inputFlags.load(now)
 	if err != nil {
@@ -709,6 +717,14 @@ func observeExternalSeedAt(args []string, now time.Time) error {
 		return err
 	}
 	if _, err := verifySeedReservation(inputs, reservation, now, false); err != nil {
+		return err
+	}
+	if *reviewedPlanSHA != reservation.ReviewedPlanSHA256 {
+		return fmt.Errorf("%w: reviewed plan digest differs from signed reservation", ErrSeedCLI)
+	}
+	reviewed, err := readReviewedSeedPlan(*reviewedPlanPath, *reviewedPlanSHA,
+		reservation.CreateIdentity, inputs, now, false)
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -731,6 +747,13 @@ func observeExternalSeedAt(args []string, now time.Time) error {
 	}
 	if _, err := bootstrapstart.VerifyExternalSeedObservation(inputs.anchor, inputs.manifest,
 		state, observed, inputs.plan.Plan().SeedPrivateIP); err != nil {
+		return err
+	}
+	reader, err := newSeedSizingReader(inputs.anchor.Anchor().OCIRegion, provider)
+	if err != nil {
+		return err
+	}
+	if err := reader.verifyReadback(ctx, observed, reviewed); err != nil {
 		return err
 	}
 	observation := seedObservationFromOCI(seedDigest(reservationWire), observed, now)
@@ -1037,6 +1060,8 @@ func publishSeedCompletionAt(args []string, now time.Time) error {
 	inputFlags := addSeedInputFlags(flags)
 	reservationPath := flags.String("reservation", "", "published signed reservation bundle")
 	completionPath := flags.String("completion", "", "exact signed completion bundle")
+	reviewedPlanPath := flags.String("reviewed-plan", "", "exact reviewed manual seed launch preflight JSON")
+	reviewedPlanSHA := flags.String("reviewed-plan-sha256", "", "SHA-256 of the exact reviewed manual seed launch preflight")
 	configPath := flags.String("oci-config", "", "reviewed OCI operator API-key configuration")
 	profile := flags.String("oci-profile", "DEFAULT", "reviewed OCI config profile")
 	if err := flags.Parse(args); err != nil {
@@ -1084,6 +1109,14 @@ func publishSeedCompletionAt(args []string, now time.Time) error {
 			seedSlot, state.Head.ResultDigest)
 		return nil
 	}
+	if *reviewedPlanPath == "" || *reviewedPlanSHA != reservation.ReviewedPlanSHA256 {
+		return fmt.Errorf("%w: exact reviewed seed plan is required before a new completion", ErrSeedCLI)
+	}
+	reviewed, err := readReviewedSeedPlan(*reviewedPlanPath, *reviewedPlanSHA,
+		reservation.CreateIdentity, inputs, now, false)
+	if err != nil {
+		return err
+	}
 	_, receiptStored, resultStored, err := ledger.ExternalSeedProgress(ctx, seedScope(inputs),
 		inputs.manifestWire, completion.ReceiptWire, completion.ResultWire)
 	if err != nil {
@@ -1108,6 +1141,13 @@ func publishSeedCompletionAt(args []string, now time.Time) error {
 	}
 	if !sameSeedOCIObservation(completion.Observation, current, true) {
 		return fmt.Errorf("%w: fresh exact OCI seed readback differs from signed observation", ErrSeedCLI)
+	}
+	reader, err := newSeedSizingReader(inputs.anchor.Anchor().OCIRegion, provider)
+	if err != nil {
+		return err
+	}
+	if err := reader.verifyReadback(ctx, current, reviewed); err != nil {
+		return err
 	}
 	facts, err := bootstrapstart.VerifyExternalSeedObservation(inputs.anchor, inputs.manifest,
 		state, current, inputs.plan.Plan().SeedPrivateIP)

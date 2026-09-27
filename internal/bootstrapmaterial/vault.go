@@ -17,7 +17,7 @@ import (
 	"uuid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"github.com/oracle/oci-go-sdk/v65/common"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
@@ -30,11 +30,9 @@ const (
 )
 
 var (
-	ErrProvision  = errors.New("controller material Vault publication needs operator inspection")
-	compartmentRE = regexp.MustCompile(`^ocid1\.compartment\.oc1\.\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
-	vaultRE       = regexp.MustCompile(`^ocid1\.vault\.oc1\.sa-saopaulo-1\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
-	keyRE         = regexp.MustCompile(`^ocid1\.key\.oc1\.sa-saopaulo-1\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
-	secretRE      = regexp.MustCompile(`^ocid1\.secret\.oc1\.sa-saopaulo-1\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+	ErrProvision   = errors.New("controller material Vault publication needs operator inspection")
+	compartmentRE  = regexp.MustCompile(`^ocid1\.compartment\.oc1\.\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+	resourcePartRE = regexp.MustCompile(`^[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 )
 
 type VaultTarget struct {
@@ -43,16 +41,32 @@ type VaultTarget struct {
 	KMSKeyOCID      string `json:"kmsKeyOcid"`
 }
 
-func (target VaultTarget) validate() error {
-	if !compartmentRE.MatchString(target.CompartmentOCID) || !vaultRE.MatchString(target.VaultOCID) ||
-		!keyRE.MatchString(target.KMSKeyOCID) {
+func supportedMaterialRegion(region string) bool {
+	for _, cell := range []oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA} {
+		mapped, _ := cell.OCIRegion()
+		if region == mapped {
+			return true
+		}
+	}
+	return false
+}
+
+func regionalResourceOCID(id, kind, region string) bool {
+	prefix := "ocid1." + kind + ".oc1." + region + "."
+	return strings.HasPrefix(id, prefix) && resourcePartRE.MatchString(strings.TrimPrefix(id, prefix))
+}
+
+func (target VaultTarget) validate(region string) error {
+	if !supportedMaterialRegion(region) || !compartmentRE.MatchString(target.CompartmentOCID) ||
+		!regionalResourceOCID(target.VaultOCID, "vault", region) ||
+		!regionalResourceOCID(target.KMSKeyOCID, "key", region) {
 		return ErrProvision
 	}
 	return nil
 }
 
-// Validate accepts only the planned GRU control-compartment Vault target.
-func (target VaultTarget) Validate() error { return target.validate() }
+// Validate binds the control-compartment Vault target to a mapped OCI region.
+func (target VaultTarget) Validate(region string) error { return target.validate(region) }
 
 type VaultClient interface {
 	CreateSecret(context.Context, ocivault.CreateSecretRequest) (ocivault.CreateSecretResponse, error)
@@ -97,11 +111,11 @@ type journal struct {
 // its original retry token; after 23 hours the command holds for inspection.
 // It never regenerates source material or silently rotates a Vault version.
 func Provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time) (Publication, error) {
-	if err := target.validate(); err != nil || management == nil || bundles == nil || ctx.Err() != nil {
+	if management == nil || bundles == nil || ctx.Err() != nil {
 		return Publication{}, ErrProvision
 	}
 	record, err := Load(directory)
-	if err != nil || !now.Before(record.ExpiresAt) {
+	if err != nil || target.validate(record.Config.Region) != nil || !now.Before(record.ExpiresAt) {
 		return Publication{}, ErrProvision
 	}
 	if err := ValidateLive(directory, record); err != nil {
@@ -138,7 +152,7 @@ func Provision(ctx context.Context, directory string, target VaultTarget, manage
 		if !ok {
 			return Publication{}, ErrProvision
 		}
-		if err := publishOne(ctx, directory, target, management, bundles, file, entry, &state, now); err != nil {
+		if err := publishOne(ctx, directory, target, record.Config.Region, management, bundles, file, entry, &state, now); err != nil {
 			return Publication{}, err
 		}
 	}
@@ -203,8 +217,8 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 	for index, entry := range state.Entries {
 		file, ok := findFile(record, entry.FileName)
 		if !ok || file.Purpose == "owner-only" || entry.Name != secretName(record.Config, file) ||
-			entry.Verified && !secretRE.MatchString(entry.SecretOCID) ||
-			entry.SecretOCID != "" && !secretRE.MatchString(entry.SecretOCID) ||
+			entry.Verified && !regionalResourceOCID(entry.SecretOCID, "secret", record.Config.Region) ||
+			entry.SecretOCID != "" && !regionalResourceOCID(entry.SecretOCID, "secret", record.Config.Region) ||
 			entry.Verified && entry.SentAt.IsZero() || entry.SecretOCID != "" && !entry.Verified ||
 			!entry.SentAt.IsZero() && entry.SentAt.Before(record.IssuedAt) {
 			return journal{}, ErrProvision
@@ -230,9 +244,9 @@ func secretName(cfg Config, file File) string {
 		string(file.Purpose) + "-" + slot + "-" + strings.ReplaceAll(file.Name, ".", "-")
 }
 
-func publishOne(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient,
+func publishOne(ctx context.Context, directory string, target VaultTarget, region string, management VaultClient, bundles BundleClient,
 	file File, entry *journalEntry, state *journal, now time.Time) error {
-	id, found, err := lookup(ctx, target, entry.Name, management)
+	id, found, err := lookup(ctx, target, region, entry.Name, management)
 	if err != nil {
 		return ErrProvision
 	}
@@ -274,12 +288,12 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, manag
 	response, err := management.CreateSecret(ctx, ocivault.CreateSecretRequest{
 		CreateSecretDetails: ocivault.CreateSecretDetails{
 			CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID),
-			SecretName: new(entry.Name), Description: new("Initial GRU TerraScale controller credential material."),
+			SecretName: new(entry.Name), Description: new("Initial TerraScale regional controller credential material."),
 			SecretContent: ocivault.Base64SecretContentDetails{Content: new(encoded), Stage: ocivault.SecretContentDetailsStageCurrent}},
 		OpcRetryToken: new(entry.RetryToken),
 	})
 	encoded = ""
-	if err != nil || response.Id == nil || !secretRE.MatchString(*response.Id) {
+	if err != nil || response.Id == nil || !regionalResourceOCID(*response.Id, "secret", region) {
 		return ErrProvision
 	}
 	if err := verifyBundle(ctx, target, *response.Id, entry.Name, file, management, bundles); err != nil {
@@ -289,7 +303,7 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, manag
 	return saveJournal(directory, *state)
 }
 
-func lookup(ctx context.Context, target VaultTarget, name string, client VaultClient) (string, bool, error) {
+func lookup(ctx context.Context, target VaultTarget, region, name string, client VaultClient) (string, bool, error) {
 	var page *string
 	var found string
 	for range 32 {
@@ -303,7 +317,7 @@ func lookup(ctx context.Context, target VaultTarget, name string, client VaultCl
 				item.LifecycleState != ocivault.SecretSummaryLifecycleStateCreating {
 				return "", false, ErrProvision
 			}
-			if !secretRE.MatchString(*item.Id) || found != "" {
+			if !regionalResourceOCID(*item.Id, "secret", region) || found != "" {
 				return "", false, ErrProvision
 			}
 			found = *item.Id
@@ -398,28 +412,4 @@ func saveJournal(directory string, state journal) error {
 		return ErrProvision
 	}
 	return nil
-}
-
-// NewOCIClients uses one reviewed operator profile. The caller must hold
-// separate management and secret-bundle rights on only the intended GRU vault.
-func NewOCIClients(configPath, profile string) (VaultClient, BundleClient, error) {
-	provider, err := common.ConfigurationProviderFromFileWithProfile(configPath, profile, "")
-	if err != nil {
-		return nil, nil, ErrProvision
-	}
-	region, err := provider.Region()
-	if err != nil || region != "sa-saopaulo-1" {
-		return nil, nil, ErrProvision
-	}
-	management, err := ocivault.NewVaultsClientWithConfigurationProvider(provider)
-	if err != nil {
-		return nil, nil, ErrProvision
-	}
-	management.SetRegion(region)
-	bundles, err := ocisecrets.NewSecretsClientWithConfigurationProvider(provider)
-	if err != nil {
-		return nil, nil, ErrProvision
-	}
-	bundles.SetRegion(region)
-	return management, bundles, nil
 }

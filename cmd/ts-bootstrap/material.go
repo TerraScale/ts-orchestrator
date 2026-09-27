@@ -25,7 +25,7 @@ import (
 )
 
 // runGenerateControllerMaterial creates the one durable local source for the
-// three GRU controller slots. Config and output contain public identities and
+// three regional controller slots. Config and output contain public identities and
 // digests only; private material stays in the owner-only directory.
 func runGenerateControllerMaterial(args []string) error {
 	return generateControllerMaterialAt(args, time.Now().UTC())
@@ -113,21 +113,19 @@ func matchesSHA256(wire []byte, expected string) bool {
 	return hex.EncodeToString(sum[:]) == expected
 }
 
-type foundationReceipt struct {
-	SchemaVersion         int    `json:"schema_version"`
-	Status                string `json:"status"`
-	SourceRevision        string `json:"source_revision"`
-	StateRevision         string `json:"state_revision"`
-	EncryptedStateSHA256  string `json:"encrypted_state_sha256"`
-	EffectsSHA256         string `json:"effects_sha256"`
-	CostPlanSHA256        string `json:"cost_plan_sha256"`
-	TenancyID             string `json:"tenancy_id"`
-	OCIRegion             string `json:"oci_region"`
-	ReadbackAt            string `json:"readback_at"`
-	ControlCompartmentID  string `json:"control_compartment_id"`
-	WorkloadCompartmentID string `json:"workload_compartment_id"`
-	VaultID               string `json:"vault_id"`
-	KeyID                 string `json:"key_id"`
+type manualFoundationReadback struct {
+	SchemaVersion         int       `json:"schema_version"`
+	PlanSHA256            string    `json:"plan_sha256"`
+	InventorySHA256       string    `json:"inventory_sha256"`
+	InspectedAt           time.Time `json:"inspected_at"`
+	TenancyID             string    `json:"tenancy_id"`
+	Cell                  string    `json:"cell"`
+	OCIRegion             string    `json:"oci_region"`
+	ControlCompartmentID  string    `json:"control_compartment_id"`
+	NetworkCompartmentID  string    `json:"network_compartment_id"`
+	WorkloadCompartmentID string    `json:"workload_compartment_id"`
+	VaultID               string    `json:"vault_id"`
+	KeyID                 string    `json:"key_id"`
 }
 
 type costAdmission struct {
@@ -163,72 +161,91 @@ type costInventory struct {
 }
 
 var (
-	gitRevisionRE = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	sha256RE      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	rootTenancyRE = regexp.MustCompile(`^ocid1\.tenancy\.oc1\.\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 	compartmentRE = regexp.MustCompile(`^ocid1\.compartment\.oc1\.\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 )
 
-func validatePublicationGate(receiptWire, inventoryWire, admissionWire []byte, receiptSHA, inventorySHA,
-	admissionSHA, planSHA string, now time.Time) (bootstrapmaterial.VaultTarget, error) {
-	bad := errors.New("foundation readback or current cost admission does not authorize Vault publication")
-	if !matchesSHA256(receiptWire, receiptSHA) || !matchesSHA256(inventoryWire, inventorySHA) ||
-		!matchesSHA256(admissionWire, admissionSHA) || !sha256RE.MatchString(planSHA) {
-		return bootstrapmaterial.VaultTarget{}, bad
+type publicationGate struct {
+	Readback manualFoundationReadback
+	Target   bootstrapmaterial.VaultTarget
+	Deadline time.Time
+}
+
+func validatePublicationGate(readbackWire, inventoryWire, admissionWire []byte, readbackSHA, inventorySHA,
+	admissionSHA, planSHA, cell string, now time.Time) (publicationGate, error) {
+	bad := errors.New("manual foundation readback or current cost admission does not authorize Vault publication")
+	region, regionErr := bootstrapmaterial.MappedOCIRegion(cell)
+	if regionErr != nil {
+		return publicationGate{}, bad
 	}
-	var foundation foundationReceipt
+	if !matchesSHA256(readbackWire, readbackSHA) || !matchesSHA256(inventoryWire, inventorySHA) ||
+		!matchesSHA256(admissionWire, admissionSHA) || !sha256RE.MatchString(planSHA) {
+		return publicationGate{}, bad
+	}
+	var readback manualFoundationReadback
 	var inventory costInventory
 	var admission costAdmission
-	if json.Unmarshal(receiptWire, &foundation, json.RejectUnknownMembers(true)) != nil || json.Unmarshal(inventoryWire, &inventory) != nil ||
+	if json.Unmarshal(readbackWire, &readback, json.RejectUnknownMembers(true)) != nil || json.Unmarshal(inventoryWire, &inventory) != nil ||
 		json.Unmarshal(admissionWire, &admission) != nil {
-		return bootstrapmaterial.VaultTarget{}, bad
+		return publicationGate{}, bad
 	}
-	readbackAt, err := time.Parse(time.RFC3339, foundation.ReadbackAt)
-	_, readbackOffset := readbackAt.Zone()
-	if err != nil || readbackOffset != 0 ||
-		!strings.HasSuffix(foundation.ReadbackAt, "Z") && !strings.HasSuffix(foundation.ReadbackAt, "+00:00") ||
-		foundation.SchemaVersion != 1 ||
-		foundation.Status != "foundation-ready" || !gitRevisionRE.MatchString(foundation.SourceRevision) ||
-		!gitRevisionRE.MatchString(foundation.StateRevision) || !sha256RE.MatchString(foundation.EncryptedStateSHA256) ||
-		!sha256RE.MatchString(foundation.EffectsSHA256) || !sha256RE.MatchString(foundation.CostPlanSHA256) ||
-		foundation.CostPlanSHA256 != planSHA ||
-		!rootTenancyRE.MatchString(foundation.TenancyID) || foundation.OCIRegion != "sa-saopaulo-1" ||
-		readbackAt.After(now) || now.Sub(readbackAt) > 15*time.Minute {
-		return bootstrapmaterial.VaultTarget{}, bad
+	_, readbackOffset := readback.InspectedAt.Zone()
+	if readback.SchemaVersion != 1 || readback.PlanSHA256 != planSHA ||
+		readback.InventorySHA256 != inventorySHA || readback.InspectedAt.IsZero() ||
+		readbackOffset != 0 || readback.InspectedAt.After(now) ||
+		now.Sub(readback.InspectedAt) > 15*time.Minute ||
+		!rootTenancyRE.MatchString(readback.TenancyID) ||
+		readback.Cell != strings.ToUpper(cell) || readback.OCIRegion != region ||
+		!compartmentRE.MatchString(readback.ControlCompartmentID) ||
+		!compartmentRE.MatchString(readback.NetworkCompartmentID) ||
+		!compartmentRE.MatchString(readback.WorkloadCompartmentID) ||
+		readback.ControlCompartmentID == readback.NetworkCompartmentID ||
+		readback.ControlCompartmentID == readback.WorkloadCompartmentID ||
+		readback.NetworkCompartmentID == readback.WorkloadCompartmentID {
+		return publicationGate{}, bad
 	}
 	if inventory.SchemaVersion != 2 || admission.SchemaVersion != 2 || inventory.PlanSHA256 != planSHA ||
 		admission.PlanSHA256 != planSHA || admission.InventorySHA256 != inventorySHA ||
-		inventory.TenancyID != foundation.TenancyID || !slices.Contains(inventory.Regions, foundation.OCIRegion) ||
+		inventory.TenancyID != readback.TenancyID || !slices.Contains(inventory.Regions, readback.OCIRegion) ||
 		!compartmentRE.MatchString(inventory.PreviewCompartmentIDs.Control) ||
 		!compartmentRE.MatchString(inventory.PreviewCompartmentIDs.Network) ||
 		!compartmentRE.MatchString(inventory.PreviewCompartmentIDs.Workload) ||
-		inventory.PreviewCompartmentIDs.Control != foundation.ControlCompartmentID ||
-		inventory.PreviewCompartmentIDs.Workload != foundation.WorkloadCompartmentID ||
+		inventory.PreviewCompartmentIDs.Control != readback.ControlCompartmentID ||
+		inventory.PreviewCompartmentIDs.Network != readback.NetworkCompartmentID ||
+		inventory.PreviewCompartmentIDs.Workload != readback.WorkloadCompartmentID ||
 		admission.PreviewCompartmentIDs != inventory.PreviewCompartmentIDs ||
 		inventory.CapturedAt.IsZero() || inventory.CapturedAt.After(admission.AdmittedAt) ||
-		now.Sub(inventory.CapturedAt) > 20*time.Minute || admission.AdmittedAt.Sub(inventory.CapturedAt) > 20*time.Minute ||
+		inventory.CapturedAt.After(now) || now.Sub(inventory.CapturedAt) > 20*time.Minute ||
+		admission.AdmittedAt.Sub(inventory.CapturedAt) > 20*time.Minute ||
+		readback.InspectedAt.Before(admission.AdmittedAt) ||
 		admission.AdmittedAt.After(now) || !now.Before(admission.ExpiresAt) ||
 		admission.ExpiresAt.Sub(admission.AdmittedAt) > 20*time.Minute || admission.Estimate.Currency != "USD" {
-		return bootstrapmaterial.VaultTarget{}, bad
+		return publicationGate{}, bad
 	}
 	total, ok := new(big.Rat).SetString(admission.Estimate.Total)
 	if !ok || total.Sign() < 0 {
-		return bootstrapmaterial.VaultTarget{}, bad
+		return publicationGate{}, bad
 	}
 	limit, ok := new(big.Rat).SetString(admission.Estimate.Limit)
 	if !ok || limit.Sign() <= 0 || limit.Cmp(big.NewRat(100, 1)) > 0 || total.Cmp(limit) > 0 {
-		return bootstrapmaterial.VaultTarget{}, bad
+		return publicationGate{}, bad
 	}
 	headroom, ok := new(big.Rat).SetString(admission.Estimate.Headroom)
 	if !ok || headroom.Sign() < 0 || new(big.Rat).Add(total, headroom).Cmp(limit) != 0 {
-		return bootstrapmaterial.VaultTarget{}, bad
+		return publicationGate{}, bad
 	}
-	target := bootstrapmaterial.VaultTarget{CompartmentOCID: foundation.ControlCompartmentID,
-		VaultOCID: foundation.VaultID, KMSKeyOCID: foundation.KeyID}
-	if err := target.Validate(); err != nil {
-		return bootstrapmaterial.VaultTarget{}, bad
+	target := bootstrapmaterial.VaultTarget{CompartmentOCID: readback.ControlCompartmentID,
+		VaultOCID: readback.VaultID, KMSKeyOCID: readback.KeyID}
+	if err := target.Validate(region); err != nil {
+		return publicationGate{}, bad
 	}
-	return target, nil
+	deadline := admission.ExpiresAt
+	if readbackDeadline := readback.InspectedAt.Add(15 * time.Minute); readbackDeadline.Before(deadline) {
+		deadline = readbackDeadline
+	}
+	return publicationGate{Readback: readback, Target: target,
+		Deadline: deadline}, nil
 }
 
 func runProvisionControllerMaterial(args []string) error {
@@ -239,8 +256,8 @@ func provisionControllerMaterialAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("provision-controller-material", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	directory := flags.String("directory", "", "existing owner-only material directory")
-	receiptPath := flags.String("foundation-receipt", "", "current applied foundation readback receipt")
-	receiptSHA := flags.String("foundation-sha256", "", "operator-pinned receipt SHA-256")
+	readbackPath := flags.String("manual-readback", "", "fresh authenticated manual foundation readback")
+	readbackSHA := flags.String("manual-readback-sha256", "", "operator-pinned manual readback SHA-256")
 	inventoryPath := flags.String("inventory", "", "current live OCI inventory")
 	inventorySHA := flags.String("inventory-sha256", "", "operator-pinned inventory SHA-256")
 	admissionPath := flags.String("cost-admission", "", "current cost admission")
@@ -252,16 +269,20 @@ func provisionControllerMaterialAt(args []string, now time.Time) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *directory == "" || *receiptPath == "" || *receiptSHA == "" || *inventoryPath == "" ||
+	if *directory == "" || *readbackPath == "" || *readbackSHA == "" || *inventoryPath == "" ||
 		*inventorySHA == "" || *admissionPath == "" || *admissionSHA == "" || *planSHA == "" ||
 		*configPath == "" || *outputPath == "" || flags.NArg() != 0 || !filepath.IsAbs(*directory) ||
 		!filepath.IsAbs(*outputPath) || pathInside(*directory, *outputPath) {
-		return errors.New("provision-controller-material requires material, current reviewed foundation/cost evidence, OCI profile, and a public output path")
+		return errors.New("provision-controller-material requires material, fresh manual foundation/cost evidence, OCI profile, and a public output path")
 	}
 	if _, err := os.Lstat(*outputPath); err == nil || !errors.Is(err, os.ErrNotExist) {
 		return errors.New("public reference output must not already exist")
 	}
-	receiptWire, err := readBoundedRegular(*receiptPath, 16<<10)
+	record, err := bootstrapmaterial.Load(*directory)
+	if err != nil || !now.Before(record.ExpiresAt) {
+		return bootstrapmaterial.ErrMaterial
+	}
+	readbackWire, err := readBoundedRegular(*readbackPath, 16<<10)
 	if err != nil {
 		return err
 	}
@@ -273,44 +294,28 @@ func provisionControllerMaterialAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	target, err := validatePublicationGate(receiptWire, inventoryWire, admissionWire, *receiptSHA,
-		*inventorySHA, *admissionSHA, *planSHA, now)
+	gate, err := validatePublicationGate(readbackWire, inventoryWire, admissionWire, *readbackSHA,
+		*inventorySHA, *admissionSHA, *planSHA, record.Config.Cell, now)
 	if err != nil {
 		return err
 	}
-	record, err := bootstrapmaterial.Load(*directory)
-	if err != nil || record.Config.Region != "sa-saopaulo-1" || !now.Before(record.ExpiresAt) {
+	if record.Config.Region != gate.Readback.OCIRegion {
 		return bootstrapmaterial.ErrMaterial
 	}
 	if err := bootstrapmaterial.ValidateLive(*directory, record); err != nil {
 		return err
 	}
-	management, bundles, err := bootstrapmaterial.NewOCIClients(*configPath, *profile)
-	if err != nil {
-		return err
-	}
-	var cost costAdmission
-	var foundation foundationReceipt
-	if err := json.Unmarshal(admissionWire, &cost); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(receiptWire, &foundation); err != nil {
-		return err
-	}
-	readbackAt, err := time.Parse(time.RFC3339, foundation.ReadbackAt)
-	if err != nil {
-		return err
-	}
-	deadline := cost.ExpiresAt
-	if readbackDeadline := readbackAt.Add(15 * time.Minute); readbackDeadline.Before(deadline) {
-		deadline = readbackDeadline
-	}
+	deadline := gate.Deadline
 	if record.ExpiresAt.Before(deadline) {
 		deadline = record.ExpiresAt
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	publication, err := bootstrapmaterial.Provision(ctx, *directory, target, management, bundles, now)
+	management, bundles, err := newMaterialOCIClients(ctx, *configPath, *profile, gate.Readback)
+	if err != nil {
+		return err
+	}
+	publication, err := bootstrapmaterial.Provision(ctx, *directory, gate.Target, management, bundles, now)
 	if err != nil {
 		return err
 	}
