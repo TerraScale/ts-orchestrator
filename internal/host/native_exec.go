@@ -23,6 +23,7 @@ import (
 
 const workloadHelperArgument = "--terrascale-internal-native-workload-helper"
 const maxNativeTargetExtraFiles = 1
+const nativeIOPriorityNeutral = 2<<13 | 4 // Best effort, ordinary priority.
 
 type nativeExecRequest struct {
 	Path      string           `json:"path"`
@@ -124,6 +125,17 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 	if os.Geteuid() != 0 || identity.UID == 0 || identity.GID == 0 {
 		return errors.New("native helper requires root and nonzero workload identity")
 	}
+	// The helper inherits the protected supervisor's scheduling attributes.
+	// Reset them while root before the irreversible UID and capability drop.
+	if err := unix.Setpriority(unix.PRIO_PROCESS, 0, 0); err != nil {
+		return fmt.Errorf("reset native workload nice: %w", err)
+	}
+	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0); err != nil {
+		return fmt.Errorf("reset native workload OOM score adjustment: %w", err)
+	}
+	if err := setNativeIOPriority(0, nativeIOPriorityNeutral); err != nil {
+		return fmt.Errorf("reset native workload I/O priority: %w", err)
+	}
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("set native no_new_privs: %w", err)
 	}
@@ -142,6 +154,17 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 		if err := unix.Prctl(unix.PR_CAPBSET_DROP, uintptr(capability), 0, 0, 0); err != nil {
 			return fmt.Errorf("drop native bounding capability %d: %w", capability, err)
 		}
+	}
+	var inherited [2]unix.CapUserData
+	inheritedHeader := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	if err := unix.Capget(&inheritedHeader, &inherited[0]); err != nil {
+		return fmt.Errorf("inspect native inheritable capabilities: %w", err)
+	}
+	for index := range inherited {
+		inherited[index].Inheritable = 0
+	}
+	if err := unix.Capset(&inheritedHeader, &inherited[0]); err != nil {
+		return fmt.Errorf("clear native inheritable capabilities: %w", err)
 	}
 	if err := unix.Setgroups(nil); err != nil {
 		return fmt.Errorf("clear native supplementary groups: %w", err)
@@ -268,6 +291,25 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 	if len(fields) <= 19 || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x" {
 		return errors.New("native target exited before verification")
 	}
+	nice, err := strconv.Atoi(fields[17]) // /proc/PID/stat field 20.
+	if err != nil || nice < 0 {
+		return errors.New("native target retained protected supervisor nice")
+	}
+	oomScore, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "oom_score_adj"))
+	if err != nil {
+		return fmt.Errorf("inspect native target OOM score adjustment: %w", err)
+	}
+	adjustment, err := strconv.Atoi(strings.TrimSpace(string(oomScore)))
+	if err != nil || adjustment < 0 {
+		return errors.New("native target retained protected supervisor OOM score adjustment")
+	}
+	ioPriority, err := readNativeIOPriority(pid)
+	if err != nil {
+		return fmt.Errorf("inspect native target I/O priority: %w", err)
+	}
+	if ioPriority != 0 && (ioPriority>>13 != 2 || ioPriority&((1<<13)-1) < 4) && ioPriority>>13 != 3 {
+		return errors.New("native target retained protected supervisor I/O priority")
+	}
 	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 	if err != nil || len(cmdline) == 0 || bytes.Contains(cmdline, []byte(workloadHelperArgument)) {
 		return errors.New("native helper did not exec the target")
@@ -283,6 +325,22 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 		return errors.New("native target escaped its role cgroup")
 	}
 	return nil
+}
+
+func setNativeIOPriority(pid, priority int) error {
+	_, _, errno := unix.Syscall(unix.SYS_IOPRIO_SET, 1, uintptr(pid), uintptr(priority))
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func readNativeIOPriority(pid int) (int, error) {
+	value, _, errno := unix.Syscall(unix.SYS_IOPRIO_GET, 1, uintptr(pid), 0)
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(value), nil
 }
 
 func nativeCgroupContainsPID(path string, pid int) (bool, error) {

@@ -117,6 +117,7 @@ type ManagedMemberLaunch struct {
 	ProcessMemoryBytes   uint64               `json:"process_memory_bytes,omitzero"`
 	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes,omitzero"`
 	CgroupMemoryMaxBytes uint64               `json:"cgroup_memory_max_bytes,omitzero"`
+	SystemReserveBytes   uint64               `json:"system_reserve_bytes,omitzero"`
 	Runtime              *ManagedRuntimePins  `json:"runtime,omitempty"`
 }
 
@@ -189,21 +190,22 @@ type HostStatus struct {
 }
 
 type AgentConfig struct {
-	Cell                string
-	Node                string
-	Environment         string
-	Roles               []string
-	Conn                *nats.Conn
-	Identity            ed25519.PrivateKey
-	ControllerPublicKey ed25519.PublicKey
-	Runner              Runner
-	InstallRoot         string
-	StateRoot           string
-	ManagedRuntimeRoot  string
-	WorkloadIdentity    WorkloadIdentity
-	PollInterval        time.Duration
-	SessionTrace        bool
-	ClockCheck          func() error
+	Cell                    string
+	Node                    string
+	Environment             string
+	Roles                   []string
+	Conn                    *nats.Conn
+	Identity                ed25519.PrivateKey
+	ControllerPublicKey     ed25519.PublicKey
+	Runner                  Runner
+	InstallRoot             string
+	StateRoot               string
+	ManagedRuntimeRoot      string
+	BakedSystemReserveBytes uint64
+	WorkloadIdentity        WorkloadIdentity
+	PollInterval            time.Duration
+	SessionTrace            bool
+	ClockCheck              func() error
 }
 
 type ControllerConfig struct {
@@ -459,14 +461,15 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		return errors.New("managed launch source, volume or authority is invalid")
 	}
 	if d.Withdrawn {
-		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 || launch.Runtime != nil {
+		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 || launch.SystemReserveBytes != 0 || launch.Runtime != nil {
 			return errors.New("withdrawn managed desired contains memory execution data")
 		}
 		return nil
 	}
 	const gib = uint64(1 << 30)
 	p, h, c := launch.ProcessMemoryBytes, launch.MemoryHeadroomBytes, launch.CgroupMemoryMaxBytes
-	if p < 4*gib || h < max(gib, p/4) || h >= p ||
+	if p < 4*gib || h < max(gib, p/4) || h >= p || launch.SystemReserveBytes == 0 ||
+		launch.SystemReserveBytes > math.MaxInt64 || launch.SystemReserveBytes != uint64(r.SystemReserveBytes) ||
 		validateCgroupMemoryMax(c) != nil || c < p || c > uint64(r.Capacity.MemoryBytes) ||
 		p > math.MaxInt64 || h > math.MaxInt64 || p%uint64(os.Getpagesize()) != 0 || h%uint64(os.Getpagesize()) != 0 {
 		return errors.New("managed process memory, headroom or cgroup cap is invalid")

@@ -158,6 +158,12 @@ func (f *fleet) verifyPinnedImage(ctx context.Context) error {
 	return nil
 }
 
+// VerifyPinnedImage rechecks the configured image through the injected
+// qualification source. It authorizes no mutation by itself.
+func (f *fleet) VerifyPinnedImage(ctx context.Context) error {
+	return f.verifyPinnedImage(ctx)
+}
+
 func (f *fleet) verifyRetainedVolumeHostImage(cloud CloudInstance) error {
 	if cloud.ImageID != f.config.ImageID || cloud.ConsistentVolumeNamingEnabled == nil || !*cloud.ConsistentVolumeNamingEnabled {
 		return fmt.Errorf("%w: instance %s does not report the pinned image and consistent volume naming", ErrImageNotQualified, cloud.ID)
@@ -323,6 +329,8 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		PlacementProfileDigest: operationIntent.PlacementProfileDigest,
 		PlacementGeneration:    operationIntent.PlacementGeneration,
 		ImageID:                operationIntent.ImageID,
+		BootVolumeGB:           f.config.BootVolumeGB,
+		BootVolumeVPUsPerGB:    f.config.BootVolumeVPUsPerGB,
 		BootDescriptor:         operationIntent.BootDescriptor,
 		FreeformTags: placementProfileTags(
 			hostTags(f.config, request.CreateKey), operationIntent.PlacementProfileDigest, operationIntent.PlacementGeneration,
@@ -377,8 +385,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 // the resource remains withheld for operator inspection instead of being
 // adopted from tags alone.
 func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRequest) (RetainedVolume, error) {
-	if !validCreateKey(request.CreateKey) || request.SizeGB < minRetainedVolumeSizeGB {
-		return RetainedVolume{}, errors.New("retained OCI volume requires a valid create key and at least 50 GiB")
+	if !validCreateKey(request.CreateKey) || request.SizeGB < minRetainedVolumeSizeGB ||
+		request.SizeGB > f.config.MaxDataVolumeGB {
+		return RetainedVolume{}, errors.New("retained OCI volume size exceeds the configured fleet bounds")
 	}
 	if err := f.verifyPinnedImage(ctx); err != nil {
 		return RetainedVolume{}, err
@@ -1071,6 +1080,8 @@ func (f *fleet) reobserveVolume(ctx context.Context, volumeID string) (CloudVolu
 	}
 	if volume.ID != volumeID || volume.CompartmentID != f.config.CompartmentID ||
 		volume.AvailabilityDomain != f.config.AvailabilityDomain || volume.SizeGB < minRetainedVolumeSizeGB ||
+		volume.SizeGB > f.config.MaxDataVolumeGB ||
+		volume.VPUsPerGB != int64(f.config.DataVolumeVPUsPerGB) ||
 		tags[tagManagedBy] != managedByValue || tags[tagOwner] != f.config.Owner ||
 		tags[tagRegion] != string(f.config.Region) || tags[tagGeneration] != fmt.Sprint(f.config.Generation) ||
 		tags[tagResource] != resourceMemberData || tags[tagVolumeSize] != fmt.Sprint(volume.SizeGB) ||

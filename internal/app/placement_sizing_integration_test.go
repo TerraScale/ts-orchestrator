@@ -76,9 +76,11 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 	}
 	regionConfig := oci.RegionConfig{
 		Region: oci.RegionGRU, Generation: 1, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
-		CompartmentID: "ocid1.compartment.oc1..owned", AvailabilityDomain: "AD-1",
+		CompartmentID: "ocid1.compartment.oc1..owned", ImageCompartmentID: "ocid1.compartment.oc1..image", AvailabilityDomain: "AD-1",
 		FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		SubnetID:     "ocid1.subnet.oc1..owned", ImageID: "ocid1.image.oc1..owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
 		Shape: profile.Compute.Shape, Owner: "regional-owner",
 	}
 	provider := &placementSizingProvider{config: regionConfig}

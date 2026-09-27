@@ -504,7 +504,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	args = append(args, clientArgs...)
 	keepMount = true
 	return Workload{Role: d.Role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable,
-		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}, mount, paths.socket, nil
+		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes, SystemReserveBytes: launch.SystemReserveBytes}, mount, paths.socket, nil
 }
 
 func removeStoppedMemberSocket(path string, identity WorkloadIdentity) error {
@@ -563,6 +563,12 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	}
 	if launch.Runtime == nil || a.cfg.ManagedRuntimeRoot == "" {
 		return errors.Join(errors.New("managed member launch awaits verified mount, artifact, authority material and member identity"), a.runner.Stop(ctx, d.Role))
+	}
+	if target.Registration == nil || target.Registration.SystemReserveBytes <= 0 ||
+		a.cfg.BakedSystemReserveBytes == 0 ||
+		launch.SystemReserveBytes != a.cfg.BakedSystemReserveBytes ||
+		uint64(target.Registration.SystemReserveBytes) != a.cfg.BakedSystemReserveBytes {
+		return errors.Join(errors.New("managed system reserve differs from image priority profile"), a.runner.Stop(ctx, d.Role))
 	}
 	check := a.memoryCheck
 	if check == nil {

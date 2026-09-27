@@ -139,6 +139,7 @@ type WriterStopEvidence []byte
 // Implementations must fail closed for unknown desired state or ownership.
 type Fleet interface {
 	Region() Region
+	VerifyPinnedImage(context.Context) error
 	Observe(context.Context) ([]Instance, error)
 	EnsureHost(context.Context, EnsureRequest) (Instance, error)
 	CreateRetainedVolume(context.Context, VolumeCreateRequest) (RetainedVolume, error)
@@ -351,6 +352,7 @@ type CloudVolume struct {
 	CompartmentID      string
 	AvailabilityDomain string
 	SizeGB             int64
+	VPUsPerGB          int64
 	LifecycleState     string
 	FreeformTags       map[string]string
 }
@@ -369,6 +371,8 @@ type LaunchRequest struct {
 	PlacementProfileDigest string
 	PlacementGeneration    uint64
 	ImageID                string
+	BootVolumeGB           uint32
+	BootVolumeVPUsPerGB    uint32
 	BootDescriptor         string
 	FreeformTags           map[string]string
 }

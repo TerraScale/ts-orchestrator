@@ -21,6 +21,7 @@ import (
 
 const nativeExtraFileTestEnv = "TERRASCALE_TEST_NATIVE_EXTRA_FILE_CASE"
 const nativeTenantTargetTestEnv = "TERRASCALE_TEST_NATIVE_TENANT_TARGET_COUNT"
+const nativeProtectedParentTestEnv = "TERRASCALE_TEST_NATIVE_PROTECTED_PARENT"
 
 func TestNativeTargetExtraFileProtocol(t *testing.T) {
 	if scenario := os.Getenv(nativeExtraFileTestEnv); scenario != "" {
@@ -145,6 +146,20 @@ func TestNativeWorkloadHelperExecWithDeclaredExtraFiles(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("native helper root-to-tenant exec requires root")
 	}
+	if os.Getenv(nativeProtectedParentTestEnv) == "1" {
+		priority, err := unix.Getpriority(unix.PRIO_PROCESS, 0)
+		if err != nil || priority != 40 { // Linux returns 20-nice.
+			t.Fatalf("protected parent raw priority = %d, %v; want 40 (nice -20)", priority, err)
+		}
+		oom, err := os.ReadFile("/proc/self/oom_score_adj")
+		if err != nil || strings.TrimSpace(string(oom)) != "-1000" {
+			t.Fatalf("protected parent OOM score adjustment = %q, %v; want -1000", oom, err)
+		}
+		ioPriority, err := readNativeIOPriority(0)
+		if err != nil || ioPriority != 2<<13 {
+			t.Fatalf("protected parent I/O priority = %d, %v; want BestEffort/0", ioPriority, err)
+		}
+	}
 	for _, count := range []int{0, 1} {
 		t.Run(strconv.Itoa(count), func(t *testing.T) {
 			requestRead, requestWrite, err := os.Pipe()
@@ -201,7 +216,8 @@ func TestNativeWorkloadHelperExecWithDeclaredExtraFiles(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := command.Wait(); err != nil {
-				t.Fatalf("native helper count %d failed: %v\n%s", count, err, output.String())
+				status, _ := io.ReadAll(statusRead)
+				t.Fatalf("native helper count %d failed: %v; status: %s\n%s", count, err, status, output.String())
 			}
 			status, err := io.ReadAll(statusRead)
 			if err != nil || len(status) != 0 {
@@ -222,6 +238,19 @@ func TestNativeHelperTenantTarget(t *testing.T) {
 	}
 	if os.Geteuid() != 65534 || os.Getegid() != 65534 {
 		t.Fatalf("native target identity = %d:%d, want 65534:65534", os.Geteuid(), os.Getegid())
+	}
+	nice, err := unix.Getpriority(unix.PRIO_PROCESS, 0)
+	// Linux's getpriority syscall returns 20-nice; x/sys exposes that raw value.
+	if err != nil || nice != 20 {
+		t.Fatalf("native target raw priority = %d, %v; want 20 (nice 0)", nice, err)
+	}
+	oom, err := os.ReadFile("/proc/self/oom_score_adj")
+	if err != nil || strings.TrimSpace(string(oom)) != "0" {
+		t.Fatalf("native target OOM score adjustment = %q, %v; want 0", oom, err)
+	}
+	priority, err := readNativeIOPriority(0)
+	if err != nil || priority != nativeIOPriorityNeutral {
+		t.Fatalf("native target I/O priority = %d, %v; want BestEffort/4", priority, err)
 	}
 	if count == 1 {
 		assertNativeTestFDContent(t, 3, "native-target-file")

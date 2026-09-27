@@ -21,6 +21,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -85,6 +86,7 @@ func TestCurrentBinaryVerificationRejectsTamperedArtifact(t *testing.T) {
 		"--delegation", fixture.delegationPath,
 		"--root-key", fixture.rootPath,
 		"--binary", artifactPath,
+		"--qualification", fixture.qualificationPath,
 		"--environment", "canary",
 	})
 	if err == nil {
@@ -100,16 +102,23 @@ func TestSignBinaryChecksDelegateSlotAndEmitsCurrentEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFixtureFile(t, candidatePath, candidate, 0o600)
+	binaryPath := filepath.Join(filepath.Dir(fixture.rootPath), "retained-binary")
+	writeFixtureFile(t, binaryPath, []byte("static binary"), 0o600)
 	signedPath := filepath.Join(filepath.Dir(fixture.rootPath), "signed.json")
 	args := []string{
 		"--candidate", candidatePath,
+		"--binary", binaryPath,
+		"--qualification", fixture.qualificationPath,
 		"--delegation", fixture.delegationPath,
 		"--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath,
 		"--environment", "canary",
 		"--out", signedPath,
 	}
-	if err := signBinary(args); err != nil {
+	observed := testBinaryReceipt()
+	inspect := func(string, string, string) (binaryReceipt, error) { return observed, nil }
+	check := func(release.Qualification, string) error { return nil }
+	if err := signBinaryWithCheck(args, check, inspect); err != nil {
 		t.Fatalf("signBinary() error = %v", err)
 	}
 	verified, err := verifyBinaryReceiptFiles(signedPath, fixture.delegationPath, fixture.rootPath, "canary")
@@ -121,6 +130,7 @@ func TestSignBinaryChecksDelegateSlotAndEmitsCurrentEnvelope(t *testing.T) {
 	}
 	wrongSlot := testBinaryReceipt()
 	wrongSlot.GOARCH, wrongSlot.ELFMachine = "arm64", linuxARM64Machine
+	observed = wrongSlot
 	wrongCandidate, err := trust.EncodePayload(wrongSlot)
 	if err != nil {
 		t.Fatal(err)
@@ -128,13 +138,15 @@ func TestSignBinaryChecksDelegateSlotAndEmitsCurrentEnvelope(t *testing.T) {
 	writeFixtureFile(t, candidatePath, wrongCandidate, 0o600)
 	wrongArgs := []string{
 		"--candidate", candidatePath,
+		"--binary", binaryPath,
+		"--qualification", fixture.qualificationPath,
 		"--delegation", fixture.delegationPath,
 		"--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath,
 		"--environment", "canary",
 		"--out", filepath.Join(filepath.Dir(fixture.rootPath), "wrong-scope.json"),
 	}
-	if err := signBinary(wrongArgs); err == nil {
+	if err := signBinaryWithCheck(wrongArgs, check, inspect); err == nil {
 		t.Fatal("signBinary() accepted a candidate outside the delegated architecture slot")
 	}
 }
@@ -202,10 +214,11 @@ func TestImageIdentityAndGuestPathValidation(t *testing.T) {
 }
 
 type signedFixture struct {
-	rootPath       string
-	delegationPath string
-	receiptPath    string
-	privatePath    string
+	rootPath          string
+	delegationPath    string
+	receiptPath       string
+	privatePath       string
+	qualificationPath string
 }
 
 func newSignedBinaryFixture(t *testing.T, delegationLifetime time.Duration) signedFixture {
@@ -262,6 +275,8 @@ func newSignedBinaryFixture(t *testing.T, delegationLifetime time.Duration) sign
 	delegationPath := filepath.Join(directory, "delegation.json")
 	privatePath := filepath.Join(directory, "delegate.key")
 	receiptPath := filepath.Join(directory, "receipt.json")
+	qualificationPath := filepath.Join(directory, "qualification.json")
+	writeFixtureFile(t, qualificationPath, testQualificationWire(t), 0o600)
 	writeFixtureFile(t, rootPath, rootPEM, 0o600)
 	writeFixtureFile(t, delegationPath, delegationEncoded, 0o600)
 	writeFixtureFile(t, privatePath, privatePEM, 0o600)
@@ -282,7 +297,7 @@ func newSignedBinaryFixture(t *testing.T, delegationLifetime time.Duration) sign
 		t.Fatal(err)
 	}
 	writeFixtureFile(t, receiptPath, receiptEncoded, 0o600)
-	return signedFixture{rootPath: rootPath, delegationPath: delegationPath, receiptPath: receiptPath, privatePath: privatePath}
+	return signedFixture{rootPath: rootPath, delegationPath: delegationPath, receiptPath: receiptPath, privatePath: privatePath, qualificationPath: qualificationPath}
 }
 
 func validateDelegatedKey(path string) error {
@@ -302,11 +317,38 @@ func writeFixtureFile(t *testing.T, path string, contents []byte, mode os.FileMo
 
 func testBinaryReceipt() binaryReceipt {
 	digest := sha256.Sum256([]byte("static binary"))
+	qualificationDigest := sha256.Sum256(testQualificationBytes())
 	return binaryReceipt{
 		Schema: binarySchema, SourceRevision: testRevision, GoVersion: defaultGoVersion,
 		GOOS: "linux", GOARCH: "amd64", ELFMachine: linuxAMD64Machine, Static: true,
-		Bytes: 13, SHA256: hex.EncodeToString(digest[:]),
+		Bytes: 13, SHA256: hex.EncodeToString(digest[:]), QualificationSHA256: hex.EncodeToString(qualificationDigest[:]),
 	}
+}
+
+func testQualificationBytes() []byte {
+	digest := sha256.Sum256([]byte("static binary"))
+	qualification := release.Qualification{
+		Schema: release.QualificationSchema, Repository: release.QualificationRepository,
+		SourceRevision: testRevision, SourceTree: testRevision,
+		GoVersion: defaultGoVersion, GoModSHA256: hex.EncodeToString(digest[:]), GoSumSHA256: hex.EncodeToString(digest[:]),
+		Verification: release.QualificationCheck{Workflow: release.QualificationWorkflow,
+			Job: release.QualificationJob, RunID: 4001, RunNumber: 620, Conclusion: "success"},
+		Artifacts: []release.QualifiedArtifact{
+			{Architecture: "amd64", Name: "terrascale-orchestrator-linux-amd64", Bytes: 13, SHA256: hex.EncodeToString(digest[:])},
+			{Architecture: "arm64", Name: "terrascale-orchestrator-linux-arm64", Bytes: 13, SHA256: hex.EncodeToString(digest[:])},
+		},
+	}
+	wire, _ := trust.EncodePayload(qualification)
+	return wire
+}
+
+func testQualificationWire(t *testing.T) []byte {
+	t.Helper()
+	wire := testQualificationBytes()
+	if _, _, err := release.DecodeQualification(wire); err != nil {
+		t.Fatal(err)
+	}
+	return wire
 }
 
 type fakeObjectClient struct {

@@ -208,7 +208,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fleet, err = oci.NewInstancePrincipalFleet(managed.region, managed.intent, journal, control, nil, nil)
+		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
+			newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}

@@ -32,29 +32,30 @@ import (
 // This test is built into a guest-only test binary. Its controller verifier is
 // deliberately local to the test; a pass says nothing about OCI ownership.
 type managedMemberFirecrackerConfig struct {
-	Version           int                  `json:"version"`
-	Node              string               `json:"node"`
-	FailureDomain     string               `json:"failure_domain"`
-	Member            ManagedMemberBinding `json:"member"`
-	Authority         MemberAuthority      `json:"authority"`
-	Runtime           ManagedRuntimePins   `json:"runtime"`
-	VolumeID          string               `json:"volume_id"`
-	AttachmentID      string               `json:"attachment_id"`
-	AttachmentETag    string               `json:"attachment_etag"`
-	SourceDigest      string               `json:"source_digest"`
-	ArtifactPath      string               `json:"artifact_path"`
-	ArtifactSHA256    string               `json:"artifact_sha256"`
-	ControlAddress    string               `json:"control_address"`
-	ControlHostIP     string               `json:"control_host_ip"`
-	ControlToken      string               `json:"control_token"`
-	ClientRootPath    string               `json:"client_root_path"`
-	ClientRootSHA256  string               `json:"client_root_sha256"`
-	ClientTokenPath   string               `json:"client_token_path"`
-	ClientTokenSHA256 string               `json:"client_token_sha256"`
-	CollectionID      string               `json:"collection_id"`
-	SchemaGeneration  uint64               `json:"schema_generation"`
-	SchemaDigest      string               `json:"schema_digest"`
-	DocumentID        string               `json:"document_id"`
+	Version            int                  `json:"version"`
+	Node               string               `json:"node"`
+	FailureDomain      string               `json:"failure_domain"`
+	Member             ManagedMemberBinding `json:"member"`
+	Authority          MemberAuthority      `json:"authority"`
+	Runtime            ManagedRuntimePins   `json:"runtime"`
+	VolumeID           string               `json:"volume_id"`
+	AttachmentID       string               `json:"attachment_id"`
+	AttachmentETag     string               `json:"attachment_etag"`
+	SourceDigest       string               `json:"source_digest"`
+	SystemReserveBytes uint64               `json:"system_reserve_bytes"`
+	ArtifactPath       string               `json:"artifact_path"`
+	ArtifactSHA256     string               `json:"artifact_sha256"`
+	ControlAddress     string               `json:"control_address"`
+	ControlHostIP      string               `json:"control_host_ip"`
+	ControlToken       string               `json:"control_token"`
+	ClientRootPath     string               `json:"client_root_path"`
+	ClientRootSHA256   string               `json:"client_root_sha256"`
+	ClientTokenPath    string               `json:"client_token_path"`
+	ClientTokenSHA256  string               `json:"client_token_sha256"`
+	CollectionID       string               `json:"collection_id"`
+	SchemaGeneration   uint64               `json:"schema_generation"`
+	SchemaDigest       string               `json:"schema_digest"`
+	DocumentID         string               `json:"document_id"`
 }
 
 type managedMemberFirecrackerEvidence struct {
@@ -96,7 +97,7 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		cfg.ControlHostIP == "" || net.ParseIP(cfg.ControlHostIP) == nil ||
 		!lowerHex(cfg.ClientRootSHA256, 64) || !lowerHex(cfg.ClientTokenSHA256, 64) ||
 		!canonicalMemberID(cfg.CollectionID) || !canonicalMemberID(cfg.DocumentID) ||
-		cfg.SchemaGeneration == 0 || !lowerHex(cfg.SchemaDigest, 64) {
+		cfg.SchemaGeneration == 0 || !lowerHex(cfg.SchemaDigest, 64) || cfg.SystemReserveBytes != 1<<30 {
 		t.Fatal("guest config identity, artifact or control token is invalid")
 	}
 	if cfg.ClientRootPath != "/opt/ts-managed-member/client-https-ca.pem" ||
@@ -158,12 +159,12 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 	registration := Registration{Cell: "gru", Node: cfg.Node, Environment: "production",
 		FailureDomain: cfg.FailureDomain, Roles: []string{"terrabase"},
 		PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
-		Capacity: Capacity{MemoryBytes: 7 << 30}, SystemReserveBytes: 1 << 30,
+		Capacity: Capacity{MemoryBytes: 4 << 30}, SystemReserveBytes: int64(cfg.SystemReserveBytes),
 		ManagedPlacement: &placement, ManagedOCI: &oci, ManagedMember: &cfg.Member}
 	launch := ManagedMemberLaunch{OCI: oci, Member: cfg.Member, Authority: cfg.Authority,
 		SourceDigest: cfg.SourceDigest, VolumeID: cfg.VolumeID, AttachmentID: cfg.AttachmentID,
 		AttachmentETag: cfg.AttachmentETag, ProcessMemoryBytes: 4 << 30,
-		MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30, Runtime: &cfg.Runtime}
+		MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 4 << 30, SystemReserveBytes: cfg.SystemReserveBytes, Runtime: &cfg.Runtime}
 	desired := Desired{Cell: "gru", Node: cfg.Node, Environment: "production", Role: "terrabase",
 		Digest: digest, Generation: 1, AuthorityEpoch: cfg.Authority.Epoch, ManagedMember: &launch}
 	if err := validateDesired(desired, registration.Cell, registration); err != nil {
@@ -212,8 +213,9 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: cfg.Node, Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
 		InstallRoot: filepath.Join(stateRoot, "install"), StateRoot: filepath.Join(stateRoot, "state"),
-		ManagedRuntimeRoot: "/srv/ts-managed", WorkloadIdentity: WorkloadIdentity{UID: 65534, GID: 65534},
-		PollInterval: 250 * time.Millisecond, ClockCheck: func() error { return nil }})
+		ManagedRuntimeRoot: "/srv/ts-managed", BakedSystemReserveBytes: cfg.SystemReserveBytes,
+		WorkloadIdentity: WorkloadIdentity{UID: 65534, GID: 65534},
+		PollInterval:     250 * time.Millisecond, ClockCheck: func() error { return nil }})
 	if err != nil {
 		t.Fatalf("create native host agent: %v", err)
 	}
@@ -223,6 +225,11 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 	go func() { agentDone <- agent.Run(agentCtx) }()
 	deadline := time.Now().Add(120 * time.Second)
 	var report Report
+	var lastReports []Report
+	var lastHostError error
+	var lastHostCount int
+	var lastHostVerified bool
+	var lastSessionExpiry time.Time
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-agentDone:
@@ -230,6 +237,15 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		default:
 		}
 		hosts, err := controller.ListHosts(t.Context())
+		lastHostError = err
+		if err == nil {
+			lastHostCount = len(hosts)
+			if len(hosts) == 1 {
+				lastHostVerified = hosts[0].Verified
+				lastSessionExpiry = hosts[0].SessionExpiresAt
+				lastReports = hosts[0].Reports
+			}
+		}
 		if err == nil && len(hosts) == 1 && hosts[0].Verified && len(hosts[0].Reports) == 1 &&
 			hosts[0].Reports[0].State == "running" && hosts[0].Reports[0].Managed != nil {
 			report = hosts[0].Reports[0]
@@ -238,7 +254,8 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 	}
 	if report.Managed == nil {
-		t.Fatal("no accepted signed managed running report within deadline")
+		t.Fatalf("no accepted signed managed running report within deadline: host count=%d verified=%t session expiry=%s; last host error: %v; last reports: %+v",
+			lastHostCount, lastHostVerified, lastSessionExpiry.Format(time.RFC3339Nano), lastHostError, lastReports)
 	}
 	fmt.Printf("TS_MANAGED_MEMBER_PHASE=running node=%s pid=%d\n", cfg.Node, report.Managed.ProcessPID)
 

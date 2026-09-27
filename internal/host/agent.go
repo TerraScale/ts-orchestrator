@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -251,6 +250,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	go a.maintainSession(work, cancel, lost)
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
+	type roleFailure struct {
+		class string
+		at    time.Time
+	}
+	failures := make(map[string]roleFailure)
 	for {
 		for _, role := range a.cfg.Roles {
 			if err := work.Err(); err != nil {
@@ -259,7 +263,23 @@ func (a *Agent) Run(ctx context.Context) error {
 			if a.sessionLost.Load() {
 				break
 			}
-			_ = a.reconcile(work, role)
+			err := a.reconcile(work, role)
+			if a.cfg.ManagedRuntimeRoot == "" || work.Err() != nil || a.sessionLost.Load() {
+				continue
+			}
+			if err == nil {
+				if _, failed := failures[role]; failed {
+					slog.Info("managed host reconciliation recovered", "role", role)
+					delete(failures, role)
+				}
+				continue
+			}
+			class := managedReconcileErrorClass(err)
+			previous := failures[role]
+			if class != previous.class || time.Since(previous.at) >= 10*time.Second {
+				slog.Warn("managed host reconciliation deferred", "role", role, "cause_class", class)
+				failures[role] = roleFailure{class: class, at: time.Now()}
+			}
 		}
 		select {
 		case err := <-lost:
@@ -275,6 +295,34 @@ func (a *Agent) Run(ctx context.Context) error {
 			return work.Err()
 		case <-ticker.C:
 		}
+	}
+}
+
+// Keep untrusted material paths and error details out of host logs. The exact
+// failure is retained in the signed host report after desired validation.
+func managedReconcileErrorClass(err error) string {
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "managed allocatable memory"):
+		return "capacity"
+	case strings.Contains(message, "mount"), strings.Contains(message, "filesystem"), strings.Contains(message, "block device"):
+		return "volume"
+	case strings.Contains(message, "material"), strings.Contains(message, "certificate"), strings.Contains(message, "authority"):
+		return "material"
+	case strings.Contains(message, "artifact"):
+		return "artifact"
+	case strings.Contains(message, "cgroup"), strings.Contains(message, "native workload"):
+		return "native_launch"
+	case strings.Contains(message, "member status"):
+		return "member_status"
+	case strings.Contains(message, "desired"):
+		return "desired"
+	case strings.Contains(message, "report"):
+		return "report"
+	case strings.Contains(message, "session"):
+		return "session"
+	default:
+		return "other"
 	}
 }
 
@@ -726,16 +774,6 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	return nil
-}
-
-// This carries only the process-memory portion of a future managed launch.
-// It is never applied until the other managed runtime prerequisites exist.
-func managedMemoryWorkload(d Desired) Workload {
-	launch := d.ManagedMember
-	return Workload{Role: d.Role, Digest: d.Digest,
-		Args: []string{"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
-			"--memory-headroom-bytes", strconv.FormatUint(launch.MemoryHeadroomBytes, 10)},
-		CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}
 }
 
 func sameDesiredReplyBinding(first, latest desiredReply) bool {

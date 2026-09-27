@@ -142,11 +142,13 @@ func TestEmitOfflineProductionPacket(t *testing.T) {
 		t.Fatal("binary changed between pinning and receipt construction")
 	}
 	now := time.Now().UTC().Truncate(time.Second)
+	qualificationDigest := sha256.Sum256([]byte("offline qualification fixture"))
 	receipt := release.ImageReceipt{Schema: release.ImageSchema,
 		SourceRevision: input.SourceRevision, GoVersion: release.DefaultGoVersion,
 		Architecture: "amd64", BinaryBytes: binarySize, BinarySHA256: input.BinarySHA256,
-		BaseImageOCID:   "ocid1.image.oc1.sa-saopaulo-1.offline-base-fixture",
-		BaseImageRegion: "GRU", BaseImageSHA256: input.BaseSHA256,
+		QualificationSHA256: hex.EncodeToString(qualificationDigest[:]),
+		BaseImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.offline-base-fixture",
+		BaseImageRegion:     "GRU", BaseImageSHA256: input.BaseSHA256,
 		KernelRelease: "6.1.186", KernelSHA256: input.KernelSHA256,
 		ImageFormat: "qcow2", ImageBytes: imageSize, ImageSHA256: input.ImageSHA256,
 		OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.offline-production-restart",

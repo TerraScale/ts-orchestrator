@@ -1738,7 +1738,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
 			Authority:    MemberAuthority{Epoch: authorityRuntime.Current().Epoch, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)},
 			SourceDigest: strings.Repeat("f", 64), VolumeID: "ocid1.volume.retained", AttachmentID: "ocid1.volumeattachment.host-a",
-			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30}}
+			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30, SystemReserveBytes: 1 << 30}}
 	receipt, err := c.ApplyDesired(t.Context(), desired)
 	if err != nil || receipt.Revision == 0 {
 		t.Fatalf("commit desired: receipt=%+v err=%v", receipt, err)
