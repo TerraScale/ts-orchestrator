@@ -7,6 +7,7 @@ import secrets
 import shlex
 import shutil
 import stat
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -26,6 +27,7 @@ TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrat
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
 RUNTIME_PRIORITY_HELPER_GUEST = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
+NATIVE_VERIFIER_GUEST = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
 RUNTIME_PRIORITY_DROPINS = (
     "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
@@ -56,6 +58,16 @@ class BuildOfflineTests(unittest.TestCase):
         self.inputs.mkdir()
         self.base = self.write_file(self.inputs / "base image.qcow2", b"mock qcow2 bytes")
         self.binary = self.write_file(self.inputs / "orchestrator binary", b"mock verified binary")
+        native_header = bytearray(64)
+        native_header[:7] = b"\x7fELF\x02\x01\x01"
+        struct.pack_into("<H", native_header, 16, 3)
+        struct.pack_into("<H", native_header, 18, 183)
+        struct.pack_into("<I", native_header, 20, 1)
+        struct.pack_into("<H", native_header, 52, 64)
+        self.native_verifier = self.write_file(
+            self.inputs / "tb-server-linux-arm64", bytes(native_header) + b"mock native verifier"
+        )
+        self.native_verifier_sha256 = hashlib.sha256(self.native_verifier.read_bytes()).hexdigest()
         self.receipt = self.write_file(self.inputs / "release receipt.json", b"mock receipt")
         self.qualification = self.write_file(self.inputs / "qualification.json", b"mock qualification")
         self.delegation = self.write_file(self.inputs / "release delegation.json", b"mock delegation")
@@ -84,6 +96,7 @@ class BuildOfflineTests(unittest.TestCase):
         self.virt_timesyncd_bytes = self.root / "virt-timesyncd-bytes.bin"
         self.virt_runtime_profile_bytes = self.root / "virt-runtime-priority-profile.json"
         self.virt_runtime_helper_bytes = self.root / "virt-runtime-priority-helper.py"
+        self.virt_native_verifier_bytes = self.root / "virt-native-verifier.bin"
         self.virt_runtime_artifacts = self.root / "virt-runtime-priority-artifacts"
         self.priority_inputs = {
             "--runtime-priority-profile-id": RUNTIME_PRIORITY_PROFILE_ID,
@@ -189,6 +202,20 @@ for index, argument in enumerate(arguments[:-1]):
             shutil.copyfile(source, artifact)
         if destination == os.environ["VIRT_RUNTIME_HELPER_GUEST_PATH"]:
             Path(os.environ["VIRT_RUNTIME_HELPER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+        if destination == os.environ["VIRT_NATIVE_VERIFIER_GUEST_PATH"]:
+            Path(os.environ["VIRT_NATIVE_VERIFIER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+""",
+        )
+        write_executable(
+            self.shims / "virt-cat",
+            """#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 3 && $1 == -a && $3 == "$VIRT_NATIVE_VERIFIER_GUEST_PATH" ]]
+if [[ ${VIRT_CORRUPT_NATIVE:-0} == 1 ]]; then
+  printf 'corrupt guest bytes'
+else
+  cat "$VIRT_NATIVE_VERIFIER_BYTES_PATH"
+fi
 """,
         )
         self.release_tool = self.root / "release tool"
@@ -278,6 +305,8 @@ printf '{}\\n'
                 "VIRT_TIMESYNCD_BYTES_PATH": str(self.virt_timesyncd_bytes),
                 "VIRT_RUNTIME_PROFILE_BYTES_PATH": str(self.virt_runtime_profile_bytes),
                 "VIRT_RUNTIME_HELPER_BYTES_PATH": str(self.virt_runtime_helper_bytes),
+                "VIRT_NATIVE_VERIFIER_BYTES_PATH": str(self.virt_native_verifier_bytes),
+                "VIRT_NATIVE_VERIFIER_GUEST_PATH": NATIVE_VERIFIER_GUEST,
                 "VIRT_RUNTIME_ARTIFACTS_PATH": str(self.virt_runtime_artifacts),
                 "VIRT_RUNTIME_DROPIN_PATHS": os.pathsep.join(RUNTIME_PRIORITY_DROPINS),
                 "VIRT_RUNTIME_PROFILE_GUEST_PATH": RUNTIME_PRIORITY_PROFILE_GUEST,
@@ -289,14 +318,20 @@ printf '{}\\n'
         return environment
 
     def run_builder(self, *, managed_workload_gid: str | None = None,
+                    native_verifier_binary: Path | None = None,
+                    native_verifier_sha256: str | None = None,
                     **environment_overrides: str) -> subprocess.CompletedProcess[str]:
         return self.run_builder_with_roots(
             [self.bootstrap_root_a, self.bootstrap_root_b], managed_workload_gid=managed_workload_gid,
+            native_verifier_binary=native_verifier_binary,
+            native_verifier_sha256=native_verifier_sha256,
             **environment_overrides
         )
 
     def run_builder_with_roots(
         self, bootstrap_roots: list[Path], *, managed_workload_gid: str | None = None,
+        native_verifier_binary: Path | None = None,
+        native_verifier_sha256: str | None = None,
         **environment_overrides: str
     ) -> subprocess.CompletedProcess[str]:
         arguments = [
@@ -305,6 +340,10 @@ printf '{}\\n'
             str(self.base),
             "--binary",
             str(self.binary),
+            "--native-verifier-binary",
+            str(native_verifier_binary or self.native_verifier),
+            "--native-verifier-sha256",
+            native_verifier_sha256 or self.native_verifier_sha256,
             "--receipt",
             str(self.receipt),
             "--qualification",
@@ -383,6 +422,11 @@ printf '{}\\n'
             if argument == "--upload"
         ]
         destinations = {upload.rsplit(":", 1)[1]: upload.rsplit(":", 1)[0] for upload in uploads}
+        self.assertEqual(
+            self.virt_native_verifier_bytes.read_bytes(), self.native_verifier.read_bytes()
+        )
+        self.assertTrue(destinations[NATIVE_VERIFIER_GUEST].endswith("/terrabase-server"))
+        self.assertIn(f"native verifier image sha256={self.native_verifier_sha256}", result.stdout)
         self.assertEqual(destinations[f"{BOOTSTRAP_DIRECTORY}/anchor.json"], str(self.anchor))
         self.assertEqual(destinations[f"{BOOTSTRAP_DIRECTORY}/identity.json"], str(self.identity))
         generated_timesyncd_config = (
@@ -470,6 +514,13 @@ printf '{}\\n'
             if argument == "--run-command"
         ]
         guest_commands = "\n".join(run_commands)
+        self.assertIn("base image has a conflicting managed-material verifier directory", guest_commands)
+        self.assertIn(
+            f"chown root:root {NATIVE_VERIFIER_GUEST}", guest_commands
+        )
+        self.assertIn(
+            f"chmod 0755 {NATIVE_VERIFIER_GUEST}", guest_commands
+        )
         priority_setup = next(
             command
             for command in run_commands
@@ -557,6 +608,31 @@ printf '{}\\n'
         self.assertLess(run_commands.index(time_sync_setup), run_commands.index(enable_commands[0]))
         self.assertIn("--no-network", virt_arguments)
         self.assertNotIn("/run/terrascale-orchestrator-bootstrap", guest_commands)
+
+    def test_native_verifier_rejects_wrong_digest_and_architecture_before_image_copy(self) -> None:
+        wrong_digest = "0" * 64
+        result = self.run_builder(native_verifier_sha256=wrong_digest)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native verifier bytes do not match", result.stderr)
+        self.assertFalse(self.virt_arguments.exists())
+        self.assertFalse(self.output.exists())
+
+        native_bytes = bytearray(self.native_verifier.read_bytes())
+        struct.pack_into("<H", native_bytes, 18, 62)
+        self.native_verifier.write_bytes(native_bytes)
+        result = self.run_builder(
+            native_verifier_sha256=hashlib.sha256(native_bytes).hexdigest()
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ELF64 little-endian AArch64", result.stderr)
+        self.assertFalse(self.virt_arguments.exists())
+        self.assertFalse(self.output.exists())
+
+    def test_native_verifier_guest_readback_mismatch_discards_candidate(self) -> None:
+        result = self.run_builder(VIRT_CORRUPT_NATIVE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("installed native verifier bytes do not match", result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_runtime_priority_artifacts_must_be_absent_in_base_image(self) -> None:
         for guest_path in (

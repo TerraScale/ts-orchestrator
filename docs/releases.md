@@ -83,6 +83,25 @@ root set to 1 through 16 files, each bounded to 16 KiB and 64 KiB total. The
 verifier executable is used only on the build host and is not installed in
 the image.
 
+The same image build now requires the exact qualified ARM64 TerraBase
+`tb-server-linux-arm64` artifact as `--native-verifier-binary` and its
+independent lowercase SHA-256 as `--native-verifier-sha256`. Select the digest
+from that artifact's passing TerraBase Fast `qualification.json` record and
+verify the downloaded bytes before invoking the builder. The builder copies
+the input once, checks its 1–128 MiB size, ELF64 little-endian AArch64
+executable header and exact digest, then installs it root-owned at
+`/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server`
+with mode `0755` and a nonwritable directory chain. It reads the installed
+bytes back from the candidate QCOW2 with `virt-cat` and requires the same
+digest before publishing the candidate. Pass that digest as the separately
+root-signed `ManagedMaterialDomain.NativeVerifierSHA256` field; never use the
+orchestrator receipt's `BinarySHA256` for the TerraBase binary. The normal
+image receipt signs the final QCOW2 containing both executables. A booted
+ARM64 guest still must prove the installed TerraBase command
+`validate-managed-material-v1` and its request/verdict contract before the
+managed-material path is qualified; offline ELF and digest checks alone do
+not prove that command is present or functional.
+
 The candidate contains the signed anchor at
 `/etc/terrascale-orchestrator/bootstrap/anchor.json`, the public identity at
 `/etc/terrascale-orchestrator/bootstrap/identity.json`, and the verified root

@@ -7,6 +7,7 @@ usage() {
 	cat >&2 <<'USAGE'
 usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE --qualification FILE \
   --delegation FILE --root-key PEM --environment canary|production \
+  --native-verifier-binary FILE --native-verifier-sha256 LOWERCASE_HEX \
   --release-tool FILE --bootstrap-tool FILE --bootstrap-anchor FILE \
   --bootstrap-identity FILE --bootstrap-root PEM... --timesyncd-config FILE \
   --runtime-priority-profile-id TOKEN --runtime-priority-system-reserve-bytes BYTES \
@@ -21,6 +22,10 @@ release root key verifies the binary; repeatable bootstrap root keys verify
 the baked anchor and are installed as public trust roots. The explicit
 timesyncd configuration supplies deployment NTP endpoints; no endpoint is
 selected or installed by default.
+The native verifier is the exact qualified TerraBase ARM64 tb-server artifact.
+Its SHA-256 must match the independently supplied artifact digest; the image
+installs it at the fixed managed-material verifier path. This digest is
+separate from the orchestrator binary receipt's BinarySHA256.
 The optional managed workload GID provisions /srv/ts-managed as root:GID 0750.
 It must match host.workload_gid when host.managed_runtime_root uses that path.
 For another managed root, omit --managed-workload-gid, provision root:GID 0750,
@@ -43,6 +48,8 @@ USAGE
 
 base=
 binary=
+native_verifier_binary=
+native_verifier_sha256=
 receipt=
 qualification=
 delegation=
@@ -74,6 +81,8 @@ while (($#)); do
 	case "$1" in
 		--base) base=${2:?}; shift 2 ;;
 		--binary) binary=${2:?}; shift 2 ;;
+		--native-verifier-binary) native_verifier_binary=${2:?}; shift 2 ;;
+		--native-verifier-sha256) native_verifier_sha256=${2:?}; shift 2 ;;
 		--receipt) receipt=${2:?}; shift 2 ;;
 		--qualification) qualification=${2:?}; shift 2 ;;
 		--delegation) delegation=${2:?}; shift 2 ;;
@@ -99,7 +108,8 @@ while (($#)); do
 	esac
 done
 
-if [[ -z "$base" || -z "$binary" || -z "$receipt" || -z "$qualification" || -z "$delegation" || -z "$root_key" ||
+if [[ -z "$base" || -z "$binary" || -z "$native_verifier_binary" || -z "$native_verifier_sha256" ||
+	-z "$receipt" || -z "$qualification" || -z "$delegation" || -z "$root_key" ||
 	-z "$environment" || -z "$release_tool" || -z "$bootstrap_tool" || -z "$bootstrap_anchor" ||
 	-z "$bootstrap_identity" || ${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ||
 	-z "$runtime_priority_profile_id" || -z "$runtime_priority_system_reserve_bytes" ||
@@ -117,7 +127,11 @@ if [[ "$environment" != canary && "$environment" != production ]]; then
 	echo "environment must be canary or production" >&2
 	exit 2
 fi
-for command in cat cp ln mktemp python3 qemu-img realpath virt-customize; do
+if [[ ! $native_verifier_sha256 =~ ^[0-9a-f]{64}$ ]]; then
+	echo "native verifier SHA-256 must be 64 lowercase hex characters" >&2
+	exit 2
+fi
+for command in cat cp ln mktemp python3 qemu-img realpath virt-cat virt-customize; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
 if [[ -n "$managed_workload_gid" ]]; then
@@ -134,6 +148,8 @@ fi
 [[ -x "$bootstrap_tool" ]] || { echo "bootstrap tool must be executable" >&2; exit 1; }
 base=$(realpath -e -- "$base")
 binary=$(realpath -e -- "$binary")
+native_verifier_binary=$(realpath -e -- "$native_verifier_binary")
+[[ -f "$native_verifier_binary" ]] || { echo "native verifier must be a regular file" >&2; exit 1; }
 receipt=$(realpath -e -- "$receipt")
 qualification=$(realpath -e -- "$qualification")
 delegation=$(realpath -e -- "$delegation")
@@ -348,6 +364,35 @@ for bootstrap_root in "${bootstrap_roots[@]}"; do
 done
 "$bootstrap_tool" "${bootstrap_verify_args[@]}" >/dev/null
 
+cp -- "$native_verifier_binary" "$temporary_directory/terrabase-server"
+native_verifier_binary="$temporary_directory/terrabase-server"
+python3 - "$native_verifier_binary" "$native_verifier_sha256" <<'PY'
+import hashlib
+import os
+import struct
+import sys
+
+path, expected = sys.argv[1:]
+size = os.stat(path).st_size
+if not 0 < size <= (128 << 20):
+	raise SystemExit("native verifier must be between 1 byte and 128 MiB")
+with open(path, "rb") as binary:
+	header = binary.read(64)
+	if (len(header) != 64 or header[:4] != b"\x7fELF" or header[4:6] != b"\x02\x01"
+		or struct.unpack_from("<H", header, 16)[0] not in (2, 3)
+		or struct.unpack_from("<H", header, 18)[0] != 183
+		or struct.unpack_from("<I", header, 20)[0] != 1
+		or struct.unpack_from("<H", header, 52)[0] != 64):
+		raise SystemExit("native verifier must be an ELF64 little-endian AArch64 executable")
+	digest = hashlib.sha256()
+	digest.update(header)
+	for chunk in iter(lambda: binary.read(1 << 20), b""):
+		digest.update(chunk)
+if digest.hexdigest() != expected:
+	raise SystemExit("native verifier bytes do not match the supplied SHA-256")
+print(f"native verifier artifact sha256={expected} bytes={size} architecture=aarch64")
+PY
+chmod 0755 "$native_verifier_binary"
 cp -- "$binary" "$temporary_directory/terrascale-orchestrator"
 chmod 0755 "$temporary_directory/terrascale-orchestrator"
 binary="$temporary_directory/terrascale-orchestrator"
@@ -376,6 +421,7 @@ candidate="$temporary_directory/image.qcow2"
 cp --reflink=auto --sparse=always -- "$base" "$candidate"
 
 bootstrap_directory=/etc/terrascale-orchestrator/bootstrap
+native_verifier_guest_path=/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
 bootstrap_roots_directory="$bootstrap_directory/trust-roots"
 timesyncd_config_guest=/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf
 bootstrap_uploads=(
@@ -416,6 +462,27 @@ install -d -o root -g root -m 0755 /etc/systemd/system/system.slice.d
 install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-host.service.d
 install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-controller.service.d
 install -d -o root -g root -m 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority
+COMMAND
+)
+native_verifier_setup=$(cat <<'COMMAND'
+set -eu
+for directory in / /usr /usr/local /usr/local/lib /usr/local/lib/terrascale-orchestrator; do
+	[ ! -L "$directory" ] && [ -d "$directory" ] && [ "$(stat -c '%u' "$directory")" = 0 ] || {
+		echo "native verifier parent must be a root-owned nonwritable directory: $directory" >&2
+		exit 1
+	}
+	mode=$(stat -c '%a' "$directory") || exit 1
+	[ $((0$mode & 022)) -eq 0 ] || {
+		echo "native verifier parent is writable by group or other: $directory" >&2
+		exit 1
+	}
+done
+native_directory=/usr/local/lib/terrascale-orchestrator/managed-material
+[ ! -e "$native_directory" ] && [ ! -L "$native_directory" ] || {
+	echo "base image has a conflicting managed-material verifier directory" >&2
+	exit 1
+}
+install -d -o root -g root -m 0755 "$native_directory"
 COMMAND
 )
 time_sync_setup=$(cat <<'COMMAND'
@@ -521,6 +588,14 @@ chown root:root \
 	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
 	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf \
 	/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
+chown root:root /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
+chmod 0755 /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
+[ ! -L /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server ] &&
+	[ -f /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server ] &&
+	[ "$(stat -c '%u:%g:%a:%h' /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server)" = '0:0:755:1' ] || {
+	echo 'installed native verifier has unexpected ownership, mode, or link count' >&2
+	exit 1
+}
 chmod 0644 \
 	/etc/terrascale-orchestrator/runtime-priority.json \
 	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
@@ -562,6 +637,7 @@ fi
 virt-customize --no-network -a "$candidate" \
 	--run-command "$bootstrap_directory_setup" \
 	--run-command "$runtime_priority_setup" \
+	--run-command "$native_verifier_setup" \
 	--run-command "$time_sync_setup" \
 	"${managed_root_commands[@]}" \
 	--upload deploy/image/terrascale-orchestrator.sysusers:/etc/sysusers.d/terrascale-orchestrator.conf \
@@ -574,11 +650,25 @@ virt-customize --no-network -a "$candidate" \
 	--upload "$runtime_priority_profile:/etc/terrascale-orchestrator/runtime-priority.json" \
 	--upload tests/runtime_priority/qualify.py:/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py \
 	--upload "$binary:/usr/local/bin/terrascale-orchestrator" \
+	--upload "$native_verifier_binary:$native_verifier_guest_path" \
 	--upload "$timesyncd_config_image:$timesyncd_config_guest" \
 	"${bootstrap_uploads[@]}" \
 	--run-command "$bootstrap_permissions_setup" \
 	--run-command 'chmod 0644 /etc/sysusers.d/terrascale-orchestrator.conf /etc/systemd/system/terrascale-orchestrator-bootstrap.service /etc/systemd/system/terrascale-orchestrator-controller.service /etc/systemd/system/terrascale-orchestrator-host.service /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf && chmod 0755 /usr/local/bin/terrascale-orchestrator'
 qemu-img check -- "$candidate"
+installed_verifier_sha256=$(virt-cat -a "$candidate" "$native_verifier_guest_path" | python3 -c '
+import hashlib
+import sys
+digest = hashlib.sha256()
+for chunk in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
+	digest.update(chunk)
+print(digest.hexdigest())
+')
+if [[ "$installed_verifier_sha256" != "$native_verifier_sha256" ]]; then
+	echo "installed native verifier bytes do not match the supplied SHA-256" >&2
+	exit 1
+fi
+printf 'native verifier image sha256=%s guest_path=%s\n' "$installed_verifier_sha256" "$native_verifier_guest_path"
 ln -- "$candidate" "$output"
 trap - EXIT
 rm -rf -- "$temporary_directory"
