@@ -57,6 +57,13 @@ def require_elf(path: Path, machine: int) -> None:
             f"retained binary has the wrong ELF target: {path.name}")
 
 
+def require_static(path: Path) -> None:
+    elf = subprocess.run(["readelf", "-l", "-d", str(path)], capture_output=True,
+                         text=True, timeout=10, check=False)
+    require(elf.returncode == 0 and "INTERP" not in elf.stdout and "(NEEDED)" not in elf.stdout,
+            f"retained binary is dynamically linked: {path.name}")
+
+
 def qualification(path: Path, digest: str, schema: str, workflow: str,
                   source_sha: str, artifact: str, artifact_sha: str, artifact_size: int) -> dict:
     digest_file(path, digest)
@@ -74,8 +81,8 @@ def qualification(path: Path, digest: str, schema: str, workflow: str,
             isinstance(check.get("run_number"), int) and check["run_number"] > 0,
             "qualification source or successful CI run is invalid")
     if workflow == "fast.yml":
-        require(record.get("target") == "aarch64-unknown-linux-gnu" and
-                record.get("build_profile") == "release", "native qualification target is invalid")
+        require(record.get("build_profile") == "release" and record.get("linkage") == "static",
+                "native qualification build is invalid")
     else:
         require(record.get("go_version") == "go1.27.1" and all(
             isinstance(record.get(key), str) and len(record[key]) == 64 and
@@ -85,6 +92,8 @@ def qualification(path: Path, digest: str, schema: str, workflow: str,
     matches = [item for item in record.get("artifacts", []) if item.get("name") == artifact]
     require(len(matches) == 1 and matches[0].get("sha256") == artifact_sha and
             matches[0].get("bytes") == artifact_size, "qualification artifact differs from retained bytes")
+    require(workflow != "fast.yml" or matches[0].get("target") == "aarch64-unknown-linux-musl",
+            "native qualification target is invalid")
     return {"sha256": digest, "source_revision": source_sha,
             "source_tree": record.get("source_tree"), "run_id": check["run_id"],
             "run_number": check["run_number"], "artifact_sha256": artifact_sha,
@@ -142,10 +151,7 @@ def bootstrap_provenance(path: Path, expected_sha: str, binary: Path, binary_sha
             "vcs.modified=false" in metadata.stdout and
             "CGO_ENABLED=0" in metadata.stdout,
             "bootstrap binary Go build metadata differs from clean local receipt")
-    elf = subprocess.run(["readelf", "-l", "-d", str(binary)], capture_output=True,
-                         text=True, timeout=10, check=False)
-    require(elf.returncode == 0 and "INTERP" not in elf.stdout and "(NEEDED)" not in elf.stdout,
-            "bootstrap binary is dynamically linked")
+    require_static(binary)
     return {"sha256": expected_sha, "source_revision": record["source_revision"],
             "source_tree": record["source_tree"], "binary_sha256": binary_sha,
             "retained_evidence_sha256": {name: record[f"{name}_sha256"] for name in sorted(retained)}}
@@ -368,6 +374,7 @@ def run(args: argparse.Namespace) -> dict:
     digest_file(args.bootstrap, args.bootstrap_sha256)
     tb_sha = digest_file(args.tb_binary, args.tb_sha256)
     require_elf(args.tb_binary, 183)
+    require_static(args.tb_binary)
     go_qualification = qualification(args.go_qualification, args.go_qualification_sha256,
         "terrascale.release.qualification.v1", "ci.yml", args.go_source_sha,
         "terrascale-orchestrator-linux-amd64", go_sha, args.operator.stat().st_size)
@@ -380,7 +387,7 @@ def run(args: argparse.Namespace) -> dict:
             "test_log": args.bootstrap_test_log,
         })
     tb_qualification = qualification(args.tb_qualification, args.tb_qualification_sha256,
-        "terrascale.terrabase.qualification.v1", "fast.yml", args.tb_source_sha,
+        "terrascale.terrabase.qualification.v2", "fast.yml", args.tb_source_sha,
         "tb-server-linux-arm64", tb_sha, args.tb_binary.stat().st_size)
     require(args.instance_a != args.instance_b, "two distinct OCI member instances are required")
     spec = read_json(args.spec, 16 << 10)
