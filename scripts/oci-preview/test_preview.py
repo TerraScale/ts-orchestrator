@@ -46,6 +46,43 @@ class PreviewAdmissionTests(unittest.TestCase):
             ],
         }
 
+    def test_oci_empty_object_list_response_is_narrowly_accepted(self):
+        empty = subprocess.CompletedProcess([], 0, stdout='{"prefixes": []}', stderr="")
+        with mock.patch.object(preview.subprocess, "run", return_value=empty):
+            for operation in ("list", "list-object-versions"):
+                self.assertEqual(preview.oci("os", "object", operation, "--all", region=self.plan["region"]), [])
+            for command in (("os", "object", "list"),
+                            ("os", "bucket", "list", "--all"),
+                            ("compute", "image", "list", "--all")):
+                with self.assertRaisesRegex(ValueError, "invalid OCI response"):
+                    preview.oci(*command, region=self.plan["region"])
+
+        for malformed in ('{"prefixes": ["folder/"]}', '{"prefixes": [], "next-start-with": "x"}',
+                          '{}', '{"objects": []}', '[]', 'not json'):
+            result = subprocess.CompletedProcess([], 0, stdout=malformed, stderr="")
+            with self.subTest(response=malformed), mock.patch.object(preview.subprocess, "run", return_value=result):
+                with self.assertRaisesRegex(ValueError, "invalid OCI response"):
+                    preview.oci("os", "object", "list", "--all", region=self.plan["region"])
+
+        for blank in ("", " \n"):
+            result = subprocess.CompletedProcess([], 0, stdout=blank, stderr="")
+            with self.subTest(response=blank), mock.patch.object(preview.subprocess, "run", return_value=result):
+                self.assertEqual(preview.oci("compute", "image", "list", "--all"), [])
+                self.assertEqual(preview.oci("network", "vcn", "list", "--all"), [])
+                for operation in ("list", "list-object-versions"):
+                    with self.assertRaisesRegex(ValueError, "invalid OCI response"):
+                        preview.oci("os", "object", operation, "--all")
+                with self.assertRaisesRegex(ValueError, "invalid OCI response"):
+                    preview.oci("os", "object", "list")
+        failed = subprocess.CompletedProcess([], 1, stdout="", stderr="OCI failure")
+        with mock.patch.object(preview.subprocess, "run", return_value=failed):
+            with self.assertRaisesRegex(ValueError, "OCI read failed"):
+                preview.oci("os", "object", "list", "--all")
+
+        ordinary = subprocess.CompletedProcess([], 0, stdout='{"data": {"objects": []}}', stderr="")
+        with mock.patch.object(preview.subprocess, "run", return_value=ordinary):
+            self.assertEqual(preview.oci("os", "object", "list", "--all"), {"objects": []})
+
     def test_five_host_budget_includes_existing_resources_and_reserves(self):
         cost = preview.estimate(self.plan, self.inventory)
         self.assertEqual(cost["items"]["compute"], "58.6200")

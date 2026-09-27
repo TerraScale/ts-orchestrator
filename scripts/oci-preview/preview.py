@@ -91,11 +91,15 @@ def oci(*args: str, region: str | None = None) -> object:
     if process.returncode:
         # OCI errors may include private request details. Only the operation is reported.
         fail(f"OCI read failed: {' '.join(args[:3])} (exit {process.returncode})")
-    if not process.stdout.strip() and "--all" in args:
+    object_list = args[:3] in (("os", "object", "list"), ("os", "object", "list-object-versions"))
+    if not process.stdout.strip() and "--all" in args and not object_list:
         return []
     try:
-        return json.loads(process.stdout)["data"]
-    except (ValueError, KeyError) as error:
+        response = json.loads(process.stdout)
+        if object_list and "--all" in args and response == {"prefixes": []}:
+            return []
+        return response["data"]
+    except (ValueError, KeyError, TypeError) as error:
         raise ValueError(f"invalid OCI response for {' '.join(args[:3])}") from error
 
 
