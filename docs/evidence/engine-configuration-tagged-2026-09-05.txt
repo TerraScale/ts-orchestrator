@@ -1,4 +1,0 @@
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	1.212s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	3.977s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmqual	6.036s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	5.808s

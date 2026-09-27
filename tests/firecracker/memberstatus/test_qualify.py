@@ -552,6 +552,16 @@ class ManagedVolumeStagingPermissionTests(unittest.TestCase):
 
 
 class GuestRunnerFailureTests(unittest.TestCase):
+    @staticmethod
+    def _install_reboot_command_fakes(fake_bin: Path, event_record: Path) -> None:
+        fake_sync = fake_bin / "sync"
+        fake_sync.write_text(f"#!/bin/sh\nprintf '%s\\n' sync >>{str(event_record)!r}\n")
+        fake_sync.chmod(0o755)
+        fake_systemctl = fake_bin / "systemctl"
+        fake_systemctl.write_text(
+            f"#!/bin/sh\nprintf '%s\\n' \"systemctl $*\" >>{str(event_record)!r}\n")
+        fake_systemctl.chmod(0o755)
+
     def test_service_timeout_leaves_host_shutdown_fallback(self):
         self.assertLess(qualify.GUEST_SERVICE_TIMEOUT_SECONDS, qualify.GUEST_DEADLINE_SECONDS)
         self.assertIn(f"TimeoutStartSec={qualify.GUEST_SERVICE_TIMEOUT_SECONDS}s",
@@ -571,13 +581,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
             rust_binary.chmod(0o755)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            reboot_record = root / "reboot-args"
-            fake_systemctl = fake_bin / "systemctl"
-            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
-            fake_systemctl.chmod(0o755)
-            fake_sync = fake_bin / "sync"
-            fake_sync.write_text("#!/bin/sh\nexit 0\n")
-            fake_sync.chmod(0o755)
+            event_record = root / "reboot-events"
+            self._install_reboot_command_fakes(fake_bin, event_record)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
                 Path("unused-go"), Path("unused-probe"), Path("unused-server"),
@@ -592,7 +597,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
             self.assertEqual(process.returncode, 0)
             self.assertEqual(process.stdout.count(qualify.RUNNER_SUCCESS), 1)
             self.assertNotIn("MEMBER_STATUS_QUALIFICATION_RESULT=FAILED", process.stdout)
-            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
+            self.assertEqual(
+                event_record.read_text().splitlines(), ["sync", "systemctl --no-wall reboot"])
 
     def test_failed_guest_command_records_stage_and_requests_reboot(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -604,13 +610,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
             go_binary.chmod(0o755)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            reboot_record = root / "reboot-args"
-            fake_systemctl = fake_bin / "systemctl"
-            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
-            fake_systemctl.chmod(0o755)
-            fake_sync = fake_bin / "sync"
-            fake_sync.write_text("#!/bin/sh\nexit 0\n")
-            fake_sync.chmod(0o755)
+            event_record = root / "reboot-events"
+            self._install_reboot_command_fakes(fake_bin, event_record)
             script = root / "runner.sh"
             script.write_text(qualify._shell_runner(
                 Path("unused-go"), Path("unused-probe"), Path("unused-server"),
@@ -627,7 +628,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
             self.assertEqual(process.stdout.count(
                 "MEMBER_STATUS_QUALIFICATION_RESULT=FAILED stage=go-host-test status=37"), 1)
             self.assertNotIn(qualify.RUNNER_SUCCESS, process.stdout)
-            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
+            self.assertEqual(
+                event_record.read_text().splitlines(), ["sync", "systemctl --no-wall reboot"])
             self.assertIn("stage=go-host-test status=37", output.read_text())
             result = qualify.parse_runner_result(process.stdout)
             self.assertEqual(result["stage"], "go-host-test")
@@ -647,13 +649,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
             binary.chmod(0o755)
             fake_bin = root / "bin"
             fake_bin.mkdir()
-            reboot_record = root / "reboot-args"
-            fake_systemctl = fake_bin / "systemctl"
-            fake_systemctl.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >{str(reboot_record)!r}\n")
-            fake_systemctl.chmod(0o755)
-            fake_sync = fake_bin / "sync"
-            fake_sync.write_text("#!/bin/sh\nexit 0\n")
-            fake_sync.chmod(0o755)
+            event_record = root / "reboot-events"
+            self._install_reboot_command_fakes(fake_bin, event_record)
             script = root / "runner.sh"
             script.write_text(qualify._managed_volume_shell_runner(guest_root=guest))
             environment = os.environ.copy()
@@ -663,7 +660,8 @@ class GuestRunnerFailureTests(unittest.TestCase):
                                      check=False, text=True)
 
             self.assertEqual(process.returncode, 0)
-            self.assertEqual(reboot_record.read_text().strip(), "--no-wall reboot")
+            self.assertEqual(
+                event_record.read_text().splitlines(), ["sync", "systemctl --no-wall reboot"])
             results = qualify.parse_managed_volume_result(
                 (guest / "var/log/ts-managed-volume-qualification/go-host-test.log").read_text(),
                 0, process.stdout)

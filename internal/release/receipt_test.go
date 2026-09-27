@@ -94,6 +94,19 @@ func TestImageReceiptAllowsDiskImagesLargerThanBinaryLimit(t *testing.T) {
 	}
 }
 
+func TestImageReceiptRequiresExactQualificationDigest(t *testing.T) {
+	receipt := testImageReceipt()
+	receipt.QualificationSHA256 = ""
+	if !errors.Is(receipt.Validate(), ErrInvalidReceipt) {
+		t.Fatal("image receipt accepted missing CI qualification digest")
+	}
+	receipt = testImageReceipt()
+	receipt.Schema = "terrascale.release.image.v1"
+	if !errors.Is(receipt.Validate(), ErrInvalidReceipt) {
+		t.Fatal("image receipt accepted obsolete v1 schema")
+	}
+}
+
 func TestReceiptLifetimeHasItsOwnLimit(t *testing.T) {
 	fixture := newReleaseFixture(t, MaxDelegationLifetime)
 	_, err := SignBinaryReceipt(fixture.binary, "canary", fixture.delegation, fixture.roots,
@@ -189,7 +202,7 @@ func testBinaryReceipt() BinaryReceipt {
 	return BinaryReceipt{
 		Schema: BinarySchema, SourceRevision: testSourceRevision, GoVersion: DefaultGoVersion,
 		GOOS: "linux", GOARCH: "amd64", ELFMachine: "Advanced Micro Devices X86-64", Static: true,
-		Bytes: 13, SHA256: hex.EncodeToString(digest[:]),
+		Bytes: 13, SHA256: hex.EncodeToString(digest[:]), QualificationSHA256: hex.EncodeToString(digest[:]),
 	}
 }
 
@@ -198,7 +211,8 @@ func testImageReceipt() ImageReceipt {
 	return ImageReceipt{
 		Schema: ImageSchema, SourceRevision: testSourceRevision, GoVersion: DefaultGoVersion,
 		Architecture: "amd64", BinaryBytes: 13, BinarySHA256: testBinaryReceipt().SHA256,
-		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU",
+		QualificationSHA256: testBinaryReceipt().QualificationSHA256,
+		BaseImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU",
 		BaseImageSHA256: hex.EncodeToString(digest[:]), KernelRelease: "6.1.0-test+1",
 		KernelSHA256: hex.EncodeToString(digest[:]), ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: hex.EncodeToString(digest[:]), OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.CUSTOM", OCIRegion: "GRU",

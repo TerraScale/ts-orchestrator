@@ -3,15 +3,49 @@
 package host
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
+
+func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
+	registration, desired, _ := managedContractFixture()
+	registration.SystemReserveBytes = 2 << 30
+	desired.ManagedMember.SystemReserveBytes = 2 << 30
+	desired.ManagedMember.Runtime = &ManagedRuntimePins{}
+	runner := &memoryRunner{observed: map[string]Observation{
+		desired.Role: {Role: desired.Role, Running: true, CgroupMemoryMaxBytes: desired.ManagedMember.CgroupMemoryMaxBytes},
+	}}
+	checkedMemory := false
+	agent := &Agent{
+		cfg:    AgentConfig{ManagedRuntimeRoot: "/srv/ts-managed", BakedSystemReserveBytes: 1 << 30},
+		runner: runner,
+		memoryCheck: func(Registration) error {
+			checkedMemory = true
+			return errors.New("memory check reached")
+		},
+	}
+	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	if err == nil || !strings.Contains(err.Error(), "differs from image priority profile") || checkedMemory {
+		t.Fatalf("managed launch did not reject changed signed reserve before memory check: %v", err)
+	}
+	observed, err := runner.Observe(context.Background(), desired.Role)
+	if err != nil || observed.Running || runner.applied != 0 {
+		t.Fatalf("changed reserve retained or launched managed process: observation=%+v err=%v", observed, err)
+	}
+	registration.SystemReserveBytes = 1 << 30
+	desired.ManagedMember.SystemReserveBytes = 1 << 30
+	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	if err == nil || !checkedMemory {
+		t.Fatalf("matching baked reserve did not reach the next launch check: %v", err)
+	}
+}
 
 func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
@@ -26,7 +60,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
 			Authority:    MemberAuthority{Epoch: 1, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)},
 			SourceDigest: strings.Repeat("f", 64), VolumeID: "ocid1.volume.retained", AttachmentID: "ocid1.volumeattachment.node-a",
-			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30}}
+			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30, SystemReserveBytes: 1 << 30}}
 	return registration, desired, key
 }
 
@@ -49,6 +83,8 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 			r.Capacity.MemoryBytes = math.MaxInt64
 			d.ManagedMember.CgroupMemoryMaxBytes = uint64(math.MaxInt64) + 1
 		}},
+		{name: "missing signed reserve", change: func(_ *Registration, d *Desired) { d.ManagedMember.SystemReserveBytes = 0 }},
+		{name: "reserve differs from registration", change: func(_ *Registration, d *Desired) { d.ManagedMember.SystemReserveBytes += 1 << 20 }},
 		{name: "another host attempt", change: func(_ *Registration, d *Desired) { d.ManagedMember.Member.HostAttempt++ }},
 		{name: "another member", change: func(_ *Registration, d *Desired) {
 			d.ManagedMember.Member.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
@@ -81,6 +117,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 	d.ManagedMember.ProcessMemoryBytes = 0
 	d.ManagedMember.MemoryHeadroomBytes = 0
 	d.ManagedMember.CgroupMemoryMaxBytes = 0
+	d.ManagedMember.SystemReserveBytes = 0
 	if err := validateDesired(d, "gru", r); err != nil {
 		t.Fatalf("identity-retaining withdrawal: %v", err)
 	}
@@ -90,12 +127,8 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 	}
 }
 
-func TestManagedMemoryWorkloadAndReplyBinding(t *testing.T) {
+func TestManagedReplyBinding(t *testing.T) {
 	r, d, key := managedContractFixture()
-	w := managedMemoryWorkload(d)
-	if !slices.Equal(w.Args, []string{"--memory-limit-bytes", "4294967296", "--memory-headroom-bytes", "1073741824"}) || w.CgroupMemoryMaxBytes != 6<<30 {
-		t.Fatalf("managed P/H/C profile = %+v", w)
-	}
 	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key}, session: session{RegistrationGeneration: r.Generation}}
 	reply := desiredReply{Desired: &d, Revision: 4, Registration: &r, RegistrationRevision: 3}
 	if err := a.validateDesiredReply(reply); err != nil {
@@ -133,10 +166,13 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 	if err := os.MkdirAll(leaf, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for path, value := range map[string]string{root: "max", filepath.Join(root, "service"): "9663676416", leaf: "max"} {
+	for path, value := range map[string]string{filepath.Join(root, "service"): "9663676416", leaf: "max"} {
 		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	meminfo := filepath.Join(t.TempDir(), "meminfo")
 	membership := filepath.Join(t.TempDir(), "cgroup")
@@ -147,6 +183,33 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err != nil {
+		t.Fatalf("valid cgroup root without memory.max: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root without memory.max or memory controller accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(membership, []byte("0::/\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root-only cgroup membership accepted")
+	}
+	if err := os.WriteFile(membership, []byte("0::/service/supervisor\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(leaf, "memory.max")); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("missing non-root memory.max accepted")
+	}
+	if err := os.WriteFile(filepath.Join(leaf, "memory.max"), []byte("max"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "service", "memory.max"), []byte("8589934592"), 0600); err != nil {
@@ -156,6 +219,30 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 		t.Fatal("service cap smaller than allocatable plus reserve accepted")
 	}
 	if err := os.WriteFile(filepath.Join(root, "service", "memory.max"), []byte("max"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.max"), []byte("8589934592"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root cap smaller than allocatable plus reserve accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.max"), []byte("max"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root memory.max without memory controller accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err != nil {
+		t.Fatalf("root memory.max with memory controller: %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "memory.max")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(meminfo, []byte("MemTotal: 8388608 kB\n"), 0600); err != nil {

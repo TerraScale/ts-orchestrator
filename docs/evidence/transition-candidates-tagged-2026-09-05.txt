@@ -1,3 +1,0 @@
-ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	30.949s
-ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrol	21.023s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	7.229s

@@ -12,10 +12,11 @@ import (
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()
 	request := LaunchRequest{
-		CreateKey: "sdk-shape-config", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
+		CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
 		FaultDomain: "FAULT-DOMAIN-1", Shape: config.Shape, WholeOCPUs: 2, MemoryInGBs: 12,
 		PlacementProfileDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PlacementGeneration:    9,
+		BootVolumeGB:           config.BootVolumeGB, BootVolumeVPUsPerGB: config.BootVolumeVPUsPerGB,
 		FreeformTags: map[string]string{
 			tagManagedBy: managedByValue, tagPlacementProfileDigest: "caller-value-must-not-win",
 		},
@@ -61,8 +62,16 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	if details.FreeformTags[tagManagedBy] != managedByValue {
 		t.Fatalf("launch lost the caller's non-profile resource tags: %v", details.FreeformTags)
 	}
+	if details.DisplayName == nil || *details.DisplayName != config.Owner+"-"+request.Node ||
+		details.CreateVnicDetails == nil || details.CreateVnicDetails.AssignPublicIp == nil ||
+		*details.CreateVnicDetails.AssignPublicIp || details.CreateVnicDetails.PrivateIp == nil ||
+		*details.CreateVnicDetails.PrivateIp != request.PrivateIP {
+		t.Fatalf("launch lost the bounded display name or private-only VNIC: %+v", details)
+	}
 	imageDetails, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
 	if !ok || imageDetails.ImageId == nil || *imageDetails.ImageId != config.ImageID ||
+		imageDetails.BootVolumeSizeInGBs == nil || *imageDetails.BootVolumeSizeInGBs != 50 ||
+		imageDetails.BootVolumeVpusPerGB == nil || *imageDetails.BootVolumeVpusPerGB != 10 ||
 		details.Metadata[hostboot.MetadataKey] != string(wire) || details.Metadata["terrascale_host_node"] != request.Node {
 		t.Fatalf("public image/descriptor binding did not reach OCI: image=%+v metadata=%v", details.SourceDetails, details.Metadata)
 	}
@@ -87,6 +96,69 @@ func TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK(t *testing.T) 
 	if compute.calls != 0 {
 		t.Fatalf("invalid sizing reached OCI SDK: calls=%d", compute.calls)
 	}
+}
+
+func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
+	config, _ := testRegionConfig()
+	instanceID := "ocid1.instance.managed-readback"
+	bootID := "ocid1.bootvolume.managed-readback"
+	vnicID := "ocid1.vnic.managed-readback"
+	instance := CloudInstance{ID: instanceID, CompartmentID: config.CompartmentID,
+		AvailabilityDomain: config.AvailabilityDomain, LifecycleState: "RUNNING"}
+	reader := &fakeInstanceReadback{
+		boots: core.ListBootVolumeAttachmentsResponse{Items: []core.BootVolumeAttachment{{
+			BootVolumeId: new(bootID), InstanceId: new(instanceID),
+			LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached,
+		}}},
+		boot: core.GetBootVolumeResponse{BootVolume: core.BootVolume{
+			Id: new(bootID), CompartmentId: new(config.CompartmentID), ImageId: new(config.ImageID),
+			SizeInGBs: new(int64(50)), VpusPerGB: new(int64(10)),
+		}},
+		attachments: core.ListVnicAttachmentsResponse{Items: []core.VnicAttachment{{
+			VnicId: new(vnicID), InstanceId: new(instanceID),
+			LifecycleState: core.VnicAttachmentLifecycleStateAttached,
+		}}},
+		vnic: core.GetVnicResponse{Vnic: core.Vnic{
+			Id: new(vnicID), SubnetId: new(config.SubnetID), PrivateIp: new("10.251.0.21"),
+			NsgIds:         append([]string(nil), config.NetworkSecurityGroupIDs...),
+			LifecycleState: core.VnicLifecycleStateAvailable,
+		}},
+	}
+	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
+		t.Fatalf("exact boot and private VNIC refused: %v", err)
+	}
+	reader.boot.VpusPerGB = new(int64(20))
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrImageNotQualified) {
+		t.Fatalf("costed boot tier drift was accepted: %v", err)
+	}
+	reader.boot.VpusPerGB = new(int64(10))
+	reader.vnic.PublicIp = new("203.0.113.5")
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+		t.Fatalf("public VNIC was accepted: %v", err)
+	}
+}
+
+type fakeInstanceReadback struct {
+	boots       core.ListBootVolumeAttachmentsResponse
+	boot        core.GetBootVolumeResponse
+	attachments core.ListVnicAttachmentsResponse
+	vnic        core.GetVnicResponse
+}
+
+func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {
+	return reader.boots, nil
+}
+
+func (reader *fakeInstanceReadback) GetBootVolume(context.Context, core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error) {
+	return reader.boot, nil
+}
+
+func (reader *fakeInstanceReadback) ListVnicAttachments(context.Context, core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error) {
+	return reader.attachments, nil
+}
+
+func (reader *fakeInstanceReadback) GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error) {
+	return reader.vnic, nil
 }
 
 type fakeLaunchSDKClient struct {

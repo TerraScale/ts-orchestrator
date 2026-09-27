@@ -1,0 +1,24 @@
+{
+  "captured_at": "2026-09-27T00:39:54.475248+00:00",
+  "method": "signed OCI Identity ListPolicies REST GET",
+  "parent_compartment_policy_count": 0,
+  "parent_compartment_policy_http_status": "200 OK",
+  "region": "sa-saopaulo-1",
+  "schema_version": 1,
+  "tenancy_policies": [
+    {
+      "name": "Tenant Admin Policy",
+      "statements": [
+        "ALLOW GROUP Administrators to manage all-resources IN TENANCY"
+      ]
+    },
+    {
+      "name": "ts-forgejo-object-storage",
+      "statements": [
+        "Allow group ts-forgejo-app to manage object-family in compartment ts-forgejo",
+        "Allow group ts-forgejo-backup to manage objects in compartment ts-forgejo where target.bucket.name = 'ts-forgejo-backup'"
+      ]
+    }
+  ],
+  "tenancy_policy_http_status": "200 OK"
+}

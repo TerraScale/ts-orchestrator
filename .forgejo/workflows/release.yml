@@ -1,5 +1,9 @@
 name: Manually authorized signed release
 
+concurrency:
+  group: ts-orchestrator-release-${{ forgejo.ref }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
     inputs:
@@ -30,21 +34,31 @@ on:
           - SFO
           - FRA
         default: GRU
+      candidate_run_id:
+        description: Successful ci.yml API run ID retaining the exact source binaries
+        required: true
+        type: string
+      candidate_run_number:
+        description: Forgejo run number displayed by fj for the same ci.yml run
+        required: true
+        type: string
 
 jobs:
   release:
-    if: ${{ inputs.sign_release == true || inputs.publish == true }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.sign_release == true || inputs.publish == true) }}
     name: sign and optionally retain exact binaries
     runs-on: terrascale-release-signer
-    timeout-minutes: 60
+    timeout-minutes: 90
     environment:
-      name: production-release
+      name: ${{ github.ref == 'refs/heads/main' && inputs.release_environment == 'canary' && 'canary-release' || github.ref == 'refs/heads/main' && inputs.release_environment == 'production' && 'production-release' || 'invalid-release-environment' }}
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
       SOURCE_REF: ${{ forgejo.ref }}
       RELEASE_ENVIRONMENT: ${{ inputs.release_environment }}
       RELEASE_REGION: ${{ inputs.region }}
       RELEASE_PUBLISH: ${{ inputs.publish }}
+      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+      CANDIDATE_RUN_NUMBER: ${{ inputs.candidate_run_number }}
     steps:
       - name: Check out the exact source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -66,6 +80,8 @@ jobs:
           test "$(go env GOVERSION)" = "go1.27.1"
           [[ "${RELEASE_ENVIRONMENT}" == canary || "${RELEASE_ENVIRONMENT}" == production ]]
           [[ "${RELEASE_REGION}" == GRU || "${RELEASE_REGION}" == SFO || "${RELEASE_REGION}" == FRA ]]
+          [[ "${CANDIDATE_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${CANDIDATE_RUN_NUMBER}" =~ ^[0-9]+$ ]]
           if [[ "${RELEASE_PUBLISH}" == true && "${{ inputs.sign_release }}" != true ]]; then
             echo "publication requires sign_release=true" >&2
             exit 1
@@ -73,11 +89,60 @@ jobs:
           printf 'source=%s environment=%s region=%s\n' \
             "${source_commit}" "${RELEASE_ENVIRONMENT}" "${RELEASE_REGION}"
 
-      - name: Build static binaries and the release verifier
+      - name: Verify release environment and source admission contract
+        shell: bash
+        run: python3 tests/ci/test_release_workflow.py
+
+      - name: Prepare pinned fj admission client
         shell: bash
         run: |
           set -euo pipefail
-          make release-linux GO=go GOFMT=gofmt
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Retrieve exact retained CI binaries and qualification
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          command -v fj
+          command -v jq
+          test "$(command -v fj)" = "${RUNNER_TEMP}/fj-admission-bin/fj"
+          : "${FORGEJO_TOKEN:?Forgejo Actions token is required}"
+          : "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
+          auth_home="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ts-release-fj.XXXXXXXX")"
+          chmod 700 "${auth_home}"
+          export XDG_DATA_HOME="${auth_home}"
+          printf 'XDG_DATA_HOME=%s\n' "${auth_home}" >> "${GITHUB_ENV}"
+          printf '%s\n' "${FORGEJO_TOKEN}" | fj auth add-token --host "${FORGEJO_SERVER_URL}" >/dev/null
+          unset FORGEJO_TOKEN GITHUB_TOKEN
+          tag="ci-${SOURCE_SHA}-run-${CANDIDATE_RUN_ID}"
+          mkdir -p dist
+          for asset in terrascale-orchestrator-linux-amd64 terrascale-orchestrator-linux-arm64 qualification.json; do
+            fj release asset download "${tag}" "${asset}" -o "dist/${asset}"
+          done
+          jq -e --arg sha "${SOURCE_SHA}" --argjson run_id "${CANDIDATE_RUN_ID}" \
+            --argjson run_number "${CANDIDATE_RUN_NUMBER}" '
+            .schema == "terrascale.release.qualification.v1" and
+            .source_revision == $sha and .verification.run_id == $run_id and
+            .verification.run_number == $run_number and
+            (.verification.run_number | type == "number" and . > 0) and
+            .verification.conclusion == "success"
+          ' dist/qualification.json >/dev/null
+          fj actions run-detail "${CANDIDATE_RUN_NUMBER}" -r TerraScale/ts-orchestrator \
+            > dist/forgejo-run-detail.json
+          jq -e --arg sha "${SOURCE_SHA}" --argjson run_id "${CANDIDATE_RUN_ID}" \
+            --argjson run_number "${CANDIDATE_RUN_NUMBER}" '
+            .run_id == $run_id and .run_number == $run_number and
+            .head_sha == $sha and .workflow == "ci.yml" and .status == "success" and
+            ([.jobs[] | select(.run_id == $run_id and
+              .name == "verify/go + artifact/linux-amd64-arm64" and .status == "success")] | length) == 1
+          ' dist/forgejo-run-detail.json >/dev/null
+          test "$(jq -r .source_tree dist/qualification.json)" = "$(git rev-parse 'HEAD^{tree}')"
+          test "$(jq -r .go_mod_sha256 dist/qualification.json)" = "$(sha256sum go.mod | awk '{print $1}')"
+          test "$(jq -r .go_sum_sha256 dist/qualification.json)" = "$(sha256sum go.sum | awk '{print $1}')"
           (cd dist && sha256sum \
             terrascale-orchestrator-linux-amd64 \
             terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
@@ -118,14 +183,17 @@ jobs:
             receipt="dist/linux-${architecture}.receipt.json"
             ./dist/ts-release binary-candidate \
               --binary "${binary}" --source-revision "${SOURCE_SHA}" \
+              --qualification dist/qualification.json \
               --out "${candidate}"
             ./dist/ts-release sign-binary \
               --candidate "${candidate}" --delegation .release-private/delegation.json \
               --root-key .release-private/root.pub --signing-key .release-private/delegate.key \
+              --binary "${binary}" --qualification dist/qualification.json \
               --environment "${RELEASE_ENVIRONMENT}" --out "${receipt}"
             ./dist/ts-release verify-binary \
               --receipt "${receipt}" --delegation .release-private/delegation.json \
               --root-key .release-private/root.pub --binary "${binary}" \
+              --qualification dist/qualification.json \
               --environment "${RELEASE_ENVIRONMENT}"
           done
           (cd dist && sha256sum --check --strict SHA256SUMS)
@@ -133,7 +201,11 @@ jobs:
       - name: Remove delegated signing material
         if: ${{ always() }}
         shell: bash
-        run: rm -rf .release-private
+        run: |
+          rm -rf .release-private
+          if [[ -n ${XDG_DATA_HOME:-} && ${XDG_DATA_HOME} == "${RUNNER_TEMP:-/tmp}/ts-release-fj."* ]]; then
+            rm -rf -- "${XDG_DATA_HOME}"
+          fi
 
       - name: Publish immutable signed binaries and receipts to OCI
         if: ${{ inputs.publish == true }}
@@ -146,14 +218,19 @@ jobs:
           test "${{ inputs.sign_release }}" = true
           : "${OCI_RELEASE_NAMESPACE:?protected OCI release namespace is required}"
           : "${OCI_RELEASE_BUCKET:?protected OCI release bucket is required}"
+          prefix="releases/${SOURCE_SHA}/run-${CANDIDATE_RUN_ID}"
+          ./dist/ts-release publish \
+            --file dist/qualification.json \
+            --region "${RELEASE_REGION}" --namespace "${OCI_RELEASE_NAMESPACE}" \
+            --bucket "${OCI_RELEASE_BUCKET}" --object "${prefix}/qualification.json"
           for architecture in amd64 arm64; do
-            prefix="releases/${SOURCE_SHA}/linux-${architecture}"
+            arch_prefix="${prefix}/linux-${architecture}"
             ./dist/ts-release publish \
               --file "dist/terrascale-orchestrator-linux-${architecture}" \
               --region "${RELEASE_REGION}" --namespace "${OCI_RELEASE_NAMESPACE}" \
-              --bucket "${OCI_RELEASE_BUCKET}" --object "${prefix}/terrascale-orchestrator"
+              --bucket "${OCI_RELEASE_BUCKET}" --object "${arch_prefix}/terrascale-orchestrator"
             ./dist/ts-release publish \
               --file "dist/linux-${architecture}.receipt.json" \
               --region "${RELEASE_REGION}" --namespace "${OCI_RELEASE_NAMESPACE}" \
-              --bucket "${OCI_RELEASE_BUCKET}" --object "${prefix}/receipt.json"
+              --bucket "${OCI_RELEASE_BUCKET}" --object "${arch_prefix}/receipt.json"
           done

@@ -208,10 +208,22 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		proxies[failedPeer].blocked.Store(true)
 	}
 	crashControllerChild(t, children[failedPeer])
-	_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
-	if !hostRuntime.Conn().IsConnected() || hostRuntime.Conn().ConnectedUrl() == connected {
-		t.Fatalf("host did not reconnect away from crashed controller %q; current %q", connected, hostRuntime.Conn().ConnectedUrl())
+	reconnectDeadline := time.NewTimer(15 * time.Second)
+	reconnectPoll := time.NewTicker(50 * time.Millisecond)
+	defer reconnectDeadline.Stop()
+	defer reconnectPoll.Stop()
+	for !hostRuntime.Conn().IsConnected() || hostRuntime.Conn().ConnectedUrl() == connected {
+		select {
+		case err := <-agentDone:
+			t.Fatalf("host agent exited before reconnecting away from crashed controller: %v", err)
+		case <-reconnectDeadline.C:
+			t.Fatalf("host did not reconnect away from crashed controller %q within session headroom; current %q", connected, hostRuntime.Conn().ConnectedUrl())
+		case <-ctx.Done():
+			t.Fatalf("host reconnect interrupted after controller loss: %v", ctx.Err())
+		case <-reconnectPoll.C:
+		}
 	}
+	_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
 	for index, child := range children {
 		if index != failedPeer {
 			assertControllerChildRunning(t, child)

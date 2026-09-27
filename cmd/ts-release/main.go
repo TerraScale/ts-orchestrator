@@ -64,6 +64,8 @@ func run(args []string) error {
 		return usageError()
 	}
 	switch args[0] {
+	case "sign-delegation":
+		return signDelegation(args[1:])
 	case "binary-candidate":
 		return binaryCandidate(args[1:])
 	case "sign-binary":
@@ -84,7 +86,7 @@ func run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-release <binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
+	return errors.New("usage: ts-release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
 }
 
 func publish(args []string) error {
@@ -255,16 +257,25 @@ func binaryCandidate(args []string) error {
 	flags.SetOutput(io.Discard)
 	binaryPath := flags.String("binary", "", "static Linux orchestrator binary")
 	sourceRevision := flags.String("source-revision", "", "expected exact Git revision")
+	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
 	goVersion := flags.String("go-version", defaultGoVersion, "required Go toolchain version")
 	output := flags.String("out", "", "new unsigned JSON receipt path")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *binaryPath == "" || *sourceRevision == "" || *output == "" || flags.NArg() != 0 {
-		return errors.New("binary-candidate requires --binary, --source-revision, and --out")
+	if *binaryPath == "" || *sourceRevision == "" || *qualificationPath == "" || *output == "" || flags.NArg() != 0 {
+		return errors.New("binary-candidate requires --binary, --source-revision, --qualification, and --out")
+	}
+	qualification, qualificationDigest, err := readQualification(*qualificationPath)
+	if err != nil {
+		return err
 	}
 	receipt, err := inspectBinary(*binaryPath, *goVersion, *sourceRevision)
 	if err != nil {
+		return err
+	}
+	receipt.QualificationSHA256 = qualificationDigest
+	if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
 		return err
 	}
 	encoded, err := trust.EncodePayload(receipt)
@@ -275,9 +286,17 @@ func binaryCandidate(args []string) error {
 }
 
 func signBinary(args []string) error {
+	return signBinaryWithCheck(args, verifyForgejoQualification, inspectBinary)
+}
+
+func signBinaryWithCheck(args []string, check func(release.Qualification, string) error,
+	inspect func(string, string, string) (binaryReceipt, error),
+) error {
 	flags := flag.NewFlagSet("sign-binary", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	candidate := flags.String("candidate", "", "unsigned canonical binary receipt")
+	binaryPath := flags.String("binary", "", "retained CI binary matching the candidate")
+	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
 	delegationPath := flags.String("delegation", "", "root-signed release delegation envelope")
 	rootPath := flags.String("root-key", "", "baked root public key PEM")
 	privatePath := flags.String("signing-key", "", "delegated Ed25519 PKCS#8 private key PEM")
@@ -287,14 +306,32 @@ func signBinary(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *candidate == "" || *delegationPath == "" || *rootPath == "" || *privatePath == "" || !validEnvironment(*environment) || *output == "" || flags.NArg() != 0 {
-		return errors.New("sign-binary requires --candidate, --delegation, --root-key, --signing-key, --environment, and --out")
+	if *candidate == "" || *binaryPath == "" || *qualificationPath == "" || *delegationPath == "" || *rootPath == "" || *privatePath == "" || !validEnvironment(*environment) || *output == "" || flags.NArg() != 0 {
+		return errors.New("sign-binary requires --candidate, --binary, --qualification, --delegation, --root-key, --signing-key, --environment, and --out")
 	}
 	payload, err := readCanonicalPayload[binaryReceipt](*candidate)
 	if err != nil {
 		return err
 	}
 	if err := validateBinaryReceipt(payload); err != nil {
+		return err
+	}
+	qualification, qualificationDigest, err := readQualification(*qualificationPath)
+	if err != nil {
+		return err
+	}
+	if err := qualification.MatchBinary(payload, qualificationDigest); err != nil {
+		return err
+	}
+	observed, err := inspect(*binaryPath, payload.GoVersion, payload.SourceRevision)
+	if err != nil {
+		return err
+	}
+	observed.QualificationSHA256 = qualificationDigest
+	if observed != payload {
+		return errors.New("retained CI binary does not match the qualified candidate")
+	}
+	if err := check(qualification, qualificationDigest); err != nil {
 		return err
 	}
 	envelope, err := signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
@@ -309,28 +346,43 @@ func signBinary(args []string) error {
 }
 
 func verifyBinary(args []string) error {
+	return verifyBinaryWithInspect(args, inspectBinary)
+}
+
+func verifyBinaryWithInspect(args []string,
+	inspect func(string, string, string) (binaryReceipt, error),
+) error {
 	flags := flag.NewFlagSet("verify-binary", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	envelopePath := flags.String("receipt", "", "signed binary receipt envelope")
 	delegationPath := flags.String("delegation", "", "root-signed release delegation envelope")
 	rootPath := flags.String("root-key", "", "baked root public key PEM")
 	binaryPath := flags.String("binary", "", "binary whose bytes and ELF metadata are checked")
+	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
 	environment := flags.String("environment", "", "production or canary")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *envelopePath == "" || *delegationPath == "" || *rootPath == "" || *binaryPath == "" || !validEnvironment(*environment) || flags.NArg() != 0 {
-		return errors.New("verify-binary requires --receipt, --delegation, --root-key, --binary, and --environment")
+	if *envelopePath == "" || *delegationPath == "" || *rootPath == "" || *binaryPath == "" || *qualificationPath == "" || !validEnvironment(*environment) || flags.NArg() != 0 {
+		return errors.New("verify-binary requires --receipt, --delegation, --root-key, --binary, --qualification, and --environment")
 	}
 	verified, err := verifyBinaryReceiptFiles(*envelopePath, *delegationPath, *rootPath, *environment)
 	if err != nil {
 		return err
 	}
 	receipt := verified.Receipt()
-	observed, err := inspectBinary(*binaryPath, receipt.GoVersion, receipt.SourceRevision)
+	qualification, qualificationDigest, err := readQualification(*qualificationPath)
 	if err != nil {
 		return err
 	}
+	if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
+		return err
+	}
+	observed, err := inspect(*binaryPath, receipt.GoVersion, receipt.SourceRevision)
+	if err != nil {
+		return err
+	}
+	observed.QualificationSHA256 = qualificationDigest
 	if observed != receipt {
 		return errors.New("binary bytes or build metadata do not match the signed receipt")
 	}
@@ -343,6 +395,7 @@ func imageCandidate(args []string) error {
 	flags.SetOutput(io.Discard)
 	binaryReceiptPath := flags.String("binary-receipt", "", "signed binary receipt envelope")
 	binaryPath := flags.String("binary", "", "exact binary included in the image")
+	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
 	delegationPath := flags.String("delegation", "", "root-signed release delegation envelope")
 	rootPath := flags.String("root-key", "", "baked root public key PEM")
 	environment := flags.String("environment", "", "production or canary")
@@ -359,8 +412,8 @@ func imageCandidate(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *binaryReceiptPath == "" || *binaryPath == "" || *delegationPath == "" || *rootPath == "" || !validEnvironment(*environment) || *imageFile == "" || *baseImageOCID == "" || *baseRegion == "" || *baseImageFile == "" || *kernelRelease == "" || *kernelFile == "" || *imageOCID == "" || *region == "" || *output == "" || flags.NArg() != 0 {
-		return errors.New("image-candidate requires a verified binary receipt/binary, root/delegation inputs, base/image files and OCIDs, region, kernel release, and --out")
+	if *binaryReceiptPath == "" || *binaryPath == "" || *qualificationPath == "" || *delegationPath == "" || *rootPath == "" || !validEnvironment(*environment) || *imageFile == "" || *baseImageOCID == "" || *baseRegion == "" || *baseImageFile == "" || *kernelRelease == "" || *kernelFile == "" || *imageOCID == "" || *region == "" || *output == "" || flags.NArg() != 0 {
+		return errors.New("image-candidate requires a qualified binary receipt/binary, root/delegation inputs, base/image files and OCIDs, region, kernel release, and --out")
 	}
 	if !validRegion(*baseRegion) || !validRegion(*region) || !validOCIImageIDForRegion(*baseImageOCID, *baseRegion) || !validOCIImageIDForRegion(*imageOCID, *region) || *baseRegion != *region {
 		return errors.New("base and custom image OCIDs must belong to the same supported OCI region")
@@ -373,10 +426,18 @@ func imageCandidate(args []string) error {
 		return err
 	}
 	binary := verifiedBinary.Receipt()
+	qualification, qualificationDigest, err := readQualification(*qualificationPath)
+	if err != nil {
+		return err
+	}
+	if err := qualification.MatchBinary(binary, qualificationDigest); err != nil {
+		return err
+	}
 	observedBinary, err := inspectBinary(*binaryPath, binary.GoVersion, binary.SourceRevision)
 	if err != nil {
 		return err
 	}
+	observedBinary.QualificationSHA256 = qualificationDigest
 	if observedBinary != binary {
 		return errors.New("image binary does not match its signed binary receipt")
 	}
@@ -397,6 +458,7 @@ func imageCandidate(args []string) error {
 	if err != nil {
 		return fmt.Errorf("verify binary extracted from final QCOW2 image: %w", err)
 	}
+	observedEmbedded.QualificationSHA256 = qualificationDigest
 	if observedEmbedded != binary {
 		return errors.New("binary embedded in final QCOW2 image does not match its signed receipt")
 	}
@@ -421,7 +483,8 @@ func imageCandidate(args []string) error {
 	receipt := imageReceipt{
 		Schema: imageSchema, SourceRevision: binary.SourceRevision, GoVersion: binary.GoVersion,
 		Architecture: binary.GOARCH, BinaryBytes: binary.Bytes, BinarySHA256: binary.SHA256,
-		BaseImageOCID: *baseImageOCID, BaseImageRegion: *baseRegion, BaseImageSHA256: baseDigest,
+		QualificationSHA256: qualificationDigest,
+		BaseImageOCID:       *baseImageOCID, BaseImageRegion: *baseRegion, BaseImageSHA256: baseDigest,
 		KernelRelease: *kernelRelease, KernelSHA256: kernelDigest,
 		ImageFormat: "qcow2", ImageBytes: imageBytes, ImageSHA256: imageDigest,
 		OCIImageOCID: *imageOCID, OCIRegion: *region,
@@ -437,9 +500,22 @@ func imageCandidate(args []string) error {
 }
 
 func signImage(args []string) error {
+	return signImageWithCheck(args, verifyForgejoQualification, inspectBinary)
+}
+
+func signImageWithCheck(args []string, check func(release.Qualification, string) error,
+	inspect func(string, string, string) (binaryReceipt, error),
+) error {
 	flags := flag.NewFlagSet("sign-image", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	candidate := flags.String("candidate", "", "unsigned canonical image receipt")
+	binaryReceiptPath := flags.String("binary-receipt", "", "current signed qualified binary receipt")
+	binaryPath := flags.String("binary", "", "exact retained CI binary embedded in image")
+	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
+	imageFile := flags.String("image-file", "", "final QCOW2 image whose bytes are signed")
+	baseImageFile := flags.String("base-image-file", "", "exact pinned base QCOW2 image")
+	kernelFile := flags.String("kernel-file", "", "exact guest kernel")
+	guestBinary := flags.String("guest-binary", "/usr/local/bin/terrascale-orchestrator", "binary path inside the QCOW2 guest")
 	delegationPath := flags.String("delegation", "", "root-signed release delegation envelope")
 	rootPath := flags.String("root-key", "", "baked root public key PEM")
 	privatePath := flags.String("signing-key", "", "delegated Ed25519 PKCS#8 private key PEM")
@@ -449,14 +525,42 @@ func signImage(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *candidate == "" || *delegationPath == "" || *rootPath == "" || *privatePath == "" || !validEnvironment(*environment) || *output == "" || flags.NArg() != 0 {
-		return errors.New("sign-image requires --candidate, --delegation, --root-key, --signing-key, --environment, and --out")
+	if *candidate == "" || *binaryReceiptPath == "" || *binaryPath == "" || *qualificationPath == "" || *imageFile == "" || *baseImageFile == "" || *kernelFile == "" || !validGuestBinaryPath(*guestBinary) || *delegationPath == "" || *rootPath == "" || *privatePath == "" || !validEnvironment(*environment) || *output == "" || flags.NArg() != 0 {
+		return errors.New("sign-image requires --candidate, --binary-receipt, --binary, --qualification, --image-file, --base-image-file, --kernel-file, --delegation, --root-key, --signing-key, --environment, and --out")
 	}
 	payload, err := readCanonicalPayload[imageReceipt](*candidate)
 	if err != nil {
 		return err
 	}
 	if err := validateImageReceipt(payload); err != nil {
+		return err
+	}
+	verifiedBinary, err := verifyBinaryReceiptFiles(*binaryReceiptPath, *delegationPath, *rootPath, *environment)
+	if err != nil {
+		return err
+	}
+	binary := verifiedBinary.Receipt()
+	qualification, qualificationDigest, err := readQualification(*qualificationPath)
+	if err != nil {
+		return err
+	}
+	if err := qualification.MatchBinary(binary, qualificationDigest); err != nil {
+		return err
+	}
+	observed, err := inspect(*binaryPath, binary.GoVersion, binary.SourceRevision)
+	if err != nil {
+		return err
+	}
+	observed.QualificationSHA256 = qualificationDigest
+	if observed != binary || payload.SourceRevision != binary.SourceRevision || payload.GoVersion != binary.GoVersion ||
+		payload.Architecture != binary.GOARCH || payload.BinaryBytes != binary.Bytes ||
+		payload.BinarySHA256 != binary.SHA256 || payload.QualificationSHA256 != qualificationDigest {
+		return errors.New("image candidate does not embed the exact qualified binary")
+	}
+	if err := check(qualification, qualificationDigest); err != nil {
+		return err
+	}
+	if err := verifyImageCandidateFiles(payload, *imageFile, *baseImageFile, *kernelFile, *guestBinary); err != nil {
 		return err
 	}
 	envelope, err := signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
@@ -495,11 +599,19 @@ func verifyImage(args []string) error {
 		return err
 	}
 	receipt := verified.Receipt()
-	imageDigestBefore, imageBytesBefore, err := hashQcow2(*imageFile)
+	if err := verifyImageCandidateFiles(receipt, *imageFile, *baseImageFile, *kernelFile, *guestBinary); err != nil {
+		return err
+	}
+	fmt.Printf("verified OCI image=%s region=%s revision=%s arch=%s sha256=%s\n", receipt.OCIImageOCID, receipt.OCIRegion, receipt.SourceRevision, receipt.Architecture, receipt.ImageSHA256)
+	return nil
+}
+
+func verifyImageCandidateFiles(receipt imageReceipt, imageFile, baseImageFile, kernelFile, guestBinary string) error {
+	imageDigestBefore, imageBytesBefore, err := hashQcow2(imageFile)
 	if err != nil {
 		return err
 	}
-	embeddedBinary, err := extractGuestBinary(*imageFile, *guestBinary, receipt.BinaryBytes)
+	embeddedBinary, err := extractGuestBinary(imageFile, guestBinary, receipt.BinaryBytes)
 	if err != nil {
 		return err
 	}
@@ -515,25 +627,24 @@ func verifyImage(args []string) error {
 	if observedEmbedded.Bytes != receipt.BinaryBytes || observedEmbedded.SHA256 != receipt.BinarySHA256 || observedEmbedded.GOARCH != receipt.Architecture {
 		return errors.New("binary embedded in final QCOW2 image does not match the signed image receipt")
 	}
-	imageDigest, imageBytes, err := hashQcow2(*imageFile)
+	imageDigest, imageBytes, err := hashQcow2(imageFile)
 	if err != nil {
 		return err
 	}
 	if imageDigest != imageDigestBefore || imageBytes != imageBytesBefore {
 		return errors.New("QCOW2 image changed while its embedded binary was being inspected")
 	}
-	baseDigest, _, err := hashQcow2(*baseImageFile)
+	baseDigest, _, err := hashQcow2(baseImageFile)
 	if err != nil {
 		return err
 	}
-	kernelDigest, _, err := hashFile(*kernelFile)
+	kernelDigest, _, err := hashFile(kernelFile)
 	if err != nil {
 		return err
 	}
 	if imageDigest != receipt.ImageSHA256 || imageBytes != receipt.ImageBytes || baseDigest != receipt.BaseImageSHA256 || kernelDigest != receipt.KernelSHA256 {
 		return errors.New("image, pinned base image, or kernel bytes do not match the signed receipt")
 	}
-	fmt.Printf("verified OCI image=%s region=%s revision=%s arch=%s sha256=%s\n", receipt.OCIImageOCID, receipt.OCIRegion, receipt.SourceRevision, receipt.Architecture, receipt.ImageSHA256)
 	return nil
 }
 

@@ -10,6 +10,17 @@ User=root
 Group=root
 SupplementaryGroups=
 ExecStart=/usr/local/bin/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json
+# Protect the host manager without throttling the managed database when idle.
+# MemoryMin/MemoryLow come from the image profile; the native runner copies
+# those floors to the supervisor subgroup.
+CPUSchedulingPolicy=other
+Nice=-20
+CPUWeight=10000
+IOWeight=10000
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+OOMScoreAdjust=-1000
+ManagedOOMPreference=omit
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=90s

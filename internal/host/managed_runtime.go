@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"golang.org/x/sys/unix"
 )
 
@@ -74,6 +75,17 @@ func ManagedMountPath(root string, member ManagedMemberBinding) (string, error) 
 		return "", err
 	}
 	return paths.mount, nil
+}
+
+// ManagedMaterialPath is the exact host-owned directory for one signed member
+// attempt. Preparation uses this path so client configuration cannot redirect
+// a host to operator-chosen material.
+func ManagedMaterialPath(root string, member ManagedMemberBinding) (string, error) {
+	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
+	if err != nil {
+		return "", err
+	}
+	return paths.material, nil
 }
 
 // ValidateManagedRuntimeRoot rejects an unsafe configured root before native
@@ -444,6 +456,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		{"server.crt", launch.Runtime.ServerCertificateSHA256, 1 << 20},
 		{"server.key", launch.Runtime.ServerPrivateKeySHA256, 1 << 20},
 		{"client-ca.pem", launch.Runtime.ClientCARootsSHA256, 1 << 20},
+		{"signed-v2-s3-config.json", launch.Runtime.LiveS3ConfigSHA256, 16 << 10},
 	}
 	contents := make(map[string][]byte, len(files))
 	for _, item := range files {
@@ -471,6 +484,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
 	}
 	args := []string{
+		"--signed-v2-s3-config", filepath.Join(paths.material, "signed-v2-s3-config.json"),
 		"--data-dir", filepath.Join(paths.mount, "data"),
 		"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
 		"--memory-headroom-bytes", strconv.FormatUint(launch.MemoryHeadroomBytes, 10),
@@ -502,9 +516,25 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 			"--replication-server-ca-roots", filepath.Join(paths.material, "server-ca.pem"))
 	}
 	args = append(args, clientArgs...)
+	var childEnv map[string]string
+	if executable != "" {
+		if cfg.ManagedS3Credentials == nil {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential resolver is unavailable")
+		}
+		credentials, err := cfg.ManagedS3Credentials.Resolve(ctx, launch.Runtime.LiveS3Credential)
+		if err != nil {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential resolution failed")
+		}
+		if credentials.AccessKeyID == "" || credentials.SecretAccessKey == "" {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential response is incomplete")
+		}
+		childEnv = map[string]string{"AWS_ACCESS_KEY_ID": credentials.AccessKeyID,
+			"AWS_SECRET_ACCESS_KEY": credentials.SecretAccessKey}
+	}
 	keepMount = true
 	return Workload{Role: d.Role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable,
-		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes}, mount, paths.socket, nil
+		Args: args, Env: childEnv,
+		CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes, SystemReserveBytes: launch.SystemReserveBytes}, mount, paths.socket, nil
 }
 
 func removeStoppedMemberSocket(path string, identity WorkloadIdentity) error {
@@ -564,6 +594,12 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if launch.Runtime == nil || a.cfg.ManagedRuntimeRoot == "" {
 		return errors.Join(errors.New("managed member launch awaits verified mount, artifact, authority material and member identity"), a.runner.Stop(ctx, d.Role))
 	}
+	if target.Registration == nil || target.Registration.SystemReserveBytes <= 0 ||
+		a.cfg.BakedSystemReserveBytes == 0 ||
+		launch.SystemReserveBytes != a.cfg.BakedSystemReserveBytes ||
+		uint64(target.Registration.SystemReserveBytes) != a.cfg.BakedSystemReserveBytes {
+		return errors.Join(errors.New("managed system reserve differs from image priority profile"), a.runner.Stop(ctx, d.Role))
+	}
 	check := a.memoryCheck
 	if check == nil {
 		check = validateManagedHostMemory
@@ -579,7 +615,10 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
-	workload, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
+	if err := a.fetchManagedMaterial(ctx, d, *target.Registration); err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
+	}
+	_, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, "", "")
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
@@ -664,7 +703,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	}
 	// Material and the mounted block device are rechecked across the network
 	// round trips. A changed or absent binding never reaches native Apply.
-	_, currentMount, currentSocket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
+	currentWorkload, currentMount, currentSocket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
 	if err != nil {
 		return errors.Join(errors.New("managed mount or material changed before apply"), err)
 	}
@@ -695,7 +734,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if _, _, err := a.executionLease(); err != nil {
 		return err
 	}
-	if err := a.runner.Apply(ctx, workload); err != nil {
+	if err := a.runner.Apply(ctx, currentWorkload); err != nil {
 		return err
 	}
 	if err := verifyManagedMountPair(currentMount, mount); err != nil {
@@ -737,6 +776,13 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	if err := verifyManagedMountPair(check, mount); err != nil {
 		return errors.Join(errors.New("managed mount or material changed while reading process status"), err, a.runner.Stop(ctx, d.Role))
 	}
+	proof, err := readManagedServingProof(ctx, a.runner, d, socket, status)
+	if err != nil {
+		return errors.Join(errors.New("managed serving proof could not be bound to the native process"), err, a.runner.Stop(ctx, d.Role))
+	}
+	if err := verifyManagedMountPair(check, mount); err != nil {
+		return errors.Join(errors.New("managed mount changed while reading serving proof"), err, a.runner.Stop(ctx, d.Role))
+	}
 	report := a.reportFor(d, "running", nil)
 	report.Managed = &ManagedRuntimeReport{
 		Member: d.ManagedMember.Member, Authority: d.ManagedMember.Authority, OCI: d.ManagedMember.OCI,
@@ -746,7 +792,7 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 		MountDevice: mount.device, MountPath: paths.mount, MountID: mount.id,
 		ProcessPID: status.Process.PID, ProcessStart: start, ProcessCgroup: cgroup,
 		ProcessBootID: status.Process.StartNonce, StorageRecovered: status.Local.StorageRecovered,
-		ListenerReady: status.Local.ReplicationListenerReady,
+		ListenerReady: status.Local.ReplicationListenerReady, ServingProof: proof,
 	}
 	if err := a.publishReport(ctx, report); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -779,6 +825,21 @@ func validateManagedReportForDesired(report Report, desired Desired) error {
 		!strings.HasPrefix(observation.ProcessCgroup, "/") || !lowerHex(observation.ProcessBootID, 32) ||
 		!observation.StorageRecovered || !observation.ListenerReady {
 		return errors.New("managed report lacks exact mounted process identity")
+	}
+	if proof := observation.ServingProof; proof != nil {
+		if proof.SchemaVersion != 1 || proof.Process.PID != observation.ProcessPID ||
+			proof.Process.StartNonce != observation.ProcessBootID ||
+			proof.Scope != (memberstatus.Scope{
+				ClusterID: launch.Member.Scope.ClusterID, TenantID: launch.Member.Scope.TenantID,
+				DatabaseID: launch.Member.Scope.DatabaseID, ShardID: launch.Member.Scope.ShardID,
+				MemberID: launch.Member.Scope.MemberID, Incarnation: launch.Member.Scope.Incarnation,
+			}) || proof.Authority != (memberstatus.Authority{
+			Epoch: launch.Authority.Epoch, ConfigurationID: launch.Authority.ConfigurationID,
+			CertificateSHA256: launch.Authority.CertificateSHA256, TLSLeafSHA256: launch.Authority.TLSLeafSHA256,
+		}) || !proof.Serving || !proof.Listeners.Client || !proof.Listeners.Replication ||
+			proof.Replication.PeerMemberID != launch.Runtime.ReplicationPeerMemberID {
+			return errors.New("managed serving proof differs from the desired process or signed member")
+		}
 	}
 	return nil
 }

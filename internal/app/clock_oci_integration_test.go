@@ -75,8 +75,10 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 	intent := oci.RegionIntent{SchemaVersion: 1, Generation: 7, BootstrapRegion: oci.RegionGRU,
 		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
 	region := oci.RegionConfig{Region: oci.RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
-		CompartmentID: "ocid1.compartment.oc1..owned", AvailabilityDomain: "AD-1",
+		CompartmentID: "ocid1.compartment.oc1..owned", ImageCompartmentID: "ocid1.compartment.oc1..image", AvailabilityDomain: "AD-1",
 		FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1..owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
 		ImageID: "ocid1.image.oc1..owned", Shape: "VM.Standard.A1.Flex", Owner: "regional-owner"}
 	journal := new(clockFenceJournal)
 	provider := new(clockFenceProvider)
@@ -85,7 +87,7 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = fleet.EnsureHost(ctx, oci.EnsureRequest{
-		CreateKey: "clock-fenced-host", FaultDomain: "FAULT-DOMAIN-1",
+		CreateKey: "clock-fenced-host", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1",
 		Shape: region.Shape, WholeOCPUs: 1, MemoryInGBs: 6,
 		PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 1,
 		BootPins: oci.HostBootPins{

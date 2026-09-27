@@ -1,14 +1,18 @@
 import json
 import hashlib
+import importlib.util
 import os
 import re
 import secrets
 import shlex
 import shutil
 import stat
+import struct
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -21,7 +25,23 @@ CONTROLLER_DIRECTORY = "/var/lib/terrascale-orchestrator-controller"
 MANAGED_DIRECTORY = "/srv/ts-managed"
 TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
+RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
+RUNTIME_PRIORITY_HELPER_GUEST = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
+NATIVE_VERIFIER_GUEST = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
+RUNTIME_PRIORITY_DROPINS = (
+    "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
+    "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
+    "/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf",
+)
+RUNTIME_PRIORITY_PROFILE_ID = "preview-1ocpu-6gib-v1"
+RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES = 1 << 30
 BAKED_LOADER = ROOT / "internal/bootstrapstart/baked.go"
+RUNTIME_PRIORITY_QUALIFIER = ROOT / "tests/runtime_priority/qualify.py"
+RUNTIME_PRIORITY_QUALIFIER_SPEC = importlib.util.spec_from_file_location(
+    "runtime_priority_qualifier", RUNTIME_PRIORITY_QUALIFIER
+)
+RUNTIME_PRIORITY_QUALIFIER_MODULE = importlib.util.module_from_spec(RUNTIME_PRIORITY_QUALIFIER_SPEC)
+RUNTIME_PRIORITY_QUALIFIER_SPEC.loader.exec_module(RUNTIME_PRIORITY_QUALIFIER_MODULE)
 
 
 def write_executable(path: Path, contents: str) -> None:
@@ -38,7 +58,18 @@ class BuildOfflineTests(unittest.TestCase):
         self.inputs.mkdir()
         self.base = self.write_file(self.inputs / "base image.qcow2", b"mock qcow2 bytes")
         self.binary = self.write_file(self.inputs / "orchestrator binary", b"mock verified binary")
+        native_header = bytearray(64)
+        native_header[:7] = b"\x7fELF\x02\x01\x01"
+        struct.pack_into("<H", native_header, 16, 3)
+        struct.pack_into("<H", native_header, 18, 183)
+        struct.pack_into("<I", native_header, 20, 1)
+        struct.pack_into("<H", native_header, 52, 64)
+        self.native_verifier = self.write_file(
+            self.inputs / "tb-server-linux-arm64", bytes(native_header) + b"mock native verifier"
+        )
+        self.native_verifier_sha256 = hashlib.sha256(self.native_verifier.read_bytes()).hexdigest()
         self.receipt = self.write_file(self.inputs / "release receipt.json", b"mock receipt")
+        self.qualification = self.write_file(self.inputs / "qualification.json", b"mock qualification")
         self.delegation = self.write_file(self.inputs / "release delegation.json", b"mock delegation")
         self.release_root = self.write_file(self.inputs / "release root.pem", b"release public key")
         self.bootstrap_root_a = self.write_file(self.inputs / "bootstrap root a.pem", b"bootstrap public key a")
@@ -63,6 +94,20 @@ class BuildOfflineTests(unittest.TestCase):
         self.virt_arguments = self.root / "virt-arguments.json"
         self.virt_identity_bytes = self.root / "virt-identity-bytes.bin"
         self.virt_timesyncd_bytes = self.root / "virt-timesyncd-bytes.bin"
+        self.virt_runtime_profile_bytes = self.root / "virt-runtime-priority-profile.json"
+        self.virt_runtime_helper_bytes = self.root / "virt-runtime-priority-helper.py"
+        self.virt_native_verifier_bytes = self.root / "virt-native-verifier.bin"
+        self.virt_runtime_artifacts = self.root / "virt-runtime-priority-artifacts"
+        self.priority_inputs = {
+            "--runtime-priority-profile-id": RUNTIME_PRIORITY_PROFILE_ID,
+            "--runtime-priority-system-reserve-bytes": str(RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES),
+            "--host-memory-min-bytes": str(64 << 20),
+            "--host-memory-low-bytes": str(128 << 20),
+            "--controller-memory-min-bytes": str(64 << 20),
+            "--controller-memory-low-bytes": str(128 << 20),
+            "--system-slice-memory-min-bytes": str(128 << 20),
+            "--system-slice-memory-low-bytes": str(256 << 20),
+        }
         self.output = self.root / "candidate image.qcow2"
 
         write_executable(
@@ -84,6 +129,7 @@ esac
             """#!/usr/bin/env python3
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -120,6 +166,26 @@ scan = subprocess.run(["bash", "-c", scan_command], capture_output=True, text=Tr
 if scan.returncode != 0:
     print(scan.stderr, end="", file=sys.stderr)
     raise SystemExit(scan.returncode)
+priority_setup = next(
+    arguments[index + 1]
+    for index, argument in enumerate(arguments[:-1])
+    if argument == "--run-command"
+    and "base image has a conflicting runtime-priority profile artifact" in arguments[index + 1]
+)
+image_root = Path(image_root)
+for guest_directory in (
+    "/etc/terrascale-orchestrator",
+    "/etc/systemd/system",
+    "/usr/local/lib/terrascale-orchestrator",
+):
+    priority_setup = priority_setup.replace(
+        guest_directory, str(image_root / guest_directory.lstrip("/"))
+    )
+priority_setup = priority_setup.replace("-o root -g root ", "")
+priority_check = subprocess.run(["bash", "-c", priority_setup], capture_output=True, text=True, check=False)
+if priority_check.returncode != 0:
+    print(priority_check.stderr, end="", file=sys.stderr)
+    raise SystemExit(priority_check.returncode)
 for index, argument in enumerate(arguments[:-1]):
     if argument == "--upload":
         source, destination = arguments[index + 1].rsplit(":", 1)
@@ -127,6 +193,29 @@ for index, argument in enumerate(arguments[:-1]):
             Path(os.environ["VIRT_IDENTITY_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
         if destination == "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf":
             Path(os.environ["VIRT_TIMESYNCD_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+        if destination == os.environ["VIRT_RUNTIME_PROFILE_GUEST_PATH"]:
+            Path(os.environ["VIRT_RUNTIME_PROFILE_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+        if destination in os.environ["VIRT_RUNTIME_DROPIN_PATHS"].split(os.pathsep):
+            artifact_root = Path(os.environ["VIRT_RUNTIME_ARTIFACTS_PATH"])
+            artifact = artifact_root / destination.lstrip("/")
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, artifact)
+        if destination == os.environ["VIRT_RUNTIME_HELPER_GUEST_PATH"]:
+            Path(os.environ["VIRT_RUNTIME_HELPER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+        if destination == os.environ["VIRT_NATIVE_VERIFIER_GUEST_PATH"]:
+            Path(os.environ["VIRT_NATIVE_VERIFIER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+""",
+        )
+        write_executable(
+            self.shims / "virt-cat",
+            """#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 3 && $1 == -a && $3 == "$VIRT_NATIVE_VERIFIER_GUEST_PATH" ]]
+if [[ ${VIRT_CORRUPT_NATIVE:-0} == 1 ]]; then
+  printf 'corrupt guest bytes'
+else
+  cat "$VIRT_NATIVE_VERIFIER_BYTES_PATH"
+fi
 """,
         )
         self.release_tool = self.root / "release tool"
@@ -214,6 +303,14 @@ printf '{}\\n'
                 "VIRT_ARGUMENTS_PATH": str(self.virt_arguments),
                 "VIRT_IDENTITY_BYTES_PATH": str(self.virt_identity_bytes),
                 "VIRT_TIMESYNCD_BYTES_PATH": str(self.virt_timesyncd_bytes),
+                "VIRT_RUNTIME_PROFILE_BYTES_PATH": str(self.virt_runtime_profile_bytes),
+                "VIRT_RUNTIME_HELPER_BYTES_PATH": str(self.virt_runtime_helper_bytes),
+                "VIRT_NATIVE_VERIFIER_BYTES_PATH": str(self.virt_native_verifier_bytes),
+                "VIRT_NATIVE_VERIFIER_GUEST_PATH": NATIVE_VERIFIER_GUEST,
+                "VIRT_RUNTIME_ARTIFACTS_PATH": str(self.virt_runtime_artifacts),
+                "VIRT_RUNTIME_DROPIN_PATHS": os.pathsep.join(RUNTIME_PRIORITY_DROPINS),
+                "VIRT_RUNTIME_PROFILE_GUEST_PATH": RUNTIME_PRIORITY_PROFILE_GUEST,
+                "VIRT_RUNTIME_HELPER_GUEST_PATH": RUNTIME_PRIORITY_HELPER_GUEST,
                 "BASE_IMAGE_ROOT_PATH": str(self.base_image_root),
             }
         )
@@ -221,14 +318,20 @@ printf '{}\\n'
         return environment
 
     def run_builder(self, *, managed_workload_gid: str | None = None,
+                    native_verifier_binary: Path | None = None,
+                    native_verifier_sha256: str | None = None,
                     **environment_overrides: str) -> subprocess.CompletedProcess[str]:
         return self.run_builder_with_roots(
             [self.bootstrap_root_a, self.bootstrap_root_b], managed_workload_gid=managed_workload_gid,
+            native_verifier_binary=native_verifier_binary,
+            native_verifier_sha256=native_verifier_sha256,
             **environment_overrides
         )
 
     def run_builder_with_roots(
         self, bootstrap_roots: list[Path], *, managed_workload_gid: str | None = None,
+        native_verifier_binary: Path | None = None,
+        native_verifier_sha256: str | None = None,
         **environment_overrides: str
     ) -> subprocess.CompletedProcess[str]:
         arguments = [
@@ -237,8 +340,14 @@ printf '{}\\n'
             str(self.base),
             "--binary",
             str(self.binary),
+            "--native-verifier-binary",
+            str(native_verifier_binary or self.native_verifier),
+            "--native-verifier-sha256",
+            native_verifier_sha256 or self.native_verifier_sha256,
             "--receipt",
             str(self.receipt),
+            "--qualification",
+            str(self.qualification),
             "--delegation",
             str(self.delegation),
             "--root-key",
@@ -256,6 +365,8 @@ printf '{}\\n'
             "--timesyncd-config",
             str(self.timesyncd_config),
         ]
+        for flag, value in self.priority_inputs.items():
+            arguments.extend((flag, value))
         for bootstrap_root in bootstrap_roots:
             arguments.extend(("--bootstrap-root", str(bootstrap_root)))
         if managed_workload_gid is not None:
@@ -297,6 +408,7 @@ printf '{}\\n'
         release_arguments = self.release_arguments.read_bytes().split(b"\0")[:-1]
         release_arguments_text = [argument.decode() for argument in release_arguments]
         self.assertEqual(release_arguments_text[release_arguments_text.index("--root-key") + 1], str(self.release_root))
+        self.assertEqual(release_arguments_text[release_arguments_text.index("--qualification") + 1], str(self.qualification))
         self.assertNotIn(str(self.bootstrap_root_a), release_arguments_text)
         self.assertNotIn(str(self.bootstrap_root_b), release_arguments_text)
 
@@ -310,6 +422,11 @@ printf '{}\\n'
             if argument == "--upload"
         ]
         destinations = {upload.rsplit(":", 1)[1]: upload.rsplit(":", 1)[0] for upload in uploads}
+        self.assertEqual(
+            self.virt_native_verifier_bytes.read_bytes(), self.native_verifier.read_bytes()
+        )
+        self.assertTrue(destinations[NATIVE_VERIFIER_GUEST].endswith("/terrabase-server"))
+        self.assertIn(f"native verifier image sha256={self.native_verifier_sha256}", result.stdout)
         self.assertEqual(destinations[f"{BOOTSTRAP_DIRECTORY}/anchor.json"], str(self.anchor))
         self.assertEqual(destinations[f"{BOOTSTRAP_DIRECTORY}/identity.json"], str(self.identity))
         generated_timesyncd_config = (
@@ -321,6 +438,42 @@ printf '{}\\n'
             hashlib.sha256(generated_timesyncd_config).hexdigest(),
             result.stdout,
         )
+        self.assertEqual(
+            self.virt_runtime_profile_bytes.read_bytes(),
+            json.dumps(
+                {
+                    "version": 1,
+                    "profile_id": RUNTIME_PRIORITY_PROFILE_ID,
+                    "system_reserve_bytes": RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES,
+                },
+                separators=(",", ":"),
+            ).encode(),
+        )
+        self.assertEqual(
+            self.virt_runtime_helper_bytes.read_bytes(),
+            (ROOT / "tests/runtime_priority/qualify.py").read_bytes(),
+        )
+        self.assertTrue(
+            destinations[RUNTIME_PRIORITY_PROFILE_GUEST].endswith("/runtime-priority.json")
+        )
+        self.assertEqual(
+            destinations[RUNTIME_PRIORITY_HELPER_GUEST],
+            "tests/runtime_priority/qualify.py",
+        )
+        for guest_path, expected_section, minimum, low in (
+            (RUNTIME_PRIORITY_DROPINS[0], "[Slice]", 128 << 20, 256 << 20),
+            (RUNTIME_PRIORITY_DROPINS[1], "[Service]", 64 << 20, 128 << 20),
+            (RUNTIME_PRIORITY_DROPINS[2], "[Service]", 64 << 20, 128 << 20),
+        ):
+            dropin = self.virt_runtime_artifacts / guest_path.lstrip("/")
+            content = dropin.read_text(encoding="utf-8")
+            self.assertIn(expected_section, content)
+            self.assertIn(f"# Profile: {RUNTIME_PRIORITY_PROFILE_ID}\n", content)
+            self.assertIn(f"MemoryMin={minimum}\n", content)
+            self.assertIn(f"MemoryLow={low}\n", content)
+            self.assertIn(
+                hashlib.sha256(dropin.read_bytes()).hexdigest(), result.stdout
+            )
         self.assertEqual(
             destinations[f"{BOOTSTRAP_DIRECTORY}/trust-roots/001.pem"], str(self.bootstrap_root_a)
         )
@@ -361,6 +514,22 @@ printf '{}\\n'
             if argument == "--run-command"
         ]
         guest_commands = "\n".join(run_commands)
+        self.assertIn("base image has a conflicting managed-material verifier directory", guest_commands)
+        self.assertIn(
+            f"chown root:root {NATIVE_VERIFIER_GUEST}", guest_commands
+        )
+        self.assertIn(
+            f"chmod 0755 {NATIVE_VERIFIER_GUEST}", guest_commands
+        )
+        priority_setup = next(
+            command
+            for command in run_commands
+            if "base image has a conflicting runtime-priority profile artifact" in command
+        )
+        self.assertIn(f"{RUNTIME_PRIORITY_PROFILE_GUEST}", priority_setup)
+        self.assertIn(RUNTIME_PRIORITY_HELPER_GUEST, priority_setup)
+        self.assertIn("install -d -o root -g root -m 0755 /etc/systemd/system/system.slice.d", priority_setup)
+        self.assertIn("install -d -o root -g root -m 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority", priority_setup)
         self.assertIn("systemd-sysusers /etc/sysusers.d/terrascale-orchestrator.conf", guest_commands)
         self.assertIn(
             "install -d -o root -g root -m 0755 /etc/terrascale-orchestrator", guest_commands
@@ -414,6 +583,19 @@ printf '{}\\n'
             command for command in run_commands if "SYSTEMD_OFFLINE=1 systemctl enable" in command
         ]
         self.assertEqual(len(enable_commands), 1)
+        time_sync_setup = next(command for command in run_commands if TIME_WAIT_SYNC_DROPIN in command)
+        priority_setup_index = run_commands.index(priority_setup)
+        enable_index = run_commands.index(enable_commands[0])
+        self.assertLess(priority_setup_index, run_commands.index(time_sync_setup))
+        self.assertLess(run_commands.index(time_sync_setup), enable_index)
+        upload_positions = [
+            index for index, argument in enumerate(virt_arguments) if argument == "--upload"
+        ]
+        self.assertLess(virt_arguments.index(priority_setup), min(upload_positions))
+        self.assertLess(max(upload_positions), virt_arguments.index(enable_commands[0]))
+        self.assertIn(f"chown root:root \\\n\t{RUNTIME_PRIORITY_PROFILE_GUEST}", enable_commands[0])
+        self.assertIn(f"chmod 0644 \\\n\t{RUNTIME_PRIORITY_PROFILE_GUEST}", enable_commands[0])
+        self.assertIn(f"chmod 0755 {RUNTIME_PRIORITY_HELPER_GUEST}", enable_commands[0])
         self.assertIn(
             "SYSTEMD_OFFLINE=1 systemctl enable systemd-timesyncd.service systemd-time-wait-sync.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service",
             enable_commands[0],
@@ -423,10 +605,148 @@ printf '{}\\n'
             'time_unit_state=$(SYSTEMD_OFFLINE=1 systemctl is-enabled "$time_unit")',
             enable_commands[0],
         )
-        time_sync_setup = next(command for command in run_commands if TIME_WAIT_SYNC_DROPIN in command)
         self.assertLess(run_commands.index(time_sync_setup), run_commands.index(enable_commands[0]))
         self.assertIn("--no-network", virt_arguments)
         self.assertNotIn("/run/terrascale-orchestrator-bootstrap", guest_commands)
+
+    def test_native_verifier_rejects_wrong_digest_and_architecture_before_image_copy(self) -> None:
+        wrong_digest = "0" * 64
+        result = self.run_builder(native_verifier_sha256=wrong_digest)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native verifier bytes do not match", result.stderr)
+        self.assertFalse(self.virt_arguments.exists())
+        self.assertFalse(self.output.exists())
+
+        native_bytes = bytearray(self.native_verifier.read_bytes())
+        struct.pack_into("<H", native_bytes, 18, 62)
+        self.native_verifier.write_bytes(native_bytes)
+        result = self.run_builder(
+            native_verifier_sha256=hashlib.sha256(native_bytes).hexdigest()
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ELF64 little-endian AArch64", result.stderr)
+        self.assertFalse(self.virt_arguments.exists())
+        self.assertFalse(self.output.exists())
+
+    def test_native_verifier_guest_readback_mismatch_discards_candidate(self) -> None:
+        result = self.run_builder(VIRT_CORRUPT_NATIVE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("installed native verifier bytes do not match", result.stderr)
+        self.assertFalse(self.output.exists())
+
+    def test_runtime_priority_artifacts_must_be_absent_in_base_image(self) -> None:
+        for guest_path in (
+            RUNTIME_PRIORITY_PROFILE_GUEST,
+            *RUNTIME_PRIORITY_DROPINS,
+            RUNTIME_PRIORITY_HELPER_GUEST,
+        ):
+            with self.subTest(path=guest_path):
+                existing = self.base_image_root / guest_path.lstrip("/")
+                existing.parent.mkdir(parents=True, exist_ok=True)
+                existing.write_text("conflicting image file\n", encoding="utf-8")
+
+                result = self.run_builder()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    "base image has a conflicting runtime-priority profile artifact",
+                    result.stderr,
+                )
+                self.assertFalse(self.output.exists())
+                self.assertFalse(self.virt_identity_bytes.exists())
+
+                existing.unlink()
+
+        self.assertIn("virt-customize", self.events.read_text(encoding="utf-8"))
+
+    def test_runtime_priority_profile_rejects_slice_floor_below_child_aggregate(self) -> None:
+        self.priority_inputs["--system-slice-memory-min-bytes"] = str(64 << 20)
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("system.slice floors must cover aggregate", result.stderr)
+        self.assertFalse(self.events.exists())
+        self.assertFalse(self.virt_arguments.exists())
+        self.assertFalse(self.output.exists())
+
+    def test_target_probe_fails_closed_when_baked_reserve_differs_from_placement(self) -> None:
+        profile_path = self.root / "runtime-priority.json"
+        wire = json.dumps(
+            {
+                "version": 1,
+                "profile_id": RUNTIME_PRIORITY_PROFILE_ID,
+                "system_reserve_bytes": RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES,
+            },
+            separators=(",", ":"),
+        ).encode()
+        profile_path.write_bytes(wire)
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o644,
+            st_uid=0,
+            st_gid=0,
+            st_nlink=1,
+        )
+        args = SimpleNamespace(
+            profile_id=RUNTIME_PRIORITY_PROFILE_ID,
+            system_reserve_bytes=RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES + 4096,
+        )
+        with (
+            patch.object(
+                RUNTIME_PRIORITY_QUALIFIER_MODULE,
+                "RUNTIME_PRIORITY_PROFILE",
+                profile_path,
+            ),
+            patch.object(Path, "lstat", return_value=metadata),
+        ):
+            probe = RUNTIME_PRIORITY_QUALIFIER_MODULE.Probe(args)
+            with self.assertRaisesRegex(
+                RUNTIME_PRIORITY_QUALIFIER_MODULE.QualificationError,
+                "profile ID/reserve differs",
+            ):
+                probe.verify_baked_profile()
+
+    def test_target_probe_accepts_only_canonical_matching_baked_reserve(self) -> None:
+        profile_path = self.root / "runtime-priority.json"
+        wire = json.dumps(
+            {
+                "version": 1,
+                "profile_id": RUNTIME_PRIORITY_PROFILE_ID,
+                "system_reserve_bytes": RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES,
+            },
+            separators=(",", ":"),
+        ).encode()
+        profile_path.write_bytes(wire)
+        metadata = SimpleNamespace(
+            st_mode=stat.S_IFREG | 0o644,
+            st_uid=0,
+            st_gid=0,
+            st_nlink=1,
+        )
+        args = SimpleNamespace(
+            profile_id=RUNTIME_PRIORITY_PROFILE_ID,
+            system_reserve_bytes=RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES,
+        )
+        with (
+            patch.object(
+                RUNTIME_PRIORITY_QUALIFIER_MODULE,
+                "RUNTIME_PRIORITY_PROFILE",
+                profile_path,
+            ),
+            patch.object(Path, "lstat", return_value=metadata),
+        ):
+            result = RUNTIME_PRIORITY_QUALIFIER_MODULE.Probe(args).verify_baked_profile()
+        self.assertEqual(result["sha256"], hashlib.sha256(wire).hexdigest())
+        self.assertEqual(result["profile_id"], RUNTIME_PRIORITY_PROFILE_ID)
+        self.assertEqual(result["system_reserve_bytes"], RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES)
+
+    def test_packaged_probe_does_not_require_a_git_checkout(self) -> None:
+        packaged = self.root / "usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
+        packaged.parent.mkdir(parents=True)
+        packaged.write_text("# packaged helper\n", encoding="utf-8")
+        with patch.object(RUNTIME_PRIORITY_QUALIFIER_MODULE, "__file__", str(packaged)):
+            revision, unit_directory = RUNTIME_PRIORITY_QUALIFIER_MODULE.Probe(
+                SimpleNamespace()
+            ).source_identity()
+        self.assertIsNone(revision)
+        self.assertEqual(unit_directory, Path("/etc/systemd/system"))
 
     def test_managed_root_is_opt_in_and_matches_shipped_host_namespace(self) -> None:
         host_unit = (ROOT / "deploy/systemd/terrascale-orchestrator-host.service").read_text(encoding="utf-8")

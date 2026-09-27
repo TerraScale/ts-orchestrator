@@ -1,7 +1,0 @@
-start_utc=2026-09-11T01:07:45Z
-phase=verify typescript
-{"label":"verify:qual20260910-typescript","ok":true,"status":200}
-{"label":"verify:qual20260910-go","ok":true,"status":200}
-{"label":"verify:qual20260910-rust","ok":true,"status":200}
-{"label":"verify:qual20260910-dotnet","ok":true,"status":200}
-exit=0

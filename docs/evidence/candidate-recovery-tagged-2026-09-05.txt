@@ -1,3 +1,0 @@
-ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	15.122s
-?   	terrascale.tech/orchestrator/src/orchestrator/vmcandidateseed	[no test files]
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmimage	3.819s

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"slices"
 	"strings"
@@ -255,6 +256,44 @@ func TestControllerRequiresCurrentArtifactAdmissionBeforeEveryManagedOCIEffect(t
 					fleet.ensureCalls, fleet.volumeCalls, fleet.attachCalls, hosts.desiredWrites)
 			}
 		})
+	}
+}
+
+func TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualification(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	for memberID, member := range store.members {
+		member.State.Stage = StagePreparedAttach
+		store.members[memberID] = member
+	}
+	fleet := &placementTestFleet{instances: attachedInstances(t, intent), imageVerifyErr: oci.ErrImageNotQualified}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	controller := startTestPlacementController(t, store, fleet, hosts, nil)
+	seatID := permanentMember(oci.RegionGRU)
+	if err := controller.Tick(t.Context()); !errors.Is(err, oci.ErrImageNotQualified) ||
+		store.casCalls != 0 || fleet.attachCalls != 0 || hosts.desiredWrites != 0 ||
+		store.members[seatID].State.Stage != StagePreparedAttach {
+		t.Fatalf("observed attachment bypassed image qualification: err=%v CAS=%d attach=%d desired=%d stage=%s",
+			err, store.casCalls, fleet.attachCalls, hosts.desiredWrites, store.members[seatID].State.Stage)
+	}
+	fleet.imageVerifyErr = nil
+	controller.resolveArtifact = func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
+		return AdmittedArtifact{Digest: digest, SourceDigest: strings.Repeat("f", 64)}, nil
+	}
+	verifiedCalls := fleet.imageVerifyCalls
+	if err := controller.Tick(t.Context()); err != nil || store.casCalls != 0 ||
+		fleet.imageVerifyCalls != verifiedCalls || store.members[seatID].State.Stage != StagePreparedAttach {
+		t.Fatalf("observed attachment bypassed current runtime artifact admission: err=%v CAS=%d image=%d stage=%s",
+			err, store.casCalls, fleet.imageVerifyCalls, store.members[seatID].State.Stage)
+	}
+	controller.resolveArtifact = func(_ context.Context, digest, _, _ string) (AdmittedArtifact, error) {
+		return AdmittedArtifact{Digest: digest, SourceDigest: strings.Repeat("e", 64)}, nil
+	}
+	if err := controller.Tick(t.Context()); err != nil || store.casCalls != 1 ||
+		fleet.imageVerifyCalls != verifiedCalls+1 || fleet.attachCalls != 0 ||
+		store.members[seatID].State.Stage != StageAwaitingRuntimeContract {
+		t.Fatalf("qualified observed attachment did not advance correctly: err=%v CAS=%d image=%d attach=%d stage=%s",
+			err, store.casCalls, fleet.imageVerifyCalls, fleet.attachCalls, store.members[seatID].State.Stage)
 	}
 }
 
@@ -907,8 +946,13 @@ func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 		if err != nil {
 			t.Fatal(err)
 		}
+		privateIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+		if err != nil {
+			t.Fatal(err)
+		}
 		instances = append(instances, oci.Instance{
 			ID: state.InstanceID, Node: state.HostNode, CreateKey: state.CreateKey, Region: seat.Region,
+			PrivateIP:  privateIP,
 			Generation: 1, Owner: "owner-a", FaultDomain: seat.FailureDomain,
 			Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 			MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
@@ -1033,19 +1077,25 @@ func (hosts *placementTestHosts) ApplyDesired(_ context.Context, desired host.De
 }
 
 type placementTestFleet struct {
-	instances      []oci.Instance
-	ensureResult   *oci.Instance
-	ensureRequests []oci.EnsureRequest
-	volumeResult   *oci.RetainedVolume
-	onObserve      func()
-	ensureCalls    int
-	volumeCalls    int
-	attachCalls    int
-	cordonCalls    int
-	terminateCalls int
+	instances        []oci.Instance
+	ensureResult     *oci.Instance
+	ensureRequests   []oci.EnsureRequest
+	volumeResult     *oci.RetainedVolume
+	onObserve        func()
+	ensureCalls      int
+	volumeCalls      int
+	attachCalls      int
+	imageVerifyCalls int
+	imageVerifyErr   error
+	cordonCalls      int
+	terminateCalls   int
 }
 
 func (fleet *placementTestFleet) Region() oci.Region { return oci.RegionGRU }
+func (fleet *placementTestFleet) VerifyPinnedImage(context.Context) error {
+	fleet.imageVerifyCalls++
+	return fleet.imageVerifyErr
+}
 func (fleet *placementTestFleet) Observe(context.Context) ([]oci.Instance, error) {
 	if fleet.onObserve != nil {
 		fleet.onObserve()

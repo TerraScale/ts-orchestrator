@@ -258,6 +258,7 @@ func TestManagedRuntimeFirecrackerMountedVolume(t *testing.T) {
 	}
 	if workload.Role != desired.Role || workload.Digest != desired.Digest || workload.Fingerprint != fingerprint ||
 		workload.Executable != executable || workload.CgroupMemoryMaxBytes != launch.CgroupMemoryMaxBytes ||
+		workload.SystemReserveBytes != launch.SystemReserveBytes ||
 		!slices.Equal(workload.Args, wantArgs) {
 		t.Fatalf("prepared TerraBase workload differs from pinned runtime: role=%q digest=%q executable=%q memory=%d args=%v",
 			workload.Role, workload.Digest, workload.Executable, workload.CgroupMemoryMaxBytes, workload.Args)

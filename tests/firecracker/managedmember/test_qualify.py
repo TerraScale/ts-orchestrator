@@ -41,6 +41,16 @@ class InputContractTests(unittest.TestCase):
                 self.assertEqual(directives["AmbientCapabilities"], "")
                 self.assertEqual(set(directives["CapabilityBoundingSet"].split()), required)
 
+    def test_guest_supervisor_reservation_reaches_system_slice(self) -> None:
+        unit = qualify.test_unit()
+        slice_dropin = qualify.system_slice_reservation()
+        for directive in ("MemoryMin=1G", "MemoryLow=1G"):
+            self.assertIn(directive, unit)
+            self.assertIn(directive, slice_dropin)
+        for directive in ("CPUWeight=10000", "IOWeight=10000", "Nice=-20",
+                          "OOMScoreAdjust=-1000", "ManagedOOMPreference=omit", "IOSchedulingPriority=0"):
+            self.assertIn(directive, unit)
+
     def test_root_supervisor_needs_read_search_for_tenant_replication_directory(self) -> None:
         if os.geteuid() == 0 or any(shutil.which(command) is None for command in ("sudo", "setpriv")):
             self.skipTest("requires a nonroot host user, passwordless sudo and setpriv")
@@ -316,6 +326,7 @@ class InputContractTests(unittest.TestCase):
                   "runtime": runtime, "volume_id": "ocid1.volume.fixture-a",
                   "attachment_id": "ocid1.volumeattachment.fixture-a",
                   "attachment_etag": "fixture-attachment-a", "source_digest": "a" * 64,
+                  "system_reserve_bytes": 1 << 30,
                   "collection_id": "21212121-2121-2121-2121-212121212121",
                   "schema_generation": 1, "schema_digest": "a" * 64,
                   "document_id": "018f0000-0000-7000-8000-000000000021"}
@@ -378,6 +389,7 @@ class InputContractTests(unittest.TestCase):
                           "runtime": runtime, "volume_id": f"ocid1.volume.fixture-{member}",
                           "attachment_id": f"ocid1.volumeattachment.fixture-{member}",
                           "attachment_etag": f"fixture-attachment-{member}", "source_digest": "a" * 64,
+                          "system_reserve_bytes": 1 << 30,
                           "collection_id": "21212121-2121-2121-2121-212121212121",
                           "schema_generation": 1, "schema_digest": "a" * 64,
                           "document_id": "018f0000-0000-7000-8000-000000000021"}

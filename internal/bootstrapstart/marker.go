@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"golang.org/x/sys/unix"
 )
@@ -35,25 +36,26 @@ var (
 // Filesystem ownership is its integrity boundary; this record is not a new
 // signing authority and does not grant current cloud or Vault permissions.
 type AcceptedInstall struct {
-	SchemaVersion      int               `json:"schemaVersion"`
-	AnchorSHA256       string            `json:"anchorSha256"`
-	ManifestSHA256     string            `json:"manifestSha256"`
-	ReceiptSHA256      string            `json:"receiptSha256"`
-	ImageReceiptSHA256 string            `json:"imageReceiptSha256"`
-	DeploymentID       string            `json:"deploymentId"`
-	Cell               string            `json:"cell"`
-	Slot               string            `json:"slot"`
-	SeedSlot           string            `json:"seedSlot"`
-	ImageOCID          string            `json:"imageOcid"`
-	InstanceOCID       string            `json:"instanceOcid"`
-	PrimaryVNICOCID    string            `json:"primaryVnicOcid"`
-	PrimaryPrivateIP   string            `json:"primaryPrivateIp"`
-	HeadAttempt        uint64            `json:"headAttempt"`
-	HeadGeneration     uint64            `json:"headGeneration"`
-	ResultSHA256       string            `json:"resultSha256"`
-	BinarySHA256       string            `json:"binarySha256"`
-	MaterialSHA256     map[string]string `json:"materialSha256"`
-	AcceptedAt         time.Time         `json:"acceptedAt"`
+	SchemaVersion      int                              `json:"schemaVersion"`
+	AnchorSHA256       string                           `json:"anchorSha256"`
+	ManifestSHA256     string                           `json:"manifestSha256"`
+	ReceiptSHA256      string                           `json:"receiptSha256"`
+	ImageReceiptSHA256 string                           `json:"imageReceiptSha256"`
+	DeploymentID       string                           `json:"deploymentId"`
+	Cell               string                           `json:"cell"`
+	Slot               string                           `json:"slot"`
+	SeedSlot           string                           `json:"seedSlot"`
+	ImageOCID          string                           `json:"imageOcid"`
+	InstanceOCID       string                           `json:"instanceOcid"`
+	PrimaryVNICOCID    string                           `json:"primaryVnicOcid"`
+	PrimaryPrivateIP   string                           `json:"primaryPrivateIp"`
+	HeadAttempt        uint64                           `json:"headAttempt"`
+	HeadGeneration     uint64                           `json:"headGeneration"`
+	ResultSHA256       string                           `json:"resultSha256"`
+	BinarySHA256       string                           `json:"binarySha256"`
+	MaterialSHA256     map[string]string                `json:"materialSha256"`
+	ManagedMaterial    *bootstrap.ManagedMaterialDomain `json:"managedMaterial,omitempty"`
+	AcceptedAt         time.Time                        `json:"acceptedAt"`
 }
 
 func (marker AcceptedInstall) validate() error {
@@ -73,6 +75,9 @@ func (marker AcceptedInstall) validate() error {
 		if !markerNameRE.MatchString(name) || !markerDigestRE.MatchString(digest) {
 			return ErrInvalidMarker
 		}
+	}
+	if marker.ManagedMaterial != nil && marker.ManagedMaterial.Validate() != nil {
+		return ErrInvalidMarker
 	}
 	return nil
 }

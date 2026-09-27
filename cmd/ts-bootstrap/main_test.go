@@ -580,6 +580,65 @@ func TestVerifyBootstrapAnchorUsesCurrentRootSetAndStrictIdentityFile(t *testing
 	}
 }
 
+func TestVerifyBootstrapManifestChecksIndependentSlotImageAndCurrentProofs(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	identityWire, err := protocol.EncodeJSON(bootstrapstart.BakedIdentity{
+		SchemaVersion: 1, DeploymentID: fixture.anchor.DeploymentID,
+		Environment: fixture.anchor.Environment, Cell: fixture.anchor.Cell,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityPath := filepath.Join(fixture.directory, "identity.json")
+	writeFixture(t, identityPath, identityWire, 0o600)
+	fixture.writeCandidate(t, fixture.manifest)
+	manifestPath := filepath.Join(fixture.directory, "signed-manifest.json")
+	if _, err := captureStdout(t, func() error {
+		return runAt(append([]string{"sign-manifest"}, fixture.args(manifestPath, "")...), fixture.now)
+	}); err != nil {
+		t.Fatalf("sign fixture manifest: %v", err)
+	}
+	args := []string{
+		"verify-manifest", "--anchor", fixture.anchorPath, "--manifest", manifestPath,
+		"--identity", identityPath, "--slot", fixture.manifest.Slot,
+		"--image-ocid", fixture.manifest.ImageOCID, "--root-key", fixture.rootPath,
+	}
+	output, err := captureStdout(t, func() error { return runAt(args, fixture.now) })
+	if err != nil {
+		t.Fatalf("verify current fixture manifest: %v", err)
+	}
+	for _, want := range []string{
+		`"slot":"seed-a"`, `"imageOcid":"` + fixture.manifest.ImageOCID + `"`,
+		`"anchorSha256":"`, `"manifestSha256":"`, `"releaseReceiptSha256":"`,
+		`"profile":{"slot":"seed-a"`,
+	} {
+		if !strings.Contains(string(output), want) {
+			t.Errorf("verified manifest output %q does not contain %q", output, want)
+		}
+	}
+	for _, forbidden := range []string{"releaseImageReceiptWire", "releaseDelegationWire", "secrets", "storageDomain"} {
+		if strings.Contains(string(output), forbidden) {
+			t.Errorf("verified manifest output exposed %s", forbidden)
+		}
+	}
+	for _, test := range []struct {
+		name string
+		args []string
+		now  time.Time
+	}{
+		{name: "wrong slot", args: append(slices.Clone(args), "--slot", "peer-b"), now: fixture.now},
+		{name: "wrong image", args: append(slices.Clone(args), "--image-ocid", "ocid1.image.oc1.sa-saopaulo-1.other"), now: fixture.now},
+		{name: "expired manifest", args: args, now: fixture.now.Add(46 * 24 * time.Hour)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := captureStdout(t, func() error { return runAt(test.args, test.now) })
+			if err == nil || len(output) != 0 {
+				t.Fatalf("verify-manifest accepted invalid input: output=%q error=%v", output, err)
+			}
+		})
+	}
+}
+
 func TestVerifyBootstrapAnchorMatchesBakedRootSetLimits(t *testing.T) {
 	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
 	identityWire, err := protocol.EncodeJSON(bootstrapstart.BakedIdentity{
@@ -1207,7 +1266,8 @@ func testImageReceipt() release.ImageReceipt {
 	return release.ImageReceipt{
 		Schema: release.ImageSchema, SourceRevision: testRevision, GoVersion: release.DefaultGoVersion,
 		Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest([]byte("binary bytes")),
-		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU",
+		QualificationSHA256: digest([]byte("qualification fixture")),
+		BaseImageOCID:       "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU",
 		BaseImageSHA256: imageDigest, KernelRelease: "6.1.0-test+1", KernelSHA256: imageDigest,
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: imageDigest,
 		OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.bootstrap", OCIRegion: "GRU",

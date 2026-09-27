@@ -29,6 +29,7 @@ type Workload struct {
 	Args                 []string
 	Env                  map[string]string
 	CgroupMemoryMaxBytes uint64 // Zero leaves the role cgroup's default limit unchanged.
+	SystemReserveBytes   uint64 // Signed managed reserve; zero for non-managed workloads.
 }
 
 // WorkloadIdentity is the dedicated, unprivileged identity for every native
@@ -213,6 +214,11 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	if runnerClosing(p.closing) {
 		return errors.New("runner is closing")
 	}
+	if w.SystemReserveBytes != 0 {
+		if err := validateNativeSupervisorReservation(filepath.Dir(p.cgroups), p.cgroups, w.SystemReserveBytes); err != nil {
+			return fmt.Errorf("validate managed supervisor reservation: %w", err)
+		}
+	}
 	cgroupPath := filepath.Join(p.cgroups, w.Role)
 	// Linux 6.1.155 can compare the host's kill sequence to the target's
 	// incremented sequence after cgroup.kill, killing a clone3 child before exec.
@@ -231,6 +237,16 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 		if err := setCgroupMemoryMax(cgroupPath, w.CgroupMemoryMaxBytes); err != nil {
 			return fmt.Errorf("configure workload memory cap: %w", err)
 		}
+	}
+	quota, err := deriveNativeWorkloadCPUQuota(filepath.Dir(p.cgroups))
+	if err != nil {
+		return fmt.Errorf("derive workload CPU cap: %w", err)
+	}
+	if err := setNativeCPUMax(filepath.Join(p.cgroups, "cpu.max"), quota); err != nil {
+		return fmt.Errorf("configure aggregate workload CPU cap: %w", err)
+	}
+	if err := configureNativeRoleResources(cgroupPath, quota); err != nil {
+		return fmt.Errorf("configure workload resource isolation: %w", err)
 	}
 	if err := configureTenantCgroupDirectory(cgroupPath, p.identity); err != nil {
 		return fmt.Errorf("configure workload cgroup traversal: %w", err)
@@ -353,12 +369,24 @@ func validateCgroupMemoryMax(limit uint64) error {
 }
 
 func enableCgroupMemoryController(parent string) error {
+	return enableCgroupController(parent, "memory")
+}
+
+func enableCgroupCPUController(parent string) error {
+	return enableCgroupController(parent, "cpu")
+}
+
+func enableCgroupIOController(parent string) error {
+	return enableCgroupController(parent, "io")
+}
+
+func enableCgroupController(parent, controller string) error {
 	path := filepath.Join(parent, "cgroup.subtree_control")
 	file, err := os.OpenFile(path, os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
-	if _, err := file.WriteString("+memory"); err != nil {
+	if _, err := file.WriteString("+" + controller); err != nil {
 		_ = file.Close()
 		return err
 	}
@@ -369,8 +397,8 @@ func enableCgroupMemoryController(parent string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(strings.Fields(string(readback)), "memory") {
-		return fmt.Errorf("kernel cgroup.subtree_control does not include memory: %q", strings.TrimSpace(string(readback)))
+	if !slices.Contains(strings.Fields(string(readback)), controller) {
+		return fmt.Errorf("kernel cgroup.subtree_control does not include %s: %q", controller, strings.TrimSpace(string(readback)))
 	}
 	return nil
 }

@@ -1,5 +1,0 @@
-# terrascale.tech/orchestrator/cmd/orchestrator [terrascale.tech/orchestrator/cmd/orchestrator.test]
-cmd/orchestrator/runtime_composition_resolver.go:60:127: cannot use func(context.Context, string, any) error {…} (value of type func(context.Context, string, any) error) as func(context.Context, string, *v1.PlacementStageRequest) error value in struct literal
-FAIL	terrascale.tech/orchestrator/cmd/orchestrator [build failed]
-ok  	terrascale.tech/orchestrator/src/orchestrator/controlcommand	(cached)
-FAIL

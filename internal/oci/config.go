@@ -144,12 +144,17 @@ type RegionConfig struct {
 	Generation              uint64   `json:"generation"`
 	Endpoint                string   `json:"endpoint"`
 	CompartmentID           string   `json:"compartment_id"`
+	ImageCompartmentID      string   `json:"image_compartment_id"`
 	AvailabilityDomain      string   `json:"availability_domain"`
 	FaultDomains            []string `json:"fault_domains"`
 	SubnetID                string   `json:"subnet_id"`
 	NetworkSecurityGroupIDs []string `json:"network_security_group_ids,omitempty"`
 	ImageID                 string   `json:"image_id"`
 	Shape                   string   `json:"shape"`
+	BootVolumeGB            uint32   `json:"boot_volume_gb"`
+	BootVolumeVPUsPerGB     uint32   `json:"boot_volume_vpus_per_gb"`
+	DataVolumeVPUsPerGB     uint32   `json:"data_volume_vpus_per_gb"`
+	MaxDataVolumeGB         int64    `json:"max_data_volume_gb"`
 	Owner                   string   `json:"owner"`
 }
 
@@ -176,11 +181,17 @@ func (config RegionConfig) Validate(intent RegionIntent) error {
 		endpoint.User != nil || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return fmt.Errorf("OCI endpoint must be pinned to %s", ociRegion)
 	}
-	if !isOCID(config.CompartmentID, "compartment") || !isOCID(config.SubnetID, "subnet") ||
+	if !isOCID(config.CompartmentID, "compartment") || !isOCID(config.ImageCompartmentID, "compartment") ||
+		!isOCID(config.SubnetID, "subnet") ||
 		!isOCID(config.ImageID, "image") || strings.TrimSpace(config.AvailabilityDomain) == "" ||
 		len(config.AvailabilityDomain) > 128 || !shapePattern.MatchString(config.Shape) ||
 		!regionTokenPattern.MatchString(config.Owner) {
 		return errors.New("OCI fleet configuration has an invalid compartment, network, image, shape, domain, or owner")
+	}
+	if config.BootVolumeGB < 50 || config.BootVolumeGB > 32768 ||
+		config.BootVolumeVPUsPerGB != 10 || config.DataVolumeVPUsPerGB != 10 ||
+		config.MaxDataVolumeGB < 50 || config.MaxDataVolumeGB > 32768 {
+		return errors.New("OCI fleet requires an explicit supported boot size and balanced boot/data volume tiers")
 	}
 	if len(config.FaultDomains) == 0 || len(config.FaultDomains) > 3 {
 		return errors.New("OCI fleet must define one to three supported fault domains")
@@ -195,8 +206,8 @@ func (config RegionConfig) Validate(intent RegionIntent) error {
 		}
 		seenFaultDomains[faultDomain] = struct{}{}
 	}
-	if len(config.NetworkSecurityGroupIDs) > 16 {
-		return errors.New("OCI fleet has too many network security groups")
+	if len(config.NetworkSecurityGroupIDs) == 0 || len(config.NetworkSecurityGroupIDs) > 16 {
+		return errors.New("OCI fleet requires one to sixteen network security groups")
 	}
 	seenNSGs := make(map[string]struct{}, len(config.NetworkSecurityGroupIDs))
 	for _, nsg := range config.NetworkSecurityGroupIDs {

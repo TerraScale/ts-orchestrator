@@ -14,6 +14,23 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
+func TestManagedRegistrationRetainsDrainReconciliationStages(t *testing.T) {
+	for _, stage := range []placement.MemberStage{
+		placement.StageServing, placement.StageCordoned, placement.StageDraining, placement.StageDrained,
+	} {
+		if !managedRegistrationStage(stage) {
+			t.Fatalf("current managed host was rejected during %s", stage)
+		}
+	}
+	for _, stage := range []placement.MemberStage{
+		placement.StageRemoveCandidate, placement.StageStorageHandled, placement.StageTerminated, placement.StageRemoved,
+	} {
+		if managedRegistrationStage(stage) {
+			t.Fatalf("managed host was admitted outside its active drain window: %s", stage)
+		}
+	}
+}
+
 type managedEnrollmentIntentReader struct {
 	entry     authority.LogEntry
 	err       error
@@ -188,6 +205,7 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 	row := committed.CanonicalRoster.Rows[0]
 	instance := oci.Instance{
 		ID: "ocid1.instance.oc1..node-a", Node: "node-a", CreateKey: "host-create-a", Region: oci.RegionGRU,
+		PrivateIP:  "10.0.0.11",
 		Generation: 1, Owner: "regional-owner", FaultDomain: row.FailureDomain,
 		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
 		MemoryInGBs: profile.Compute.MemoryInGBs, PlacementProfileDigest: profileDigest,

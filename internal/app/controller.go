@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -198,9 +199,29 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
+	var materialProvider host.ManagedMaterialProvider
 	var placementStore placement.Store
 	var fleet oci.Fleet
+	var materialService *managedmaterial.PreparationService
+	var materialAdmission placementMaterialAdmission
 	if managed != nil {
+		if !cfg.NATS.Lab {
+			accepted, err := loadAcceptedMaterialConfig(cfg.NATS.Cell, managed.region)
+			if err != nil {
+				return fmt.Errorf("admit signed managed material domain: %w", err)
+			}
+			repository, err := managedmaterial.NewOCIRepository(accepted.repository, control)
+			if err != nil {
+				return fmt.Errorf("open managed material repository: %w", err)
+			}
+			materialService = &managedmaterial.PreparationService{Cell: cfg.NATS.Cell,
+				Repository: repository, Receipts: control, Fencer: control,
+				ControllerKey: responseKey, RecipientSigner: accepted.recipientSigner,
+				AllowedSubnetCIDR:    accepted.subnetCIDR,
+				NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
+				NativeVerifierSHA256: accepted.nativeVerifierSHA256}
+			materialAdmission = preparedMaterialAdmission(*materialService)
+		}
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,
 			func(attempt context.Context) (*oci.KVJournal, error) {
 				return oci.OpenJournal(attempt, runtime.JetStream(), cfg.NATS.Replicas)
@@ -208,14 +229,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
-		fleet, err = oci.NewInstancePrincipalFleet(managed.region, managed.intent, journal, control, nil, nil)
+		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
+			newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
 		placementStore, _, err = retryControllerOpen(ctx, "open regional placement state", fullClusterReady, false,
 			func(attempt context.Context) (placement.Store, error) {
 				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
-					admittedPlacementReader{cell: cfg.NATS.Cell, store: control})
+					admittedPlacementReader{cell: cfg.NATS.Cell, store: control, material: materialAdmission})
 			}, nil)
 		if err != nil {
 			return err
@@ -227,6 +249,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("configure managed host enrollment: %w", err)
 		}
+		if materialService != nil {
+			materialProvider = admittedManagedMaterialProvider(*materialService, control)
+		}
 	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
@@ -235,6 +260,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				StateReplicas: cfg.NATS.Replicas, ResponseKey: responseKey, HostMutations: control,
 				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
 				ManagedRegistrationVerifier: registrationVerifier,
+				ManagedMaterialProvider:     materialProvider,
 			})
 		}, nil)
 	if err != nil {
@@ -269,11 +295,22 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
 	defer enrollmentSub.Unsubscribe()
-	placementSub, err := servePlacementAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control)
+	placementVerifiers := []placementMaterialAdmission{}
+	if materialService != nil {
+		placementVerifiers = append(placementVerifiers, materialAdmission)
+	}
+	placementSub, err := servePlacementAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, placementVerifiers...)
 	if err != nil {
 		return fmt.Errorf("serve placement admission: %w", err)
 	}
 	defer placementSub.Unsubscribe()
+	if materialService != nil {
+		materialSub, err := serveMaterialPreparation(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, *materialService)
+		if err != nil {
+			return fmt.Errorf("serve managed material preparation: %w", err)
+		}
+		defer materialSub.Unsubscribe()
+	}
 	if gate != nil {
 		brokerSub, err := serveBrokerClaimAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, gate)
 		if err != nil {

@@ -8,13 +8,11 @@ Use TerraBase commit `12850214606652f036e9fde000695fe5743b374b`. Before applying
 `crates/tb-server/tests/support/server/member_control_managed.rs` must have SHA-256
 `a803c675e4ed16411457d74c7be351029953f29de7a72f24d0d454e0a63c4117`.
 
-The accepted packet's complete original source manifest lists 119 files and has SHA-256
+The complete original source manifest lists 119 files and has SHA-256
 `cce6767ee11aabbe2e536df2cb4c98fea3d32899ca231da74a07cc4b30252fdf`.
 The overlaid manifest lists 120 files and has SHA-256
 `a469bd78ee3835836c0ec37d56e25e9591a6dc49c53863cc7209d833b3f11d49`.
-Those full manifests are retained in the private qualification packet at
-`../.qualification/ts-orchestrator/20260926-member-status-v2/source.sha256` and
-`../.qualification/ts-orchestrator/20260926-member-status-v2/overlay.sha256` when using the original TerraScale checkout.
+The rebuild recipe below regenerates both manifests and checks these digests.
 
 The overlay changes exactly three files:
 

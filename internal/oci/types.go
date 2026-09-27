@@ -47,6 +47,7 @@ type Instance struct {
 	Region                 Region
 	Generation             uint64
 	Owner                  string
+	PrivateIP              string
 	FaultDomain            string
 	Shape                  string
 	WholeOCPUs             uint32
@@ -80,6 +81,7 @@ type Attachment struct {
 // OCI region generation remain pinned by the region-bound Fleet configuration.
 type EnsureRequest struct {
 	CreateKey              string
+	PrivateIP              string
 	FaultDomain            string
 	Shape                  string
 	WholeOCPUs             uint32
@@ -139,6 +141,7 @@ type WriterStopEvidence []byte
 // Implementations must fail closed for unknown desired state or ownership.
 type Fleet interface {
 	Region() Region
+	VerifyPinnedImage(context.Context) error
 	Observe(context.Context) ([]Instance, error)
 	EnsureHost(context.Context, EnsureRequest) (Instance, error)
 	CreateRetainedVolume(context.Context, VolumeCreateRequest) (RetainedVolume, error)
@@ -205,6 +208,7 @@ type OperationIntent struct {
 	CreateKey                      string    `json:"create_key,omitempty"`
 	ExpectedETag                   string    `json:"expected_etag,omitempty"`
 	FaultDomain                    string    `json:"fault_domain,omitempty"`
+	PrivateIP                      string    `json:"private_ip,omitempty"`
 	Shape                          string    `json:"shape,omitempty"`
 	WholeOCPUs                     uint32    `json:"whole_ocpus,omitzero"`
 	MemoryInGBs                    uint32    `json:"memory_in_gbs,omitzero"`
@@ -301,6 +305,7 @@ type Provider interface {
 // narrow provider boundary.
 type CloudInstance struct {
 	ID                            string
+	PrivateIP                     string
 	CompartmentID                 string
 	AvailabilityDomain            string
 	FaultDomain                   string
@@ -351,6 +356,7 @@ type CloudVolume struct {
 	CompartmentID      string
 	AvailabilityDomain string
 	SizeGB             int64
+	VPUsPerGB          int64
 	LifecycleState     string
 	FreeformTags       map[string]string
 }
@@ -360,6 +366,7 @@ type CloudVolume struct {
 // Fleet's RegionConfig.
 type LaunchRequest struct {
 	CreateKey              string
+	PrivateIP              string
 	Node                   string
 	RetryToken             string
 	FaultDomain            string
@@ -369,6 +376,8 @@ type LaunchRequest struct {
 	PlacementProfileDigest string
 	PlacementGeneration    uint64
 	ImageID                string
+	BootVolumeGB           uint32
+	BootVolumeVPUsPerGB    uint32
 	BootDescriptor         string
 	FreeformTags           map[string]string
 }

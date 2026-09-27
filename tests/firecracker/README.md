@@ -17,7 +17,7 @@ Run it with a new durable evidence directory whose parent already exists:
 ```sh
 python3 tests/firecracker/memberstatus/qualify.py \
   --manifest /path/to/member-status-manifest.json \
-  --run-dir /home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-member-driver/run-01
+  --run-dir /path/to/evidence/member-status-run-01
 ```
 
 The guest has 6 GiB RAM, two vCPUs, and no network interface. The driver copies
@@ -77,26 +77,21 @@ claim the member is serving. The host still requires natural Firecracker exit
 Run from the repository root on the authorized local lab host:
 
 ```sh
-python3 tests/firecracker/qualify.py check
-python3 tests/firecracker/qualify.py run
+python3 tests/firecracker/qualify.py check --kernel /path/to/vmlinux-6.1.186 --rootfs /path/to/rootfs-noble-20260911.ext4
+python3 tests/firecracker/qualify.py run --kernel /path/to/vmlinux-6.1.186 --rootfs /path/to/rootfs-noble-20260911.ext4
 ```
 
-`check` verifies the exact read-only kernel and Ubuntu ext4 image at its
-default paths:
-`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/inputs/vmlinux-6.1.186`
-and
-`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/inputs/rootfs-noble-20260911.ext4`.
+`check` verifies the exact read-only kernel and Ubuntu ext4 image passed with
+`--kernel` and `--rootfs` against the SHA-256 values pinned in `qualify.py`.
 It also checks Firecracker,
 `/dev/kvm`, `/dev/net/tun`, and required host commands. It creates no VMs or
 network devices. `run` needs passwordless `sudo` for `ip`, `mount`, `umount`,
 `install`, `systemctl`, `nft`, `ss`, `mktemp`, `rm`, `rmdir`, and the pinned
 Chrony 4.8 `chronyd` and `chronyc` binaries named in `qualify.py`. The host
 also needs `openssl`. Options
-`--kernel`, `--rootfs`, `--firecracker`, and
-`--run-dir` select alternate assets or a new evidence directory; asset hashes
-must still match. The default evidence directory is temporary under `/tmp`;
-pass a new path such as
-`/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/20260926-firecracker/run-01`
+`--firecracker` and `--run-dir` select an alternate Firecracker binary or a new
+evidence directory. The default evidence directory is temporary under `/tmp`;
+pass a new path such as `/path/to/evidence/firecracker-run-01`
 to retain logs and guest-side evidence durably. The harness creates fresh
 credentials under each private run directory.
 Firecracker API sockets live in a separate short private directory under

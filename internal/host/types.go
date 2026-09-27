@@ -16,6 +16,8 @@ import (
 	"unicode"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -117,6 +119,7 @@ type ManagedMemberLaunch struct {
 	ProcessMemoryBytes   uint64               `json:"process_memory_bytes,omitzero"`
 	MemoryHeadroomBytes  uint64               `json:"memory_headroom_bytes,omitzero"`
 	CgroupMemoryMaxBytes uint64               `json:"cgroup_memory_max_bytes,omitzero"`
+	SystemReserveBytes   uint64               `json:"system_reserve_bytes,omitzero"`
 	Runtime              *ManagedRuntimePins  `json:"runtime,omitempty"`
 }
 
@@ -124,19 +127,22 @@ type ManagedMemberLaunch struct {
 // may be attached to this signed member desired. Missing pins keep it held.
 // The corresponding files are installed outside NATS by a trusted operator.
 type ManagedRuntimePins struct {
-	DevicePath                          string `json:"device_path"`
-	MountPath                           string `json:"mount_path"`
-	FileSystemUUID                      string `json:"filesystem_uuid"`
-	FileSystemType                      string `json:"filesystem_type"`
-	TrustedKeySHA256                    string `json:"trusted_key_sha256"`
-	ServerCertificateSHA256             string `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256              string `json:"server_private_key_sha256"`
-	ClientCARootsSHA256                 string `json:"client_ca_roots_sha256"`
-	ClientManagedMaterialManifestSHA256 string `json:"client_managed_material_manifest_sha256"`
-	ReplicationListenAddress            string `json:"replication_listen_address"`
-	ReplicationPeerMemberID             string `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress              string `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256           string `json:"replication_server_ca_sha256,omitempty"`
+	DevicePath                          string                     `json:"device_path"`
+	MountPath                           string                     `json:"mount_path"`
+	FileSystemUUID                      string                     `json:"filesystem_uuid"`
+	FileSystemType                      string                     `json:"filesystem_type"`
+	TrustedKeySHA256                    string                     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string                     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256"`
+	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
+	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
+	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	ReplicationListenAddress            string                     `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string                     `json:"replication_server_ca_sha256,omitempty"`
 }
 
 type Receipt struct {
@@ -159,26 +165,27 @@ type Report struct {
 	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
-// ManagedRuntimeReport is a host-process and mounted-volume observation only.
-// It does not assert client serving, catch-up, or a writer fence.
+// ManagedRuntimeReport binds a native process and mounted volume to its
+// TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
-	Member           ManagedMemberBinding `json:"member"`
-	Authority        MemberAuthority      `json:"authority"`
-	OCI              ManagedOCIBinding    `json:"oci"`
-	VolumeID         string               `json:"volume_id"`
-	AttachmentID     string               `json:"attachment_id"`
-	AttachmentETag   string               `json:"attachment_etag"`
-	FileSystemUUID   string               `json:"filesystem_uuid"`
-	FileSystemType   string               `json:"filesystem_type"`
-	MountDevice      string               `json:"mount_device"`
-	MountPath        string               `json:"mount_path"`
-	MountID          uint64               `json:"mount_id"`
-	ProcessPID       int                  `json:"process_pid"`
-	ProcessStart     string               `json:"process_start"`
-	ProcessCgroup    string               `json:"process_cgroup"`
-	ProcessBootID    string               `json:"process_boot_id"`
-	StorageRecovered bool                 `json:"storage_recovered"`
-	ListenerReady    bool                 `json:"listener_ready"`
+	Member           ManagedMemberBinding       `json:"member"`
+	Authority        MemberAuthority            `json:"authority"`
+	OCI              ManagedOCIBinding          `json:"oci"`
+	VolumeID         string                     `json:"volume_id"`
+	AttachmentID     string                     `json:"attachment_id"`
+	AttachmentETag   string                     `json:"attachment_etag"`
+	FileSystemUUID   string                     `json:"filesystem_uuid"`
+	FileSystemType   string                     `json:"filesystem_type"`
+	MountDevice      string                     `json:"mount_device"`
+	MountPath        string                     `json:"mount_path"`
+	MountID          uint64                     `json:"mount_id"`
+	ProcessPID       int                        `json:"process_pid"`
+	ProcessStart     string                     `json:"process_start"`
+	ProcessCgroup    string                     `json:"process_cgroup"`
+	ProcessBootID    string                     `json:"process_boot_id"`
+	StorageRecovered bool                       `json:"storage_recovered"`
+	ListenerReady    bool                       `json:"listener_ready"`
+	ServingProof     *memberstatus.ServingProof `json:"serving_proof,omitempty"`
 }
 
 type HostStatus struct {
@@ -189,21 +196,23 @@ type HostStatus struct {
 }
 
 type AgentConfig struct {
-	Cell                string
-	Node                string
-	Environment         string
-	Roles               []string
-	Conn                *nats.Conn
-	Identity            ed25519.PrivateKey
-	ControllerPublicKey ed25519.PublicKey
-	Runner              Runner
-	InstallRoot         string
-	StateRoot           string
-	ManagedRuntimeRoot  string
-	WorkloadIdentity    WorkloadIdentity
-	PollInterval        time.Duration
-	SessionTrace        bool
-	ClockCheck          func() error
+	Cell                    string
+	Node                    string
+	Environment             string
+	Roles                   []string
+	Conn                    *nats.Conn
+	Identity                ed25519.PrivateKey
+	ControllerPublicKey     ed25519.PublicKey
+	Runner                  Runner
+	InstallRoot             string
+	StateRoot               string
+	ManagedRuntimeRoot      string
+	ManagedS3Credentials    ManagedS3CredentialResolver
+	BakedSystemReserveBytes uint64
+	WorkloadIdentity        WorkloadIdentity
+	PollInterval            time.Duration
+	SessionTrace            bool
+	ClockCheck              func() error
 }
 
 type ControllerConfig struct {
@@ -218,8 +227,13 @@ type ControllerConfig struct {
 	AuthorityGuard              func(context.Context, uint64) error
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ManagedMaterialProvider     ManagedMaterialProvider
 	ControlLog                  jetstream.Stream
 }
+
+// ManagedMaterialProvider returns only a currently admitted member's exact
+// R3-pinned host files. The host RPC encrypts each requested chunk separately.
+type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[string][]byte, error)
 
 // ManagedRegistrationVerifier checks a managed registration against current
 // admitted placement, durable member state, and OCI observation.
@@ -459,14 +473,15 @@ func validateManagedMemberLaunch(launch ManagedMemberLaunch, d Desired, r Regist
 		return errors.New("managed launch source, volume or authority is invalid")
 	}
 	if d.Withdrawn {
-		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 || launch.Runtime != nil {
+		if launch.ProcessMemoryBytes != 0 || launch.MemoryHeadroomBytes != 0 || launch.CgroupMemoryMaxBytes != 0 || launch.SystemReserveBytes != 0 || launch.Runtime != nil {
 			return errors.New("withdrawn managed desired contains memory execution data")
 		}
 		return nil
 	}
 	const gib = uint64(1 << 30)
 	p, h, c := launch.ProcessMemoryBytes, launch.MemoryHeadroomBytes, launch.CgroupMemoryMaxBytes
-	if p < 4*gib || h < max(gib, p/4) || h >= p ||
+	if p < 4*gib || h < max(gib, p/4) || h >= p || launch.SystemReserveBytes == 0 ||
+		launch.SystemReserveBytes > math.MaxInt64 || launch.SystemReserveBytes != uint64(r.SystemReserveBytes) ||
 		validateCgroupMemoryMax(c) != nil || c < p || c > uint64(r.Capacity.MemoryBytes) ||
 		p > math.MaxInt64 || h > math.MaxInt64 || p%uint64(os.Getpagesize()) != 0 || h%uint64(os.Getpagesize()) != 0 {
 		return errors.New("managed process memory, headroom or cgroup cap is invalid")
@@ -490,6 +505,8 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		!lowerHex(pins.TrustedKeySHA256, 64) || !lowerHex(pins.ServerCertificateSHA256, 64) ||
 		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
 		!lowerHex(pins.ClientManagedMaterialManifestSHA256, 64) ||
+		!lowerHex(pins.LiveS3ConfigSHA256, 64) || !lowerHex(pins.LiveS3TargetSHA256, 64) ||
+		pins.LiveS3Credential.Validate() != nil ||
 		!validSocketAddress(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
 	}

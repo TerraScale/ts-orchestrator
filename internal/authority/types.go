@@ -82,6 +82,7 @@ const (
 	MutationRegistration    HostMutationKind = "registration"
 	MutationDesired         HostMutationKind = "desired"
 	MutationPlacementIntent HostMutationKind = "placement-intent"
+	MutationMaterialReceipt HostMutationKind = "material-receipt"
 )
 
 // LogEntry is a host mutation committed to the shared ordered control log.
@@ -107,4 +108,12 @@ type PlacementIntentStore interface {
 	CommitPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
 	ReadPlacementIntent(context.Context, string, string) (LogEntry, error)
 	ListPlacementIntents(context.Context) ([]LogEntry, error)
+}
+
+// MaterialReceiptStore orders one immutable, controller-signed preparation
+// receipt per database/partition with placement admission in the same R3 log.
+// A KMS object without this CAS record has no placement authority.
+type MaterialReceiptStore interface {
+	CommitMaterialReceipt(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
+	ReadMaterialReceipt(context.Context, string, string) (LogEntry, error)
 }

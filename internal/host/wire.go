@@ -196,7 +196,11 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	if err != nil {
 		return err
 	}
-	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeout := 5 * time.Second
+	if r.Operation == "material" {
+		timeout = 30 * time.Second
+	}
+	deadline, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	msg, err := conn.RequestWithContext(deadline, subject, data)
 	if err != nil {

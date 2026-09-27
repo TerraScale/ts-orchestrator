@@ -1,7 +1,8 @@
 # Architecture and boundaries
 
 TerraScale Orchestrator is being rebuilt as one Go executable. The executable
-has controller, host, and check modes. It embeds a regional NATS server when
+has controller bootstrap admission (`bootstrap-controller`), controller
+(`run`), `host`, `check`, and `operator` modes. It embeds a regional NATS server when
 running a controller; host processes connect to that regional cell. The
 separate roles share one binary but use role-specific JSON configuration and
 credentials.
@@ -43,9 +44,11 @@ current policy, signature, and artifact bytes, then requires current authority
 and ordered desired-state writes. A host executes only the resulting admitted
 desired state.
 
-The repository workflow currently creates build outputs and digest evidence;
-it does not publish or sign a production release. `ts-deploy` does not own
-repository builds or rollout.
+The CI workflow creates build outputs and digest evidence; it does not
+publish or sign a production release. The separate dispatch-only release
+workflow can sign and publish receipts but has not been run (see
+[release boundaries](releases.md)). `ts-deploy` does not own repository builds
+or rollout.
 
 The app-level integration tests follow the signed path through host
 registration, placement admission, artifact admission, deployment and status,
@@ -60,7 +63,7 @@ renewal/reporting failed with
 later returned to running. This demonstrates recovery, not uninterrupted
 availability, arbitrary-kernel compatibility, or production host readiness.
 See [local
-qualification details](local-development.md#latest-local-qualification).
+qualification details](local-development.md#prior-local-qualification-2026-09-24).
 
 The default artifact object-store quota is 2 GiB. The embedded NATS file store
 defaults to 8 GiB per server, and controller startup reserves at least 1.5
@@ -81,13 +84,19 @@ all three managed configuration paths are set together.
 
 For admitted placement, the regional controller provisions an OCI host and a
 retained volume, waits for the host's exact signed registration and a positive
-`ATTACHED` observation, then durably holds the member at
-`awaiting-runtime-contract`. It deliberately does not publish TerraBase host
-desired state or claim the member is healthy or serving because the repository
-does not yet provide an executable TerraBase launch contract or verified
-volume-mount check. Host image preparation, bootstrap, and signed registration
+`ATTACHED` observation, and records the member at `awaiting-runtime-contract`.
+Once the admitted runtime artifact and a safe managed mount path are available,
+it publishes signed TerraBase host desired state. The host verifies the pinned,
+exclusively mounted retained filesystem, volume claim, and member material,
+launches TerraBase, reads its member status, and reports local process and
+mount status. The controller then holds the member at `awaiting-healthy`; it
+does not claim the member is healthy or serving because no independent serving
+proof exists, and a `serving` record is returned to `awaiting-runtime-contract`.
+The orchestrator does not discover, format, or mount the guest block device.
+Host image preparation, first-boot configuration, and signed registration
 remain operator steps; database serving, scale-in, and region decommission
-are not implemented acceptance claims.
+are not implemented acceptance claims. See the
+[TerraBase runtime contract](terrabase-runtime-contract.md).
 
 OCI provider coverage uses fakes; no live OCI account mutation has been
 qualified. If OCI accepts a create but the recovery result is lost before

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -92,6 +94,32 @@ type StorageDomain struct {
 	Prefix           string `json:"prefix"`
 }
 
+// ManagedMaterialDomain is the root-signed destination for initial TerraBase
+// material and the subnet allowed to receive its private member addresses.
+type ManagedMaterialDomain struct {
+	Namespace                string `json:"namespace"`
+	Bucket                   string `json:"bucket"`
+	KMSKeyOCID               string `json:"kmsKeyOcid"`
+	MemberCompartmentOCID    string `json:"memberCompartmentOcid"`
+	MemberSubnetOCID         string `json:"memberSubnetOcid"`
+	MemberSubnetCIDR         string `json:"memberSubnetCidr"`
+	RecipientSignerPublicKey string `json:"recipientSignerPublicKey"`
+	NativeVerifierSHA256     string `json:"nativeVerifierSha256"`
+}
+
+func (domain ManagedMaterialDomain) Validate() error {
+	prefix, err := netip.ParsePrefix(domain.MemberSubnetCIDR)
+	signer, signerErr := base64.StdEncoding.Strict().DecodeString(domain.RecipientSignerPublicKey)
+	if !ledgerIDPattern.MatchString(domain.Namespace) || !ledgerNamePattern.MatchString(domain.Bucket) ||
+		!isOCID(domain.KMSKeyOCID, "key") || !isOCID(domain.MemberCompartmentOCID, "compartment") ||
+		!isOCID(domain.MemberSubnetOCID, "subnet") || err != nil || !prefix.Addr().Is4() ||
+		!prefix.Addr().IsPrivate() || prefix.Masked() != prefix || prefix.Bits() < 16 || prefix.Bits() > 29 ||
+		signerErr != nil || len(signer) != ed25519.PublicKeySize || !sha256RE.MatchString(domain.NativeVerifierSHA256) {
+		return fmt.Errorf("%w: invalid signed managed material domain", ErrManifestInvalid)
+	}
+	return nil
+}
+
 // Validate enforces the bounded Object Storage names, separate bucket roles,
 // OCI KMS key identities, and a canonical manifest prefix.
 func (domain StorageDomain) Validate() error {
@@ -125,11 +153,12 @@ type Manifest struct {
 	ImageArchitecture    string          `json:"imageArchitecture"`
 	ReleaseReceiptSHA256 string          `json:"releaseReceiptSha256"`
 	// These fields carry the exact canonical public trust-envelope bytes.
-	ReleaseImageReceiptWire []byte            `json:"releaseImageReceiptWire"`
-	ReleaseDelegationWire   []byte            `json:"releaseDelegationWire"`
-	PeerReceiptDelegation   *trust.Envelope   `json:"peerReceiptDelegation,omitempty"`
-	StorageDomain           StorageDomain     `json:"storageDomain"`
-	Secrets                 []SecretReference `json:"secrets"`
+	ReleaseImageReceiptWire []byte                 `json:"releaseImageReceiptWire"`
+	ReleaseDelegationWire   []byte                 `json:"releaseDelegationWire"`
+	PeerReceiptDelegation   *trust.Envelope        `json:"peerReceiptDelegation,omitempty"`
+	StorageDomain           StorageDomain          `json:"storageDomain"`
+	ManagedMaterial         *ManagedMaterialDomain `json:"managedMaterial,omitempty"`
+	Secrets                 []SecretReference      `json:"secrets"`
 }
 
 // ManifestExpectation contains deployment and slot facts established outside
@@ -304,6 +333,11 @@ func (manifest Manifest) Validate() error {
 	}
 	if err := manifest.StorageDomain.Validate(); err != nil {
 		return err
+	}
+	if manifest.ManagedMaterial != nil {
+		if err := manifest.ManagedMaterial.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := validateReleaseProofWires(manifest); err != nil {
 		return err
@@ -515,6 +549,9 @@ func digestBytes(data []byte) string {
 }
 
 func cloneManifest(manifest Manifest) Manifest {
+	if manifest.ManagedMaterial != nil {
+		manifest.ManagedMaterial = new(*manifest.ManagedMaterial)
+	}
 	manifest.ControllerSlots = slices.Clone(manifest.ControllerSlots)
 	profiles := manifest.Profiles
 	manifest.Profiles = make([]LaunchProfile, len(profiles))

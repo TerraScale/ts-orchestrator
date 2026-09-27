@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
@@ -412,6 +414,9 @@ func (controller *Controller) advanceMember(
 			return false, nil
 		}
 		if state.VolumeID != "" {
+			if err := controller.verifyPinnedImage(ctx); err != nil {
+				return false, err
+			}
 			state.Stage = StagePreparedAttach
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach")
 			_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -454,6 +459,12 @@ func (controller *Controller) advanceMember(
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			return false, nil
 		}
+		if !controller.runtimeArtifactReady(ctx, state, seat) {
+			return false, nil
+		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
+		}
 		var attachment *oci.Attachment
 		for index := range instance.Attachments {
 			if instance.Attachments[index].VolumeID == state.VolumeID {
@@ -465,9 +476,6 @@ func (controller *Controller) advanceMember(
 			}
 		}
 		if attachment == nil {
-			if !controller.runtimeArtifactReady(ctx, state, seat) {
-				return false, nil
-			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -511,6 +519,12 @@ func (controller *Controller) advanceMember(
 			}
 			switch attachment.State {
 			case "ATTACHED":
+				if !controller.runtimeArtifactReady(ctx, state, seat) {
+					return false, nil
+				}
+				if err := controller.verifyPinnedImage(ctx); err != nil {
+					return false, err
+				}
 				state.Stage = StageAwaitingRuntimeContract
 				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -535,6 +549,9 @@ func (controller *Controller) advanceMember(
 		}
 		if !fresh {
 			return false, nil
+		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
 		}
 		desired, err := controller.memberDesired(epoch, intent, state, seat)
 		if err != nil {
@@ -576,6 +593,9 @@ func (controller *Controller) advanceMember(
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
 			return false, nil
 		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
+		}
 		if _, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state)); err != nil {
 			controller.hold(fmt.Sprintf("member %s has no safe managed mount path: %v", seat.MemberID, err))
 			return false, nil
@@ -587,27 +607,36 @@ func (controller *Controller) advanceMember(
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 		return true, err
 	case StageAwaitingHealthy:
-		controller.hold(fmt.Sprintf("member %s awaits independent TerraBase serving proof", seat.MemberID))
-		return false, nil
-	case StageServing:
-		observedHealthy := false
 		if instance, exists := instances[state.InstanceID]; exists {
 			if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 				return false, err
 			}
 			if status, admitted := controller.admittedHost(intent, state, instance, statuses); admitted &&
-				status.Registration.Generation == state.HostGeneration && hasAttachedVolume(instance, state) {
-				observedHealthy = hasCurrentProcessReport(status, state, controller.config)
+				status.Registration.Generation == state.HostGeneration &&
+				controller.hasServingReport(intent, state, instance, status) {
+				state.Stage = StageServing
+				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "serving")
+				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
+				return true, err
+			}
+		}
+		controller.hold(fmt.Sprintf("member %s awaits a current mounted process and independent TerraBase serving proof", seat.MemberID))
+		return false, nil
+	case StageServing:
+		if instance, exists := instances[state.InstanceID]; exists {
+			if err := controller.validateObservedInstance(instance, state, seat); err != nil {
+				return false, err
+			}
+			if status, admitted := controller.admittedHost(intent, state, instance, statuses); admitted &&
+				status.Registration.Generation == state.HostGeneration &&
+				controller.hasServingReport(intent, state, instance, status) {
+				return false, nil
 			}
 		}
 		state.Stage = StageAwaitingRuntimeContract
 		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
-		if observedHealthy {
-			controller.hold(fmt.Sprintf("member %s host is live, but it cannot remain serving without a verified TerraBase runtime and mounted-volume contract", seat.MemberID))
-		} else {
-			controller.hold(fmt.Sprintf("member %s lost current host, session, attachment, or process evidence; it is held without replacement", seat.MemberID))
-		}
+		controller.hold(fmt.Sprintf("member %s lost current host, attachment, mounted process, or TerraBase serving proof; it is held without replacement", seat.MemberID))
 		return true, err
 	case StageRemoveCandidate, StageCordoned, StageDraining, StageDrained, StageStorageHandled, StageTerminated:
 		controller.hold(fmt.Sprintf("member %s is in retirement stage %s; retirement actions require the integrated evidence-driven scale-in path", seat.MemberID, state.Stage))
@@ -617,6 +646,13 @@ func (controller *Controller) advanceMember(
 	default:
 		return false, fmt.Errorf("%w: unknown member stage %q", ErrStoreCorrupt, state.Stage)
 	}
+}
+
+func (controller *Controller) verifyPinnedImage(ctx context.Context) error {
+	if err := controller.fleet.VerifyPinnedImage(ctx); err != nil {
+		return fmt.Errorf("current managed OCI image qualification: %w", err)
+	}
+	return nil
 }
 
 func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
@@ -647,8 +683,9 @@ func (controller *Controller) initialState(intent Intent, seat Seat, row Canonic
 }
 
 func pinnedEnsureRequest(state MemberState) oci.EnsureRequest {
+	privateIP, _, _ := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
 	return oci.EnsureRequest{
-		CreateKey: state.CreateKey, FaultDomain: state.FailureDomain,
+		CreateKey: state.CreateKey, PrivateIP: privateIP, FaultDomain: state.FailureDomain,
 		Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 		MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
 		PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
@@ -661,6 +698,10 @@ func pinnedEnsureRequest(state MemberState) oci.EnsureRequest {
 }
 
 func (controller *Controller) validateEnsuredInstance(instance oci.Instance, state MemberState, seat Seat) error {
+	privateIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+	if err != nil || privateIP == "" || instance.PrivateIP != privateIP {
+		return errors.New("OCI EnsureHost returned a different prepared private IP")
+	}
 	if instance.ID == "" || instance.Node == "" || instance.ETag == "" || instance.CreateKey != state.CreateKey ||
 		state.InstanceID != "" && instance.ID != state.InstanceID || state.HostNode != "" && instance.Node != state.HostNode ||
 		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain ||
@@ -671,6 +712,10 @@ func (controller *Controller) validateEnsuredInstance(instance oci.Instance, sta
 }
 
 func (controller *Controller) validateObservedInstance(instance oci.Instance, state MemberState, seat Seat) error {
+	privateIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+	if err != nil || privateIP == "" || instance.PrivateIP != privateIP {
+		return errors.New("observed OCI instance differs from the prepared private IP")
+	}
 	if instance.ID != state.InstanceID || instance.Node != state.HostNode || instance.CreateKey != state.CreateKey ||
 		instance.Region != controller.config.Region || instance.FaultDomain != seat.FailureDomain || instance.ETag == "" ||
 		state.InstanceETag == "" || !controller.instanceMatchesPinnedProfile(instance, state) {
@@ -750,13 +795,64 @@ func (controller *Controller) admittedHost(intent Intent, state MemberState, ins
 	return status, true
 }
 
-func hasCurrentProcessReport(status host.HostStatus, state MemberState, config Config) bool {
+func (controller *Controller) hasServingReport(intent Intent, state MemberState, instance oci.Instance, status host.HostStatus) bool {
+	attachment, attached := observedAttachment(instance, state)
+	if !attached || !validObservedAttachment(attachment) ||
+		attachment.Device != state.AttachmentDevice || attachment.ETag != state.AttachmentETag {
+		return false
+	}
+	var survivor memberstatus.Survivor
+	for _, row := range intent.CanonicalRoster.Rows {
+		if row.MemberID == state.RuntimeManifest.ReplicationPeerMemberID && row.MemberID != state.CanonicalRosterRow.MemberID {
+			survivor = memberstatus.Survivor{MemberID: row.MemberID, Incarnation: row.Incarnation}
+			break
+		}
+	}
+	if survivor.MemberID == "" {
+		return false
+	}
+	mountPath, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state))
+	if err != nil {
+		return false
+	}
 	now := time.Now()
 	for _, report := range status.Reports {
-		if report.Cell == config.Cell && report.Node == status.Registration.Node &&
-			report.Environment == config.Environment && report.Role == config.MemberRole &&
-			report.Generation == state.DesiredGeneration && report.State == "running" &&
-			!report.ObservedAt.IsZero() && !report.ObservedAt.After(now.Add(2*time.Second)) && now.Sub(report.ObservedAt) < 30*time.Second {
+		managed := report.Managed
+		if report.Cell != controller.config.Cell || report.Node != status.Registration.Node ||
+			report.Environment != controller.config.Environment || report.Role != controller.config.MemberRole ||
+			report.Generation != state.DesiredGeneration || report.Digest != state.RuntimeManifest.ArtifactDigest ||
+			report.State != "running" || report.ObservedAt.IsZero() || report.ObservedAt.After(now.Add(2*time.Second)) ||
+			now.Sub(report.ObservedAt) >= 30*time.Second || managed == nil || managed.ServingProof == nil ||
+			managed.Member != controller.memberBinding(intent, state) ||
+			managed.Authority != (host.MemberAuthority{
+				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
+				CertificateSHA256: state.AuthorityReference.CertificateSHA256,
+				TLSLeafSHA256:     state.CanonicalRosterRow.TLSLeafSHA256,
+			}) || managed.OCI != (host.ManagedOCIBinding{
+			Region: string(state.Region), InstanceID: state.InstanceID, Owner: controller.config.ManagedOwner,
+			FleetGeneration: controller.config.FleetGeneration, CreateKey: state.CreateKey,
+		}) || managed.VolumeID != state.VolumeID || managed.AttachmentID != state.AttachmentID ||
+			managed.AttachmentETag != attachment.ETag || managed.FileSystemUUID != state.RuntimeManifest.FileSystemUUID ||
+			managed.FileSystemType != state.RuntimeManifest.FileSystemType || managed.MountDevice != attachment.Device ||
+			managed.MountPath != mountPath || managed.MountID == 0 || managed.ProcessPID < 2 ||
+			managed.ProcessStart == "" || !strings.HasPrefix(managed.ProcessCgroup, "/") ||
+			!managed.StorageRecovered || !managed.ListenerReady {
+			continue
+		}
+		proof := managed.ServingProof
+		if memberstatus.VerifyReportedServing(*proof, memberstatus.Identity{
+			Process: memberstatus.Process{PID: managed.ProcessPID, StartNonce: managed.ProcessBootID},
+			Scope: memberstatus.Scope{
+				ClusterID: intent.CanonicalRoster.ClusterID, TenantID: intent.CanonicalRoster.TenantID,
+				DatabaseID: intent.CanonicalRoster.DatabaseID, ShardID: intent.CanonicalRoster.ShardID,
+				MemberID: state.CanonicalRosterRow.MemberID, Incarnation: state.CanonicalRosterRow.Incarnation,
+			},
+			Authority: memberstatus.Authority{
+				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,
+				CertificateSHA256: state.AuthorityReference.CertificateSHA256,
+				TLSLeafSHA256:     state.CanonicalRosterRow.TLSLeafSHA256,
+			},
+		}, survivor) == nil {
 			return true
 		}
 	}
@@ -901,6 +997,7 @@ func (controller *Controller) memberDesired(epoch uint64, intent Intent, state M
 			ProcessMemoryBytes:   state.ManagedHostProfile.ProcessMemoryBytes,
 			MemoryHeadroomBytes:  state.ManagedHostProfile.MemoryHeadroomBytes,
 			CgroupMemoryMaxBytes: state.ManagedHostProfile.CgroupMemoryMaxBytes,
+			SystemReserveBytes:   state.ManagedHostProfile.SystemReserveBytes,
 			Runtime: &host.ManagedRuntimePins{
 				DevicePath: state.AttachmentDevice, MountPath: mountPath,
 				FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType,
@@ -909,6 +1006,9 @@ func (controller *Controller) memberDesired(epoch uint64, intent Intent, state M
 				ServerPrivateKeySHA256:              manifest.ServerPrivateKeySHA256,
 				ClientCARootsSHA256:                 manifest.ClientCARootsSHA256,
 				ClientManagedMaterialManifestSHA256: manifest.ClientManagedMaterialManifestSHA256,
+				LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256,
+				LiveS3TargetSHA256:                  manifest.LiveS3TargetSHA256,
+				LiveS3Credential:                    manifest.LiveS3Credential,
 				ReplicationListenAddress:            manifest.ReplicationListenAddress,
 				ReplicationPeerMemberID:             manifest.ReplicationPeerMemberID,
 				ReplicationPeerAddress:              manifest.ReplicationPeerAddress,

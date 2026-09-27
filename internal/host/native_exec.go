@@ -23,6 +23,7 @@ import (
 
 const workloadHelperArgument = "--terrascale-internal-native-workload-helper"
 const maxNativeTargetExtraFiles = 1
+const nativeIOPriorityNeutral = 2<<13 | 4 // Best effort, ordinary priority.
 
 type nativeExecRequest struct {
 	Path      string           `json:"path"`
@@ -124,6 +125,17 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 	if os.Geteuid() != 0 || identity.UID == 0 || identity.GID == 0 {
 		return errors.New("native helper requires root and nonzero workload identity")
 	}
+	// The helper inherits the protected supervisor's scheduling attributes.
+	// Reset them while root before the irreversible UID and capability drop.
+	if err := unix.Setpriority(unix.PRIO_PROCESS, 0, 0); err != nil {
+		return fmt.Errorf("reset native workload nice: %w", err)
+	}
+	if err := resetNativeWorkloadOOMScore("/proc/self/oom_score_adj"); err != nil {
+		return err
+	}
+	if err := setNativeIOPriority(0, nativeIOPriorityNeutral); err != nil {
+		return fmt.Errorf("reset native workload I/O priority: %w", err)
+	}
 	if err := unix.Prctl(unix.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0); err != nil {
 		return fmt.Errorf("set native no_new_privs: %w", err)
 	}
@@ -142,6 +154,17 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 		if err := unix.Prctl(unix.PR_CAPBSET_DROP, uintptr(capability), 0, 0, 0); err != nil {
 			return fmt.Errorf("drop native bounding capability %d: %w", capability, err)
 		}
+	}
+	var inherited [2]unix.CapUserData
+	inheritedHeader := unix.CapUserHeader{Version: unix.LINUX_CAPABILITY_VERSION_3}
+	if err := unix.Capget(&inheritedHeader, &inherited[0]); err != nil {
+		return fmt.Errorf("inspect native inheritable capabilities: %w", err)
+	}
+	for index := range inherited {
+		inherited[index].Inheritable = 0
+	}
+	if err := unix.Capset(&inheritedHeader, &inherited[0]); err != nil {
+		return fmt.Errorf("clear native inheritable capabilities: %w", err)
 	}
 	if err := unix.Setgroups(nil); err != nil {
 		return fmt.Errorf("clear native supplementary groups: %w", err)
@@ -169,6 +192,32 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 		if capset.Effective != 0 || capset.Permitted != 0 || capset.Inheritable != 0 {
 			return errors.New("native workload retained capabilities")
 		}
+	}
+	return nil
+}
+
+func resetNativeWorkloadOOMScore(path string) error {
+	oomScore, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read native workload OOM score adjustment: %w", err)
+	}
+	currentOOM := strings.TrimSpace(string(oomScore))
+	adjustment, err := strconv.Atoi(currentOOM)
+	if err != nil || adjustment < -1000 || adjustment > 1000 {
+		return fmt.Errorf("invalid inherited native workload OOM score adjustment %q", currentOOM)
+	}
+	if adjustment >= 0 {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte("0"), 0); err != nil {
+		return fmt.Errorf("reset native workload OOM score adjustment from %d: %w", adjustment, err)
+	}
+	oomScore, err = os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("verify native workload OOM score adjustment: %w", err)
+	}
+	if strings.TrimSpace(string(oomScore)) != "0" {
+		return fmt.Errorf("native workload OOM score adjustment did not reset: %q", strings.TrimSpace(string(oomScore)))
 	}
 	return nil
 }
@@ -260,13 +309,23 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 	if err != nil {
 		return fmt.Errorf("native target exited before verification: %w", err)
 	}
-	closing := bytes.LastIndexByte(stat, ')')
-	if closing < 0 {
-		return errors.New("native target has invalid process status")
+	if err := verifyNativeExecNice(stat); err != nil {
+		return err
 	}
-	fields := strings.Fields(string(stat[closing+1:]))
-	if len(fields) <= 19 || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x" {
-		return errors.New("native target exited before verification")
+	oomScore, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "oom_score_adj"))
+	if err != nil {
+		return fmt.Errorf("inspect native target OOM score adjustment: %w", err)
+	}
+	adjustment, err := strconv.Atoi(strings.TrimSpace(string(oomScore)))
+	if err != nil || adjustment < 0 {
+		return errors.New("native target retained protected supervisor OOM score adjustment")
+	}
+	ioPriority, err := readNativeIOPriority(pid)
+	if err != nil {
+		return fmt.Errorf("inspect native target I/O priority: %w", err)
+	}
+	if ioPriority != 0 && (ioPriority>>13 != 2 || ioPriority&((1<<13)-1) < 4) && ioPriority>>13 != 3 {
+		return errors.New("native target retained protected supervisor I/O priority")
 	}
 	cmdline, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 	if err != nil || len(cmdline) == 0 || bytes.Contains(cmdline, []byte(workloadHelperArgument)) {
@@ -283,6 +342,40 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 		return errors.New("native target escaped its role cgroup")
 	}
 	return nil
+}
+
+func verifyNativeExecNice(stat []byte) error {
+	closing := bytes.LastIndexByte(stat, ')')
+	if closing < 0 {
+		return errors.New("native target has invalid process status")
+	}
+	fields := strings.Fields(string(stat[closing+1:]))
+	if len(fields) <= 16 || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x" {
+		return errors.New("native target exited before verification")
+	}
+	// fields[0] is stat field 3 (state); fields[16] is field 19 (nice).
+	// fields[17] is num_threads and cannot detect an inherited negative nice.
+	nice, err := strconv.Atoi(fields[16])
+	if err != nil || nice < 0 {
+		return errors.New("native target retained protected supervisor nice")
+	}
+	return nil
+}
+
+func setNativeIOPriority(pid, priority int) error {
+	_, _, errno := unix.Syscall(unix.SYS_IOPRIO_SET, 1, uintptr(pid), uintptr(priority))
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
+func readNativeIOPriority(pid int) (int, error) {
+	value, _, errno := unix.Syscall(unix.SYS_IOPRIO_GET, 1, uintptr(pid), 0)
+	if errno != 0 {
+		return 0, errno
+	}
+	return int(value), nil
 }
 
 func nativeCgroupContainsPID(path string, pid int) (bool, error) {

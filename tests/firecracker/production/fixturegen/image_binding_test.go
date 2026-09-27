@@ -52,7 +52,8 @@ func TestPacketImageReceiptBindsExecutableAndImage(t *testing.T) {
 	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
 		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: manifest.Binary.Size,
 		BinarySHA256: manifest.Binary.SHA256, BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE",
-		BaseImageRegion: "GRU", BaseImageSHA256: hex.EncodeToString(imageDigest[:]),
+		QualificationSHA256: strings.Repeat("e", 64),
+		BaseImageRegion:     "GRU", BaseImageSHA256: hex.EncodeToString(imageDigest[:]),
 		KernelRelease: "6.1.0-test+1", KernelSHA256: hex.EncodeToString(imageDigest[:]),
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: hex.EncodeToString(imageDigest[:]),
 		OCIImageOCID: imageOCID, OCIRegion: "GRU"}

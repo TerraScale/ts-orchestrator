@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -133,6 +134,11 @@ func TestEnsureHostRejectsSameCreateKeyComputeProfileDrift(t *testing.T) {
 	if _, err := fleet.EnsureHost(ctx, request); err == nil {
 		t.Fatal("same create key accepted a different immutable compute tuple")
 	}
+	request.MemoryInGBs--
+	request.PrivateIP = "10.251.0.22"
+	if _, err := fleet.EnsureHost(ctx, request); err == nil {
+		t.Fatal("same create key accepted a different private IP")
+	}
 	if provider.launchCalls != 1 || len(provider.launchRequests) != 1 {
 		t.Fatalf("profile drift reached the provider: launchCalls=%d requests=%+v", provider.launchCalls, provider.launchRequests)
 	}
@@ -146,7 +152,7 @@ func TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
 	if !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("missing signed profile was not held: %v", err)
 	}
@@ -198,6 +204,7 @@ func TestEnsureHostWithholdsNilOrMismatchedObservedSizing(t *testing.T) {
 		{name: "wrong OCPU", mutate: func(instance *CloudInstance) { instance.Ocpus = new(float32(2)) }},
 		{name: "wrong memory", mutate: func(instance *CloudInstance) { instance.MemoryInGBs = new(float32(8)) }},
 		{name: "wrong shape", mutate: func(instance *CloudInstance) { instance.Shape = "VM.Standard.E5.Flex.Other" }},
+		{name: "wrong private IP", mutate: func(instance *CloudInstance) { instance.PrivateIP = "10.251.0.22" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config, intent := testRegionConfig()
@@ -569,7 +576,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	provider := newFakeProvider(config)
 	provider.volumes["ocid1.volume.foreign"] = CloudVolume{
 		ID: "ocid1.volume.foreign", CompartmentID: config.CompartmentID,
-		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, LifecycleState: "AVAILABLE",
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, VPUsPerGB: 10, LifecycleState: "AVAILABLE",
 		FreeformTags: map[string]string{
 			tagManagedBy: managedByValue, tagOwner: "another-owner", tagRegion: string(config.Region),
 			tagGeneration: fmt.Sprint(config.Generation), tagResource: resourceMemberData,
@@ -592,7 +599,7 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	key := "data-volume-seeded-unowned"
 	provider.volumes["ocid1.volume.seeded"] = CloudVolume{
 		ID: "ocid1.volume.seeded", CompartmentID: config.CompartmentID,
-		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, LifecycleState: "AVAILABLE",
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, VPUsPerGB: 10, LifecycleState: "AVAILABLE",
 		FreeformTags: volumeTags(config, VolumeCreateRequest{CreateKey: key, SizeGB: 50}),
 	}
 	fleet, err = newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
@@ -622,6 +629,41 @@ func TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys(t *testin
 	provider.volumes[duplicate.ID] = duplicate
 	if _, err := fleet.CreateRetainedVolume(ctx, VolumeCreateRequest{CreateKey: "data-volume-duplicate", SizeGB: 64}); !errors.Is(err, ErrDuplicateCreateKey) {
 		t.Fatalf("duplicate create key selected an arbitrary volume: %v", err)
+	}
+}
+
+func TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	provider.afterVolumeCreate = func() {
+		for id, volume := range provider.volumes {
+			volume.VPUsPerGB = 20
+			provider.volumes[id] = volume
+		}
+	}
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{CreateKey: "tier-drift", SizeGB: 50})
+	if !errors.Is(err, ErrForeignResource) {
+		t.Fatalf("retained volume with unbudgeted tier was accepted: %v", err)
+	}
+}
+
+func TestCreateRetainedVolumeEnforcesFleetSizeCeilingBeforeOCI(t *testing.T) {
+	config, intent := testRegionConfig()
+	config.MaxDataVolumeGB = 50
+	provider := newFakeProvider(config)
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fleet.CreateRetainedVolume(t.Context(), VolumeCreateRequest{CreateKey: "oversize-preview", SizeGB: 51}); err == nil {
+		t.Fatal("volume above the preview fleet ceiling reached creation")
+	}
+	if provider.volumeCreateCalls != 0 {
+		t.Fatalf("oversize volume reached OCI provider: %d calls", provider.volumeCreateCalls)
 	}
 }
 
@@ -770,7 +812,8 @@ func TestRetainedVolumeAttachRequiresDurableOwnership(t *testing.T) {
 	volumeKey := "data-volume-01"
 	provider.volumes["ocid1.volume.retained"] = CloudVolume{
 		ID: "ocid1.volume.retained", CompartmentID: config.CompartmentID,
-		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, LifecycleState: "AVAILABLE", FreeformTags: map[string]string{
+		AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50, VPUsPerGB: 10,
+		LifecycleState: "AVAILABLE", FreeformTags: map[string]string{
 			tagManagedBy: managedByValue, tagOwner: config.Owner, tagRegion: string(config.Region),
 			tagGeneration: fmt.Sprint(config.Generation), tagResource: resourceMemberData, tagCreateKey: volumeKey,
 			tagVolumeSize: "50",
@@ -1039,6 +1082,38 @@ func TestRetainedVolumeOperationsHoldWithoutImageVerifier(t *testing.T) {
 	}
 }
 
+func TestFleetVerifyPinnedImageIsPublicReadinessGate(t *testing.T) {
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	journal := newFakeJournal()
+	fencer := &fakeFencer{snapshot: writableSnapshot()}
+	verifier := &fakeImageVerifier{}
+	fleet, err := NewFleetWithImageVerifier(config, intent, provider, journal, fencer, nil, nil, verifier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fleet.VerifyPinnedImage(t.Context()); err != nil {
+		t.Fatalf("qualified pinned image was held: %v", err)
+	}
+	if !slices.Equal(verifier.images, []string{config.ImageID}) {
+		t.Fatalf("readiness checked wrong image: %v", verifier.images)
+	}
+	verifier.err = errors.New("image readback changed")
+	if err := fleet.VerifyPinnedImage(t.Context()); !errors.Is(err, ErrImageNotQualified) {
+		t.Fatalf("changed image was accepted: %v", err)
+	}
+	withoutVerifier, err := NewFleet(config, intent, provider, journal, fencer, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := withoutVerifier.VerifyPinnedImage(t.Context()); !errors.Is(err, ErrImageQualificationUnavailable) {
+		t.Fatalf("absent image verifier was accepted: %v", err)
+	}
+	if provider.launches != 0 || provider.volumeCreateCalls != 0 {
+		t.Fatal("image readiness gate mutated OCI")
+	}
+}
+
 func TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming(t *testing.T) {
 	for _, test := range []struct {
 		name   string
@@ -1215,7 +1290,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	}
 	instanceID := "ocid1.instance.unknown-launch"
 	provider.instances[instanceID] = CloudInstance{
-		ID: instanceID, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
+		ID: instanceID, PrivateIP: operation.PrivateIP, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
 		FaultDomain: "FAULT-DOMAIN-1", Shape: operation.Shape, Ocpus: new(float32(operation.WholeOCPUs)),
 		MemoryInGBs: new(float32(operation.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "unknown-etag",
 		ImageID: config.ImageID, Metadata: map[string]string{hostboot.MetadataKey: operation.BootDescriptor},
@@ -1248,18 +1323,23 @@ func testRegionConfig() (RegionConfig, RegionIntent) {
 		Region: RegionGRU, Generation: intent.Generation,
 		Endpoint:                "https://iaas.sa-saopaulo-1.oraclecloud.com",
 		CompartmentID:           "ocid1.compartment.oc1..aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		ImageCompartmentID:      "ocid1.compartment.oc1..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		AvailabilityDomain:      "sa-saopaulo-1-AD-1",
 		FaultDomains:            []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		SubnetID:                "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		ImageID:                 "ocid1.image.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		BootVolumeGB:            50,
+		BootVolumeVPUsPerGB:     10,
+		DataVolumeVPUsPerGB:     10,
+		MaxDataVolumeGB:         32768,
 		Shape:                   "VM.Standard.E5.Flex", Owner: "orchestrator",
 	}, intent
 }
 
 func testEnsureRequest(createKey string) EnsureRequest {
 	return EnsureRequest{
-		CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
+		CreateKey: createKey, PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
 		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
 		BootPins: HostBootPins{
 			DatabaseID: "db-main", PartitionID: "partition-main", SeatID: "permanent-gru",
@@ -1275,7 +1355,7 @@ func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
 		panic(err)
 	}
 	return EnsureRequest{
-		CreateKey: intent.CreateKey, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
+		CreateKey: intent.CreateKey, PrivateIP: intent.PrivateIP, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
 		WholeOCPUs: intent.WholeOCPUs, MemoryInGBs: intent.MemoryInGBs,
 		PlacementProfileDigest: intent.PlacementProfileDigest, PlacementGeneration: intent.PlacementGeneration,
 		BootPins: HostBootPins{
@@ -1287,7 +1367,7 @@ func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
 }
 
 func sameLaunchProfile(a, b LaunchRequest) bool {
-	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.FaultDomain == b.FaultDomain &&
+	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.PrivateIP == b.PrivateIP && a.FaultDomain == b.FaultDomain &&
 		a.Shape == b.Shape && a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
 		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
 		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&
@@ -1550,7 +1630,7 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	p.launches++
 	id := fmt.Sprintf("ocid1.instance.new-%d", p.launches)
 	instance := CloudInstance{
-		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
+		ID: id, PrivateIP: request.PrivateIP, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
 		FaultDomain: request.FaultDomain, Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
 		ConsistentVolumeNamingEnabled: new(true),
@@ -1701,7 +1781,8 @@ func (p *fakeProvider) CreateVolume(_ context.Context, request VolumeCreateReque
 	id := fmt.Sprintf("ocid1.volume.created-%d", p.volumeCreates)
 	volume := CloudVolume{
 		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: request.AvailabilityDomain,
-		SizeGB: request.SizeGB, LifecycleState: "PROVISIONING", FreeformTags: cloneStringMap(tags),
+		SizeGB: request.SizeGB, VPUsPerGB: int64(p.config.DataVolumeVPUsPerGB),
+		LifecycleState: "PROVISIONING", FreeformTags: cloneStringMap(tags),
 	}
 	p.volumes[id] = volume
 	p.volumeRetryTokens[retry] = id
