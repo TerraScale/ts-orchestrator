@@ -1,7 +1,0 @@
-start_utc=2026-09-11T01:12:25Z
-phase=exercise rust
-package=terrascale-0.1.0 sha256=2e67800e68a6bbebda150597ab0db499afab2e9163934ef45e4930545ea17209 derive=terrascale-derive-0.1.0 derive_sha256=bb655143e8e6efed8c80aee7738cc0c754a3db38e1298ecbdaa019f220f4c31f
-{"detail":"stale ETag returned 412 precondition_failed without mutation","outcome":"passed","phase":"exercise"}
-{"detail":"denied scope returned 401/403","outcome":"passed","phase":"exercise"}
-{"detail":"conditional write, SQL, idempotency, reactive cancellation","outcome":"passed","phase":"exercise"}
-exit=0

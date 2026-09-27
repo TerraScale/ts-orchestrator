@@ -3,15 +3,49 @@
 package host
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
+
+func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
+	registration, desired, _ := managedContractFixture()
+	registration.SystemReserveBytes = 2 << 30
+	desired.ManagedMember.SystemReserveBytes = 2 << 30
+	desired.ManagedMember.Runtime = &ManagedRuntimePins{}
+	runner := &memoryRunner{observed: map[string]Observation{
+		desired.Role: {Role: desired.Role, Running: true, CgroupMemoryMaxBytes: desired.ManagedMember.CgroupMemoryMaxBytes},
+	}}
+	checkedMemory := false
+	agent := &Agent{
+		cfg:    AgentConfig{ManagedRuntimeRoot: "/srv/ts-managed", BakedSystemReserveBytes: 1 << 30},
+		runner: runner,
+		memoryCheck: func(Registration) error {
+			checkedMemory = true
+			return errors.New("memory check reached")
+		},
+	}
+	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	if err == nil || !strings.Contains(err.Error(), "differs from image priority profile") || checkedMemory {
+		t.Fatalf("managed launch did not reject changed signed reserve before memory check: %v", err)
+	}
+	observed, err := runner.Observe(context.Background(), desired.Role)
+	if err != nil || observed.Running || runner.applied != 0 {
+		t.Fatalf("changed reserve retained or launched managed process: observation=%+v err=%v", observed, err)
+	}
+	registration.SystemReserveBytes = 1 << 30
+	desired.ManagedMember.SystemReserveBytes = 1 << 30
+	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	if err == nil || !checkedMemory {
+		t.Fatalf("matching baked reserve did not reach the next launch check: %v", err)
+	}
+}
 
 func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
@@ -26,7 +60,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 		ManagedMember: &ManagedMemberLaunch{OCI: *registration.ManagedOCI, Member: *registration.ManagedMember,
 			Authority:    MemberAuthority{Epoch: 1, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)},
 			SourceDigest: strings.Repeat("f", 64), VolumeID: "ocid1.volume.retained", AttachmentID: "ocid1.volumeattachment.node-a",
-			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30}}
+			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30, SystemReserveBytes: 1 << 30}}
 	return registration, desired, key
 }
 
@@ -49,6 +83,8 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 			r.Capacity.MemoryBytes = math.MaxInt64
 			d.ManagedMember.CgroupMemoryMaxBytes = uint64(math.MaxInt64) + 1
 		}},
+		{name: "missing signed reserve", change: func(_ *Registration, d *Desired) { d.ManagedMember.SystemReserveBytes = 0 }},
+		{name: "reserve differs from registration", change: func(_ *Registration, d *Desired) { d.ManagedMember.SystemReserveBytes += 1 << 20 }},
 		{name: "another host attempt", change: func(_ *Registration, d *Desired) { d.ManagedMember.Member.HostAttempt++ }},
 		{name: "another member", change: func(_ *Registration, d *Desired) {
 			d.ManagedMember.Member.Scope.MemberID = "018f0000-0000-7000-8000-000000000002"
@@ -81,6 +117,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 	d.ManagedMember.ProcessMemoryBytes = 0
 	d.ManagedMember.MemoryHeadroomBytes = 0
 	d.ManagedMember.CgroupMemoryMaxBytes = 0
+	d.ManagedMember.SystemReserveBytes = 0
 	if err := validateDesired(d, "gru", r); err != nil {
 		t.Fatalf("identity-retaining withdrawal: %v", err)
 	}
@@ -90,12 +127,8 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 	}
 }
 
-func TestManagedMemoryWorkloadAndReplyBinding(t *testing.T) {
+func TestManagedReplyBinding(t *testing.T) {
 	r, d, key := managedContractFixture()
-	w := managedMemoryWorkload(d)
-	if !slices.Equal(w.Args, []string{"--memory-limit-bytes", "4294967296", "--memory-headroom-bytes", "1073741824"}) || w.CgroupMemoryMaxBytes != 6<<30 {
-		t.Fatalf("managed P/H/C profile = %+v", w)
-	}
 	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key}, session: session{RegistrationGeneration: r.Generation}}
 	reply := desiredReply{Desired: &d, Revision: 4, Registration: &r, RegistrationRevision: 3}
 	if err := a.validateDesiredReply(reply); err != nil {

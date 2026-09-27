@@ -1,5 +1,0 @@
-2026-09-07T22:50:50-03:00
-source-orchestrator=fatal: cannot change to 'ts-orchestrator': No such file or directory
-source-terrabase=fatal: cannot change to 'terrabase': No such file or directory
-ok  	terrascale.tech/orchestrator/internal/testengineconfig	0.146s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmengineconfig	0.367s

@@ -1,7 +1,0 @@
-start_utc=2026-09-11T01:07:23Z
-cmd: (cd ts-dotnet/scripts/qualification && env TERRASCALE_SDK_NUPKG=... ./run.sh --phase seed)
-nupkg: TerraScale.DotNet.0.1.0.nupkg sha=6e2e33cc...
-  Determining projects to restore...
-  Restored /home/mariogk/Projects/TerraScale/ts-dotnet/scripts/qualification/Qualification.csproj (in 1.45 sec).
-{"operation":"seed","status":"ok"}
-exit=0

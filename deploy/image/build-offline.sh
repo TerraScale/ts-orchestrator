@@ -5,10 +5,14 @@ cd "$repository_root"
 
 usage() {
 	cat >&2 <<'USAGE'
-usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE \
+usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE --qualification FILE \
   --delegation FILE --root-key PEM --environment canary|production \
   --release-tool FILE --bootstrap-tool FILE --bootstrap-anchor FILE \
   --bootstrap-identity FILE --bootstrap-root PEM... --timesyncd-config FILE \
+  --runtime-priority-profile-id TOKEN --runtime-priority-system-reserve-bytes BYTES \
+  --host-memory-min-bytes BYTES --host-memory-low-bytes BYTES \
+  --controller-memory-min-bytes BYTES --controller-memory-low-bytes BYTES \
+  --system-slice-memory-min-bytes BYTES --system-slice-memory-low-bytes BYTES \
   [--managed-workload-gid NONZERO_GID] --out QCOW2
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
@@ -25,12 +29,22 @@ and use a host-service systemd drop-in that resets the canonical exception:
 ReadWritePaths=
 ReadWritePaths=-/absolute/custom/root
 Install the drop-in before starting the host.
+
+The runtime-priority memory-floor arguments have no defaults. Prefer values
+measured with the selected image and service configuration; if measurements
+are unavailable, label the supplied values as selected allocations rather
+than measured results. The image carries those floors and the selected reserve
+in root-owned profile/drop-in files before either orchestrator service is
+enabled. For the 1 OCPU/6 GiB preview, select the 1 GiB reserve used by the
+signed managed-host placement profile. The host compares the baked reserve
+with that signed profile before launching workloads.
 USAGE
 }
 
 base=
 binary=
 receipt=
+qualification=
 delegation=
 root_key=
 environment=
@@ -41,6 +55,14 @@ bootstrap_identity=
 bootstrap_roots=()
 timesyncd_config=
 managed_workload_gid=
+runtime_priority_profile_id=
+runtime_priority_system_reserve_bytes=
+host_memory_min_bytes=
+host_memory_low_bytes=
+controller_memory_min_bytes=
+controller_memory_low_bytes=
+system_slice_memory_min_bytes=
+system_slice_memory_low_bytes=
 bootstrap_root_limit=16
 bootstrap_root_max_bytes=16384
 bootstrap_roots_max_total_bytes=65536
@@ -53,6 +75,7 @@ while (($#)); do
 		--base) base=${2:?}; shift 2 ;;
 		--binary) binary=${2:?}; shift 2 ;;
 		--receipt) receipt=${2:?}; shift 2 ;;
+		--qualification) qualification=${2:?}; shift 2 ;;
 		--delegation) delegation=${2:?}; shift 2 ;;
 		--root-key) root_key=${2:?}; shift 2 ;;
 		--environment) environment=${2:?}; shift 2 ;;
@@ -63,14 +86,26 @@ while (($#)); do
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
 		--managed-workload-gid) managed_workload_gid=${2:?}; shift 2 ;;
+		--runtime-priority-profile-id) runtime_priority_profile_id=${2:?}; shift 2 ;;
+		--runtime-priority-system-reserve-bytes) runtime_priority_system_reserve_bytes=${2:?}; shift 2 ;;
+		--host-memory-min-bytes) host_memory_min_bytes=${2:?}; shift 2 ;;
+		--host-memory-low-bytes) host_memory_low_bytes=${2:?}; shift 2 ;;
+		--controller-memory-min-bytes) controller_memory_min_bytes=${2:?}; shift 2 ;;
+		--controller-memory-low-bytes) controller_memory_low_bytes=${2:?}; shift 2 ;;
+		--system-slice-memory-min-bytes) system_slice_memory_min_bytes=${2:?}; shift 2 ;;
+		--system-slice-memory-low-bytes) system_slice_memory_low_bytes=${2:?}; shift 2 ;;
 		--out) output=${2:?}; shift 2 ;;
 		*) usage; exit 2 ;;
 	esac
 done
 
-if [[ -z "$base" || -z "$binary" || -z "$receipt" || -z "$delegation" || -z "$root_key" ||
+if [[ -z "$base" || -z "$binary" || -z "$receipt" || -z "$qualification" || -z "$delegation" || -z "$root_key" ||
 	-z "$environment" || -z "$release_tool" || -z "$bootstrap_tool" || -z "$bootstrap_anchor" ||
-	-z "$bootstrap_identity" || ${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ]]; then
+	-z "$bootstrap_identity" || ${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ||
+	-z "$runtime_priority_profile_id" || -z "$runtime_priority_system_reserve_bytes" ||
+	-z "$host_memory_min_bytes" || -z "$host_memory_low_bytes" ||
+	-z "$controller_memory_min_bytes" || -z "$controller_memory_low_bytes" ||
+	-z "$system_slice_memory_min_bytes" || -z "$system_slice_memory_low_bytes" ]]; then
 	usage
 	exit 2
 fi
@@ -100,6 +135,7 @@ fi
 base=$(realpath -e -- "$base")
 binary=$(realpath -e -- "$binary")
 receipt=$(realpath -e -- "$receipt")
+qualification=$(realpath -e -- "$qualification")
 delegation=$(realpath -e -- "$delegation")
 root_key=$(realpath -e -- "$root_key")
 bootstrap_tool=$(realpath -e -- "$bootstrap_tool")
@@ -129,6 +165,41 @@ temporary_directory=$(mktemp -d "$output_parent/.ts-orchestrator-image.XXXXXX")
 cleanup() { rm -rf -- "$temporary_directory"; }
 trap cleanup EXIT
 timesyncd_config_image="$temporary_directory/timesyncd.conf"
+runtime_priority_root="$temporary_directory/runtime-priority"
+runtime_priority_profile="$temporary_directory/runtime-priority.json"
+python3 tests/runtime_priority/qualify.py render-drop-ins \
+	--profile-id "$runtime_priority_profile_id" \
+	--service-memory-min-bytes "$host_memory_min_bytes" \
+	--service-memory-low-bytes "$host_memory_low_bytes" \
+	--controller-memory-min-bytes "$controller_memory_min_bytes" \
+	--controller-memory-low-bytes "$controller_memory_low_bytes" \
+	--system-slice-memory-min-bytes "$system_slice_memory_min_bytes" \
+	--system-slice-memory-low-bytes "$system_slice_memory_low_bytes" \
+	--system-reserve-bytes "$runtime_priority_system_reserve_bytes" \
+	--output-root "$runtime_priority_root"
+python3 - "$runtime_priority_profile" "$runtime_priority_profile_id" "$runtime_priority_system_reserve_bytes" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+profile_path = Path(sys.argv[1])
+profile_id = sys.argv[2]
+reserve_text = sys.argv[3]
+if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", profile_id):
+	raise SystemExit("runtime-priority profile ID must be a 1-128 character safe token")
+if not re.fullmatch(r"[1-9][0-9]*", reserve_text):
+	raise SystemExit("runtime-priority system reserve must be a positive canonical byte count")
+reserve = int(reserve_text)
+if reserve > (1 << 63) - 1:
+	raise SystemExit("runtime-priority system reserve exceeds signed byte range")
+profile = {"version": 1, "profile_id": profile_id, "system_reserve_bytes": reserve}
+encoded = json.dumps(profile, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+with profile_path.open("xb") as output:
+	output.write(encoded)
+print(f"{profile_path} sha256={hashlib.sha256(encoded).hexdigest()}")
+PY
 
 python3 - \
 	"$bootstrap_anchor" "$bootstrap_identity" "$environment" \
@@ -292,7 +363,7 @@ PY
 printf 'timesyncd image config sha256=%s\n' "$timesyncd_config_image_sha256"
 "$release_tool" verify-binary \
 	--receipt "$receipt" --delegation "$delegation" --root-key "$root_key" \
-	--binary "$binary" --environment "$environment"
+	--binary "$binary" --qualification "$qualification" --environment "$environment"
 qemu-img check -- "$base"
 qemu-img info --output=json -- "$base" | python3 -c '
 import json, sys
@@ -325,6 +396,26 @@ install -d -o root -g root -m 0755 /etc/terrascale-orchestrator
 install -d -o root -g root -m 0755 /etc/terrascale-orchestrator/bootstrap/trust-roots
 rm -f /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json
 find /etc/terrascale-orchestrator/bootstrap/trust-roots -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+COMMAND
+)
+runtime_priority_setup=$(cat <<'COMMAND'
+set -eu
+for runtime_priority_file in \
+	/etc/terrascale-orchestrator/runtime-priority.json \
+	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf \
+	/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py; do
+	[ ! -e "$runtime_priority_file" ] && [ ! -L "$runtime_priority_file" ] || {
+		echo "base image has a conflicting runtime-priority profile artifact: $runtime_priority_file" >&2
+		exit 1
+	}
+done
+install -d -o root -g root -m 0755 /etc/terrascale-orchestrator
+install -d -o root -g root -m 0755 /etc/systemd/system/system.slice.d
+install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-host.service.d
+install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-controller.service.d
+install -d -o root -g root -m 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority
 COMMAND
 )
 time_sync_setup=$(cat <<'COMMAND'
@@ -424,6 +515,18 @@ install -d -o root -g root -m 0755 /var/lib/terrascale-orchestrator-bootstrap
 install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-secrets
 install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-controller
 chown root:root /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf
+chown root:root \
+	/etc/terrascale-orchestrator/runtime-priority.json \
+	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf \
+	/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
+chmod 0644 \
+	/etc/terrascale-orchestrator/runtime-priority.json \
+	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
+	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf
+chmod 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
 SYSTEMD_OFFLINE=1 systemctl enable systemd-timesyncd.service systemd-time-wait-sync.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service
 for time_unit in systemd-timesyncd.service systemd-time-wait-sync.service; do
 	time_unit_state=$(SYSTEMD_OFFLINE=1 systemctl is-enabled "$time_unit") || {
@@ -458,12 +561,18 @@ COMMAND
 fi
 virt-customize --no-network -a "$candidate" \
 	--run-command "$bootstrap_directory_setup" \
+	--run-command "$runtime_priority_setup" \
 	--run-command "$time_sync_setup" \
 	"${managed_root_commands[@]}" \
 	--upload deploy/image/terrascale-orchestrator.sysusers:/etc/sysusers.d/terrascale-orchestrator.conf \
 	--upload deploy/systemd/terrascale-orchestrator-bootstrap.service:/etc/systemd/system/terrascale-orchestrator-bootstrap.service \
 	--upload deploy/systemd/terrascale-orchestrator-controller.service:/etc/systemd/system/terrascale-orchestrator-controller.service \
 	--upload deploy/systemd/terrascale-orchestrator-host.service:/etc/systemd/system/terrascale-orchestrator-host.service \
+	--upload "$runtime_priority_root/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf:/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf" \
+	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf" \
+	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf" \
+	--upload "$runtime_priority_profile:/etc/terrascale-orchestrator/runtime-priority.json" \
+	--upload tests/runtime_priority/qualify.py:/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py \
 	--upload "$binary:/usr/local/bin/terrascale-orchestrator" \
 	--upload "$timesyncd_config_image:$timesyncd_config_guest" \
 	"${bootstrap_uploads[@]}" \

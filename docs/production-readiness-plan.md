@@ -1,5 +1,48 @@
 # Production readiness plan
 
+## Current workspace delivery scope
+
+The [workspace GOAL](../../GOAL.md) is the current delivery authority and
+supersedes earlier plan-only and AMD-only restrictions in this dated plan.
+Current Go orchestration work belongs to `ts-orchestrator`; TerraBase is the
+database service. The former `ts-deploy`-era guidance is historical. See the
+[current orchestrator overview](../README.md).
+
+Prioritize correct APIs and end-to-end integration, then an early deployed
+preview before full product completion. Use the existing leaderless profile
+for the first milestone; regional Raft remains a separate proposal. The goal
+authorizes OCI inspection and task-owned preview resources for both services
+on low-cost ARM64, preferring `VM.Standard.A1.Flex` where capacity and cost
+permit and starting in GRU when feasible. Combined recurring costs for
+qualification testing and preview are capped at **US$100/month**, including
+every required compute, storage, networking, object-storage, and retained
+resource. Record the itemized estimate and resource inventory before creating
+resources.
+
+The selected preview topology is one regional R3 cell with three A1
+controllers and two separate orchestrator-managed A1 TerraBase hosts. Its
+control-plane claim is controller restart and recovery, not uninterrupted
+management through controller loss. Confirm the combined cost estimate and
+capacity before creating resources.
+
+Benchmarks, comparative performance targets, performance tuning, and optional
+model-assisted index advice are deferred until functional completion.
+Correctness, authorization, durability, resource limits, and ordinary index
+behavior remain in scope.
+
+Protect the Go controller and embedded NATS management path with reserved CPU
+and memory, workload CPU and memory caps, I/O weights, and OOM handling. The
+orchestrator must use the highest normal scheduling priority supported by its
+pinned host, without real-time scheduling guarantees. Verify pressure and
+restart/recovery behavior against effective systemd/cgroup settings; host or
+kernel failure remains a separate recovery case.
+
+This authorization does not show that a preview has been deployed or that an
+API scenario has passed. The current inventory and execution status are in the
+[OCI preview record](evidence/oci-preview-20260926.json); milestone gates are in
+the [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+This production-readiness plan remains a dated audit, not deployment evidence.
+
 ## Objective and current decision
 
 The production objective is one Go orchestrator binary that can form and
@@ -9,15 +52,16 @@ recover, and retire TerraBase members on retained OCI storage. A placement is
 serving only after the exact member identity, durable storage, local process,
 and replication state have been independently verified.
 
-**Status: NOT PRODUCTION READY. No production deployment, image publication,
-secret distribution, or OCI mutation is authorized by this plan.** This work
-does not authorize or perform OCI uploads, console captures, secret writes, or
-an apply. The current Go placement path can create a region-bound host and
-retained volume, then holds at `awaiting-runtime-contract`. No acceptance gate
-below is closed.
+**Status: NOT PRODUCTION READY.** This plan does not approve production use.
+The bounded preview authorization in the workspace GOAL supersedes the former
+plan-only restriction recorded below; it does not establish that preview
+resources or a deployed artifact exist. At the `d5fc307` checkpoint, the Go
+placement path could create a region-bound host and retained volume, then held
+at `awaiting-runtime-contract`; later commits publish TerraBase desired state
+and hold at `awaiting-healthy` without a serving claim. No production
+acceptance gate below is closed.
 
-This plan records a source and runtime audit, not an approval to deploy. It
-does not turn archived C# guidance or historical evidence into Go acceptance.
+This plan records a source and runtime audit, not an approval to deploy.
 The local Firecracker evidence is useful but does not qualify OCI images,
 production IAM, the full bootstrap path, or sustained availability.
 
@@ -31,19 +75,16 @@ Later shared-tree changes are outside this checkpoint and are not covered by
 the findings below. `AGENTS.md` is human-owned and is not an
 implementation target.
 
-Qualification results are revision- and scope-specific. The saved broad Go
-suite/vet packet records Go 1.27.1, `go test -count=1 ./...`, and `go vet ./...`
+Qualification results are revision- and scope-specific. The broad Go
+suite/vet check recorded Go 1.27.1, `go test -count=1 ./...`, and `go vet ./...`
 passing on its frozen pre-founder snapshot: archive base `93ca72c6` plus 13
 overlays whose hashes match every tracked path changed through the preceding
 `4c284550` enrollment checkpoint. It excludes untracked files and the nested
 `third_party/nats-server` module, and does not cover the later founder commits.
-Focused bootstrap tests and vet are
-recorded in `20260926-founder-core`; the selection package, focused race test,
-and vet are recorded in `20260926-founder-selection`; the current-reader/floor
-and OCI adapter checks are recorded in `20260926-founder-oci`. Those checks
-are bounded package tests, not a later full-suite run or a live OCI
-qualification. The evidence directories are under
-`../.qualification/ts-orchestrator/`.
+Focused founder bootstrap tests and vet, the selection package with a
+focused race test and vet, and the current-reader/floor and OCI adapter checks
+passed separately. Those checks are bounded package tests, not a later
+full-suite run or a live OCI qualification.
 
 The OCI SDK now sends Flex OCPU and memory dimensions in `ShapeConfig`, and
 `sdk_test.go` checks that request and response dimensions round-trip. The
@@ -100,22 +141,23 @@ Relevant source: [`internal/oci/sdk.go`](../internal/oci/sdk.go),
 [`docs/local-development.md`](local-development.md), and
 [`docs/releases.md`](releases.md).
 
-## Plan-only GRU E4 canary qualification envelope
+## Historical GRU E4 canary proposal (superseded)
 
-This is a bounded estimate and a gated sequence, not authorization. No OCI plan,
-apply, resource creation, upload, console capture, secret write, or image import
-has been run or authorized. In the committed `ts-infra` defaults,
-`oci_estate_enabled = false` and `oci_seed_enabled = false`; both remain false.
-OCI budgets are soft alerts evaluated about once every 24 hours, not spend caps
-or an automatic shutdown mechanism.
+This section preserves the estimate and gates from the earlier E4 plan-only
+proposal. Its E4 target, A1 exclusion, and separate-authorization statements
+are historical and are superseded by the current workspace GOAL above. They do
+not define the current preview target or its authorization. At the proposal's
+source checkpoint, no OCI plan, apply, resource creation, upload, console
+capture, secret write, or image import had been run or authorized. The
+committed `ts-infra` defaults then had `oci_estate_enabled = false` and
+`oci_seed_enabled = false`. OCI budgets were soft alerts, not spend caps or an
+automatic shutdown mechanism.
 
-**Current scope: plan preparation only.** This instruction supersedes the
-archived [readiness decision](evidence/oci-readiness-2026-09-20.md),
-which recorded GO for one disposable GRU staging canary. No live OCI calls,
-plans, applies, or resource creation are authorized as part of this work. The
-E4 canary below remains a proposed future qualification candidate, not current
-permission to run it; any execution requires separate authorization after its
-gates are reviewed. Production remains **NOT PRODUCTION READY**.
+**Historical scope at that checkpoint: plan preparation only.** The current
+preview authorization comes from the workspace GOAL. This old E4 proposal is
+not a current operator runbook; the linked preview record and acceptance ledger
+hold the current evidence and open prerequisites. Production remains **NOT
+PRODUCTION READY**.
 
 The only concrete candidate is one private control-plane canary in GRU
 `sa-saopaulo-1`, using one selected availability domain and a planned two-hour
@@ -237,8 +279,10 @@ The A1 branch consumes 2,880 OCPU-hours and 17,280 GB-hours in 30 days. Both
 fall below the stated 3,000 OCPU-hour and 18,000 GB-hour free ranges only if
 those ranges are entirely unused by the rest of the tenancy. The A1 priced
 subtotal therefore remains $65.345; $10.625 is only the compute-free scenario,
-not a promised price. Neither subtotal is an all-in ceiling, and A1 is not in
-this canary.
+not a promised price. These historical subtotals are not an all-in preview
+estimate and do not establish that an A1 deployment fits the current
+$100/month combined testing-and-preview cap. Recalculate with the current
+tenancy inventory and all required charges.
 
 For the E4 canary, four VMs cost 4 × (1 × $0.025 + 6 × $0.0015) = $0.136 per
 hour at these list rates, or **$0.272 for the planned two active hours**. A
@@ -252,12 +296,14 @@ says block capacity/performance meter until deletion, with a one-minute
 minimum then per-second proration across the calendar month. The hypothetical
 two-hour charge if **all five** volumes were deleted then is about $0.029514,
 but that is not the current preserve behavior in the Go provider and cannot be
-used as a run cost. No approved dollar ceiling is recorded. A prior draft's
-**$50 first-billing-period example is unapproved and illustrative only**:
-under the two-hour compute scenario, $0.272 plus a full month of five volumes
-at that assumed tier leaves $39.103 before every other itemized charge. It is
-not a budget decision, hard cap, all-in quote, or execution approval, and a
-safety hold can extend billable compute beyond the planned duration.
+used as a run cost. At the time of this proposal, no dollar ceiling was
+recorded and a prior draft's **$50 first-billing-period example was unapproved
+and illustrative only**: under the two-hour compute scenario, $0.272 plus a
+full month of five volumes at that assumed tier leaves $39.103 before every
+other itemized charge. That arithmetic is not an all-in estimate for the
+current authorized $100/month combined testing-and-preview recurring-cost cap,
+and a safety hold can extend
+billable compute beyond the planned duration.
 Image/Object Storage, network/transfer, logs, Vault and continued retention
 must be priced with named owners before any authorization.
 
@@ -306,11 +352,13 @@ parent-compartment inventory found no existing Compute instances, VCN,
 block volumes, or boot volumes in the three regions, but it was not
 tenancy-wide.
 
-Any future canary resource action requires a separately authorized stage and
-its applicable gates below. Decisions, inventory, state isolation, cost and
-stop ownership precede the first apply; image/ledger checks that require
-created resources block seed launch, and live network/clock checks block
-workload admission. Passing a later-stage check does not authorize an apply.
+The following sequence was written for the historical E4 canary. For the
+current preview, follow the workspace GOAL's resource-ownership boundaries and
+recorded cost/inventory prerequisite; the root GOAL supplies the preview
+authorization. Decisions, inventory, state isolation, cost and stop ownership
+still precede resource creation. Image/ledger checks that require created
+resources block seed launch, and live network/clock checks block workload
+admission. A passed check does not substitute for these prerequisites.
 
 1. A decision owner names the exact tenancy, parent and canary compartments,
    GRU AD, run ID and owner, a planned two-hour active-compute target with
@@ -364,7 +412,10 @@ workload admission. Passing a later-stage check does not authorize an apply.
    ownership, exact-OCID cleanup, retained-volume/ledger/HEAD protection,
    and post-run verification before an apply is even considered.
 
-No command below has been executed; this is the future sequence only:
+At the historical proposal checkpoint, none of the commands below had been
+executed; this was a future sequence for that E4 candidate. Later OCI
+inventory and preview work are recorded separately in the linked current
+evidence.
 
 1. Run only read-only inventory, E4 quota/capacity, service-endpoint, and
    bucket-property checks. Record returned regions, ADs, OCIDs, ETags, E4
@@ -559,59 +610,49 @@ qualification. They are design inputs, not accepted production behavior.
    `AppliedAck`, but current-source real-peer acceptance, serving proof and
    durable drain semantics are still missing.
 
-## Acceptance ledger
+## Production-readiness gates
 
-No gate is **CLOSED**. Evidence must be collected from the exact code and image
-being qualified; a design document or isolated unit test does not close an
-integration gate.
+No production gate in this table is **CLOSED**. Evidence must be collected
+from the exact code and image being qualified; a design document or isolated
+unit test does not close an integration gate. The current M0/M1 delivery gates
+are tracked separately in the [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
 
 | Gate / ownership | Required implementation and acceptance evidence | State |
 | --- | --- | --- |
 | OCI operation recovery — `internal/oci/**` | Use the persisted original operation time and stop replaying OCI create requests before the provider retry-token window expires. Hold expired unknown outcomes and disappeared confirmed resources for explicit, authority-fenced, OCID-specific reconciliation. Preserve the immutable create receipt and use the currently observed ETag for the next fenced operation. Real JetStream KV integration tests must prove no additional provider create at the expiry boundary and safe recovery after lost acknowledgements. | IN PROGRESS; implementation committed as `997498bff9a9c1e6aed29622796515b753ca7b69`; fake-journal unit/race tests passed. Real JetStream KV boundary tests, final review, and reconciliation tooling remain open. |
-| Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. No live publication or image mutation is part of this work. | IN PROGRESS; `cmd/ts-release` creates/verifies canonical receipts and conditionally publishes exact OCI objects, but no image or release was signed, imported, published, or run. `internal/bootstrapstart` and `internal/app/bootstrap_controller.go` now contain the intended current/historical image-receipt and running-binary consumer path; this integration is still under review and has no OCI or guest proof. The public receipt/delegation wire remains pinned by the root-signed manifest's exact envelope digest. Controller/host units and an offline installer exist, but first-boot config/enrollment and the corrected host cgroup service layout remain unqualified. The R7 amd64 build passed, but its attempt failed at host Chrony readiness before VM boot; the guest result needs a rerun, and arm64 execution has not been tested. Base-image pinning, installed-binary runtime verification, staged restart/rollback, signer environment review, and OCI IAM/cost authorization remain OPEN. |
+| Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. | IN PROGRESS; this row tracks production image/release qualification. The root GOAL separately authorizes publishing qualified preview artifacts; the OCI preview record currently reports no deployed artifact. `cmd/ts-release` creates/verifies canonical receipts and conditionally publishes exact OCI objects, but the production image and release gates remain open. `internal/bootstrapstart` and `internal/app/bootstrap_controller.go` contain the intended image-receipt and running-binary consumer path; this integration is still under review and has no OCI or guest proof. Controller/host units and an offline installer exist, but first-boot config/enrollment and the corrected host cgroup service layout remain unqualified. The R7 amd64 build passed, but its attempt failed at host Chrony readiness before VM boot; the guest result needs a rerun, and arm64 execution has not been tested. Base-image pinning, installed-binary runtime verification, staged restart/rollback, and signer-environment review remain OPEN. |
 | Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Connect the signed immutable bootstrap ledger, current founder selection/floor, and OCI launch adapter through a reviewed caller. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; founder plan verification, signed current-selection reading, rollback-floor checks, and an offline-testable OCI seed launch adapter have focused package evidence at their recorded source checkpoints. At `d5fc307`, no production `internal/app` caller connects the current-selection reader to the OCI adapter, and no live seed launch or cold-cell qualification exists. `ts-infra` gates remain false; its current GRU seed validator accepts A1 only. Exact seed handoff, cold GRU formation and SFO/FRA formation remain OPEN. |
 | Instance identity and host enrollment — NATS authorization/enrollment, host image/runtime owners | Use least-privilege OCI policies and version-pinned Vault material to issue per-host NATS identity and Ed25519 identity, pin the controller response key, and complete signed registration and rotation for the exact OCI instance. Demonstrate denied foreign-region, stale-generation, revoked, and tag-only identities through the real boot path. The preferred proof is a private HTTPS begin/complete exchange, fresh nonce, and public-only serial-console response; the controller reads console history, verifies exact instance ID and both signatures, and issues a durable one-time grant before NATS JWT issuance. Fail closed on 1 MiB history truncation or missing/replayed proof; do not grant console-connection IAM to the validator. | IN PROGRESS; local signed operator `broker-claim-apply` and R3 JWT/fence caller tests passed at the committed checkpoint, addressing the earlier helper-only review findings. The R7 fixture generates private JWT identities but is not a production issuer. Live OCI console-history/IAM denial, first-boot credential issuance and delivery, retry cleanup, and broker-revocation convergence in guests remain OPEN. |
 | Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; the earlier 8/8 native security run covered nested-supervisor death and child cleanup, but full systemd main-process death and writable-cgroup guest qualification remain OPEN. The earlier one-guest Unix-socket attempt exited status 1 without a captured application result; the later delegated attempt captured a verified journal but failed during native Apply with a Go netpoll fatal error before role and Unix-socket verification. The cause is under runtime investigation. Root-to-service credential handoff has source but its real privileged subprocess and restart caller still require review and qualification. The delegated supervisor leaf reached guest startup, but native workload verification failed. R7 failed before VM boot, so JWT/NTP host evidence still needs a rerun. |
-| TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; placement deliberately holds at `awaiting-runtime-contract` after OCI attachment. Guest block-device discovery, safe format/adoption, filesystem identity, exclusive mount and mount-bound member launch/report are absent. The bounded receiver-only member-status surface has no serving proof. Later mutable producer source includes an outbound sender and `AppliedAck`, but current-source real-peer acceptance, independently observed applied frontiers and a durable serving/drain receipt remain open. |
+| TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; at `d5fc307`, placement held at `awaiting-runtime-contract` after OCI attachment. Later commits (`ccfe2566` host bridge, `c0a4d639` placement) publish signed TerraBase desired state, verify a pinned exclusive mount and volume claim on the host, launch the member and report local process/mount status, then hold at `awaiting-healthy`; this path is not qualified here. Guest block-device discovery and safe format/adoption remain absent. The bounded receiver-only member-status surface has no serving proof. Later mutable producer source includes an outbound sender and `AppliedAck`, but current-source real-peer acceptance, independently observed applied frontiers and a durable serving/drain receipt remain open. |
 | Healing, autoscale, and retirement — `internal/placement/**`, followed by OCI drain integration | Choose and approve capacity signals, replica floor, min/max, hysteresis, anti-affinity, budget ceiling, and scale-in policy. Implement durable drain, graceful database shutdown, fresh writer-stop proof, retained-volume detach and re-observation, and only then termination. Exercise interrupted and ambiguous lifecycle operations without data loss or duplicate members. | OPEN; the TerraBase producer has no durable drain or writer-fence receipt, and the real OCI controller has no member-serving/drain/writer-stop verifier wired. Fixed seats do not establish autoscaling or safe scale-in. |
-| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before approving even a private OCI canary. | OPEN; no restore procedure or live OCI qualification exists. |
+| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before production approval. Qualification testing and preview share the authorized US$100/month recurring cap above. | OPEN; no production restore procedure or production qualification exists. |
 
-## Required implementation order
+## Production-readiness follow-on
 
-1. Close and review OCI operation recovery so the controller cannot replay
-   ambiguous creates beyond the provider's safe retry window.
-2. Produce retained signed release artifacts and image receipts, then qualify
-   systemd and cgroup behavior on a pinned custom image. Keep image creation
-   offline until the base image, signer, tenancy, and cost target are approved.
-3. Connect the tested pre-quorum ledger, current founder selector/floor, and
-   OCI seed adapter through a reviewed production caller. Then prove split
-   foundation/seed provisioning and seed relinquishment before controller
-   ownership.
-4. Add automatic R3 regional cell formation and least-privilege identity
-   enrollment. Prove cold boot and restart paths before TerraBase serving.
-5. Freeze the TerraBase producer contract, then integrate one real member on
-   its exact retained volume and verify serving from independent evidence.
-6. Add safe healing, autoscaling, retirement, backup, restore, and operational
-   signals. Set policy and cost limits before enabling automatic scale-in.
-7. Run the private GRU canary with reboot and replacement receipts. Only then
-   consider automatic SFO/FRA formation. Production readiness still requires
-   all regional, failure, restore, upgrade, and cost gates above.
+The API-first preview sequence and M0/M1 exit criteria are defined in the
+[workspace GOAL](../../GOAL.md#5-delivery-sequence) and tracked in the
+[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+After that milestone, close the production gates above: signed release and
+pinned-image qualification, host enrollment and runtime recovery, durable
+TerraBase serving and drain evidence, safe scale-in, backup and restore, and
+regional failure testing. Regional Raft remains a separate proposal and is not
+a prerequisite for the first preview.
 
-The first bounded deployment candidate is the **private GRU E4 control-plane
-canary** described above: three controllers and one host, with a pinned signed
-image, secure R3 NATS, automatic host enrollment, exact retained-volume
-attachment and control-plane recovery evidence. It does not admit a TerraBase
-member for serving. A later member qualification requires the frozen producer
-contract, real-peer serving and drain proof, and a separately reviewed scope.
-The canary remains non-production and requires a separately reviewed tenancy,
-canary state, image OCID, IAM, E4 capacity, network, volume disposition and
-cost envelope before any cloud mutation.
+The first bounded deployment target is now the workspace GOAL's API-first,
+low-cost ARM64 preview with both services and the existing leaderless profile.
+The E4 control-plane-only canary above is historical and is not the current
+target. Preview progress and open acceptance gates are recorded in the linked
+OCI preview record and shared-goal acceptance ledger. A preview result does
+not imply production readiness.
 
 ## Unresolved authority decisions
 
-- Select the OCI tenancy, base operating-system image and kernel, architecture
-  support, image-builder identity, regional image OCIDs, IAM policies,
-  network rules, quotas, and monthly cost limit.
+- Select and verify the OCI tenancy, base operating-system image and kernel,
+  architecture support, image-builder identity, regional image OCIDs, IAM
+  policies, network rules, and quotas. Record an itemized preview estimate
+  within the authorized US$100/month combined testing-and-preview recurring-cost cap before resource
+  creation; production cost approval remains separate.
 - Provision the offline release signer, publish its trust anchor into the
   image, and decide signer rotation and revocation behavior. A missing signer
   key cannot be replaced by an unsigned build or test key.
@@ -621,7 +662,9 @@ cost envelope before any cloud mutation.
 - Freeze TerraBase v2 identity, readiness, replication, drain, and writer-stop
   contracts with its producer team.
 - Set availability targets for controller loss and host session loss, replica
-  floor, scale policy, cost ceiling, RPO, RTO, and backup retention.
+  floor, scale policy, RPO, RTO, and backup retention. Apply the authorized
+  preview cap to recurring preview resources; define production limits
+  separately.
 
 Until those decisions and the acceptance ledger are complete, this document
 must not be read as an operating runbook or a production approval.

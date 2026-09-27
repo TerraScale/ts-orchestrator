@@ -1,6 +1,0 @@
-vm-artifacts: component=ts-node version=vmqual.204756d423e3f8c1 sha256=204756d423e3f8c111d00111e8cab692d68525f72e32f59157b49af08241d6f5 bytes=9732256
-vm-artifacts: component=orchestrator version=vmqual.44afe7d31f9330d1 sha256=44afe7d31f9330d16e6a2793291b30fcbd47d21e5be26b5ee8142e2dcda8acb8 bytes=30171296
-vm-artifacts: component=terrabase version=vmqual.038f78bbc55e1205 sha256=038f78bbc55e1205d117aadabe2ba243c08d26fcbdc2c2324c77d6a17d811464 bytes=20213072
-vm-qualify: start gru-member-1: vmqual: activate guest services: vmqual: activated terrabase process is not running; guestStartupDiagnostics=[{"unit":"terrascale-ts-node.service","observation":"observed","mainPid":2303,"activeState":"active","subState":"running","result":"success","journalEntries":4,"severityCounts":[0,0,0,0,0,0,4,0]},{"unit":"terrascale-orchestrator.service","observation":"observed","mainPid":2582,"activeState":"active","subState":"running","result":"success","journalEntries":10,"severityCounts":[0,0,0,0,1,1,8,0]},{"unit":"terrascale-terrabase.service","observation":"observed","activeState":"activating","subState":"auto-restart","result":"exit-code","execMainCode":1,"execMainStatus":1,"journalEntries":17,"severityCounts":[0,0,0,0,3,3,11,0],"categories":["membership-source-missing"]}]
-make: *** [Makefile:36: vm-test] Error 1
-Explicit make vm-clean: exit 0

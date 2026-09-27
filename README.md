@@ -10,9 +10,6 @@ rollout engine for this repository.
 This is a greenfield Go implementation. It does not promise compatibility with
 the retired C# commands, configuration, NATS subjects, or state. The current
 implementation and its gaps are described in [the architecture notes](docs/architecture.md).
-The [pre-migration archive](docs/archive/pre-migration/README.md) retains the
-former operational documentation, and [evidence records](docs/evidence/)
-remain unchanged as historical receipts rather than Go acceptance evidence.
 
 ## Build and verify
 
@@ -26,9 +23,10 @@ mise exec -- make build
 mise exec -- make release-linux
 ```
 
-`make verify` checks Go formatting, runs tests, runs `go vet`, and repeats the
-tests with the race detector. `make build` creates `dist/terrascale-orchestrator`
-for the current host. `make release-linux` creates static Linux amd64 and
+`make verify` checks Go formatting, runs the Python Firecracker harness contract
+tests, runs Go tests and `go vet`, and repeats the tests with the race
+detector. `make build` creates `dist/terrascale-orchestrator` for the current
+host. `make release-linux` creates static Linux amd64 and
 arm64 executables and requires no Go runtime on the target machine. Forgejo CI
 repeats the checks against the event's exact commit, verifies both ELF
 architectures and the embedded Git revision, and prints SHA-256 digests.
@@ -47,15 +45,20 @@ quorum restoration. During controller loss, host session renewal/reporting
 failed with `context deadline exceeded`; systemd restarted the host agent and
 the workload later returned to running. This demonstrates recovery, not
 uninterrupted availability or compatibility with arbitrary or production
-kernels. Exact image and binary hashes are in [the qualification record](docs/local-development.md#latest-local-qualification).
+kernels. Exact image and binary hashes are in [the prior local qualification
+record](docs/local-development.md#prior-local-qualification-2026-09-24).
 Managed OCI placement can provision a host
-and retained volume, then stops at
-`awaiting-runtime-contract` after the attachment is positively observed. It
-does not start TerraBase, prove a mounted volume, or claim a database member is
-serving. Host image preparation, bootstrap, and signed enrollment remain
-operator steps.
+and retained volume. After the attachment is positively observed and the
+runtime artifact and managed mount path are ready, it publishes signed
+TerraBase desired state; the host verifies an existing exclusive mount of the
+retained filesystem, launches the member, and reports local process and mount
+status. Placement then holds at `awaiting-healthy`: it never claims a database
+member is serving, and the orchestrator does not discover, format, or mount the
+guest block device itself. Host image preparation, first-boot configuration,
+and signed enrollment remain operator steps.
 
-OCI provider behavior has only fake-provider coverage. A create accepted by
+OCI provider behavior has only fake-provider and offline simulator coverage;
+no live OCI account has been mutated. A create accepted by
 OCI whose result is lost before its recovery result is durably journaled stays
 unowned. Matching tags alone do not authorize adoption; manual inspection and
 reconciliation are required. Artifact uploads are bounded by a 2 GiB default

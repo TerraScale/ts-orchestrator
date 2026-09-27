@@ -1,14 +1,19 @@
 # Build and release boundaries
 
 The Forgejo verification workflow checks out the event's exact Git revision and
-requires a clean tree. It runs Go formatting checks, tests, `go vet`, and
+requires a clean tree. Its single job runs `make verify`: Go formatting
+checks, the Python Firecracker harness contract tests, Go tests, `go vet`, and
 race-enabled tests using Go 1.27.1. The `terrascale-builder` image supplies
 that exact Go version; `.mise.toml` pins the same version for local development.
 
-The artifact job cross-compiles one static executable for Linux amd64 and one
+The same job then cross-compiles one static executable for Linux amd64 and one
 for Linux arm64 with cgo disabled. It checks the ELF machine type, absence of a
 dynamic interpreter and linked libraries, the embedded Git revision, and
 SHA-256 digests. It prints a `SHA256SUMS` receipt in the job log.
+After those checks, the job retains both exact binaries with a qualification
+manifest that records the source revision and tree, Go version, module-file
+digests, successful workflow/job run identity, and each artifact's size and
+SHA-256.
 
 The separate `release.yml` workflow is dispatch-only on protected `main`. Its
 `sign_release` and `publish` inputs both default to `false`; it does no work
@@ -20,10 +25,19 @@ conditionally creates immutable, source-revision-keyed objects. It publishes
 only signed Linux binaries and their signed receipts. No release was signed or
 published for this change, and the workflow was not run. Configure environment
 reviewers and the release runner's least-privilege OCI policy before any future
-manual use.
+manual use. The dispatch requires the candidate CI run ID and Forgejo run
+number. It downloads that run's retained binaries and manifest, checks the
+run's source, workflow, job, and success status with `fj`, and checks the
+manifest's source tree and module digests against the checked-out source. The
+signer also requires the exact manifest-digest marker in the CI job log before
+it signs.
 
-`internal/release` owns the v1 binary and image receipt wire types, scope rules,
-and current and historical verification. Current verification requires a live
+`internal/release` owns the v2 binary and image receipt wire types, scope rules,
+and current and historical verification. Each receipt requires the SHA-256 of
+the exact qualification manifest. Binary receipts bind that manifest to the
+source revision and retained static executable. Image receipts bind it to the
+same qualified binary, the candidate QCOW2, its base image and kernel, and the
+asserted custom-image OCID and region. Current verification requires a live
 root-signed release delegation with a maximum 365-day lifetime and a receipt
 with its separately defined 365-day maximum. Signing applies the same limits
 and caps receipt expiry at the remaining delegation lifetime. Historical
@@ -33,8 +47,12 @@ envelope wire; this is the digest pinned by
 `Manifest.ReleaseReceiptSHA256`, not a payload-only digest.
 The accepted bootstrap wire direction carries the public image-receipt
 envelope and release-delegation envelope in the root-signed manifest after OCI
-image import; the runtime checks the envelope digest against this pin before
-trusting the receipt.
+image import; the runtime checks the envelope digest against this pin and
+checks the receipt's environment, region, image OCID, and architecture against
+the signed manifest before trusting the receipt. Neither image-candidate nor
+sign-image reads image bytes back from OCI: they inspect the supplied local
+QCOW2 and accept the imported image OCID and region as inputs. OCI read-back and
+deployed-image execution therefore remain separate evidence.
 
 `cmd/ts-release` checks static ELF and embedded Go build metadata and consumes
 the shared verifier for binary and image promotion receipts. OCI object upload
@@ -132,10 +150,17 @@ reads `/etc/terrascale-orchestrator/controller.json`, and persists embedded
 JetStream below `/var/lib/terrascale-orchestrator-controller`. Its config must
 set `nats.embedded.store_dir` to a directory under that state root. The host
 unit runs the one binary as root with `Delegate=yes`, `NoNewPrivileges=yes`,
-and only `CAP_CHOWN`, `CAP_KILL`, `CAP_SETGID`, `CAP_SETUID`, and `CAP_SETPCAP`; its
-root-only config is `/etc/terrascale-orchestrator/host.json`. `host.state_root`
-must be a private child of `/var/lib/terrascale-orchestrator-host`, while
-`host.install_root` is a separate child for tenant-group executable files.
+and only `CAP_CHOWN`, `CAP_KILL`, `CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, and
+`CAP_DAC_READ_SEARCH`; its root-only config is
+`/etc/terrascale-orchestrator/host.json`. `host.state_root` must be a private
+child of `/var/lib/terrascale-orchestrator-host`, while `host.install_root` is
+a separate child for tenant-group executable files. The unit's only extra
+writable path is the canonical managed runtime root `/srv/ts-managed`, used
+when `host.managed_runtime_root` selects it. The optional builder flag
+`--managed-workload-gid` provisions that directory as `root:GID` mode `0750`
+and must match `host.workload_gid`; another managed root needs its own
+provisioning and a host-service drop-in that resets `ReadWritePaths=` before
+adding the exact path.
 These host settings match the runtime owner's proposed path contract. The
 service asset is ready for staging. The strict systemd guest security run
 passed all eight tests with no skips, including cross-UID child death after
@@ -167,4 +192,4 @@ is `dist/SHA256SUMS`.
 
 These local outputs are not published or signed release assets. The distinct
 amd64 binary used in the guest qualification is recorded in [local
-development](local-development.md#latest-local-qualification).
+development](local-development.md#prior-local-qualification-2026-09-24).

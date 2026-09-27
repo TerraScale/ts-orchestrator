@@ -32,12 +32,6 @@ from typing import Any
 
 
 REPO = Path(__file__).resolve().parents[2]
-DEFAULT_KERNEL = Path(
-    "/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/"
-    "20260926-firecracker/inputs/vmlinux-6.1.186")
-DEFAULT_ROOTFS = Path(
-    "/home/mariogk/Projects/TerraScale/.qualification/ts-orchestrator/"
-    "20260926-firecracker/inputs/rootfs-noble-20260911.ext4")
 KERNEL_SHA = "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523"
 ROOTFS_SHA = "a6c1cb9c712d8bb9e67b05dd8f46b7e88827250b445e76015e6bb536a15e1af6"
 MAX_UNIX_SOCKET_PATH_BYTES = 107
@@ -2004,8 +1998,8 @@ def preflight(args: argparse.Namespace) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("check", "run"))
-    parser.add_argument("--kernel", type=Path, default=DEFAULT_KERNEL)
-    parser.add_argument("--rootfs", type=Path, default=DEFAULT_ROOTFS)
+    parser.add_argument("--kernel", type=Path, required=True)
+    parser.add_argument("--rootfs", type=Path, required=True)
     parser.add_argument("--firecracker", default=shutil.which("firecracker") or "firecracker")
     parser.add_argument("--run-dir", type=Path, help="new, private evidence directory")
     args = parser.parse_args()

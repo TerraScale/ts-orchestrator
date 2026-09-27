@@ -43,11 +43,13 @@ func run(args []string) error {
 
 func runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-bootstrap verify-anchor | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
 		return verifyBootstrapAnchorAt(args[1:], now)
+	case "verify-manifest":
+		return verifyBootstrapManifestAt(args[1:], now)
 	case "sign-ledger-delegation":
 		return signLedgerDelegationAt(args[1:], now)
 	case "sign-anchor":
@@ -61,7 +63,7 @@ func runAt(args []string, now time.Time) error {
 	case "publish-founder-selection":
 		return publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-bootstrap verify-anchor | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 }
 
@@ -94,6 +96,94 @@ type verifiedBootstrapAnchorOutput struct {
 	ExpiresAt                     time.Time               `json:"expiresAt"`
 }
 
+type verifiedBootstrapManifestOutput struct {
+	SchemaVersion        int                     `json:"schemaVersion"`
+	AnchorSHA256         string                  `json:"anchorSha256"`
+	ManifestSHA256       string                  `json:"manifestSha256"`
+	DeploymentID         string                  `json:"deploymentId"`
+	Environment          string                  `json:"environment"`
+	ClusterID            string                  `json:"clusterId"`
+	Cell                 oci.Region              `json:"cell"`
+	OCIRegion            string                  `json:"ociRegion"`
+	Slot                 string                  `json:"slot"`
+	ImageOCID            string                  `json:"imageOcid"`
+	ImageArchitecture    string                  `json:"imageArchitecture"`
+	ReleaseReceiptSHA256 string                  `json:"releaseReceiptSha256"`
+	Profile              bootstrap.LaunchProfile `json:"profile"`
+	IssuedAt             time.Time               `json:"issuedAt"`
+	ExpiresAt            time.Time               `json:"expiresAt"`
+}
+
+func verifyBootstrapManifestAt(args []string, now time.Time) error {
+	flags := flag.NewFlagSet("verify-manifest", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	anchorPath := flags.String("anchor", "", "canonical root-signed deployment bootstrap anchor envelope")
+	manifestPath := flags.String("manifest", "", "canonical root-signed per-slot bootstrap manifest envelope")
+	identityPath := flags.String("identity", "", "canonical version-1 baked identity JSON")
+	slot := flags.String("slot", "", "independently established controller slot")
+	imageOCID := flags.String("image-ocid", "", "independently established OCI image OCID")
+	var rootPaths stringListFlag
+	flags.Var(&rootPaths, "root-key", "trusted root Ed25519 public key PEM (repeatable)")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *anchorPath == "" || *manifestPath == "" || *identityPath == "" || *slot == "" || *imageOCID == "" || flags.NArg() != 0 {
+		return errors.New("verify-manifest requires --anchor, --manifest, --identity, --slot, --image-ocid, and at least one --root-key")
+	}
+	if len(rootPaths) == 0 || len(rootPaths) > bootstrapstart.MaxRootFiles {
+		return fmt.Errorf("verify-manifest requires between 1 and %d --root-key files", bootstrapstart.MaxRootFiles)
+	}
+	anchor, roots, err := loadVerifiedBootstrapAnchor(*anchorPath, *identityPath, rootPaths, now)
+	if err != nil {
+		return err
+	}
+	expected, err := anchor.ManifestExpectation(*slot, *imageOCID)
+	if err != nil {
+		return fmt.Errorf("derive manifest expectation from current anchor: %w", err)
+	}
+	manifestWire, err := readBoundedRegular(*manifestPath, bootstrap.MaxManifestBytes)
+	if err != nil {
+		return fmt.Errorf("read bootstrap manifest: %w", err)
+	}
+	envelope, err := trust.DecodeEnvelope(manifestWire)
+	if err != nil {
+		return fmt.Errorf("decode bootstrap manifest: %w", err)
+	}
+	verified, err := bootstrap.VerifyManifest(envelope, roots, expected, now.Round(0).UTC(), bootstrap.ManifestTrustPolicy())
+	if err != nil {
+		return fmt.Errorf("verify current bootstrap manifest: %w", err)
+	}
+	manifest := verified.Manifest()
+	profile, found := verified.Profile(*slot)
+	if !found {
+		return errors.New("verified bootstrap manifest has no launch profile for the requested slot")
+	}
+	architecture, err := releaseArchitecture(manifest.ImageArchitecture)
+	if err != nil {
+		return err
+	}
+	if _, err := release.VerifyImageCurrent(manifest.ReleaseImageReceiptWire, manifest.ReleaseDelegationWire, roots,
+		release.ImageExpectation{Environment: manifest.Environment, LogicalRegion: string(manifest.Cell),
+			OCIImageOCID: manifest.ImageOCID, Architecture: architecture}, now.Round(0).UTC()); err != nil {
+		return fmt.Errorf("verify current manifest release image proof: %w", err)
+	}
+	output := verifiedBootstrapManifestOutput{
+		SchemaVersion: bootstrap.ManifestSchemaVersion, AnchorSHA256: anchor.Digest(), ManifestSHA256: verified.Digest(),
+		DeploymentID: manifest.DeploymentID, Environment: manifest.Environment, ClusterID: manifest.ClusterID,
+		Cell: manifest.Cell, OCIRegion: manifest.OCIRegion, Slot: manifest.Slot, ImageOCID: manifest.ImageOCID,
+		ImageArchitecture: manifest.ImageArchitecture, ReleaseReceiptSHA256: manifest.ReleaseReceiptSHA256,
+		Profile: profile, IssuedAt: envelope.IssuedAt, ExpiresAt: envelope.ExpiresAt,
+	}
+	encoded, err := trust.EncodePayload(output)
+	if err != nil {
+		return fmt.Errorf("encode verified bootstrap manifest summary: %w", err)
+	}
+	if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
+		return fmt.Errorf("write verified bootstrap manifest summary: %w", err)
+	}
+	return nil
+}
+
 func verifyBootstrapAnchorAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("verify-anchor", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -110,55 +200,9 @@ func verifyBootstrapAnchorAt(args []string, now time.Time) error {
 	if len(rootPaths) == 0 || len(rootPaths) > bootstrapstart.MaxRootFiles {
 		return fmt.Errorf("verify-anchor requires between 1 and %d --root-key files", bootstrapstart.MaxRootFiles)
 	}
-	identityWire, err := readBoundedRegular(*identityPath, 4<<10)
+	verified, _, err := loadVerifiedBootstrapAnchor(*anchorPath, *identityPath, rootPaths, now)
 	if err != nil {
-		return fmt.Errorf("read fixed bootstrap identity: %w", err)
-	}
-	var identity bootstrapstart.BakedIdentity
-	if err := protocol.DecodeStrict(identityWire, &identity, 4<<10); err != nil {
-		return fmt.Errorf("decode fixed bootstrap identity: %w", err)
-	}
-	if identity.SchemaVersion != 1 {
-		return errors.New("fixed bootstrap identity schemaVersion must be 1")
-	}
-	canonical, err := protocol.EncodeJSON(identity)
-	if err != nil || !bytes.Equal(identityWire, canonical) {
-		return errors.New("fixed bootstrap identity must be canonical JSON")
-	}
-	expected := identity.AnchorExpectation()
-	rootKeys := make([]ed25519.PublicKey, 0, len(rootPaths))
-	rootBytes := 0
-	for _, path := range rootPaths {
-		wire, err := readBoundedRegular(path, bootstrapstart.MaxRootBytes)
-		if err != nil {
-			return err
-		}
-		rootBytes += len(wire)
-		if rootBytes > bootstrapstart.MaxRootsTotal {
-			return fmt.Errorf("verify-anchor root key files exceed %d aggregate bytes", bootstrapstart.MaxRootsTotal)
-		}
-		publicKey, err := parseRootPublicKey(wire)
-		if err != nil {
-			return err
-		}
-		rootKeys = append(rootKeys, publicKey)
-	}
-	roots, err := trust.ParseKeyring(rootKeys...)
-	if err != nil {
-		return fmt.Errorf("parse root trust set: %w", err)
-	}
-	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
-	if err != nil {
-		return fmt.Errorf("read bootstrap anchor: %w", err)
-	}
-	envelope, err := trust.DecodeEnvelope(anchorWire)
-	if err != nil {
-		return fmt.Errorf("decode bootstrap anchor: %w", err)
-	}
-	now = now.Round(0).UTC()
-	verified, err := bootstrap.VerifyBootstrapAnchor(envelope, roots, expected, now, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil {
-		return fmt.Errorf("verify current bootstrap anchor: %w", err)
+		return err
 	}
 	anchor := verified.Anchor()
 	grant, err := verified.LedgerDelegation()
@@ -181,6 +225,62 @@ func verifyBootstrapAnchorAt(args []string, now time.Time) error {
 		return fmt.Errorf("write verified bootstrap anchor summary: %w", err)
 	}
 	return nil
+}
+
+func loadVerifiedBootstrapAnchor(anchorPath, identityPath string, rootPaths []string, now time.Time) (
+	bootstrap.VerifiedBootstrapAnchor, trust.Keyring, error,
+) {
+	identityWire, err := readBoundedRegular(identityPath, 4<<10)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("read fixed bootstrap identity: %w", err)
+	}
+	var identity bootstrapstart.BakedIdentity
+	if err := protocol.DecodeStrict(identityWire, &identity, 4<<10); err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("decode fixed bootstrap identity: %w", err)
+	}
+	if identity.SchemaVersion != 1 {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, errors.New("fixed bootstrap identity schemaVersion must be 1")
+	}
+	canonical, err := protocol.EncodeJSON(identity)
+	if err != nil || !bytes.Equal(identityWire, canonical) {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, errors.New("fixed bootstrap identity must be canonical JSON")
+	}
+	expected := identity.AnchorExpectation()
+	rootKeys := make([]ed25519.PublicKey, 0, len(rootPaths))
+	rootBytes := 0
+	for _, path := range rootPaths {
+		wire, err := readBoundedRegular(path, bootstrapstart.MaxRootBytes)
+		if err != nil {
+			return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, err
+		}
+		rootBytes += len(wire)
+		if rootBytes > bootstrapstart.MaxRootsTotal {
+			return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("bootstrap root key files exceed %d aggregate bytes", bootstrapstart.MaxRootsTotal)
+		}
+		publicKey, err := parseRootPublicKey(wire)
+		if err != nil {
+			return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, err
+		}
+		rootKeys = append(rootKeys, publicKey)
+	}
+	roots, err := trust.ParseKeyring(rootKeys...)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("parse root trust set: %w", err)
+	}
+	anchorWire, err := readBoundedRegular(anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("read bootstrap anchor: %w", err)
+	}
+	envelope, err := trust.DecodeEnvelope(anchorWire)
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("decode bootstrap anchor: %w", err)
+	}
+	now = now.Round(0).UTC()
+	verified, err := bootstrap.VerifyBootstrapAnchor(envelope, roots, expected, now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		return bootstrap.VerifiedBootstrapAnchor{}, trust.Keyring{}, fmt.Errorf("verify current bootstrap anchor: %w", err)
+	}
+	return verified, roots, nil
 }
 
 // signLedgerDelegationAt issues only the exact current anchor ledger grant.

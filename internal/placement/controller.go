@@ -412,6 +412,9 @@ func (controller *Controller) advanceMember(
 			return false, nil
 		}
 		if state.VolumeID != "" {
+			if err := controller.verifyPinnedImage(ctx); err != nil {
+				return false, err
+			}
 			state.Stage = StagePreparedAttach
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach")
 			_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -454,6 +457,12 @@ func (controller *Controller) advanceMember(
 		if !admitted || status.Registration.Generation != state.HostGeneration {
 			return false, nil
 		}
+		if !controller.runtimeArtifactReady(ctx, state, seat) {
+			return false, nil
+		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
+		}
 		var attachment *oci.Attachment
 		for index := range instance.Attachments {
 			if instance.Attachments[index].VolumeID == state.VolumeID {
@@ -465,9 +474,6 @@ func (controller *Controller) advanceMember(
 			}
 		}
 		if attachment == nil {
-			if !controller.runtimeArtifactReady(ctx, state, seat) {
-				return false, nil
-			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -511,6 +517,12 @@ func (controller *Controller) advanceMember(
 			}
 			switch attachment.State {
 			case "ATTACHED":
+				if !controller.runtimeArtifactReady(ctx, state, seat) {
+					return false, nil
+				}
+				if err := controller.verifyPinnedImage(ctx); err != nil {
+					return false, err
+				}
 				state.Stage = StageAwaitingRuntimeContract
 				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -535,6 +547,9 @@ func (controller *Controller) advanceMember(
 		}
 		if !fresh {
 			return false, nil
+		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
 		}
 		desired, err := controller.memberDesired(epoch, intent, state, seat)
 		if err != nil {
@@ -575,6 +590,9 @@ func (controller *Controller) advanceMember(
 		}
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
 			return false, nil
+		}
+		if err := controller.verifyPinnedImage(ctx); err != nil {
+			return false, err
 		}
 		if _, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state)); err != nil {
 			controller.hold(fmt.Sprintf("member %s has no safe managed mount path: %v", seat.MemberID, err))
@@ -617,6 +635,13 @@ func (controller *Controller) advanceMember(
 	default:
 		return false, fmt.Errorf("%w: unknown member stage %q", ErrStoreCorrupt, state.Stage)
 	}
+}
+
+func (controller *Controller) verifyPinnedImage(ctx context.Context) error {
+	if err := controller.fleet.VerifyPinnedImage(ctx); err != nil {
+		return fmt.Errorf("current managed OCI image qualification: %w", err)
+	}
+	return nil
 }
 
 func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
@@ -901,6 +926,7 @@ func (controller *Controller) memberDesired(epoch uint64, intent Intent, state M
 			ProcessMemoryBytes:   state.ManagedHostProfile.ProcessMemoryBytes,
 			MemoryHeadroomBytes:  state.ManagedHostProfile.MemoryHeadroomBytes,
 			CgroupMemoryMaxBytes: state.ManagedHostProfile.CgroupMemoryMaxBytes,
+			SystemReserveBytes:   state.ManagedHostProfile.SystemReserveBytes,
 			Runtime: &host.ManagedRuntimePins{
 				DevicePath: state.AttachmentDevice, MountPath: mountPath,
 				FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType,

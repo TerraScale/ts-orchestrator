@@ -246,7 +246,8 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 	imageReceipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
 		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13,
 		BinarySHA256: strings.Repeat("a", 64), BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base",
-		BaseImageRegion: "GRU", BaseImageSHA256: strings.Repeat("b", 64),
+		QualificationSHA256: strings.Repeat("e", 64),
+		BaseImageRegion:     "GRU", BaseImageSHA256: strings.Repeat("b", 64),
 		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
 		OCIImageOCID: imageID, OCIRegion: "GRU"}

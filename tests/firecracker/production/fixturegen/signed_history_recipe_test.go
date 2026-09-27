@@ -138,7 +138,8 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: releaseRevision,
 		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: int64(len(binary)),
 		BinarySHA256: historyDigest(binary), BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.basefixture",
-		BaseImageRegion: "GRU", BaseImageSHA256: strings.Repeat("b", 64),
+		QualificationSHA256: strings.Repeat("e", 64),
+		BaseImageRegion:     "GRU", BaseImageSHA256: strings.Repeat("b", 64),
 		KernelRelease: "6.1.0-fixture", KernelSHA256: strings.Repeat("c", 64),
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
 		OCIImageOCID: imageOCID, OCIRegion: "GRU"}

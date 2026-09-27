@@ -6,10 +6,143 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestNativeOOMPreferenceAppliesOnlyToSupervisor(t *testing.T) {
+	root := t.TempDir()
+	supervisor := filepath.Join(root, "supervisor")
+	role := filepath.Join(root, "role")
+	for _, path := range []string{supervisor, role} {
+		if err := os.Mkdir(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := unix.Setxattr(role, "user.oomd_omit", []byte("1"), 0); errors.Is(err, unix.EOPNOTSUPP) {
+		t.Skip("test filesystem does not support user xattrs")
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Setxattr(role, "user.oomd_avoid", []byte("1"), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := setNativeSupervisorOOMPreference(supervisor); err != nil {
+		t.Fatal(err)
+	}
+	if err := clearNativeWorkloadOOMPreference(role); err != nil {
+		t.Fatal(err)
+	}
+	if value, present, err := readNativeOOMXattr(supervisor, "user.oomd_omit"); err != nil || !present || value != "1" {
+		t.Fatalf("supervisor omit = %q, present=%t, %v", value, present, err)
+	}
+	for _, name := range []string{"user.oomd_omit", "user.oomd_avoid"} {
+		if value, present, err := readNativeOOMXattr(role, name); err != nil || present {
+			t.Fatalf("role %s = %q, present=%t, %v", name, value, present, err)
+		}
+	}
+}
+
+func TestNativeSupervisorReservationFollowsAncestorsAndSignedBound(t *testing.T) {
+	mount := t.TempDir()
+	ancestor := filepath.Join(mount, "system.slice")
+	service := filepath.Join(ancestor, "host.service")
+	supervisor := filepath.Join(service, "supervisor")
+	runner := filepath.Join(service, "terrascale-host-test")
+	for _, path := range []string{supervisor, runner} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const minimum = uint64(256 << 20)
+	const low = uint64(512 << 20)
+	write := func(directory, name string, value uint64) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(directory, name), []byte(strconv.FormatUint(value, 10)), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{ancestor, service, supervisor} {
+		write(path, "memory.min", minimum)
+		write(path, "memory.low", low)
+	}
+	write(runner, "memory.min", 0)
+	write(runner, "memory.low", 0)
+	check := func(wantValid bool) {
+		t.Helper()
+		err := validateNativeSupervisorReservationAt(mount, service, runner, 1<<30)
+		if (err == nil) != wantValid {
+			t.Fatalf("reservation valid = %t, error = %v", wantValid, err)
+		}
+	}
+	check(true)
+	write(ancestor, "memory.min", 0)
+	check(false)
+	write(ancestor, "memory.min", minimum)
+	write(supervisor, "memory.low", 0)
+	check(false)
+	write(supervisor, "memory.low", low)
+	write(runner, "memory.min", minimum)
+	check(false)
+	write(runner, "memory.min", 0)
+	write(service, "memory.low", 2<<30)
+	check(false)
+}
+
+func TestNativeWorkloadCPUQuotaUsesTightestAncestor(t *testing.T) {
+	mount := t.TempDir()
+	ancestor := filepath.Join(mount, "system.slice")
+	service := filepath.Join(ancestor, "host.service")
+	if err := os.MkdirAll(service, 0700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(directory, value string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(directory, "cpu.max"), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(mount, "max 100000")
+	write(ancestor, "200000 100000")
+	write(service, "max 100000")
+	if quota, err := deriveNativeWorkloadCPUQuotaAt(mount, service, 2); err != nil || quota != 150000 {
+		t.Fatalf("two CPU quota = %d, %v; want 150000", quota, err)
+	}
+	write(ancestor, "100000 100000")
+	if quota, err := deriveNativeWorkloadCPUQuotaAt(mount, service, 2); err != nil || quota != 75000 {
+		t.Fatalf("ancestor-limited quota = %d, %v; want 75000", quota, err)
+	}
+	write(ancestor, "1000 100000")
+	if _, err := deriveNativeWorkloadCPUQuotaAt(mount, service, 2); err == nil {
+		t.Fatal("accepted ancestor quota without supervisor headroom")
+	}
+}
+
+func TestNativeRoleResourcesHaveNoProtectionAndFiniteCPUCap(t *testing.T) {
+	role := t.TempDir()
+	for name, value := range map[string]string{
+		"memory.min": "1234", "memory.low": "1234", "cpu.weight": "100", "io.weight": "default 100", "cpu.max": "max 100000",
+	} {
+		if err := os.WriteFile(filepath.Join(role, name), []byte(value), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := configureNativeRoleResources(role, 75000); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"memory.min": "0", "memory.low": "0", "cpu.weight": "1000", "io.weight": "default 1000", "cpu.max": "75000 100000",
+	} {
+		data, err := os.ReadFile(filepath.Join(role, name))
+		if err != nil || strings.TrimSpace(string(data)) != want {
+			t.Fatalf("%s = %q, %v; want %q", name, data, err, want)
+		}
+	}
+}
 
 func nativeTestCgroupUnavailable(err error) bool {
 	return errors.Is(err, os.ErrPermission) || errors.Is(err, syscall.EROFS) || errors.Is(err, errNativeSubgroupRequired)

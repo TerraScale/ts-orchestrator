@@ -11,9 +11,9 @@ formats, and stores are not compatibility contracts.
 One Go executable for regional control, host convergence, signed artifact
 admission, and generic native-workload rollout. Forgejo Actions builds and
 tests repository source. Managed OCI placement can provision a host and
-retained volume, but it stops after confirmed attachment at
-`awaiting-runtime-contract`; it does not launch or report a serving TerraBase
-member.
+retained volume and, after confirmed attachment, publish signed TerraBase
+desired state; it then holds at `awaiting-healthy` and never reports a serving
+TerraBase member.
 
 **Regional cell**
 
@@ -83,8 +83,6 @@ signed lease enters its five-second execution reserve.
 
 A digest-pinned executable started by the Go host runner in a dedicated cgroup
 v2 subtree. Recovery examines that subtree before accepting new desired state.
-The former systemd and containerd instructions belong to the pre-migration
-archive.
 
 ## Artifact delivery
 
@@ -149,10 +147,15 @@ optional `tick_millis`. Unknown fields are rejected. A zero tick selects the
 five-second default; configured ticks must be between 100 ms and five minutes.
 OCI intent, region configuration, and placement configuration must be
 configured together. The host image, bootstrap, and signed host enrollment
-remain operator-provided. After the retained volume is observed as attached,
-the controller holds the member because no verified TerraBase runtime and
-mount contract is available. It does not publish host desired state, claim
-health, scale in, or decommission a region. If OCI accepts a create but its
+remain operator-provided. After the retained volume is observed as attached
+(`awaiting-runtime-contract`), the controller waits for the admitted runtime
+artifact and a safe managed mount path, then publishes signed TerraBase host
+desired state. The host verifies the pinned, exclusively mounted retained
+filesystem and member material, launches TerraBase, and reports local process
+and mount status. The controller then holds the member at `awaiting-healthy`
+because no independent serving proof exists. It does not discover, format, or
+mount the guest block device, claim health or serving, scale in, or
+decommission a region. If OCI accepts a create but its
 recovery result is lost before durable journaling, later matching tags alone
 do not authorize adoption. The resource remains unowned and requires manual
 inspection and reconciliation.

@@ -1,5 +1,17 @@
 # Local development
 
+This repository contains the current Go `ts-orchestrator` executable. The
+[workspace GOAL](../../GOAL.md) prioritizes end-to-end API behavior and an
+early, low-cost ARM64 preview of ts-orchestrator with TerraBase. It authorizes
+that preview under a combined recurring-cost cap of **US$100/month for
+qualification testing and preview**; these local commands do not deploy or
+qualify it. Current preview evidence and open gates are linked in the
+[OCI preview record](evidence/oci-preview-20260926.json) and
+[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
+The management resource-protection and pressure/restart acceptance requirement
+is defined as D15 in the [workspace GOAL](../../GOAL.md#minimum-end-to-end-acceptance-scenarios);
+the commands below do not establish that runtime qualification.
+
 The repository pins Go 1.27.1 in `.mise.toml`. On a first checkout, trust that
 repository config and install its toolchain, then run the same verification
 targets used in CI:
@@ -7,13 +19,20 @@ targets used in CI:
 ```bash
 mise trust .mise.toml
 mise install
-mise exec -- make verify
-mise exec -- make build
+nice -n 10 mise exec -- make verify
+nice -n 10 mise exec -- make build
+nice -n 10 mise exec -- make release-linux
 ```
 
-`make verify` checks formatting, runs all Go tests, runs `go vet`, and runs the
-tests with the race detector. `make build` writes the current-platform binary
+`make verify` checks formatting, runs the Python Firecracker harness contract
+tests, runs all Go tests and `go vet`, and runs the tests with the race
+detector. `make build` writes the current-platform binary
 to `dist/terrascale-orchestrator`.
+
+`make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
+It is a cross-build target; it does not demonstrate execution on ARM64 or
+qualify a deployed preview. See [release boundaries](releases.md) for CI and
+artifact qualification limits.
 
 ## Regional NATS lab
 
@@ -25,8 +44,8 @@ strict configuration fields and secure-mode requirements are documented in
 [`internal/natscell/runtime.go`](../internal/natscell/runtime.go) and
 [`internal/app/config.go`](../internal/app/config.go).
 
-The binary accepts `run`, `host`, `check`, and `operator` commands with
-`--config FILE`; `identity-new --key FILE` creates an owner-private Ed25519
+The binary accepts `bootstrap-controller`, `run`, `host`, `check`, and
+`operator` commands with `--config FILE`; `identity-new --key FILE` creates an owner-private Ed25519
 key and prints the matching public key. Hosts cannot start the embedded NATS
 server. Keep private keys outside the repository.
 
@@ -44,9 +63,10 @@ Managed OCI mode requires `controller.oci_region_intent_file`,
 The placement file accepts `environment`, `member_role`, `resources`, and an
 optional `tick_millis` (zero means the five-second default; otherwise 100 to
 300000). Managed placement can create region-bound hosts and retained volumes
-but stops at `awaiting-runtime-contract` after confirmed attachment; host
-image/bootstrap/enrollment remain operator-provided, and no TerraBase serving
-claim is made. See [`internal/app/managed_config.go`](../internal/app/managed_config.go)
+and, after confirmed attachment, publish signed TerraBase desired state; it
+then holds at `awaiting-healthy`. Host image, first-boot configuration, and
+enrollment remain operator-provided, the orchestrator does not mount the guest
+volume, and no TerraBase serving claim is made. See [`internal/app/managed_config.go`](../internal/app/managed_config.go)
 and [`internal/placement/controller.go`](../internal/placement/controller.go)
 for the strict parser and lifecycle boundary.
 
@@ -73,7 +93,7 @@ controller/operator/host path, workload execution, host reboot recovery, and
 control-quorum loss and recovery. A successful local test run does not replace
 this guest qualification.
 
-### Latest local qualification
+### Prior local qualification (2026-09-24)
 
 On 2026-09-24, the four-VM run passed at source revision
 `df09ee5692b4a5dc60230f019d1265efccb2f972` using Go 1.27.1 via `mise`. It observed an

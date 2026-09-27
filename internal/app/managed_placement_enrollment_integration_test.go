@@ -97,8 +97,11 @@ func TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(t 
 		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
 	region := oci.RegionConfig{Region: oci.RegionGRU, Generation: 1,
 		Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1..owned",
+		ImageCompartmentID: "ocid1.compartment.oc1..image",
 		AvailabilityDomain: "AD-1", FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
 		SubnetID: "ocid1.subnet.oc1..owned", ImageID: "ocid1.image.oc1..owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50,
 		Shape: "VM.Standard.E4.Flex", Owner: "regional-owner"}
 	provider := &managedEnrollmentProvider{placementSizingProvider: &placementSizingProvider{config: region}}
 	fleet, err := oci.NewFleet(region, regionIntent, provider, journal, control, nil, nil)

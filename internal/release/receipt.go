@@ -18,8 +18,8 @@ import (
 const (
 	BinaryDomain = "terrascale.release.binary"
 	ImageDomain  = "terrascale.release.image"
-	BinarySchema = "terrascale.release.binary.v1"
-	ImageSchema  = "terrascale.release.image.v1"
+	BinarySchema = "terrascale.release.binary.v2"
+	ImageSchema  = "terrascale.release.image.v2"
 
 	DefaultGoVersion       = "go1.27.1"
 	MaxArtifactBytes int64 = 512 << 20
@@ -42,40 +42,42 @@ var (
 	imageIDPart            = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
-// BinaryReceipt is the v1 signed description of one static Linux binary.
+// BinaryReceipt is the v2 signed description of one CI-qualified static Linux binary.
 // Field names and JSON tags are part of the immutable receipt wire contract.
 type BinaryReceipt struct {
-	Schema         string `json:"schema"`
-	SourceRevision string `json:"source_revision"`
-	GoVersion      string `json:"go_version"`
-	GOOS           string `json:"goos"`
-	GOARCH         string `json:"goarch"`
-	ELFMachine     string `json:"elf_machine"`
-	Static         bool   `json:"static"`
-	Bytes          int64  `json:"bytes"`
-	SHA256         string `json:"sha256"`
+	Schema              string `json:"schema"`
+	SourceRevision      string `json:"source_revision"`
+	GoVersion           string `json:"go_version"`
+	GOOS                string `json:"goos"`
+	GOARCH              string `json:"goarch"`
+	ELFMachine          string `json:"elf_machine"`
+	Static              bool   `json:"static"`
+	Bytes               int64  `json:"bytes"`
+	SHA256              string `json:"sha256"`
+	QualificationSHA256 string `json:"qualification_sha256"`
 }
 
-// ImageReceipt is the v1 signed description of a QCOW2 image and its embedded
+// ImageReceipt is the v2 signed description of a QCOW2 image and its embedded
 // orchestrator binary. OCIRegion and BaseImageRegion use logical region names
 // (GRU, SFO, or FRA), not Oracle region slugs.
 type ImageReceipt struct {
-	Schema          string `json:"schema"`
-	SourceRevision  string `json:"source_revision"`
-	GoVersion       string `json:"go_version"`
-	Architecture    string `json:"architecture"`
-	BinaryBytes     int64  `json:"binary_bytes"`
-	BinarySHA256    string `json:"binary_sha256"`
-	BaseImageOCID   string `json:"base_image_ocid"`
-	BaseImageRegion string `json:"base_image_region"`
-	BaseImageSHA256 string `json:"base_image_sha256"`
-	KernelRelease   string `json:"kernel_release"`
-	KernelSHA256    string `json:"kernel_sha256"`
-	ImageFormat     string `json:"image_format"`
-	ImageBytes      int64  `json:"image_bytes"`
-	ImageSHA256     string `json:"image_sha256"`
-	OCIImageOCID    string `json:"oci_image_ocid"`
-	OCIRegion       string `json:"oci_region"`
+	Schema              string `json:"schema"`
+	SourceRevision      string `json:"source_revision"`
+	GoVersion           string `json:"go_version"`
+	Architecture        string `json:"architecture"`
+	BinaryBytes         int64  `json:"binary_bytes"`
+	BinarySHA256        string `json:"binary_sha256"`
+	QualificationSHA256 string `json:"qualification_sha256"`
+	BaseImageOCID       string `json:"base_image_ocid"`
+	BaseImageRegion     string `json:"base_image_region"`
+	BaseImageSHA256     string `json:"base_image_sha256"`
+	KernelRelease       string `json:"kernel_release"`
+	KernelSHA256        string `json:"kernel_sha256"`
+	ImageFormat         string `json:"image_format"`
+	ImageBytes          int64  `json:"image_bytes"`
+	ImageSHA256         string `json:"image_sha256"`
+	OCIImageOCID        string `json:"oci_image_ocid"`
+	OCIRegion           string `json:"oci_region"`
 }
 
 // BinaryExpectation limits verification to a release environment. The binary
@@ -135,7 +137,8 @@ type receiptProof struct {
 func (receipt BinaryReceipt) Validate() error {
 	if receipt.Schema != BinarySchema || !revisionPattern.MatchString(receipt.SourceRevision) ||
 		receipt.GoVersion != DefaultGoVersion || receipt.GOOS != "linux" || !receipt.Static ||
-		receipt.Bytes <= 0 || receipt.Bytes > MaxArtifactBytes || !digestPattern.MatchString(receipt.SHA256) {
+		receipt.Bytes <= 0 || receipt.Bytes > MaxArtifactBytes || !digestPattern.MatchString(receipt.SHA256) ||
+		!digestPattern.MatchString(receipt.QualificationSHA256) {
 		return fmt.Errorf("%w: binary schema, source, toolchain, platform, size, or digest", ErrInvalidReceipt)
 	}
 	expectedMachine := ""
@@ -158,7 +161,8 @@ func (receipt BinaryReceipt) Validate() error {
 func (receipt ImageReceipt) Validate() error {
 	if receipt.Schema != ImageSchema || !revisionPattern.MatchString(receipt.SourceRevision) ||
 		receipt.GoVersion != DefaultGoVersion || receipt.BinaryBytes <= 0 || receipt.BinaryBytes > MaxArtifactBytes ||
-		!digestPattern.MatchString(receipt.BinarySHA256) || !ValidRegion(receipt.BaseImageRegion) ||
+		!digestPattern.MatchString(receipt.BinarySHA256) || !digestPattern.MatchString(receipt.QualificationSHA256) ||
+		!ValidRegion(receipt.BaseImageRegion) ||
 		!ValidOCIImageIDForRegion(receipt.BaseImageOCID, receipt.BaseImageRegion) || !digestPattern.MatchString(receipt.BaseImageSHA256) ||
 		!validKernelRelease(receipt.KernelRelease) || !digestPattern.MatchString(receipt.KernelSHA256) || receipt.ImageFormat != "qcow2" ||
 		receipt.ImageBytes <= 0 || !digestPattern.MatchString(receipt.ImageSHA256) ||

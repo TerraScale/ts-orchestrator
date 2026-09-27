@@ -44,12 +44,17 @@ guest's private bridge IP on port `9540`, accepts only the host bridge IP,
 and returns bounded evidence or accepts a finish signal. It is not a
 TerraBase client endpoint.
 
-The driver uses two 9-GiB VMs with two vCPUs each. The guest service has an
-8-GiB systemd memory limit; the native TerraBase role has a signed 6-GiB
-`memory.max`, 4-GiB process limit and 1-GiB headroom. The test verifies the
-process's actual real, effective, saved and filesystem UID/GID, cgroup
-membership and `memory.max`, exact
-signed claim, filesystem UUID/mount, and accepted member-control report.
+The driver uses two 6-GiB VMs with two vCPUs each. The guest host service
+has systemd `MemoryMax=5G`; the signed profile sets 4 GiB of allocatable
+capacity, a 1-GiB system reserve, a 4-GiB process limit and role
+`memory.max`, and 1-GiB of headroom. Allocatable capacity plus reserve equals
+the service limit, leaving 1 GiB of guest memory outside that service cgroup.
+The host checks the allocatable-plus-reserve total against physical memory and
+every ancestor `memory.max`. The test verifies the process's actual real,
+effective, saved and filesystem UID/GID, cgroup membership and `memory.max`
+against the signed 4-GiB cap, exact signed claim, filesystem UUID/mount, and
+accepted member-control report.
+
 Root-owned material files are installed with GID 65534 and mode `0440` under
 each binding-derived material directory. The HTTPS root and raw fixture API
 token are separate pinned root-only files, outside TerraBase's managed
@@ -59,19 +64,43 @@ Build the focused Go test binary from a separate full-copy source snapshot
 whose accepted production B files, guest test, and all included package-host
 test helpers have a recorded SHA-256 inventory. Do not build from the moving
 shared tree: `go test -c` includes the other guest test in the same package.
-Coordinate this snapshot with the prepare-only profile owner, and use the
-exporter-produced TerraBase binary and two-member signer packet. The driver
-never builds either binary or creates the signer fixture:
+Coordinate this snapshot with the prepare-only profile owner. Build and pin
+the TerraBase binary separately. The exporter writes a disposable two-member
+signer packet into a new private directory; its ephemeral signing key is
+discarded when the process exits. Supply full source revisions and the
+qualified TerraBase source digest from the independent build record:
 
 ```sh
 # Run inside the pinned, full-copy Go snapshot:
-go test -c -o /path/to/host.test ./internal/host
+nice -n 10 go test -c -o /path/to/host.test ./internal/host
+nice -n 10 go run ./tests/firecracker/managedmember/exporter \
+  --output-dir /path/to/new/private-packet-directory \
+  --kernel /path/to/pinned/vmlinux \
+  --rootfs /path/to/pinned/rootfs.ext4 \
+  --firecracker /path/to/pinned/firecracker \
+  --go-host-test /path/to/host.test \
+  --tb-server /path/to/pinned/tb-server \
+  --orchestrator-revision FULL_ORCHESTRATOR_COMMIT \
+  --terrabase-revision FULL_TERRABASE_COMMIT \
+  --source-digest LOWERCASE_TERRABASE_SOURCE_SHA256 \
+  --ephemeral-test-signer
 python3 tests/firecracker/managedmember/qualify.py check \
-  --manifest /path/to/managed-member-serving-manifest.json
+  --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json
 python3 tests/firecracker/managedmember/qualify.py run \
-  --manifest /path/to/managed-member-serving-manifest.json \
+  --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json \
   --run-dir /path/to/new/private-evidence-directory
 ```
+
+For a retained local authority key, replace `--ephemeral-test-signer` with
+`--authority-seed-file /absolute/protected/seed` and
+`--authority-public-sha256 LOWERCASE_SHA256_OF_DERIVED_PUBLIC_KEY`. The seed
+must be a direct, 32-byte, mode-`0600` regular file owned by root or the
+current user. The public-key pin must come from an independent trusted record.
+This exporter uses fixed Firecracker identities and guest addresses; it is not
+an OCI credential or instance provisioning producer. The source revision and
+source digest flags are claims supplied by the caller. Packet hashing does not
+prove that a binary was built from those sources; retain the build provenance
+record separately.
 
 `check` is read-only. `run` needs a new absolute evidence directory under an
 existing parent, KVM, TUN, and passwordless `sudo` for the owned bridge/TAP,

@@ -1,0 +1,1448 @@
+{
+  "action_counts": {
+    "create": 24,
+    "delete": 0,
+    "update": 0
+  },
+  "approval_manifest_sha256": "dfa20959dc784a8bc6b681579d2553fb2493e82ef14106058da18cbf60ff3465",
+  "approved_effects_sha256": "77b397dd5828b3957668e08d4b1e6631089830a516574736823eb8438dc27518",
+  "candidate_file_sha256": {
+    "infra.tfvars": "28aa5e75cab08c7d29aeb5234d62b3aa570a450cdbd5343b74637d6e009830ae",
+    "oci-estate.tf": "78fde0883b50efe25451eb7adae0d22107fd2e0eeffd5cc9c6cbf886b08691b0",
+    "orchestrator-bootstrap.tf": "add8916b2c5ce5d813836731b8c5283198e353b4105c89ef0b4a8ca8ab756d09",
+    "tests/bootstrap.tftest.hcl": "25c24663b5af74bf912ace770b1dc9852a61837dc32fd1399c120a3318da70ba",
+    "variables.tf": "8386c1b19b53ba31aadaec6ee10641745d77a4d7a31749fb88bd77df8398bdf3"
+  },
+  "encrypted_state_sha256": "6da296837abbdef915328a0261a2feb2bf5cf1455b156b062b57534caf507749",
+  "encrypted_state_source": "origin/state@41b8acc",
+  "estimate_basis": "ts-orchestrator/scripts/oci-preview/admission.json",
+  "local_saved_terraform_plan_sha256": "0733e7bca31975935f0be4436aa6281a1aeaba7bef858b9e47298abe4703b238",
+  "preview_cost_plan_sha256": "33e4cf3c782f8092e5bedbdd0e3c9c5aaf66aa23f1a76b9d61784251e53ff9c4",
+  "projected_preview_monthly_usd": "89.55",
+  "resource_changes": [
+    {
+      "actions": [
+        "read"
+      ],
+      "address": "data.oci_objectstorage_namespace.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"4222\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"6222\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"7422\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8080\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8443\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_route_table.gru_service[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_security_list.gru_private[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_service_gateway.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_subnet.gru[\"preview\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_vcn.gru[0]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_dkim.dkim[\"terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_email_domain.domain[\"terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_sender.sender[\"noreply@terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.control[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.network[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.workload[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_dynamic_group.controller[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.controller[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.objectstorage_key[0]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_identity_smtp_credential.email_delivery"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_key.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_vault.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_backup[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_head[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_ledger[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_material[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_object_lifecycle_policy.gru_backup[0]"
+    }
+  ],
+  "reviewed_effects": [
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group.gru[0]",
+      "after": {
+        "display_name": "terrascale-gru-control",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "control",
+          "Service": "TerraScale"
+        },
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {}
+      },
+      "after_unknown": {
+        "compartment_id": true,
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "state": true,
+        "time_created": true,
+        "vcn_id": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"4222\"]",
+      "after": {
+        "description": "Regional control traffic on TCP 4222; no public ingress.",
+        "direction": "INGRESS",
+        "icmp_options": [],
+        "protocol": "6",
+        "source": "10.251.0.0/24",
+        "source_type": "CIDR_BLOCK",
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {
+                "max": 4222,
+                "min": 4222
+              }
+            ],
+            "source_port_range": []
+          }
+        ],
+        "timeouts": null,
+        "udp_options": []
+      },
+      "after_sensitive": {
+        "icmp_options": [],
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "udp_options": []
+      },
+      "after_unknown": {
+        "destination": true,
+        "destination_type": true,
+        "icmp_options": [],
+        "id": true,
+        "is_valid": true,
+        "network_security_group_id": true,
+        "stateless": true,
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "time_created": true,
+        "udp_options": []
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group_security_rule"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"6222\"]",
+      "after": {
+        "description": "Regional control traffic on TCP 6222; no public ingress.",
+        "direction": "INGRESS",
+        "icmp_options": [],
+        "protocol": "6",
+        "source": "10.251.0.0/24",
+        "source_type": "CIDR_BLOCK",
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {
+                "max": 6222,
+                "min": 6222
+              }
+            ],
+            "source_port_range": []
+          }
+        ],
+        "timeouts": null,
+        "udp_options": []
+      },
+      "after_sensitive": {
+        "icmp_options": [],
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "udp_options": []
+      },
+      "after_unknown": {
+        "destination": true,
+        "destination_type": true,
+        "icmp_options": [],
+        "id": true,
+        "is_valid": true,
+        "network_security_group_id": true,
+        "stateless": true,
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "time_created": true,
+        "udp_options": []
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group_security_rule"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"7422\"]",
+      "after": {
+        "description": "Regional control traffic on TCP 7422; no public ingress.",
+        "direction": "INGRESS",
+        "icmp_options": [],
+        "protocol": "6",
+        "source": "10.251.0.0/24",
+        "source_type": "CIDR_BLOCK",
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {
+                "max": 7422,
+                "min": 7422
+              }
+            ],
+            "source_port_range": []
+          }
+        ],
+        "timeouts": null,
+        "udp_options": []
+      },
+      "after_sensitive": {
+        "icmp_options": [],
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "udp_options": []
+      },
+      "after_unknown": {
+        "destination": true,
+        "destination_type": true,
+        "icmp_options": [],
+        "id": true,
+        "is_valid": true,
+        "network_security_group_id": true,
+        "stateless": true,
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "time_created": true,
+        "udp_options": []
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group_security_rule"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8080\"]",
+      "after": {
+        "description": "Regional control traffic on TCP 8080; no public ingress.",
+        "direction": "INGRESS",
+        "icmp_options": [],
+        "protocol": "6",
+        "source": "10.251.0.0/24",
+        "source_type": "CIDR_BLOCK",
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {
+                "max": 8080,
+                "min": 8080
+              }
+            ],
+            "source_port_range": []
+          }
+        ],
+        "timeouts": null,
+        "udp_options": []
+      },
+      "after_sensitive": {
+        "icmp_options": [],
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "udp_options": []
+      },
+      "after_unknown": {
+        "destination": true,
+        "destination_type": true,
+        "icmp_options": [],
+        "id": true,
+        "is_valid": true,
+        "network_security_group_id": true,
+        "stateless": true,
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "time_created": true,
+        "udp_options": []
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group_security_rule"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8443\"]",
+      "after": {
+        "description": "Regional control traffic on TCP 8443; no public ingress.",
+        "direction": "INGRESS",
+        "icmp_options": [],
+        "protocol": "6",
+        "source": "10.251.0.0/24",
+        "source_type": "CIDR_BLOCK",
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {
+                "max": 8443,
+                "min": 8443
+              }
+            ],
+            "source_port_range": []
+          }
+        ],
+        "timeouts": null,
+        "udp_options": []
+      },
+      "after_sensitive": {
+        "icmp_options": [],
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "udp_options": []
+      },
+      "after_unknown": {
+        "destination": true,
+        "destination_type": true,
+        "icmp_options": [],
+        "id": true,
+        "is_valid": true,
+        "network_security_group_id": true,
+        "stateless": true,
+        "tcp_options": [
+          {
+            "destination_port_range": [
+              {}
+            ],
+            "source_port_range": []
+          }
+        ],
+        "time_created": true,
+        "udp_options": []
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_network_security_group_security_rule"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_route_table.gru_service[0]",
+      "after": {
+        "display_name": "terrascale-gru-service-egress",
+        "route_rules": [
+          {
+            "description": "Private egress to reviewed OCI services only.",
+            "destination": "all-gru-services-in-oracle-services-network",
+            "destination_type": "SERVICE_CIDR_BLOCK"
+          }
+        ],
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "route_rules": [
+          {}
+        ]
+      },
+      "after_unknown": {
+        "compartment_id": true,
+        "defined_tags": true,
+        "freeform_tags": true,
+        "id": true,
+        "route_rules": [
+          {
+            "cidr_block": true,
+            "network_entity_id": true,
+            "route_type": true
+          }
+        ],
+        "state": true,
+        "time_created": true,
+        "vcn_id": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_route_table"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_security_list.gru_private[0]",
+      "after": {
+        "display_name": "terrascale-gru-private",
+        "egress_security_rules": [
+          {
+            "destination": "10.251.0.0/24",
+            "destination_type": "CIDR_BLOCK",
+            "icmp_options": [],
+            "protocol": "all",
+            "tcp_options": [],
+            "udp_options": []
+          },
+          {
+            "destination": "all-gru-services-in-oracle-services-network",
+            "destination_type": "SERVICE_CIDR_BLOCK",
+            "icmp_options": [],
+            "protocol": "all",
+            "tcp_options": [],
+            "udp_options": []
+          }
+        ],
+        "ingress_security_rules": [],
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "egress_security_rules": [
+          {
+            "icmp_options": [],
+            "tcp_options": [],
+            "udp_options": []
+          },
+          {
+            "icmp_options": [],
+            "tcp_options": [],
+            "udp_options": []
+          }
+        ],
+        "freeform_tags": {},
+        "ingress_security_rules": []
+      },
+      "after_unknown": {
+        "compartment_id": true,
+        "defined_tags": true,
+        "egress_security_rules": [
+          {
+            "description": true,
+            "icmp_options": [],
+            "stateless": true,
+            "tcp_options": [],
+            "udp_options": []
+          },
+          {
+            "description": true,
+            "icmp_options": [],
+            "stateless": true,
+            "tcp_options": [],
+            "udp_options": []
+          }
+        ],
+        "freeform_tags": true,
+        "id": true,
+        "ingress_security_rules": [],
+        "state": true,
+        "time_created": true,
+        "vcn_id": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_security_list"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_service_gateway.gru[0]",
+      "after": {
+        "display_name": "terrascale-gru-services",
+        "services": [
+          {
+            "service_id": "ocid1.service.oc1.sa-saopaulo-1.aaaaaaaacd57uig6rzxm2qfipukbqpje2bhztqszh3aj7zk2jtvf6gvntena"
+          }
+        ],
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "services": [
+          {}
+        ]
+      },
+      "after_unknown": {
+        "block_traffic": true,
+        "compartment_id": true,
+        "defined_tags": true,
+        "freeform_tags": true,
+        "id": true,
+        "route_table_id": true,
+        "services": [
+          {
+            "service_name": true
+          }
+        ],
+        "state": true,
+        "time_created": true,
+        "vcn_id": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_service_gateway"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_subnet.gru[\"preview\"]",
+      "after": {
+        "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
+        "cidr_block": "10.251.0.0/25",
+        "display_name": "terrascale-gru-preview",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "private-subnet",
+          "Service": "TerraScale"
+        },
+        "prohibit_internet_ingress": true,
+        "prohibit_public_ip_on_vnic": true,
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "ipv6cidr_blocks": [],
+        "security_list_ids": []
+      },
+      "after_unknown": {
+        "compartment_id": true,
+        "defined_tags": true,
+        "dhcp_options_id": true,
+        "dns_label": true,
+        "freeform_tags": {},
+        "id": true,
+        "ipv6cidr_block": true,
+        "ipv6cidr_blocks": true,
+        "ipv6virtual_router_ip": true,
+        "route_table_id": true,
+        "security_list_ids": true,
+        "state": true,
+        "subnet_domain_name": true,
+        "time_created": true,
+        "vcn_id": true,
+        "virtual_router_ip": true,
+        "virtual_router_mac": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_subnet"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_vcn.gru[0]",
+      "after": {
+        "cidr_block": "10.251.0.0/24",
+        "display_name": "terrascale-gru",
+        "dns_label": "tsgru",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Service": "TerraScale"
+        },
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "byoipv6cidr_blocks": [],
+        "byoipv6cidr_details": [],
+        "cidr_blocks": [],
+        "defined_tags": {},
+        "freeform_tags": {},
+        "ipv6cidr_blocks": [],
+        "ipv6private_cidr_blocks": [],
+        "security_attributes": {}
+      },
+      "after_unknown": {
+        "byoipv6cidr_blocks": true,
+        "byoipv6cidr_details": true,
+        "cidr_blocks": true,
+        "compartment_id": true,
+        "default_dhcp_options_id": true,
+        "default_route_table_id": true,
+        "default_security_list_id": true,
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "ipv6cidr_blocks": true,
+        "ipv6private_cidr_blocks": true,
+        "is_ipv6enabled": true,
+        "is_oracle_gua_allocation_enabled": true,
+        "security_attributes": true,
+        "state": true,
+        "time_created": true,
+        "vcn_domain_name": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_core_vcn"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.control[0]",
+      "after": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+        "description": "TerraScale regional controllers, Vaults, and durable control storage.",
+        "enable_delete": false,
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Role": "control",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-control",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {}
+      },
+      "after_unknown": {
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "is_accessible": true,
+        "state": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_compartment"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.network[0]",
+      "after": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+        "description": "TerraScale private regional networks and security groups.",
+        "enable_delete": false,
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Role": "network",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-network",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {}
+      },
+      "after_unknown": {
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "is_accessible": true,
+        "state": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_compartment"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.workload[0]",
+      "after": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+        "description": "TerraScale orchestrator-created workload instances and volumes.",
+        "enable_delete": false,
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Role": "workload",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-workload",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {}
+      },
+      "after_unknown": {
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "is_accessible": true,
+        "state": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_compartment"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_dynamic_group.controller[0]",
+      "after": {
+        "compartment_id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+        "description": "Only reviewed TerraScale controller instances may use Instance Principal.",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Role": "controller",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-orchestrator",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {}
+      },
+      "after_unknown": {
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "matching_rule": true,
+        "state": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_dynamic_group"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.controller[0]",
+      "after": {
+        "compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+        "description": "Reviewed least-privilege Instance Principal policy for TerraScale controllers.",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Role": "controller",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-orchestrator-least-privilege",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "statements": []
+      },
+      "after_unknown": {
+        "ETag": true,
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "lastUpdateETag": true,
+        "policyHash": true,
+        "state": true,
+        "statements": true,
+        "time_created": true,
+        "version_date": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_policy"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.objectstorage_key[0]",
+      "after": {
+        "description": "Allow GRU Object Storage to encrypt and decrypt only with the configured TerraScale control key.",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "objectstorage-key-access",
+          "Service": "TerraScale"
+        },
+        "name": "terrascale-control-objectstorage-key",
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "statements": []
+      },
+      "after_unknown": {
+        "ETag": true,
+        "compartment_id": true,
+        "defined_tags": true,
+        "freeform_tags": {},
+        "id": true,
+        "inactive_state": true,
+        "lastUpdateETag": true,
+        "policyHash": true,
+        "state": true,
+        "statements": true,
+        "time_created": true,
+        "version_date": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_identity_policy"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_key.gru[0]",
+      "after": {
+        "auto_key_rotation_details": [
+          {
+            "rotation_interval_in_days": 90
+          }
+        ],
+        "display_name": "terrascale-control-key-gru",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Service": "TerraScale"
+        },
+        "is_auto_rotation_enabled": true,
+        "key_shape": [
+          {
+            "algorithm": "AES",
+            "length": 32
+          }
+        ],
+        "protection_mode": "HSM",
+        "restore_from_file": [],
+        "restore_from_object_store": [],
+        "restore_trigger": null,
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "auto_key_rotation_details": [
+          {}
+        ],
+        "defined_tags": {},
+        "external_key_reference": [],
+        "external_key_reference_details": [],
+        "freeform_tags": {},
+        "key_shape": [
+          {}
+        ],
+        "replica_details": [],
+        "restore_from_file": [],
+        "restore_from_object_store": []
+      },
+      "after_unknown": {
+        "auto_key_rotation_details": [
+          {
+            "last_rotation_message": true,
+            "last_rotation_status": true,
+            "time_of_last_rotation": true,
+            "time_of_next_rotation": true,
+            "time_of_schedule_start": true
+          }
+        ],
+        "compartment_id": true,
+        "current_key_version": true,
+        "defined_tags": true,
+        "desired_state": true,
+        "external_key_reference": true,
+        "external_key_reference_details": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_primary": true,
+        "key_shape": [
+          {
+            "curve_id": true
+          }
+        ],
+        "management_endpoint": true,
+        "replica_details": true,
+        "restore_from_file": [],
+        "restore_from_object_store": [],
+        "restored_from_key_id": true,
+        "state": true,
+        "time_created": true,
+        "time_of_deletion": true,
+        "vault_id": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_kms_key"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_vault.gru[0]",
+      "after": {
+        "display_name": "terrascale-control-vault-gru",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Service": "TerraScale"
+        },
+        "restore_from_file": [],
+        "restore_from_object_store": [],
+        "restore_trigger": null,
+        "timeouts": null,
+        "vault_type": "DEFAULT"
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "external_key_manager_metadata": [],
+        "external_key_manager_metadata_summary": [],
+        "freeform_tags": {},
+        "replica_details": [],
+        "restore_from_file": [],
+        "restore_from_object_store": []
+      },
+      "after_unknown": {
+        "compartment_id": true,
+        "crypto_endpoint": true,
+        "defined_tags": true,
+        "external_key_manager_metadata": true,
+        "external_key_manager_metadata_summary": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_primary": true,
+        "is_vault_replicable": true,
+        "management_endpoint": true,
+        "replica_details": true,
+        "restore_from_file": [],
+        "restore_from_object_store": [],
+        "restored_from_vault_id": true,
+        "state": true,
+        "time_created": true,
+        "time_of_deletion": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_kms_vault"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_backup[0]",
+      "after": {
+        "access_type": "NoPublicAccess",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "backup",
+          "Service": "TerraScale"
+        },
+        "metadata": null,
+        "name": "ts-preview-gru-20260926-backup",
+        "retention_rules": [
+          {
+            "display_name": "backup-retention",
+            "duration": [
+              {
+                "time_amount": "35",
+                "time_unit": "DAYS"
+              }
+            ],
+            "time_rule_locked": ""
+          }
+        ],
+        "timeouts": null,
+        "versioning": "Disabled"
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "retention_rules": [
+          {
+            "duration": [
+              {}
+            ]
+          }
+        ]
+      },
+      "after_unknown": {
+        "approximate_count": true,
+        "approximate_size": true,
+        "auto_tiering": true,
+        "bucket_id": true,
+        "compartment_id": true,
+        "created_by": true,
+        "defined_tags": true,
+        "etag": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_read_only": true,
+        "kms_key_id": true,
+        "namespace": true,
+        "object_events_enabled": true,
+        "object_lifecycle_policy_etag": true,
+        "replication_enabled": true,
+        "retention_rules": [
+          {
+            "duration": [
+              {}
+            ],
+            "retention_rule_id": true,
+            "time_created": true,
+            "time_modified": true
+          }
+        ],
+        "storage_tier": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_objectstorage_bucket"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_head[0]",
+      "after": {
+        "access_type": "NoPublicAccess",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "bootstrap-head",
+          "Service": "TerraScale"
+        },
+        "metadata": null,
+        "name": "ts-preview-gru-20260926-head",
+        "retention_rules": [],
+        "timeouts": null,
+        "versioning": "Enabled"
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "retention_rules": []
+      },
+      "after_unknown": {
+        "approximate_count": true,
+        "approximate_size": true,
+        "auto_tiering": true,
+        "bucket_id": true,
+        "compartment_id": true,
+        "created_by": true,
+        "defined_tags": true,
+        "etag": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_read_only": true,
+        "kms_key_id": true,
+        "namespace": true,
+        "object_events_enabled": true,
+        "object_lifecycle_policy_etag": true,
+        "replication_enabled": true,
+        "retention_rules": [],
+        "storage_tier": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_objectstorage_bucket"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_ledger[0]",
+      "after": {
+        "access_type": "NoPublicAccess",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "ledger",
+          "Service": "TerraScale"
+        },
+        "metadata": null,
+        "name": "ts-preview-gru-20260926-ledger",
+        "retention_rules": [
+          {
+            "display_name": "ledger-retention",
+            "duration": [
+              {
+                "time_amount": "35",
+                "time_unit": "DAYS"
+              }
+            ],
+            "time_rule_locked": ""
+          }
+        ],
+        "timeouts": null,
+        "versioning": "Disabled"
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "retention_rules": [
+          {
+            "duration": [
+              {}
+            ]
+          }
+        ]
+      },
+      "after_unknown": {
+        "approximate_count": true,
+        "approximate_size": true,
+        "auto_tiering": true,
+        "bucket_id": true,
+        "compartment_id": true,
+        "created_by": true,
+        "defined_tags": true,
+        "etag": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_read_only": true,
+        "kms_key_id": true,
+        "namespace": true,
+        "object_events_enabled": true,
+        "object_lifecycle_policy_etag": true,
+        "replication_enabled": true,
+        "retention_rules": [
+          {
+            "duration": [
+              {}
+            ],
+            "retention_rule_id": true,
+            "time_created": true,
+            "time_modified": true
+          }
+        ],
+        "storage_tier": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_objectstorage_bucket"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_material[0]",
+      "after": {
+        "access_type": "NoPublicAccess",
+        "freeform_tags": {
+          "ManagedBy": "ts-infra",
+          "Region": "GRU",
+          "Role": "managed-material",
+          "Service": "TerraScale"
+        },
+        "metadata": null,
+        "name": "ts-preview-gru-20260926-material",
+        "retention_rules": [],
+        "timeouts": null,
+        "versioning": "Enabled"
+      },
+      "after_sensitive": {
+        "defined_tags": {},
+        "freeform_tags": {},
+        "retention_rules": []
+      },
+      "after_unknown": {
+        "approximate_count": true,
+        "approximate_size": true,
+        "auto_tiering": true,
+        "bucket_id": true,
+        "compartment_id": true,
+        "created_by": true,
+        "defined_tags": true,
+        "etag": true,
+        "freeform_tags": {},
+        "id": true,
+        "is_read_only": true,
+        "kms_key_id": true,
+        "namespace": true,
+        "object_events_enabled": true,
+        "object_lifecycle_policy_etag": true,
+        "replication_enabled": true,
+        "retention_rules": [],
+        "storage_tier": true,
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_objectstorage_bucket"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_object_lifecycle_policy.gru_backup[0]",
+      "after": {
+        "bucket": "ts-preview-gru-20260926-backup",
+        "rules": [
+          {
+            "action": "ARCHIVE",
+            "is_enabled": true,
+            "name": "archive-backups",
+            "target": "objects",
+            "time_amount": "30",
+            "time_unit": "DAYS"
+          }
+        ],
+        "timeouts": null
+      },
+      "after_sensitive": {
+        "rules": [
+          {
+            "object_name_filter": []
+          }
+        ]
+      },
+      "after_unknown": {
+        "id": true,
+        "namespace": true,
+        "rules": [
+          {
+            "object_name_filter": true
+          }
+        ],
+        "time_created": true
+      },
+      "before": null,
+      "mode": "managed",
+      "type": "oci_objectstorage_object_lifecycle_policy"
+    }
+  ],
+  "reviewed_material_bucket": {
+    "access_type": "NoPublicAccess",
+    "name": "ts-preview-gru-20260926-material",
+    "retention_rule_count": 0,
+    "versioning": "Enabled"
+  },
+  "reviewed_private_security_list": {
+    "egress_rules": [
+      {
+        "destination": "10.251.0.0/24",
+        "destination_type": "CIDR_BLOCK",
+        "protocol": "all"
+      },
+      {
+        "destination": "all-gru-services-in-oracle-services-network",
+        "destination_type": "SERVICE_CIDR_BLOCK",
+        "protocol": "all"
+      }
+    ],
+    "ingress_rule_count": 0
+  }
+}
