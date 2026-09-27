@@ -198,6 +198,39 @@ class RealCallerJoinTests(unittest.TestCase):
                                              "go_mod_sha256": digest,
                                              "go_sum_sha256": digest}, retained)
 
+    def test_terrabase_qualification_requires_static_arm64_release(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "qualification.json"
+            source, artifact_sha = "a" * 40, "c" * 64
+            record = {
+                "schema": "terrascale.terrabase.qualification.v2",
+                "repository": "TerraScale/TerraBase",
+                "source_revision": source, "source_tree": "b" * 40,
+                "build_profile": "release", "linkage": "static",
+                "verification": {"workflow": "fast.yml", "job": "fast", "run_id": 7,
+                                 "run_number": 3, "conclusion": "success"},
+                "artifacts": [
+                    {"name": "tb-server-linux-amd64", "target": "x86_64-unknown-linux-musl",
+                     "sha256": "d" * 64, "bytes": 11},
+                    {"name": "tb-server-linux-arm64", "target": "aarch64-unknown-linux-musl",
+                     "sha256": artifact_sha, "bytes": 42}],
+            }
+
+            def check(changed: dict) -> dict:
+                path.write_text(json.dumps(changed))
+                return CALLER.qualification(
+                    path, hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "terrascale.terrabase.qualification.v2", "fast.yml", source,
+                    "tb-server-linux-arm64", artifact_sha, 42)
+
+            self.assertEqual(check(record)["artifact_sha256"], artifact_sha)
+            for changed in ({**record, "linkage": "dynamic"},
+                            {**record, "schema": "terrascale.terrabase.qualification.v1"},
+                            {**record, "artifacts": [{**record["artifacts"][1],
+                                                      "target": "aarch64-unknown-linux-gnu"}]}):
+                with self.subTest(changed=changed), self.assertRaises(CALLER.QualificationError):
+                    check(changed)
+
     def test_real_loopback_tcp_preserves_signed_ip_tls_and_host(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             cert, key = Path(directory) / "cert.pem", Path(directory) / "key.pem"
