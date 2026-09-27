@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -124,16 +125,14 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 	if err != nil {
 		return false, fmt.Errorf("bind artifact metadata reader: %w", err)
 	}
-	legacyArtifacts, err := legacyJS.ObjectStore(ArtifactBucket)
+	info, missing, err := retryArtifactMetadataRead(ctx, func(attemptCtx context.Context) (*nats.ObjectInfo, bool, error) {
+		return authoritativeArtifactInfo(attemptCtx, legacyJS, digest)
+	})
 	if err != nil {
-		return false, fmt.Errorf("bind authoritative artifact metadata reader: %w", err)
+		return false, err
 	}
-	info, err := legacyArtifacts.GetInfo(artifactKey(digest), nats.Context(ctx))
-	if errors.Is(err, nats.ErrObjectNotFound) {
+	if missing {
 		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("inspect authoritative artifact metadata: %w", err)
 	}
 	if info == nil {
 		return false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
@@ -142,6 +141,88 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 		return false, err
 	}
 	return true, nil
+}
+
+// The legacy ObjectStore.GetInfo uses this leader MSG.GET but discards its
+// context option, while ObjectStore setup does an unbounded StreamInfo. Use
+// the SDK's context-aware raw read and decode the same metadata format.
+func authoritativeArtifactInfo(ctx context.Context, js nats.JetStreamContext, digest string) (*nats.ObjectInfo, bool, error) {
+	key := artifactKey(digest)
+	subject := "$O." + ArtifactBucket + ".M." + base64.URLEncoding.EncodeToString([]byte(key))
+	message, err := js.GetLastMsg("OBJ_"+ArtifactBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("inspect authoritative artifact metadata: %w", err)
+	}
+	if message == nil {
+		return nil, false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
+	}
+	var info nats.ObjectInfo
+	if err := json.Unmarshal(message.Data, &info); err != nil {
+		return nil, false, fmt.Errorf("inspect authoritative artifact metadata: %w", nats.ErrBadObjectMeta)
+	}
+	if info.Deleted {
+		return nil, true, nil
+	}
+	info.ModTime = message.Time
+	return &info, false, nil
+}
+
+// A leader change can briefly reject the authoritative MSG.GET lookup. Retry
+// only that read; a missing object permits upload, while an unresolved read
+// failure never permits a Put.
+func retryArtifactMetadataRead(ctx context.Context, read func(context.Context) (*nats.ObjectInfo, bool, error)) (*nats.ObjectInfo, bool, error) {
+	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
+	defer cancel()
+
+	backoff := intentPublishInitialBackoff
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		if err := retryCtx.Err(); err != nil {
+			if lastErr != nil {
+				return nil, false, lastErr
+			}
+			return nil, false, err
+		}
+
+		attemptCtx, stop := context.WithTimeout(retryCtx, intentPublishAttemptTimeout)
+		info, missing, err := read(attemptCtx)
+		attemptExpired := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		stop()
+		if err == nil {
+			if parentErr := ctx.Err(); parentErr != nil {
+				return nil, false, parentErr
+			}
+			if attemptExpired {
+				return nil, false, context.DeadlineExceeded
+			}
+			return info, missing, nil
+		}
+		lastErr = err
+		if parentErr := ctx.Err(); parentErr != nil {
+			return nil, false, parentErr
+		}
+		if retryCtx.Err() != nil || !retryableSubmitOperationReadError(err, attemptExpired) {
+			return nil, false, err
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-retryCtx.Done():
+			timer.Stop()
+			if parentErr := ctx.Err(); parentErr != nil {
+				return nil, false, parentErr
+			}
+			return nil, false, err
+		}
+		backoff = min(backoff*2, intentPublishMaxBackoff)
+	}
 }
 
 func isArtifactStoreFullError(err error) bool {

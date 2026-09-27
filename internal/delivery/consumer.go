@@ -292,7 +292,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 		return false, stageDeliveryError("operation_lookup", err)
 	}
 	entryErr := err
-	admission, err := s.readAdmission(ctx, intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
+	admission, err := s.readConsumerAdmission(ctx, intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		if entry != nil {
 			return false, stageDeliveryError("admission_read", err)
@@ -398,6 +398,49 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 		return false, stageDeliveryError("receipt", err)
 	}
 	return true, nil
+}
+
+// A terminal admission decision must read the stream leader. KeyValue.Get can
+// read a follower whose direct-get view is stale after an admission or deletion.
+func (s *Service) readConsumerAdmission(ctx context.Context, digest, cell, role, environment string) (ArtifactRecord, error) {
+	if s == nil || s.config.Conn == nil {
+		return ArtifactRecord{}, errors.New("delivery admission leader read requires NATS connection")
+	}
+	js, err := s.config.Conn.JetStream()
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	subject := "$KV." + AdmissionBucket + "." + admissionKey(digest, cell, role, environment)
+	msg, err := js.GetLastMsg("KV_"+AdmissionBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return ArtifactRecord{}, jetstream.ErrKeyNotFound
+	}
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	entry, err := operationValueFromMsg(subject, msg)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	signed, err := decodeStoredAdmission(entry.Value(), digest, cell, role, environment)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	record := signed.Record
+	if s.config.ArtifactVerifier == nil {
+		return ArtifactRecord{}, errors.New("artifact verifier is not configured")
+	}
+	verified, actor, err := s.config.ArtifactVerifier.VerifyArchivedArtifact(ctx, signed.Envelope)
+	if err != nil || actor == "" || actor != signed.Actor || verified != record {
+		return ArtifactRecord{}, fmt.Errorf("%w: durable artifact claim signature", ErrInvalid)
+	}
+	if s.config.AuthorizeArtifact == nil {
+		return ArtifactRecord{}, errors.New("artifact authorizer is not configured")
+	}
+	if err := s.config.AuthorizeArtifact(ctx, actor, record); err != nil {
+		return ArtifactRecord{}, err
+	}
+	return record, nil
 }
 
 func (s *Service) hold(ctx context.Context, key string, op operation, revision uint64, reason string) (bool, error) {

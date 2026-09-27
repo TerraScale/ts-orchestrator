@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -36,6 +38,138 @@ type delayedVisibilityObjectStore struct {
 	getMisses             int
 	afterPutGetInfoMisses int
 	afterPutGetMisses     int
+}
+
+func TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure(t *testing.T) {
+	info := &nats.ObjectInfo{}
+	var reads int
+	got, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+		reads++
+		if reads == 1 {
+			return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return info, false, nil
+	})
+	if err != nil || missing || got != info || reads != 2 {
+		t.Fatalf("authoritative metadata retry = (%p, %t, %v), reads = %d; want recovered info after two reads", got, missing, err, reads)
+	}
+}
+
+func TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	var calls int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+		calls++
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+	})
+	if info != nil || missing || !errors.Is(err, context.DeadlineExceeded) || calls < 1 {
+		t.Fatalf("persistent metadata read failure = (%p, %t, %v), calls = %d; want caller deadline and no object", info, missing, err, calls)
+	}
+}
+
+func TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors(t *testing.T) {
+	permanent := &nats.APIError{Code: 403, ErrorCode: 10039}
+	for _, test := range []struct {
+		name        string
+		wantMissing bool
+		wantErr     error
+	}{
+		{name: "absent object", wantMissing: true},
+		{name: "missing bucket", wantErr: nats.ErrStreamNotFound},
+		{name: "permanent API rejection", wantErr: permanent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reads int
+			info, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+				reads++
+				return nil, test.wantMissing, test.wantErr
+			})
+			if info != nil || missing != test.wantMissing || (test.wantMissing && err != nil) ||
+				(test.wantErr != nil && !errors.Is(err, test.wantErr)) || reads != 1 {
+				t.Fatalf("metadata result = (%p, %t, %v), reads = %d; want absence = %t, error = %v", info, missing, err, reads, test.wantMissing, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestRetryArtifactMetadataReadStopsOnCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var reads int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+		reads++
+		cancel()
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008}
+	})
+	if info != nil || missing || !errors.Is(err, context.Canceled) || reads != 1 {
+		t.Fatalf("canceled metadata read = (%p, %t, %v), reads = %d; want cancellation after one attempt", info, missing, err, reads)
+	}
+}
+
+func TestArtifactMetadataReadCancelsBlockedBrokerRequest(t *testing.T) {
+	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Start()
+	if !srv.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS did not start")
+	}
+	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	requests := make(chan struct{}, 1)
+	_, err = conn.Subscribe("$JS.API.STREAM.MSG.GET.OBJ_"+ArtifactBucket, func(*nats.Msg) {
+		select {
+		case requests <- struct{}{}:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{js: js}
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	exists, err := s.artifactExistsForUpload(ctx, "digest")
+	if exists || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) >= 2*time.Second {
+		t.Fatalf("blocked authoritative broker read = (exists=%t, err=%v, elapsed=%s); want prompt caller deadline", exists, err, time.Since(started))
+	}
+	select {
+	case <-requests:
+	default:
+		t.Fatal("broker did not receive authoritative MSG.GET request")
+	}
+}
+
+func TestArtifactMetadataReadDistinguishesMissingObjectAndBucket(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	legacyJS, err := s.js.Conn().JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err := authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	if info != nil || !missing || err != nil {
+		t.Fatalf("missing object = (%p, %t, %v); want object absence", info, missing, err)
+	}
+	if err := legacyJS.DeleteObjectStore(ArtifactBucket); err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err = authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	if info != nil || missing || !errors.Is(err, nats.ErrStreamNotFound) {
+		t.Fatalf("missing bucket = (%p, %t, %v); want stream-not-found error", info, missing, err)
+	}
 }
 
 func (s *delayedVisibilityObjectStore) GetInfo(ctx context.Context, name string, opts ...jetstream.GetObjectInfoOpt) (*jetstream.ObjectInfo, error) {

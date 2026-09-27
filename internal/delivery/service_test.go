@@ -37,6 +37,15 @@ func (js *interceptedPublish) Publish(ctx context.Context, subject string, paylo
 	return js.publish(ctx, subject, payload, opts...)
 }
 
+type overriddenAdmissionGet struct {
+	jetstream.KeyValue
+	get func(context.Context, string) (jetstream.KeyValueEntry, error)
+}
+
+func (kv overriddenAdmissionGet) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	return kv.get(ctx, key)
+}
+
 type publishCall struct {
 	subject string
 	payload []byte
@@ -865,6 +874,98 @@ func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 			t.Fatal("rejection never became query visible")
 		case <-time.After(20 * time.Millisecond):
 		}
+	}
+}
+
+func TestConsumerAdmissionDecisionIgnoresStaleFollower(t *testing.T) {
+	for _, scenario := range []string{"missing", "mismatched claim"} {
+		t.Run(scenario, func(t *testing.T) {
+			writer := &testWriter{}
+			service, ctx := testService(t, writer)
+			intent := testIntent(t, service, ctx)
+			key := admissionKey(intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
+			var staleEntry jetstream.KeyValueEntry
+			var staleErr error
+			if scenario == "missing" {
+				staleErr = jetstream.ErrKeyNotFound
+			} else {
+				current, err := service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var signed signedAdmission
+				if err := json.Unmarshal(current.Value(), &signed); err != nil {
+					t.Fatal(err)
+				}
+				signed.Record.Source.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+				signed.Record.ManifestDigest, err = signed.Record.calculatedManifestDigest()
+				if err != nil {
+					t.Fatal(err)
+				}
+				signed.Envelope, err = service.config.ArtifactSigner.SignArtifact(ctx, signed.Record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				staleValue, err := json.Marshal(signed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.admissions.Put(ctx, key, staleValue); err != nil {
+					t.Fatal(err)
+				}
+				staleEntry, err = service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.admissions.Put(ctx, key, current.Value()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+				return staleEntry, staleErr
+			}}
+			terminal, err := service.process(ctx, mustJSON(intent))
+			if !terminal || err != nil {
+				t.Fatalf("processing with stale follower admission: terminal=%t err=%v", terminal, err)
+			}
+			receipt, err := service.StatusFor(ctx, intent)
+			if err != nil || receipt.Status != "accepted" || writer.count() != 1 {
+				t.Fatalf("leader admission receipt=%+v err=%v desired writes=%d", receipt, err, writer.count())
+			}
+		})
+	}
+}
+
+func TestConsumerAuthoritativeAdmissionAbsenceRejects(t *testing.T) {
+	for _, scenario := range []string{"missing", "deleted"} {
+		t.Run(scenario, func(t *testing.T) {
+			writer := &testWriter{}
+			service, ctx := testService(t, writer)
+			intent := testIntent(t, service, ctx)
+			if scenario == "missing" {
+				intent.Role = "unadmitted"
+			} else {
+				key := admissionKey(intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
+				staleEntry, err := service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.admissions.Delete(ctx, key); err != nil {
+					t.Fatal(err)
+				}
+				service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+					return staleEntry, nil
+				}}
+			}
+			terminal, err := service.process(ctx, mustJSON(intent))
+			if !terminal || err != nil {
+				t.Fatalf("processing without authoritative admission: terminal=%t err=%v", terminal, err)
+			}
+			receipt, err := service.StatusFor(ctx, intent)
+			if err != nil || receipt.Status != "rejected" || receipt.Error != "artifact is not admitted" || writer.count() != 0 {
+				t.Fatalf("absent admission receipt=%+v err=%v desired writes=%d", receipt, err, writer.count())
+			}
+		})
 	}
 }
 

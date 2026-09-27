@@ -32,6 +32,7 @@ func serveArtifactAdmission(ctx context.Context, conn *nats.Conn, cell string, f
 		if err != nil {
 			response.Record = delivery.ArtifactRecord{}
 			response.Error = err.Error()
+			response.Retryable = retryableOperatorBackendError(err, false)
 		}
 		wire, err := json.Marshal(response)
 		if err == nil {
