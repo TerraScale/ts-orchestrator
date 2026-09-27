@@ -23,7 +23,7 @@ var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|material-prepare|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -79,6 +79,11 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("placement-apply requires --intent FILE")
 		}
 		return operatorPlacementApply(ctx, cfg, runtime, *intentPath, output)
+	case "material-prepare":
+		if *intentPath == "" {
+			return errors.New("material-prepare requires --intent FILE")
+		}
+		return operatorMaterialPrepare(ctx, cfg, runtime, *intentPath, output)
 	case "broker-claim-apply":
 		if *artifactPath == "" || *expectedSequence == "" {
 			return errors.New("broker-claim-apply requires --file and --expected-sequence")

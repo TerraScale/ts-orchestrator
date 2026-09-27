@@ -12,7 +12,7 @@ import (
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()
 	request := LaunchRequest{
-		CreateKey: "sdk-shape-config", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
+		CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
 		FaultDomain: "FAULT-DOMAIN-1", Shape: config.Shape, WholeOCPUs: 2, MemoryInGBs: 12,
 		PlacementProfileDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PlacementGeneration:    9,
@@ -64,7 +64,8 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	}
 	if details.DisplayName == nil || *details.DisplayName != config.Owner+"-"+request.Node ||
 		details.CreateVnicDetails == nil || details.CreateVnicDetails.AssignPublicIp == nil ||
-		*details.CreateVnicDetails.AssignPublicIp {
+		*details.CreateVnicDetails.AssignPublicIp || details.CreateVnicDetails.PrivateIp == nil ||
+		*details.CreateVnicDetails.PrivateIp != request.PrivateIP {
 		t.Fatalf("launch lost the bounded display name or private-only VNIC: %+v", details)
 	}
 	imageDetails, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
@@ -123,16 +124,16 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 			LifecycleState: core.VnicLifecycleStateAvailable,
 		}},
 	}
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil {
+	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
 		t.Fatalf("exact boot and private VNIC refused: %v", err)
 	}
 	reader.boot.VpusPerGB = new(int64(20))
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrImageNotQualified) {
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrImageNotQualified) {
 		t.Fatalf("costed boot tier drift was accepted: %v", err)
 	}
 	reader.boot.VpusPerGB = new(int64(10))
 	reader.vnic.PublicIp = new("203.0.113.5")
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("public VNIC was accepted: %v", err)
 	}
 }

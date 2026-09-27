@@ -472,6 +472,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 		HeadAttempt: state.Head.Attempt, HeadGeneration: state.Head.Generation,
 		ResultSHA256: state.ResultRecord.SHA256, BinarySHA256: binary.SHA256,
 		MaterialSHA256: materials, AcceptedAt: acceptedAt,
+		ManagedMaterial: manifest.Manifest().ManagedMaterial,
 	}
 	if err := verifyCurrent(time.Time{}); err != nil {
 		return AcceptedInstall{}, err
@@ -639,6 +640,10 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		if marker.MaterialSHA256[name] != want {
 			return AcceptedInstall{}, fmt.Errorf("%w: accepted material digest differs", ErrAdmission)
 		}
+	}
+	if (payload.ManagedMaterial == nil) != (marker.ManagedMaterial == nil) ||
+		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
+		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
 	}
 	if err := gate.Material.VerifyRestart(ctx, manifest, materials); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)

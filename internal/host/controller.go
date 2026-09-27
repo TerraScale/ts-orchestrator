@@ -31,6 +31,7 @@ type Controller struct {
 	readOnly         bool
 	mutations        authority.HostMutationStore
 	managedVerifier  ManagedRegistrationVerifier
+	materialProvider ManagedMaterialProvider
 	artifacts        ArtifactStore
 	responseKey      ed25519.PrivateKey
 	registrationMu   sync.Mutex
@@ -91,7 +92,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, materialProvider: cfg.ManagedMaterialProvider, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -477,6 +478,18 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 func sameReportMeaning(a, b Report) bool {
 	a.ObservedAt = time.Time{}
 	b.ObservedAt = time.Time{}
+	if a.Managed != nil && a.Managed.ServingProof != nil {
+		managed, proof := *a.Managed, *a.Managed.ServingProof
+		proof.Nonce = ""
+		managed.ServingProof = &proof
+		a.Managed = &managed
+	}
+	if b.Managed != nil && b.Managed.ServingProof != nil {
+		managed, proof := *b.Managed, *b.Managed.ServingProof
+		proof.Nonce = ""
+		managed.ServingProof = &proof
+		b.Managed = &managed
+	}
 	return sameJSON(a, b)
 }
 
@@ -484,7 +497,7 @@ func sameReportMeaning(a, b Report) bool {
 // durable CAS resolves concurrent admission and report writes.
 func (c *Controller) Run(ctx context.Context) error {
 	var subscriptions []*nats.Subscription
-	for _, operation := range []string{"session", "desired", "artifact", "cycle", "report"} {
+	for _, operation := range []string{"session", "desired", "artifact", "material", "cycle", "report", "drain-command", "drain-result"} {
 		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
 		if err != nil {
 			for _, existing := range subscriptions {
@@ -515,7 +528,12 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	if msg.Reply == "" || len(msg.Data) > 64<<10 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(parent, 4*time.Second)
+	deadline := 4 * time.Second
+	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
+		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result")) {
+		deadline = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(msg.Data, &envelope, 64<<10); err != nil {
@@ -535,7 +553,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -841,6 +859,12 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return desiredReply{Desired: &desired, Revision: revision, Registration: &registration, RegistrationRevision: registrationRevision}, nil
 	case "artifact":
 		return c.serveArtifact(ctx, req, r)
+	case "material":
+		return c.serveMaterial(ctx, req, r, s)
+	case "drain-command":
+		return c.serveManagedDrainCommand(ctx, req, r)
+	case "drain-result":
+		return c.storeManagedDrainResult(ctx, req, r)
 	case "cycle":
 		return c.serveCycle(ctx, req, r, s)
 	case "report":

@@ -186,7 +186,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatal(err)
 	}
 	retry, err := restarted.EnsureHost(ctx, oci.EnsureRequest{
-		CreateKey: prepared.State.CreateKey, FaultDomain: prepared.State.FailureDomain,
+		CreateKey: prepared.State.CreateKey, PrivateIP: launch.PrivateIP, FaultDomain: prepared.State.FailureDomain,
 		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
 		MemoryInGBs: profile.Compute.MemoryInGBs, PlacementProfileDigest: profileDigest,
 		PlacementGeneration: prepared.State.IntentGeneration,
@@ -283,6 +283,7 @@ func (p *placementSizingProvider) LaunchInstance(_ context.Context, request oci.
 	p.launches = append(p.launches, request)
 	p.instance = oci.CloudInstance{
 		ID: "ocid1.instance.oc1..placement-sized", CompartmentID: p.config.CompartmentID,
+		PrivateIP:          request.PrivateIP,
 		AvailabilityDomain: p.config.AvailabilityDomain, FaultDomain: request.FaultDomain,
 		Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "etag-1",

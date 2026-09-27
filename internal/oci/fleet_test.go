@@ -134,6 +134,11 @@ func TestEnsureHostRejectsSameCreateKeyComputeProfileDrift(t *testing.T) {
 	if _, err := fleet.EnsureHost(ctx, request); err == nil {
 		t.Fatal("same create key accepted a different immutable compute tuple")
 	}
+	request.MemoryInGBs--
+	request.PrivateIP = "10.251.0.22"
+	if _, err := fleet.EnsureHost(ctx, request); err == nil {
+		t.Fatal("same create key accepted a different private IP")
+	}
 	if provider.launchCalls != 1 || len(provider.launchRequests) != 1 {
 		t.Fatalf("profile drift reached the provider: launchCalls=%d requests=%+v", provider.launchCalls, provider.launchRequests)
 	}
@@ -147,7 +152,7 @@ func TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", FaultDomain: "FAULT-DOMAIN-1"})
+	_, err = fleet.EnsureHost(t.Context(), EnsureRequest{CreateKey: "node-unsigned", PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1"})
 	if !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("missing signed profile was not held: %v", err)
 	}
@@ -199,6 +204,7 @@ func TestEnsureHostWithholdsNilOrMismatchedObservedSizing(t *testing.T) {
 		{name: "wrong OCPU", mutate: func(instance *CloudInstance) { instance.Ocpus = new(float32(2)) }},
 		{name: "wrong memory", mutate: func(instance *CloudInstance) { instance.MemoryInGBs = new(float32(8)) }},
 		{name: "wrong shape", mutate: func(instance *CloudInstance) { instance.Shape = "VM.Standard.E5.Flex.Other" }},
+		{name: "wrong private IP", mutate: func(instance *CloudInstance) { instance.PrivateIP = "10.251.0.22" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config, intent := testRegionConfig()
@@ -1284,7 +1290,7 @@ func TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch(t *testing.T) {
 	}
 	instanceID := "ocid1.instance.unknown-launch"
 	provider.instances[instanceID] = CloudInstance{
-		ID: instanceID, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
+		ID: instanceID, PrivateIP: operation.PrivateIP, CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
 		FaultDomain: "FAULT-DOMAIN-1", Shape: operation.Shape, Ocpus: new(float32(operation.WholeOCPUs)),
 		MemoryInGBs: new(float32(operation.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "unknown-etag",
 		ImageID: config.ImageID, Metadata: map[string]string{hostboot.MetadataKey: operation.BootDescriptor},
@@ -1333,7 +1339,7 @@ func testRegionConfig() (RegionConfig, RegionIntent) {
 
 func testEnsureRequest(createKey string) EnsureRequest {
 	return EnsureRequest{
-		CreateKey: createKey, FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
+		CreateKey: createKey, PrivateIP: "10.251.0.21", FaultDomain: "FAULT-DOMAIN-1", Shape: "VM.Standard.E5.Flex",
 		WholeOCPUs: 1, MemoryInGBs: 6, PlacementProfileDigest: strings.Repeat("a", 64), PlacementGeneration: 3,
 		BootPins: HostBootPins{
 			DatabaseID: "db-main", PartitionID: "partition-main", SeatID: "permanent-gru",
@@ -1349,7 +1355,7 @@ func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
 		panic(err)
 	}
 	return EnsureRequest{
-		CreateKey: intent.CreateKey, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
+		CreateKey: intent.CreateKey, PrivateIP: intent.PrivateIP, FaultDomain: intent.FaultDomain, Shape: intent.Shape,
 		WholeOCPUs: intent.WholeOCPUs, MemoryInGBs: intent.MemoryInGBs,
 		PlacementProfileDigest: intent.PlacementProfileDigest, PlacementGeneration: intent.PlacementGeneration,
 		BootPins: HostBootPins{
@@ -1361,7 +1367,7 @@ func ensureRequestForIntent(intent OperationIntent) EnsureRequest {
 }
 
 func sameLaunchProfile(a, b LaunchRequest) bool {
-	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.FaultDomain == b.FaultDomain &&
+	return a.CreateKey == b.CreateKey && a.Node == b.Node && a.PrivateIP == b.PrivateIP && a.FaultDomain == b.FaultDomain &&
 		a.Shape == b.Shape && a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
 		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
 		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&
@@ -1624,7 +1630,7 @@ func (p *fakeProvider) LaunchInstance(_ context.Context, request LaunchRequest) 
 	p.launches++
 	id := fmt.Sprintf("ocid1.instance.new-%d", p.launches)
 	instance := CloudInstance{
-		ID: id, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
+		ID: id, PrivateIP: request.PrivateIP, CompartmentID: p.config.CompartmentID, AvailabilityDomain: p.config.AvailabilityDomain,
 		FaultDomain: request.FaultDomain, Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "e1", ImageID: p.config.ImageID,
 		ConsistentVolumeNamingEnabled: new(true),

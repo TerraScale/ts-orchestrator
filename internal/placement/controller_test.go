@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"slices"
 	"strings"
@@ -945,8 +946,13 @@ func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 		if err != nil {
 			t.Fatal(err)
 		}
+		privateIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+		if err != nil {
+			t.Fatal(err)
+		}
 		instances = append(instances, oci.Instance{
 			ID: state.InstanceID, Node: state.HostNode, CreateKey: state.CreateKey, Region: seat.Region,
+			PrivateIP:  privateIP,
 			Generation: 1, Owner: "owner-a", FaultDomain: seat.FailureDomain,
 			Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 			MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,

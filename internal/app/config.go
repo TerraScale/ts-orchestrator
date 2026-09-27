@@ -43,19 +43,21 @@ type WorkloadProfile struct {
 }
 
 type TrustedSignerConfig struct {
-	Actor                  string   `json:"actor"`
-	PublicKey              string   `json:"public_key"`
-	Roles                  []string `json:"roles"`
-	Environments           []string `json:"environments"`
-	CanRegisterHosts       bool     `json:"can_register_hosts,omitzero"`
-	CanPlaceTerraBase      bool     `json:"can_place_terrabase,omitzero"`
-	CanRotateBrokerAccount bool     `json:"can_rotate_broker_account,omitzero"`
-	Repositories           []string `json:"repositories,omitempty"`
+	Actor                     string   `json:"actor"`
+	PublicKey                 string   `json:"public_key"`
+	Roles                     []string `json:"roles"`
+	Environments              []string `json:"environments"`
+	CanRegisterHosts          bool     `json:"can_register_hosts,omitzero"`
+	CanPlaceTerraBase         bool     `json:"can_place_terrabase,omitzero"`
+	CanPrepareManagedMaterial bool     `json:"can_prepare_managed_material,omitzero"`
+	CanRotateBrokerAccount    bool     `json:"can_rotate_broker_account,omitzero"`
+	Repositories              []string `json:"repositories,omitempty"`
 }
 
 type OperatorConfig struct {
 	Actor                     string `json:"actor"`
 	SigningKeyFile            string `json:"signing_key_file"`
+	ControllerPublicKey       string `json:"controller_public_key,omitempty"`
 	BrokerTicketPublicKeyFile string `json:"broker_ticket_public_key_file,omitempty"`
 }
 

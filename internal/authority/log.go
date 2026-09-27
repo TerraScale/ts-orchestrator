@@ -346,6 +346,32 @@ func (r *Runtime) ReadPlacementIntent(ctx context.Context, databaseID, partition
 	return readMutation(ctx, r.readStream, r.config.Scope, MutationPlacementIntent, subjectKey)
 }
 
+func (r *Runtime) CommitMaterialReceipt(ctx context.Context, expectedEpoch uint64,
+	databaseID, partitionID, operationID string, expectedSequence uint64, payload []byte,
+) (uint64, error) {
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateMutation(MutationMaterialReceipt, subjectKey, operationID, payload); err != nil {
+		return 0, err
+	}
+	return r.commitMutation(ctx, expectedEpoch, MutationMaterialReceipt, subjectKey, operationID, expectedSequence, payload)
+}
+
+func (r *Runtime) ReadMaterialReceipt(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return LogEntry{}, err
+	}
+	if r == nil {
+		return LogEntry{}, ErrNotFound
+	}
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+	return readMutation(ctx, r.readStream, r.config.Scope, MutationMaterialReceipt, subjectKey)
+}
+
 // ListPlacementIntents reads the latest admitted record for each database and partition.
 // The bound applies to current intent subjects, not retained lease history.
 func (r *Runtime) ListPlacementIntents(ctx context.Context) ([]LogEntry, error) {
@@ -420,6 +446,23 @@ func (r *Reader) ReadPlacementIntent(ctx context.Context, databaseID, partitionI
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return readMutation(ctx, r.stream, r.scope, MutationPlacementIntent, subjectKey)
+}
+
+func (r *Reader) CommitMaterialReceipt(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error) {
+	return 0, ErrNotLeader
+}
+
+func (r *Reader) ReadMaterialReceipt(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {
+	if r == nil || r.stream == nil {
+		return LogEntry{}, ErrNotFound
+	}
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return LogEntry{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return readMutation(ctx, r.stream, r.scope, MutationMaterialReceipt, subjectKey)
 }
 
 func (r *Reader) ListPlacementIntents(ctx context.Context) ([]LogEntry, error) {
@@ -555,6 +598,8 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 3
 	case MutationPlacementIntent:
 		want = 2
+	case MutationMaterialReceipt:
+		want = 2
 	default:
 		return errors.New("host mutation kind is not allowed")
 	}
@@ -572,6 +617,9 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 func mutationSubject(scope string, kind HostMutationKind, subjectKey string) string {
 	if kind == MutationPlacementIntent {
 		return fmt.Sprintf("%s.%s.placement.intent.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationMaterialReceipt {
+		return fmt.Sprintf("%s.%s.placement.material.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	return fmt.Sprintf("%s.%s.host.%s.%s", controlSubjectRoot, scope, kind, subjectKey)
 }

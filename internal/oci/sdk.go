@@ -84,15 +84,17 @@ func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudI
 		return CloudInstance{}, fmt.Errorf("get OCI instance: %w", err)
 	}
 	instance := cloudInstance(response.Instance, stringValue(response.Etag))
-	if instance.LifecycleState == "RUNNING" || instance.LifecycleState == "STOPPED" {
-		if err := provider.verifyInstanceStorageAndNetwork(ctx, instance); err != nil {
+	if instance.LifecycleState != "TERMINATED" && instance.LifecycleState != "TERMINATING" {
+		privateIP, err := provider.verifyInstanceStorageAndNetwork(ctx, instance)
+		if err != nil {
 			return CloudInstance{}, err
 		}
+		instance.PrivateIP = privateIP
 	}
 	return instance, nil
 }
 
-func (provider *sdkProvider) verifyInstanceStorageAndNetwork(ctx context.Context, instance CloudInstance) error {
+func (provider *sdkProvider) verifyInstanceStorageAndNetwork(ctx context.Context, instance CloudInstance) (string, error) {
 	return verifyInstanceStorageAndNetwork(ctx, provider.config, instance, provider.compute, provider.storage, provider.network)
 }
 
@@ -110,50 +112,50 @@ type vnicReader interface {
 }
 
 func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, instance CloudInstance,
-	compute instanceAttachmentReader, storage bootVolumeReader, network vnicReader) error {
+	compute instanceAttachmentReader, storage bootVolumeReader, network vnicReader) (string, error) {
 	if instance.CompartmentID != config.CompartmentID ||
 		instance.AvailabilityDomain != config.AvailabilityDomain {
-		return ErrForeignResource
+		return "", ErrForeignResource
 	}
 	boots, err := compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), AvailabilityDomain: new(instance.AvailabilityDomain),
 		InstanceId: new(instance.ID),
 	})
 	if err != nil {
-		return fmt.Errorf("list exact instance boot attachment: %w", err)
+		return "", fmt.Errorf("list exact instance boot attachment: %w", err)
 	}
 	if len(boots.Items) != 1 || stringValue(boots.OpcNextPage) != "" ||
 		boots.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
 		stringValue(boots.Items[0].InstanceId) != instance.ID {
-		return fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
+		return "", fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
 	}
 	boot, err := storage.GetBootVolume(ctx, core.GetBootVolumeRequest{
 		BootVolumeId: boots.Items[0].BootVolumeId,
 	})
 	if err != nil {
-		return fmt.Errorf("get exact instance boot volume: %w", err)
+		return "", fmt.Errorf("get exact instance boot volume: %w", err)
 	}
 	if stringValue(boot.Id) != stringValue(boots.Items[0].BootVolumeId) ||
 		stringValue(boot.CompartmentId) != config.CompartmentID ||
 		stringValue(boot.ImageId) != config.ImageID ||
 		int64Value(boot.SizeInGBs) != int64(config.BootVolumeGB) ||
 		int64Value(boot.VpusPerGB) != int64(config.BootVolumeVPUsPerGB) {
-		return fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified)
+		return "", fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified)
 	}
 	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
 	})
 	if err != nil {
-		return fmt.Errorf("list exact instance VNIC: %w", err)
+		return "", fmt.Errorf("list exact instance VNIC: %w", err)
 	}
 	if len(attachments.Items) != 1 || stringValue(attachments.OpcNextPage) != "" ||
 		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached ||
 		stringValue(attachments.Items[0].InstanceId) != instance.ID {
-		return fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
+		return "", fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
 	}
 	vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
 	if err != nil {
-		return fmt.Errorf("get exact instance VNIC: %w", err)
+		return "", fmt.Errorf("get exact instance VNIC: %w", err)
 	}
 	gotNSGs := slices.Clone(vnic.NsgIds)
 	wantNSGs := slices.Clone(config.NetworkSecurityGroupIDs)
@@ -164,9 +166,9 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 		stringValue(vnic.PrivateIp) == "" || stringValue(vnic.PublicIp) != "" ||
 		vnic.LifecycleState != core.VnicLifecycleStateAvailable ||
 		!slices.Equal(gotNSGs, wantNSGs) {
-		return fmt.Errorf("%w: instance VNIC differs from the private subnet and NSG pins", ErrForeignResource)
+		return "", fmt.Errorf("%w: instance VNIC differs from the private subnet and NSG pins", ErrForeignResource)
 	}
-	return nil
+	return stringValue(vnic.PrivateIp), nil
 }
 
 func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchRequest) (CloudInstance, error) {
@@ -178,7 +180,7 @@ type launchInstanceClient interface {
 }
 
 func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest) (CloudInstance, error) {
-	if compute == nil || request.RetryToken == "" || request.Shape != config.Shape ||
+	if compute == nil || request.RetryToken == "" || !validManagedPrivateIP(request.PrivateIP) || request.Shape != config.Shape ||
 		request.BootVolumeGB != config.BootVolumeGB || request.BootVolumeVPUsPerGB != config.BootVolumeVPUsPerGB ||
 		request.BootVolumeGB < 50 || request.BootVolumeVPUsPerGB != 10 ||
 		!validComputeProfile(request.Shape, request.WholeOCPUs, request.MemoryInGBs,
@@ -213,6 +215,7 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		},
 		CreateVnicDetails: &core.CreateVnicDetails{
 			SubnetId:       new(config.SubnetID),
+			PrivateIp:      new(request.PrivateIP),
 			NsgIds:         networkSecurityGroupIDs,
 			AssignPublicIp: new(false),
 		},

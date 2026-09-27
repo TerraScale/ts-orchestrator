@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"path"
 	"slices"
 	"strings"
@@ -237,6 +238,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if !validCreateKey(request.CreateKey) || !slices.Contains(f.config.FaultDomains, request.FaultDomain) {
 		return Instance{}, errors.New("OCI host launch has an invalid create key or unsupported fault domain")
 	}
+	if !validManagedPrivateIP(request.PrivateIP) {
+		return Instance{}, errors.New("OCI host launch requires a signed private IPv4 address")
+	}
 	if request.Shape != f.config.Shape || !validComputeProfile(request.Shape, request.WholeOCPUs,
 		request.MemoryInGBs, request.PlacementProfileDigest, request.PlacementGeneration) {
 		return Instance{}, ErrPlacementProfileMismatch
@@ -259,6 +263,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	}
 	intent := f.intent(actionLaunch, request.CreateKey, "", request.CreateKey, "", request.FaultDomain, "")
 	intent.Shape = request.Shape
+	intent.PrivateIP = request.PrivateIP
 	intent.WholeOCPUs = request.WholeOCPUs
 	intent.MemoryInGBs = request.MemoryInGBs
 	intent.PlacementProfileDigest = request.PlacementProfileDigest
@@ -299,6 +304,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			if !cloudMatchesPlacementProfile(cloud, operationIntent) {
 				return Instance{}, fmt.Errorf("%w: observed instance does not match the immutable launch intent", ErrPlacementProfileMismatch)
 			}
+			if cloud.PrivateIP != operationIntent.PrivateIP {
+				return Instance{}, fmt.Errorf("%w: observed private IP differs from immutable launch intent", ErrPlacementProfileMismatch)
+			}
 			// The launch receipt is immutable; the live ETag belongs to this
 			// observation and will fence the next tag/termination operation.
 			return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
@@ -323,6 +331,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.CreateKey,
 		}, ":")),
 		FaultDomain:            operationIntent.FaultDomain,
+		PrivateIP:              operationIntent.PrivateIP,
 		Shape:                  operationIntent.Shape,
 		WholeOCPUs:             operationIntent.WholeOCPUs,
 		MemoryInGBs:            operationIntent.MemoryInGBs,
@@ -370,6 +379,10 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	}
 	if !cloudMatchesPlacementProfile(cloud, operationIntent) {
 		unknownErr := fmt.Errorf("%w: %w: launched instance does not match the immutable launch intent", ErrOutcomeUnknown, ErrPlacementProfileMismatch)
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
+	}
+	if cloud.PrivateIP != operationIntent.PrivateIP {
+		unknownErr := fmt.Errorf("%w: %w: launched private IP differs from immutable launch intent", ErrOutcomeUnknown, ErrPlacementProfileMismatch)
 		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
 	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
@@ -927,6 +940,7 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		FaultDomain: cloud.FaultDomain, Shape: profile.Shape, WholeOCPUs: profile.WholeOCPUs,
 		MemoryInGBs: profile.MemoryInGBs, PlacementProfileDigest: profile.PlacementProfileDigest,
 		PlacementGeneration: profile.PlacementGeneration, ImageID: cloud.ImageID,
+		PrivateIP:            cloud.PrivateIP,
 		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
@@ -1171,7 +1185,7 @@ func cloudMatchesPlacementProfile(cloud CloudInstance, intent OperationIntent) b
 	}
 	wantOCPUs, _ := exactFloat32(intent.WholeOCPUs)
 	wantMemory, _ := exactFloat32(intent.MemoryInGBs)
-	return cloud.Shape == intent.Shape && cloud.Ocpus != nil && *cloud.Ocpus == wantOCPUs &&
+	return cloud.PrivateIP == intent.PrivateIP && cloud.Shape == intent.Shape && cloud.Ocpus != nil && *cloud.Ocpus == wantOCPUs &&
 		cloud.MemoryInGBs != nil && *cloud.MemoryInGBs == wantMemory &&
 		cloud.FreeformTags[tagPlacementProfileDigest] == intent.PlacementProfileDigest &&
 		cloud.FreeformTags[tagPlacementGeneration] == fmt.Sprint(intent.PlacementGeneration)
@@ -1210,6 +1224,11 @@ func retryToken(value string) string { return digest(value) }
 func validCreateKey(value string) bool {
 	return len(value) > 0 && len(value) <= maxCreateKeyBytes &&
 		!strings.ContainsAny(value, " \t\r\n") && strings.TrimSpace(value) == value
+}
+
+func validManagedPrivateIP(value string) bool {
+	address, err := netip.ParseAddr(value)
+	return err == nil && address.Is4() && address.IsPrivate() && address.String() == value
 }
 
 func validLifecycleState(state string) bool {

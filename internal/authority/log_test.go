@@ -171,6 +171,18 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "host-operation", 0, []byte("host")); err != nil {
 		t.Fatalf("commit host registration for concurrent reads: %v", err)
 	}
+	materialSequence, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "material-operation", 0, []byte("signed-receipt"))
+	if err != nil {
+		t.Fatalf("commit initial material receipt: %v", err)
+	}
+	materialEntry, err := runtime.ReadMaterialReceipt(ctx, "db-a", "partition-a")
+	if err != nil || materialEntry.Kind != MutationMaterialReceipt || materialEntry.Sequence != materialSequence ||
+		string(materialEntry.Payload) != "signed-receipt" {
+		t.Fatalf("read committed material receipt: %+v, %v", materialEntry, err)
+	}
+	if _, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "other-material", 0, []byte("foreign")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second material receipt did not respect R3 CAS: %v", err)
+	}
 
 	firstSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "operation-a", 0, []byte("first"))
 	if err != nil {
