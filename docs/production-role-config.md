@@ -1,8 +1,15 @@
 # Production role configuration
 
-The reviewed controller material input is a public description of one deployment, not a source of instance IDs, Vault OCIDs, or private keys. `generate-controller-material` creates a private local source and a public `Record`. The first controller is the only manually launched instance; subsequent controller launches carry their exact root-signed slot manifest in OCI metadata.
+The reviewed controller material input is a public description of one deployment, not a source of instance IDs, Vault OCIDs, or private keys. `generate-controller-material` creates a private local source and a public `Record`. The first controller is the only operator-started instance; after its identity and authority are handed off, `ts-orchestrator` launches the signed peers in that same cell. For the full regional setup and seed sequence, use the [manual regional bootstrap runbook](region-bootstrap.md).
+
+`ts-infra` owns shared services and email resources. The accepted target boundary places regional foundation and seed resources outside its ongoing ownership, but any source/state migration still needs a reviewed plan that identifies exact resources and non-destructive treatment. This page does not imply that migration is complete.
 
 ## Controller inputs
+
+The material generator maps canonical lower-case `gru`, `sfo`, and `fra` cells
+to `sa-saopaulo-1`, `us-sanjose-1`, and `eu-frankfurt-1`, respectively. The
+checked-in regional plan is the GRU example and needs a separately reviewed,
+fully populated copy for either other mapped cell.
 
 For each slot, prepare a reviewed unsigned manifest candidate with the exact image, launch profiles, storage domain, and Vault secret references. The candidate's secret references must match the `Record` file names, purposes, slots, byte lengths, and SHA-256 digests. Prepare three reviewed public JSON files: `oci-region-intent.json`, `oci-region.json`, and `placement.json`. Keep the operator command signer grant in a separate canonical JSON file containing one `TrustedSignerConfig`; its `public_key` is the Ed25519 operator command key, not the NATS operator issuer key.
 
@@ -26,7 +33,7 @@ No production material can be rendered or installed until the reviewed Record, V
 
 ## Managed host image
 
-The offline image builder accepts `--host-enrollment-public` paired with `--host-enrollment-public-sha256` for a managed host image. It checks the exact public bundle against the release environment and baked region, stages its reviewed bytes, and installs it at `/etc/terrascale-orchestrator/host-enrollment-public.json`. The host setup service creates `/etc/terrascale-orchestrator/host.json` after live enrollment; the setup service and renewal timer are enabled only when the bundle is present.
+The offline image builder accepts `--host-enrollment-public` paired with `--host-enrollment-public-sha256` for a managed host image. It checks the exact public bundle against the release environment and baked region, stages its reviewed bytes, and installs it at `/etc/terrascale-orchestrator/host-enrollment-public.json`. The current `render-host-enrollment-public` command emits only the fixed GRU canary bundle; it cannot produce an SFO or FRA bundle. A separately reviewed per-cell producer is needed before using this path in another mapped region. The host setup service creates `/etc/terrascale-orchestrator/host.json` after live enrollment; the setup service and renewal timer are enabled only when the bundle is present.
 
 The image and bundle use workload UID/GID `2000:2000` (`terrascale-workload`), install root `/var/lib/terrascale-orchestrator-host/install`, state root `/var/lib/terrascale-orchestrator-host/state`, and managed runtime root `/srv/ts-managed`. The builder rejects conflicting base-image UID/GID assignments and creates `/srv/ts-managed` as root:2000 `0750`. The host runtime verifies each member's separate persistent volume mount before launching TerraBase.
 

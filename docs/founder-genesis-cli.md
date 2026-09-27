@@ -1,9 +1,19 @@
 # Initial founder authority
 
-The reviewed GRU seed slot is `controller-a`, the only externally launched
-controller. After its admission, `ts-orchestrator` uses the selected founder
-plan to launch `controller-b` and `controller-c`. Do not create either peer
-manually.
+For the complete one-region operator procedure, including manual OCI
+foundation creation and the controller-A launch, see the
+[manual regional bootstrap runbook](region-bootstrap.md). This page records
+the signed founder objects and seed transaction used by that runbook.
+
+The seed slot is `controller-a`, the only operator-started controller. The
+material and first-seed commands accept GRU / `sa-saopaulo-1`, SFO /
+`us-sanjose-1`, and FRA / `eu-frankfurt-1`; each cell needs its own reviewed
+plan and signed genesis. After A's signed admission and identity/authority
+handoff, `ts-orchestrator` uses the selected founder plan to launch
+`controller-b` and `controller-c` in the same cell. Do not create either peer
+manually. The host-enrollment public bundle renderer remains fixed to the GRU
+canary; see the [regional bootstrap runbook](region-bootstrap.md) for that
+limit.
 
 Prepare the signed genesis anchor and one current root-signed manifest for each
 of its three sorted controller slots. The manifest for the seed must contain its
@@ -89,17 +99,32 @@ remain the separate schema-two continuity path after all three installs.
 
 ## First external seed transaction
 
-Use the protected `ts-infra` seed resource only for `controller-a`. Before
-signing its reservation, review the exact OpenTofu plan, save the SHA-256 of
-the reviewed plan file, and fix one `create_identity` value. That value must be
-the `BootstrapCreateKey` freeform tag read back from the resulting OCI instance.
-Keep the signed reservation and completion bundles: they contain the exact
-immutable bytes needed to reconcile an uncertain Object Storage response.
+This is the current manual controller-A seed flow. It replaces the earlier
+`ts-infra` OpenTofu seed apply. Follow the [regional bootstrap runbook](region-bootstrap.md)
+for the operator-owned foundation, live inventory, cost admission, readback,
+material provisioning, and launch order. Do not use the historical OpenTofu
+plan hash or Terraform `create_identity` input.
 
-1. Sign the reservation offline, using the owner-only raw
+The reviewed seed preflight is a schema-two record bound to the signed anchor,
+controller-A manifest and image receipt, launch profile, current inventory and
+cost admission, and one `BootstrapCreateKey` value. It fixes a private launch
+with 1 OCPU, 6 GiB memory, a 50 GB boot volume, and 10 VPUs/GB. Keep the exact
+preflight JSON and its SHA-256 with the reservation and completion bundles.
+Use the `seed-preflight` command and exact artifact inputs shown in the
+[regional bootstrap runbook](region-bootstrap.md). It verifies the current
+seed manifest and image receipt, plan, live inventory, budget admission, and
+controller-A profile, then writes a hash-bound reviewed plan. It is read-only
+and does not create an OCI instance. Keep that output and its SHA-256 with the
+reservation and completion bundles.
+
+1. Sign a reservation offline with the owner-only raw
    `<material-directory>/founder-ledger.key` produced by
-   `generate-controller-material`. The public `.ledger.pem` file is used only
-   when signing the anchor's ledger delegation.
+   `generate-controller-material`. The public `.ledger.pem` is only for the
+   anchor's ledger delegation. Use the exact `create_identity` value emitted
+   by `seed-preflight` as `--create-identity` and as the controller-A
+   `BootstrapCreateKey` freeform tag. The helper uses the value set in the
+   reviewed plan or derives one from the plan and signed inputs; do not choose a
+   different value after preflight.
 
    ```text
    ts-bootstrap sign-external-seed-reservation \
@@ -107,15 +132,16 @@ immutable bytes needed to reconcile an uncertain Object Storage response.
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
      --manifest controller-c.manifest.json \
-     --reviewed-plan-sha256 REVIEWED_OPENTOFU_PLAN_SHA256 \
+     --reviewed-plan reviewed-seed-plan.json \
+     --reviewed-plan-sha256 REVIEWED_SEED_PLAN_SHA256 \
      --create-identity EXACT_BOOTSTRAP_CREATE_KEY \
      --ledger-signing-key MATERIAL_DIRECTORY/founder-ledger.key \
      --out seed-reservation.json
    ```
 
-2. Publish that exact reservation before any Terraform seed creation. Repeat
-   the same command and bundle after an uncertain response; a different intent
-   or occupied slot is a conflict.
+2. Publish the exact signed reservation before creating controller A. Use the
+   same bytes if the response is uncertain; a different intent or occupied
+   slot is a conflict.
 
    ```text
    ts-bootstrap publish-external-seed-reservation \
@@ -127,16 +153,17 @@ immutable bytes needed to reconcile an uncertain Object Storage response.
      --oci-config oci-config --oci-profile DEFAULT
    ```
 
-3. Apply only the reviewed protected plan for `controller-a`. Check that its
-   `create_identity` and plan digest still equal the signed reservation. Record
-   the exact instance OCID returned by Terraform. Do not create `controller-b`
-   or `controller-c`; the admitted orchestrator provisions those peers.
+3. Generate user-data from the exact signed controller-A manifest with the
+   `seed-user-data` helper command documented in the [regional bootstrap
+   runbook](region-bootstrap.md), then manually create only controller A using
+   the reviewed seed preflight. Record the exact OCI instance OCID. Do not
+   launch B or C manually; after explicit identity and authority handoff, the
+   admitted founder launches the two same-cell peers.
 
-4. Read the exact instance and primary VNIC from OCI, then sign the root seed
-   receipt and delegated result offline. The observation checks the create
-   key, image, compartment, shape, availability and fault domains, subnet,
-   network security groups, planned private IP, running state, and ETag. The
-   signed observation must still be within its 15-minute first-write window.
+4. Read the exact instance and primary VNIC from OCI, including the seed
+   profile and boot-volume size/performance, then sign the root receipt and
+   delegated result offline. The OCI observation must be no more than 15
+   minutes old for a new first write.
 
    ```text
    ts-bootstrap observe-external-seed \
@@ -144,7 +171,10 @@ immutable bytes needed to reconcile an uncertain Object Storage response.
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
      --manifest controller-c.manifest.json \
-     --reservation seed-reservation.json --instance-ocid EXACT_TERRAFORM_INSTANCE_OCID \
+     --reservation seed-reservation.json \
+     --reviewed-plan reviewed-seed-plan.json \
+     --reviewed-plan-sha256 REVIEWED_SEED_PLAN_SHA256 \
+     --instance-ocid EXACT_MANUAL_INSTANCE_OCID \
      --oci-config oci-config --oci-profile DEFAULT --out seed-observation.json
 
    ts-bootstrap sign-external-seed-completion \
@@ -158,11 +188,11 @@ immutable bytes needed to reconcile an uncertain Object Storage response.
      --out seed-completion.json
    ```
 
-5. Publish the completion while the founder plan and signed proofs are current.
-   The publisher reads the exact instance and VNIC again before the first
-   write. It stores the manifest, root receipt, delegated result, and completed
-   HEAD in that order. Retrying exact committed bytes succeeds; changed proof
-   bytes, OCI identity, ETag, or private IP fail closed.
+5. Publish the completion while the reviewed plan, admission, and signed proofs
+   are current. Before a new completion write, the publisher reads the exact
+   instance and VNIC again and checks the reviewed sizing. It stores the
+   manifest, root receipt, delegated result, and completed HEAD in order.
+   Preserve exact bytes for an uncertain response.
 
    ```text
    ts-bootstrap publish-external-seed-completion \
@@ -171,23 +201,21 @@ immutable bytes needed to reconcile an uncertain Object Storage response.
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
      --manifest controller-c.manifest.json \
      --reservation seed-reservation.json --completion seed-completion.json \
+     --reviewed-plan reviewed-seed-plan.json \
+     --reviewed-plan-sha256 REVIEWED_SEED_PLAN_SHA256 \
      --oci-config oci-config --oci-profile DEFAULT
    ```
 
-The founder plan's launch deadline is a hard admission boundary. If it passes
-before the completed HEAD is durably stored, stop and prepare a newly reviewed
-bootstrap transaction; an expired plan cannot authorize a new seed write.
-If the exact completed HEAD was stored before the deadline but its response was
-uncertain, retry the same bundle while the signed anchor, plan, and manifests
-remain current. The post-deadline path reads and verifies the stored proofs and
-their timestamps; it does not observe OCI or write another object.
-If a completion write has an uncertain outcome, retry the exact completion
-bundle first. The publisher checks the immutable proof keys and may reconcile
-an already stored result after its observation is older than 15 minutes. If
-only the root receipt was stored and the result was not, take a fresh
-`observe-external-seed` readback, then run `sign-external-seed-completion` with
-`--reuse-receipt-from seed-completion.json` and a new output path. This keeps
-the exact root receipt while signing a fresh result. The result and completed
-HEAD cannot outlive that receipt; complete initial seed admission before its
-original expiry. A conflicting stored result requires the original bundle;
-never create another seed instance to resolve a publication failure.
+The founder plan's launch deadline is a hard first-admission boundary. If it
+passes before the completed HEAD is stored, stop and prepare a newly reviewed
+transaction; an expired plan cannot authorize a new seed write. If the exact
+completed HEAD was stored before the deadline but its response was uncertain,
+retry the same bundle. The reconciliation path verifies the stored proofs and
+timestamps without observing OCI or writing another object.
+
+If completion publication has an uncertain outcome, retry the exact completion
+bundle first. When only the receipt was stored and the result was not, obtain a
+fresh OCI observation and sign a new completion with
+`--reuse-receipt-from seed-completion.json` and a new output path. This reuses
+the exact root receipt while signing a fresh result. Never create a second seed
+instance to resolve a publication failure.

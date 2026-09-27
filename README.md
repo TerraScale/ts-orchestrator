@@ -7,6 +7,11 @@ Actions owns source verification and binary builds. The orchestrator owns
 artifact admission and rollout authority. `ts-deploy` is not the build or
 rollout engine for this repository.
 
+Regional foundation and first-controller setup are operator-run; after the
+identity and authority handoff, the orchestrator forms that cell's remaining
+controller peers. See the [manual regional bootstrap runbook](docs/region-bootstrap.md)
+for the current supported procedure and its limits.
+
 This is a greenfield Go implementation. It does not promise compatibility with
 the retired C# commands, configuration, NATS subjects, or state. The current
 implementation and its gaps are described in [the architecture notes](docs/architecture.md).
