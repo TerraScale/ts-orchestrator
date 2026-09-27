@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import errno
 import hashlib
 import json
@@ -17,6 +18,10 @@ from pathlib import Path
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 PROC_ROOT = Path("/proc")
+MAX_MEMORY_STAT_BYTES = 16_384
+MAX_MEMORY_COUNTER_BYTES = 128
+MAX_SYSTEM_SLICE_CHILD_CGROUPS = 256
+MAX_SYSTEM_SLICE_CHILD_NAME_BYTES = 16_384
 HOST_UNIT_DEFAULT = "terrascale-orchestrator-host.service"
 CONTROLLER_UNIT_DEFAULT = "terrascale-orchestrator-controller.service"
 RUNTIME_PRIORITY_PROFILE = Path("/etc/terrascale-orchestrator/runtime-priority.json")
@@ -108,6 +113,112 @@ class Probe:
             raise QualificationError(f"cannot read numeric cgroup value {path}: {error}") from error
 
     @staticmethod
+    def utc_now() -> str:
+        return dt.datetime.now(dt.timezone.utc).isoformat(
+            timespec="milliseconds",
+        ).replace("+00:00", "Z")
+
+    @staticmethod
+    def canonical_json(value: object) -> bytes:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=True).encode("ascii")
+
+    def memory_usage_sample(self, cgroups: dict[str, Path], systemd_version: str) -> dict[str, object]:
+        started_at = self.utc_now()
+        root = CGROUP_ROOT.resolve(strict=True)
+        rows: dict[str, object] = {}
+        for scope, path in cgroups.items():
+            try:
+                if path.is_symlink() or not path.is_dir():
+                    raise QualificationError(f"{scope} memory sample path is not a cgroup directory: {path}")
+                resolved = path.resolve(strict=True)
+                if root not in resolved.parents or resolved == root:
+                    raise QualificationError(f"{scope} memory sample escaped the cgroup root: {path}")
+                directory_fd = os.open(
+                    resolved,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                )
+                try:
+                    directory_stat = os.fstat(directory_fd)
+                    if not stat.S_ISDIR(directory_stat.st_mode):
+                        raise QualificationError(f"{scope} memory sample target is not a directory: {path}")
+                    before_stat = resolved.stat(follow_symlinks=False)
+                    if (before_stat.st_dev, before_stat.st_ino) != (directory_stat.st_dev, directory_stat.st_ino):
+                        raise QualificationError(f"{scope} memory sample cgroup changed before capture: {path}")
+
+                    def read_cgroup_file(name: str, maximum_bytes: int, encoding: str) -> str:
+                        file_fd = os.open(
+                            name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                            dir_fd=directory_fd,
+                        )
+                        with os.fdopen(file_fd, "rb") as cgroup_file:
+                            raw = cgroup_file.read(maximum_bytes + 1)
+                        if len(raw) > maximum_bytes:
+                            raise QualificationError(f"{scope} {name} exceeds its fixed evidence bound")
+                        try:
+                            return raw.decode(encoding)
+                        except UnicodeDecodeError as error:
+                            raise QualificationError(f"{scope} {name} is not {encoding} text") from error
+
+                    current_raw = read_cgroup_file("memory.current", MAX_MEMORY_COUNTER_BYTES, "ascii")
+                    peak_raw = read_cgroup_file("memory.peak", MAX_MEMORY_COUNTER_BYTES, "ascii")
+                    stat_raw = read_cgroup_file("memory.stat", MAX_MEMORY_STAT_BYTES, "utf-8")
+                    after_stat = resolved.stat(follow_symlinks=False)
+                    if (after_stat.st_dev, after_stat.st_ino) != (directory_stat.st_dev, directory_stat.st_ino):
+                        raise QualificationError(f"{scope} memory sample cgroup changed during capture: {path}")
+                    inode = directory_stat.st_ino
+                finally:
+                    os.close(directory_fd)
+            except OSError as error:
+                raise QualificationError(f"cannot capture {scope} cgroup memory usage at {path}: {error}") from error
+            current_text, peak_text = current_raw.strip(), peak_raw.strip()
+            if not current_text.isdecimal() or not peak_text.isdecimal():
+                raise QualificationError(f"{scope} memory.current/memory.peak is not decimal bytes")
+            rows[scope] = {
+                "cgroup_path": str(resolved), "cgroup_inode": inode,
+                "memory_current_raw": current_raw, "memory_current_bytes": int(current_text),
+                "memory_peak_raw": peak_raw, "memory_peak_bytes": int(peak_text),
+                "memory_stat_raw": stat_raw,
+                "memory_stat_sha256": hashlib.sha256(stat_raw.encode("utf-8")).hexdigest(),
+            }
+        system_slice = cgroups["system_slice"].resolve(strict=True)
+        children: list[str] = []
+        children_size = 0
+        try:
+            for child in system_slice.iterdir():
+                if child.is_symlink():
+                    raise QualificationError("system.slice contains a symlink while its child scopes are sampled")
+                if not child.is_dir():
+                    continue
+                child_name = child.name
+                child_size = len(child_name.encode("utf-8"))
+                if (len(children) >= MAX_SYSTEM_SLICE_CHILD_CGROUPS or
+                        children_size + child_size > MAX_SYSTEM_SLICE_CHILD_NAME_BYTES):
+                    raise QualificationError("system.slice child-cgroup list exceeds its fixed evidence bound")
+                children.append(child_name)
+                children_size += child_size
+        except OSError as error:
+            raise QualificationError(f"cannot enumerate system.slice direct child cgroups: {error}") from error
+        children.sort()
+        sample: dict[str, object] = {
+            "schema": "terrascale.d15.memory-usage-sample/v1",
+            "oci_instance_id": self.args.oci_instance_id,
+            "image_id": self.args.image_id,
+            "artifact_id": self.args.artifact_id,
+            "config_id": self.args.config_id,
+            "profile_id": self.args.profile_id,
+            "host_boot_id": (PROC_ROOT / "sys/kernel/random/boot_id").read_text(encoding="ascii").strip(),
+            "kernel_release": os.uname().release,
+            "systemd_version": systemd_version,
+            "started_at_utc": started_at,
+            "finished_at_utc": self.utc_now(),
+            "scopes": rows,
+            "system_slice_direct_child_cgroups": children,
+        }
+        sample["sample_sha256"] = hashlib.sha256(self.canonical_json(sample)).hexdigest()
+        return sample
+
+    @staticmethod
     def io_weight(path: Path) -> int:
         try:
             lines = path.read_text().splitlines()
@@ -145,11 +256,12 @@ class Probe:
             fields = stat[end + 1 :].split()
             nice = int(fields[16])
             scheduler_policy = int(fields[38])
+            start_time = int(fields[19])
             oom = int((proc / "oom_score_adj").read_text().strip())
         except (OSError, ValueError, IndexError) as error:
             raise QualificationError(f"cannot inspect scheduling/OOM values for PID {pid}: {error}") from error
         return {"pid": pid, "nice": nice, "scheduler_policy": scheduler_policy,
-                "oom_score_adj": oom}
+                "oom_score_adj": oom, "process_start_time": str(start_time)}
 
     def assert_process(self, pid: int, label: str, protected: bool) -> dict[str, object]:
         values = self.process_values(pid)
@@ -485,6 +597,9 @@ class Probe:
         supervisor = host_service / "supervisor"
         supervisor_weights = self.verify_priority_cgroup(supervisor, 10000, 10000, "host supervisor subgroup")
         memory = self.verify_memory_budget(host, controller, host_service, controller_service)
+        system_slice = host_service.parent
+        if system_slice != controller_service.parent or system_slice.name != "system.slice":
+            raise QualificationError("host and controller service cgroups must share system.slice")
 
         roots = sorted(host_service.glob("terrascale-host-*"))
         if len(roots) != 1 or not roots[0].is_dir():
@@ -572,6 +687,11 @@ class Probe:
                 "native_runner_memory": runner_resources, "roles": roles,
                 "controller_service": str(controller_service), "controller_weights": controller_weights,
             },
+            "memory_usage_sample": self.memory_usage_sample({
+                "host_service": host_service,
+                "controller_service": controller_service,
+                "system_slice": system_slice,
+            }, systemd_version),
             "memory_profile": memory,
             "systemd_oomd_policy": oomd_policy,
             "unit_sha256": unit_hashes,
@@ -595,6 +715,8 @@ def parse_args() -> argparse.Namespace:
     qualify.add_argument("--system-reserve-bytes", type=int, required=True)
     qualify.add_argument("--allocatable-memory-bytes", type=int, required=True)
     qualify.add_argument("--artifact-id", required=True)
+    qualify.add_argument("--oci-instance-id", required=True)
+    qualify.add_argument("--image-id", required=True)
     qualify.add_argument("--config-id", required=True)
     qualify.add_argument("--profile-id", required=True)
     qualify.add_argument("--evidence-dir", type=Path, required=True)
@@ -736,6 +858,9 @@ def main() -> int:
         print(f"evidence directory already exists: {args.evidence_dir}", file=sys.stderr)
         return 2
     probe = Probe(args)
+    started_at_utc = dt.datetime.now(dt.timezone.utc).isoformat(
+        timespec="milliseconds",
+    ).replace("+00:00", "Z")
     status = "FAILED"
     result: dict[str, object] = {
         "status": status,
@@ -750,6 +875,10 @@ def main() -> int:
         result.update({"stage": "effective_priority_and_resource_validation", "error": str(error)})
         print(f"runtime priority qualification failed: {error}", file=sys.stderr)
     finally:
+        result["started_at_utc"] = started_at_utc
+        result["finished_at_utc"] = dt.datetime.now(dt.timezone.utc).isoformat(
+            timespec="milliseconds",
+        ).replace("+00:00", "Z")
         result["status"] = status
         (args.evidence_dir / "commands.log").write_text("\n".join(probe.log) + "\n")
         (args.evidence_dir / "summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
