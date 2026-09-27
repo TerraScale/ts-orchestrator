@@ -226,6 +226,53 @@ func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 	return Intent{SchemaVersion: SchemaVersion, OperationID: "deploy-one", Source: source, ArtifactDigest: artifact.Digest, ManifestDigest: artifact.ManifestDigest, Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil), AuthorityEpoch: 1}
 }
 
+func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
+	want := &operationValue{value: []byte("durable operation"), revision: 7}
+	calls := 0
+	got, err := retrySubmitOperationRead(t.Context(), func(context.Context) (*operationValue, error) {
+		calls++
+		if calls == 1 {
+			return nil, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return want, nil
+	})
+	if err != nil || got != want || calls != 2 {
+		t.Fatalf("operation leader read after failover: value=%v error=%v calls=%d, want value and two attempts", got, err, calls)
+	}
+}
+
+func TestSubmitOperationReadPreservesPermanentErrorsAndCancellation(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		err  error
+	}{
+		{"permission denied", nats.ErrPermissionViolation},
+		{"JetStream disabled", &nats.APIError{Code: 503, ErrorCode: 10076}},
+		{"missing operation", jetstream.ErrKeyNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			_, err := retrySubmitOperationRead(t.Context(), func(context.Context) (*operationValue, error) {
+				calls++
+				return nil, test.err
+			})
+			if !errors.Is(err, test.err) || calls != 1 {
+				t.Fatalf("operation read error=%v calls=%d, want immediate %v", err, calls, test.err)
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	_, err := retrySubmitOperationRead(ctx, func(context.Context) (*operationValue, error) {
+		calls++
+		cancel()
+		return nil, nats.ErrTimeout
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 {
+		t.Fatalf("canceled operation read error=%v calls=%d, want caller cancellation", err, calls)
+	}
+}
+
 func TestSubmitRetriesTransientPublishWithSameSignedPayload(t *testing.T) {
 	service, ctx := testService(t, &testWriter{})
 	intent := testIntent(t, service, ctx)

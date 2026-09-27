@@ -130,8 +130,21 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 	if err := unix.Setpriority(unix.PRIO_PROCESS, 0, 0); err != nil {
 		return fmt.Errorf("reset native workload nice: %w", err)
 	}
-	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0); err != nil {
-		return fmt.Errorf("reset native workload OOM score adjustment: %w", err)
+	oomScore, err := os.ReadFile("/proc/self/oom_score_adj")
+	if err != nil {
+		return fmt.Errorf("read native workload OOM score adjustment: %w", err)
+	}
+	if strings.TrimSpace(string(oomScore)) != "0" {
+		if err := os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0); err != nil {
+			return fmt.Errorf("reset native workload OOM score adjustment: %w", err)
+		}
+		oomScore, err = os.ReadFile("/proc/self/oom_score_adj")
+		if err != nil {
+			return fmt.Errorf("verify native workload OOM score adjustment: %w", err)
+		}
+		if strings.TrimSpace(string(oomScore)) != "0" {
+			return errors.New("native workload OOM score adjustment did not reset")
+		}
 	}
 	if err := setNativeIOPriority(0, nativeIOPriorityNeutral); err != nil {
 		return fmt.Errorf("reset native workload I/O priority: %w", err)
