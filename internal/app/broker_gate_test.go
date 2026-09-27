@@ -460,6 +460,10 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	offlineOperator := operatorConfig
 	offlineOperator.NATS.URL = fmt.Sprintf("tls://127.0.0.1:%d", clientPorts[activeBroker])
 	offlineOperatorPath := testJSONFile(t, root, "offline-operator.json", offlineOperator)
+	// Route quorum does not prove the live broker's authority-backed claim bridge is ready.
+	waitBrokerGateStatus(t, ctx, []*natscell.Runtime{runtimes[activeBroker]}, func(status natscell.BridgeStatus) bool {
+		return status.Open && status.ClaimSequence == result.Claim.Sequence && status.JWTHash == result.Claim.Hash
+	})
 	var pendingOutput bytes.Buffer
 	err = Run(ctx, []string{"operator", "broker-claim-apply", "--config", offlineOperatorPath, "--file", nextFile,
 		"--expected-sequence", strconv.FormatUint(result.Claim.Sequence, 10)}, &pendingOutput)
