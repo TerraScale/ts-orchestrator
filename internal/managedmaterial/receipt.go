@@ -12,7 +12,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-const preparationReceiptDomain = "TS-MANAGED-MATERIAL-PREPARATION-V1\x00"
+const preparationReceiptDomain = "TS-MANAGED-MATERIAL-PREPARATION-V2\x00"
 
 // MemberPins are all files the host may install for one initial attempt.
 // The signed receipt carries hashes only; the encrypted host channel carries
@@ -34,6 +34,7 @@ type PreparationReceipt struct {
 	AuthorityConfigurationID string          `json:"authority_configuration_id"`
 	AuthoritySHA256          string          `json:"authority_sha256"`
 	TrustedKeySHA256         string          `json:"trusted_key_sha256"`
+	CustomerEnvelopeSHA256   string          `json:"customer_envelope_sha256"`
 	Members                  [2]MemberPins   `json:"members"`
 	IssuedAt                 time.Time       `json:"issued_at"`
 	ControllerKeyID          string          `json:"controller_key_id"`
@@ -64,7 +65,7 @@ func SignPreparationReceipt(cell, partition string, spec InitialSpec, bundle Ini
 	if err != nil || specSHA != object.SpecSHA256 {
 		return PreparationReceipt{}, ErrMaterialConflict
 	}
-	wantName := fmt.Sprintf("material/v1/%s/%s/%s/g1-%s.json", cell, spec.PlacementDatabaseID, partition, specSHA)
+	wantName := fmt.Sprintf("material/v2/%s/%s/%s/g1-%s.json", cell, spec.PlacementDatabaseID, partition, specSHA)
 	if object.Name != wantName {
 		return PreparationReceipt{}, ErrMaterialConflict
 	}
@@ -74,11 +75,16 @@ func SignPreparationReceipt(cell, partition string, spec InitialSpec, bundle Ini
 	}
 	certificate := sha256.Sum256(bundle.Authority.Certificate)
 	trusted := sha256.Sum256(bundle.Authority.TrustedKey)
-	receipt := PreparationReceipt{Version: 1, Cell: cell, PartitionID: partition,
+	customerSHA, err := customerEnvelopeDigest(bundle.Customer)
+	if err != nil {
+		return PreparationReceipt{}, err
+	}
+	receipt := PreparationReceipt{Version: 2, Cell: cell, PartitionID: partition,
 		Generation: 1, Spec: spec, SpecSHA256: specSHA, Object: object,
 		AuthorityConfigurationID: bundle.Authority.ConfigurationID,
 		AuthoritySHA256:          hex.EncodeToString(certificate[:]), TrustedKeySHA256: hex.EncodeToString(trusted[:]),
-		IssuedAt: now.UTC().Truncate(time.Second), ControllerKeyID: keyID}
+		CustomerEnvelopeSHA256: customerSHA,
+		IssuedAt:               now.UTC().Truncate(time.Second), ControllerKeyID: keyID}
 	for index, member := range bundle.Members {
 		pins := MemberPins{MemberID: member.MemberID, TLSLeafSHA256: member.TLSLeafSHA256,
 			Files: make(map[string]string, len(member.Files))}
@@ -103,19 +109,50 @@ func (receipt PreparationReceipt) signingMaterial() ([]byte, error) {
 	return append([]byte(preparationReceiptDomain), wire...), nil
 }
 
-// VerifyPreparationReceipt checks the controller signature and all internal
-// pins. Callers must also compare it byte-for-byte with the current R3 record,
-// then compare its pins with the operator-signed placement intent.
-func VerifyPreparationReceipt(receipt PreparationReceipt, controllerKey ed25519.PublicKey,
-	cell, partition string, objectBundle InitialBundle,
+func customerEnvelopeDigest(customer CustomerEnvelope) (string, error) {
+	wire, err := protocol.EncodeJSON(customer)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(wire)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// VerifyPreparationReply authenticates everything an operator may print from
+// the controller response. The expected spec comes from the operator's signed
+// request, and controllerKey is an independent local trust pin.
+func VerifyPreparationReply(receipt PreparationReceipt, customer CustomerEnvelope,
+	controllerKey ed25519.PublicKey, cell, partition string, expected InitialSpec,
 ) error {
-	if len(controllerKey) != ed25519.PublicKeySize || receipt.Version != 1 ||
+	if err := verifyPreparationSignature(receipt, controllerKey, cell, partition); err != nil {
+		return err
+	}
+	wantSpec, err := specDigest(expected)
+	if err != nil || wantSpec != receipt.SpecSHA256 || expected.PlacementDatabaseID != receipt.Spec.PlacementDatabaseID {
+		return ErrMaterialConflict
+	}
+	if customer.Version != 2 || !lowerHexDigest(customer.VerifierSHA256) ||
+		!lowerHexDigest(customer.HTTPSCASHA256) {
+		return ErrMaterialConflict
+	}
+	actual, err := customerEnvelopeDigest(customer)
+	if err != nil || actual != receipt.CustomerEnvelopeSHA256 {
+		return ErrMaterialConflict
+	}
+	return nil
+}
+
+func verifyPreparationSignature(receipt PreparationReceipt, controllerKey ed25519.PublicKey,
+	cell, partition string,
+) error {
+	if len(controllerKey) != ed25519.PublicKeySize || receipt.Version != 2 ||
 		receipt.Generation != 1 || receipt.Cell != cell || receipt.PartitionID != partition ||
 		receipt.Spec.PartitionID != partition ||
 		receipt.IssuedAt.IsZero() || !lowerHexDigest(receipt.SpecSHA256) ||
 		receipt.SpecSHA256 != receipt.Object.SpecSHA256 || !lowerHexDigest(receipt.Object.SHA256) ||
 		receipt.Object.VersionID == "" || receipt.Object.ETag == "" ||
 		!lowerHexDigest(receipt.AuthoritySHA256) || !lowerHexDigest(receipt.TrustedKeySHA256) ||
+		!lowerHexDigest(receipt.CustomerEnvelopeSHA256) ||
 		!lowerHexDigest(receipt.AuthorityConfigurationID) {
 		return errors.New("managed material preparation receipt is invalid")
 	}
@@ -133,9 +170,22 @@ func VerifyPreparationReceipt(receipt PreparationReceipt, controllerKey ed25519.
 	}
 	specSHA, err := specDigest(receipt.Spec)
 	if err != nil || specSHA != receipt.SpecSHA256 ||
-		receipt.Object.Name != fmt.Sprintf("material/v1/%s/%s/%s/g1-%s.json", cell,
+		receipt.Object.Name != fmt.Sprintf("material/v2/%s/%s/%s/g1-%s.json", cell,
 			receipt.Spec.PlacementDatabaseID, partition, specSHA) {
 		return ErrMaterialConflict
+	}
+	return nil
+}
+
+// VerifyPreparationReceipt checks the controller signature and all internal
+// pins. Callers must also compare it byte-for-byte with the current R3 record,
+// then compare its pins with the operator-signed placement intent.
+func VerifyPreparationReceipt(receipt PreparationReceipt, controllerKey ed25519.PublicKey,
+	cell, partition string, objectBundle InitialBundle,
+) error {
+	if err := VerifyPreparationReply(receipt, objectBundle.Customer, controllerKey,
+		cell, partition, receipt.Spec); err != nil {
+		return err
 	}
 	if err := validateStoredBundle(objectBundle); err != nil {
 		return err

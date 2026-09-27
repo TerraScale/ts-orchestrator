@@ -3,6 +3,7 @@ package managedmaterial
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/tls"
@@ -31,6 +32,7 @@ import (
 )
 
 const maxStoredBundleBytes = 8 << 20
+const provisioningDomain = "TS-MANAGED-MATERIAL-PROVISIONING-V2\x00"
 
 var repositoryToken = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 
@@ -83,10 +85,53 @@ type ObjectReference struct {
 }
 
 type storedBundle struct {
-	Version    uint64        `json:"version"`
-	SpecSHA256 string        `json:"spec_sha256"`
-	Spec       InitialSpec   `json:"spec"`
-	Bundle     InitialBundle `json:"bundle"`
+	Version               uint64        `json:"version"`
+	Region                string        `json:"region"`
+	Cell                  string        `json:"cell"`
+	Namespace             string        `json:"namespace"`
+	Bucket                string        `json:"bucket"`
+	KMSKeyID              string        `json:"kms_key_id"`
+	ObjectName            string        `json:"object_name"`
+	Generation            uint64        `json:"generation"`
+	SpecSHA256            string        `json:"spec_sha256"`
+	Spec                  InitialSpec   `json:"spec"`
+	Bundle                InitialBundle `json:"bundle"`
+	ProvisioningSignature string        `json:"provisioning_signature"`
+}
+
+func (stored storedBundle) provisioningInput() ([]byte, error) {
+	unsigned := struct {
+		Version    uint64        `json:"version"`
+		Region     string        `json:"region"`
+		Cell       string        `json:"cell"`
+		Namespace  string        `json:"namespace"`
+		Bucket     string        `json:"bucket"`
+		KMSKeyID   string        `json:"kms_key_id"`
+		ObjectName string        `json:"object_name"`
+		Generation uint64        `json:"generation"`
+		SpecSHA256 string        `json:"spec_sha256"`
+		Spec       InitialSpec   `json:"spec"`
+		Bundle     InitialBundle `json:"bundle"`
+	}{stored.Version, stored.Region, stored.Cell, stored.Namespace, stored.Bucket, stored.KMSKeyID,
+		stored.ObjectName, stored.Generation,
+		stored.SpecSHA256, stored.Spec, stored.Bundle}
+	wire, err := protocol.EncodeJSON(unsigned)
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte(provisioningDomain), wire...), nil
+}
+
+func (stored storedBundle) verifyProvisioning(controllerKey ed25519.PublicKey) bool {
+	if stored.Version != 2 || len(controllerKey) != ed25519.PublicKeySize {
+		return false
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(stored.ProvisioningSignature)
+	if err != nil || len(signature) != ed25519.SignatureSize {
+		return false
+	}
+	input, err := stored.provisioningInput()
+	return err == nil && ed25519.Verify(controllerKey, input, signature)
 }
 
 type Repository struct {
@@ -137,7 +182,7 @@ func (repository *Repository) objectName(database, partition string, generation 
 		len(specSHA) != 64 || !lowerHexDigest(specSHA) {
 		return "", errors.New("managed material object scope is invalid")
 	}
-	return fmt.Sprintf("material/v1/%s/%s/%s/g1-%s.json", repository.config.Cell, database, partition, specSHA), nil
+	return fmt.Sprintf("material/v2/%s/%s/%s/g1-%s.json", repository.config.Cell, database, partition, specSHA), nil
 }
 
 func lowerHexDigest(value string) bool {
@@ -153,9 +198,10 @@ func lowerHexDigest(value string) bool {
 // and an observed version and ETag can produce a reference. The reference is
 // evidence, never placement authority until a fenced R3 receipt commits.
 func (repository *Repository) CreateInitial(ctx context.Context, epoch uint64, partition string,
-	spec InitialSpec, bundle InitialBundle,
+	spec InitialSpec, bundle InitialBundle, controllerKey ed25519.PrivateKey,
 ) (ObjectReference, error) {
-	if repository == nil || ctx == nil || epoch == 0 || spec.PartitionID != partition {
+	if repository == nil || ctx == nil || epoch == 0 || spec.PartitionID != partition ||
+		len(controllerKey) != ed25519.PrivateKeySize {
 		return ObjectReference{}, errors.New("managed material repository call is invalid")
 	}
 	if err := repository.fencer.Guard(ctx, epoch); err != nil {
@@ -172,7 +218,15 @@ func (repository *Repository) CreateInitial(ctx context.Context, epoch uint64, p
 	if err := validateBundleForSpec(spec, bundle); err != nil {
 		return ObjectReference{}, err
 	}
-	body, err := protocol.EncodeJSON(storedBundle{Version: 1, SpecSHA256: specSHA, Spec: spec, Bundle: bundle})
+	stored := storedBundle{Version: 2, Region: string(repository.config.Region), Cell: repository.config.Cell,
+		Namespace: repository.config.Namespace, Bucket: repository.config.Bucket, KMSKeyID: repository.config.KMSKeyID,
+		ObjectName: name, Generation: 1, SpecSHA256: specSHA, Spec: spec, Bundle: bundle}
+	input, err := stored.provisioningInput()
+	if err != nil {
+		return ObjectReference{}, err
+	}
+	stored.ProvisioningSignature = base64.RawURLEncoding.EncodeToString(ed25519.Sign(controllerKey, input))
+	body, err := protocol.EncodeJSON(stored)
 	if err != nil || len(body) == 0 || len(body) > maxStoredBundleBytes {
 		return ObjectReference{}, errors.New("managed material bundle exceeds its object bound")
 	}
@@ -190,7 +244,7 @@ func (repository *Repository) CreateInitial(ctx context.Context, epoch uint64, p
 	})
 	// A failed Put may have committed. The read must still match the exact
 	// request bytes; a different object is a conflict, not an adopted signer.
-	observed, readErr := repository.read(ctx, name, "", "", sha)
+	observed, readErr := repository.read(ctx, name, "", "", sha, controllerKey.Public().(ed25519.PublicKey))
 	if readErr != nil {
 		if errors.Is(readErr, ErrMaterialConflict) {
 			return ObjectReference{}, ErrMaterialConflict
@@ -219,13 +273,15 @@ type observedBundle struct {
 
 // ReadPinned retrieves one exact immutable version from a committed receipt.
 // The caller must obtain ref from R3, not a caller-supplied object locator.
-func (repository *Repository) ReadPinned(ctx context.Context, ref ObjectReference) (InitialBundle, error) {
+func (repository *Repository) ReadPinned(ctx context.Context, ref ObjectReference,
+	controllerKey ed25519.PublicKey,
+) (InitialBundle, error) {
 	if repository == nil || ctx == nil || ref.VersionID == "" || ref.ETag == "" ||
 		!lowerHexDigest(ref.SHA256) || !lowerHexDigest(ref.SpecSHA256) ||
 		!repository.validObjectName(ref.Name, ref.SpecSHA256) {
 		return InitialBundle{}, errors.New("managed material reference is invalid")
 	}
-	observed, err := repository.read(ctx, ref.Name, ref.VersionID, ref.ETag, ref.SHA256)
+	observed, err := repository.read(ctx, ref.Name, ref.VersionID, ref.ETag, ref.SHA256, controllerKey)
 	if err != nil {
 		return InitialBundle{}, err
 	}
@@ -238,8 +294,11 @@ func (repository *Repository) ReadPinned(ctx context.Context, ref ObjectReferenc
 
 // LookupInitial recovers an object written before its R3 receipt. It returns
 // bytes only; the caller must commit a new signed receipt before admission.
-func (repository *Repository) LookupInitial(ctx context.Context, partition string, spec InitialSpec) (InitialBundle, ObjectReference, error) {
-	if repository == nil || ctx == nil || spec.PartitionID != partition {
+func (repository *Repository) LookupInitial(ctx context.Context, partition string, spec InitialSpec,
+	controllerKey ed25519.PublicKey,
+) (InitialBundle, ObjectReference, error) {
+	if repository == nil || ctx == nil || spec.PartitionID != partition ||
+		len(controllerKey) != ed25519.PublicKeySize {
 		return InitialBundle{}, ObjectReference{}, errors.New("managed material lookup is invalid")
 	}
 	specSHA, err := specDigest(spec)
@@ -250,7 +309,7 @@ func (repository *Repository) LookupInitial(ctx context.Context, partition strin
 	if err != nil {
 		return InitialBundle{}, ObjectReference{}, err
 	}
-	observed, err := repository.read(ctx, name, "", "", "")
+	observed, err := repository.read(ctx, name, "", "", "", controllerKey)
 	if err != nil {
 		return InitialBundle{}, ObjectReference{}, err
 	}
@@ -262,7 +321,7 @@ func (repository *Repository) LookupInitial(ctx context.Context, partition strin
 
 func (repository *Repository) validObjectName(name, specSHA string) bool {
 	parts := strings.Split(name, "/")
-	if len(parts) != 6 || parts[0] != "material" || parts[1] != "v1" ||
+	if len(parts) != 6 || parts[0] != "material" || parts[1] != "v2" ||
 		parts[2] != repository.config.Cell || !repositoryToken.MatchString(parts[4]) ||
 		parts[5] != "g1-"+specSHA+".json" {
 		return false
@@ -270,7 +329,9 @@ func (repository *Repository) validObjectName(name, specSHA string) bool {
 	return repositoryToken.MatchString(parts[3])
 }
 
-func (repository *Repository) read(ctx context.Context, name, versionID, etag, wantSHA string) (observedBundle, error) {
+func (repository *Repository) read(ctx context.Context, name, versionID, etag, wantSHA string,
+	controllerKey ed25519.PublicKey,
+) (observedBundle, error) {
 	request := objectstorage.GetObjectRequest{NamespaceName: new(repository.config.Namespace),
 		BucketName: new(repository.config.Bucket), ObjectName: new(name)}
 	if versionID != "" {
@@ -309,8 +370,17 @@ func (repository *Repository) read(ctx context.Context, name, versionID, etag, w
 		return observedBundle{}, ErrMaterialConflict
 	}
 	var stored storedBundle
-	if err := json.Unmarshal(body, &stored, json.RejectUnknownMembers(true)); err != nil || stored.Version != 1 ||
+	if err := json.Unmarshal(body, &stored, json.RejectUnknownMembers(true)); err != nil ||
+		stored.Region != string(repository.config.Region) || stored.Cell != repository.config.Cell ||
+		stored.Namespace != repository.config.Namespace || stored.Bucket != repository.config.Bucket ||
+		stored.KMSKeyID != repository.config.KMSKeyID ||
+		stored.ObjectName != name || stored.Generation != 1 ||
+		!stored.verifyProvisioning(controllerKey) ||
 		!lowerHexDigest(stored.SpecSHA256) || validateBundleForSpec(stored.Spec, stored.Bundle) != nil {
+		return observedBundle{}, ErrMaterialConflict
+	}
+	canonical, err := protocol.EncodeJSON(stored)
+	if err != nil || !bytes.Equal(body, canonical) {
 		return observedBundle{}, ErrMaterialConflict
 	}
 	specSHA, err := specDigest(stored.Spec)
@@ -328,7 +398,20 @@ func validateStoredBundle(bundle InitialBundle) error {
 		!bytes.Equal(bundle.Retained.AuthoritySigner.Public().(ed25519.PublicKey), bundle.Authority.TrustedKey) ||
 		len(bundle.Retained.ReplicationCA) != 64 || len(bundle.Retained.HTTPSCA) != 64 ||
 		len(bundle.Authority.Certificate) == 0 || !lowerHexDigest(bundle.Authority.ConfigurationID) ||
-		bundle.Customer.Version != 1 {
+		bundle.Customer.Version != 2 || !lowerHexDigest(bundle.Customer.VerifierSHA256) ||
+		!lowerHexDigest(bundle.Customer.HTTPSCASHA256) {
+		return ErrMaterialConflict
+	}
+	identifier, idErr := base64.RawURLEncoding.DecodeString(bundle.Customer.TokenID)
+	public, publicErr := base64.RawURLEncoding.DecodeString(bundle.Customer.EphemeralPublicKey)
+	nonce, nonceErr := base64.RawURLEncoding.DecodeString(bundle.Customer.Nonce)
+	ciphertext, ciphertextErr := base64.RawURLEncoding.DecodeString(bundle.Customer.Ciphertext)
+	if idErr != nil || len(identifier) != 16 || publicErr != nil || len(public) != 32 ||
+		nonceErr != nil || len(nonce) != 12 || ciphertextErr != nil || len(ciphertext) < 16 ||
+		len(ciphertext) > 16<<10 {
+		return ErrMaterialConflict
+	}
+	if _, err := ecdh.X25519().NewPublicKey(public); err != nil {
 		return ErrMaterialConflict
 	}
 	for _, member := range bundle.Members {
@@ -376,7 +459,12 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 			!bytes.Contains(server, member.Files["server-ca.pem"].Contents) ||
 			verifyStoredTLS(seat, member, bundle.Retained) != nil ||
 			verifyStoredClientConfig(seat, member) != nil ||
-			verifyStoredRegistry(spec, member) != nil {
+			verifyStoredRegistry(spec, member, bundle.Customer) != nil {
+			return ErrMaterialConflict
+		}
+		_, caPEM := pem.Decode(member.Files["client-chain.pem"].Contents)
+		caDigest := sha256.Sum256(caPEM)
+		if bundle.Customer.HTTPSCASHA256 != hex.EncodeToString(caDigest[:]) {
 			return ErrMaterialConflict
 		}
 		authorityMembers[index] = AuthorityMember{MemberID: seat.MemberID, Incarnation: seat.Incarnation,
@@ -492,7 +580,7 @@ func verifyStoredClientConfig(seat InitialMember, member MemberBundle) error {
 	return nil
 }
 
-func verifyStoredRegistry(spec InitialSpec, member MemberBundle) error {
+func verifyStoredRegistry(spec InitialSpec, member MemberBundle, customer CustomerEnvelope) error {
 	var registry apiKeyRegistry
 	if err := json.Unmarshal(member.Files["client-api-keys.json"].Contents, &registry, json.RejectUnknownMembers(true)); err != nil ||
 		registry.Version != 1 || len(registry.Keys) != 1 {
@@ -501,6 +589,7 @@ func verifyStoredRegistry(spec InitialSpec, member MemberBundle) error {
 	key := registry.Keys[0]
 	id, err := base64.RawURLEncoding.DecodeString(key.ID)
 	if err != nil || len(id) != 16 || !lowerHexDigest(key.VerifierSHA256) ||
+		key.ID != customer.TokenID || key.VerifierSHA256 != customer.VerifierSHA256 ||
 		key.Tenant != spec.Scope.TenantID || key.Database != spec.Scope.DatabaseID ||
 		key.Shard != strconv.FormatUint(spec.Scope.ShardID, 10) ||
 		!slices.Equal(key.Collections, initialCollectionIDs(spec.Catalogs)) ||

@@ -57,6 +57,7 @@ type TrustedSignerConfig struct {
 type OperatorConfig struct {
 	Actor                     string `json:"actor"`
 	SigningKeyFile            string `json:"signing_key_file"`
+	ControllerPublicKey       string `json:"controller_public_key,omitempty"`
 	BrokerTicketPublicKeyFile string `json:"broker_ticket_public_key_file,omitempty"`
 }
 

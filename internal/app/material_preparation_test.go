@@ -185,8 +185,34 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 	}
 	reply, err := verifyAndPrepareMaterial(t.Context(), wire, "gru", policy, service)
 	if err != nil || receipts.entry == nil || objects.puts != 1 || reply.Receipt.Object.VersionID == "" ||
-		reply.Customer.Version != 1 || reply.Customer.Ciphertext == "" {
+		reply.Customer.Version != 2 || reply.Customer.Ciphertext == "" {
 		t.Fatalf("signed preparation did not commit and return encrypted customer material: %+v, %v", reply, err)
+	}
+	controllerPublic := controllerPrivate.Public().(ed25519.PublicKey)
+	if err := verifyMaterialPrepareReply(reply, controllerPublic, "gru", spec); err != nil {
+		t.Fatalf("authentic reply was rejected: %v", err)
+	}
+	tamperedReply := reply
+	tamperedReply.Customer.Ciphertext += "A"
+	if err := verifyMaterialPrepareReply(tamperedReply, controllerPublic, "gru", spec); err == nil {
+		t.Fatal("substituted customer ciphertext was accepted")
+	}
+	tamperedReply = reply
+	tamperedReply.Receipt.Members[0].TLSLeafSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := verifyMaterialPrepareReply(tamperedReply, controllerPublic, "gru", spec); err == nil {
+		t.Fatal("substituted signed member pin was accepted")
+	}
+	otherSpec := spec
+	otherSpec.Scope.Epoch++
+	if err := verifyMaterialPrepareReply(reply, controllerPublic, "gru", otherSpec); err == nil {
+		t.Fatal("reply for another requested spec was accepted")
+	}
+	wrongPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyMaterialPrepareReply(reply, wrongPublic, "gru", spec); err == nil {
+		t.Fatal("reply from an untrusted controller was accepted")
 	}
 	retry, err := verifyAndPrepareMaterial(t.Context(), wire, "gru", policy, service)
 	if err != nil || objects.puts != 1 || retry.Receipt.Signature != reply.Receipt.Signature {

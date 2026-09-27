@@ -132,6 +132,10 @@ func TestStoredBundleRejectsSemanticallySubstitutedHostMaterial(t *testing.T) {
 
 func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 	spec, signer, _ := initialFixture(t)
+	controllerPublic, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +148,7 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle)
+	ref, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,10 +157,6 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 		client.kms != "ocid1.key.oc1.sa-saopaulo-1.material" || client.condition != "*" ||
 		ref.ETag != client.etag || ref.VersionID != client.version || ref.SHA256 != client.bodySHA {
 		t.Fatal("repository did not require and reobserve a fenced create-only KMS object")
-	}
-	controllerPublic, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
 	}
 	receipt, err := SignPreparationReceipt("gru", "partition-a", spec, bundle, ref, controllerPrivate, time.Now().UTC())
 	if err != nil {
@@ -175,37 +175,76 @@ func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
 	if err := VerifyPreparationReceipt(tampered, controllerPublic, "gru", "partition-a", bundle); err == nil {
 		t.Fatal("substituted object version was accepted")
 	}
-	recovered, err := repository.ReadPinned(t.Context(), ref)
+	recovered, err := repository.ReadPinned(t.Context(), ref, controllerPublic)
 	if err != nil || !bytes.Equal(recovered.Authority.Certificate, bundle.Authority.Certificate) ||
 		!bytes.Equal(recovered.Retained.AuthoritySigner, bundle.Retained.AuthoritySigner) {
 		t.Fatalf("exact versioned bundle read failed: %v", err)
 	}
+	otherPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repository.ReadPinned(t.Context(), ref, otherPublic); !errors.Is(err, ErrMaterialConflict) {
+		t.Fatalf("different controller signer adopted a pinned object: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*RepositoryConfig)
+	}{
+		{"namespace", func(config *RepositoryConfig) { config.Namespace = "other-namespace" }},
+		{"bucket", func(config *RepositoryConfig) { config.Bucket = "other-bucket" }},
+		{"kms key", func(config *RepositoryConfig) { config.KMSKeyID = "ocid1.key.oc1.sa-saopaulo-1.other" }},
+	} {
+		t.Run("copied object in "+test.name, func(t *testing.T) {
+			config := repository.config
+			test.change(&config)
+			copied := *client
+			copied.namespace, copied.bucket = config.Namespace, config.Bucket
+			otherRepository, err := NewRepository(config, &copied, new(repositoryFencer))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := otherRepository.LookupInitial(t.Context(), "partition-a", spec, controllerPublic); !errors.Is(err, ErrMaterialConflict) {
+				t.Fatalf("copied object was adopted on lookup: %v", err)
+			}
+			if _, err := otherRepository.ReadPinned(t.Context(), ref, controllerPublic); !errors.Is(err, ErrMaterialConflict) {
+				t.Fatalf("copied object was adopted by pinned read: %v", err)
+			}
+			if _, err := otherRepository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
+				t.Fatalf("copied object was adopted by create reconciliation: %v", err)
+			}
+		})
+	}
 	wrong := ref
 	wrong.VersionID = "other-version"
-	if _, err := repository.ReadPinned(t.Context(), wrong); err == nil {
+	if _, err := repository.ReadPinned(t.Context(), wrong, controllerPublic); err == nil {
 		t.Fatal("a different object version was accepted")
 	}
 	wrong = ref
 	wrong.SHA256 = hex.EncodeToString(bytes.Repeat([]byte{1}, 32))
-	if _, err := repository.ReadPinned(t.Context(), wrong); err == nil {
+	if _, err := repository.ReadPinned(t.Context(), wrong, controllerPublic); err == nil {
 		t.Fatal("a different object digest was accepted")
 	}
 	// An ambiguous response or a later duplicate create never overwrites the
 	// object. Exact byte reobservation is required for both outcomes.
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle); err != nil {
+	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); err != nil {
 		t.Fatalf("same immutable bundle retry: %v", err)
 	}
 	other, err := GenerateInitial(spec, signer, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, other); !errors.Is(err, ErrMaterialConflict) {
+	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, other, controllerPrivate); !errors.Is(err, ErrMaterialConflict) {
 		t.Fatalf("different signer attempted same immutable generation: %v", err)
 	}
 }
 
 func TestRepositoryUnknownPutAndFencingNeverGrantObjectAuthority(t *testing.T) {
 	spec, signer, _ := initialFixture(t)
+	_, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
 	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -217,11 +256,11 @@ func TestRepositoryUnknownPutAndFencingNeverGrantObjectAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle); err != nil {
+	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); err != nil {
 		t.Fatalf("lost acknowledgement was not resolved by exact read: %v", err)
 	}
 	fencer.deny = true
-	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle); !errors.Is(err, authority.ErrFenced) {
+	if _, err := repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, controllerPrivate); !errors.Is(err, authority.ErrFenced) {
 		t.Fatalf("fenced create was permitted: %v", err)
 	}
 	if client.putCount != 1 {

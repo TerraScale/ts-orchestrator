@@ -53,13 +53,14 @@ func (service PreparationService) PrepareInitial(ctx context.Context, epoch uint
 	} else if !errors.Is(err, authority.ErrNotFound) {
 		return PreparationReceipt{}, err
 	}
-	bundle, object, err := service.Repository.LookupInitial(ctx, partition, spec)
+	controllerPublic := service.ControllerKey.Public().(ed25519.PublicKey)
+	bundle, object, err := service.Repository.LookupInitial(ctx, partition, spec, controllerPublic)
 	if errors.Is(err, ErrMaterialNotFound) {
 		bundle, err = GenerateInitial(spec, service.RecipientSigner, now)
 		if err != nil {
 			return PreparationReceipt{}, err
 		}
-		object, err = service.Repository.CreateInitial(ctx, epoch, partition, spec, bundle)
+		object, err = service.Repository.CreateInitial(ctx, epoch, partition, spec, bundle, service.ControllerKey)
 	}
 	if err != nil {
 		return PreparationReceipt{}, err
@@ -167,7 +168,7 @@ func (service PreparationService) verifyCurrent(ctx context.Context, entry autho
 	if err != nil || receipt.SpecSHA256 != specSHA {
 		return PreparationReceipt{}, InitialBundle{}, ErrMaterialConflict
 	}
-	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object)
+	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object, service.ControllerKey.Public().(ed25519.PublicKey))
 	if err != nil {
 		return PreparationReceipt{}, InitialBundle{}, err
 	}

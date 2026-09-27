@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -20,6 +21,7 @@ import (
 
 const maxMaterialSpecBytes = 16 << 10
 const maxMaterialWireBytes = maxMaterialSpecBytes + 4096
+const maxMaterialReplyBytes = 64 << 10
 
 func materialPrepareSubject(cell string) string { return "ts.orch.v1." + cell + ".material.prepare" }
 
@@ -62,6 +64,10 @@ func operatorMaterialPrepare(ctx context.Context, cfg Config, runtime *natscell.
 	if err != nil {
 		return err
 	}
+	controllerKey, err := decodePublicKey(cfg.Operator.ControllerPublicKey)
+	if err != nil {
+		return fmt.Errorf("material preparation controller trust pin: %w", err)
+	}
 	snapshot, err := authority.Observe(ctx, runtime.JetStream(), cfg.NATS.Cell)
 	if err != nil {
 		return err
@@ -87,22 +93,27 @@ func operatorMaterialPrepare(ctx context.Context, cfg Config, runtime *natscell.
 	if err != nil {
 		return fmt.Errorf("request managed material preparation: %w", err)
 	}
+	if len(message.Data) == 0 || len(message.Data) > maxMaterialReplyBytes {
+		return errors.New("material preparation response exceeds size limit")
+	}
 	var reply materialPrepareReply
 	if err := json.Unmarshal(message.Data, &reply, json.RejectUnknownMembers(true)); err != nil {
 		return err
 	}
 	if reply.Error != "" {
-		return errors.New(reply.Error)
+		return errors.New("material preparation request was rejected")
 	}
-	if reply.Receipt.Spec.PlacementDatabaseID != spec.PlacementDatabaseID || reply.Receipt.Generation != 1 ||
-		reply.Customer.Version != 1 {
-		return errors.New("controller returned a different material preparation")
-	}
-	returned, err := protocol.EncodeJSON(reply.Receipt.Spec)
-	if err != nil || !bytes.Equal(returned, payload) {
-		return errors.New("controller returned a different material spec")
+	if err := verifyMaterialPrepareReply(reply, controllerKey, cfg.NATS.Cell, spec); err != nil {
+		return fmt.Errorf("unauthenticated material preparation response: %w", err)
 	}
 	return printJSON(output, reply)
+}
+
+func verifyMaterialPrepareReply(reply materialPrepareReply, controllerKey ed25519.PublicKey,
+	cell string, spec managedmaterial.InitialSpec,
+) error {
+	return managedmaterial.VerifyPreparationReply(reply.Receipt, reply.Customer, controllerKey,
+		cell, spec.PartitionID, spec)
 }
 
 func serveMaterialPreparation(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy,
@@ -162,7 +173,8 @@ func verifyAndPrepareMaterial(ctx context.Context, wire []byte, cell string, pol
 	if err != nil {
 		return materialPrepareReply{}, err
 	}
-	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object)
+	bundle, err := service.Repository.ReadPinned(ctx, receipt.Object,
+		service.ControllerKey.Public().(ed25519.PublicKey))
 	if err != nil {
 		return materialPrepareReply{}, err
 	}

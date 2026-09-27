@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -83,6 +84,9 @@ type RetainedSecrets struct {
 
 type CustomerEnvelope struct {
 	Version            uint64 `json:"version"`
+	TokenID            string `json:"token_id"`
+	VerifierSHA256     string `json:"verifier_sha256"`
+	HTTPSCASHA256      string `json:"https_ca_sha256"`
 	EphemeralPublicKey string `json:"ephemeral_public_key"`
 	Nonce              string `json:"nonce"`
 	Ciphertext         string `json:"ciphertext"`
@@ -223,7 +227,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		files["client-managed-manifest.json"] = makeFile(manifest)
 		members[index].TLSLeafSHA256 = authority.MemberLeafPins[index]
 	}
-	customer, err := encryptCustomerToken(spec, token, httpsCA.RawPEM)
+	customer, err := encryptCustomerToken(spec, token, verifierHex, httpsCA.RawPEM)
 	if err != nil {
 		return InitialBundle{}, err
 	}
@@ -311,6 +315,7 @@ func makeFile(data []byte) File {
 func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Time) error {
 	if len(signer) != ed25519.PublicKeySize || len(spec.Recipient.PublicKey) != 32 ||
 		len(spec.Recipient.Signature) != ed25519.SignatureSize || now.IsZero() ||
+		!spec.Recipient.ExpiresAt.Equal(spec.Recipient.ExpiresAt.UTC().Truncate(time.Second)) ||
 		!now.Before(spec.Recipient.ExpiresAt) || spec.Recipient.ExpiresAt.After(now.Add(30*24*time.Hour)) {
 		return errors.New("initial material recipient grant is invalid")
 	}
@@ -395,7 +400,29 @@ func initialCollectionIDs(inputs []InitialCatalogInput) []string {
 	return ids
 }
 
-func encryptCustomerToken(spec InitialSpec, token string, caPEM []byte) (CustomerEnvelope, error) {
+func customerEnvelopeAAD(spec InitialSpec, tokenID, verifier, caSHA string) []byte {
+	return []byte("TB-CUSTOMER-TOKEN-V2\x00" + string(recipientGrantMessage(spec)) + "/" +
+		tokenID + "/" + verifier + "/" + caSHA)
+}
+
+func encryptCustomerToken(spec InitialSpec, token, verifierHex string, caPEM []byte) (CustomerEnvelope, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[0] != "tbk1" {
+		return CustomerEnvelope{}, errors.New("customer token grammar is invalid")
+	}
+	id, idErr := base64.RawURLEncoding.DecodeString(parts[1])
+	secret, secretErr := base64.RawURLEncoding.DecodeString(parts[2])
+	verifier := sha256.New()
+	verifier.Write([]byte("TB-APIKEY-V1\x00"))
+	verifier.Write(id)
+	verifier.Write(secret)
+	if idErr != nil || secretErr != nil || len(id) != 16 || len(secret) != 32 ||
+		verifierHex != hex.EncodeToString(verifier.Sum(nil)) {
+		return CustomerEnvelope{}, errors.New("customer token differs from API verifier")
+	}
+	defer clear(secret)
+	caDigest := sha256.Sum256(caPEM)
+	caSHA := hex.EncodeToString(caDigest[:])
 	curve := ecdh.X25519()
 	recipient, err := curve.NewPublicKey(spec.Recipient.PublicKey)
 	if err != nil {
@@ -410,8 +437,8 @@ func encryptCustomerToken(spec InitialSpec, token string, caPEM []byte) (Custome
 		return CustomerEnvelope{}, err
 	}
 	defer clear(shared)
-	associated := recipientGrantMessage(spec)
-	key, err := hkdf.Key(sha256.New, shared, associated, "TB-CUSTOMER-TOKEN-V1", 32)
+	associated := customerEnvelopeAAD(spec, parts[1], verifierHex, caSHA)
+	key, err := hkdf.Key(sha256.New, shared, associated, "TB-CUSTOMER-TOKEN-V2", 32)
 	if err != nil {
 		return CustomerEnvelope{}, err
 	}
@@ -438,7 +465,8 @@ func encryptCustomerToken(spec InitialSpec, token string, caPEM []byte) (Custome
 	}
 	defer clear(plaintext)
 	ciphertext := aead.Seal(nil, nonce, plaintext, associated)
-	return CustomerEnvelope{Version: 1,
+	return CustomerEnvelope{Version: 2, TokenID: parts[1], VerifierSHA256: verifierHex,
+		HTTPSCASHA256:      caSHA,
 		EphemeralPublicKey: base64.RawURLEncoding.EncodeToString(ephemeral.PublicKey().Bytes()),
 		Nonce:              base64.RawURLEncoding.EncodeToString(nonce),
 		Ciphertext:         base64.RawURLEncoding.EncodeToString(ciphertext)}, nil

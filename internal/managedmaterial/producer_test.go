@@ -247,6 +247,11 @@ func TestGenerateInitialBindsAuthorityTLSRegistryAndCustomerCiphertext(t *testin
 	material := append([]byte("TB-APIKEY-V1\x00"), id...)
 	material = append(material, secret...)
 	verifier := sha256.Sum256(material)
+	caDigest := sha256.Sum256([]byte(customer.HTTPSCAPEM))
+	if bundle.Customer.TokenID != parts[1] || bundle.Customer.VerifierSHA256 != hex.EncodeToString(verifier[:]) ||
+		bundle.Customer.HTTPSCASHA256 != hex.EncodeToString(caDigest[:]) {
+		t.Fatal("customer plaintext differs from public producer commitment")
+	}
 	var registry apiKeyRegistry
 	if err := json.Unmarshal(bundle.Members[0].Files["client-api-keys.json"].Contents, &registry, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
@@ -322,8 +327,8 @@ func decryptCustomerEnvelope(t *testing.T, spec InitialSpec, recipient *ecdh.Pri
 	if err != nil {
 		t.Fatal(err)
 	}
-	associated := RecipientGrantMessage(spec)
-	key, err := hkdf.Key(sha256.New, shared, associated, "TB-CUSTOMER-TOKEN-V1", 32)
+	associated := customerEnvelopeAAD(spec, envelope.TokenID, envelope.VerifierSHA256, envelope.HTTPSCASHA256)
+	key, err := hkdf.Key(sha256.New, shared, associated, "TB-CUSTOMER-TOKEN-V2", 32)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,6 +357,11 @@ func decryptCustomerEnvelope(t *testing.T, spec InitialSpec, recipient *ecdh.Pri
 
 func TestGenerateInitialRejectsRecipientAndMemberSubstitution(t *testing.T) {
 	spec, signer, _ := initialFixture(t)
+	spec.Recipient.ExpiresAt = spec.Recipient.ExpiresAt.Add(500 * time.Millisecond)
+	if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
+		t.Fatal("subsecond recipient expiry extended a second-precision grant")
+	}
+	spec, signer, _ = initialFixture(t)
 	spec.Members[0].ClientIP = "10.0.0.99"
 	if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
 		t.Fatal("mismatched HTTPS and replication IP was accepted")

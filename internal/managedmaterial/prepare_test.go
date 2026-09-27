@@ -98,7 +98,7 @@ func TestPrepareInitialRecoversOrphanOnlyThroughNewR3CAS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.Repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle); err != nil {
+	if _, err := service.Repository.CreateInitial(t.Context(), 9, "partition-a", spec, bundle, service.ControllerKey); err != nil {
 		t.Fatal(err)
 	}
 	if receipts.entry != nil {
