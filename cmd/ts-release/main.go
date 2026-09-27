@@ -64,6 +64,8 @@ func run(args []string) error {
 		return usageError()
 	}
 	switch args[0] {
+	case "sign-delegation":
+		return signDelegation(args[1:])
 	case "binary-candidate":
 		return binaryCandidate(args[1:])
 	case "sign-binary":
@@ -84,7 +86,7 @@ func run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-release <binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
+	return errors.New("usage: ts-release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
 }
 
 func publish(args []string) error {

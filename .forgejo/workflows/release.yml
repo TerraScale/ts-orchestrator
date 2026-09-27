@@ -45,12 +45,12 @@ on:
 
 jobs:
   release:
-    if: ${{ inputs.sign_release == true || inputs.publish == true }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.sign_release == true || inputs.publish == true) }}
     name: sign and optionally retain exact binaries
     runs-on: terrascale-release-signer
     timeout-minutes: 90
     environment:
-      name: production-release
+      name: ${{ github.ref == 'refs/heads/main' && inputs.release_environment == 'canary' && 'canary-release' || github.ref == 'refs/heads/main' && inputs.release_environment == 'production' && 'production-release' || 'invalid-release-environment' }}
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
       SOURCE_REF: ${{ forgejo.ref }}
@@ -88,6 +88,10 @@ jobs:
           fi
           printf 'source=%s environment=%s region=%s\n' \
             "${source_commit}" "${RELEASE_ENVIRONMENT}" "${RELEASE_REGION}"
+
+      - name: Verify release environment and source admission contract
+        shell: bash
+        run: python3 tests/ci/test_release_workflow.py
 
       - name: Prepare pinned fj admission client
         shell: bash

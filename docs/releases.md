@@ -15,22 +15,32 @@ manifest that records the source revision and tree, Go version, module-file
 digests, successful workflow/job run identity, and each artifact's size and
 SHA-256.
 
-The separate `release.yml` workflow is dispatch-only on protected `main`. Its
-`sign_release` and `publish` inputs both default to `false`; it does no work
-when both are false. Signing uses a currently valid root-signed scoped
-delegation and an owner-only delegated key supplied only by the protected
-`production-release` environment. The root private key stays offline. The
-optional `publish` input uses the release runner's OCI instance principal and
-conditionally creates immutable, source-revision-keyed objects. It publishes
-only signed Linux binaries and their signed receipts. No release was signed or
-published for this change, and the workflow was not run. Configure environment
-reviewers and the release runner's least-privilege OCI policy before any future
-manual use. The dispatch requires the candidate CI run ID and Forgejo run
-number. It downloads that run's retained binaries and manifest, checks the
-run's source, workflow, job, and success status with `fj`, and checks the
-manifest's source tree and module digests against the checked-out source. The
-signer also requires the exact manifest-digest marker in the CI job log before
-it signs.
+The separate `release.yml` workflow is manually dispatched. Its release job
+runs only on `main` when either `sign_release` or `publish` is true; dispatches
+from other refs skip the job. Both inputs default to `false`, so the job also
+skips when both are false. For an enabled main job, `canary` selects only the
+`canary-release` environment and `production` selects only
+`production-release`. An unsupported environment value selects
+`invalid-release-environment`; the in-job input check rejects it before signing
+inputs are materialized. Configure both Forgejo environments to allow
+deployments only from protected `main` and require their own reviewers. Each
+environment must define its own `TS_RELEASE_ROOT_PUBLIC_KEY`,
+`TS_RELEASE_DELEGATION`, and `TS_RELEASE_SIGNING_KEY` values; the canary values
+must hold a canary-scoped signer capability and must never fall back to or
+overwrite production values. The same environment boundary selects
+`OCI_RELEASE_NAMESPACE` and `OCI_RELEASE_BUCKET` when publishing, so canary
+objects use the canary environment's target. The root private key stays
+offline. The optional `publish` input uses the release runner's OCI instance
+principal and conditionally creates immutable, source-revision-keyed objects.
+It publishes only signed Linux binaries and their signed receipts. No release
+was signed or published for this change, and the workflow was not run. Configure
+environment protections and the release runner's least-privilege OCI policy
+before any future manual use. The dispatch requires the candidate CI run ID and
+Forgejo run number. It downloads that run's retained binaries and manifest,
+checks the run's source, workflow, job, and success status with `fj`, and checks
+the manifest's source tree and module digests against the checked-out source.
+The signer also requires the exact manifest-digest marker in the CI job log
+before it signs.
 
 `internal/release` owns the v2 binary and image receipt wire types, scope rules,
 and current and historical verification. Each receipt requires the SHA-256 of
