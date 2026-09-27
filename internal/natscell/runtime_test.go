@@ -3,8 +3,6 @@ package natscell
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -233,8 +231,7 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	if err := controller.Conn().FlushTimeout(time.Second); err != nil {
 		t.Fatal(err)
 	}
-	hash := sha256.Sum256([]byte("node-one"))
-	allowed := "ts.orch.v1.lab.agent." + hex.EncodeToString(hash[:]) + ".observation.report"
+	allowed := "ts.orch.v1.lab.agent." + hostPublic + ".observation.report"
 	if err := host.Conn().Publish(allowed, []byte("own")); err != nil {
 		t.Fatal(err)
 	}
@@ -245,8 +242,7 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	if err != nil || string(message.Data) != "own" {
 		t.Fatalf("own observation was not delivered: %v %v", message, err)
 	}
-	hash = sha256.Sum256([]byte("node-two"))
-	forbidden := "ts.orch.v1.lab.agent." + hex.EncodeToString(hash[:]) + ".observation.report"
+	forbidden := "ts.orch.v1.lab.agent." + otherPublic + ".observation.report"
 	_ = host.Conn().Publish(forbidden, []byte("spoof"))
 	_ = host.Conn().FlushTimeout(time.Second)
 	if _, err := observations.NextMsg(300 * time.Millisecond); !errors.Is(err, nats.ErrTimeout) {

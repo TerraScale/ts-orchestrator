@@ -2,11 +2,8 @@ package managedmaterial
 
 import (
 	"bytes"
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/ed25519"
-	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -197,13 +194,8 @@ func TestGenerateInitialBindsAuthorityTLSRegistryAndCustomerCiphertext(t *testin
 			}
 		}
 	}
-	plaintext := decryptCustomerEnvelope(t, spec, recipient, bundle.Customer)
-	var customer struct {
-		Version    uint64 `json:"version"`
-		Token      string `json:"token"`
-		HTTPSCAPEM string `json:"https_ca_pem"`
-	}
-	if err := json.Unmarshal(plaintext, &customer, json.RejectUnknownMembers(true)); err != nil {
+	customer, err := OpenCustomerEnvelope(spec, bundle.Customer, recipient)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if customer.Version != 1 || !strings.HasPrefix(customer.Token, "tbk1.") || customer.HTTPSCAPEM == "" {
@@ -288,48 +280,6 @@ func verifyMemberTLS(t *testing.T, spec InitialMember, member MemberBundle) {
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("HTTPS leaf is not bound to its private IP: %v", err)
 	}
-}
-
-func decryptCustomerEnvelope(t *testing.T, spec InitialSpec, recipient *ecdh.PrivateKey, envelope CustomerEnvelope) []byte {
-	t.Helper()
-	publicBytes, err := base64.RawURLEncoding.DecodeString(envelope.EphemeralPublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	public, err := ecdh.X25519().NewPublicKey(publicBytes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	shared, err := recipient.ECDH(public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	associated := customerEnvelopeAAD(spec, envelope.TokenID, envelope.VerifierSHA256, envelope.HTTPSCASHA256)
-	key, err := hkdf.Key(sha256.New, shared, associated, "TB-CUSTOMER-TOKEN-V2", 32)
-	if err != nil {
-		t.Fatal(err)
-	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		t.Fatal(err)
-	}
-	nonce, err := base64.RawURLEncoding.DecodeString(envelope.Nonce)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ciphertext, err := base64.RawURLEncoding.DecodeString(envelope.Ciphertext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	plaintext, err := aead.Open(nil, nonce, ciphertext, associated)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return plaintext
 }
 
 func TestGenerateInitialRejectsRecipientAndMemberSubstitution(t *testing.T) {
@@ -433,7 +383,14 @@ func TestExportManagedAuthorityPacket(t *testing.T) {
 			"schema_generation": uint64(1), "schema_digest": catalogs[0].SchemaDigest,
 		}}
 	}
-	customerMaterial := decryptCustomerEnvelope(t, spec, recipient, bundle.Customer)
+	customer, err := OpenCustomerEnvelope(spec, bundle.Customer, recipient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	customerMaterial, err := json.Marshal(customer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer clear(customerMaterial)
 	customerPath := filepath.Join(directory, "customer-material.json")
 	if err := os.WriteFile(customerPath, customerMaterial, 0o600); err != nil {

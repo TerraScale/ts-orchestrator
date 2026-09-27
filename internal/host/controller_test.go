@@ -264,7 +264,7 @@ func registerTestHost(t *testing.T, c *Controller) ed25519.PrivateKey {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = c.Register(t.Context(), Registration{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1})
+	_, err = c.Register(t.Context(), Registration{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestManagedOCIBindingValidation(t *testing.T) {
 	}
 	valid := Registration{
 		Cell: "gru", Node: "host-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
-		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
+		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("host-a"), Generation: 1,
 		ManagedPlacement: &ManagedPlacementBinding{
 			DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
 			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
@@ -351,7 +351,7 @@ func TestManagedRegistrationRequiresCurrentVerifierAndRechecksRetries(t *testing
 		}
 		return Registration{
 			Cell: "gru", Node: "managed-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
-			Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
+			Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey("managed-a"), Generation: 1,
 			ManagedPlacement: &ManagedPlacementBinding{
 				DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
 				IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
@@ -464,7 +464,7 @@ func TestSignedTransientSessionBackendRetriesWithinLease(t *testing.T) {
 }
 
 func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
-	c, conn, _, mutations, controllerKey := testController(t)
+	c, conn, _, _, controllerKey := testController(t)
 	hostKey := registerTestHost(t, c)
 	state := &oneShotSessionFailure{failure: backendErr, reader: c.readLeaderSession}
 	c.sessionRead = state.Read
@@ -477,7 +477,21 @@ func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	agent, err := NewAgent(AgentConfig{
+		NATSUserPublicKey:   testNATSUserKey("node-a"),
+		ClockCheck:          func() error { return nil },
+		WorkloadIdentity:    testAgentIdentity(),
+		Cell:                "gru",
+		Node:                "node-a",
+		Environment:         "production",
+		Roles:               []string{"terrabase"},
+		Conn:                conn,
+		Identity:            hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
+		Runner:              &memoryRunner{observed: make(map[string]Observation)},
+		InstallRoot:         testAgentInstallRoot(t),
+		StateRoot:           testAgentStateRoot(t),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,11 +540,66 @@ func testSignedTransientSessionBackend(t *testing.T, backendErr error) {
 	if got := state.failures.Load(); got != 3 || agent.sessionLost.Load() {
 		t.Fatalf("signed timeouts=%d, session lost=%t; want three retries and live session", got, agent.sessionLost.Load())
 	}
+	rotated, _, exists, err := c.readRegistration(t.Context(), "node-a")
+	if err != nil || !exists {
+		t.Fatalf("read registration before key rotation: exists=%t err=%v", exists, err)
+	}
+	newPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rotated.Generation++
+	rotated.PublicKey = base64.StdEncoding.EncodeToString(newPublic)
+	if _, err := c.Register(t.Context(), rotated); err != nil {
+		t.Fatalf("retire previous host key: %v", err)
+	}
+	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionRequestDenied) || retrySessionExchange(err) {
+		t.Fatalf("signed retired-key denial became retryable: %v", err)
+	}
+	stopController()
+	<-controllerDone
+}
+
+func TestMissingHostRegistrationGetsNoSignedReply(t *testing.T) {
+	c, conn, _, mutations, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	controllerCtx, stopController := context.WithCancel(t.Context())
+	defer stopController()
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- c.Run(controllerCtx) }()
+	select {
+	case <-c.Ready():
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	agent, err := NewAgent(AgentConfig{
+		NATSUserPublicKey:   testNATSUserKey("node-a"),
+		ClockCheck:          func() error { return nil },
+		WorkloadIdentity:    testAgentIdentity(),
+		Cell:                "gru",
+		Node:                "node-a",
+		Environment:         "production",
+		Roles:               []string{"terrabase"},
+		Conn:                conn,
+		Identity:            hostKey,
+		ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
+		Runner:              &memoryRunner{observed: make(map[string]Observation)},
+		InstallRoot:         testAgentInstallRoot(t),
+		StateRoot:           testAgentStateRoot(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatalf("acquire before registration removal: %v", err)
+	}
 	mutations.mu.Lock()
 	delete(mutations.entries, mutations.key(authority.MutationRegistration, registrationSubjectKey("gru", "node-a")))
 	mutations.mu.Unlock()
-	if err := agent.acquire(t.Context()); !errors.Is(err, errSessionRequestDenied) || retrySessionExchange(err) {
-		t.Fatalf("signed revocation denial became retryable: %v", err)
+	requestCtx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	if err := agent.acquire(requestCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("missing registration received a signed reply: %v", err)
 	}
 	stopController()
 	<-controllerDone
@@ -559,7 +628,7 @@ func TestSignedJetStreamUnavailableStopsAtExecutionReserve(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +687,7 @@ func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
 	oldKey := registerTestHost(t, c)
 	acquire := func(key ed25519.PrivateKey, id string) request {
 		t.Helper()
-		req := request{Version: 1, Node: "node-a", Operation: "session", SessionID: id, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"acquire"}`)}
+		req := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"acquire"}`)}
 		if err := signRequest(&req, key, "gru"); err != nil {
 			t.Fatal(err)
 		}
@@ -635,7 +704,7 @@ func TestStartupWaitsForOldSessionAndCancellation(t *testing.T) {
 	case <-t.Context().Done():
 		t.Fatal(t.Context().Err())
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: oldKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -674,7 +743,7 @@ func TestTransientRenewalKeepsWorkloadUntilSignedLeaseReserve(t *testing.T) {
 	install := testAgentInstallRoot(t)
 	state := testAgentStateRoot(t)
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: install, StateRoot: state})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -755,7 +824,7 @@ func TestSessionLossStopsActiveWorkloadBeforePendingCycleFlush(t *testing.T) {
 	if err := runner.Apply(t.Context(), Workload{Role: "terrabase", Digest: oldDigest, Fingerprint: oldDigest}); err != nil {
 		t.Fatal(err)
 	}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -822,7 +891,7 @@ func TestHostSessionRejectsReplayAndForeignIdentity(t *testing.T) {
 	id := "0123456789abcdef0123456789abcdef"
 	nonce := "abcdef0123456789abcdef0123456789"
 	makeAcquire := func(issued time.Time) request {
-		r := request{Version: 1, Node: "node-a", Operation: "session", SessionID: id, Nonce: nonce, IssuedAt: issued, Payload: []byte(`{"kind":"acquire"}`)}
+		r := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Nonce: nonce, IssuedAt: issued, Payload: []byte(`{"kind":"acquire"}`)}
 		if err := signRequest(&r, key, "gru"); err != nil {
 			t.Fatal(err)
 		}
@@ -854,7 +923,7 @@ func TestHostSessionRejectsReplayAndForeignIdentity(t *testing.T) {
 	if _, err := c.handleSession(t.Context(), forged); err == nil {
 		t.Fatal("foreign host key accepted")
 	}
-	renew := request{Version: 1, Node: "node-a", Operation: "session", SessionID: id, Epoch: 99, Nonce: "11111111111111111111111111111111", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"renew"}`)}
+	renew := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: id, Epoch: 99, Nonce: "11111111111111111111111111111111", IssuedAt: time.Now().UTC(), Payload: []byte(`{"kind":"renew"}`)}
 	if err := signRequest(&renew, key, "gru"); err != nil {
 		t.Fatal(err)
 	}
@@ -889,7 +958,7 @@ func signedHostRequest(t *testing.T, key ed25519.PrivateKey, operation, sessionI
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := request{Version: 1, Node: "node-a", Operation: operation, SessionID: sessionID, Epoch: epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
+	r := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: operation, SessionID: sessionID, Epoch: epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
 	if err := signRequest(&r, key, "gru"); err != nil {
 		t.Fatal(err)
 	}
@@ -1196,7 +1265,7 @@ func TestAgentResumesOpenCycleAfterSignedSessionContention(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1285,7 +1354,7 @@ func TestWithdrawnTargetStopsRunningWorkloadWithOpenCycle(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Role: "terrabase", Digest: digest, Running: true}}}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: time.Hour})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: time.Hour})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1433,7 +1502,7 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 		t.Fatal(t.Context().Err())
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t), PollInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1637,7 +1706,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	}
 	registration := Registration{
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
-		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
+		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		ManagedPlacement: &ManagedPlacementBinding{
 			DatabaseID: "db-main", PartitionID: "partition-a", SeatID: "permanent-a", IntentGeneration: 7,
 			IntentPayloadDigest: strings.Repeat("c", 64), CanonicalRosterDigest: strings.Repeat("d", 64),
@@ -1667,7 +1736,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		t.Fatal("managed OCI instance retargeted at a higher generation")
 	}
 	generic := Registration{Cell: "gru", Node: "node-e", Environment: "production", Roles: []string{"other"},
-		PublicKey: registration.PublicKey, Generation: 1}
+		PublicKey: registration.PublicKey, NATSUserPublicKey: testNATSUserKey("node-e"), Generation: 1}
 	if _, err := c.Register(t.Context(), generic); err != nil {
 		t.Fatalf("register generic host: %v", err)
 	}
@@ -1777,7 +1846,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req := request{Version: 1, Node: "node-a", Operation: operation, SessionID: requestID, Epoch: epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: body}
+		req := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: operation, SessionID: requestID, Epoch: epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: body}
 		if err := signRequest(&req, hostKey, "gru"); err != nil {
 			t.Fatal(err)
 		}
@@ -1797,7 +1866,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		t.Fatalf("signed desired reply=%+v err=%v", reply, err)
 	}
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent := &Agent{cfg: AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Identity: hostKey,
+	agent := &Agent{cfg: AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Identity: hostKey, NATSUserPublicKey: registration.NATSUserPublicKey,
 		Conn: conn, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), InstallRoot: filepath.Join(t.TempDir(), "install"), ClockCheck: func() error { return nil }},
 		runner: runner, session: s, processID: requestID, memoryCheck: func(Registration) error { return nil }}
 	if err := agent.acceptSession(s); err != nil {

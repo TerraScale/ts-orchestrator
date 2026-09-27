@@ -195,7 +195,7 @@ func authorizeSecretMaterialization(manifest VerifiedManifest, receipt VerifiedR
 		return fmt.Errorf("%w: secret reference is not present in the signed manifest", ErrManifestInvalid)
 	}
 	switch reference.Purpose {
-	case SecretRegionalShared:
+	case SecretRegionalShared, SecretHostIssuer:
 		return nil
 	case SecretSeedFounder, SecretSeedLedgerSigner:
 		if receipt.receipt.Slot != manifest.manifest.SeedSlot {

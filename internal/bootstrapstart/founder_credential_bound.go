@@ -21,8 +21,10 @@ type CredentialBound struct {
 	ValidUntil time.Time
 }
 
-func (check LiveCredentials) CurrentCredentialBound(expected map[string]string) (CredentialBound, error) {
-	if len(expected) == 0 || check.Config.Embedded == nil || check.verifyPaths(expected) != nil {
+func (check LiveCredentials) CurrentCredentialBound(expected map[string]string,
+	manifest bootstrap.Manifest,
+) (CredentialBound, error) {
+	if len(expected) == 0 || check.Config.Embedded == nil || check.verifyPaths(expected, manifest) != nil {
 		return CredentialBound{}, ErrLiveCredentials
 	}
 	if err := check.verifyInventory(expected); err != nil {

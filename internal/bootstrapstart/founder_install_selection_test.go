@@ -228,7 +228,7 @@ func TestFounderInstallContinuationChecksSeedAndPeerAgainstCurrentSelection(t *t
 			observed := InstanceObservation{InstanceOCID: marker.InstanceOCID, ImageOCID: marker.ImageOCID,
 				PrimaryVNICOCID: marker.PrimaryVNICOCID, PrimaryPrivateIP: marker.PrimaryPrivateIP}
 			checker := &FounderInstallContinuation{reader: reader,
-				credentialBound: func(map[string]string) (CredentialBound, error) { return bound, nil },
+				credentialBound: func(AcceptedInstall, bootstrap.SlotState) (CredentialBound, error) { return bound, nil },
 				now:             func() time.Time { return fixture.now }}
 			if err := checker.VerifyCurrentContinuation(t.Context(), marker, observed, state); err != nil {
 				t.Fatalf("marked %s restart: %v", slot, err)

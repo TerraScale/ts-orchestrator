@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 type testCodec struct{}
@@ -34,6 +35,15 @@ type interceptedPublish struct {
 
 func (js *interceptedPublish) Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
 	return js.publish(ctx, subject, payload, opts...)
+}
+
+type overriddenAdmissionGet struct {
+	jetstream.KeyValue
+	get func(context.Context, string) (jetstream.KeyValueEntry, error)
+}
+
+func (kv overriddenAdmissionGet) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
+	return kv.get(ctx, key)
 }
 
 type publishCall struct {
@@ -241,6 +251,21 @@ func TestSubmitOperationReadRetriesTransientLeaderFailure(t *testing.T) {
 	}
 }
 
+func TestSubmitOperationReadUsesRecoveryBudgetAfterFiveTransientFailures(t *testing.T) {
+	want := &operationValue{value: []byte("durable operation"), revision: 7}
+	calls := 0
+	got, err := retrySubmitOperationRead(t.Context(), func(context.Context) (*operationValue, error) {
+		calls++
+		if calls <= 5 {
+			return nil, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return want, nil
+	})
+	if err != nil || got != want || calls != 6 {
+		t.Fatalf("operation leader read after recovery: value=%v error=%v calls=%d, want value and six attempts", got, err, calls)
+	}
+}
+
 func TestSubmitOperationReadPreservesPermanentErrorsAndCancellation(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -413,7 +438,53 @@ func TestSubmitRetryAfterAmbiguousAckUsesJetStreamDeduplication(t *testing.T) {
 	}
 }
 
-func TestSubmitPublishRetryExhaustionAndCallerCancellation(t *testing.T) {
+func TestSubmitRetriesNoStreamResponseThroughLeaderRecoveryWithSameMessageID(t *testing.T) {
+	service, _, ctx := testServiceWithRuntime(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	base := service.js
+	calls := make([]publishCall, 0, 6)
+	acks := make([]*jetstream.PubAck, 0, 6)
+	service.js = &interceptedPublish{JetStream: base, publish: func(publishCtx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+		recordPublishCall(&calls, subject, payload)
+		ack, err := base.Publish(publishCtx, subject, payload, opts...)
+		if err != nil {
+			return nil, err
+		}
+		acks = append(acks, ack)
+		if len(calls) <= 5 {
+			return nil, jetstream.ErrNoStreamResponse
+		}
+		return ack, nil
+	}}
+
+	if err := service.Submit(ctx, intent); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 6 || len(acks) != 6 {
+		t.Fatalf("publish attempts=%d acknowledgements=%d, want six each", len(calls), len(acks))
+	}
+	for index, call := range calls {
+		if call.subject != IntentSubject(intent.Cell) || !bytes.Equal(call.payload, calls[0].payload) {
+			t.Fatalf("publish attempt %d changed subject or signed payload", index)
+		}
+		if acks[index].Sequence != acks[0].Sequence || index > 0 && !acks[index].Duplicate {
+			t.Fatalf("publish attempt %d did not deduplicate with the same message ID: first=%+v current=%+v", index, acks[0], acks[index])
+		}
+	}
+	stream, err := base.Stream(ctx, IntentStream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.State.Msgs != 1 {
+		t.Fatalf("retries stored %d messages, want one", info.State.Msgs)
+	}
+}
+
+func TestSubmitPublishStopsAtCallerDeadlineAndCancellation(t *testing.T) {
 	service, ctx := testService(t, &testWriter{})
 	intent := testIntent(t, service, ctx)
 	calls := 0
@@ -421,11 +492,13 @@ func TestSubmitPublishRetryExhaustionAndCallerCancellation(t *testing.T) {
 		calls++
 		return nil, nats.ErrNoResponders
 	}}
-	if err := service.Submit(ctx, intent); !errors.Is(err, nats.ErrNoResponders) {
-		t.Fatalf("exhausted retry error=%v", err)
+	deadlineCtx, stop := context.WithTimeout(ctx, 350*time.Millisecond)
+	defer stop()
+	if err := service.publishIntent(deadlineCtx, IntentSubject(intent.Cell), []byte("signed intent"), "deadline-publish"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("caller deadline error=%v, want deadline exceeded", err)
 	}
-	if calls != intentPublishMaxAttempts {
-		t.Fatalf("publish attempts=%d, want %d", calls, intentPublishMaxAttempts)
+	if calls == 0 {
+		t.Fatal("publish did not attempt before caller deadline")
 	}
 
 	started := make(chan struct{})
@@ -804,6 +877,98 @@ func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	}
 }
 
+func TestConsumerAdmissionDecisionIgnoresStaleFollower(t *testing.T) {
+	for _, scenario := range []string{"missing", "mismatched claim"} {
+		t.Run(scenario, func(t *testing.T) {
+			writer := &testWriter{}
+			service, ctx := testService(t, writer)
+			intent := testIntent(t, service, ctx)
+			key := admissionKey(intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
+			var staleEntry jetstream.KeyValueEntry
+			var staleErr error
+			if scenario == "missing" {
+				staleErr = jetstream.ErrKeyNotFound
+			} else {
+				current, err := service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var signed signedAdmission
+				if err := json.Unmarshal(current.Value(), &signed); err != nil {
+					t.Fatal(err)
+				}
+				signed.Record.Source.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+				signed.Record.ManifestDigest, err = signed.Record.calculatedManifestDigest()
+				if err != nil {
+					t.Fatal(err)
+				}
+				signed.Envelope, err = service.config.ArtifactSigner.SignArtifact(ctx, signed.Record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				staleValue, err := json.Marshal(signed)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.admissions.Put(ctx, key, staleValue); err != nil {
+					t.Fatal(err)
+				}
+				staleEntry, err = service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := service.admissions.Put(ctx, key, current.Value()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+				return staleEntry, staleErr
+			}}
+			terminal, err := service.process(ctx, mustJSON(intent))
+			if !terminal || err != nil {
+				t.Fatalf("processing with stale follower admission: terminal=%t err=%v", terminal, err)
+			}
+			receipt, err := service.StatusFor(ctx, intent)
+			if err != nil || receipt.Status != "accepted" || writer.count() != 1 {
+				t.Fatalf("leader admission receipt=%+v err=%v desired writes=%d", receipt, err, writer.count())
+			}
+		})
+	}
+}
+
+func TestConsumerAuthoritativeAdmissionAbsenceRejects(t *testing.T) {
+	for _, scenario := range []string{"missing", "deleted"} {
+		t.Run(scenario, func(t *testing.T) {
+			writer := &testWriter{}
+			service, ctx := testService(t, writer)
+			intent := testIntent(t, service, ctx)
+			if scenario == "missing" {
+				intent.Role = "unadmitted"
+			} else {
+				key := admissionKey(intent.ArtifactDigest, intent.Cell, intent.Role, intent.Environment)
+				staleEntry, err := service.admissions.Get(ctx, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.admissions.Delete(ctx, key); err != nil {
+					t.Fatal(err)
+				}
+				service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+					return staleEntry, nil
+				}}
+			}
+			terminal, err := service.process(ctx, mustJSON(intent))
+			if !terminal || err != nil {
+				t.Fatalf("processing without authoritative admission: terminal=%t err=%v", terminal, err)
+			}
+			receipt, err := service.StatusFor(ctx, intent)
+			if err != nil || receipt.Status != "rejected" || receipt.Error != "artifact is not admitted" || writer.count() != 0 {
+				t.Fatalf("absent admission receipt=%+v err=%v desired writes=%d", receipt, err, writer.count())
+			}
+		})
+	}
+}
+
 func TestCancellationAfterHostEffectReplaysBeforeAck(t *testing.T) {
 	w := &testWriter{cancelFirst: true}
 	s, ctx := testService(t, w)
@@ -989,7 +1154,16 @@ func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = controller.Register(ctx, host.Registration{Cell: "lab", Node: "node-one", Environment: "production", Roles: []string{"worker"}, PublicKey: base64.StdEncoding.EncodeToString(pub), Generation: 1})
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	userPublic, err := user.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = controller.Register(ctx, host.Registration{Cell: "lab", Node: "node-one", Environment: "production", Roles: []string{"worker"}, PublicKey: base64.StdEncoding.EncodeToString(pub), NATSUserPublicKey: userPublic, Generation: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,13 @@ type signerPolicy struct {
 	cell   string
 }
 
+// ValidateTrustedSignerGrant applies the same actor, scope, and key checks used
+// by the controller and operator runtime before an offline role config is made.
+func ValidateTrustedSignerGrant(grant TrustedSignerConfig) error {
+	_, err := buildSignerPolicy(Config{Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+	return err
+}
+
 func buildSignerPolicy(cfg Config) (signerPolicy, error) {
 	if len(cfg.Controller.TrustedSigners) == 0 {
 		return signerPolicy{}, errors.New("controller needs explicit trusted signers")

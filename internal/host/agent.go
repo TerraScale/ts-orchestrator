@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/nats-io/nkeys"
 )
 
 const sessionExecutionReserve = 5 * time.Second
@@ -60,6 +62,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.Conn == nil || len(cfg.Identity) != ed25519.PrivateKeySize || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
 		return nil, errors.New("agent requires NATS connection, Ed25519 identity and pinned controller public key")
+	}
+	if !nkeys.IsValidPublicUserKey(cfg.NATSUserPublicKey) {
+		return nil, errors.New("agent requires its authenticated NATS user public key")
 	}
 	if cfg.ClockCheck == nil {
 		return nil, errors.New("agent requires a fresh host clock health check")
@@ -338,7 +343,7 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 	a.mu.RLock()
 	s := a.session
 	a.mu.RUnlock()
-	r := request{Version: 1, Node: a.cfg.Node, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
+	r := request{Version: 1, Node: a.cfg.Node, NATSUserPublicKey: a.cfg.NATSUserPublicKey, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
 	if err := signRequest(&r, a.cfg.Identity, a.cfg.Cell); err != nil {
 		return request{}, err
 	}

@@ -85,7 +85,7 @@ func TestCurrentCredentialBoundUsesEarliestInstalledJWTOrTLSExpiry(t *testing.T)
 	leafExpiry := now.Add(90 * time.Minute)
 	write("cert.pem", boundTestCertificate(t, now, leafExpiry))
 
-	bound, err := check.CurrentCredentialBound(expected)
+	bound, err := check.CurrentCredentialBound(expected, peerCredentialManifest)
 	if err != nil {
 		t.Fatalf("derive bound from installed credentials: %v", err)
 	}
@@ -96,24 +96,45 @@ func TestCurrentCredentialBoundUsesEarliestInstalledJWTOrTLSExpiry(t *testing.T)
 	if bound.SHA256 != wantDigest || !bound.ValidUntil.Equal(leafExpiry) {
 		t.Fatalf("TLS leaf should be first expiry: bound=%+v digest=%s", bound, wantDigest)
 	}
+	fixture := newFounderSignerFixture(t)
+	seed, err := verifiedFounderManifest(fixture.current, fixture.accepted.Slot, fixture.baked.Roots, fixture.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, key := range map[string][]byte{
+		"founder-peer.key": fixture.peerKey, "founder-ledger.key": fixture.ledgerKey,
+	} {
+		write(name, key)
+		expected[name] = fixture.accepted.MaterialSHA256[name]
+	}
+	seedBound, err := check.CurrentCredentialBound(expected, seed.Manifest())
+	if err != nil || !seedBound.ValidUntil.Equal(leafExpiry) || seedBound.SHA256 == wantDigest {
+		t.Fatalf("seed signer material did not preserve credential cutoff and bind inventory: bound=%+v err=%v", seedBound, err)
+	}
+	for _, name := range []string{"founder-peer.key", "founder-ledger.key"} {
+		if err := os.Remove(filepath.Join(check.directory, name)); err != nil {
+			t.Fatal(err)
+		}
+		delete(expected, name)
+	}
 
 	controller.Expires = now.Add(30 * time.Minute).Unix()
 	writeDecoratedBoundUser(t, write, "controller.creds", controller, cellKey, controllerUserKey)
-	bound, err = check.CurrentCredentialBound(expected)
+	bound, err = check.CurrentCredentialBound(expected, peerCredentialManifest)
 	if err != nil || !bound.ValidUntil.Equal(now.Add(30*time.Minute)) || bound.SHA256 == wantDigest {
 		t.Fatalf("earlier current user JWT did not replace TLS cutoff and inventory: bound=%+v err=%v", bound, err)
 	}
 	if err := os.Remove(filepath.Join(check.directory, "system.jwt")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := check.CurrentCredentialBound(expected); err == nil {
+	if _, err := check.CurrentCredentialBound(expected, peerCredentialManifest); err == nil {
 		t.Fatal("missing pinned JWT produced a current credential bound")
 	}
 	write("system.jwt", []byte(systemRaw))
 	if err := os.WriteFile(filepath.Join(check.directory, "extra.key"), []byte("unpinned"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := check.CurrentCredentialBound(expected); err == nil {
+	if _, err := check.CurrentCredentialBound(expected, peerCredentialManifest); err == nil {
 		t.Fatal("extra installed material produced a current credential bound")
 	}
 	if err := os.Remove(filepath.Join(check.directory, "extra.key")); err != nil {
@@ -121,7 +142,7 @@ func TestCurrentCredentialBoundUsesEarliestInstalledJWTOrTLSExpiry(t *testing.T)
 	}
 	controller.Expires = now.Add(-time.Minute).Unix()
 	writeDecoratedBoundUser(t, write, "controller.creds", controller, cellKey, controllerUserKey)
-	if _, err := check.CurrentCredentialBound(expected); !errors.Is(err, ErrLiveCredentials) {
+	if _, err := check.CurrentCredentialBound(expected, peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("expired but digest-pinned user JWT produced a current bound: %v", err)
 	}
 }

@@ -94,6 +94,9 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 		AvailabilityDomain: value(instance.AvailabilityDomain), FaultDomain: value(instance.FaultDomain),
 		Shape: value(instance.Shape), LifecycleState: string(instance.LifecycleState),
 	}
+	if instance.FreeformTags != nil {
+		observation.BootstrapCreateKey = instance.FreeformTags["BootstrapCreateKey"]
+	}
 	var page *string
 	seenPages := make(map[string]struct{})
 	count := 0

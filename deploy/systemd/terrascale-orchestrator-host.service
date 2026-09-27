@@ -1,7 +1,8 @@
 [Unit]
 Description=TerraScale Orchestrator host runtime
 Wants=network-online.target
-After=network-online.target
+Requires=terrascale-orchestrator-host-setup.service
+After=network-online.target terrascale-orchestrator-host-setup.service
 ConditionPathExists=/etc/terrascale-orchestrator/host.json
 
 [Service]

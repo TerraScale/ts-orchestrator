@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 	"uuid"
 
@@ -17,13 +18,43 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+const (
+	operatorBindRecoveryTimeout      = 15 * time.Second
+	operatorBindAttemptTimeout       = 5 * time.Second
+	operatorAdmissionRecoveryTimeout = 30 * time.Second
+	operatorAdmissionAttemptTimeout  = 10 * time.Second
+	operatorSubmitSetupTimeout       = 10 * time.Second
+	operatorRetryInitialBackoff      = 100 * time.Millisecond
+	operatorRetryMaxBackoff          = 800 * time.Millisecond
+)
+
+type operatorForwardFlags map[string]string
+
+func (*operatorForwardFlags) String() string { return "" }
+
+func (forwards *operatorForwardFlags) Set(value string) error {
+	original, destination, ok := strings.Cut(value, "=")
+	if !ok || original == "" || destination == "" || strings.Contains(destination, "=") {
+		return errors.New("--nats-forward requires PRIVATE_IP:4222=LOOPBACK_IP:PORT")
+	}
+	if *forwards == nil {
+		*forwards = make(operatorForwardFlags)
+	}
+	if _, duplicate := (*forwards)[original]; duplicate {
+		return errors.New("duplicate --nats-forward controller")
+	}
+	(*forwards)[original] = destination
+	return nil
+}
+
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|material-prepare|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -37,9 +68,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	environment := flags.String("environment", "", "artifact environment")
 	intentPath := flags.String("intent", "", "JSON delivery intent")
 	registrationPath := flags.String("registration", "", "JSON host registration")
+	instanceID := flags.String("instance-id", "", "managed OCI host instance ID")
 	operationID := flags.String("operation-id", "", "delivery operation ID")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
+	var forwards operatorForwardFlags
+	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -49,6 +83,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		return err
+	}
+	if len(forwards) != 0 {
+		if cfg.NATS.ClientRole != "operator" {
+			return errors.New("NATS forwarding requires the operator role config")
+		}
+		cfg.NATS.OperatorForward = forwards
 	}
 	connection := cfg.NATS
 	connection.ClientRole = "operator"
@@ -74,6 +114,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("host-register requires --registration FILE")
 		}
 		return operatorHostRegister(ctx, cfg, runtime, *registrationPath, output)
+	case "host-enrollment-revoke":
+		return operatorHostEnrollmentRevoke(ctx, cfg, runtime, *instanceID, output)
 	case "placement-apply":
 		if *intentPath == "" {
 			return errors.New("placement-apply requires --intent FILE")
@@ -148,66 +190,185 @@ func operatorArtifactPush(ctx context.Context, cfg Config, runtime *natscell.Run
 	if err != nil {
 		return err
 	}
-	for attempt := range 3 {
-		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		message, requestErr := activeRuntime.Conn().RequestWithContext(requestCtx, delivery.ArtifactClaimSubject(cfg.NATS.Cell), signedClaim)
-		cancel()
+	if err := requestArtifactAdmission(ctx, activeRuntime.Conn(), cfg.NATS.Cell, record, signedClaim); err != nil {
+		return err
+	}
+	return printJSON(output, record)
+}
+
+// Reuse the exact signed claim during the 30-second recovery window. A replay
+// can only confirm the same durable admission; the controller verifies its
+// signature, expiry, authorization and stored artifact on every request.
+func requestArtifactAdmission(ctx context.Context, conn *nats.Conn, cell string, record delivery.ArtifactRecord, signedClaim []byte) error {
+	recoveryCtx, cancel := context.WithTimeout(ctx, operatorAdmissionRecoveryTimeout)
+	defer cancel()
+	backoff := operatorRetryInitialBackoff
+	for {
+		if err := recoveryCtx.Err(); err != nil {
+			return err
+		}
+		requestCtx, stop := context.WithTimeout(recoveryCtx, operatorAdmissionAttemptTimeout)
+		message, requestErr := conn.RequestWithContext(requestCtx, delivery.ArtifactClaimSubject(cell), signedClaim)
+		attemptTimedOut := errors.Is(requestCtx.Err(), context.DeadlineExceeded)
+		stop()
 		if requestErr == nil {
 			var response artifactAdmissionResponse
 			if err := json.Unmarshal(message.Data, &response, json.RejectUnknownMembers(true)); err != nil {
 				return fmt.Errorf("decode artifact admission reply: %w", err)
 			}
-			if response.Error != "" {
+			if response.Error == "" {
+				if response.Retryable {
+					return errors.New("controller returned a retryable artifact admission success")
+				}
+				if response.Record != record {
+					return errors.New("controller admitted a different artifact record")
+				}
+				return nil
+			}
+			if !response.Retryable {
 				return errors.New(response.Error)
 			}
-			if response.Record != record {
-				return errors.New("controller admitted a different artifact record")
-			}
-			return printJSON(output, response.Record)
-		}
-		if (!errors.Is(requestErr, nats.ErrTimeout) && !errors.Is(requestErr, context.DeadlineExceeded)) || attempt == 2 {
+			requestErr = errors.New(response.Error)
+		} else if !retryableOperatorBackendError(requestErr, attemptTimedOut) {
 			return fmt.Errorf("request controller artifact admission: %w", requestErr)
 		}
+		if err := waitOperatorRetry(recoveryCtx, backoff); err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("request controller artifact admission: %w", requestErr)
+		}
+		backoff = min(backoff*2, operatorRetryMaxBackoff)
 	}
-	return errors.New("artifact admission request exhausted")
 }
 
 // A timed-out resource bind may leave its NATS request multiplexer unhealthy.
-// Retry only that setup step, with a fresh connection, before any upload or
-// admission mutation has happened. The original caller deadline remains in force.
+// A typed transient metadata error can use the current connection. Both cases
+// are bounded by the existing 5-second attempt and 15-second total bind times.
 func bindArtifactPushClient(ctx context.Context, cfg Config, initial *natscell.Runtime) (*delivery.Service, *natscell.Runtime, error) {
+	return bindArtifactPushClientWith(ctx, cfg, initial, operatorService)
+}
+
+func bindArtifactPushClientWith(ctx context.Context, cfg Config, initial *natscell.Runtime, bind func(context.Context, Config, *natscell.Runtime, bool) (*delivery.Service, error)) (*delivery.Service, *natscell.Runtime, error) {
+	recoveryCtx, cancel := context.WithTimeout(ctx, operatorBindRecoveryTimeout)
+	defer cancel()
 	active := initial
-	for attempt := range 3 {
-		bindCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		service, err := operatorService(bindCtx, cfg, active, true)
+	backoff := operatorRetryInitialBackoff
+	for {
+		if err := recoveryCtx.Err(); err != nil {
+			return nil, active, err
+		}
+		bindCtx, stop := context.WithTimeout(recoveryCtx, operatorBindAttemptTimeout)
+		service, err := bind(bindCtx, cfg, active, true)
 		setupTimedOut := errors.Is(bindCtx.Err(), context.DeadlineExceeded)
-		cancel()
+		stop()
 		if err == nil {
 			return service, active, nil
 		}
-		if !setupTimedOut || ctx.Err() != nil || attempt == 2 {
+		if ctx.Err() != nil {
+			return nil, active, ctx.Err()
+		}
+		if !retryableOperatorBackendError(err, setupTimedOut) || recoveryCtx.Err() != nil {
 			return nil, active, fmt.Errorf("bind artifact push client: %w", err)
 		}
-		_ = active.Close()
-		connection := cfg.NATS
-		connection.ClientRole = "operator"
-		connection, err = externalNATS(connection)
-		if err != nil {
-			return nil, active, err
-		}
-		active, err = natscell.Start(ctx, connection)
-		if err != nil {
-			return nil, active, fmt.Errorf("restart artifact push connection: %w", err)
-		}
-		readyCtx, readyCancel := context.WithTimeout(ctx, 10*time.Second)
-		err = active.WaitForCluster(readyCtx, cfg.NATS.Replicas)
-		readyCancel()
-		if err != nil {
+		if setupTimedOut {
 			_ = active.Close()
-			return nil, active, fmt.Errorf("wait for restarted artifact push connection: %w", err)
+			connection := cfg.NATS
+			connection.ClientRole = "operator"
+			connection, err = externalNATS(connection)
+			if err != nil {
+				return nil, active, err
+			}
+			active, err = natscell.Start(recoveryCtx, connection)
+			if err != nil {
+				return nil, active, fmt.Errorf("restart artifact push connection: %w", err)
+			}
+			readyCtx, readyCancel := context.WithTimeout(recoveryCtx, 10*time.Second)
+			err = active.WaitForCluster(readyCtx, cfg.NATS.Replicas)
+			readyCancel()
+			if err != nil {
+				_ = active.Close()
+				return nil, active, fmt.Errorf("wait for restarted artifact push connection: %w", err)
+			}
 		}
+		if err := waitOperatorRetry(recoveryCtx, backoff); err != nil {
+			if ctx.Err() != nil {
+				return nil, active, ctx.Err()
+			}
+			return nil, active, fmt.Errorf("bind artifact push client: %w", err)
+		}
+		backoff = min(backoff*2, operatorRetryMaxBackoff)
 	}
-	return nil, active, errors.New("artifact push client bind exhausted")
+}
+
+func retryableOperatorBackendError(err error, attemptTimedOut bool) bool {
+	if errors.Is(err, context.Canceled) {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return attemptTimedOut
+	}
+	if errors.Is(err, nats.ErrTimeout) || errors.Is(err, nats.ErrNoResponders) ||
+		errors.Is(err, nats.ErrDisconnected) || errors.Is(err, nats.ErrNoServers) ||
+		errors.Is(err, jetstream.ErrNoStreamResponse) {
+		return true
+	}
+	if api, ok := errors.AsType[*jetstream.APIError](err); ok {
+		return api.Code == 503 && api.ErrorCode == 10008
+	}
+	if api, ok := errors.AsType[*nats.APIError](err); ok {
+		return api.Code == 503 && api.ErrorCode == 10008
+	}
+	return false
+}
+
+func waitOperatorRetry(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func retryOperatorMetadata[T any](ctx context.Context, call func(context.Context) (T, error)) (T, error) {
+	var zero T
+	backoff := operatorRetryInitialBackoff
+	for {
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
+		attemptCtx, stop := context.WithTimeout(ctx, operatorBindAttemptTimeout)
+		value, err := call(attemptCtx)
+		attemptTimedOut := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		stop()
+		if err == nil {
+			return value, nil
+		}
+		if ctx.Err() != nil {
+			return zero, ctx.Err()
+		}
+		if !retryableOperatorBackendError(err, attemptTimedOut) {
+			return zero, err
+		}
+		if err := waitOperatorRetry(ctx, backoff); err != nil {
+			return zero, err
+		}
+		backoff = min(backoff*2, operatorRetryMaxBackoff)
+	}
+}
+
+func observeOperatorAuthority(ctx context.Context, observe func(context.Context) (authority.Snapshot, error)) (uint64, error) {
+	snapshot, err := retryOperatorMetadata(ctx, observe)
+	if err != nil {
+		return 0, fmt.Errorf("observe regional authority: %w", err)
+	}
+	if !snapshot.Ready || snapshot.Reason != "observed" || snapshot.Epoch == 0 || !time.Now().Before(snapshot.ExpiresAt) {
+		return 0, errors.New("regional authority lease is not current")
+	}
+	return snapshot.Epoch, nil
 }
 
 func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, output io.Writer) error {
@@ -234,23 +395,28 @@ func operatorSubmit(ctx context.Context, cfg Config, runtime *natscell.Runtime, 
 	if intent.OperationID == "" {
 		intent.OperationID = uuid.New().String()
 	}
+	// Both setup calls are read-only. Keep their total recovery within ten
+	// seconds, and never replay Submit after an ambiguous intent publish.
+	setupCtx, stopSetup := context.WithTimeout(ctx, operatorSubmitSetupTimeout)
+	defer stopSetup()
 	if intent.AuthorityEpoch == 0 {
-		snapshot, err := authority.Observe(ctx, runtime.JetStream(), cfg.NATS.Cell)
+		epoch, err := observeOperatorAuthority(setupCtx, func(attemptCtx context.Context) (authority.Snapshot, error) {
+			return authority.Observe(attemptCtx, runtime.JetStream(), cfg.NATS.Cell)
+		})
 		if err != nil {
-			return fmt.Errorf("observe regional authority: %w", err)
+			return err
 		}
-		if !snapshot.Ready || snapshot.Reason != "observed" || snapshot.Epoch == 0 || !time.Now().Before(snapshot.ExpiresAt) {
-			return errors.New("regional authority lease is not current")
-		}
-		intent.AuthorityEpoch = snapshot.Epoch
+		intent.AuthorityEpoch = epoch
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
 		return err
 	}
-	service, err := operatorService(ctx, cfg, runtime, true)
+	service, err := retryOperatorMetadata(setupCtx, func(attemptCtx context.Context) (*delivery.Service, error) {
+		return operatorService(attemptCtx, cfg, runtime, true)
+	})
 	if err != nil {
-		return err
+		return fmt.Errorf("bind delivery client: %w", err)
 	}
 	if err := service.Submit(ctx, intent); err != nil {
 		return fmt.Errorf("submit operation %s fingerprint %s: %w", intent.OperationID, fingerprint, err)
@@ -310,6 +476,7 @@ func printJSON(output io.Writer, value any) error {
 }
 
 type artifactAdmissionResponse struct {
-	Record delivery.ArtifactRecord `json:"record"`
-	Error  string                  `json:"error,omitempty"`
+	Record    delivery.ArtifactRecord `json:"record"`
+	Error     string                  `json:"error,omitempty"`
+	Retryable bool                    `json:"retryable,omitzero"`
 }

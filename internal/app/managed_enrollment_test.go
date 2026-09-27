@@ -244,9 +244,10 @@ func newManagedEnrollmentFixture(t *testing.T) managedEnrollmentFixture {
 		DatabaseID: committed.CanonicalRoster.DatabaseID, ShardID: committed.CanonicalRoster.ShardID,
 		MemberID: row.MemberID, Incarnation: row.Incarnation,
 	}
+	hostNKey, _ := testNKey(t)
 	registration := host.Registration{
 		Cell: "gru", Node: instance.Node, FailureDomain: row.FailureDomain, Environment: "production",
-		Roles: []string{"terrabase"}, PublicKey: "unused", Generation: 1,
+		Roles: []string{"terrabase"}, PublicKey: "unused", NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{MemoryBytes: int64(profile.AllocatableMemoryBytes)},
 		ManagedPlacement: &host.ManagedPlacementBinding{
 			DatabaseID: committed.DatabaseID, PartitionID: committed.PartitionID, SeatID: row.SeatID,

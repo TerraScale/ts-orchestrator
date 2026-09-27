@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 const (
@@ -47,6 +48,7 @@ type Registration struct {
 	Environment        string                   `json:"environment"`
 	Roles              []string                 `json:"roles"`
 	PublicKey          string                   `json:"public_key"`
+	NATSUserPublicKey  string                   `json:"nats_user_public_key"`
 	Generation         uint64                   `json:"generation"`
 	Capacity           Capacity                 `json:"capacity"`
 	ManagedPlacement   *ManagedPlacementBinding `json:"managed_placement,omitempty"`
@@ -202,6 +204,7 @@ type AgentConfig struct {
 	Roles                   []string
 	Conn                    *nats.Conn
 	Identity                ed25519.PrivateKey
+	NATSUserPublicKey       string
 	ControllerPublicKey     ed25519.PublicKey
 	Runner                  Runner
 	InstallRoot             string
@@ -322,6 +325,9 @@ func validateRegistration(r Registration, cell string) error {
 	}
 	if _, err := decodePublicKey(r.PublicKey); err != nil {
 		return err
+	}
+	if !nkeys.IsValidPublicUserKey(r.NATSUserPublicKey) {
+		return errors.New("registration NATS user public key is invalid")
 	}
 	if r.Capacity.CPU < 0 || r.Capacity.MemoryBytes < 0 || r.Capacity.DiskBytes < 0 {
 		return errors.New("negative host capacity")

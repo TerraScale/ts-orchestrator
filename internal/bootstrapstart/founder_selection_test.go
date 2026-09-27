@@ -141,6 +141,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 					SHA256: digestWire([]byte(slot + name)), MaxBytes: 1024, TargetFile: slot + "-" + name + ".pem"})
 			}
 		}
+		addTestControllerConfig(&manifest)
 		envelope, err := bootstrap.SignManifest(manifest, now.Add(-time.Minute), now.Add(22*time.Hour), root)
 		if err != nil {
 			t.Fatal(err)

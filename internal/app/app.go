@@ -51,6 +51,12 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if command == "identity-new" {
 		return newIdentity(args[1:], output)
 	}
+	if command == "install-controller-config" {
+		return runInstallControllerConfig(ctx, args[1:])
+	}
+	if command == "host-setup" {
+		return runHostSetup(ctx, args[1:], output)
+	}
 	if command == "operator" {
 		return runOperator(ctx, args[1:], output)
 	}
@@ -96,6 +102,10 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("controller response public key: %w", err)
 	}
+	natsUserPublicKey, err := hostNATSUserPublicKey(cfg.NATS)
+	if err != nil {
+		return fmt.Errorf("host NATS user public key: %w", err)
+	}
 	if !filepath.IsAbs(cfg.Host.StateRoot) {
 		return errors.New("host state root must be absolute")
 	}
@@ -138,7 +148,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	defer runtime.Close()
 	agent, err := host.NewAgent(host.AgentConfig{
 		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
-		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, ControllerPublicKey: controllerKey,
+		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, NATSUserPublicKey: natsUserPublicKey, ControllerPublicKey: controllerKey,
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		ManagedS3Credentials:    managedS3Credentials,

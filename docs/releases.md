@@ -185,13 +185,12 @@ and only `CAP_CHOWN`, `CAP_KILL`, `CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, and
 child of `/var/lib/terrascale-orchestrator-host`, while `host.install_root` is
 a separate child for tenant-group executable files. The unit's only extra
 writable path is the canonical managed runtime root `/srv/ts-managed`, used
-when `host.managed_runtime_root` selects it. The optional builder flag
-`--managed-workload-gid` provisions that directory as `root:GID` mode `0750`
-and must match `host.workload_gid`; another managed root needs its own
-provisioning and a host-service drop-in that resets `ReadWritePaths=` before
-adding the exact path.
-These host settings match the runtime owner's proposed path contract. The
-service asset is ready for staging. The strict systemd guest security run
+when `host.managed_runtime_root` selects it. A host image is built with a
+SHA-pinned public enrollment bundle; the builder fixes workload UID/GID to
+`2000:2000` and provisions `/srv/ts-managed` as `root:2000` mode `0750`.
+The bundle fixes `host.install_root` and `host.state_root` to separate children
+under `/var/lib/terrascale-orchestrator-host`.
+The strict systemd guest security run
 passed all eight tests with no skips, including cross-UID child death after
 the host supervisor receives `SIGKILL`; a later four-VM caller run against the
 clock-gated harness is still pending.

@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -36,6 +39,138 @@ type delayedVisibilityObjectStore struct {
 	getMisses             int
 	afterPutGetInfoMisses int
 	afterPutGetMisses     int
+}
+
+func TestRetryArtifactMetadataReadRecoversFromTransientLeaderFailure(t *testing.T) {
+	info := &nats.ObjectInfo{}
+	var reads int
+	got, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+		reads++
+		if reads == 1 {
+			return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+		}
+		return info, false, nil
+	})
+	if err != nil || missing || got != info || reads != 2 {
+		t.Fatalf("authoritative metadata retry = (%p, %t, %v), reads = %d; want recovered info after two reads", got, missing, err, reads)
+	}
+}
+
+func TestRetryArtifactMetadataReadFailsClosedOnPersistentLeaderFailure(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	var calls int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+		calls++
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008, Description: "JetStream system temporarily unavailable"}
+	})
+	if info != nil || missing || !errors.Is(err, context.DeadlineExceeded) || calls < 1 {
+		t.Fatalf("persistent metadata read failure = (%p, %t, %v), calls = %d; want caller deadline and no object", info, missing, err, calls)
+	}
+}
+
+func TestRetryArtifactMetadataReadPreservesAbsenceAndPermanentErrors(t *testing.T) {
+	permanent := &nats.APIError{Code: 403, ErrorCode: 10039}
+	for _, test := range []struct {
+		name        string
+		wantMissing bool
+		wantErr     error
+	}{
+		{name: "absent object", wantMissing: true},
+		{name: "missing bucket", wantErr: nats.ErrStreamNotFound},
+		{name: "permanent API rejection", wantErr: permanent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reads int
+			info, missing, err := retryArtifactMetadataRead(t.Context(), func(context.Context) (*nats.ObjectInfo, bool, error) {
+				reads++
+				return nil, test.wantMissing, test.wantErr
+			})
+			if info != nil || missing != test.wantMissing || (test.wantMissing && err != nil) ||
+				(test.wantErr != nil && !errors.Is(err, test.wantErr)) || reads != 1 {
+				t.Fatalf("metadata result = (%p, %t, %v), reads = %d; want absence = %t, error = %v", info, missing, err, reads, test.wantMissing, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestRetryArtifactMetadataReadStopsOnCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	var reads int
+	info, missing, err := retryArtifactMetadataRead(ctx, func(context.Context) (*nats.ObjectInfo, bool, error) {
+		reads++
+		cancel()
+		return nil, false, &nats.APIError{Code: 503, ErrorCode: 10008}
+	})
+	if info != nil || missing || !errors.Is(err, context.Canceled) || reads != 1 {
+		t.Fatalf("canceled metadata read = (%p, %t, %v), reads = %d; want cancellation after one attempt", info, missing, err, reads)
+	}
+}
+
+func TestArtifactMetadataReadCancelsBlockedBrokerRequest(t *testing.T) {
+	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Start()
+	if !srv.ReadyForConnections(5 * time.Second) {
+		t.Fatal("NATS did not start")
+	}
+	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
+	conn, err := nats.Connect(srv.ClientURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	requests := make(chan struct{}, 1)
+	_, err = conn.Subscribe("$JS.API.STREAM.MSG.GET.OBJ_"+ArtifactBucket, func(*nats.Msg) {
+		select {
+		case requests <- struct{}{}:
+		default:
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	js, err := jetstream.New(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Service{js: js}
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	exists, err := s.artifactExistsForUpload(ctx, "digest")
+	if exists || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) >= 2*time.Second {
+		t.Fatalf("blocked authoritative broker read = (exists=%t, err=%v, elapsed=%s); want prompt caller deadline", exists, err, time.Since(started))
+	}
+	select {
+	case <-requests:
+	default:
+		t.Fatal("broker did not receive authoritative MSG.GET request")
+	}
+}
+
+func TestArtifactMetadataReadDistinguishesMissingObjectAndBucket(t *testing.T) {
+	s, ctx := testService(t, &testWriter{})
+	legacyJS, err := s.js.Conn().JetStream()
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err := authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	if info != nil || !missing || err != nil {
+		t.Fatalf("missing object = (%p, %t, %v); want object absence", info, missing, err)
+	}
+	if err := legacyJS.DeleteObjectStore(ArtifactBucket); err != nil {
+		t.Fatal(err)
+	}
+	info, missing, err = authoritativeArtifactInfo(ctx, legacyJS, "missing")
+	if info != nil || missing || !errors.Is(err, nats.ErrStreamNotFound) {
+		t.Fatalf("missing bucket = (%p, %t, %v); want stream-not-found error", info, missing, err)
+	}
 }
 
 func (s *delayedVisibilityObjectStore) GetInfo(ctx context.Context, name string, opts ...jetstream.GetObjectInfoOpt) (*jetstream.ObjectInfo, error) {
@@ -361,6 +496,144 @@ func TestRevokedArtifactSignerCanBeReplacedByAuthorizedSignerConcurrently(t *tes
 	}
 	if _, err := service.AcceptArtifactClaim(ctx, conflictingEnvelope); !errors.Is(err, ErrConflict) {
 		t.Fatalf("same content with different provenance = %v, want ErrConflict", err)
+	}
+}
+
+func TestArtifactAdmissionCreateAndReplayIgnoreStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact admitted despite stale follower")), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: service.admissions, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return nil, jetstream.ErrKeyNotFound
+	}}
+	for _, attempt := range []string{"create", "replay"} {
+		admitted, err := service.AcceptArtifactClaim(ctx, envelope)
+		if err != nil || admitted != record {
+			t.Fatalf("%s admission = %+v, %v", attempt, admitted, err)
+		}
+	}
+	resolved, err := service.ResolveAdmittedArtifact(ctx, record.Digest, record.Role, record.Environment)
+	if err != nil || resolved != record {
+		t.Fatalf("resolved admission = %+v, %v", resolved, err)
+	}
+	if followerReads != 0 {
+		t.Fatalf("admission made %d follower reads", followerReads)
+	}
+}
+
+func TestArtifactAdmissionSignerReplacementUsesLeaderRevision(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	oldCodec := artifactTestCodec(t, "old-operator", 0x11)
+	newCodec := artifactTestCodec(t, "new-operator", 0x22)
+	currentActor := "old-operator"
+	service.config.AuthorizeArtifact = func(_ context.Context, actor string, _ ArtifactRecord) error {
+		if actor != currentActor {
+			return ErrUnauthorized
+		}
+		return nil
+	}
+	service.config.ArtifactSigner = oldCodec
+	service.config.ArtifactVerifier = oldCodec
+
+	content := []byte("artifact with replaced signer")
+	record, oldEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, oldEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, staleEntry.Value()); err != nil {
+		t.Fatal(err)
+	}
+	currentActor = "new-operator"
+	service.config.ArtifactSigner = newCodec
+	service.config.ArtifactVerifier = newCodec
+	_, newEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	admitted, err := service.AcceptArtifactClaim(ctx, newEnvelope)
+	if err != nil || admitted != record {
+		t.Fatalf("replacement admission = %+v, %v", admitted, err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := decodeStoredAdmission(currentEntry.Value(), record.Digest, record.Cell, record.Role, record.Environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Actor != "new-operator" || !bytes.Equal(stored.Envelope, newEnvelope) || currentEntry.Revision() <= staleEntry.Revision() {
+		t.Fatalf("replacement did not use leader revision: actor=%q revision=%d stale=%d", stored.Actor, currentEntry.Revision(), staleEntry.Revision())
+	}
+	if followerReads != 0 {
+		t.Fatalf("replacement made %d follower reads", followerReads)
+	}
+}
+
+func TestArtifactAdmissionRejectsLeaderConflictDespiteStaleFollower(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	content := []byte("same content with conflicting provenance")
+	record, envelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), artifactTestRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); err != nil {
+		t.Fatal(err)
+	}
+	key := admissionKey(record.Digest, record.Cell, record.Role, record.Environment)
+	underlying := service.admissions
+	staleEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingRequest := artifactTestRequest()
+	conflictingRequest.Source.Commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	conflictingRecord, conflictingEnvelope, err := service.PrepareArtifact(ctx, bytes.NewReader(content), conflictingRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflictingValue, err := json.Marshal(signedAdmission{Record: conflictingRecord, Envelope: conflictingEnvelope, Actor: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := underlying.Put(ctx, key, conflictingValue); err != nil {
+		t.Fatal(err)
+	}
+	var followerReads int
+	service.admissions = overriddenAdmissionGet{KeyValue: underlying, get: func(context.Context, string) (jetstream.KeyValueEntry, error) {
+		followerReads++
+		return staleEntry, nil
+	}}
+	if _, err := service.AcceptArtifactClaim(ctx, envelope); !errors.Is(err, ErrConflict) {
+		t.Fatalf("conflicting leader admission error = %v, want ErrConflict", err)
+	}
+	currentEntry, err := underlying.Get(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(currentEntry.Value(), conflictingValue) {
+		t.Fatal("conflicting leader admission was overwritten")
+	}
+	if followerReads != 0 {
+		t.Fatalf("conflict decision made %d follower reads", followerReads)
 	}
 }
 

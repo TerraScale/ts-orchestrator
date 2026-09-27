@@ -285,12 +285,31 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
+	var enrollmentErrors <-chan error
+	var managedEnrollment *managedHostEnrollment
+	if managed != nil && !cfg.NATS.Lab {
+		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
+			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control)
+		if err != nil {
+			return fmt.Errorf("start private managed host enrollment: %w", err)
+		}
+		var ok bool
+		managedEnrollment, ok = server.Handler.(*managedHostEnrollment)
+		if !ok {
+			return errors.New("private managed host enrollment handler is unavailable")
+		}
+		stopEnrollment := context.AfterFunc(runCtx, func() { _ = server.Close() })
+		defer stopEnrollment()
+		defer server.Close()
+		defer listener.Close()
+		enrollmentErrors = serveErrors
+	}
 	artifactSub, err := serveArtifactAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, control, service)
 	if err != nil {
 		return fmt.Errorf("serve artifact admission: %w", err)
 	}
 	defer artifactSub.Unsubscribe()
-	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController)
+	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController, managedEnrollment)
 	if err != nil {
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
@@ -318,12 +337,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 3)
+	workerErrors := make(chan error, 4)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
 	if managedController != nil {
 		workers.Go(func() { workerErrors <- managedController.Run(runCtx) })
+	}
+	if enrollmentErrors != nil {
+		workers.Go(func() { workerErrors <- <-enrollmentErrors })
 	}
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {
 		stop()

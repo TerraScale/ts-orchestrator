@@ -2,6 +2,8 @@ package natscell
 
 import (
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"time"
@@ -15,10 +17,28 @@ import (
 type tlsFirstDialer struct {
 	config  *tls.Config
 	timeout time.Duration
+	forward map[string]string
 }
 
 func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {
-	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: d.timeout}, network, address, d.config)
+	destination, config := address, d.config
+	if len(d.forward) != 0 {
+		if network != "tcp" {
+			return nil, errors.New("operator forward requires TCP")
+		}
+		mapped, ok := d.forward[address]
+		if !ok {
+			return nil, fmt.Errorf("NATS controller %q has no operator forward", address)
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		destination = mapped
+		config = d.config.Clone()
+		config.ServerName = host
+	}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: d.timeout}, network, destination, config)
 	if err != nil {
 		return nil, err
 	}

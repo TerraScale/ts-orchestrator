@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew TerraScale managed host credentials
+
+[Timer]
+OnBootSec=12h
+OnUnitActiveSec=12h
+AccuracySec=5m
+Persistent=true
+Unit=terrascale-orchestrator-host-setup.service
+
+[Install]
+WantedBy=timers.target

@@ -18,7 +18,7 @@ func TestSignedHostRequestRejectsTamperingAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	r := request{Version: 1, Node: "node-a", Operation: "session", SessionID: "0123456789abcdef0123456789abcdef", Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: now, Payload: []byte(`{"kind":"acquire"}`)}
+	r := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "session", SessionID: "0123456789abcdef0123456789abcdef", Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: now, Payload: []byte(`{"kind":"acquire"}`)}
 	if err := signRequest(&r, private, "gru"); err != nil {
 		t.Fatal(err)
 	}
@@ -78,11 +78,11 @@ func TestForgedHostReplyCannotBecomeDesired(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = hostPublic
-	r := request{Version: 1, Node: "node-a", Operation: "desired", SessionID: "0123456789abcdef0123456789abcdef", Epoch: 1, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"role":"terrabase"}`)}
+	r := request{Version: 1, Node: "node-a", NATSUserPublicKey: testNATSUserKey("node-a"), Operation: "desired", SessionID: "0123456789abcdef0123456789abcdef", Epoch: 1, Nonce: "abcdef0123456789abcdef0123456789", IssuedAt: time.Now().UTC(), Payload: []byte(`{"role":"terrabase"}`)}
 	if err := signRequest(&r, hostPrivate, "gru"); err != nil {
 		t.Fatal(err)
 	}
-	subject, err := protocol.AgentObservationSubject("gru", r.Node, r.Operation)
+	subject, err := protocol.AgentObservationSubject("gru", r.NATSUserPublicKey, r.Operation)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1153,6 +1153,20 @@ func TestExternalSeedRequiresRootReceiptAndNeverAuthorizesOCIProvisioning(t *tes
 		state.Result.SeedReceiptDigest != state.SeedReceiptRecord.SHA256 || state.Head.ResultDigest != bodyDigest(resultBytes) {
 		t.Fatalf("external seed completion did not preserve its root receipt: %+v", state)
 	}
+	committedObjects := fixture.client.objectCount()
+	if _, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes,
+		facts, resultBytes, completedHeadBytes); err != nil || fixture.client.objectCount() != committedObjects {
+		t.Fatalf("exact completed seed replay changed ledger: objects=%d prior=%d err=%v",
+			fixture.client.objectCount(), committedObjects, err)
+	}
+	resignedHead := fixture.signInterval(t, scope, domainBootstrapHead, completedHead,
+		fixture.now.Add(time.Second), fixture.now.Add(time.Hour))
+	if _, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes,
+		facts, resultBytes, resignedHead); !errors.Is(err, ErrSlotHeadConflict) ||
+		fixture.client.objectCount() != committedObjects {
+		t.Fatalf("re-signed completed HEAD replay changed ledger: objects=%d prior=%d err=%v",
+			fixture.client.objectCount(), committedObjects, err)
+	}
 	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrSlotAlreadyComplete) {
 		t.Fatalf("completed external seed launch authorization returned %v, want completed-slot denial", err)
 	}
@@ -1246,6 +1260,16 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 	if _, err := fixture.ledger.createOrRead(t.Context(), scope, 1, ledgerResult, resultBytes); err != nil {
 		t.Fatalf("persist matching result before simulated crash: %v", err)
 	}
+	manifestStored, receiptStored, resultStored, err := fixture.ledger.ExternalSeedProgress(
+		t.Context(), scope, manifestBytes, receiptBytes, resultBytes)
+	if err != nil || !manifestStored || !receiptStored || !resultStored {
+		t.Fatalf("exact stored seed progress was lost: manifest=%t receipt=%t result=%t err=%v",
+			manifestStored, receiptStored, resultStored, err)
+	}
+	if _, _, _, err := fixture.ledger.ExternalSeedProgress(t.Context(), scope,
+		manifestBytes, receiptBytes, []byte("different result")); !errors.Is(err, ErrImmutableConflict) {
+		t.Fatalf("conflicting persisted seed result was treated as progress: %v", err)
+	}
 	fixture.client.setNow(fixture.now.Add(6 * time.Minute))
 	state, err := fixture.ledger.RecordExternalSeed(t.Context(), scope, manifestBytes, receiptBytes, facts, resultBytes, completedHeadBytes)
 	if err != nil {
@@ -1253,6 +1277,33 @@ func TestExternalSeedRepairsOnlyAnAlreadyStoredReceiptAfterExpiry(t *testing.T) 
 	}
 	if state.Result == nil || state.SeedReceiptRecord == nil || state.Head.ResultDigest != bodyDigest(resultBytes) {
 		t.Fatalf("exact persisted receipt did not repair completion: %+v", state)
+	}
+}
+
+func TestExternalSeedResultClockAllowsOfflineSigningWindowOnly(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	result := Result{Mode: IntentModeExternalSeed, ObservedAt: now}
+	for _, test := range []struct {
+		name    string
+		elapsed time.Duration
+		wantErr bool
+	}{
+		{name: "offline signing", elapsed: 14 * time.Minute},
+		{name: "clock tolerance", elapsed: ExternalSeedObservationMaxAge + time.Minute},
+		{name: "stale observation", elapsed: ExternalSeedObservationMaxAge + time.Minute + 2*time.Second, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stored := StoredRecord{LastModified: now.Add(test.elapsed), ServerDate: now.Add(test.elapsed)}
+			err := validateResultClock(result, stored, time.Minute)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("result clock after %s: %v, want error=%t", test.elapsed, err, test.wantErr)
+			}
+		})
+	}
+	result.Mode = IntentModeManaged
+	stored := StoredRecord{LastModified: now.Add(time.Minute), ServerDate: now.Add(time.Minute)}
+	if err := validateResultClock(result, stored, time.Minute); !errors.Is(err, ErrInvalidRetryClock) {
+		t.Fatalf("managed peer accepted external seed freshness window: %v", err)
 	}
 }
 

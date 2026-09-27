@@ -20,17 +20,19 @@ import (
 )
 
 const (
-	ManifestSchemaVersion   = 2
-	ReceiptSchemaVersion    = 1
-	MaxManifestBytes        = 64 << 10
-	MaxReceiptBytes         = 32 << 10
-	MaxManifestLifetime     = 365 * 24 * time.Hour
-	ManifestClockSkew       = time.Minute
-	DefaultManifestValidity = 30 * 24 * time.Hour
-	MinimumManifestWindow   = 24 * time.Hour
-	manifestDomain          = "terrascale.bootstrap.manifest"
-	seedReceiptDomain       = "terrascale.bootstrap.seed-receipt"
-	peerReceiptDomain       = "terrascale.bootstrap.peer-receipt"
+	ManifestSchemaVersion     = 2
+	ReceiptSchemaVersion      = 1
+	MaxManifestBytes          = 64 << 10
+	MaxControllerConfigBytes  = 16 << 10
+	MaxControllerSidecarBytes = 16 << 10
+	MaxReceiptBytes           = 32 << 10
+	MaxManifestLifetime       = 365 * 24 * time.Hour
+	ManifestClockSkew         = time.Minute
+	DefaultManifestValidity   = 30 * 24 * time.Hour
+	MinimumManifestWindow     = 24 * time.Hour
+	manifestDomain            = "terrascale.bootstrap.manifest"
+	seedReceiptDomain         = "terrascale.bootstrap.seed-receipt"
+	peerReceiptDomain         = "terrascale.bootstrap.peer-receipt"
 )
 
 var (
@@ -53,6 +55,7 @@ type SecretPurpose string
 
 const (
 	SecretRegionalShared   SecretPurpose = "regional-shared"
+	SecretHostIssuer       SecretPurpose = "host-issuer"
 	SecretSeedFounder      SecretPurpose = "seed-founder"
 	SecretSeedLedgerSigner SecretPurpose = "seed-ledger-signer"
 	SecretController       SecretPurpose = "controller"
@@ -82,6 +85,16 @@ type LaunchProfile struct {
 	NetworkSecurityGroupOCIDs []string `json:"networkSecurityGroupOcids"`
 	Shape                     string   `json:"shape"`
 }
+
+// ControllerConfigFile is one root-signed public input installed alongside the
+// controller role config. Names are fixed so OCI metadata cannot choose paths.
+type ControllerConfigFile struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+	Bytes  []byte `json:"bytes"`
+}
+
+var ControllerConfigFileNames = [...]string{"oci-region-intent.json", "oci-region.json", "placement.json"}
 
 // StorageDomain pins the immutable bootstrap ledger and its separate CAS-head
 // bucket so a manifest cannot redirect slot history to another object domain.
@@ -159,6 +172,9 @@ type Manifest struct {
 	StorageDomain           StorageDomain          `json:"storageDomain"`
 	ManagedMaterial         *ManagedMaterialDomain `json:"managedMaterial,omitempty"`
 	Secrets                 []SecretReference      `json:"secrets"`
+	ControllerConfigSHA256  string                 `json:"controllerConfigSha256"`
+	ControllerConfig        []byte                 `json:"controllerConfig"`
+	ControllerFiles         []ControllerConfigFile `json:"controllerFiles"`
 }
 
 // ManifestExpectation contains deployment and slot facts established outside
@@ -334,6 +350,30 @@ func (manifest Manifest) Validate() error {
 	if err := manifest.StorageDomain.Validate(); err != nil {
 		return err
 	}
+	if len(manifest.ControllerConfig) == 0 || len(manifest.ControllerConfig) > MaxControllerConfigBytes ||
+		!sha256RE.MatchString(manifest.ControllerConfigSHA256) ||
+		digestBytes(manifest.ControllerConfig) != manifest.ControllerConfigSHA256 {
+		return fmt.Errorf("%w: controller configuration bytes or digest", ErrManifestInvalid)
+	}
+	var config map[string]any
+	if err := protocol.DecodeStrict(manifest.ControllerConfig, &config, MaxControllerConfigBytes); err != nil ||
+		config["nats"] == nil || config["controller"] == nil {
+		return fmt.Errorf("%w: controller configuration JSON", ErrManifestInvalid)
+	}
+	if len(manifest.ControllerFiles) != len(ControllerConfigFileNames) {
+		return fmt.Errorf("%w: controller public sidecars are incomplete", ErrManifestInvalid)
+	}
+	for index, file := range manifest.ControllerFiles {
+		if file.Name != ControllerConfigFileNames[index] || len(file.Bytes) == 0 ||
+			len(file.Bytes) > MaxControllerSidecarBytes || !sha256RE.MatchString(file.SHA256) ||
+			digestBytes(file.Bytes) != file.SHA256 {
+			return fmt.Errorf("%w: controller public sidecar %d", ErrManifestInvalid, index)
+		}
+		var value map[string]any
+		if err := protocol.DecodeStrict(file.Bytes, &value, MaxControllerSidecarBytes); err != nil || value == nil {
+			return fmt.Errorf("%w: controller public sidecar JSON", ErrManifestInvalid)
+		}
+	}
 	if manifest.ManagedMaterial != nil {
 		if err := manifest.ManagedMaterial.Validate(); err != nil {
 			return err
@@ -428,10 +468,20 @@ func (secret SecretReference) validate(manifest Manifest) error {
 		strings.Contains(secret.TargetFile, "..") {
 		return fmt.Errorf("%w: secret reference identity or bound", ErrManifestInvalid)
 	}
+	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"}
+	if slices.Contains(hostIssuerFiles, secret.TargetFile) && secret.Purpose != SecretHostIssuer ||
+		slices.Contains([]string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
+			"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem"}, secret.TargetFile) {
+		return fmt.Errorf("%w: offline or issuer material has the wrong publication role", ErrManifestInvalid)
+	}
 	switch secret.Purpose {
 	case SecretRegionalShared:
 		if secret.Slot != "" {
 			return fmt.Errorf("%w: regional-shared secret cannot be slot-bound", ErrManifestInvalid)
+		}
+	case SecretHostIssuer:
+		if secret.Slot != "" || !slices.Contains(hostIssuerFiles, secret.TargetFile) {
+			return fmt.Errorf("%w: host issuer secret must name one exact regional issuer", ErrManifestInvalid)
 		}
 	case SecretSeedFounder:
 		if secret.Slot != manifest.SeedSlot {
@@ -561,6 +611,11 @@ func cloneManifest(manifest Manifest) Manifest {
 	manifest.Secrets = slices.Clone(manifest.Secrets)
 	manifest.ReleaseImageReceiptWire = bytes.Clone(manifest.ReleaseImageReceiptWire)
 	manifest.ReleaseDelegationWire = bytes.Clone(manifest.ReleaseDelegationWire)
+	manifest.ControllerConfig = bytes.Clone(manifest.ControllerConfig)
+	manifest.ControllerFiles = slices.Clone(manifest.ControllerFiles)
+	for index := range manifest.ControllerFiles {
+		manifest.ControllerFiles[index].Bytes = bytes.Clone(manifest.ControllerFiles[index].Bytes)
+	}
 	if manifest.PeerReceiptDelegation != nil {
 		delegation := cloneEnvelope(*manifest.PeerReceiptDelegation)
 		manifest.PeerReceiptDelegation = &delegation

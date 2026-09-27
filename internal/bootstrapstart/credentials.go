@@ -31,6 +31,9 @@ type LiveCredentials struct {
 	ServiceGID             uint32
 	ResponseKeyFile        string
 	BrokerTicketKeyFile    string
+	HostNATSIssuerSeedFile string
+	HostTLSIssuerKeyFile   string
+	HostTLSIssuerCertFile  string
 	ValidateControllerKeys func() error
 	directory              string
 	allowUnsafeAncestors   bool
@@ -38,24 +41,30 @@ type LiveCredentials struct {
 }
 
 func NewLiveCredentialChecker(cfg natscell.Config, serviceUID, serviceGID uint32,
-	responseKeyFile, brokerTicketKeyFile string, validateControllerKeys func() error,
+	responseKeyFile, brokerTicketKeyFile, hostNATSIssuerSeedFile, hostTLSIssuerKeyFile, hostTLSIssuerCertFile string,
+	validateControllerKeys func() error,
 ) (LiveCredentials, error) {
 	if serviceUID == 0 || serviceGID == 0 || cfg.Lab || cfg.Embedded == nil ||
-		responseKeyFile == "" || brokerTicketKeyFile == "" || validateControllerKeys == nil {
+		responseKeyFile == "" || brokerTicketKeyFile == "" || hostNATSIssuerSeedFile == "" ||
+		hostTLSIssuerKeyFile == "" || hostTLSIssuerCertFile == "" || validateControllerKeys == nil {
 		return LiveCredentials{}, ErrLiveCredentials
 	}
 	return LiveCredentials{Config: cfg, ServiceUID: serviceUID, ServiceGID: serviceGID,
 		ResponseKeyFile: responseKeyFile, BrokerTicketKeyFile: brokerTicketKeyFile,
+		HostNATSIssuerSeedFile: hostNATSIssuerSeedFile, HostTLSIssuerKeyFile: hostTLSIssuerKeyFile,
+		HostTLSIssuerCertFile:  hostTLSIssuerCertFile,
 		ValidateControllerKeys: validateControllerKeys, directory: MaterialDirectory}, nil
 }
 
-func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected map[string]string) error {
+func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected map[string]string,
+	manifest bootstrap.Manifest,
+) error {
 	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Lab || check.Config.Embedded == nil ||
 		check.ValidateControllerKeys == nil ||
 		len(expected) == 0 {
 		return ErrLiveCredentials
 	}
-	if err := check.verifyPaths(expected); err != nil {
+	if err := check.verifyPaths(expected, manifest); err != nil {
 		return err
 	}
 	if err := check.verifyInventory(expected); err != nil {
@@ -89,7 +98,10 @@ func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected
 	return check.verifyInventory(expected)
 }
 
-func (check LiveCredentials) verifyPaths(expected map[string]string) error {
+func (check LiveCredentials) verifyPaths(expected map[string]string, manifest bootstrap.Manifest) error {
+	if manifest.Slot == "" || manifest.SeedSlot == "" {
+		return ErrLiveCredentials
+	}
 	e := check.Config.Embedded
 	paths := []string{
 		check.Config.CredentialsFile,
@@ -102,7 +114,13 @@ func (check LiveCredentials) verifyPaths(expected map[string]string) error {
 	if e.RoutePasswordFile != "" {
 		paths = append(paths, e.RoutePasswordFile)
 	}
-	paths = append(paths, check.ResponseKeyFile, check.BrokerTicketKeyFile)
+	paths = append(paths, check.ResponseKeyFile, check.BrokerTicketKeyFile,
+		check.HostNATSIssuerSeedFile, check.HostTLSIssuerKeyFile, check.HostTLSIssuerCertFile)
+	if check.HostNATSIssuerSeedFile != filepath.Join(check.directory, "host-nats-issuer.seed") ||
+		check.HostTLSIssuerKeyFile != filepath.Join(check.directory, "host-tls-issuer-key.pem") ||
+		check.HostTLSIssuerCertFile != filepath.Join(check.directory, "host-tls-issuer-cert.pem") {
+		return fmt.Errorf("%w: host issuer paths differ from fixed roles", ErrLiveCredentials)
+	}
 	seen := make(map[string]bool, len(paths))
 	for _, path := range paths {
 		name := filepath.Base(path)
@@ -110,6 +128,26 @@ func (check LiveCredentials) verifyPaths(expected map[string]string) error {
 			return fmt.Errorf("%w: configured credential path is not pinned by signed material", ErrLiveCredentials)
 		}
 		seen[name] = true
+	}
+	if manifest.Slot == manifest.SeedSlot {
+		purposes := make(map[bootstrap.SecretPurpose]bool, 2)
+		for _, reference := range manifest.Secrets {
+			if reference.Purpose != bootstrap.SecretSeedFounder &&
+				reference.Purpose != bootstrap.SecretSeedLedgerSigner {
+				continue
+			}
+			name := reference.TargetFile
+			if reference.Slot != manifest.SeedSlot || name == "" ||
+				filepath.Base(name) != name || expected[name] == "" ||
+				expected[name] != reference.SHA256 || seen[name] || purposes[reference.Purpose] {
+				return fmt.Errorf("%w: seed signer is not pinned to its signed role and slot", ErrLiveCredentials)
+			}
+			seen[name] = true
+			purposes[reference.Purpose] = true
+		}
+		if !purposes[bootstrap.SecretSeedFounder] || !purposes[bootstrap.SecretSeedLedgerSigner] {
+			return fmt.Errorf("%w: signed seed signer roles are incomplete", ErrLiveCredentials)
+		}
 	}
 	for name := range expected {
 		if !seen[name] {

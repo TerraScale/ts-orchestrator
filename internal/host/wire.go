@@ -67,15 +67,16 @@ func sessionErrorClass(err error) string {
 }
 
 type request struct {
-	Version   int               `json:"version"`
-	Node      string            `json:"node"`
-	Operation string            `json:"operation"`
-	SessionID string            `json:"session_id"`
-	Epoch     uint64            `json:"epoch"`
-	Nonce     string            `json:"nonce"`
-	IssuedAt  time.Time         `json:"issued_at"`
-	Payload   json.RawMessage   `json:"payload"`
-	Envelope  protocol.Envelope `json:"-"`
+	Version           int               `json:"version"`
+	Node              string            `json:"node"`
+	NATSUserPublicKey string            `json:"nats_user_public_key"`
+	Operation         string            `json:"operation"`
+	SessionID         string            `json:"session_id"`
+	Epoch             uint64            `json:"epoch"`
+	Nonce             string            `json:"nonce"`
+	IssuedAt          time.Time         `json:"issued_at"`
+	Payload           json.RawMessage   `json:"payload"`
+	Envelope          protocol.Envelope `json:"-"`
 }
 
 type response struct {
@@ -192,7 +193,7 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	if len(data) > 64<<10 {
 		return errors.New("host request is too large")
 	}
-	subject, err := protocol.AgentObservationSubject(cell, r.Node, r.Operation)
+	subject, err := protocol.AgentObservationSubject(cell, r.NATSUserPublicKey, r.Operation)
 	if err != nil {
 		return err
 	}

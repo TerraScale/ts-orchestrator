@@ -44,6 +44,7 @@ func observerFixture() (*OCIInstanceObserver, string) {
 			ImageId:            new("ocid1.image.oc1.sa-saopaulo-1.example"),
 			AvailabilityDomain: new("AD-1"), FaultDomain: new("FAULT-DOMAIN-1"),
 			Shape: new("VM.Standard.E5.Flex"), LifecycleState: core.InstanceLifecycleStateRunning,
+			FreeformTags: map[string]string{"BootstrapCreateKey": "reviewed-seed-create"},
 		}},
 		attachments: core.ListVnicAttachmentsResponse{Items: []core.VnicAttachment{{
 			InstanceId: new(instanceID), CompartmentId: new(compartmentID), VnicId: new(vnicID),
@@ -64,7 +65,8 @@ func TestOCIObserverRequiresExactAttachedPrimaryVNIC(t *testing.T) {
 	observer, instanceID := observerFixture()
 	observed, err := observer.ObserveInstance(t.Context(), instanceID)
 	if err != nil || observed.InstanceOCID != instanceID || !observed.PrimaryVNIC ||
-		observed.PrimaryPrivateIP != "10.0.0.3" || observed.SubnetOCID == "" {
+		observed.PrimaryPrivateIP != "10.0.0.3" || observed.SubnetOCID == "" ||
+		observed.BootstrapCreateKey != "reviewed-seed-create" {
 		t.Fatalf("exact primary observation = %+v, %v", observed, err)
 	}
 	compute := observer.compute.(*fakeComputeObservation)

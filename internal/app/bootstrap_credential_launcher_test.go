@@ -2,8 +2,11 @@ package app
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -69,15 +73,20 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeHostIssuerFixture(t, source, request.UID, request.GID)
 	request, expected := installCredentialFixture(t, request, source)
 	check, err := bootstrapstart.NewLiveCredentialChecker(request.Config, request.UID, request.GID,
-		request.ResponseKeyFile, request.BrokerTicketKeyFile, func() error {
+		request.ResponseKeyFile, request.BrokerTicketKeyFile,
+		filepath.Join(bootstrapstart.MaterialDirectory, "host-nats-issuer.seed"),
+		filepath.Join(bootstrapstart.MaterialDirectory, "host-tls-issuer-key.pem"),
+		filepath.Join(bootstrapstart.MaterialDirectory, "host-tls-issuer-cert.pem"), func() error {
 			return errors.New("root caller must validate controller keys through the service child")
 		})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := check.VerifyLiveCredentials(t.Context(), expected); err != nil {
+	manifest := bootstrap.Manifest{Slot: "controller-a", SeedSlot: "seed-a"}
+	if err := check.VerifyLiveCredentials(t.Context(), expected, manifest); err != nil {
 		t.Fatalf("default /proc/self/exe service child rejected valid credentials: %v", err)
 	}
 
@@ -92,7 +101,7 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
 	start := time.Now()
-	err = check.VerifyLiveCredentials(ctx, expected)
+	err = check.VerifyLiveCredentials(ctx, expected, manifest)
 	elapsed := time.Since(start)
 	if !errors.Is(err, bootstrapstart.ErrLiveCredentials) || elapsed < 14*time.Second || elapsed > 22*time.Second {
 		t.Fatalf("default service child deadline = %v after %s, want 15-second refusal", err, elapsed)
@@ -107,6 +116,39 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join("/proc", strconv.Itoa(childPID))); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("timed service child PID %d remains after launcher return: %v", childPID, err)
+	}
+}
+
+func writeHostIssuerFixture(t *testing.T, source string, uid, gid uint32) {
+	t.Helper()
+	controllerPublic, _ := testEd25519(t, t.TempDir(), "host-issuer-controller.key")
+	_, issuer, _ := testHostEnrollmentTLSMaterial(t, controllerPublic)
+	seed, err := issuer.NATSKey.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(seed)
+	key, ok := issuer.TLSKey.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatal("host TLS issuer fixture key is not ECDSA")
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string][]byte{
+		"host-nats-issuer.seed":    seed,
+		"host-tls-issuer-key.pem":  pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}),
+		"host-tls-issuer-cert.pem": issuer.TLSCertPEM,
+	}
+	for name, wire := range files {
+		path := filepath.Join(source, name)
+		if err := os.WriteFile(path, wire, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chown(path, int(uid), int(gid)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -195,6 +237,9 @@ func installCredentialFixture(t *testing.T, request bootstrapstart.CredentialChi
 	request.Config.Embedded.RoutePasswordFile = install(request.Config.Embedded.RoutePasswordFile)
 	request.ResponseKeyFile = install(request.ResponseKeyFile)
 	request.BrokerTicketKeyFile = install(request.BrokerTicketKeyFile)
+	for _, name := range []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"} {
+		install(filepath.Join(source, name))
+	}
 	return request, expected
 }
 
