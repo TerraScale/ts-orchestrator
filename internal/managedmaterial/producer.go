@@ -56,6 +56,7 @@ type InitialSpec struct {
 	PlacementDatabaseID string                `json:"placement_database_id"`
 	PartitionID         string                `json:"partition_id"`
 	Scope               AuthorityScope        `json:"scope"`
+	LiveS3              LiveS3Target          `json:"live_s3"`
 	Catalogs            []InitialCatalogInput `json:"catalogs"`
 	Members             [2]InitialMember      `json:"members"`
 	Recipient           RecipientGrant        `json:"recipient"`
@@ -190,6 +191,11 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		files := members[index].Files
 		files["authority.tbca"] = makeFile(authority.Certificate)
 		files["trusted-public-key"] = makeFile(authority.TrustedKey)
+		liveS3, err := spec.LiveS3.ConfigJSON()
+		if err != nil {
+			return InitialBundle{}, err
+		}
+		files["signed-v2-s3-config.json"] = makeFile(liveS3)
 		registry, err := json.Marshal(apiKeyRegistry{Version: 1, Keys: []apiKeyEntry{{
 			ID: base64.RawURLEncoding.EncodeToString(tokenID[:]), VerifierSHA256: verifierHex,
 			Tenant: spec.Scope.TenantID, Database: spec.Scope.DatabaseID,
@@ -313,6 +319,9 @@ func makeFile(data []byte) File {
 }
 
 func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Time) error {
+	if err := spec.LiveS3.Validate(); err != nil {
+		return err
+	}
 	if len(signer) != ed25519.PublicKeySize || len(spec.Recipient.PublicKey) != 32 ||
 		len(spec.Recipient.Signature) != ed25519.SignatureSize || now.IsZero() ||
 		!spec.Recipient.ExpiresAt.Equal(spec.Recipient.ExpiresAt.UTC().Truncate(time.Second)) ||

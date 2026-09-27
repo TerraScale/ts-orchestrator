@@ -456,6 +456,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		{"server.crt", launch.Runtime.ServerCertificateSHA256, 1 << 20},
 		{"server.key", launch.Runtime.ServerPrivateKeySHA256, 1 << 20},
 		{"client-ca.pem", launch.Runtime.ClientCARootsSHA256, 1 << 20},
+		{"signed-v2-s3-config.json", launch.Runtime.LiveS3ConfigSHA256, 16 << 10},
 	}
 	contents := make(map[string][]byte, len(files))
 	for _, item := range files {
@@ -483,6 +484,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
 	}
 	args := []string{
+		"--signed-v2-s3-config", filepath.Join(paths.material, "signed-v2-s3-config.json"),
 		"--data-dir", filepath.Join(paths.mount, "data"),
 		"--memory-limit-bytes", strconv.FormatUint(launch.ProcessMemoryBytes, 10),
 		"--memory-headroom-bytes", strconv.FormatUint(launch.MemoryHeadroomBytes, 10),
@@ -514,9 +516,25 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 			"--replication-server-ca-roots", filepath.Join(paths.material, "server-ca.pem"))
 	}
 	args = append(args, clientArgs...)
+	var childEnv map[string]string
+	if executable != "" {
+		if cfg.ManagedS3Credentials == nil {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential resolver is unavailable")
+		}
+		credentials, err := cfg.ManagedS3Credentials.Resolve(ctx, launch.Runtime.LiveS3Credential)
+		if err != nil {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential resolution failed")
+		}
+		if credentials.AccessKeyID == "" || credentials.SecretAccessKey == "" {
+			return Workload{}, managedMount{}, "", errors.New("managed S3 credential response is incomplete")
+		}
+		childEnv = map[string]string{"AWS_ACCESS_KEY_ID": credentials.AccessKeyID,
+			"AWS_SECRET_ACCESS_KEY": credentials.SecretAccessKey}
+	}
 	keepMount = true
 	return Workload{Role: d.Role, Digest: d.Digest, Fingerprint: fingerprint, Executable: executable,
-		Args: args, CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes, SystemReserveBytes: launch.SystemReserveBytes}, mount, paths.socket, nil
+		Args: args, Env: childEnv,
+		CgroupMemoryMaxBytes: launch.CgroupMemoryMaxBytes, SystemReserveBytes: launch.SystemReserveBytes}, mount, paths.socket, nil
 }
 
 func removeStoppedMemberSocket(path string, identity WorkloadIdentity) error {
@@ -600,7 +618,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := a.fetchManagedMaterial(ctx, d, *target.Registration); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
-	workload, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
+	_, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, "", "")
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
@@ -685,7 +703,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	}
 	// Material and the mounted block device are rechecked across the network
 	// round trips. A changed or absent binding never reaches native Apply.
-	_, currentMount, currentSocket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
+	currentWorkload, currentMount, currentSocket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
 	if err != nil {
 		return errors.Join(errors.New("managed mount or material changed before apply"), err)
 	}
@@ -716,7 +734,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if _, _, err := a.executionLease(); err != nil {
 		return err
 	}
-	if err := a.runner.Apply(ctx, workload); err != nil {
+	if err := a.runner.Apply(ctx, currentWorkload); err != nil {
 		return err
 	}
 	if err := verifyManagedMountPair(currentMount, mount); err != nil {

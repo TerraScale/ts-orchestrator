@@ -19,13 +19,15 @@ import (
 // must first authenticate an operator-signed preparation request, including
 // the explicit member IPs in spec, against its regional operator grant.
 type PreparationService struct {
-	Cell              string
-	Repository        *Repository
-	Receipts          authority.MaterialReceiptStore
-	Fencer            authority.Fencer
-	ControllerKey     ed25519.PrivateKey
-	RecipientSigner   ed25519.PublicKey
-	AllowedSubnetCIDR string
+	Cell                 string
+	Repository           *Repository
+	Receipts             authority.MaterialReceiptStore
+	Fencer               authority.Fencer
+	ControllerKey        ed25519.PrivateKey
+	RecipientSigner      ed25519.PublicKey
+	AllowedSubnetCIDR    string
+	NativeValidator      NativeMaterialValidator
+	NativeVerifierSHA256 string
 }
 
 // PrepareInitial is idempotent for one exact spec. A crash after OCI Put and
@@ -40,6 +42,9 @@ func (service PreparationService) PrepareInitial(ctx context.Context, epoch uint
 		return PreparationReceipt{}, errors.New("managed material preparation service is incomplete")
 	}
 	if err := validateInitialSpec(spec, service.RecipientSigner, now); err != nil {
+		return PreparationReceipt{}, err
+	}
+	if err := service.validateLiveS3Region(spec); err != nil {
 		return PreparationReceipt{}, err
 	}
 	if err := service.validateSubnet(spec); err != nil {
@@ -60,7 +65,14 @@ func (service PreparationService) PrepareInitial(ctx context.Context, epoch uint
 		if err != nil {
 			return PreparationReceipt{}, err
 		}
+		if err := service.validateNativeInitial(ctx, spec, bundle); err != nil {
+			return PreparationReceipt{}, err
+		}
 		object, err = service.Repository.CreateInitial(ctx, epoch, partition, spec, bundle, service.ControllerKey)
+	} else if err == nil {
+		if err := service.validateNativeInitial(ctx, spec, bundle); err != nil {
+			return PreparationReceipt{}, err
+		}
 	}
 	if err != nil {
 		return PreparationReceipt{}, err
@@ -138,6 +150,14 @@ func (service PreparationService) validateSubnet(spec InitialSpec) error {
 	return nil
 }
 
+func (service PreparationService) validateLiveS3Region(spec InitialSpec) error {
+	region, err := service.Repository.config.Region.OCIRegion()
+	if err != nil || spec.LiveS3.Region != region {
+		return errors.New("live S3 region differs from managed material cell")
+	}
+	return nil
+}
+
 func (service PreparationService) current(ctx context.Context, partition string, spec InitialSpec) (PreparationReceipt, error) {
 	entry, err := service.Receipts.ReadMaterialReceipt(ctx, spec.PlacementDatabaseID, partition)
 	if err != nil {
@@ -150,6 +170,9 @@ func (service PreparationService) current(ctx context.Context, partition string,
 func (service PreparationService) verifyCurrent(ctx context.Context, entry authority.LogEntry,
 	partition string, spec InitialSpec,
 ) (PreparationReceipt, InitialBundle, error) {
+	if err := service.validateLiveS3Region(spec); err != nil {
+		return PreparationReceipt{}, InitialBundle{}, err
+	}
 	if err := service.validateSubnet(spec); err != nil {
 		return PreparationReceipt{}, InitialBundle{}, err
 	}

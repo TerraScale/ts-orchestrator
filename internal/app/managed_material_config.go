@@ -12,9 +12,10 @@ import (
 )
 
 type acceptedMaterialConfig struct {
-	repository      managedmaterial.RepositoryConfig
-	recipientSigner ed25519.PublicKey
-	subnetCIDR      string
+	repository           managedmaterial.RepositoryConfig
+	recipientSigner      ed25519.PublicKey
+	subnetCIDR           string
+	nativeVerifierSHA256 string
 }
 
 // The startup gate has already verified the marker against the signed
@@ -33,7 +34,7 @@ func acceptedMaterialConfigFromMarker(marker bootstrapstart.AcceptedInstall, cel
 	domain := marker.ManagedMaterial
 	if domain == nil || !strings.EqualFold(marker.Cell, cell) ||
 		!strings.EqualFold(string(region.Region), cell) ||
-		domain.WorkloadCompartmentOCID != region.CompartmentID ||
+		domain.MemberCompartmentOCID != region.CompartmentID ||
 		domain.MemberSubnetOCID != region.SubnetID {
 		return acceptedMaterialConfig{}, errors.New("regional fleet differs from the signed accepted material domain")
 	}
@@ -47,7 +48,8 @@ func acceptedMaterialConfigFromMarker(marker bootstrapstart.AcceptedInstall, cel
 	config := acceptedMaterialConfig{repository: managedmaterial.RepositoryConfig{
 		Region: region.Region, Cell: cell, Namespace: domain.Namespace,
 		Bucket: domain.Bucket, KMSKeyID: domain.KMSKeyOCID,
-	}, recipientSigner: signer, subnetCIDR: domain.MemberSubnetCIDR}
+	}, recipientSigner: signer, subnetCIDR: domain.MemberSubnetCIDR,
+		nativeVerifierSHA256: domain.NativeVerifierSHA256}
 	if err := config.repository.Validate(); err != nil {
 		return acceptedMaterialConfig{}, err
 	}

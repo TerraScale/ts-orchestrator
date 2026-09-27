@@ -30,6 +30,7 @@ var managedHostFileNames = [...]string{
 	"authority.tbca", "trusted-public-key", "server.crt", "server.key",
 	"server-ca.pem", "client-ca.pem", "client-chain.pem", "client-private-key.pem",
 	"client-api-keys.json", "client-config.json", "client-managed-manifest.json",
+	"signed-v2-s3-config.json",
 }
 
 type materialQuery struct {
@@ -211,6 +212,8 @@ func expectedHostMaterialDigest(desired Desired, name string) string {
 		return launch.Runtime.ReplicationServerCASHA256
 	case "client-managed-manifest.json":
 		return launch.Runtime.ClientManagedMaterialManifestSHA256
+	case "signed-v2-s3-config.json":
+		return launch.Runtime.LiveS3ConfigSHA256
 	default:
 		return ""
 	}

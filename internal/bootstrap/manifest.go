@@ -100,20 +100,21 @@ type ManagedMaterialDomain struct {
 	Namespace                string `json:"namespace"`
 	Bucket                   string `json:"bucket"`
 	KMSKeyOCID               string `json:"kmsKeyOcid"`
-	WorkloadCompartmentOCID  string `json:"workloadCompartmentOcid"`
+	MemberCompartmentOCID    string `json:"memberCompartmentOcid"`
 	MemberSubnetOCID         string `json:"memberSubnetOcid"`
 	MemberSubnetCIDR         string `json:"memberSubnetCidr"`
 	RecipientSignerPublicKey string `json:"recipientSignerPublicKey"`
+	NativeVerifierSHA256     string `json:"nativeVerifierSha256"`
 }
 
 func (domain ManagedMaterialDomain) Validate() error {
 	prefix, err := netip.ParsePrefix(domain.MemberSubnetCIDR)
 	signer, signerErr := base64.StdEncoding.Strict().DecodeString(domain.RecipientSignerPublicKey)
 	if !ledgerIDPattern.MatchString(domain.Namespace) || !ledgerNamePattern.MatchString(domain.Bucket) ||
-		!isOCID(domain.KMSKeyOCID, "key") || !isOCID(domain.WorkloadCompartmentOCID, "compartment") ||
+		!isOCID(domain.KMSKeyOCID, "key") || !isOCID(domain.MemberCompartmentOCID, "compartment") ||
 		!isOCID(domain.MemberSubnetOCID, "subnet") || err != nil || !prefix.Addr().Is4() ||
 		!prefix.Addr().IsPrivate() || prefix.Masked() != prefix || prefix.Bits() < 16 || prefix.Bits() > 29 ||
-		signerErr != nil || len(signer) != ed25519.PublicKeySize {
+		signerErr != nil || len(signer) != ed25519.PublicKeySize || !sha256RE.MatchString(domain.NativeVerifierSHA256) {
 		return fmt.Errorf("%w: invalid signed managed material domain", ErrManifestInvalid)
 	}
 	return nil

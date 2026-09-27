@@ -17,6 +17,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -126,19 +127,22 @@ type ManagedMemberLaunch struct {
 // may be attached to this signed member desired. Missing pins keep it held.
 // The corresponding files are installed outside NATS by a trusted operator.
 type ManagedRuntimePins struct {
-	DevicePath                          string `json:"device_path"`
-	MountPath                           string `json:"mount_path"`
-	FileSystemUUID                      string `json:"filesystem_uuid"`
-	FileSystemType                      string `json:"filesystem_type"`
-	TrustedKeySHA256                    string `json:"trusted_key_sha256"`
-	ServerCertificateSHA256             string `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256              string `json:"server_private_key_sha256"`
-	ClientCARootsSHA256                 string `json:"client_ca_roots_sha256"`
-	ClientManagedMaterialManifestSHA256 string `json:"client_managed_material_manifest_sha256"`
-	ReplicationListenAddress            string `json:"replication_listen_address"`
-	ReplicationPeerMemberID             string `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress              string `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256           string `json:"replication_server_ca_sha256,omitempty"`
+	DevicePath                          string                     `json:"device_path"`
+	MountPath                           string                     `json:"mount_path"`
+	FileSystemUUID                      string                     `json:"filesystem_uuid"`
+	FileSystemType                      string                     `json:"filesystem_type"`
+	TrustedKeySHA256                    string                     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string                     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256"`
+	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
+	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
+	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	ReplicationListenAddress            string                     `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string                     `json:"replication_server_ca_sha256,omitempty"`
 }
 
 type Receipt struct {
@@ -203,6 +207,7 @@ type AgentConfig struct {
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
+	ManagedS3Credentials    ManagedS3CredentialResolver
 	BakedSystemReserveBytes uint64
 	WorkloadIdentity        WorkloadIdentity
 	PollInterval            time.Duration
@@ -500,6 +505,8 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		!lowerHex(pins.TrustedKeySHA256, 64) || !lowerHex(pins.ServerCertificateSHA256, 64) ||
 		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
 		!lowerHex(pins.ClientManagedMaterialManifestSHA256, 64) ||
+		!lowerHex(pins.LiveS3ConfigSHA256, 64) || !lowerHex(pins.LiveS3TargetSHA256, 64) ||
+		pins.LiveS3Credential.Validate() != nil ||
 		!validSocketAddress(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
 	}

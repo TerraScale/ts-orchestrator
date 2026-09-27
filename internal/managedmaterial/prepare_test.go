@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,6 +18,54 @@ type fakePreparationReceipts struct {
 	entry       *authority.LogEntry
 	commitCount int
 	loseAck     bool
+}
+
+type acceptingNativeMaterialValidator struct{}
+
+func (acceptingNativeMaterialValidator) ValidateManagedMaterial(_ context.Context, input NativeMaterialInput, pin string) error {
+	if len(input.Certificate) == 0 || len(input.TrustedKey) != 32 || len(input.SignedV2S3Config) == 0 ||
+		input.ExpectedS3TargetDigest == "" || pin == "" {
+		return errors.New("native material request is incomplete")
+	}
+	return nil
+}
+
+type nativeValidatorFunc func(context.Context, NativeMaterialInput, string) error
+
+func (validate nativeValidatorFunc) ValidateManagedMaterial(ctx context.Context, input NativeMaterialInput, pin string) error {
+	return validate(ctx, input, pin)
+}
+
+func TestNativeRejectionPrecedesObjectPutAndOrphanReceipt(t *testing.T) {
+	service, spec, objects, receipts := preparationFixture(t)
+	service.NativeValidator = nativeValidatorFunc(func(context.Context, NativeMaterialInput, string) error {
+		return errors.New("native rejected authority")
+	})
+	now := time.Now().UTC()
+	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now); err == nil ||
+		objects.putCount != 0 || receipts.commitCount != 0 {
+		t.Fatalf("native rejection reached OCI Put or R3: %v, puts=%d commits=%d", err, objects.putCount, receipts.commitCount)
+	}
+	bundle, err := GenerateInitial(spec, service.RecipientSigner, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Repository.CreateInitial(t.Context(), 9, spec.PartitionID, spec, bundle, service.ControllerKey); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now); err == nil ||
+		objects.putCount != 1 || receipts.commitCount != 0 {
+		t.Fatalf("orphan bypassed native rejection: %v, puts=%d commits=%d", err, objects.putCount, receipts.commitCount)
+	}
+}
+
+func TestPrepareInitialRejectsForeignLiveS3RegionBeforeObjectPut(t *testing.T) {
+	service, spec, objects, receipts := preparationFixture(t)
+	spec.LiveS3.Region = "us-sanjose-1"
+	if _, err := service.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, time.Now().UTC()); err == nil ||
+		objects.putCount != 0 || receipts.commitCount != 0 {
+		t.Fatalf("foreign live S3 region reached OCI Put or R3: %v", err)
+	}
 }
 
 func (store *fakePreparationReceipts) ReadMaterialReceipt(_ context.Context, database, partition string) (authority.LogEntry, error) {
@@ -62,7 +111,8 @@ func preparationFixture(t *testing.T) (PreparationService, InitialSpec, *fakeMat
 	}
 	receipts := new(fakePreparationReceipts)
 	return PreparationService{Cell: "gru", Repository: repository, Receipts: receipts, Fencer: fencer,
-		ControllerKey: controllerKey, RecipientSigner: recipientSigner, AllowedSubnetCIDR: "10.0.0.0/24"}, spec, objects, receipts
+		ControllerKey: controllerKey, RecipientSigner: recipientSigner, AllowedSubnetCIDR: "10.0.0.0/24",
+		NativeValidator: acceptingNativeMaterialValidator{}, NativeVerifierSHA256: strings.Repeat("a", 64)}, spec, objects, receipts
 }
 
 func TestPrepareInitialRequiresR3ReceiptAndReusesCommittedGeneration(t *testing.T) {

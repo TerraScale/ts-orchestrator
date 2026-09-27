@@ -14,6 +14,7 @@ var initialHostFiles = [...]string{
 	"authority.tbca", "trusted-public-key", "server.crt", "server.key",
 	"server-ca.pem", "client-ca.pem", "client-chain.pem", "client-private-key.pem",
 	"client-api-keys.json", "client-config.json", "client-managed-manifest.json",
+	"signed-v2-s3-config.json",
 }
 
 // VerifyIntentAgainstReceipt requires an initial placement to use the exact
@@ -25,6 +26,7 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 	}
 	spec := receipt.Spec
 	roster := intent.CanonicalRoster
+	liveTargetDigest, liveErr := spec.LiveS3.Digest()
 	if intent.Generation != 1 || receipt.Generation != 1 || intent.DatabaseID != spec.PlacementDatabaseID ||
 		intent.PartitionID != receipt.PartitionID || intent.PartitionID != spec.PartitionID || len(intent.ActiveRegions) != 1 ||
 		!strings.EqualFold(string(intent.ActiveRegions[0]), receipt.Cell) || len(roster.Rows) != 2 ||
@@ -34,7 +36,11 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 		roster.Authority.Epoch != spec.Scope.Epoch ||
 		roster.Authority.ConfigurationID != receipt.AuthorityConfigurationID ||
 		roster.Authority.CertificateSHA256 != receipt.AuthoritySHA256 ||
-		roster.Authority.TrustedKeySHA256 != receipt.TrustedKeySHA256 {
+		roster.Authority.TrustedKeySHA256 != receipt.TrustedKeySHA256 || liveErr != nil {
+		return ErrMaterialConflict
+	}
+	region, err := intent.ActiveRegions[0].OCIRegion()
+	if err != nil || spec.LiveS3.Region != region {
 		return ErrMaterialConflict
 	}
 	for _, seat := range spec.Members {
@@ -67,6 +73,9 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 			manifest.ServerPrivateKeySHA256 != pins.Files["server.key"] ||
 			manifest.ClientCARootsSHA256 != pins.Files["client-ca.pem"] ||
 			manifest.ClientManagedMaterialManifestSHA256 != pins.Files["client-managed-manifest.json"] ||
+			manifest.LiveS3ConfigSHA256 != pins.Files["signed-v2-s3-config.json"] ||
+			manifest.LiveS3TargetSHA256 != liveTargetDigest ||
+			manifest.LiveS3Credential != spec.LiveS3.Credential ||
 			manifest.ReplicationServerCASHA256 != pins.Files["server-ca.pem"] ||
 			manifest.ReplicationListenAddress != net.JoinHostPort(seat.ReplicationIP, strconv.Itoa(int(seat.ReplicationPort))) {
 			return ErrMaterialConflict

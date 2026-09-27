@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.PrivateKey) {
@@ -34,8 +36,7 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := relationshipInitialCatalog("30000000-0000-0000-0000-000000000001",
-		"30000000-0000-0000-0000-000000000002")
+	firstCatalog, err := EmptyInitialCatalog("30000000-0000-0000-0000-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +50,9 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 		Scope: AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
 			TenantID: "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
 			ShardID: 7, Epoch: 1},
+		LiveS3: LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
+			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
 		Catalogs: []InitialCatalogInput{
 			{CollectionID: firstCatalog.CollectionID, CanonicalCatalog: firstCatalog.Bytes},
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
@@ -69,48 +73,11 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 	return spec, public, recipient
 }
 
-func relationshipInitialCatalog(collectionID, targetID string) (AuthorityCatalog, error) {
-	collection, err := canonicalUUID(collectionID)
-	if err != nil {
-		return AuthorityCatalog{}, err
-	}
-	target, err := canonicalUUID(targetID)
-	if err != nil {
-		return AuthorityCatalog{}, err
-	}
-	schema := append([]byte(nil), "TBSCH002"...)
-	schema = binary.LittleEndian.AppendUint32(schema, 0)
-	schema = binary.LittleEndian.AppendUint16(schema, 1)
-	schema = binary.LittleEndian.AppendUint16(schema, 1)
-	schema = binary.LittleEndian.AppendUint32(schema, 1)
-	schema = binary.LittleEndian.AppendUint32(schema, 0)
-	schema = append(schema, 5, 0, 0) // top-level Bytes field
-	schema = binary.LittleEndian.AppendUint16(schema, uint16(len("reference")))
-	schema = append(schema, "reference"...)
-	schema = binary.LittleEndian.AppendUint32(schema, 1)
-	schema = append(schema, target[:]...)
-	schema = append(schema, 1, 1) // target must exist; on delete RESTRICT
-	binary.LittleEndian.PutUint32(schema[8:12], uint32(len(schema)+4))
-	schema = binary.LittleEndian.AppendUint32(schema, crc32.Checksum(schema, authorityCRC))
-	digest := sha256.Sum256(schema)
-	catalog := append([]byte(nil), "TBCAT001"...)
-	catalog = binary.LittleEndian.AppendUint32(catalog, 0)
-	catalog = append(catalog, collection[:]...)
-	catalog = binary.LittleEndian.AppendUint64(catalog, 1)
-	catalog = binary.LittleEndian.AppendUint64(catalog, 0)
-	catalog = append(catalog, digest[:]...)
-	catalog = binary.LittleEndian.AppendUint32(catalog, uint32(len(schema)))
-	catalog = append(catalog, schema...)
-	binary.LittleEndian.PutUint32(catalog[8:12], uint32(len(catalog)+4))
-	catalog = binary.LittleEndian.AppendUint32(catalog, crc32.Checksum(catalog, authorityCRC))
-	return AuthorityCatalog{CollectionID: collectionID, SchemaGeneration: 1,
-		SchemaDigest: hex.EncodeToString(digest[:]), Bytes: catalog}, nil
-}
-
-func TestInitialMultiCatalogAuthorityBindsCanonicalRelationshipAndActiveRows(t *testing.T) {
+func TestInitialMultiCatalogAuthorityBindsCanonicalCatalogsAndActiveRows(t *testing.T) {
 	spec, signer, _ := initialFixture(t)
 	catalogs, err := initialCatalogs(spec.Catalogs)
-	if err != nil || len(catalogs) != 2 || !bytes.Equal(catalogs[0].Bytes[80:88], []byte("TBSCH002")) {
+	if err != nil || len(catalogs) != 2 || !bytes.Equal(catalogs[0].Bytes[80:88], []byte("TBSCH001")) ||
+		len(catalogs[0].Bytes) != 102 || len(catalogs[0].Bytes[80:len(catalogs[0].Bytes)-4]) != 18 {
 		t.Fatalf("two canonical initial catalogs were not accepted: %v", err)
 	}
 	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
@@ -159,14 +126,14 @@ func TestInitialMultiCatalogAuthorityBindsCanonicalRelationshipAndActiveRows(t *
 	oldVersion := []InitialCatalogInput{spec.Catalogs[0], spec.Catalogs[1]}
 	oldVersion[1].CanonicalCatalog = bytes.Clone(oldVersion[1].CanonicalCatalog)
 	oldCatalog := oldVersion[1].CanonicalCatalog
-	copy(oldCatalog[80:88], "TBSCH001")
+	copy(oldCatalog[80:88], "TBSCH002")
 	oldSchema := oldCatalog[80 : len(oldCatalog)-4]
 	binary.LittleEndian.PutUint32(oldSchema[len(oldSchema)-4:], crc32.Checksum(oldSchema[:len(oldSchema)-4], authorityCRC))
 	oldDigest := sha256.Sum256(oldSchema)
 	copy(oldCatalog[44:76], oldDigest[:])
 	binary.LittleEndian.PutUint32(oldCatalog[len(oldCatalog)-4:], crc32.Checksum(oldCatalog[:len(oldCatalog)-4], authorityCRC))
 	if _, err := initialCatalogs(oldVersion); err == nil {
-		t.Fatal("obsolete schema version was accepted")
+		t.Fatal("unsupported schema version was accepted")
 	}
 	if bytes.Equal(RecipientGrantMessage(spec), RecipientGrantMessage(InitialSpec{PlacementDatabaseID: spec.PlacementDatabaseID,
 		PartitionID: spec.PartitionID, Scope: spec.Scope, Catalogs: corrupt, Recipient: spec.Recipient})) {
@@ -194,9 +161,19 @@ func TestGenerateInitialBindsAuthorityTLSRegistryAndCustomerCiphertext(t *testin
 	if bundle.Authority.ConfigurationID != hex.EncodeToString(configuration[:]) {
 		t.Fatal("TerraBase authority configuration ID is wrong")
 	}
+	liveConfig, err := spec.LiveS3.ConfigJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveConfigDigest := sha256.Sum256(liveConfig)
 	for index, member := range bundle.Members {
-		if member.MemberID != spec.Members[index].MemberID || len(member.Files) != 11 {
+		if member.MemberID != spec.Members[index].MemberID || len(member.Files) != len(initialHostFiles) {
 			t.Fatalf("member %d file graph is incomplete", index)
+		}
+		liveFile, present := member.Files["signed-v2-s3-config.json"]
+		if !present || !bytes.Equal(liveFile.Contents, liveConfig) ||
+			liveFile.SHA256 != hex.EncodeToString(liveConfigDigest[:]) {
+			t.Fatalf("member %d lacks the exact signed ObjectDurable target", index)
 		}
 		for name, file := range member.Files {
 			digest := sha256.Sum256(file.Contents)

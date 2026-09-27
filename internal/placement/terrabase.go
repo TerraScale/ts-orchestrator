@@ -94,22 +94,25 @@ type CanonicalRosterRow struct {
 // contract. OCI attachment identity and device are observed later, never
 // accepted from this operator payload.
 type RuntimeManifest struct {
-	Region                              oci.Region `json:"region"`
-	SeatID                              string     `json:"seat_id"`
-	ArtifactDigest                      string     `json:"artifact_digest"`
-	SourceDigest                        string     `json:"source_digest"`
-	ManagedRuntimeRoot                  string     `json:"managed_runtime_root"`
-	FileSystemUUID                      string     `json:"filesystem_uuid"`
-	FileSystemType                      string     `json:"filesystem_type"`
-	TrustedKeySHA256                    string     `json:"trusted_key_sha256"`
-	ServerCertificateSHA256             string     `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256              string     `json:"server_private_key_sha256"`
-	ClientCARootsSHA256                 string     `json:"client_ca_roots_sha256"`
-	ClientManagedMaterialManifestSHA256 string     `json:"client_managed_material_manifest_sha256,omitempty"`
-	ReplicationListenAddress            string     `json:"replication_listen_address"`
-	ReplicationPeerMemberID             string     `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress              string     `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256           string     `json:"replication_server_ca_sha256,omitempty"`
+	Region                              oci.Region                 `json:"region"`
+	SeatID                              string                     `json:"seat_id"`
+	ArtifactDigest                      string                     `json:"artifact_digest"`
+	SourceDigest                        string                     `json:"source_digest"`
+	ManagedRuntimeRoot                  string                     `json:"managed_runtime_root"`
+	FileSystemUUID                      string                     `json:"filesystem_uuid"`
+	FileSystemType                      string                     `json:"filesystem_type"`
+	TrustedKeySHA256                    string                     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string                     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256,omitempty"`
+	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
+	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
+	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	ReplicationListenAddress            string                     `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string                     `json:"replication_server_ca_sha256,omitempty"`
 }
 
 func (manifest RuntimeManifest) Validate() error {
@@ -138,6 +141,10 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 	}
 	if requireManagedClient && (!validLowerSHA256Digest(manifest.ClientManagedMaterialManifestSHA256) || !peer) {
 		return fmt.Errorf("%w: schema-5 managed HTTPS requires a pinned client material manifest and outbound peer", ErrInvalidIntent)
+	}
+	if requireManagedClient && (!validLowerSHA256Digest(manifest.LiveS3ConfigSHA256) ||
+		!validLowerSHA256Digest(manifest.LiveS3TargetSHA256) || manifest.LiveS3Credential.Validate() != nil) {
+		return fmt.Errorf("%w: managed ObjectDurable target or credential pin is incomplete", ErrInvalidIntent)
 	}
 	if !requireManagedClient && manifest.ClientManagedMaterialManifestSHA256 != "" {
 		return fmt.Errorf("%w: historical runtime manifest cannot carry managed client material", ErrInvalidIntent)

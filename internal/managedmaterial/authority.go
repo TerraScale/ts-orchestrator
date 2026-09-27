@@ -65,16 +65,15 @@ func EmptyInitialCatalog(collectionID string) (AuthorityCatalog, error) {
 	if err != nil {
 		return AuthorityCatalog{}, err
 	}
-	schema := make([]byte, 0, 20)
-	schema = append(schema, "TBSCH002"...)
-	schema = binary.LittleEndian.AppendUint32(schema, 20)
-	schema = binary.LittleEndian.AppendUint16(schema, 0)
+	schema := make([]byte, 0, 18)
+	schema = append(schema, "TBSCH001"...)
+	schema = binary.LittleEndian.AppendUint32(schema, 18)
 	schema = binary.LittleEndian.AppendUint16(schema, 0)
 	schema = binary.LittleEndian.AppendUint32(schema, crc32.Checksum(schema, authorityCRC))
 	digest := sha256.Sum256(schema)
-	catalog := make([]byte, 0, 104)
+	catalog := make([]byte, 0, 102)
 	catalog = append(catalog, "TBCAT001"...)
-	catalog = binary.LittleEndian.AppendUint32(catalog, 104)
+	catalog = binary.LittleEndian.AppendUint32(catalog, 102)
 	catalog = append(catalog, collection[:]...)
 	catalog = binary.LittleEndian.AppendUint64(catalog, 1)
 	catalog = binary.LittleEndian.AppendUint64(catalog, 0)
@@ -190,7 +189,7 @@ func SignInitialAuthorityV2(scope AuthorityScope, members [2]AuthorityMember, ca
 
 func validInitialCatalog(catalog AuthorityCatalog, collection uuid.UUID) bool {
 	data := catalog.Bytes
-	if len(data) < 104 || len(data) > maxCatalogBytes || !bytes.Equal(data[:8], []byte("TBCAT001")) ||
+	if len(data) < 102 || len(data) > maxCatalogBytes || !bytes.Equal(data[:8], []byte("TBCAT001")) ||
 		binary.LittleEndian.Uint32(data[8:12]) != uint32(len(data)) ||
 		!bytes.Equal(data[12:28], collection[:]) ||
 		binary.LittleEndian.Uint64(data[28:36]) != 1 || binary.LittleEndian.Uint64(data[36:44]) != 0 ||
@@ -199,7 +198,7 @@ func validInitialCatalog(catalog AuthorityCatalog, collection uuid.UUID) bool {
 		return false
 	}
 	schema := data[80 : len(data)-4]
-	if len(schema) < 20 || !bytes.Equal(schema[:8], []byte("TBSCH002")) ||
+	if len(schema) < 18 || !bytes.Equal(schema[:8], []byte("TBSCH001")) ||
 		binary.LittleEndian.Uint32(schema[8:12]) != uint32(len(schema)) ||
 		crc32.Checksum(schema[:len(schema)-4], authorityCRC) != binary.LittleEndian.Uint32(schema[len(schema)-4:]) {
 		return false
@@ -217,7 +216,7 @@ func initialCatalogs(inputs []InitialCatalogInput) ([]AuthorityCatalog, error) {
 	for _, input := range inputs {
 		collection, err := canonicalUUID(input.CollectionID)
 		if err != nil || previousCollection != nil && bytes.Compare(previousCollection, collection[:]) >= 0 ||
-			len(input.CanonicalCatalog) < 104 || len(input.CanonicalCatalog) > maxCatalogBytes {
+			len(input.CanonicalCatalog) < 102 || len(input.CanonicalCatalog) > maxCatalogBytes {
 			return nil, errors.New("initial catalogs are invalid or out of order")
 		}
 		previousCollection = collection[:]

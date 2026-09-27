@@ -110,6 +110,9 @@ func desiredMaterialMatchesReceipt(desired host.Desired, intent placement.Intent
 		runtime.ServerPrivateKeySHA256 == manifest.ServerPrivateKeySHA256 &&
 		runtime.ClientCARootsSHA256 == manifest.ClientCARootsSHA256 &&
 		runtime.ClientManagedMaterialManifestSHA256 == manifest.ClientManagedMaterialManifestSHA256 &&
+		runtime.LiveS3ConfigSHA256 == manifest.LiveS3ConfigSHA256 &&
+		runtime.LiveS3TargetSHA256 == manifest.LiveS3TargetSHA256 &&
+		runtime.LiveS3Credential == manifest.LiveS3Credential &&
 		runtime.ReplicationListenAddress == manifest.ReplicationListenAddress &&
 		runtime.ReplicationPeerMemberID == manifest.ReplicationPeerMemberID &&
 		runtime.ReplicationPeerAddress == manifest.ReplicationPeerAddress &&

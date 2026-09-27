@@ -217,7 +217,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			materialService = &managedmaterial.PreparationService{Cell: cfg.NATS.Cell,
 				Repository: repository, Receipts: control, Fencer: control,
 				ControllerKey: responseKey, RecipientSigner: accepted.recipientSigner,
-				AllowedSubnetCIDR: accepted.subnetCIDR}
+				AllowedSubnetCIDR:    accepted.subnetCIDR,
+				NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
+				NativeVerifierSHA256: accepted.nativeVerifierSHA256}
 			materialAdmission = preparedMaterialAdmission(*materialService)
 		}
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,

@@ -46,6 +46,10 @@ func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt)
 	for index, member := range spec.Members {
 		peer := spec.Members[index^1]
 		pins := receipt.Members[index]
+		targetDigest, err := spec.LiveS3.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
 		intent.CanonicalRoster.Rows = append(intent.CanonicalRoster.Rows, placement.CanonicalRosterRow{
 			Region: oci.RegionGRU, SeatID: member.SeatID, FailureDomain: member.FailureDomain,
 			MemberID: member.MemberID, Incarnation: member.Incarnation,
@@ -58,6 +62,9 @@ func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt)
 			ServerCertificateSHA256: pins.Files["server.crt"], ServerPrivateKeySHA256: pins.Files["server.key"],
 			ClientCARootsSHA256:                 pins.Files["client-ca.pem"],
 			ClientManagedMaterialManifestSHA256: pins.Files["client-managed-manifest.json"],
+			LiveS3ConfigSHA256:                  pins.Files["signed-v2-s3-config.json"],
+			LiveS3TargetSHA256:                  targetDigest,
+			LiveS3Credential:                    spec.LiveS3.Credential,
 			ReplicationListenAddress:            net.JoinHostPort(member.ReplicationIP, strconv.Itoa(int(member.ReplicationPort))),
 			ReplicationPeerMemberID:             peer.MemberID,
 			ReplicationPeerAddress:              net.JoinHostPort(peer.ReplicationIP, strconv.Itoa(int(peer.ReplicationPort))),
@@ -71,6 +78,11 @@ func TestVerifyIntentAgainstReceiptRejectsMaterialAndPrivateIPSubstitution(t *te
 	intent, receipt := admittedInitialFixture(t)
 	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
 		t.Fatalf("matching committed initial material was rejected: %v", err)
+	}
+	foreignRegion := receipt
+	foreignRegion.Spec.LiveS3.Region = "us-sanjose-1"
+	if err := VerifyIntentAgainstReceipt(intent, foreignRegion); err == nil {
+		t.Fatal("receipt with foreign live S3 region was admitted")
 	}
 	for _, test := range []struct {
 		name string

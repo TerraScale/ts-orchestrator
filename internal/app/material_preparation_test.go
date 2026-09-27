@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,15 @@ import (
 )
 
 type preparationTestFencer struct{}
+
+type appNativeMaterialValidator struct{}
+
+func (appNativeMaterialValidator) ValidateManagedMaterial(_ context.Context, input managedmaterial.NativeMaterialInput, pin string) error {
+	if len(input.Certificate) == 0 || len(input.SignedV2S3Config) == 0 || input.ExpectedS3TargetDigest == "" || pin == "" {
+		return errors.New("native material request is incomplete")
+	}
+	return nil
+}
 
 func (preparationTestFencer) Current() authority.Snapshot {
 	return authority.Snapshot{Ready: true, Leader: true, Epoch: 9, Revision: 1,
@@ -125,6 +135,9 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 		Scope: managedmaterial.AuthorityScope{ClusterID: "0102030405060708090a0b0c0d0e0f10",
 			TenantID: "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
 			ShardID: 7, Epoch: 1},
+		LiveS3: managedmaterial.LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
+			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
+			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
 		Catalogs: []managedmaterial.InitialCatalogInput{
 			{CollectionID: firstCatalog.CollectionID, CanonicalCatalog: firstCatalog.Bytes},
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
@@ -160,7 +173,8 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 	}
 	service := managedmaterial.PreparationService{Cell: "gru", Repository: repository, Receipts: receipts,
 		Fencer: preparationTestFencer{}, ControllerKey: controllerPrivate, RecipientSigner: recipientPublic,
-		AllowedSubnetCIDR: "10.0.0.0/24"}
+		AllowedSubnetCIDR: "10.0.0.0/24", NativeValidator: appNativeMaterialValidator{},
+		NativeVerifierSHA256: strings.Repeat("a", 64)}
 	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 			Roles: []string{"terrabase"}, Environments: []string{"production"}, CanPrepareManagedMaterial: true}},

@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -109,7 +110,12 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		return fmt.Errorf("host managed runtime root: %w", err)
 	}
 	var bakedSystemReserveBytes uint64
+	var managedS3Credentials host.ManagedS3CredentialResolver
 	if cfg.Host.ManagedRuntimeRoot != "" {
+		managedS3Credentials, err = host.NewOCIS3CredentialResolver(oci.Region(strings.ToUpper(cfg.NATS.Cell)))
+		if err != nil {
+			return fmt.Errorf("host managed S3 credentials: %w", err)
+		}
 		bakedSystemReserveBytes, err = readBakedRuntimePriorityProfile()
 		if err != nil {
 			return fmt.Errorf("host image runtime priority profile: %w", err)
@@ -135,6 +141,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, ControllerPublicKey: controllerKey,
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
+		ManagedS3Credentials:    managedS3Credentials,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,

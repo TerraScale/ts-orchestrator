@@ -415,7 +415,7 @@ func validateStoredBundle(bundle InitialBundle) error {
 		return ErrMaterialConflict
 	}
 	for _, member := range bundle.Members {
-		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != 11 {
+		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != len(initialHostFiles) {
 			return ErrMaterialConflict
 		}
 		for _, name := range initialHostFiles {
@@ -456,6 +456,7 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 			return ErrMaterialConflict
 		}
 		if !bytes.Equal(member.Files["server-ca.pem"].Contents, member.Files["client-ca.pem"].Contents) ||
+			!verifyStoredLiveS3(spec, member) ||
 			!bytes.Contains(server, member.Files["server-ca.pem"].Contents) ||
 			verifyStoredTLS(seat, member, bundle.Retained) != nil ||
 			verifyStoredClientConfig(seat, member) != nil ||
