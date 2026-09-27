@@ -175,7 +175,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cleanup() { rm -rf .release-private; }
+          cleanup() {
+            rm -rf .release-private
+            if [[ -n ${proof_dir:-} ]]; then
+              rm -rf -- "${proof_dir}"
+            fi
+          }
           trap cleanup EXIT
           for architecture in amd64 arm64; do
             binary="dist/terrascale-orchestrator-linux-${architecture}"
@@ -197,6 +202,58 @@ jobs:
               --environment "${RELEASE_ENVIRONMENT}"
           done
           (cd dist && sha256sum --check --strict SHA256SUMS)
+
+          # Keep the public proof set on the exact qualified CI release. The
+          # ARM64 receipt is uploaded last so it marks a complete proof set.
+          tag="ci-${SOURCE_SHA}-run-${CANDIDATE_RUN_ID}"
+          proof_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ts-release-public.XXXXXXXX")"
+          retain_public_asset() {
+            local source="$1" asset="$2" downloaded="${proof_dir}/$2"
+            if ! fj release asset download "${tag}" "${asset}" -o "${downloaded}" >/dev/null 2>&1; then
+              rm -f -- "${downloaded}"
+              if ! fj release asset create "${tag}" "${source}" "${asset}" >/dev/null 2>&1; then
+                # Another approved run may have created the asset concurrently.
+                rm -f -- "${downloaded}"
+              fi
+              fj release asset download "${tag}" "${asset}" -o "${downloaded}" >/dev/null
+            fi
+            if ! cmp -s -- "${source}" "${downloaded}"; then
+              echo "public release asset ${asset} differs from the verified signer output" >&2
+              return 1
+            fi
+          }
+          retain_public_asset .release-private/root.pub \
+            "${RELEASE_ENVIRONMENT}-release-root.pub"
+          retain_public_asset .release-private/delegation.json \
+            "${RELEASE_ENVIRONMENT}-release-delegation.json"
+          receipt_asset="${RELEASE_ENVIRONMENT}-linux-arm64.receipt.json"
+          retained_receipt="${proof_dir}/${receipt_asset}"
+          if ! fj release asset download "${tag}" "${receipt_asset}" \
+            -o "${retained_receipt}" >/dev/null 2>&1; then
+            rm -f -- "${retained_receipt}"
+            created_receipt=false
+            if fj release asset create "${tag}" dist/linux-arm64.receipt.json \
+              "${receipt_asset}" >/dev/null 2>&1; then
+              created_receipt=true
+            fi
+            fj release asset download "${tag}" "${receipt_asset}" \
+              -o "${retained_receipt}" >/dev/null
+            if [[ ${created_receipt} == true ]] &&
+              ! cmp -s -- dist/linux-arm64.receipt.json "${retained_receipt}"; then
+              echo "new public release asset ${receipt_asset} differs from signer output" >&2
+              exit 1
+            fi
+          fi
+          # An existing receipt has a prior issuance time. Verify and reuse its
+          # exact bytes so a retry keeps the same Forgejo and OCI identity.
+          ./dist/ts-release verify-binary \
+            --receipt "${retained_receipt}" \
+            --delegation "${proof_dir}/${RELEASE_ENVIRONMENT}-release-delegation.json" \
+            --root-key "${proof_dir}/${RELEASE_ENVIRONMENT}-release-root.pub" \
+            --binary dist/terrascale-orchestrator-linux-arm64 \
+            --qualification dist/qualification.json \
+            --environment "${RELEASE_ENVIRONMENT}"
+          cp -- "${retained_receipt}" dist/linux-arm64.receipt.json
 
       - name: Remove delegated signing material
         if: ${{ always() }}
