@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,7 +168,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	clock.healthy.Store(true)
 	var agentRunner host.Runner = runner
 	var stopRunner *r3TimedStopRunner
-	var acceptedExpiry atomic.Int64
+	var acceptedSessions r3AcceptedSessionTrace
 	if production {
 		baseRunner := &r3StopOnCloseRunner{inMemoryRunner: runner}
 		agentRunner = baseRunner
@@ -174,7 +176,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			stopRunner = &r3TimedStopRunner{r3StopOnCloseRunner: baseRunner}
 			agentRunner = stopRunner
 			originalLogger := slog.Default()
-			slog.SetDefault(slog.New(r3AcceptedSessionHandler{next: slog.NewTextHandler(os.Stderr, nil), expiry: &acceptedExpiry}))
+			slog.SetDefault(slog.New(r3AcceptedSessionHandler{next: slog.NewTextHandler(os.Stderr, nil), sessions: &acceptedSessions}))
 			defer slog.SetDefault(originalLogger)
 		}
 	}
@@ -208,6 +210,14 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		proxies[failedPeer].blocked.Store(true)
 	}
 	crashControllerChild(t, children[failedPeer])
+	var postCrashExpiry int64
+	var postCrashAdvancements uint64
+	if blackhole {
+		postCrashExpiry, postCrashAdvancements = acceptedSessions.snapshot()
+		if postCrashExpiry == 0 {
+			t.Fatal("host session trace did not capture the accepted pre-failure session")
+		}
+	}
 	reconnectDeadline := time.NewTimer(15 * time.Second)
 	reconnectPoll := time.NewTicker(50 * time.Millisecond)
 	defer reconnectDeadline.Stop()
@@ -224,6 +234,10 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		}
 	}
 	_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
+	if blackhole {
+		waitR3HostReconnect(t, ctx, hostRuntime.Conn(), hostURLs, urls, failedPeer,
+			&acceptedSessions, postCrashExpiry, postCrashAdvancements, agentDone)
+	}
 	for index, child := range children {
 		if index != failedPeer {
 			assertControllerChildRunning(t, child)
@@ -263,7 +277,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 				t.Fatalf("host stopped for a reason other than signed lease reserve: %v", err)
 			}
 			stoppedAt := stopRunner.stoppedAt.Load()
-			acceptedUntil := acceptedExpiry.Load()
+			acceptedUntil, _ := acceptedSessions.snapshot()
 			if stoppedAt == 0 || acceptedUntil == 0 || !time.Unix(0, stoppedAt).Before(time.Unix(0, acceptedUntil)) {
 				t.Fatalf("host workload stop missed accepted signed expiry: stopped_at=%s accepted_expiry=%s observed_expiry=%s err=%v",
 					time.Unix(0, stoppedAt), time.Unix(0, acceptedUntil), lastSession.SessionExpiresAt, err)
@@ -302,8 +316,29 @@ func (r *r3TimedStopRunner) Close(ctx context.Context) error {
 }
 
 type r3AcceptedSessionHandler struct {
-	next   slog.Handler
-	expiry *atomic.Int64
+	next     slog.Handler
+	sessions *r3AcceptedSessionTrace
+}
+
+type r3AcceptedSessionTrace struct {
+	mu           sync.Mutex
+	expiry       int64
+	advancements uint64
+}
+
+func (trace *r3AcceptedSessionTrace) record(expiry int64) {
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	if expiry > trace.expiry {
+		trace.expiry = expiry
+		trace.advancements++
+	}
+}
+
+func (trace *r3AcceptedSessionTrace) snapshot() (expiry int64, advancements uint64) {
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	return trace.expiry, trace.advancements
 }
 
 func (h r3AcceptedSessionHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -315,11 +350,7 @@ func (h r3AcceptedSessionHandler) Handle(ctx context.Context, record slog.Record
 		record.Attrs(func(attr slog.Attr) bool {
 			if attr.Key == "expires_at" {
 				if expiry, err := time.Parse(time.RFC3339Nano, attr.Value.String()); err == nil {
-					for prior := h.expiry.Load(); expiry.UnixNano() > prior; prior = h.expiry.Load() {
-						if h.expiry.CompareAndSwap(prior, expiry.UnixNano()) {
-							break
-						}
-					}
+					h.sessions.record(expiry.UnixNano())
 				}
 			}
 			return true
@@ -329,11 +360,11 @@ func (h r3AcceptedSessionHandler) Handle(ctx context.Context, record slog.Record
 }
 
 func (h r3AcceptedSessionHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return r3AcceptedSessionHandler{next: h.next.WithAttrs(attrs), expiry: h.expiry}
+	return r3AcceptedSessionHandler{next: h.next.WithAttrs(attrs), sessions: h.sessions}
 }
 
 func (h r3AcceptedSessionHandler) WithGroup(name string) slog.Handler {
-	return r3AcceptedSessionHandler{next: h.next.WithGroup(name), expiry: h.expiry}
+	return r3AcceptedSessionHandler{next: h.next.WithGroup(name), sessions: h.sessions}
 }
 
 func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime, priorEpoch uint64, failedPeer int) authority.Snapshot {
@@ -398,6 +429,97 @@ func waitR3HostSession(t *testing.T, ctx context.Context, config string, agentDo
 	}
 	t.Fatalf("host session did not renew after controller loss: %v; last error %v", ctx.Err(), lastErr)
 	return host.HostStatus{}
+}
+
+func waitR3HostReconnect(t *testing.T, ctx context.Context, conn *nats.Conn, hostURLs, urls []string,
+	failedPeer int, acceptedSessions *r3AcceptedSessionTrace, priorExpiry int64, priorAdvancements uint64,
+	agentDone <-chan error) {
+	t.Helper()
+	if priorExpiry == 0 {
+		t.Fatal("host session trace did not capture the accepted pre-failure session")
+	}
+	for ctx.Err() == nil {
+		connectedToSurvivor := conn.IsConnected() && r3ConnectedToSurvivor(conn.ConnectedUrl(), hostURLs, urls, failedPeer)
+		currentExpiry, currentAdvancements := acceptedSessions.snapshot()
+		if connectedToSurvivor && currentAdvancements >= priorAdvancements+2 &&
+			time.Unix(0, currentExpiry).After(time.Now().Add(5*time.Second)) {
+			return
+		}
+		select {
+		case err := <-agentDone:
+			t.Fatalf("host agent exited before reconnecting to a surviving controller and accepting a renewed session: %v", err)
+		case <-ctx.Done():
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	currentExpiry, currentAdvancements := acceptedSessions.snapshot()
+	t.Fatalf("host did not reconnect to a surviving controller and accept renewed valid sessions: connected_to_survivor=%t prior_expiry=%s current_expiry=%s prior_advancements=%d current_advancements=%d: %v",
+		conn.IsConnected() && r3ConnectedToSurvivor(conn.ConnectedUrl(), hostURLs, urls, failedPeer),
+		time.Unix(0, priorExpiry).Format(time.RFC3339Nano), time.Unix(0, currentExpiry).Format(time.RFC3339Nano),
+		priorAdvancements, currentAdvancements, ctx.Err())
+}
+
+func r3ConnectedToSurvivor(currentURL string, hostURLs, urls []string, failedPeer int) bool {
+	currentEndpoint, ok := r3NATSEndpointHostPort(currentURL)
+	if !ok {
+		return false
+	}
+	for index := range urls {
+		if index == failedPeer {
+			continue
+		}
+		if index < len(hostURLs) {
+			if hostEndpoint, valid := r3NATSEndpointHostPort(hostURLs[index]); valid && currentEndpoint == hostEndpoint {
+				return true
+			}
+		}
+		if brokerEndpoint, valid := r3NATSEndpointHostPort(urls[index]); valid && currentEndpoint == brokerEndpoint {
+			return true
+		}
+	}
+	return false
+}
+
+func r3NATSEndpointHostPort(rawURL string) (string, bool) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "nats" && parsed.Scheme != "tls") ||
+		parsed.User != nil || parsed.Hostname() == "" || parsed.Port() == "" ||
+		parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return "", false
+	}
+	return parsed.Host, true
+}
+
+func TestR3ConnectedToSurvivorNormalizesTLSURLSchemeAndExcludesFailedPeer(t *testing.T) {
+	hostURLs := []string{
+		"nats://127.0.0.1:38017",
+		"nats://127.0.0.1:38019",
+		"nats://127.0.0.1:38021",
+	}
+	urls := []string{
+		"nats://127.0.0.1:37417",
+		"nats://127.0.0.1:44427",
+		"nats://127.0.0.1:44241",
+	}
+	tests := []struct {
+		name       string
+		currentURL string
+		want       bool
+	}{
+		{name: "discovered TLS broker URL matches survivor", currentURL: "tls://127.0.0.1:37417", want: true},
+		{name: "configured NATS proxy URL matches survivor", currentURL: hostURLs[0], want: true},
+		{name: "failed broker is excluded", currentURL: "tls://127.0.0.1:44427"},
+		{name: "failed proxy is excluded", currentURL: hostURLs[1]},
+		{name: "foreign scheme is rejected", currentURL: "https://127.0.0.1:37417"},
+		{name: "malformed URL is rejected", currentURL: "tls://:37417"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := r3ConnectedToSurvivor(test.currentURL, hostURLs, urls, 1); got != test.want {
+				t.Fatalf("r3ConnectedToSurvivor(%q) = %t, want %t", test.currentURL, got, test.want)
+			}
+		})
+	}
 }
 
 type r3CallerDiagnostics struct {
