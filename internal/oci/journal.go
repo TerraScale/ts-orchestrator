@@ -436,7 +436,7 @@ func validateIntent(intent OperationIntent) error {
 		intent.CreatedAt.IsZero() || intent.CreatedAt.Location() != time.UTC {
 		return errors.New("OCI operation intent is incomplete")
 	}
-	if intent.Action == actionLaunch && (intent.CreateKey == "" || !validComputeProfile(intent.Shape,
+	if intent.Action == actionLaunch && (intent.CreateKey == "" || !validManagedPrivateIP(intent.PrivateIP) || !validComputeProfile(intent.Shape,
 		intent.WholeOCPUs, intent.MemoryInGBs, intent.PlacementProfileDigest, intent.PlacementGeneration)) {
 		return errors.New("OCI launch intent requires a complete signed compute profile")
 	}
@@ -483,7 +483,7 @@ func isLowerHexSHA256(value string) bool {
 func sameIntent(a, b OperationIntent) bool {
 	return a.Action == b.Action && a.Key == b.Key && a.Region == b.Region && a.Generation == b.Generation &&
 		a.Owner == b.Owner && a.ResourceID == b.ResourceID && a.CreateKey == b.CreateKey &&
-		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.Shape == b.Shape &&
+		a.ExpectedETag == b.ExpectedETag && a.FaultDomain == b.FaultDomain && a.PrivateIP == b.PrivateIP && a.Shape == b.Shape &&
 		a.WholeOCPUs == b.WholeOCPUs && a.MemoryInGBs == b.MemoryInGBs &&
 		a.PlacementProfileDigest == b.PlacementProfileDigest && a.PlacementGeneration == b.PlacementGeneration &&
 		a.ImageID == b.ImageID && a.BootDescriptor == b.BootDescriptor &&

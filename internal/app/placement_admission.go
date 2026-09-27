@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -123,14 +124,16 @@ type placementAdmissionControl interface {
 	CommitPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
 }
 
-func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy, control *authority.Runtime) (*nats.Subscription, error) {
+type placementMaterialAdmission func(context.Context, placement.Intent) error
+
+func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy, control *authority.Runtime, material ...placementMaterialAdmission) (*nats.Subscription, error) {
 	return conn.Subscribe(placementApplySubject(cell), func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxPlacementWireBytes || !control.Current().CanMutate() {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		response, err := verifyAndApplyPlacement(requestCtx, message.Data, cell, policy, control)
+		response, err := verifyAndApplyPlacement(requestCtx, message.Data, cell, policy, control, material...)
 		if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !control.Current().CanMutate() {
 			return
 		}
@@ -144,7 +147,7 @@ func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, 
 	})
 }
 
-func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, policy signerPolicy, control placementAdmissionControl) (placementApplyResponse, error) {
+func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, policy signerPolicy, control placementAdmissionControl, material ...placementMaterialAdmission) (placementApplyResponse, error) {
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(wire, &envelope, maxPlacementWireBytes); err != nil {
 		return placementApplyResponse{}, err
@@ -183,6 +186,17 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 	if !bytes.Equal(envelope.Payload, payload) {
 		return placementApplyResponse{}, errors.New("signed placement payload is not canonical")
 	}
+	if len(material) > 1 {
+		return placementApplyResponse{}, errors.New("multiple managed material verifiers")
+	}
+	if len(material) == 1 {
+		if material[0] == nil {
+			return placementApplyResponse{}, errors.New("managed material verifier is unavailable")
+		}
+		if err := material[0](ctx, intent); err != nil {
+			return placementApplyResponse{}, fmt.Errorf("verify committed managed material: %w", err)
+		}
+	}
 	for range 8 {
 		var expected uint64
 		current, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
@@ -213,4 +227,14 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		}
 	}
 	return placementApplyResponse{}, errors.New("placement intent contention")
+}
+
+func preparedMaterialAdmission(service managedmaterial.PreparationService) placementMaterialAdmission {
+	return func(ctx context.Context, intent placement.Intent) error {
+		receipt, err := service.Current(ctx, intent.DatabaseID, intent.PartitionID)
+		if err != nil {
+			return err
+		}
+		return managedmaterial.VerifyIntentAgainstReceipt(intent, receipt)
+	}
 }

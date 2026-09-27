@@ -23,6 +23,35 @@ const nativeExtraFileTestEnv = "TERRASCALE_TEST_NATIVE_EXTRA_FILE_CASE"
 const nativeTenantTargetTestEnv = "TERRASCALE_TEST_NATIVE_TENANT_TARGET_COUNT"
 const nativeProtectedParentTestEnv = "TERRASCALE_TEST_NATIVE_PROTECTED_PARENT"
 
+func TestVerifyNativeExecNiceReadsStatFieldNineteen(t *testing.T) {
+	fields := make([]string, 18)
+	for index := range fields {
+		fields[index] = "0"
+	}
+	fields[0] = "S"
+	fields[17] = "1" // field 20 is num_threads, regardless of nice.
+	stat := func() []byte { return []byte("123 (target ) process) " + strings.Join(fields, " ")) }
+	fields[16] = "-20"
+	if err := verifyNativeExecNice(stat()); err == nil || !strings.Contains(err.Error(), "protected supervisor nice") {
+		t.Fatalf("negative field-19 nice with positive thread count was accepted: %v", err)
+	}
+	fields[16] = "0"
+	if err := verifyNativeExecNice(stat()); err != nil {
+		t.Fatalf("nonnegative nice was rejected: %v", err)
+	}
+	fields[16] = "invalid"
+	if err := verifyNativeExecNice(stat()); err == nil {
+		t.Fatal("malformed nice was accepted")
+	}
+	fields[0] = "Z"
+	if err := verifyNativeExecNice(stat()); err == nil {
+		t.Fatal("zombie status was accepted")
+	}
+	if err := verifyNativeExecNice([]byte("123 (broken")); err == nil {
+		t.Fatal("unterminated stat comm was accepted")
+	}
+}
+
 func TestNativeTargetExtraFileProtocol(t *testing.T) {
 	if scenario := os.Getenv(nativeExtraFileTestEnv); scenario != "" {
 		testNativeTargetExtraFileChild(t, scenario)

@@ -11,6 +11,16 @@ Type=simple
 User=terrascale-orchestrator
 Group=terrascale-orchestrator
 ExecStart=/usr/local/bin/terrascale-orchestrator run --config /etc/terrascale-orchestrator/controller.json
+# Keep the regional control plane schedulable under ordinary workload pressure.
+# Image profile supplies this service's memory floor; target qualification reads it back.
+CPUSchedulingPolicy=other
+Nice=-20
+CPUWeight=10000
+IOWeight=10000
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
+OOMScoreAdjust=-1000
+ManagedOOMPreference=omit
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=60s

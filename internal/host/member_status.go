@@ -59,7 +59,8 @@ type MemberCapabilities struct {
 	DurableDrain bool `json:"durable_drain"`
 }
 
-// MemberStatus is a bounded v1 member role observation, not serving or drain proof.
+// MemberStatus is a bounded v2 native member observation. Identity is bound to
+// the process and expected signed assignment by ReadMemberStatus.
 type MemberStatus struct {
 	SchemaVersion uint64             `json:"schema_version"`
 	Nonce         string             `json:"nonce"`
@@ -384,11 +385,13 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 		ReceiverOnly: *wire.ReceiverOnly, Serving: *wire.Serving,
 		Capabilities: MemberCapabilities{ServingProof: *wire.Capabilities.ServingProof, DurableDrain: *wire.Capabilities.DurableDrain},
 	}
-	if status.SchemaVersion != 1 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
+	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||
 		!canonicalMemberID(status.Scope.DatabaseID) || !canonicalMemberID(status.Scope.MemberID) ||
 		status.Scope != expected.Scope || status.Authority != expected.Authority ||
-		status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
+		status.ReceiverOnly || !status.Capabilities.ServingProof || !status.Capabilities.DurableDrain ||
+		status.Serving && (!status.Local.StorageRecovered || !status.Local.ReplicationListenerReady ||
+			!status.Local.Healthy || !status.Local.Ready) {
 		return MemberStatus{}, errors.New("member status identity or capability mismatch")
 	}
 	return status, nil

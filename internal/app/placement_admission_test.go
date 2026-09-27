@@ -285,9 +285,9 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 			ServerPrivateKeySHA256:              strings.Repeat("2", 64),
 			ClientCARootsSHA256:                 strings.Repeat("3", 64),
 			ClientManagedMaterialManifestSHA256: strings.Repeat("4", 64),
-			ReplicationListenAddress:            fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			ReplicationListenAddress:            fmt.Sprintf("10.0.0.%d:%d", 11+index, 7000+index),
 			ReplicationPeerMemberID:             peer.MemberID,
-			ReplicationPeerAddress:              fmt.Sprintf("127.0.0.1:%d", 7000+(index^1)),
+			ReplicationPeerAddress:              fmt.Sprintf("10.0.0.%d:%d", 11+(index^1), 7000+(index^1)),
 			ReplicationServerCASHA256:           strings.Repeat("a", 64),
 		})
 	}

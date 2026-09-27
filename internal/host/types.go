@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -160,26 +161,27 @@ type Report struct {
 	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
-// ManagedRuntimeReport is a host-process and mounted-volume observation only.
-// It does not assert client serving, catch-up, or a writer fence.
+// ManagedRuntimeReport binds a native process and mounted volume to its
+// TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
-	Member           ManagedMemberBinding `json:"member"`
-	Authority        MemberAuthority      `json:"authority"`
-	OCI              ManagedOCIBinding    `json:"oci"`
-	VolumeID         string               `json:"volume_id"`
-	AttachmentID     string               `json:"attachment_id"`
-	AttachmentETag   string               `json:"attachment_etag"`
-	FileSystemUUID   string               `json:"filesystem_uuid"`
-	FileSystemType   string               `json:"filesystem_type"`
-	MountDevice      string               `json:"mount_device"`
-	MountPath        string               `json:"mount_path"`
-	MountID          uint64               `json:"mount_id"`
-	ProcessPID       int                  `json:"process_pid"`
-	ProcessStart     string               `json:"process_start"`
-	ProcessCgroup    string               `json:"process_cgroup"`
-	ProcessBootID    string               `json:"process_boot_id"`
-	StorageRecovered bool                 `json:"storage_recovered"`
-	ListenerReady    bool                 `json:"listener_ready"`
+	Member           ManagedMemberBinding       `json:"member"`
+	Authority        MemberAuthority            `json:"authority"`
+	OCI              ManagedOCIBinding          `json:"oci"`
+	VolumeID         string                     `json:"volume_id"`
+	AttachmentID     string                     `json:"attachment_id"`
+	AttachmentETag   string                     `json:"attachment_etag"`
+	FileSystemUUID   string                     `json:"filesystem_uuid"`
+	FileSystemType   string                     `json:"filesystem_type"`
+	MountDevice      string                     `json:"mount_device"`
+	MountPath        string                     `json:"mount_path"`
+	MountID          uint64                     `json:"mount_id"`
+	ProcessPID       int                        `json:"process_pid"`
+	ProcessStart     string                     `json:"process_start"`
+	ProcessCgroup    string                     `json:"process_cgroup"`
+	ProcessBootID    string                     `json:"process_boot_id"`
+	StorageRecovered bool                       `json:"storage_recovered"`
+	ListenerReady    bool                       `json:"listener_ready"`
+	ServingProof     *memberstatus.ServingProof `json:"serving_proof,omitempty"`
 }
 
 type HostStatus struct {
@@ -220,8 +222,13 @@ type ControllerConfig struct {
 	AuthorityGuard              func(context.Context, uint64) error
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ManagedMaterialProvider     ManagedMaterialProvider
 	ControlLog                  jetstream.Stream
 }
+
+// ManagedMaterialProvider returns only a currently admitted member's exact
+// R3-pinned host files. The host RPC encrypts each requested chunk separately.
+type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[string][]byte, error)
 
 // ManagedRegistrationVerifier checks a managed registration against current
 // admitted placement, durable member state, and OCI observation.

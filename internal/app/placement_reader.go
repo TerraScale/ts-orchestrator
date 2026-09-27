@@ -10,8 +10,9 @@ import (
 )
 
 type admittedPlacementReader struct {
-	cell  string
-	store authority.PlacementIntentStore
+	cell     string
+	store    authority.PlacementIntentStore
+	material placementMaterialAdmission
 }
 
 func (r admittedPlacementReader) ListPlacementIntents(ctx context.Context, cell string) ([]placement.Intent, error) {
@@ -32,6 +33,11 @@ func (r admittedPlacementReader) ListPlacementIntents(ctx context.Context, cell 
 		if err != nil || intent.DatabaseID+"."+intent.PartitionID != entry.SubjectKey ||
 			intent.OperationID() != entry.OperationID || !intentSelectsCell(intent, cell) {
 			return nil, fmt.Errorf("invalid admitted placement intent for %q", entry.SubjectKey)
+		}
+		if r.material != nil {
+			if err := r.material(ctx, intent); err != nil {
+				return nil, fmt.Errorf("invalid committed material for %q: %w", entry.SubjectKey, err)
+			}
 		}
 		intents = append(intents, intent)
 	}

@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"golang.org/x/sys/unix"
 )
 
@@ -74,6 +75,17 @@ func ManagedMountPath(root string, member ManagedMemberBinding) (string, error) 
 		return "", err
 	}
 	return paths.mount, nil
+}
+
+// ManagedMaterialPath is the exact host-owned directory for one signed member
+// attempt. Preparation uses this path so client configuration cannot redirect
+// a host to operator-chosen material.
+func ManagedMaterialPath(root string, member ManagedMemberBinding) (string, error) {
+	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
+	if err != nil {
+		return "", err
+	}
+	return paths.material, nil
 }
 
 // ValidateManagedRuntimeRoot rejects an unsafe configured root before native
@@ -585,6 +597,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	if err := a.fetchManagedMaterial(ctx, d, *target.Registration); err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
+	}
 	workload, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, executable, fingerprint)
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -743,6 +758,13 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	if err := verifyManagedMountPair(check, mount); err != nil {
 		return errors.Join(errors.New("managed mount or material changed while reading process status"), err, a.runner.Stop(ctx, d.Role))
 	}
+	proof, err := readManagedServingProof(ctx, a.runner, d, socket, status)
+	if err != nil {
+		return errors.Join(errors.New("managed serving proof could not be bound to the native process"), err, a.runner.Stop(ctx, d.Role))
+	}
+	if err := verifyManagedMountPair(check, mount); err != nil {
+		return errors.Join(errors.New("managed mount changed while reading serving proof"), err, a.runner.Stop(ctx, d.Role))
+	}
 	report := a.reportFor(d, "running", nil)
 	report.Managed = &ManagedRuntimeReport{
 		Member: d.ManagedMember.Member, Authority: d.ManagedMember.Authority, OCI: d.ManagedMember.OCI,
@@ -752,7 +774,7 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 		MountDevice: mount.device, MountPath: paths.mount, MountID: mount.id,
 		ProcessPID: status.Process.PID, ProcessStart: start, ProcessCgroup: cgroup,
 		ProcessBootID: status.Process.StartNonce, StorageRecovered: status.Local.StorageRecovered,
-		ListenerReady: status.Local.ReplicationListenerReady,
+		ListenerReady: status.Local.ReplicationListenerReady, ServingProof: proof,
 	}
 	if err := a.publishReport(ctx, report); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -785,6 +807,21 @@ func validateManagedReportForDesired(report Report, desired Desired) error {
 		!strings.HasPrefix(observation.ProcessCgroup, "/") || !lowerHex(observation.ProcessBootID, 32) ||
 		!observation.StorageRecovered || !observation.ListenerReady {
 		return errors.New("managed report lacks exact mounted process identity")
+	}
+	if proof := observation.ServingProof; proof != nil {
+		if proof.SchemaVersion != 1 || proof.Process.PID != observation.ProcessPID ||
+			proof.Process.StartNonce != observation.ProcessBootID ||
+			proof.Scope != (memberstatus.Scope{
+				ClusterID: launch.Member.Scope.ClusterID, TenantID: launch.Member.Scope.TenantID,
+				DatabaseID: launch.Member.Scope.DatabaseID, ShardID: launch.Member.Scope.ShardID,
+				MemberID: launch.Member.Scope.MemberID, Incarnation: launch.Member.Scope.Incarnation,
+			}) || proof.Authority != (memberstatus.Authority{
+			Epoch: launch.Authority.Epoch, ConfigurationID: launch.Authority.ConfigurationID,
+			CertificateSHA256: launch.Authority.CertificateSHA256, TLSLeafSHA256: launch.Authority.TLSLeafSHA256,
+		}) || !proof.Serving || !proof.Listeners.Client || !proof.Listeners.Replication ||
+			proof.Replication.PeerMemberID != launch.Runtime.ReplicationPeerMemberID {
+			return errors.New("managed serving proof differs from the desired process or signed member")
+		}
 	}
 	return nil
 }

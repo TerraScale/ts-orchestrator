@@ -669,6 +669,15 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	if d.ManagedMember != nil {
+		if d.ManagedMember.Runtime != nil && a.cfg.ManagedRuntimeRoot != "" {
+			command, err := a.fetchManagedDrainCommand(ctx, role)
+			if err != nil {
+				return err
+			}
+			if command != nil {
+				return a.reconcileManagedDrain(ctx, d, *target.Registration, *command)
+			}
+		}
 		return a.reconcileManaged(ctx, d, target)
 	}
 	fingerprint, err := desiredFingerprint(d)
