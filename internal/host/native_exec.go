@@ -283,17 +283,8 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 	if err != nil {
 		return fmt.Errorf("native target exited before verification: %w", err)
 	}
-	closing := bytes.LastIndexByte(stat, ')')
-	if closing < 0 {
-		return errors.New("native target has invalid process status")
-	}
-	fields := strings.Fields(string(stat[closing+1:]))
-	if len(fields) <= 19 || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x" {
-		return errors.New("native target exited before verification")
-	}
-	nice, err := strconv.Atoi(fields[17]) // /proc/PID/stat field 20.
-	if err != nil || nice < 0 {
-		return errors.New("native target retained protected supervisor nice")
+	if err := verifyNativeExecNice(stat); err != nil {
+		return err
 	}
 	oomScore, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "oom_score_adj"))
 	if err != nil {
@@ -323,6 +314,24 @@ func verifyNativeExec(pid int, cgroupPath string, identity WorkloadIdentity) err
 	}
 	if !contained {
 		return errors.New("native target escaped its role cgroup")
+	}
+	return nil
+}
+
+func verifyNativeExecNice(stat []byte) error {
+	closing := bytes.LastIndexByte(stat, ')')
+	if closing < 0 {
+		return errors.New("native target has invalid process status")
+	}
+	fields := strings.Fields(string(stat[closing+1:]))
+	if len(fields) <= 16 || fields[0] == "Z" || fields[0] == "X" || fields[0] == "x" {
+		return errors.New("native target exited before verification")
+	}
+	// fields[0] is stat field 3 (state); fields[16] is field 19 (nice).
+	// fields[17] is num_threads and cannot detect an inherited negative nice.
+	nice, err := strconv.Atoi(fields[16])
+	if err != nil || nice < 0 {
+		return errors.New("native target retained protected supervisor nice")
 	}
 	return nil
 }
