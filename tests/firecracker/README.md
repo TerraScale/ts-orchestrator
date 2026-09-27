@@ -208,6 +208,67 @@ cleanup. On cleanup failure it retains images for manual inspection and marks
 the run `CLEANUP_FAILED`; those images may contain ephemeral lab credentials.
 The original kernel and rootfs are never modified.
 
+### Read-only NATS formation and restart diagnostics
+
+Build the ignored standalone helper for the diagnostic host or target guest:
+
+```sh
+go build -trimpath -o /tmp/natsdiag tests/firecracker/natsdiag.go
+```
+
+On a controller, point it at that controller's existing config. It loads the
+configured JWT credentials and TLS files without printing the config or secret
+contents, and derives every direct TLS endpoint from the controller config's
+broker slot order and route addresses:
+
+```sh
+/tmp/natsdiag --controller-config /etc/terrascale-orchestrator/controller.json --phase steady
+```
+
+While controller A is stopped, run the helper from the authorized operator
+host with a locally accessible copy of A's controller config for topology,
+the existing operator config for its credentials, and the two already-open
+SSH local forwards for B and C:
+
+```sh
+/tmp/natsdiag \
+  --controller-config /path/to/controller-a.json \
+  --operator-config /path/to/operator.json \
+  --phase controller-outage \
+  --nats-forward 10.251.0.12:4222=127.0.0.1:14222,10.251.0.13:4222=127.0.0.1:14223
+```
+
+The helper keeps the private controller IPs in its NATS URLs and TLS
+`ServerName`; it maps only the TCP dial destination to each loopback forward.
+The outage phase accepts only those two forwarded peers and requires R3 stream
+configuration, all three configured member names, and a responding majority.
+It allows a surviving follower to be catching up. Once A is running again,
+repeat the controller command with `--phase recovered`. Recovery requires all
+configured peers to be current, online, have no pending peers or lag, and have
+distinct live server IDs. The ID comparison is for this diagnostic snapshot;
+the controller slot name remains the identity across a restart.
+
+Every phase reads `TS_CONTROL_LOG`, `TS_DELIVERY_INTENTS`, `OBJ_TS_ARTIFACTS`,
+`KV_TS_DELIVERY_ADMISSIONS`, `KV_TS_DELIVERY_OPERATIONS`, and
+`KV_TS_HOST_STATE`. A controller config with all managed OCI paths also adds
+`KV_TS_PLACEMENT_STATE` and `KV_TS_OCI_OPERATIONS`. The operator account is not
+granted those final two reads; its output labels them `permission_denied` and
+`controller_only` without requesting them. Each required stream reports its
+configured replica count, leader, follower current/offline/pending/lag data,
+and a bounded status. Missing, permission-denied, and unknown query outcomes
+remain distinct. `formation_ready` requires successful account metadata and
+all streams required for the loaded role/config, plus a complete endpoint and
+member mapping. Without controller config or an explicit `--members` mapping,
+the helper still emits raw metadata but marks the mapping incomplete and keeps
+`formation_ready` false. An `AccountInfo` response by itself does not pass
+readiness.
+
+The helper uses non-reconnecting connections, a two-second bound per query,
+and reads metadata only. It does not read stream or object payloads, alter
+credentials or grants, create SSH forwards, or establish OCI instance/VNIC
+readback. Its output is NATS evidence and does not replace the signed founder
+ledger and independent OCI readback used by the region qualification.
+
 ## Kernel and runner qualification boundary
 
 The latest recorded four-VM results apply to the older pinned image only: Linux

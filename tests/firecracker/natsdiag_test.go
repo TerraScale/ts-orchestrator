@@ -15,13 +15,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 )
@@ -69,6 +72,16 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := regional.JetStream().CreateObjectStore(ctx, jetstream.ObjectStoreConfig{
+		Bucket: "TS_ARTIFACTS", Replicas: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: "TS_DELIVERY_ADMISSIONS", Replicas: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	operations, err := regional.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket: delivery.OperationBucket, Replicas: 1,
 	})
@@ -79,7 +92,7 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 	probeCtx, probeCancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer probeCancel()
 	command := exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL(),
+		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
 		"--operation-id", "fc-diagnostic-2")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -106,7 +119,8 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 			}
 		}
 		for _, key := range []string{"account", "stream_TS_CONTROL_LOG", "stream_TS_DELIVERY_INTENTS",
-			"stream_KV_TS_HOST_STATE", "authority"} {
+			"stream_OBJ_TS_ARTIFACTS", "stream_KV_TS_DELIVERY_ADMISSIONS",
+			"stream_KV_TS_DELIVERY_OPERATIONS", "stream_KV_TS_HOST_STATE", "authority"} {
 			if _, ok := record[key]; !ok {
 				t.Fatalf("%s diagnostic missing %s", role, key)
 			}
@@ -157,6 +171,10 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		} else if _, ok := record["operator_read_paths"]; ok {
 			t.Fatal("controller emitted operator read paths")
 		}
+		if record["formation_ready"] != true || record["snapshot_server_ids_unique"] != true {
+			t.Fatalf("%s formation readiness = %v, snapshot IDs unique=%v", role,
+				record["formation_ready"], record["snapshot_server_ids_unique"])
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
@@ -173,7 +191,7 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		t.Fatal(err)
 	}
 	command = exec.CommandContext(probeCtx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", regional.URL(),
+		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "1", "--urls", regional.URL(),
 		"--operation-id", "fc-diagnostic-2")
 	output, err = command.CombinedOutput()
 	if err != nil {
@@ -187,8 +205,9 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
 			t.Fatalf("decode partial diagnostic record: %v", err)
 		}
-		if _, ok := record["stream_KV_TS_HOST_STATE_error"]; !ok {
-			t.Fatalf("missing query error was lost: %v", record)
+		missing := record["stream_KV_TS_HOST_STATE"].(map[string]any)
+		if missing["status"] != "missing" {
+			t.Fatalf("missing stream status was lost: %v", record)
 		}
 		if _, ok := record["stream_TS_CONTROL_LOG"]; !ok {
 			t.Fatalf("successful stream query was lost: %v", record)
@@ -356,6 +375,209 @@ func TestReadPathTargetsAndBoundedErrors(t *testing.T) {
 	}
 }
 
+func TestDiagnosticTopologyUsesControllerSlotAndRouteOrder(t *testing.T) {
+	config := app.Config{
+		NATS: natscell.Config{Cell: "gru", Instance: "controller-b", Replicas: 3,
+			URL: "tls://10.251.0.12:4222", Embedded: &natscell.Embedded{
+				Host: "10.251.0.12", Port: 4222, RouteHost: "10.251.0.12", RoutePort: 6222,
+				BrokerIDs: []string{"controller-a", "controller-b", "controller-c"},
+				Routes:    []string{"nats-route://10.251.0.11:6222", "nats-route://10.251.0.13:6222"},
+			}},
+		Controller: app.ControllerConfig{OciRegionIntentFile: "/etc/intent.json",
+			OciRegionConfig: "/etc/region.json", PlacementConfig: "/etc/placement.json"},
+	}
+	topology, err := topologyFromControllerConfig(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEndpoints := []string{"tls://10.251.0.11:4222", "tls://10.251.0.12:4222", "tls://10.251.0.13:4222"}
+	wantMembers := []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"}
+	if !slices.Equal(topology.endpoints, wantEndpoints) || !slices.Equal(topology.memberNames, wantMembers) ||
+		topology.localMember != "gru-controller-b" || !topology.managed {
+		t.Fatalf("controller topology = %#v", topology)
+	}
+	config.NATS.Embedded.Routes[0] = "nats-route://127.0.0.1:6222"
+	if _, err := topologyFromControllerConfig(config); err == nil {
+		t.Fatal("loopback route was accepted as a production peer")
+	}
+}
+
+func TestDiagnosticFormationStatusesAndReplicaReadiness(t *testing.T) {
+	if got := resourceStatus(jetstream.ErrStreamNotFound); got != "missing" {
+		t.Fatalf("missing status = %q", got)
+	}
+	if got := resourceStatus(nats.ErrPermissionViolation); got != "permission_denied" {
+		t.Fatalf("permission status = %q", got)
+	}
+	if got := resourceStatus(errors.New("opaque server failure")); got != "unknown" {
+		t.Fatalf("unknown status = %q", got)
+	}
+	if got := resourceStatus(nil); got != "ok" {
+		t.Fatalf("success status = %q", got)
+	}
+
+	info := &jetstream.StreamInfo{Config: jetstream.StreamConfig{Replicas: 3}, Cluster: &jetstream.ClusterInfo{
+		Name: "gru", Leader: "gru-controller-a", Replicas: []*jetstream.PeerInfo{
+			{Name: "gru-controller-b", Current: true}, {Name: "gru-controller-c", Current: true},
+		},
+	}}
+	steady := formationExpectation{cell: "gru", replicas: 3, phase: "steady",
+		members:         []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"},
+		connectedMember: "gru-controller-a"}
+	if assessment := assessStream(info, steady); assessment["ready"] != true {
+		t.Fatalf("healthy R3 stream readiness = %v", assessment)
+	}
+
+	outage := steady
+	outage.phase = "controller-outage"
+	outage.missingMember = "gru-controller-a"
+	outage.connectedMember = "gru-controller-b"
+	info.Cluster.Leader = "gru-controller-b"
+	info.Cluster.Replicas[0] = &jetstream.PeerInfo{Name: "gru-controller-a", Offline: true}
+	info.Cluster.Replicas[1].Current = false
+	if assessment := assessStream(info, outage); assessment["ready"] != true {
+		t.Fatalf("surviving quorum required every follower current: %v", assessment)
+	}
+	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-controller-c", Pending: true}
+	if assessment := assessStream(info, outage); assessment["ready"] == true {
+		t.Fatalf("pending follower counted toward the surviving quorum: %v", assessment)
+	}
+	info.Cluster.Replicas[1] = &jetstream.PeerInfo{Name: "gru-controller-c", Current: false}
+	if serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-controller-a", "cluster": "gru"}, outage) {
+		t.Fatal("controller-outage accepted the offline controller identity")
+	}
+	if !serverMatchesExpectation(map[string]string{"id": "id-b", "name": "gru-controller-b", "cluster": "gru"}, outage) {
+		t.Fatal("controller-outage rejected a surviving controller identity")
+	}
+
+	info.Config.Replicas = 1
+	if assessment := assessStream(info, outage); assessment["ready"] == true {
+		t.Fatalf("R1 stream passed required R3 validation: %v", assessment)
+	}
+	info.Config.Replicas = 3
+	info.Cluster.Replicas[1].Offline = true
+	if assessment := assessStream(info, outage); assessment["ready"] == true {
+		t.Fatalf("one available member passed R3 quorum validation: %v", assessment)
+	}
+	info.Cluster.Replicas[1].Offline = false
+	if assessment := assessStream(info, steady); assessment["ready"] == true {
+		t.Fatalf("AccountInfo-like success passed incomplete steady cluster state: %v", assessment)
+	}
+}
+
+func TestDiagnosticEndpointMappingsRequireCompleteAndExactCoverage(t *testing.T) {
+	topology := &diagnosticTopology{
+		endpoints:   []string{"tls://10.251.0.11:4222", "tls://10.251.0.12:4222", "tls://10.251.0.13:4222"},
+		memberNames: []string{"gru-controller-a", "gru-controller-b", "gru-controller-c"},
+		endpointNames: map[string]string{
+			"tls://10.251.0.11:4222": "gru-controller-a",
+			"tls://10.251.0.12:4222": "gru-controller-b",
+			"tls://10.251.0.13:4222": "gru-controller-c",
+		},
+		localEndpoint: "10.251.0.12:4222", localMember: "gru-controller-b",
+	}
+	if _, _, err := mapTopologyDiagnosticEndpoints(topology.endpoints[:1], topology,
+		topology.memberNames, "steady"); err == nil {
+		t.Fatal("steady topology accepted only a subset of controller endpoints")
+	}
+	if _, _, err := mapTopologyDiagnosticEndpoints(topology.endpoints, topology,
+		[]string{"gru-controller-a", "gru-controller-c", "gru-controller-b"}, "recovered"); err == nil {
+		t.Fatal("topology accepted members in an order different from broker slots")
+	}
+	if _, _, err := mapTopologyDiagnosticEndpoints([]string{
+		topology.endpoints[0], topology.endpoints[2], "tls://10.251.0.99:4222",
+	}, topology, topology.memberNames, "steady"); err == nil {
+		t.Fatal("topology accepted an unknown direct endpoint")
+	}
+
+	forwarded, responding, err := mapTopologyDiagnosticEndpoints([]string{
+		topology.endpoints[0], topology.endpoints[2],
+	}, topology, topology.memberNames, "controller-outage")
+	if err != nil || len(forwarded) != 2 || !slices.Equal(responding,
+		[]string{"gru-controller-a", "gru-controller-c"}) {
+		t.Fatalf("valid outage endpoint mapping = %v, %v, %v", forwarded, responding, err)
+	}
+
+	if _, _, err := mapExplicitDiagnosticEndpoints([]string{"nats://127.0.0.1:4222"},
+		[]string{"lab-a", "lab-b", "lab-c"}); err == nil {
+		t.Fatal("explicit member list accepted a mismatched URL count")
+	}
+	if _, _, err := mapExplicitDiagnosticEndpoints([]string{"nats://127.0.0.1:4222", "nats://127.0.0.1:4223"},
+		[]string{"lab-a", "lab-a"}); err == nil {
+		t.Fatal("explicit member mapping accepted duplicate names")
+	}
+	mapped, members, err := mapExplicitDiagnosticEndpoints(
+		[]string{"nats://127.0.0.1:4222", "nats://127.0.0.1:4223"}, []string{"lab-a", "lab-b"})
+	if err != nil || mapped["nats://127.0.0.1:4222"] != "lab-a" ||
+		mapped["nats://127.0.0.1:4223"] != "lab-b" || !slices.Equal(members, []string{"lab-a", "lab-b"}) {
+		t.Fatalf("explicit endpoint mapping = %v, %v, %v", mapped, members, err)
+	}
+}
+
+func TestDiagnosticFormationReadinessRequiresEndpointMapping(t *testing.T) {
+	endpoint := "nats://127.0.0.1:4222"
+	server := map[string]string{"id": "server-1", "name": "lab-a", "cluster": "lab"}
+	for _, replicas := range []int{1, 3} {
+		endpointNames, responding, complete, err := diagnosticEndpointMapping(
+			[]string{endpoint}, nil, nil, "steady")
+		if err != nil || complete || endpointNames != nil || len(responding) != 0 {
+			t.Fatalf("unbound R%d endpoint mapping = %v, %v, %t, %v",
+				replicas, endpointNames, responding, complete, err)
+		}
+		expectation := formationExpectation{cell: "lab", replicas: replicas, phase: "steady",
+			endpointNames: endpointNames, respondingMembers: responding,
+			endpointMappingComplete: complete}
+		if formationReady(true, true, server, "", expectation) {
+			t.Fatalf("unbound single URL reported an R%d formation ready", replicas)
+		}
+	}
+
+	endpointNames, responding, complete, err := diagnosticEndpointMapping(
+		[]string{endpoint}, nil, []string{"lab-a"}, "steady")
+	if err != nil || !complete {
+		t.Fatalf("explicit R1 endpoint mapping = %v, %v, %t, %v",
+			endpointNames, responding, complete, err)
+	}
+	expectation := formationExpectation{cell: "lab", replicas: 1, members: []string{"lab-a"},
+		phase: "steady", endpointNames: endpointNames, respondingMembers: responding,
+		endpointMappingComplete: complete}
+	if !formationReady(true, true, server, "lab-a", expectation) {
+		t.Fatal("complete explicit endpoint mapping did not qualify an otherwise ready R1 formation")
+	}
+}
+
+func TestDiagnosticForwardMapKeepsPrivateEndpointIdentity(t *testing.T) {
+	forward, err := parseDiagnosticForwards("10.251.0.12:4222=127.0.0.1:14222,10.251.0.13:4222=127.0.0.1:14223")
+	if err != nil || forward["10.251.0.12:4222"] != "127.0.0.1:14222" ||
+		forward["10.251.0.13:4222"] != "127.0.0.1:14223" {
+		t.Fatalf("parsed forwards = %v, %v", forward, err)
+	}
+	for _, invalid := range []string{
+		"127.0.0.1:4222=127.0.0.1:14222", "10.251.0.12:4223=127.0.0.1:14222",
+		"10.251.0.12:4222=10.251.0.99:14222", "10.251.0.12:4222=127.0.0.1:0",
+	} {
+		if _, err := parseDiagnosticForwards(invalid); err == nil {
+			t.Fatalf("invalid forward %q accepted", invalid)
+		}
+	}
+}
+
+func TestDiagnosticSnapshotServerIDsAreUniqueByMember(t *testing.T) {
+	if !snapshotServerIDsUnique([]map[string]any{
+		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
+		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
+		{"server": map[string]string{"id": "id-b", "name": "gru-b"}},
+	}) {
+		t.Fatal("repeated reads of one member made snapshot IDs nonunique")
+	}
+	if snapshotServerIDsUnique([]map[string]any{
+		{"server": map[string]string{"id": "id-a", "name": "gru-a"}},
+		{"server": map[string]string{"id": "id-a", "name": "gru-b"}},
+	}) {
+		t.Fatal("two live members sharing one NATS server ID passed")
+	}
+}
+
 func TestDiagnosticMarshalsReplicatedClusterMetadata(t *testing.T) {
 	leaderSince := time.Date(2026, time.September, 24, 12, 0, 0, 0, time.UTC)
 	lastActive := leaderSince.Add(5 * time.Second)
@@ -462,6 +684,12 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := js.CreateObjectStore(ctx, jetstream.ObjectStoreConfig{Bucket: "TS_ARTIFACTS", Replicas: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: "TS_DELIVERY_ADMISSIONS", Replicas: 3}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket: "TS_HOST_STATE", Replicas: 3,
 	}); err != nil {
@@ -483,7 +711,8 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 		urls[index] = runtime.URL()
 	}
 	command := exec.CommandContext(ctx, "go", "run", "natsdiag.go", "--seed", controllerSeed,
-		"--operator-seed", operatorSeed, "--cell", "lab", "--urls", strings.Join(urls, ","),
+		"--operator-seed", operatorSeed, "--cell", "lab", "--replicas", "3",
+		"--members", "lab-c1,lab-c2,lab-c3", "--urls", strings.Join(urls, ","),
 		"--operation-id", "fc-one-node-loss-2")
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -513,6 +742,9 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 			if consumer["cluster"] == nil {
 				t.Fatal("replicated consumer cluster metadata is missing")
 			}
+		}
+		if record["formation_ready"] != true {
+			t.Fatalf("%s formation readiness = %v", role, record["formation_ready"])
 		}
 		operation := record["delivery_operation"].(map[string]any)
 		if operation["state"] != "claimed" || operation["plan_count"] != float64(1) {
