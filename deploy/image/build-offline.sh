@@ -136,9 +136,19 @@ if [[ -n "$host_enrollment_public" && ! $host_enrollment_public_sha256 =~ ^[0-9a
 	echo "host enrollment public bundle requires a paired file and lowercase SHA-256" >&2
 	exit 2
 fi
-for command in cat cp ln mktemp python3 qemu-img realpath virt-cat virt-customize; do
+for command in cat cp ln mktemp python3 qemu-img realpath virt-cat; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
+if [[ -n ${TS_OFFLINE_GUESTFS_RUNNER:-} ]]; then
+	[[ -x $TS_OFFLINE_GUESTFS_RUNNER ]] || {
+		echo "offline guestfs runner must be executable" >&2
+		exit 1
+	}
+else
+	for command in guestfish systemctl systemd-sysusers; do
+		command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
+	done
+fi
 [[ -x "$release_tool" ]] || { echo "release tool must be executable" >&2; exit 1; }
 [[ -x "$bootstrap_tool" ]] || { echo "bootstrap tool must be executable" >&2; exit 1; }
 base=$(realpath -e -- "$base")
@@ -291,7 +301,6 @@ print(identity["cell"])
 PY
 )
 
-host_setup_uploads=()
 if [[ -n "$host_enrollment_public" ]]; then
 	cp -- "$host_enrollment_public" "$host_enrollment_public_image"
 	python3 deploy/image/validate-host-enrollment-public.py \
@@ -313,11 +322,6 @@ fixed = {
 if any(type(bundle[key]) is not type(value) or bundle[key] != value for key, value in fixed.items()):
 	raise SystemExit("host enrollment bundle differs from the fixed image workload identity or paths")
 PY
-	host_setup_uploads=(
-		--upload "$host_enrollment_public_image:/etc/terrascale-orchestrator/host-enrollment-public.json"
-		--upload deploy/systemd/terrascale-orchestrator-host-setup.service:/etc/systemd/system/terrascale-orchestrator-host-setup.service
-		--upload deploy/systemd/terrascale-orchestrator-host-setup.timer:/etc/systemd/system/terrascale-orchestrator-host-setup.timer
-	)
 fi
 
 python3 - "$timesyncd_config" "$timesyncd_config_max_bytes" "$timesyncd_config_image" <<'PY'
@@ -451,267 +455,27 @@ if image.get("format") != "qcow2" or image.get("backing-filename"):
 candidate="$temporary_directory/image.qcow2"
 cp --reflink=auto --sparse=always -- "$base" "$candidate"
 
-bootstrap_directory=/etc/terrascale-orchestrator/bootstrap
 native_verifier_guest_path=/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
-bootstrap_roots_directory="$bootstrap_directory/trust-roots"
-timesyncd_config_guest=/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf
-bootstrap_uploads=(
-	--upload "$bootstrap_anchor:$bootstrap_directory/anchor.json"
-	--upload "$bootstrap_identity:$bootstrap_directory/identity.json"
+offline_args=(
+	--image "$candidate"
+	--work "$temporary_directory"
+	--sysusers deploy/image/terrascale-orchestrator.sysusers
+	--profile "$runtime_priority_profile"
+	--priority-root "$runtime_priority_root"
+	--binary "$binary"
+	--native-verifier "$native_verifier_binary"
+	--timesyncd-config "$timesyncd_config_image"
+	--bootstrap-anchor "$bootstrap_anchor"
+	--bootstrap-identity "$bootstrap_identity"
 )
-root_index=1
 for bootstrap_root in "${bootstrap_roots[@]}"; do
-	printf -v bootstrap_root_name '%03d.pem' "$root_index"
-	bootstrap_root_guest_path="$bootstrap_roots_directory/$bootstrap_root_name"
-	bootstrap_uploads+=(--upload "$bootstrap_root:$bootstrap_root_guest_path")
-	root_index=$((root_index + 1))
+	offline_args+=(--bootstrap-root "$bootstrap_root")
 done
-
-bootstrap_directory_setup=$(cat <<'COMMAND'
-set -eu
-install -d -o root -g root -m 0755 /etc/terrascale-orchestrator
-install -d -o root -g root -m 0755 /etc/terrascale-orchestrator/bootstrap/trust-roots
-[ ! -e /etc/terrascale-orchestrator/host-enrollment-public.json ] &&
-	[ ! -L /etc/terrascale-orchestrator/host-enrollment-public.json ] || {
-	echo 'base image has a conflicting host enrollment public bundle' >&2
-	exit 1
-}
-rm -f /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json
-find /etc/terrascale-orchestrator/bootstrap/trust-roots -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-COMMAND
-)
-runtime_priority_setup=$(cat <<'COMMAND'
-set -eu
-for runtime_priority_file in \
-	/etc/terrascale-orchestrator/runtime-priority.json \
-	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf \
-	/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py; do
-	[ ! -e "$runtime_priority_file" ] && [ ! -L "$runtime_priority_file" ] || {
-		echo "base image has a conflicting runtime-priority profile artifact: $runtime_priority_file" >&2
-		exit 1
-	}
-done
-install -d -o root -g root -m 0755 /etc/terrascale-orchestrator
-install -d -o root -g root -m 0755 /etc/systemd/system/system.slice.d
-install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-host.service.d
-install -d -o root -g root -m 0755 /etc/systemd/system/terrascale-orchestrator-controller.service.d
-install -d -o root -g root -m 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority
-COMMAND
-)
-native_verifier_setup=$(cat <<'COMMAND'
-set -eu
-for directory in / /usr /usr/local /usr/local/lib /usr/local/lib/terrascale-orchestrator; do
-	[ ! -L "$directory" ] && [ -d "$directory" ] && [ "$(stat -c '%u' "$directory")" = 0 ] || {
-		echo "native verifier parent must be a root-owned nonwritable directory: $directory" >&2
-		exit 1
-	}
-	mode=$(stat -c '%a' "$directory") || exit 1
-	[ $((0$mode & 022)) -eq 0 ] || {
-		echo "native verifier parent is writable by group or other: $directory" >&2
-		exit 1
-	}
-done
-native_directory=/usr/local/lib/terrascale-orchestrator/managed-material
-[ ! -e "$native_directory" ] && [ ! -L "$native_directory" ] || {
-	echo "base image has a conflicting managed-material verifier directory" >&2
-	exit 1
-}
-install -d -o root -g root -m 0755 "$native_directory"
-COMMAND
-)
-time_sync_setup=$(cat <<'COMMAND'
-set -eu
-check_timesyncd_config_file() {
-	config_file=$1
-	[ -e "$config_file" ] || [ -L "$config_file" ] || return 0
-	if [ -L "$config_file" ] && [ ! -e "$config_file" ]; then
-		echo "unresolvable systemd timesyncd config symlink: $config_file" >&2
-		return 1
-	fi
-	if awk '
-		{
-			line = $0
-			sub(/^[[:space:]]+/, "", line)
-			if (line == "" || line ~ /^[#;]/) next
-			if (line ~ /^\[/) {
-				section = line
-				sub(/^\[/, "", section)
-				sub(/\].*$/, "", section)
-				sub(/^[[:space:]]+/, "", section)
-				sub(/[[:space:]]+$/, "", section)
-				in_time = (section == "Time")
-				next
-			}
-			if (in_time && line ~ /^(NTP|FallbackNTP)[[:space:]]*=/) found = 1
-		}
-		END { exit(found ? 0 : 1) }
-	' "$config_file"; then
-		echo "base image has active NTP/FallbackNTP configuration: $config_file" >&2
-		return 1
-	else
-		inspect_status=$?
-		if [ "$inspect_status" -ne 1 ]; then
-			echo "could not inspect systemd timesyncd config: $config_file" >&2
-			return 1
-		fi
-	fi
-}
-
-timesyncd_main_config=/etc/systemd/timesyncd.conf
-if [ ! -e "$timesyncd_main_config" ] && [ ! -L "$timesyncd_main_config" ]; then
-	timesyncd_main_config=/usr/lib/systemd/timesyncd.conf
-fi
-check_timesyncd_config_file "$timesyncd_main_config"
-
-for config_file in \
-	/etc/systemd/timesyncd.conf.d/*.conf \
-	/run/systemd/timesyncd.conf.d/*.conf \
-	/usr/local/lib/systemd/timesyncd.conf.d/*.conf \
-	/usr/lib/systemd/timesyncd.conf.d/*.conf; do
-	[ -e "$config_file" ] || [ -L "$config_file" ] || continue
-	config_name=${config_file##*/}
-	case "$config_file" in
-		/etc/systemd/timesyncd.conf.d/*)
-			;;
-		/run/systemd/timesyncd.conf.d/*)
-			if [ -e "/etc/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/etc/systemd/timesyncd.conf.d/$config_name" ]; then
-				continue
-			fi
-			;;
-		/usr/local/lib/systemd/timesyncd.conf.d/*)
-			if [ -e "/etc/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/etc/systemd/timesyncd.conf.d/$config_name" ] ||
-				[ -e "/run/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/run/systemd/timesyncd.conf.d/$config_name" ]; then
-				continue
-			fi
-			;;
-		/usr/lib/systemd/timesyncd.conf.d/*)
-			if [ -e "/etc/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/etc/systemd/timesyncd.conf.d/$config_name" ] ||
-				[ -e "/run/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/run/systemd/timesyncd.conf.d/$config_name" ] ||
-				[ -e "/usr/local/lib/systemd/timesyncd.conf.d/$config_name" ] || [ -L "/usr/local/lib/systemd/timesyncd.conf.d/$config_name" ]; then
-				continue
-			fi
-			;;
-	esac
-	check_timesyncd_config_file "$config_file"
-done
-
-install -d -o root -g root -m 0755 /etc/systemd/timesyncd.conf.d
-install -d -o root -g root -m 0755 /etc/systemd/system/systemd-time-wait-sync.service.d
-cat > /etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf <<'TIMEOUT'
-[Service]
-TimeoutStartSec=300s
-TIMEOUT
-chown root:root /etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf
-chmod 0644 /etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf
-COMMAND
-)
-bootstrap_permissions_setup=$(cat <<'COMMAND'
-set -eu
-if getent passwd 2000 >/dev/null || getent group 2000 >/dev/null ||
-	getent passwd terrascale-workload >/dev/null || getent group terrascale-workload >/dev/null; then
-	echo 'base image already uses the reserved managed workload UID, GID, or name' >&2
-	exit 1
-fi
-systemd-sysusers /etc/sysusers.d/terrascale-orchestrator.conf
-[ "$(id -u terrascale-workload)" = 2000 ] &&
-	[ "$(id -g terrascale-workload)" = 2000 ] &&
-	[ "$(getent group terrascale-workload | cut -d: -f3)" = 2000 ] || {
-	echo 'managed workload identity was not created as UID/GID 2000:2000' >&2
-	exit 1
-}
-chown root:root /etc/terrascale-orchestrator/bootstrap /etc/terrascale-orchestrator/bootstrap/trust-roots
-chmod 0755 /etc/terrascale-orchestrator/bootstrap /etc/terrascale-orchestrator/bootstrap/trust-roots
-chown root:root /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json /etc/terrascale-orchestrator/bootstrap/trust-roots/*.pem
-chmod 0444 /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json /etc/terrascale-orchestrator/bootstrap/trust-roots/*.pem
-install -d -o root -g root -m 0755 /var/lib/terrascale-orchestrator-bootstrap
-install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-secrets
-install -d -o terrascale-orchestrator -g terrascale-orchestrator -m 0700 /var/lib/terrascale-orchestrator-controller
-chown root:root /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf
-chown root:root \
-	/etc/terrascale-orchestrator/runtime-priority.json \
-	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf \
-	/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
-chown root:root /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
-chmod 0755 /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
-[ ! -L /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server ] &&
-	[ -f /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server ] &&
-	[ "$(stat -c '%u:%g:%a:%h' /usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server)" = '0:0:755:1' ] || {
-	echo 'installed native verifier has unexpected ownership, mode, or link count' >&2
-	exit 1
-}
-chmod 0644 \
-	/etc/terrascale-orchestrator/runtime-priority.json \
-	/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf \
-	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf
-chmod 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
-SYSTEMD_OFFLINE=1 systemctl enable systemd-timesyncd.service systemd-time-wait-sync.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service
-if [ -f /etc/terrascale-orchestrator/host-enrollment-public.json ]; then
-	chown root:root /etc/terrascale-orchestrator/host-enrollment-public.json \
-		/etc/systemd/system/terrascale-orchestrator-host-setup.service \
-		/etc/systemd/system/terrascale-orchestrator-host-setup.timer
-	chmod 0444 /etc/terrascale-orchestrator/host-enrollment-public.json
-	chmod 0644 /etc/systemd/system/terrascale-orchestrator-host-setup.service \
-		/etc/systemd/system/terrascale-orchestrator-host-setup.timer
-	SYSTEMD_OFFLINE=1 systemctl enable terrascale-orchestrator-host-setup.service terrascale-orchestrator-host-setup.timer
-fi
-for time_unit in systemd-timesyncd.service systemd-time-wait-sync.service; do
-	time_unit_state=$(SYSTEMD_OFFLINE=1 systemctl is-enabled "$time_unit") || {
-		echo "required time-sync unit is not enabled: $time_unit" >&2
-		exit 1
-	}
-	[[ "$time_unit_state" == enabled ]] || {
-		echo "required time-sync unit has unexpected enablement state: $time_unit ($time_unit_state)" >&2
-		exit 1
-	}
-done
-COMMAND
-)
-managed_root_commands=()
 if [[ -n "$host_enrollment_public" ]]; then
-	managed_root_setup=$(cat <<'COMMAND'
-set -eu
-[ ! -L /srv ] && [ -d /srv ] && [ "$(stat -c '%u:%g:%a' /srv)" = '0:0:755' ] || {
-	echo 'base /srv must be a direct root:root 0755 directory' >&2
-	exit 1
-}
-[ ! -e /srv/ts-managed ] && [ ! -L /srv/ts-managed ] || {
-	echo 'base /srv/ts-managed must be absent' >&2
-	exit 1
-}
-install -d -o root -g terrascale-workload -m 0750 /srv/ts-managed
-[ "$(stat -c '%u:%g:%a' /srv/ts-managed)" = '0:2000:750' ]
-COMMAND
-	)
-	managed_root_commands=(--run-command "$managed_root_setup")
+	offline_args+=(--host-enrollment-public "$host_enrollment_public_image")
 fi
-virt-customize --no-network -a "$candidate" \
-	--run-command "$bootstrap_directory_setup" \
-	--run-command "$runtime_priority_setup" \
-	--run-command "$native_verifier_setup" \
-	--run-command "$time_sync_setup" \
-	--upload deploy/image/terrascale-orchestrator.sysusers:/etc/sysusers.d/terrascale-orchestrator.conf \
-	--upload deploy/systemd/terrascale-orchestrator-bootstrap.service:/etc/systemd/system/terrascale-orchestrator-bootstrap.service \
-	--upload deploy/systemd/terrascale-orchestrator-controller-install.service:/etc/systemd/system/terrascale-orchestrator-controller-install.service \
-	--upload deploy/systemd/terrascale-orchestrator-controller.service:/etc/systemd/system/terrascale-orchestrator-controller.service \
-	--upload deploy/systemd/terrascale-orchestrator-host.service:/etc/systemd/system/terrascale-orchestrator-host.service \
-	"${host_setup_uploads[@]}" \
-	--upload "$runtime_priority_root/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf:/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf" \
-	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf" \
-	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf" \
-	--upload "$runtime_priority_profile:/etc/terrascale-orchestrator/runtime-priority.json" \
-	--upload tests/runtime_priority/qualify.py:/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py \
-	--upload "$binary:/usr/local/bin/terrascale-orchestrator" \
-	--upload "$native_verifier_binary:$native_verifier_guest_path" \
-	--upload "$timesyncd_config_image:$timesyncd_config_guest" \
-	"${bootstrap_uploads[@]}" \
-	--run-command "$bootstrap_permissions_setup" \
-	"${managed_root_commands[@]}" \
-	--run-command 'chmod 0644 /etc/sysusers.d/terrascale-orchestrator.conf /etc/systemd/system/terrascale-orchestrator-bootstrap.service /etc/systemd/system/terrascale-orchestrator-controller-install.service /etc/systemd/system/terrascale-orchestrator-controller.service /etc/systemd/system/terrascale-orchestrator-host.service /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf && chmod 0755 /usr/local/bin/terrascale-orchestrator'
+offline_guestfs_runner=${TS_OFFLINE_GUESTFS_RUNNER:-python3}
+"$offline_guestfs_runner" deploy/image/offline-guestfs.py "${offline_args[@]}"
 qemu-img check -- "$candidate"
 installed_verifier_sha256=$(virt-cat -a "$candidate" "$native_verifier_guest_path" | python3 -c '
 import hashlib

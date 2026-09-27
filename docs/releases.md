@@ -77,8 +77,13 @@ its role config and does not run this image admission path; host startup
 admission remains open.
 
 `deploy/image/build-offline.sh` verifies the signed binary, requires a
-standalone QCOW2 base, and locally prepares a candidate with
-`virt-customize --no-network`. Supply a build-time `ts-bootstrap` executable,
+standalone QCOW2 base, and completes the candidate through filesystem-only
+guestfish operations. It audits the guest's Noble systemd 255 unit metadata,
+stages account creation with host `systemd-sysusers --root`, and stages unit
+enablement with host `systemctl --root`; the resulting files and symlinks are
+written and read back offline. A scoped container runner can be supplied as
+`TS_OFFLINE_GUESTFS_RUNNER` when guestfish is unavailable on the build host.
+Supply a build-time `ts-bootstrap` executable,
 the signed v2 anchor, its strict canonical schema-version-1 identity JSON with
 `schemaVersion`, `deploymentId`, `environment`, and `cell`, and one or more
 public bootstrap root PEMs. The exact identity bytes passed to the verifier
