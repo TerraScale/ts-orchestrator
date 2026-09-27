@@ -137,7 +137,7 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 		if slot != "seed-a" {
 			for i, name := range []string{"client-ca", "client-certificate", "client-key", "route-ca", "route-certificate", "route-key"} {
 				manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: bootstrap.SecretController, Slot: slot,
-					SecretOCID: fmt.Sprintf("ocid1.secret.oc1.sa-saopaulo-1.%s-%d", slot, i), VersionNumber: 1,
+					SecretOCID: fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.%s-%d", slot, i), VersionNumber: 1,
 					SHA256: digestWire([]byte(slot + name)), MaxBytes: 1024, TargetFile: slot + "-" + name + ".pem"})
 			}
 		}

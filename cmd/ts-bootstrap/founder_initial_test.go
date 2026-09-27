@@ -104,7 +104,7 @@ func newInitialFounderCLIFixture(t *testing.T) initialFounderCLIFixture {
 			for _, name := range []string{"client-ca", "client-certificate", "client-key", "route-ca", "route-certificate", "route-key"} {
 				manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{
 					Purpose: bootstrap.SecretController, Slot: slot,
-					SecretOCID:    "ocid1.secret.oc1.sa-saopaulo-1." + slot + "-" + name,
+					SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1." + slot + "-" + name,
 					VersionNumber: 1, SHA256: digest([]byte(slot + name)), MaxBytes: 1024,
 					TargetFile: slot + "-" + name + ".pem",
 				})

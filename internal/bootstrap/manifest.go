@@ -463,7 +463,7 @@ func (profile LaunchProfile) validate() error {
 }
 
 func (secret SecretReference) validate(manifest Manifest) error {
-	if !isOCID(secret.SecretOCID, "secret") || secret.VersionNumber <= 0 || !sha256RE.MatchString(secret.SHA256) ||
+	if !isOCID(secret.SecretOCID, "vaultsecret") || secret.VersionNumber <= 0 || !sha256RE.MatchString(secret.SHA256) ||
 		secret.MaxBytes <= 0 || secret.MaxBytes > MaxSecretBytes || !fileNameRE.MatchString(secret.TargetFile) ||
 		strings.Contains(secret.TargetFile, "..") {
 		return fmt.Errorf("%w: secret reference identity or bound", ErrManifestInvalid)

@@ -119,7 +119,7 @@ func newFounderPlanFixture(t *testing.T) founderPlanFixture {
 				name := founderTLSMaterialName(index)
 				manifest.Secrets = append(manifest.Secrets, SecretReference{
 					Purpose: SecretController, Slot: slot,
-					SecretOCID:    "ocid1.secret.oc1.sa-saopaulo-1." + slot + "-" + name,
+					SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1." + slot + "-" + name,
 					VersionNumber: 1, SHA256: digest, MaxBytes: 1024, TargetFile: slot + "-" + name + ".pem",
 				})
 			}

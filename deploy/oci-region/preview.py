@@ -53,6 +53,16 @@ def fail(message: str) -> None:
     raise ValueError(message)
 
 
+def strict_equal(left: object, right: object) -> bool:
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(strict_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list):
+        return len(left) == len(right) and all(strict_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
 def sha256(path: pathlib.Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -223,7 +233,9 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         fail("manual monthly budget must be positive USD and no more than $100")
     if budget.get("replacement_hosts_max") != 1 or decimal(budget.get("replacement_overlap_hours_max")) > 72:
         fail("replacement allowance exceeds the bounded plan")
-    if decimal(budget.get("snapshot_gb_max")) > 350 or decimal(budget.get("object_storage_gb_max")) > 10:
+    if (decimal(budget.get("snapshot_gb_max")) > 350 or
+            not Decimal(0) <= decimal(budget.get("object_storage_gb_max")) <= Decimal(10) or
+            not Decimal(0) <= decimal(budget.get("staging_object_storage_gb_max")) <= Decimal(10)):
         fail("storage allowance exceeds the bounded plan")
     existing = plan["existing_forgejo"]
     if existing["expected_volume_gb"] != 50 or existing["expected_volume_vpus_per_gb"] != 10:
@@ -267,7 +279,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         fail("manual plan must bind the exact host LiveS3Credential secret and compartment")
     if any(value is not None for value in host_secret.values()):
         require_ocid(host_secret["compartment_id"], "compartment")
-        require_ocid(host_secret["secret_id"], "secret", plan["region"])
+        require_ocid(host_secret["secret_id"], "vaultsecret", plan["region"])
     if ids["instances"]["controller-a"] is not None and plan.get("seed_a_create_identity") is None:
         fail("manual controller-a OCID requires its preserved seed-A create identity")
     retention = plan.get("bucket_retention_days")
@@ -463,7 +475,8 @@ def active(resources: list[dict], kind: str) -> list[dict]:
     return [row for row in resources if row["kind"] == kind and row.get("lifecycle-state") in ACTIVE_RESOURCE_STATES]
 
 
-def replacement_within_window(resources: list[dict], plan: dict) -> bool:
+def replacement_within_window(resources: list[dict], plan: dict,
+                              now: dt.datetime | None = None) -> bool:
     if not resources:
         return False
     try:
@@ -472,12 +485,13 @@ def replacement_within_window(resources: list[dict], plan: dict) -> bool:
         return False
     if newest.tzinfo is None:
         return False
-    age = dt.datetime.now(UTC) - newest
+    age = (now or dt.datetime.now(UTC)) - newest
     return dt.timedelta(0) <= age <= dt.timedelta(hours=plan["budget"]["replacement_overlap_hours_max"])
 
 
 def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
-                     plan_path: pathlib.Path | None = None) -> None:
+                     plan_path: pathlib.Path | None = None,
+                     now: dt.datetime | None = None) -> None:
     if inventory.get("schema_version") != 2 or inventory.get("tenancy_id") != plan["tenancy_id"]:
         fail("inventory belongs to another tenancy or schema")
     if inventory.get("plan_sha256") != sha256(plan_path or source_path(plan)):
@@ -511,7 +525,7 @@ def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
                 bucket.get("kms_key_id") != plan["resource_ids"]["key"]):
             fail("inventory bucket encryption differs from the exact control KMS key")
     captured = dt.datetime.fromisoformat(inventory["captured_at"])
-    age = dt.datetime.now(UTC) - captured
+    age = (now or dt.datetime.now(UTC)) - captured
     if captured.tzinfo is None or age.total_seconds() < -30 or age > dt.timedelta(minutes=max_age_minutes):
         fail("inventory is stale or has an invalid timestamp")
     existing = plan["existing_forgejo"]
@@ -559,7 +573,7 @@ def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
             fail("preview instance dimensions exceed the plan")
     preview_instances = [row for row in instances if row.get("compartment-id") in {control_id, workload_id}]
     if (preview_controller_count > 4 or preview_member_count > 3 or len(preview_instances) > 6 or
-            (len(preview_instances) > 5 and not replacement_within_window(preview_instances, plan))):
+            (len(preview_instances) > 5 and not replacement_within_window(preview_instances, plan, now))):
         fail("preview controller or member count exceeds the plan")
     known_volumes = {existing["boot_volume_id"], existing["data_volume_id"]}
     for kind in ("boot-volume", "volume"):
@@ -575,8 +589,8 @@ def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
     boot_volumes = active(inventory["resources"], "boot-volume")
     data_volumes = active(inventory["resources"], "volume")
     if (len(boot_volumes) > 7 or len(data_volumes) > 4 or
-            (len(boot_volumes) > 6 and not replacement_within_window(boot_volumes, plan)) or
-            (len(data_volumes) > 3 and not replacement_within_window(data_volumes, plan))):
+            (len(boot_volumes) > 6 and not replacement_within_window(boot_volumes, plan, now)) or
+            (len(data_volumes) > 3 and not replacement_within_window(data_volumes, plan, now))):
         fail("live volumes exceed the five-host plan")
     public_ips = [row for row in inventory["resources"] if row["kind"] == "public-ip"]
     if {row.get("id") for row in public_ips} != {existing["public_ip_id"]}:
@@ -592,8 +606,9 @@ def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
         fail("unpriced gateway or load balancer is present")
 
 
-def estimate(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None) -> dict:
-    verify_inventory(plan, inventory, plan_path=plan_path)
+def estimate(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None,
+             now: dt.datetime | None = None, max_age_minutes: int = 15) -> dict:
+    verify_inventory(plan, inventory, max_age_minutes=max_age_minutes, plan_path=plan_path, now=now)
     budget = plan["budget"]
     rates = {key: decimal(value) for key, value in budget["rates"].items()}
     hours = decimal(budget["month_hours"])
@@ -612,7 +627,8 @@ def estimate(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None)
     overlap_compute = overlap_hours * (rates["a1_ocpu_hour"] + 6 * rates["a1_memory_gb_hour"])
     overlap_storage = decimal(100) * overlap_hours / hours * (rates["block_gb_month"] + 10 * rates["block_vpu_gb_month"])
     live_object_gb = sum(decimal(bucket["bytes"]) for bucket in inventory["buckets"]) / decimal(1024 ** 3)
-    object_gb = max(live_object_gb, decimal(budget["baseline_object_storage_gb"])) + decimal(budget["object_storage_gb_max"])
+    object_gb = (max(live_object_gb, decimal(budget["baseline_object_storage_gb"])) +
+                 decimal(budget["object_storage_gb_max"]) + decimal(budget["staging_object_storage_gb_max"]))
     object_storage = max(Decimal(0), object_gb - FREE_OBJECT_GB) * rates["object_gb_month"]
     object_requests = decimal(budget["object_requests_max"]) / 10000 * rates["object_10000_requests"]
     object_requests += decimal(budget["baseline_object_requests_usd"])
@@ -632,6 +648,8 @@ def estimate(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None)
             "headroom": str((decimal(budget["monthly_limit"]) - total).quantize(Decimal("0.01"))),
             "assumptions": {"a1_free_ocpu_hours": 1500, "a1_free_memory_gb_hours": 9000,
                             "free_block_gb": 200, "free_object_gb": 10,
+                            "object_growth_reserve_gb": str(budget["object_storage_gb_max"]),
+                            "object_staging_reserve_gb": str(budget["staging_object_storage_gb_max"]),
                             "backup_reserve_pricing": "350 GB at block capacity rate; provisional",
                             "custom_image_storage_rate": str(rates["object_gb_month"]),
                             "custom_image_size_source": "OCI billableSizeInGBs for scoped custom images"}}
@@ -667,7 +685,8 @@ def current_object_head(namespace: str, bucket: str, name: str, region: str) -> 
 
 
 def import_inventory(plan: dict, projection_path: pathlib.Path | None = None,
-                     staged_path: pathlib.Path | None = None) -> dict:
+                     staged_path: pathlib.Path | None = None,
+                     previous_projection_path: pathlib.Path | None = None) -> dict:
     """Collect an opt-in detailed snapshot without changing the v2 recovery inventory."""
     snapshot = collect_inventory(plan)
     namespace = oci("os", "ns", "get", region=plan["region"])
@@ -695,7 +714,15 @@ def import_inventory(plan: dict, projection_path: pathlib.Path | None = None,
             receipt.get("versions"), dict) else set()
         if roles not in ({"base"}, {"base", "final"}):
             fail("current object HEAD requires base or both staged version IDs")
-        staged = import_receipt(staged_path, "versions", sha256(projection_path), roles)
+        receipt_projection_hash = sha256(projection_path)
+        if previous_projection_path is not None and roles == {"base"}:
+            old_imports = reviewed_imports(plan, snapshot, previous_projection_path)
+            full_imports = imports
+            if set(old_imports) != {"base"} or set(full_imports) != {"base", "final"} or not strict_equal(
+                    old_imports["base"], full_imports["base"]):
+                fail("full import projection base row differs from the staged base-only projection")
+            receipt_projection_hash = sha256(previous_projection_path)
+        staged = import_receipt(staged_path, "versions", receipt_projection_hash, roles)
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             futures = [(role, pool.submit(current_object_head, namespace, imports[role]["object"]["bucket"],
                                           imports[role]["object"]["key"], plan["region"])) for role in staged]
@@ -726,10 +753,12 @@ def positive_gib(value: object, label: str) -> Decimal:
     return Decimal(value)
 
 
-def verify_import_inventory(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None) -> None:
+def verify_import_inventory(plan: dict, inventory: dict, plan_path: pathlib.Path | None = None,
+                            now: dt.datetime | None = None, max_age_minutes: int = 15) -> None:
     if inventory.get("schema_version") != 3:
         fail("import inventory requires schema v3")
-    verify_inventory(plan, {**inventory, "schema_version": 2}, plan_path=plan_path)
+    verify_inventory(plan, {**inventory, "schema_version": 2}, max_age_minutes=max_age_minutes,
+                     plan_path=plan_path, now=now)
     if not isinstance(inventory.get("object_namespace"), str) or not inventory["object_namespace"]:
         fail("import inventory lacks object namespace")
     if not isinstance(inventory.get("regions"), list):
@@ -785,7 +814,7 @@ def verify_import_inventory(plan: dict, inventory: dict, plan_path: pathlib.Path
             raise ValueError("current object HEAD timestamp is invalid") from error
         if (modified.tzinfo is None or head_at.tzinfo is None or
                 head_at < captured - dt.timedelta(seconds=30) or
-                head_at > dt.datetime.now(UTC) + dt.timedelta(seconds=30)):
+                head_at > (now or dt.datetime.now(UTC)) + dt.timedelta(seconds=30)):
             fail("current object HEAD timestamp is stale or invalid")
         matches = [row for bucket in inventory["buckets"] if
                    (bucket["region"], bucket["name"]) == identity[:2] and
@@ -799,8 +828,9 @@ def reviewed_imports(plan: dict, inventory: dict, projection_path: pathlib.Path)
     if not isinstance(projection, dict):
         fail("import projection must be an object")
     imports = projection.get("imports")
-    if projection.get("schema_version") != 1 or not isinstance(imports, list) or len(imports) != 2:
-        fail("import projection requires two schema v1 imports")
+    if (projection.get("schema_version") != 1 or not isinstance(imports, list) or
+            len(imports) not in (1, 2)):
+        fail("import projection requires a base-only or base-and-final schema v1 import list")
     by_role = {}
     object_keys = set()
     image_names = set()
@@ -844,6 +874,8 @@ def reviewed_imports(plan: dict, inventory: dict, projection_path: pathlib.Path)
                 local_file.stat().st_size != size or sha256(local_file) != digest):
             fail(f"{role} local file bytes or SHA-256 changed")
         by_role[role] = entry
+    if set(by_role) not in ({"base"}, {"base", "final"}):
+        fail("import projection requires the base role and optional final role")
     return by_role
 
 
@@ -864,7 +896,8 @@ def import_receipt(path: pathlib.Path, field: str, projection_hash: str,
 
 
 def verify_previous_import_admission(path: pathlib.Path, phase: str, projection_hash: str,
-                                     plan_path: pathlib.Path, staged_hash: str | None = None) -> dict:
+                                     plan_path: pathlib.Path, staged_hash: str | None = None,
+                                     imported_hash: str | None = None) -> dict:
     previous = read_json(path, MAX_ADMISSION_BYTES, "previous import admission")
     if not isinstance(previous, dict):
         fail("previous import admission must be an object")
@@ -872,6 +905,7 @@ def verify_previous_import_admission(path: pathlib.Path, phase: str, projection_
             previous.get("plan_sha256") != sha256(plan_path) or
             previous.get("projection_sha256") != projection_hash or
             (staged_hash is not None and previous.get("staged_versions_sha256") != staged_hash) or
+            (imported_hash is not None and previous.get("imported_images_sha256") != imported_hash) or
             not isinstance(previous.get("estimate"), dict)):
         fail("previous import admission does not bind this projection and stage")
     try:
@@ -886,20 +920,89 @@ def verify_previous_import_admission(path: pathlib.Path, phase: str, projection_
     return previous
 
 
+def carried_base_lineage(value: object, plan_hash: str) -> dict:
+    fields = {"schema_version", "plan_sha256", "projection_sha256", "admission_sha256",
+              "inventory_sha256", "staged_versions_sha256", "imported_images_sha256",
+              "base_version_id", "base_image_id", "estimate"}
+    hashes = ("plan_sha256", "projection_sha256", "admission_sha256", "inventory_sha256",
+              "staged_versions_sha256", "imported_images_sha256")
+    if (not isinstance(value, dict) or set(value) != fields or
+            type(value.get("schema_version")) is not int or value.get("schema_version") != 1 or
+            value.get("plan_sha256") != plan_hash or
+            any(not isinstance(value.get(field), str) or not re.fullmatch(r"[0-9a-f]{64}", value[field])
+                for field in hashes) or
+            not isinstance(value.get("base_version_id"), str) or not value["base_version_id"] or
+            not isinstance(value.get("base_image_id"), str) or
+            not value["base_image_id"].startswith("ocid1.image.") or
+            not isinstance(value.get("estimate"), dict)):
+        fail("full import projection lacks valid base-only admission lineage")
+    return value
+
+
+def require_matching_base_projection(plan: dict, inventory: dict, full_projection_path: pathlib.Path,
+                                    base_projection_path: pathlib.Path) -> None:
+    full_imports = reviewed_imports(plan, inventory, full_projection_path)
+    base_imports = reviewed_imports(plan, inventory, base_projection_path)
+    if (set(base_imports) != {"base"} or set(full_imports) != {"base", "final"} or
+            not strict_equal(base_imports["base"], full_imports["base"])):
+        fail("full import projection base row differs from the admitted base-only input")
+
+
+def establish_base_lineage(plan: dict, full_projection_path: pathlib.Path,
+                           base_projection_path: pathlib.Path, base_inventory_path: pathlib.Path,
+                           base_admission_path: pathlib.Path, base_staged_path: pathlib.Path,
+                           base_images_path: pathlib.Path, plan_path: pathlib.Path) -> dict:
+    base_inventory = read_json(base_inventory_path, MAX_INVENTORY_BYTES, "base-only import inventory")
+    require_matching_base_projection(plan, base_inventory, full_projection_path, base_projection_path)
+
+    base_projection_hash = sha256(base_projection_path)
+    staged_hash = sha256(base_staged_path)
+    images_hash = sha256(base_images_path)
+    previous = verify_previous_import_admission(base_admission_path, "pre-import", base_projection_hash,
+                                                plan_path, staged_hash, images_hash)
+    if previous.get("inventory_sha256") != sha256(base_inventory_path):
+        fail("base-only admission does not bind the supplied inventory")
+    admitted = dt.datetime.fromisoformat(previous["admitted_at"])
+    if admitted.utcoffset() != dt.timedelta(0):
+        fail("base-only admission timestamp is not UTC")
+    expected = import_estimate(plan, base_inventory, base_projection_path, "pre-import",
+                               base_staged_path, base_images_path, plan_path,
+                               now=admitted, max_age_minutes=10 * 365 * 24 * 60)
+    if not strict_equal(previous["estimate"], expected):
+        fail("base-only admission cost differs from its exact inventory and receipts")
+    versions = import_receipt(base_staged_path, "versions", base_projection_hash, {"base"})
+    images = import_receipt(base_images_path, "images", base_projection_hash, {"base"})
+    return carried_base_lineage({
+        "schema_version": 1,
+        "plan_sha256": sha256(plan_path),
+        "projection_sha256": base_projection_hash,
+        "admission_sha256": sha256(base_admission_path),
+        "inventory_sha256": sha256(base_inventory_path),
+        "staged_versions_sha256": staged_hash,
+        "imported_images_sha256": images_hash,
+        "base_version_id": versions["base"],
+        "base_image_id": images["base"],
+        "estimate": expected,
+    }, sha256(plan_path))
+
+
 def import_estimate(plan: dict, inventory: dict, projection_path: pathlib.Path, phase: str,
                     staged_path: pathlib.Path | None = None,
                     imported_path: pathlib.Path | None = None,
-                    plan_path: pathlib.Path | None = None) -> dict:
+                    plan_path: pathlib.Path | None = None,
+                    now: dt.datetime | None = None,
+                    max_age_minutes: int = 15,
+                    base_lineage: dict | None = None) -> dict:
     if phase not in {"pre-stage", "pre-import", "post-import"}:
         fail("unknown import admission phase")
-    verify_import_inventory(plan, inventory, plan_path)
+    verify_import_inventory(plan, inventory, plan_path, now, max_age_minutes)
     imports = reviewed_imports(plan, inventory, projection_path)
     projection_hash = sha256(projection_path)
     staged = None
     if phase != "pre-stage" and staged_path is None:
         fail("staged object version receipt is required")
     if staged_path is not None:
-        expected_roles = {"base"} if phase == "pre-stage" else {"base", "final"}
+        expected_roles = {"base"} if phase == "pre-stage" else set(imports)
         staged = import_receipt(staged_path, "versions", projection_hash, expected_roles)
     imported = None
     if phase == "post-import" and imported_path is None:
@@ -909,6 +1012,18 @@ def import_estimate(plan: dict, inventory: dict, projection_path: pathlib.Path, 
         if phase == "pre-stage":
             fail("pre-stage cannot bind imported images")
         imported = import_receipt(imported_path, "images", projection_hash, expected_roles)
+
+    if set(imports) == {"base", "final"} and base_lineage is not None:
+        base_lineage = carried_base_lineage(base_lineage, sha256(plan_path or source_path(plan)))
+        if ((staged is not None and "base" in staged and
+             staged["base"] != base_lineage["base_version_id"]) or
+                (imported is not None and "base" in imported and
+                 imported["base"] != base_lineage["base_image_id"])):
+            fail("full import receipt changed the admitted base object version or image OCID")
+        if staged is None:
+            staged = {"base": base_lineage["base_version_id"]}
+        if imported is None:
+            imported = {"base": base_lineage["base_image_id"]}
 
     projected_bytes = 0
     for role, entry in imports.items():
@@ -940,13 +1055,15 @@ def import_estimate(plan: dict, inventory: dict, projection_path: pathlib.Path, 
                     entry["image"]["max_billable_size_in_gbs"], f"{role} reviewed maximum"):
                 fail(f"{role} imported image exceeds reviewed billed GiB maximum")
 
-    baseline = estimate(plan, {**inventory, "schema_version": 2}, plan_path)
+    baseline = estimate(plan, {**inventory, "schema_version": 2}, plan_path, now, max_age_minutes)
     rates = plan["budget"]["rates"]
     rate = decimal(rates["object_gb_month"])
     budget = plan["budget"]
     live_bytes = sum(bucket["bytes"] for bucket in inventory["buckets"])
-    object_gb = max((decimal(live_bytes + projected_bytes) / Decimal(1_000_000_000)),
-                    decimal(budget["baseline_object_storage_gb"])) + decimal(budget["object_storage_gb_max"])
+    object_gb = (max((decimal(live_bytes + projected_bytes) / Decimal(1_000_000_000)),
+                     decimal(budget["baseline_object_storage_gb"])) +
+                 decimal(budget["object_storage_gb_max"]) +
+                 decimal(budget["staging_object_storage_gb_max"]))
     object_cost = max(Decimal(0), object_gb - FREE_OBJECT_GB) * rate
     imported_ids = set(imported.values()) if imported else set()
     existing_gib = sum((positive_gib(row["billable_size_in_gbs"], "scoped image size")
@@ -968,6 +1085,8 @@ def import_estimate(plan: dict, inventory: dict, projection_path: pathlib.Path, 
             "object_projected_bytes": projected_bytes, "existing_image_billed_gib": str(existing_gib),
             "import_image_billed_gib": str(expected_gib),
             "assumptions": {"object_free_gb": 10, "custom_image_free_gib": 0,
+                            "object_growth_reserve_gb": str(budget["object_storage_gb_max"]),
+                            "object_staging_reserve_gb": str(budget["staging_object_storage_gb_max"]),
                             "custom_image_rate": str(rate), "object_gb_bytes": 1_000_000_000,
                             "custom_image_size_source": "reviewed maxima plus OCI billableSizeInGBs for completed roles"}}
 
@@ -1366,7 +1485,7 @@ def check_live_network(plan: dict, ids: dict) -> None:
                           ids["network_security_group"], "network security group")
     if nsg.get("compartment-id") != ids["network_compartment"] or nsg.get("vcn-id") != ids["vcn"]:
         fail("live network security group is attached to an unexpected compartment or VCN")
-    rules = oci("network", "nsg", "rules", "list", "--network-security-group-id",
+    rules = oci("network", "nsg", "rules", "list", "--nsg-id",
                 ids["network_security_group"], region=region)
     compare_security_rules(rules, expected["nsg_rules"], "controller network security group")
     seed_nsg_id = ids.get("seed_ssh_network_security_group")
@@ -1375,7 +1494,7 @@ def check_live_network(plan: dict, ids: dict) -> None:
                                    seed_nsg_id, "seed-A SSH network security group")
         if seed_nsg.get("compartment-id") != ids["network_compartment"] or seed_nsg.get("vcn-id") != ids["vcn"]:
             fail("live seed-A SSH network security group is attached to an unexpected compartment or VCN")
-        seed_rules = oci("network", "nsg", "rules", "list", "--network-security-group-id",
+        seed_rules = oci("network", "nsg", "rules", "list", "--nsg-id",
                          seed_nsg_id, region=region)
         compare_security_rules(seed_rules, expected["seed_ssh_nsg_rules"], "seed-A SSH network security group")
     elif expected["seed_ssh_nsg_rules"]:
@@ -1647,6 +1766,8 @@ def main() -> None:
     parser.add_argument("--staged-versions", type=pathlib.Path)
     parser.add_argument("--imported-images", type=pathlib.Path)
     parser.add_argument("--previous-admission", type=pathlib.Path)
+    parser.add_argument("--previous-projection", type=pathlib.Path)
+    parser.add_argument("--previous-inventory", type=pathlib.Path)
     parser.add_argument("--previous-imported-images", type=pathlib.Path)
     parser.add_argument("--previous-staged-versions", type=pathlib.Path)
     args = parser.parse_args()
@@ -1675,7 +1796,7 @@ def main() -> None:
         print(f"captured {len(snapshot['resources'])} OCI resources and {len(snapshot['buckets'])} buckets")
         return
     if args.command == "import-inventory":
-        snapshot = import_inventory(plan, args.projection, args.staged_versions)
+        snapshot = import_inventory(plan, args.projection, args.staged_versions, args.previous_projection)
         verify_import_inventory(plan, snapshot, args.plan.resolve())
         write_json(args.out or args.inventory, snapshot)
         print(f"captured {len(snapshot['images'])} scoped images and {len(snapshot['buckets'])} detailed buckets")
@@ -1693,6 +1814,29 @@ def main() -> None:
         phase = args.phase if args.command == "import-admit" else "post-import"
         if phase is None:
             fail("import-admit requires --phase")
+        inventory = read_json(args.inventory, MAX_INVENTORY_BYTES, "manual region import inventory")
+        imports = reviewed_imports(plan, inventory, args.projection)
+        base_lineage = None
+        if set(imports) == {"base", "final"}:
+            if args.previous_projection:
+                if (phase != "pre-stage" or args.staged_versions or not args.previous_admission or
+                        not args.previous_inventory or not args.previous_staged_versions or
+                        not args.previous_imported_images):
+                    fail("base-only lineage requires the first full pre-stage admission and all prior evidence")
+                base_lineage = establish_base_lineage(
+                    plan, args.projection, args.previous_projection, args.previous_inventory,
+                    args.previous_admission, args.previous_staged_versions, args.previous_imported_images,
+                    args.plan.resolve())
+            elif args.previous_admission:
+                if phase == "pre-stage" and not args.staged_versions:
+                    fail("first full pre-stage admission requires the exact previous base-only projection")
+                previous_value = read_json(args.previous_admission, MAX_ADMISSION_BYTES,
+                                           "previous import admission")
+                base_lineage = carried_base_lineage(previous_value.get("base_lineage"), sha256(args.plan))
+            else:
+                fail("full import projection requires a verified base-only admission lineage")
+        elif args.previous_projection or args.previous_inventory:
+            fail("base-only projection cannot accept a prior base projection lineage")
         if phase == "pre-stage" and args.staged_versions:
             preceding = "pre-stage"
         elif phase == "pre-import" and not args.imported_images:
@@ -1708,8 +1852,8 @@ def main() -> None:
                 args.previous_admission, preceding, sha256(args.projection), args.plan.resolve(),
                 sha256(args.previous_staged_versions) if args.previous_staged_versions else
                 (sha256(args.staged_versions) if preceding == "pre-import" else None))
-            if phase == "pre-stage" and previous.get("staged_versions_sha256") is not None:
-                fail("base upload readback requires the initial two-object projection")
+            if set(imports) == {"base", "final"}:
+                base_lineage = carried_base_lineage(previous.get("base_lineage"), sha256(args.plan))
             if phase == "pre-import" and not args.imported_images:
                 if previous.get("staged_versions_sha256") is not None:
                     if not args.previous_staged_versions:
@@ -1723,17 +1867,22 @@ def main() -> None:
             if phase == "pre-import" and args.imported_images and previous.get("imported_images_sha256") is not None:
                 fail("base readback requires the preceding two-maximum pre-import admission")
             if phase == "post-import":
-                if not args.previous_imported_images or not previous.get("imported_images_sha256"):
-                    fail("final reconciliation requires the preceding base readback admission and receipt")
-                if sha256(args.previous_imported_images) != previous["imported_images_sha256"]:
-                    fail("preceding base image receipt changed")
-                base = import_receipt(args.previous_imported_images, "images", sha256(args.projection), {"base"})
-                final = import_receipt(args.imported_images, "images", sha256(args.projection), {"base", "final"})
-                if base["base"] != final["base"]:
-                    fail("final image receipt changed the admitted base image OCID")
-        inventory = read_json(args.inventory, MAX_INVENTORY_BYTES, "manual region import inventory")
+                if set(imports) == {"base"}:
+                    if not args.previous_imported_images or not previous.get("imported_images_sha256"):
+                        fail("base reconciliation requires the preceding image readback admission and receipt")
+                    if sha256(args.previous_imported_images) != previous["imported_images_sha256"]:
+                        fail("preceding base image receipt changed")
+                    base = import_receipt(args.previous_imported_images, "images", sha256(args.projection), {"base"})
+                    final = import_receipt(args.imported_images, "images", sha256(args.projection), {"base"})
+                    if base["base"] != final["base"]:
+                        fail("final image receipt changed the admitted base image OCID")
+                elif base_lineage is None:
+                    fail("final reconciliation lacks the carried base image readback")
+        if set(imports) == {"base", "final"} and base_lineage is None:
+            fail("full import admission lacks the carried base-only lineage")
         result = import_estimate(plan, inventory, args.projection, phase,
-                                 args.staged_versions, args.imported_images, args.plan.resolve())
+                                 args.staged_versions, args.imported_images, args.plan.resolve(),
+                                 base_lineage=base_lineage)
         now = dt.datetime.now(UTC)
         admission = {"schema_version": 3, "phase": phase, "admitted_at": now.isoformat(),
                      "expires_at": (now + dt.timedelta(minutes=15)).isoformat(),
@@ -1742,6 +1891,7 @@ def main() -> None:
                      "staged_versions_sha256": sha256(args.staged_versions) if args.staged_versions else None,
                      "imported_images_sha256": sha256(args.imported_images) if args.imported_images else None,
                      "previous_admission_sha256": sha256(args.previous_admission) if args.previous_admission else None,
+                     "base_lineage": base_lineage,
                      "estimate": result}
         write_json(args.out, admission)
         print(json.dumps(admission, indent=2, sort_keys=True))

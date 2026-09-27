@@ -287,7 +287,7 @@ func testManagedPlacementIntentForRegions(regions ...oci.Region) placement.Inten
 			ClientManagedMaterialManifestSHA256: strings.Repeat("4", 64),
 			LiveS3ConfigSHA256:                  strings.Repeat("5", 64),
 			LiveS3TargetSHA256:                  strings.Repeat("6", 64),
-			LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
+			LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
 			ReplicationListenAddress:            fmt.Sprintf("10.0.0.%d:%d", 11+index, 7000+index),
 			ReplicationPeerMemberID:             peer.MemberID,
 			ReplicationPeerAddress:              fmt.Sprintf("10.0.0.%d:%d", 11+(index^1), 7000+(index^1)),

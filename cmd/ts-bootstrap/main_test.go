@@ -321,7 +321,7 @@ func (fixture *manifestFixture) writeCandidate(t *testing.T, manifest bootstrap.
 			purpose, slot = bootstrap.SecretHostIssuer, ""
 		}
 		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: purpose, Slot: slot,
-			SecretOCID:    "ocid1.secret.oc1.sa-saopaulo-1." + strings.ReplaceAll(name, ".", "-"),
+			SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1." + strings.ReplaceAll(name, ".", "-"),
 			VersionNumber: 1, SHA256: digest([]byte(name)), MaxBytes: int64(len(name)), TargetFile: name})
 	}
 	encoded, err := trust.EncodePayload(manifest)
@@ -1399,7 +1399,7 @@ func TestSignManifestRejectsFinalEnvelopeOverSizeLimit(t *testing.T) {
 	}
 	for index := range 128 {
 		target := "file-" + strings.Repeat("x", 120) + fmt.Sprintf("%03d", index)
-		ocidPrefix := "ocid1.secret.oc1.sa-saopaulo-1."
+		ocidPrefix := "ocid1.vaultsecret.oc1.sa-saopaulo-1."
 		suffix := fmt.Sprintf("%03d", index)
 		secretOCID := ocidPrefix + strings.Repeat("a", 255-len(ocidPrefix)-len(suffix)) + suffix
 		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{

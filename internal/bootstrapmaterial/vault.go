@@ -217,8 +217,8 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 	for index, entry := range state.Entries {
 		file, ok := findFile(record, entry.FileName)
 		if !ok || file.Purpose == "owner-only" || entry.Name != secretName(record.Config, file) ||
-			entry.Verified && !regionalResourceOCID(entry.SecretOCID, "secret", record.Config.Region) ||
-			entry.SecretOCID != "" && !regionalResourceOCID(entry.SecretOCID, "secret", record.Config.Region) ||
+			entry.Verified && !regionalResourceOCID(entry.SecretOCID, "vaultsecret", record.Config.Region) ||
+			entry.SecretOCID != "" && !regionalResourceOCID(entry.SecretOCID, "vaultsecret", record.Config.Region) ||
 			entry.Verified && entry.SentAt.IsZero() || entry.SecretOCID != "" && !entry.Verified ||
 			!entry.SentAt.IsZero() && entry.SentAt.Before(record.IssuedAt) {
 			return journal{}, ErrProvision
@@ -293,7 +293,7 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 		OpcRetryToken: new(entry.RetryToken),
 	})
 	encoded = ""
-	if err != nil || response.Id == nil || !regionalResourceOCID(*response.Id, "secret", region) {
+	if err != nil || response.Id == nil || !regionalResourceOCID(*response.Id, "vaultsecret", region) {
 		return ErrProvision
 	}
 	if err := verifyBundle(ctx, target, *response.Id, entry.Name, file, management, bundles); err != nil {
@@ -317,7 +317,7 @@ func lookup(ctx context.Context, target VaultTarget, region, name string, client
 				item.LifecycleState != ocivault.SecretSummaryLifecycleStateCreating {
 				return "", false, ErrProvision
 			}
-			if !regionalResourceOCID(*item.Id, "secret", region) || found != "" {
+			if !regionalResourceOCID(*item.Id, "vaultsecret", region) || found != "" {
 				return "", false, ErrProvision
 			}
 			found = *item.Id

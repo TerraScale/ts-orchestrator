@@ -309,6 +309,18 @@ func TestManifestValidationRejectsUnboundProfilesAndSecretOutputs(t *testing.T) 
 	}
 
 	manifest = cloneManifest(authority.manifest)
+	manifest.Secrets[0].SecretOCID = "ocid1.secret.oc1.sa-saopaulo-1.synthetic"
+	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("manifest with wrong secret OCID kind error = %v", err)
+	}
+
+	manifest = cloneManifest(authority.manifest)
+	manifest.Secrets[0].VersionNumber = 0
+	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("manifest with no exact secret version error = %v", err)
+	}
+
+	manifest = cloneManifest(authority.manifest)
 	manifest.ControllerFiles[1].Bytes = []byte(`{"changed":true}`)
 	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
 		t.Fatalf("manifest with changed signed sidecar bytes error = %v", err)
@@ -662,13 +674,13 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 			HeadBucket: "bootstrap-head", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap",
 		},
 		Secrets: []SecretReference{
-			{Purpose: SecretRegionalShared, SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 2,
+			{Purpose: SecretRegionalShared, SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regional", VersionNumber: 2,
 				SHA256: digestBytes(regional), MaxBytes: 128, TargetFile: "regional.key"},
-			{Purpose: SecretSeedFounder, Slot: "seed-a", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.founder", VersionNumber: 3,
+			{Purpose: SecretSeedFounder, Slot: "seed-a", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.founder", VersionNumber: 3,
 				SHA256: digestBytes([]byte("founder")), MaxBytes: 128, TargetFile: "founder.key"},
-			{Purpose: SecretController, Slot: "seed-a", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.seed", VersionNumber: 1,
+			{Purpose: SecretController, Slot: "seed-a", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.seed", VersionNumber: 1,
 				SHA256: digestBytes([]byte("seed")), MaxBytes: 128, TargetFile: "seed.key"},
-			{Purpose: SecretController, Slot: "peer-b", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.peer", VersionNumber: 1,
+			{Purpose: SecretController, Slot: "peer-b", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.peer", VersionNumber: 1,
 				SHA256: digestBytes([]byte("peer")), MaxBytes: 128, TargetFile: "peer.key"},
 		},
 	}

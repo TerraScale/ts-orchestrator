@@ -15,32 +15,234 @@ manifest that records the source revision and tree, Go version, module-file
 digests, successful workflow/job run identity, and each artifact's size and
 SHA-256.
 
-The separate `release.yml` workflow is manually dispatched. Its release job
-runs only on `main` when either `sign_release` or `publish` is true; dispatches
-from other refs skip the job. Both inputs default to `false`, so the job also
-skips when both are false. For an enabled main job, `canary` selects only the
-`canary-release` environment and `production` selects only
-`production-release`. An unsupported environment value selects
-`invalid-release-environment`; the in-job input check rejects it before signing
-inputs are materialized. Configure both Forgejo environments to allow
-deployments only from protected `main` and require their own reviewers. Each
-environment must define its own `TS_RELEASE_ROOT_PUBLIC_KEY`,
-`TS_RELEASE_DELEGATION`, and `TS_RELEASE_SIGNING_KEY` values; the canary values
-must hold a canary-scoped signer capability and must never fall back to or
-overwrite production values. The same environment boundary selects
-`OCI_RELEASE_NAMESPACE` and `OCI_RELEASE_BUCKET` when publishing, so canary
-objects use the canary environment's target. The root private key stays
-offline. The optional `publish` input uses the release runner's OCI instance
-principal and conditionally creates immutable, source-revision-keyed objects.
-It publishes only signed Linux binaries and their signed receipts. No release
-was signed or published for this change, and the workflow was not run. Configure
-environment protections and the release runner's least-privilege OCI policy
-before any future manual use. The dispatch requires the candidate CI run ID and
-Forgejo run number. It downloads that run's retained binaries and manifest,
-checks the run's source, workflow, job, and success status with `fj`, and checks
-the manifest's source tree and module digests against the checked-out source.
-The signer also requires the exact manifest-digest marker in the CI job log
-before it signs.
+## External canary binary signing
+
+`ci.yml` is the producer for release inputs; CI retains the exact static
+amd64 and arm64 binaries and `qualification.json` on the prerelease tag
+`ci-${SOURCE_SHA}-run-${RUN_ID}`. The manifest binds each artifact's name,
+architecture, byte size, and SHA-256 to the full source revision and tree,
+Go version, module-file digests, CI run ID and number, workflow, job, and
+successful conclusion. The manifest is uploaded after the binaries and is the
+CI release's completion marker. CI does not sign those artifacts.
+
+The deployed Forgejo 16.0.4 backend has no protected-environment reviewer gate
+or environment-scoped Actions secrets; the reviewed 16.0.5 source has the same
+limitation. The former `release.yml` signing and publishing job is retired.
+Canary signing therefore runs in a locally authorized operator process, with
+an independent reviewer using the existing review/evidence channel. A public
+JSON `reviewer` field is an audit assertion only; it does not authenticate a
+review or provide a Forgejo approval. Retain the actual review decision and
+operator log separately. Do not claim that Forgejo approved a release.
+
+Before signing, confirm through `fj` that the live `refs/heads/main` still
+matches the exact qualified source commit and tree. Independently record the
+source and tree, CI run ID and number, workflow, successful job name and exact
+attempt, binary size and digest, qualification-manifest digest, delegation
+digest and scope, and trust-key digests. The expected root public-key PEM SHA-256 is
+`bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc`; the
+expected delegated canary leaf public-key PEM SHA-256 is
+`ddd81158ef6f5ad7e42e3a87ec16665ed42d480a48ab69441cc12df0d4b629f3`. An
+authorized root-key owner locally issues a new current delegation for that
+exact source and the arm64 canary binary capability. Do not reuse a delegation
+bound to an older source revision. Keep both root and delegated private keys
+in owner-only local files; do not put private-key bytes or file paths in
+release assets or shared review/operator records.
+
+Build the local signing helper from the same clean source checkout with Go
+1.27.1, low priority, and embedded VCS metadata. Check `go version -m` for the
+exact `vcs.revision` and `vcs.modified=false` before using it. This helper is
+not the deployed orchestrator binary; deployments use the CI-retained bytes.
+For the signer's live Forgejo check, prepare the pinned `fj` extension locally
+with `nice -n 19 bash scripts/ci/prepare-fj-admission.sh
+/ABSOLUTE/PRIVATE/fj-admission` and use that directory in `PATH`; stock `fj`
+does not provide the `actions run-detail` and `actions logs` commands required
+by `ts-release`. Keep root-key and delegated-key operations with their
+respective local key owners; pass only the public root PEM, leaf PEM, and
+delegation between those steps. Do not transfer either private key.
+
+Choose `SOURCE_SHA`, `RUN_ID`, and `RUN_NUMBER` from the successful `ci.yml`
+run under review, then download its two retained inputs with `fj release asset
+download`. Clone the live repository with `fj` and confirm the checked-out
+`main` commit and tree equal the qualification manifest before signing. Build
+the local helper from that same clean checkout and require the embedded
+revision and clean-tree metadata to match:
+
+```bash
+set -euo pipefail
+umask 077
+# Export these from the selected successful CI run and use a new private work directory.
+: "${SOURCE_SHA:?set the selected full CI source SHA}"
+: "${RUN_ID:?set the selected Forgejo run ID}"
+: "${RUN_NUMBER:?set the selected Forgejo run number}"
+: "${ISSUED_AT_UTC:?set a canonical UTC delegation start time}"
+: "${EXPIRES_AT_UTC:?set a canonical UTC delegation expiry}"
+[[ $SOURCE_SHA =~ ^[0-9a-f]{40}$ && $RUN_ID =~ ^[1-9][0-9]*$ &&
+   $RUN_NUMBER =~ ^[1-9][0-9]*$ ]]
+WORK=$(mktemp -d)
+export PATH="/ABSOLUTE/PRIVATE/fj-admission:$PATH"
+TAG="ci-${SOURCE_SHA}-run-${RUN_ID}"
+fj release asset download "$TAG" qualification.json \
+  -r TerraScale/ts-orchestrator -o "$WORK/qualification.json"
+fj release asset download "$TAG" terrascale-orchestrator-linux-arm64 \
+  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-orchestrator-linux-arm64"
+test "$(jq -r .source_revision "$WORK/qualification.json")" = "$SOURCE_SHA"
+test "$(jq -r .verification.run_id "$WORK/qualification.json")" = "$RUN_ID"
+test "$(jq -r .verification.run_number "$WORK/qualification.json")" = "$RUN_NUMBER"
+
+fj repo clone -H https://git.terrascale.tech \
+  TerraScale/ts-orchestrator "$WORK/source-main"
+test "$(git -C "$WORK/source-main" branch --show-current)" = main
+test "$(git -C "$WORK/source-main" rev-parse HEAD)" = "$SOURCE_SHA"
+SOURCE_TREE=$(jq -r .source_tree "$WORK/qualification.json")
+test "$(git -C "$WORK/source-main" rev-parse 'HEAD^{tree}')" = "$SOURCE_TREE"
+cd "$WORK/source-main"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+test "$(go env GOVERSION)" = go1.27.1
+nice -n 19 go build -trimpath -buildvcs=true \
+  -o "$WORK/ts-release" ./cmd/ts-release
+build_info=$(go version -m "$WORK/ts-release")
+grep -Fq "vcs.revision=$SOURCE_SHA" <<< "$build_info"
+grep -Fq 'vcs.modified=false' <<< "$build_info"
+
+# The authorized root-key owner supplies the pinned public PEMs locally.
+cp -- /LOCAL/PINNED/canary-release-root.pub "$WORK/canary-release-root.pub"
+test "$(sha256sum "$WORK/canary-release-root.pub" | awk '{print $1}')" = \
+  bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc
+test "$(sha256sum /LOCAL/PINNED/canary-release-leaf.pub | awk '{print $1}')" = \
+  ddd81158ef6f5ad7e42e3a87ec16665ed42d480a48ab69441cc12df0d4b629f3
+"$WORK/ts-release" sign-delegation \
+  --subject-public-key /LOCAL/PINNED/canary-release-leaf.pub \
+  --root-key "$WORK/canary-release-root.pub" \
+  --signing-key /ABSOLUTE/OWNER-ONLY/offline-root-key.pem \
+  --source-revision "$SOURCE_SHA" --arch arm64 --environment canary \
+  --issued-at "$ISSUED_AT_UTC" --expires-at "$EXPIRES_AT_UTC" \
+  --out "$WORK/canary-release-delegation.json"
+fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator \
+  > "$WORK/ci-run-detail.json"
+
+"$WORK/ts-release" binary-candidate \
+  --binary "$WORK/terrascale-orchestrator-linux-arm64" \
+  --source-revision "$SOURCE_SHA" \
+  --qualification "$WORK/qualification.json" \
+  --out "$WORK/canary-linux-arm64.candidate.json"
+"$WORK/ts-release" sign-binary \
+  --candidate "$WORK/canary-linux-arm64.candidate.json" \
+  --binary "$WORK/terrascale-orchestrator-linux-arm64" \
+  --qualification "$WORK/qualification.json" \
+  --delegation "$WORK/canary-release-delegation.json" \
+  --root-key "$WORK/canary-release-root.pub" \
+  --signing-key /ABSOLUTE/OWNER-ONLY/canary-release-key.pem \
+  --environment canary \
+  --out "$WORK/canary-linux-arm64.receipt.json"
+"$WORK/ts-release" verify-binary \
+  --receipt "$WORK/canary-linux-arm64.receipt.json" \
+  --delegation "$WORK/canary-release-delegation.json" \
+  --root-key "$WORK/canary-release-root.pub" \
+  --binary "$WORK/terrascale-orchestrator-linux-arm64" \
+  --qualification "$WORK/qualification.json" \
+  --environment canary
+```
+
+`ISSUED_AT_UTC` and `EXPIRES_AT_UTC` must be current canonical RFC3339 UTC
+instants ending in `Z`; a delegation can last no more than 365 days. The root
+key owner runs `sign-delegation` locally and provides only the resulting public
+delegation to the delegated-key owner, who runs `sign-binary`. Record the
+successful job attempt from the `fj actions run-detail` output as part of the
+independent review evidence.
+
+`sign-binary` checks that the candidate, retained binary, and exact
+qualification bytes agree, then uses the pinned `fj` extension to confirm the
+CI run's ID, number, full source revision, workflow, successful job, and one
+exact manifest-digest marker in its log. It also requires a current
+root-signed delegation with the matching canary scope. `verify-binary` checks
+the current delegation and receipt and re-inspects the exact binary bytes and
+build metadata. These checks do not replace the independent review of the live
+main ref and pinned key identities.
+
+Publish only the three public inputs consumed by the image workflow to the
+same CI tag: `canary-release-root.pub`, `canary-release-delegation.json`, and
+`canary-linux-arm64.receipt.json`. Use `fj release asset create`, upload the
+root and delegation first, read each asset back with `fj release asset
+download` and compare its bytes, then upload the signed binary receipt last
+and read it back as well:
+
+```sh
+set -euo pipefail
+umask 077
+mkdir -m 0700 "$WORK/readback"
+fj release asset create "$TAG" "$WORK/canary-release-root.pub" \
+  canary-release-root.pub -r TerraScale/ts-orchestrator
+fj release asset download "$TAG" canary-release-root.pub \
+  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-release-root.pub"
+cmp -- "$WORK/canary-release-root.pub" "$WORK/readback/canary-release-root.pub"
+fj release asset create "$TAG" "$WORK/canary-release-delegation.json" \
+  canary-release-delegation.json -r TerraScale/ts-orchestrator
+fj release asset download "$TAG" canary-release-delegation.json \
+  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-release-delegation.json"
+cmp -- "$WORK/canary-release-delegation.json" \
+  "$WORK/readback/canary-release-delegation.json"
+fj release asset create "$TAG" "$WORK/canary-linux-arm64.receipt.json" \
+  canary-linux-arm64.receipt.json -r TerraScale/ts-orchestrator
+fj release asset download "$TAG" canary-linux-arm64.receipt.json \
+  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-linux-arm64.receipt.json"
+cmp -- "$WORK/canary-linux-arm64.receipt.json" \
+  "$WORK/readback/canary-linux-arm64.receipt.json"
+```
+
+The image workflow checks those names and digests against its pinned input
+manifest before verifying the binary or building the image. Any optional JSON
+copy of the review record is audit-only, is not one of the image's admission
+inputs, and must not be represented as authenticated approval.
+
+### Image CI provenance
+
+`image.yml` builds the image under the attempt-specific tag
+`image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${run_attempt}`. Before
+publishing, `build-ci.sh` uses the pinned `fj actions run-detail` extension to
+bind the tag to the exact source SHA, image workflow, run ID and number, and
+the active `build/qualified-gru-arm64-image` job ID and attempt. The retained
+`image-qualification.json` records the source revision and tree, those run and
+job identities, the job status observed at publication, the required final
+run and job statuses (`success`), and the image and kernel digests. It also
+records the pinned input-manifest digest and build tool versions.
+
+The image workflow uploads and reads back `terrascale-gru-arm64.qcow2`,
+`guest-kernel`, and `SHA256SUMS` before uploading and reading back
+`image-qualification.json` last. It then writes one
+`TS_IMAGE_QUALIFICATION_V1` log marker with the source SHA, run ID and number,
+job ID, attempt, image SHA-256, kernel SHA-256, provenance SHA-256, and tag.
+The manifest and marker are produced before the job finishes; the observed
+status may be `running` or `in_progress`, so they do not prove the workflow
+ultimately passed.
+
+After `image.yml` finishes, and before importing its image into OCI, use `fj`
+to read back the completed image run and that attempt's job log. Require
+the run and `build/qualified-gru-arm64-image` job to match the manifest's full
+source SHA, `image.yml` workflow, run ID and number, job ID, and attempt, and
+require both final statuses to be `success`. Match the exact marker in that
+attempt's log to those identities, the manifest file digest, its output tag,
+and the image and kernel digests. Then bind the imported image OCID and region
+through the existing `image-candidate` and `sign-image` inputs.
+
+Before importing, use `fj release asset download` on that exact
+`image_release_tag` to retrieve the QCOW2, `guest-kernel`, `SHA256SUMS`, and
+`image-qualification.json`. Check the QCOW2 and kernel sizes and SHA-256 values
+against the completed manifest. Check the downloaded qualification file's
+SHA-256 against the marker's `provenance_sha256`, and check the `SHA256SUMS`
+entries for the QCOW2, kernel, and qualification file against their downloaded
+bytes. Import that verified QCOW2; use the downloaded kernel for
+`image-candidate` and signing inputs, and retain the qualification and checksum
+files as operator provenance evidence. The build job's publish-time asset
+readback occurs before final job success and does not replace this
+post-success operator readback.
+
+`sign-image` does not currently consume `image-qualification.json` or verify
+the image workflow run and marker. Its `--qualification` input is the original
+`ci.yml` binary qualification manifest; it verifies that binary run and its
+qualification marker, then checks the signed binary, candidate QCOW2, base
+image, and kernel files. The completed image-run readback and marker match are
+therefore separate operator evidence and must not be described as enforced by
+`ts-release`.
 
 `internal/release` owns the v2 binary and image receipt wire types, scope rules,
 and current and historical verification. Each receipt requires the SHA-256 of

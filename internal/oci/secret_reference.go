@@ -10,7 +10,7 @@ type SecretVersionReference struct {
 }
 
 func (reference SecretVersionReference) Validate() error {
-	if !isOCID(reference.SecretOCID, "secret") || reference.VersionNumber <= 0 {
+	if !isOCID(reference.SecretOCID, "vaultsecret") || reference.VersionNumber <= 0 {
 		return errors.New("OCI Vault secret reference requires an exact version")
 	}
 	return nil

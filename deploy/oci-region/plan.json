@@ -244,6 +244,7 @@
         "replacement_overlap_hours_max": 72,
         "replacement_hosts_max": 1,
         "object_storage_gb_max": 10,
+        "staging_object_storage_gb_max": 10,
         "object_requests_max": 1000000,
         "egress_gb_max": 100,
         "snapshot_gb_max": 350,

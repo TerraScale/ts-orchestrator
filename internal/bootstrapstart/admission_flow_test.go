@@ -281,10 +281,10 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		ReleaseReceiptSHA256: digest(imageWire), ReleaseImageReceiptWire: imageWire,
 		ReleaseDelegationWire: releaseGrantWire, StorageDomain: anchored.StorageDomain,
 		Secrets: []bootstrap.SecretReference{{Purpose: bootstrap.SecretController, Slot: "broker-a",
-			SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.controller", VersionNumber: 1,
+			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.controller", VersionNumber: 1,
 			SHA256: digest([]byte("credential fixture")), MaxBytes: 128, TargetFile: "controller.creds"},
 			{Purpose: bootstrap.SecretRegionalShared,
-				SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 1,
+				SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regional", VersionNumber: 1,
 				SHA256: digest([]byte("regional fixture")), MaxBytes: 128, TargetFile: "regional.creds"}}}
 	var peerPrivate ed25519.PrivateKey
 	if peer {

@@ -108,7 +108,7 @@ class PreviewAdmissionTests(unittest.TestCase):
         })
         plan_value["host_credential_secret"] = {
             "compartment_id": "ocid1.compartment.oc1..secretstore",
-            "secret_id": "ocid1.secret.oc1.sa-saopaulo-1.lives3credential",
+            "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
         plan_path = directory / "plan.json"
         plan_path.write_text(json.dumps(plan_value))
@@ -144,6 +144,23 @@ class PreviewAdmissionTests(unittest.TestCase):
             path = pathlib.Path(directory) / "plan.json"
             path.write_text(json.dumps(plan))
             with self.assertRaisesRegex(ValueError, "cell, or OCI region"):
+                preview.load_plan(path)
+
+    def test_host_credential_requires_vaultsecret_ocid_kind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "plan.json"
+            plan = json.loads(preview.PLAN.read_text())
+            secret = "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            plan["host_credential_secret"] = {
+                "compartment_id": "ocid1.compartment.oc1..secretstore",
+                "secret_id": secret,
+            }
+            path.write_text(json.dumps(plan))
+            self.assertEqual(preview.load_plan(path)["host_credential_secret"]["secret_id"], secret)
+
+            plan["host_credential_secret"]["secret_id"] = "ocid1.secret.oc1.sa-saopaulo-1.synthetic"
+            path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError, "invalid vaultsecret OCID"):
                 preview.load_plan(path)
 
     def test_inspection_readback_binds_fresh_plan_inventory_and_cell(self):
@@ -234,7 +251,10 @@ class PreviewAdmissionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             plan, _, _, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
             ids = plan["resource_ids"]
+            ids["seed_ssh_network_security_group"] = "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.seednsg"
+            plan["network_security"]["seed_ssh_nsg_rules"] = deepcopy(plan["network_security"]["nsg_rules"])
             drift = False
+            rule_commands = []
 
             def live_rules(expected):
                 result = []
@@ -263,11 +283,16 @@ class PreviewAdmissionTests(unittest.TestCase):
                             "prohibit-internet-ingress": True, "security-list-ids": [ids["security_list"]],
                             "route-table-id": ids["route_table"]}
                 if command == ("network", "nsg", "get"):
-                    return {"id": ids["network_security_group"],
+                    return {"id": args[args.index("--nsg-id") + 1],
                             "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]}
                 if command == ("network", "nsg", "rules"):
-                    rules = live_rules(plan["network_security"]["nsg_rules"])
-                    if drift:
+                    self.assertIn("--nsg-id", args)
+                    self.assertNotIn("--network-security-group-id", args)
+                    rule_commands.append(args)
+                    group = args[args.index("--nsg-id") + 1]
+                    role = "seed_ssh_nsg_rules" if group == ids["seed_ssh_network_security_group"] else "nsg_rules"
+                    rules = live_rules(plan["network_security"][role])
+                    if drift and role == "nsg_rules":
                         rules[0]["tcp-options"]["destination-port-range"]["max"] += 1
                     return rules
                 if command == ("network", "security-list", "get"):
@@ -289,6 +314,9 @@ class PreviewAdmissionTests(unittest.TestCase):
 
             with mock.patch.object(preview, "oci", side_effect=fake_oci):
                 preview.check_live_network(plan, ids)
+            self.assertEqual(len(rule_commands), 2)
+            self.assertEqual({command[command.index("--nsg-id") + 1] for command in rule_commands},
+                             {ids["network_security_group"], ids["seed_ssh_network_security_group"]})
             drift = True
             with mock.patch.object(preview, "oci", side_effect=fake_oci):
                 with self.assertRaisesRegex(ValueError, "network security group rules differ"):
@@ -384,7 +412,24 @@ class PreviewAdmissionTests(unittest.TestCase):
         self.assertEqual(cost["items"]["compute"], "58.6200")
         self.assertEqual(cost["items"]["block_storage"], "10.6250")
         self.assertEqual(cost["items"]["snapshot_reserve"], "8.9250")
+        self.assertEqual(cost["assumptions"]["object_growth_reserve_gb"], "10")
+        self.assertEqual(cost["assumptions"]["object_staging_reserve_gb"], "10")
         self.assertLess(float(cost["total"]), 100)
+
+    def test_object_growth_and_staging_reserves_are_separate_and_bounded(self):
+        expected_gb = Decimal(58) + Decimal(10) + Decimal(10)
+        expected = ((expected_gb - Decimal(10)) * Decimal("0.0255")).quantize(Decimal("0.0001"))
+        cost = preview.estimate(self.plan, self.inventory)
+        self.assertEqual(cost["items"]["object_storage"], str(expected))
+        for key in ("object_storage_gb_max", "staging_object_storage_gb_max"):
+            with self.subTest(key=key):
+                changed = json.loads(preview.PLAN.read_text())
+                changed["budget"][key] = 11
+                with tempfile.TemporaryDirectory() as directory:
+                    path = pathlib.Path(directory) / "plan.json"
+                    path.write_text(json.dumps(changed))
+                    with self.assertRaisesRegex(ValueError, "storage allowance"):
+                        preview.load_plan(path)
 
     def test_normal_estimate_prices_scoped_custom_images(self):
         image = {"region": self.plan["region"], "id": "ocid1.image.existing",
@@ -532,7 +577,7 @@ class PreviewAdmissionTests(unittest.TestCase):
                     "host_policy": "ocid1.policy.oc1..host"})
         self.plan["host_credential_secret"] = {
             "compartment_id": "ocid1.compartment.oc1..secretstore",
-            "secret_id": "ocid1.secret.oc1.sa-saopaulo-1.lives3credential",
+            "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
         self.inventory["preview_compartment_ids"] = {"control": ids["control_compartment"],
                                                       "network": ids["network_compartment"],
@@ -666,6 +711,89 @@ class PreviewAdmissionTests(unittest.TestCase):
                 "size": entry["bytes"], "last_modified": format_datetime(now, usegmt=True),
                 "head_at": now.isoformat()}
 
+    def test_full_projection_carries_exact_base_only_admission_lineage(self):
+        directory, full_projection, entries = self.import_case()
+        unapproved_inventory = directory / "unapproved-inventory.json"
+        unapproved_inventory.write_text(json.dumps(self.inventory))
+        with mock.patch.object(preview.sys, "argv", ["preview.py", "import-admit", "--plan",
+                                                       str(preview.PLAN), "--inventory",
+                                                       str(unapproved_inventory), "--projection",
+                                                       str(full_projection), "--phase", "pre-stage", "--out",
+                                                       str(directory / "unapproved.json")]):
+            with self.assertRaisesRegex(ValueError, "requires a verified base-only admission lineage"):
+                preview.main()
+        base_projection = directory / "base-projection.json"
+        base_projection.write_text(json.dumps({"schema_version": 1, "imports": [entries[0]]}))
+        base_hash = preview.sha256(base_projection)
+        base_staged = directory / "base-staged.json"
+        base_staged.write_text(json.dumps({"schema_version": 1, "projection_sha256": base_hash,
+                                           "versions": {"base": "new-base"}}))
+        base_images = directory / "base-images.json"
+        base_images.write_text(json.dumps({"schema_version": 1, "projection_sha256": base_hash,
+                                           "images": {"base": "ocid1.image.base"}}))
+
+        bucket = self.inventory["buckets"][-1]
+        bucket["versions"].append({"name": entries[0]["object"]["key"], "version_id": "new-base",
+                                   "is_delete_marker": False, "size": entries[0]["bytes"],
+                                   "storage_tier": "Standard", "archival_state": None})
+        bucket["object_count"] += 1
+        bucket["bytes"] += entries[0]["bytes"]
+        self.inventory["current_objects"] = [self.current_head(entries[0])]
+        self.inventory["images"].append({"region": self.plan["region"], "id": "ocid1.image.base",
+                                         "compartment_id": "ocid1.compartment.control",
+                                         "display_name": "preview-base", "lifecycle_state": "AVAILABLE",
+                                         "billable_size_in_gbs": 2})
+        inventory_path = directory / "base-inventory.json"
+        inventory_path.write_text(json.dumps(self.inventory))
+        cost = preview.import_estimate(self.plan, self.inventory, base_projection, "pre-import",
+                                       base_staged, base_images, preview.PLAN)
+        admitted = dt.datetime.now(dt.timezone.utc)
+        admission = {"schema_version": 3, "phase": "pre-import", "admitted_at": admitted.isoformat(),
+                     "expires_at": (admitted + dt.timedelta(minutes=15)).isoformat(),
+                     "plan_sha256": preview.sha256(preview.PLAN),
+                     "inventory_sha256": preview.sha256(inventory_path),
+                     "projection_sha256": base_hash,
+                     "staged_versions_sha256": preview.sha256(base_staged),
+                     "imported_images_sha256": preview.sha256(base_images), "estimate": cost}
+        admission_path = directory / "base-admission.json"
+        admission_path.write_text(json.dumps(admission))
+
+        lineage = preview.establish_base_lineage(
+            self.plan, full_projection, base_projection, inventory_path, admission_path,
+            base_staged, base_images, preview.PLAN)
+        self.assertEqual(lineage["base_version_id"], "new-base")
+        self.assertEqual(lineage["base_image_id"], "ocid1.image.base")
+        self.assertEqual(lineage["estimate"], cost)
+        full_pre_stage = preview.import_estimate(self.plan, self.inventory, full_projection, "pre-stage",
+                                                 plan_path=preview.PLAN, base_lineage=lineage)
+        self.assertEqual(full_pre_stage["object_projected_bytes"], entries[1]["bytes"])
+        self.assertEqual(full_pre_stage["import_image_billed_gib"], "6")
+
+        full_staged = directory / "full-staged.json"
+        full_staged.write_text(json.dumps({"schema_version": 1,
+                                           "projection_sha256": preview.sha256(full_projection),
+                                           "versions": {"base": "changed-base", "final": "new-final"}}))
+        with self.assertRaisesRegex(ValueError, "changed the admitted base object version"):
+            preview.import_estimate(self.plan, self.inventory, full_projection, "pre-import",
+                                    full_staged, plan_path=preview.PLAN, base_lineage=lineage)
+
+        full_value = json.loads(full_projection.read_text())
+        full_value["imports"][0]["image"]["evidence"] = "different evidence"
+        full_projection.write_text(json.dumps(full_value))
+        with self.assertRaisesRegex(ValueError, "base row differs"):
+            preview.establish_base_lineage(
+                self.plan, full_projection, base_projection, inventory_path, admission_path,
+                base_staged, base_images, preview.PLAN)
+
+        full_value["imports"][0]["image"]["evidence"] = entries[0]["image"]["evidence"]
+        full_projection.write_text(json.dumps(full_value))
+        admission["estimate"]["total"] = "0.00"
+        admission_path.write_text(json.dumps(admission))
+        with self.assertRaisesRegex(ValueError, "cost differs"):
+            preview.establish_base_lineage(
+                self.plan, full_projection, base_projection, inventory_path, admission_path,
+                base_staged, base_images, preview.PLAN)
+
     def test_import_three_gates_count_versions_and_actual_image_gib(self):
         directory, projection, entries = self.import_case()
         self.inventory["images"].append({"region": self.plan["region"], "id": "ocid1.image.existing",
@@ -677,7 +805,7 @@ class PreviewAdmissionTests(unittest.TestCase):
         self.assertEqual(first["import_image_billed_gib"], "7")
         exact_object_gb = Decimal(sum(row["bytes"] for row in self.inventory["buckets"]) +
                                   first["object_projected_bytes"]) / Decimal(1_000_000_000)
-        object_gb = max(exact_object_gb, Decimal("57.93")) + Decimal(10)
+        object_gb = max(exact_object_gb, Decimal("57.93")) + Decimal(10) + Decimal(10)
         expected_object_cost = ((object_gb - Decimal(10)) * Decimal("0.0255")).quantize(Decimal("0.0001"))
         self.assertEqual(first["items"]["object_storage"], str(expected_object_cost))
         head = self.inventory["buckets"][-1]

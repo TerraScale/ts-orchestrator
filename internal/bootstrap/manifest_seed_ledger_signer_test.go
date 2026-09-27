@@ -11,7 +11,7 @@ func TestSeedLedgerSignerSecretRequiresExactSeedSlotAndReceipt(t *testing.T) {
 	manifest := cloneManifest(authority.manifest)
 	reference := SecretReference{
 		Purpose: SecretSeedLedgerSigner, Slot: manifest.SeedSlot,
-		SecretOCID: "ocid1.secret.oc1.iad.ledger-signer", VersionNumber: 7,
+		SecretOCID: "ocid1.vaultsecret.oc1.iad.ledger-signer", VersionNumber: 7,
 		SHA256: digestBytes([]byte("separate ledger signing key")), MaxBytes: 128,
 		TargetFile: "ledger-signer.key",
 	}

@@ -48,7 +48,7 @@ func customerOpenFixture(t *testing.T) (string, string, string, string, managedm
 			DatabaseID: "20000000-0000-0000-0000-000000000001", ShardID: 7, Epoch: 1},
 		LiveS3: managedmaterial.LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
-			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
+			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
 		Catalogs: []managedmaterial.InitialCatalogInput{{CollectionID: catalog.CollectionID, CanonicalCatalog: catalog.Bytes}},
 		Members: [2]managedmaterial.InitialMember{
 			{SeatID: "permanent-a", MemberID: "40000000-0000-0000-0000-000000000001",

@@ -28,6 +28,7 @@ type fakeVault struct {
 	uncertain       bool
 	failBeforeStore bool
 	wrongBytes      bool
+	wrongSecretKind bool
 	duplicate       bool
 	tokens          []string
 }
@@ -70,7 +71,11 @@ func (fake *fakeVault) CreateSecret(_ context.Context, request ocivault.CreateSe
 		fake.failBeforeStore = false
 		return ocivault.CreateSecretResponse{}, errors.New("create outcome unknown")
 	}
-	item := fakeSecret{id: fmt.Sprintf("ocid1.secret.oc1.%s.ffvlrlvkaaaw6.a%d", fake.region, fake.create), name: *request.SecretName, content: *content.Content}
+	kind := "vaultsecret"
+	if fake.wrongSecretKind {
+		kind = "secret"
+	}
+	item := fakeSecret{id: fmt.Sprintf("ocid1.%s.oc1.%s.ffvlrlvkaaaw6.a%d", kind, fake.region, fake.create), name: *request.SecretName, content: *content.Content}
 	fake.byName[item.name], fake.byID[item.id] = item, item
 	if fake.uncertain {
 		fake.uncertain = false
@@ -199,6 +204,51 @@ func TestProvisionExactReadbackAndStableReplay(t *testing.T) {
 	second, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC())
 	if err != nil || len(second.References) != 25 || fake.create != 25 {
 		t.Fatalf("replay references=%d creates=%d err=%v", len(second.References), fake.create, err)
+	}
+}
+
+func TestProvisionRequiresVaultSecretOCIDKind(t *testing.T) {
+	directory := makeSource(t)
+	target := testTarget()
+	fake := newFakeVault(target)
+	fake.wrongSecretKind = true
+	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); !errors.Is(err, ErrProvision) {
+		t.Fatalf("wrong OCI resource kind error = %v", err)
+	}
+}
+
+func TestProvisionRejectsWrongSecretKindInJournal(t *testing.T) {
+	directory := makeSource(t)
+	target := testTarget()
+	fake := newFakeVault(target)
+	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(directory, journalName)
+	wire, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongKind := strings.Replace(string(wire), "ocid1.vaultsecret.oc1.", "ocid1.secret.oc1.", 1)
+	if wrongKind == string(wire) {
+		t.Fatal("published journal did not contain a Vault secret OCID")
+	}
+	if err := os.WriteFile(path, []byte(wrongKind), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Provision(t.Context(), directory, target, fake, fake, time.Now().UTC()); !errors.Is(err, ErrProvision) {
+		t.Fatalf("wrong-kind journal secret error = %v", err)
+	}
+}
+
+func TestRegionalSecretOCIDRequiresVaultSecretKind(t *testing.T) {
+	valid := "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if !regionalResourceOCID(valid, "vaultsecret", "sa-saopaulo-1") {
+		t.Fatal("canonical synthetic Vault secret OCID was rejected")
+	}
+	if regionalResourceOCID("ocid1.secret.oc1.sa-saopaulo-1.synthetic", "vaultsecret", "sa-saopaulo-1") {
+		t.Fatal("wrong OCI resource kind was accepted as a Vault secret")
 	}
 }
 

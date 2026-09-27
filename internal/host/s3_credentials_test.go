@@ -31,7 +31,7 @@ func (client *fakeS3BundleClient) GetSecretBundle(_ context.Context, request sec
 }
 
 func TestManagedS3ResolverPinsVersionAndSanitizesFailure(t *testing.T) {
-	reference := oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}
+	reference := oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}
 	secret := `{"version":1,"access_key_id":"customer-key","secret_access_key":"customer-secret"}`
 	client := &fakeS3BundleClient{secretID: reference.SecretOCID, version: reference.VersionNumber,
 		content: base64.StdEncoding.EncodeToString([]byte(secret))}

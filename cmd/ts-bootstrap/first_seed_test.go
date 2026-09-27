@@ -133,10 +133,10 @@ func newSeedCLIFixtureWithLedgerKey(t *testing.T, supplied ed25519.PrivateKey) s
 		if manifest.Slot == seedSlot {
 			manifest.Secrets = append(manifest.Secrets,
 				bootstrap.SecretReference{Purpose: bootstrap.SecretSeedFounder, Slot: seedSlot,
-					SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.founder", VersionNumber: 1,
+					SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.founder", VersionNumber: 1,
 					SHA256: digest([]byte("founder")), MaxBytes: 128, TargetFile: "founder.key"},
 				bootstrap.SecretReference{Purpose: bootstrap.SecretSeedLedgerSigner, Slot: seedSlot,
-					SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.ledger", VersionNumber: 1,
+					SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.ledger", VersionNumber: 1,
 					SHA256: digest([]byte("ledger")), MaxBytes: 128, TargetFile: "ledger.key"})
 		}
 		signed, err := bootstrap.SignManifest(manifest, now, now.Add(22*time.Hour), base.rootPrivate)

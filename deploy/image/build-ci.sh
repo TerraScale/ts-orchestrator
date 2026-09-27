@@ -22,7 +22,7 @@ done
 }
 test "$(go env GOVERSION)" = go1.27.1
 test "$(command -v fj)" = "${RUNNER_TEMP}/fj-admission-bin/fj"
-for tool in jq sha256sum stat qemu-img virt-cat readelf guestfish systemctl systemd-sysusers gpgv; do
+for tool in jq sha256sum stat qemu-img virt-cat virt-ls readelf guestfish systemctl systemd-sysusers gpgv; do
 	command -v "$tool" >/dev/null || { echo "missing image build tool: $tool" >&2; exit 1; }
 done
 
@@ -63,7 +63,7 @@ jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
     checksum_name:"noble-server-cloudimg-arm64.img",
     signer_fingerprint:"D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"
   } and
-  (.kernel_release | type == "string" and test("^[A-Za-z0-9._+:-]{1,128}$")) and
+  (.kernel_release | type == "string" and test("^[0-9][A-Za-z0-9._+-]{0,127}$")) and
   .go_candidate.run_id == $run_id and .go_candidate.run_number == $run_number and
   (.go_candidate | keys) == ["binary_sha256", "delegation_sha256",
     "qualification_sha256", "receipt_sha256", "root_key_sha256", "run_id", "run_number"] and
@@ -83,7 +83,7 @@ jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
   } and
   (.assets | keys) == [
     "base-image.qcow2", "bootstrap-anchor.json", "bootstrap-identity.json",
-    "bootstrap-root-001.pem", "guest-kernel", "host-enrollment-public.json", "timesyncd-gru.conf",
+    "bootstrap-root-001.pem", "host-enrollment-public.json", "timesyncd-gru.conf",
     "ubuntu-SHA256SUMS", "ubuntu-SHA256SUMS.gpg", "ubuntu-cloud-image-keyring.gpg"
   ] and
   .assets["bootstrap-root-001.pem"].sha256 == "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc" and
@@ -108,7 +108,7 @@ verify_file() {
 	printf '%s  %s\n' "$expected_hash" "$path" | sha256sum --check --status
 }
 
-for asset in base-image.qcow2 guest-kernel bootstrap-anchor.json bootstrap-identity.json \
+for asset in base-image.qcow2 bootstrap-anchor.json bootstrap-identity.json \
 	bootstrap-root-001.pem timesyncd-gru.conf host-enrollment-public.json \
 	ubuntu-cloud-image-keyring.gpg ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg; do
 	fj release asset download "$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
@@ -133,6 +133,48 @@ signed_base_hash=$(awk '{ name = $2; sub(/^\*/, "", name); sub(/^\.\//, "", name
 	echo 'base QCOW2 differs from the signed Ubuntu checksum' >&2
 	exit 1
 }
+
+kernel_release=$(jq -r .kernel_release "$manifest")
+kernel_guest_path="/boot/vmlinuz-${kernel_release}"
+virt-ls -lR --csv -a "$inputs/base-image.qcow2" /boot > "$work/boot-listing.csv"
+python3 - "$work/boot-listing.csv" "$kernel_guest_path" <<'PY'
+import csv
+import sys
+
+with open(sys.argv[1], newline="", encoding="utf-8") as listing:
+    kernels = [row for row in csv.reader(listing)
+               if len(row) >= 4 and row[3].startswith("/boot/vmlinuz-")]
+if len(kernels) != 1 or len(kernels[0]) != 4 or kernels[0][0] != "-" or kernels[0][3] != sys.argv[2]:
+    raise SystemExit("base image has an absent, ambiguous, or nonregular boot kernel")
+PY
+virt-ls -a "$inputs/base-image.qcow2" "/lib/modules/${kernel_release}" > /dev/null || {
+	echo 'selected guest kernel has no matching base-image modules directory' >&2
+	exit 1
+}
+mkdir -m 0700 "$work/kernel"
+virt-cat -a "$inputs/base-image.qcow2" "$kernel_guest_path" > "$work/kernel/guest-kernel"
+python3 - "$work/kernel/guest-kernel" <<'PY'
+import gzip
+import os
+import sys
+
+path = sys.argv[1]
+size = os.stat(path).st_size
+if not 0 < size <= 128 * 1024 * 1024:
+    raise SystemExit("base guest kernel must be between 1 byte and 128 MiB")
+with open(path, "rb") as source:
+    prefix = source.read(2)
+    source.seek(0)
+    if prefix == b"\x1f\x8b":
+        with gzip.open(source) as decompressed:
+            header = decompressed.read(64)
+    else:
+        header = source.read(64)
+if len(header) != 64 or header[56:60] != b"ARM\x64":
+    raise SystemExit("base guest kernel is not an AArch64 Linux boot Image")
+PY
+kernel_hash=$(sha256sum "$work/kernel/guest-kernel" | awk '{print $1}')
+kernel_bytes=$(stat -c '%s' "$work/kernel/guest-kernel")
 
 go_tag="ci-${SOURCE_SHA}-run-${CANDIDATE_RUN_ID}"
 for asset in qualification.json terrascale-orchestrator-linux-arm64 \
@@ -200,13 +242,6 @@ jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" '
   ([.jobs[] | select(.run_id == 11534 and .name == "fast" and .status == "success")] | length) == 1
 ' "$work/terrabase-run-detail.json" >/dev/null
 
-kernel_release=$(jq -r .kernel_release "$manifest")
-installed_kernel_hash=$(virt-cat -a "$inputs/base-image.qcow2" "/boot/vmlinuz-${kernel_release}" | sha256sum | awk '{print $1}')
-test "$installed_kernel_hash" = "$(jq -r '.assets["guest-kernel"].sha256' "$manifest")" || {
-	echo 'pinned kernel differs from the base guest kernel' >&2
-	exit 1
-}
-
 mkdir -m 0700 "$work/tools"
 go build -trimpath -buildvcs=true -o "$work/tools/ts-release" ./cmd/ts-release
 go build -trimpath -buildvcs=true -o "$work/tools/ts-bootstrap" ./cmd/ts-bootstrap
@@ -251,9 +286,35 @@ deploy/image/build-offline.sh \
 	--system-slice-memory-min-bytes "$(jq -r .priority.system_slice_memory_min_bytes "$manifest")" \
 	--system-slice-memory-low-bytes "$(jq -r .priority.system_slice_memory_low_bytes "$manifest")" \
 	--out dist/image/terrascale-gru-arm64.qcow2
+embedded_kernel_hash=$(virt-cat -a dist/image/terrascale-gru-arm64.qcow2 "$kernel_guest_path" | sha256sum | awk '{print $1}')
+[[ $embedded_kernel_hash == "$kernel_hash" ]] || {
+	echo 'final image guest kernel differs from signed base extraction' >&2
+	exit 1
+}
+cp -- "$work/kernel/guest-kernel" dist/image/guest-kernel
+chmod 0644 dist/image/guest-kernel
+verify_file dist/image/guest-kernel "$kernel_hash" "$kernel_bytes"
 
 image_hash=$(sha256sum dist/image/terrascale-gru-arm64.qcow2 | awk '{print $1}')
 image_bytes=$(stat -c '%s' dist/image/terrascale-gru-arm64.qcow2)
+fj actions run-detail "$GITHUB_RUN_NUMBER" -r TerraScale/ts-orchestrator > "$work/image-run-detail.json"
+jq -e --arg source "$SOURCE_SHA" --argjson run_id "$GITHUB_RUN_ID" \
+	--argjson run_number "$GITHUB_RUN_NUMBER" '
+  .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
+  .workflow == "image.yml" and
+  ([.jobs[] | select(.run_id == $run_id and .name == "build/qualified-gru-arm64-image" and
+    .id > 0 and .attempt > 0 and (.status == "running" or .status == "in_progress"))] | length) == 1
+' "$work/image-run-detail.json" > /dev/null
+job_id=$(jq -r '.jobs[] | select(.name == "build/qualified-gru-arm64-image") | .id' "$work/image-run-detail.json")
+run_attempt=$(jq -r '.jobs[] | select(.name == "build/qualified-gru-arm64-image") | .attempt' "$work/image-run-detail.json")
+job_status=$(jq -r '.jobs[] | select(.name == "build/qualified-gru-arm64-image") | .status' "$work/image-run-detail.json")
+if [[ -n ${GITHUB_RUN_ATTEMPT:-} ]]; then
+	[[ $GITHUB_RUN_ATTEMPT =~ ^[1-9][0-9]*$ && $GITHUB_RUN_ATTEMPT == "$run_attempt" ]] || {
+		echo 'Forgejo event attempt differs from current job attempt' >&2
+		exit 1
+	}
+fi
+output_tag="image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${run_attempt}"
 release_tool_hash=$(sha256sum "$work/tools/ts-release" | awk '{print $1}')
 bootstrap_tool_hash=$(sha256sum "$work/tools/ts-bootstrap" | awk '{print $1}')
 qemu_img_version=$(qemu-img --version | head -n 1)
@@ -263,29 +324,37 @@ gpgv_version=$(gpgv --version | head -n 1)
 jq -cnS --slurpfile inputs "$manifest" \
 	--arg source "$SOURCE_SHA" --arg tree "$source_tree" \
 	--arg input_tag "$IMAGE_INPUT_TAG" --arg input_hash "$IMAGE_INPUT_MANIFEST_SHA256" \
-	--arg go_tag "$go_tag" --arg terrabase_tag "$terrabase_tag" \
+	--arg go_tag "$go_tag" --arg terrabase_tag "$terrabase_tag" --arg output_tag "$output_tag" \
+	--arg job_status "$job_status" \
 	--arg go_version "$(go env GOVERSION)" --arg release_tool_hash "$release_tool_hash" \
 	--arg bootstrap_tool_hash "$bootstrap_tool_hash" \
 	--arg qemu_img_version "$qemu_img_version" --arg guestfish_version "$guestfish_version" \
 	--arg virt_cat_version "$virt_cat_version" --arg gpgv_version "$gpgv_version" \
+	--arg kernel_release "$kernel_release" --arg kernel_guest_path "$kernel_guest_path" \
+	--arg kernel_hash "$kernel_hash" --argjson kernel_bytes "$kernel_bytes" \
 	--arg image_hash "$image_hash" --argjson image_bytes "$image_bytes" \
 	--argjson run_id "$GITHUB_RUN_ID" --argjson run_number "$GITHUB_RUN_NUMBER" \
+	--argjson job_id "$job_id" --argjson run_attempt "$run_attempt" \
 	'{schema:"terrascale.image.qualification.v1",source_revision:$source,source_tree:$tree,
-    verification:{workflow:"image.yml",job:"build/qualified-gru-arm64-image",run_id:$run_id,run_number:$run_number},
+    verification:{workflow:"image.yml",job:"build/qualified-gru-arm64-image",run_id:$run_id,
+      run_number:$run_number,job_id:$job_id,run_attempt:$run_attempt,
+      observed_job_status_at_publication:$job_status,
+      required_final_run_status:"success",required_final_job_status:"success"},
     input_release_tag:$input_tag,input_manifest_sha256:$input_hash,inputs:$inputs[0],
-    go_release_tag:$go_tag,terrabase_release_tag:$terrabase_tag,
+    go_release_tag:$go_tag,terrabase_release_tag:$terrabase_tag,image_release_tag:$output_tag,
     toolchain:{go_version:$go_version,ts_release_sha256:$release_tool_hash,
       ts_bootstrap_sha256:$bootstrap_tool_hash,qemu_img_version:$qemu_img_version,
       guestfish_version:$guestfish_version,virt_cat_version:$virt_cat_version,
       gpgv_version:$gpgv_version,
       nixpkgs_revision:"e554fab72f81915600f3f449b786fd9af40439a5",
       nixpkgs_nar_hash:"sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM="},
+    kernel:{name:"guest-kernel",guest_path:$kernel_guest_path,release:$kernel_release,
+      architecture:"arm64",bytes:$kernel_bytes,sha256:$kernel_hash},
     image:{name:"terrascale-gru-arm64.qcow2",format:"qcow2",architecture:"arm64",bytes:$image_bytes,sha256:$image_hash},
     image_receipt_status:"requires OCI import OCID and protected post-import signing"}' \
 	> dist/image/image-qualification.json
-(cd dist/image && sha256sum terrascale-gru-arm64.qcow2 image-qualification.json) > dist/image/SHA256SUMS
+(cd dist/image && sha256sum terrascale-gru-arm64.qcow2 guest-kernel image-qualification.json) > dist/image/SHA256SUMS
 
-output_tag="image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}"
 if ! fj release view --by-tag "$output_tag" > "$work/release-view.txt" 2> "$work/release-view-error.txt"; then
 	fj release create "$output_tag" --create-tag="$output_tag" --branch "$SOURCE_SHA" --prerelease
 	fj release view --by-tag "$output_tag" > "$work/release-view.txt"
@@ -296,7 +365,7 @@ grep -Fq "$output_tag" "$work/release-view.txt" || {
 }
 while IFS= read -r listed_asset; do
 	case "$listed_asset" in
-		'- terrascale-gru-arm64.qcow2'|'- SHA256SUMS'|'- image-qualification.json'|'- source.zip'|'- source.tar.gz') ;;
+		'- terrascale-gru-arm64.qcow2'|'- guest-kernel'|'- SHA256SUMS'|'- image-qualification.json'|'- source.zip'|'- source.tar.gz') ;;
 		*) echo "image release contains unexpected asset: $listed_asset" >&2; exit 1 ;;
 	esac
 done < <(grep '^- ' "$work/release-view.txt" || true)
@@ -317,12 +386,14 @@ retain_asset() {
 }
 
 retain_asset terrascale-gru-arm64.qcow2 "$image_hash" "$image_bytes"
+retain_asset guest-kernel "$kernel_hash" "$kernel_bytes"
 retain_asset SHA256SUMS "$(sha256sum dist/image/SHA256SUMS | awk '{print $1}')" \
 	"$(stat -c '%s' dist/image/SHA256SUMS)"
 # The provenance is the completion marker, uploaded only after both payloads read back.
 retain_asset image-qualification.json \
 	"$(sha256sum dist/image/image-qualification.json | awk '{print $1}')" \
 	"$(stat -c '%s' dist/image/image-qualification.json)"
-printf 'TS_IMAGE_QUALIFICATION_V1 source_sha=%s run_id=%s run_number=%s image_sha256=%s provenance_sha256=%s tag=%s\n' \
-	"$SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$image_hash" \
+printf 'TS_IMAGE_QUALIFICATION_V1 source_sha=%s run_id=%s run_number=%s job_id=%s attempt=%s image_sha256=%s kernel_sha256=%s provenance_sha256=%s tag=%s\n' \
+	"$SOURCE_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$job_id" "$run_attempt" \
+	"$image_hash" "$kernel_hash" \
 	"$(sha256sum dist/image/image-qualification.json | awk '{print $1}')" "$output_tag"

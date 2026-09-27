@@ -49,7 +49,7 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 			ShardID: 7, Epoch: 1},
 		LiveS3: LiveS3Target{Bucket: "alpha-live", Region: "sa-saopaulo-1",
 			Endpoint:   "https://alpha.compat.objectstorage.sa-saopaulo-1.oci.customer-oci.com",
-			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
+			Credential: oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3}},
 		Catalogs: []InitialCatalogInput{
 			{CollectionID: firstCatalog.CollectionID, CanonicalCatalog: firstCatalog.Bytes},
 			{CollectionID: secondCatalog.CollectionID, CanonicalCatalog: secondCatalog.Bytes},
