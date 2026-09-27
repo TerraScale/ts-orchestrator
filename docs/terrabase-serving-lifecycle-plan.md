@@ -52,7 +52,7 @@ The current controller admits one active region with two seats, holds while
 waiting for independent serving evidence, moves an observed `StageServing`
 member back to `StageAwaitingRuntimeContract`, and holds all retirement
 stages until an evidence-driven scale-in path is integrated
-(`internal/placement/controller.go:197-204,280-297,580-610`). Go's status
+(`internal/placement/controller.go:200-207,283-300,583-613`). Go's status
 decoder accepts schema 1 only and rejects serving or drain capability bits;
 the managed host reporter binds process and mount observations but does not
 report Raft commit/applied indices or a native drain receipt
@@ -63,11 +63,7 @@ certify a committed Raft membership or a safe OCI retirement.
 The current managed-member two-VM lane is not Raft proof. Its first recorded
 attempt failed at Firecracker drive setup with an invalid resource ID before
 guest execution; the next attempt started VMM processes but a VM exited before
-guest evidence was ready. Neither produced a passing guest result. The
-receipts are `../.qualification/ts-orchestrator/20260926-managed-member-serving/run-01/summary.json`
-(SHA-256 `ca9a1a9a512a3b60cde911142b2e12359700ef1a577d0f902071bfe0ade81443`)
-and `../.qualification/ts-orchestrator/20260926-managed-member-serving/run-02/summary.json`
-(SHA-256 `65d78eb3684a3764c54532492be6fdbf45c37e2c2eb2e2ea0ad4749c5f59470e`).
+guest evidence was ready. Neither produced a passing guest result.
 Even a passing version of that harness would exercise its bounded causal
 two-peer path, not Raft election, quorum durability, read barriers, signed
 genesis, joint membership, or scale-down.

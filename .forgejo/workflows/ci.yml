@@ -79,7 +79,9 @@ jobs:
             terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
           cat dist/SHA256SUMS
 
-      # The runner rejects every mirrored upload-artifact tag because its
-      # include-hidden-files input reaches action validation with a trailing
-      # newline. Keep the source revision, validation output, and binary hash
-      # receipt in the retained job log until a pinned upload path is qualified.
+      - name: Retain verified binaries and qualification manifest
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/publish-qualification.sh

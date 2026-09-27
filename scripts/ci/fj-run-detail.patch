@@ -1,0 +1,135 @@
+diff --git a/src/actions.rs b/src/actions.rs
+index 779fd81..13e85da 100644
+--- a/src/actions.rs
++++ b/src/actions.rs
+@@ -1,7 +1,7 @@
+ use std::{collections::BTreeMap, fmt::Display};
+ 
+ use clap::{Args, Subcommand};
+-use eyre::OptionExt;
++use eyre::{OptionExt, eyre};
+ use forgejo_api::{
+     Forgejo, ForgejoError,
+     structs::{
+@@ -39,6 +39,12 @@ pub enum ActionsSubcommand {
+         page: u32,
+     },
+ 
++    /// Print the latest plaintext job logs of an action run by its displayed run number.
++    Logs { run_number: i64 },
++
++    /// Print exact source and job identities for an action run as JSON.
++    RunDetail { run_number: i64 },
++
+     #[clap(about = h!("cmd-actions-variables"))]
+     Variables {
+         #[clap(subcommand)]
+@@ -126,6 +132,10 @@ impl ActionsCommand {
+             .ok_or_eyre("can't figure what repo to access, try specifying with `--repo`")?;
+         match self.command {
+             ActionsSubcommand::Tasks { page } => view_tasks(repo, &api, page).await?,
++            ActionsSubcommand::Logs { run_number } => view_logs(repo, &api, run_number).await?,
++            ActionsSubcommand::RunDetail { run_number } => {
++                view_run_detail(repo, &api, run_number).await?
++            }
+ 
+             ActionsSubcommand::Variables { command } => match command {
+                 ActionsVariablesSubcommmand::List { verbose } => {
+@@ -160,6 +170,97 @@ impl ActionsCommand {
+     }
+ }
+ 
++async fn view_run_detail(repo: &RepoName, api: &Forgejo, run_number: i64) -> eyre::Result<()> {
++    if run_number <= 0 {
++        return Err(eyre!("run number must be positive"));
++    }
++    let runs = api
++        .list_action_runs(
++            repo.owner(),
++            repo.name(),
++            forgejo_api::structs::ListActionRunsQuery {
++                run_number: Some(run_number),
++                ..Default::default()
++            },
++        )
++        .page_size(20)
++        .await?
++        .workflow_runs
++        .unwrap_or_default();
++    let run = runs
++        .into_iter()
++        .find(|run| run.index_in_repo == Some(run_number))
++        .ok_or_eyre("Forgejo run number was not found")?;
++    let run_id = run.id.ok_or_eyre("Forgejo run has no ID")?;
++    let jobs = api
++        .list_action_run_jobs(repo.owner(), repo.name(), run_id)
++        .await?;
++    let detail = serde_json::json!({
++        "run_id": run_id,
++        "run_number": run_number,
++        "head_sha": run.commit_sha.ok_or_eyre("Forgejo run has no commit SHA")?,
++        "workflow": run.workflow_id.ok_or_eyre("Forgejo run has no workflow ID")?,
++        "status": run.status.ok_or_eyre("Forgejo run has no status")?,
++        "jobs": jobs.iter().map(|job| serde_json::json!({
++            "id": job.id,
++            "run_id": job.run_id,
++            "name": job.name,
++            "status": job.status,
++            "attempt": job.attempt,
++        })).collect::<Vec<_>>(),
++    });
++    println!("{}", serde_json::to_string(&detail)?);
++    Ok(())
++}
++
++async fn view_logs(repo: &RepoName, api: &Forgejo, run_number: i64) -> eyre::Result<()> {
++    if run_number <= 0 {
++        return Err(eyre!("run number must be positive"));
++    }
++    let runs = api
++        .list_action_runs(
++            repo.owner(),
++            repo.name(),
++            forgejo_api::structs::ListActionRunsQuery {
++                run_number: Some(run_number),
++                ..Default::default()
++            },
++        )
++        .page_size(20)
++        .await?
++        .workflow_runs
++        .unwrap_or_default();
++    let run = runs
++        .into_iter()
++        .find(|run| run.index_in_repo == Some(run_number))
++        .ok_or_eyre("Forgejo run number was not found")?;
++    let run_id = run.id.ok_or_eyre("Forgejo run has no ID")?;
++    eprintln!(
++        "run_number={run_number} run_id={run_id} status={:?}",
++        run.status
++    );
++    let jobs = api
++        .list_action_run_jobs(repo.owner(), repo.name(), run_id)
++        .await?;
++    for job in jobs {
++        let job_id = job.id.ok_or_eyre("Forgejo job has no ID")?;
++        eprintln!(
++            "job_id={job_id} name={:?} status={:?} attempt={:?}",
++            job.name, job.status, job.attempt
++        );
++        let logs = api
++            .repo_get_action_job_logs(
++                repo.owner(),
++                repo.name(),
++                job_id,
++                forgejo_api::structs::RepoGetActionJobLogsQuery::default(),
++            )
++            .await?;
++        print!("{logs}");
++    }
++    Ok(())
++}
++
+ async fn view_tasks(repo: &RepoName, api: &Forgejo, page: u32) -> eyre::Result<()> {
+     // We don't iterate this to collect all tasks (not just the ones on the first page) like the
+     // issue search subcommand will do, because it's unlikely someone wants to see *all* tasks.

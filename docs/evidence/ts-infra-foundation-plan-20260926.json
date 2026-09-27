@@ -1,0 +1,185 @@
+{
+  "action_counts": {
+    "create": 22,
+    "delete": 0,
+    "update": 0
+  },
+  "candidate_file_sha256": {
+    "README.md": "41f80170db20f5e4635ea90b68c5ccfa2f9dd5e98725b4068a36ce943c1a278d",
+    "infra.tfvars": "55ea732cc99aafee1a795280c2d1b0009aa8a1e8b4950e0f346c3c3e017d134d",
+    "orchestrator-bootstrap.tf": "add8916b2c5ce5d813836731b8c5283198e353b4105c89ef0b4a8ca8ab756d09"
+  },
+  "encrypted_state_sha256": "6da296837abbdef915328a0261a2feb2bf5cf1455b156b062b57534caf507749",
+  "encrypted_state_source": "origin/state@41b8acc",
+  "estimate_basis": "ts-orchestrator/scripts/oci-preview/admission.json",
+  "plan_sha256": "b5d49ca5aa28ad52d620467ecad25ec837917c416ebd914e790d6e714c8e6dd5",
+  "projected_preview_monthly_usd": "89.55",
+  "resource_changes": [
+    {
+      "actions": [
+        "read"
+      ],
+      "address": "data.oci_objectstorage_namespace.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"4222\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"6222\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"7422\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8080\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_network_security_group_security_rule.gru_internal[\"8443\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_route_table.gru_service[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_service_gateway.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_subnet.gru[\"preview\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_core_vcn.gru[0]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_dkim.dkim[\"terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_email_domain.domain[\"terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_email_sender.sender[\"noreply@terrascale.tech\"]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.control[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.network[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_compartment.workload[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_dynamic_group.controller[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.controller[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_identity_policy.objectstorage_key[0]"
+    },
+    {
+      "actions": [
+        "no-op"
+      ],
+      "address": "oci_identity_smtp_credential.email_delivery"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_key.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_kms_vault.gru[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_backup[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_head[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_bucket.gru_ledger[0]"
+    },
+    {
+      "actions": [
+        "create"
+      ],
+      "address": "oci_objectstorage_object_lifecycle_policy.gru_backup[0]"
+    }
+  ],
+  "schema_version": 1,
+  "seed_enabled": false,
+  "source_base": "origin/main@9ccaa77374edd571c2e2d95ed84ac88048d2a20b",
+  "source_commit": "e40899013b06a9a7dd0c14de6d8f5448dd155349"
+}

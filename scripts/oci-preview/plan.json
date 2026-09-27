@@ -1,0 +1,140 @@
+{
+    "schema_version": 2,
+    "purpose": "TerraScale disposable GRU ARM preview for the shared GOAL",
+    "region": "sa-saopaulo-1",
+    "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
+    "tenancy_id": "ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga",
+    "parent_compartment_id": "ocid1.compartment.oc1..aaaaaaaangcm4a4gp4epa2jec7mizqkomvgjnymdrxecimlroa42ozvk7cna",
+    "shared_compartment_id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
+    "existing_forgejo": {
+        "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.antxeljrppuhpdqc53olclenle4v5cjyionsslnbelqojmund72yjdppmuna",
+        "boot_volume_id": "ocid1.bootvolume.oc1.sa-saopaulo-1.abtxeljrjnf4m3cln7mhnd6yjfr3ju3sak3mkntjgkqp2sp5ick7c72griva",
+        "data_volume_id": "ocid1.volume.oc1.sa-saopaulo-1.abtxeljrftl5rmofsk5lpo43o2aaud4byu7rg2tvonqoh3i7t76hcx23pkna",
+        "public_ip_id": "ocid1.publicip.oc1.sa-saopaulo-1.amaaaaaappuhpdqa7p425o26upbrbhao3gxbpce5oze5546veezc3zwl4kja",
+        "expected_ocpus": 2,
+        "expected_memory_gb": 4,
+        "expected_volume_gb": 100,
+        "expected_volume_vpus_per_gb": 10
+    },
+    "preview_compartment_names": {
+        "control": "terrascale-control",
+        "network": "terrascale-network",
+        "workload": "terrascale-workload"
+    },
+    "foundation_buckets": {
+        "ledger": "ts-preview-gru-20260926-ledger",
+        "head": "ts-preview-gru-20260926-head",
+        "backup": "ts-preview-gru-20260926-backup",
+        "material": "ts-preview-gru-20260926-material"
+    },
+    "resource_prefix": "ts-preview-gru-20260926",
+    "orchestrator_owner": "ts-preview-gru-20260926",
+    "network_cidr": "10.251.0.0/24",
+    "controller_replicas": 3,
+    "database_members": 2,
+    "hosts": [
+        {
+            "slot": "controller-a",
+            "fault_domain": "FAULT-DOMAIN-1",
+            "private_ip": "10.251.0.11",
+            "roles": [
+                "controller"
+            ],
+            "shape": "VM.Standard.A1.Flex",
+            "ocpus": 1,
+            "memory_gb": 6,
+            "boot_gb": 50,
+            "data_gb": 0
+        },
+        {
+            "slot": "controller-b",
+            "fault_domain": "FAULT-DOMAIN-2",
+            "private_ip": "10.251.0.12",
+            "roles": [
+                "controller"
+            ],
+            "shape": "VM.Standard.A1.Flex",
+            "ocpus": 1,
+            "memory_gb": 6,
+            "boot_gb": 50,
+            "data_gb": 0
+        },
+        {
+            "slot": "controller-c",
+            "fault_domain": "FAULT-DOMAIN-3",
+            "private_ip": "10.251.0.13",
+            "roles": [
+                "controller"
+            ],
+            "shape": "VM.Standard.A1.Flex",
+            "ocpus": 1,
+            "memory_gb": 6,
+            "boot_gb": 50,
+            "data_gb": 0
+        },
+        {
+            "slot": "member-a",
+            "fault_domain": "FAULT-DOMAIN-1",
+            "private_ip": "10.251.0.21",
+            "roles": [
+                "host",
+                "terrabase-member"
+            ],
+            "shape": "VM.Standard.A1.Flex",
+            "ocpus": 1,
+            "memory_gb": 6,
+            "boot_gb": 50,
+            "data_gb": 50
+        },
+        {
+            "slot": "member-b",
+            "fault_domain": "FAULT-DOMAIN-2",
+            "private_ip": "10.251.0.22",
+            "roles": [
+                "host",
+                "terrabase-member"
+            ],
+            "shape": "VM.Standard.A1.Flex",
+            "ocpus": 1,
+            "memory_gb": 6,
+            "boot_gb": 50,
+            "data_gb": 50
+        }
+    ],
+    "volume_vpus_per_gb": 10,
+    "budget": {
+        "currency": "USD",
+        "monthly_limit": 100,
+        "month_hours": 720,
+        "replacement_overlap_hours_max": 72,
+        "replacement_hosts_max": 1,
+        "object_storage_gb_max": 10,
+        "object_requests_max": 1000000,
+        "egress_gb_max": 100,
+        "snapshot_gb_max": 350,
+        "baseline_object_storage_gb": 57.93,
+        "baseline_object_requests_usd": 0.27,
+        "misc_reserve_usd": 5,
+        "rates": {
+            "a1_ocpu_hour": 0.01,
+            "a1_memory_gb_hour": 0.0015,
+            "block_gb_month": 0.0255,
+            "block_vpu_gb_month": 0.0017,
+            "object_gb_month": 0.0255,
+            "object_10000_requests": 0.0034,
+            "egress_gb": 0.025
+        }
+    },
+    "resource_ids": {
+        "control_compartment": null,
+        "network_compartment": null,
+        "workload_compartment": null,
+        "vcn": null,
+        "subnet": null,
+        "network_security_group": null,
+        "instances": [],
+        "boot_volumes": [],
+        "data_volumes": [],
+        "object_buckets": []
+    }
+}

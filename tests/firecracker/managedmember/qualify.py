@@ -72,7 +72,7 @@ MEMBER_DIRS = {
 CONTROL_PORT = 9540
 REPLICATION_PORT = 7000
 VOLUME_BYTES = 256 << 20
-RAM_MIB = 9216
+RAM_MIB = 6144
 SERVICE_SECONDS = 480
 VM_SECONDS = 540
 LOG_BOUND = 32 << 20
@@ -162,7 +162,7 @@ def member_directory(scope: dict[str, Any], host_attempt: int) -> Path:
 def _valid_config(member: str, config: Any, inputs: dict[str, dict[str, Any]]) -> None:
     required = {
         "version", "node", "failure_domain", "member", "authority", "runtime",
-        "volume_id", "attachment_id", "attachment_etag", "source_digest",
+        "volume_id", "attachment_id", "attachment_etag", "source_digest", "system_reserve_bytes",
         "collection_id", "schema_generation", "schema_digest", "document_id",
     }
     if not isinstance(config, dict) or set(config) != required:
@@ -225,6 +225,8 @@ def _valid_config(member: str, config: Any, inputs: dict[str, dict[str, Any]]) -
         raise QualificationError(f"{member}: fixture volume/attachment identity mismatch")
     if not isinstance(config["source_digest"], str) or not _SHA.fullmatch(config["source_digest"]):
         raise QualificationError(f"{member}: source digest invalid")
+    if type(config["system_reserve_bytes"]) is not int or config["system_reserve_bytes"] != 1 << 30:
+        raise QualificationError(f"{member}: signed system reserve mismatch")
     if config["collection_id"] != "21212121-2121-2121-2121-212121212121" or config["document_id"] != "018f0000-0000-7000-8000-000000000021" or config["schema_generation"] != 1 or not isinstance(config["schema_digest"], str) or not _SHA.fullmatch(config["schema_digest"]):
         raise QualificationError(f"{member}: active document binding mismatch")
 
@@ -263,7 +265,7 @@ def load_manifest(path: Path) -> dict[str, Any]:
     for field in ("epoch", "configuration_id", "certificate_sha256"):
         if left["authority"][field] != right["authority"][field]:
             raise QualificationError("members disagree on signed authority")
-    for field in ("source_digest", "collection_id", "schema_generation", "schema_digest", "document_id"):
+    for field in ("source_digest", "system_reserve_bytes", "collection_id", "schema_generation", "schema_digest", "document_id"):
         if left[field] != right[field]:
             raise QualificationError("members disagree on transaction fixture")
     return {"raw": raw, "sha256": sha256_bytes(raw), "source_commits": commits,
@@ -454,7 +456,16 @@ User=root
 Group=root
 Delegate=yes
 DelegateSubgroup=supervisor
-MemoryMax=8G
+MemoryMax=5G
+MemoryMin=1G
+MemoryLow=1G
+CPUWeight=10000
+IOWeight=10000
+Nice=-20
+OOMScoreAdjust=-1000
+ManagedOOMPreference=omit
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
 NoNewPrivileges=yes
 AmbientCapabilities=
 CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP CAP_DAC_READ_SEARCH
@@ -466,6 +477,13 @@ ExecStart=/usr/local/sbin/ts-managed-member-runner
 
 [Install]
 WantedBy=multi-user.target
+"""
+
+
+def system_slice_reservation() -> str:
+    return """[Slice]
+MemoryMin=1G
+MemoryLow=1G
 """
 
 
@@ -841,6 +859,8 @@ class Lab:
                          Path("/etc/systemd/system/ts-managed-member-volume-setup.service"), "0644")
             self.install(mount, self.stage_text(f"{member}-test.service", test_unit(), 0o644),
                          Path("/etc/systemd/system/ts-managed-member-test.service"), "0644")
+            self.install(mount, self.stage_text(f"{member}-system-slice-memory.conf", system_slice_reservation(), 0o644),
+                         Path("/etc/systemd/system/system.slice.d/50-ts-managed-member-memory.conf"), "0644")
             network = f"[Match]\nMACAddress={GUEST_MACS[member]}\n\n[Network]\nAddress={GUEST_IPS[member]}/24\n"
             self.install(mount, self.stage_text(f"{member}-network.conf", network, 0o644),
                          Path("/etc/systemd/network/80-ts-managed-member.network"), "0644")
@@ -924,7 +944,7 @@ class Lab:
         if (set(evidence) != fields or evidence["version"] != 1 or evidence["node"] != "node-" + member or
                 evidence["member_id"] != MEMBER_IDS[member] or evidence["filesystem_uuid"] != VOLUME_UUIDS[member] or
                 evidence["process_uid"] != 65534 or evidence["process_gid"] != 65534 or
-                evidence["memory_max_bytes"] != 6 << 30 or evidence["process_pid"] < 2 or
+                evidence["memory_max_bytes"] != 4 << 30 or evidence["process_pid"] < 2 or
                 evidence["mount_id"] < 1 or not evidence["storage_recovered"] or not evidence["listener_ready"] or
                 not isinstance(evidence["claim_sha256"], str) or not _SHA.fullmatch(evidence["claim_sha256"]) or
                 not isinstance(evidence["process_cgroup"], str) or not evidence["process_cgroup"].endswith("/terrabase") or

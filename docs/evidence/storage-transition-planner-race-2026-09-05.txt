@@ -1,2 +1,0 @@
-ok  	terrascale.tech/orchestrator/src/orchestrator/storageplan	1.810s
-ok  	terrascale.tech/orchestrator/cmd/orchestrator	51.477s

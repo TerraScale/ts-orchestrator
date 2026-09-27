@@ -906,9 +906,7 @@ class ClockReadinessTests(unittest.TestCase):
 
 
 class FirecrackerHarnessResourceTests(unittest.TestCase):
-    def test_recovered_kernel_and_rootfs_are_explicitly_pinned(self):
-        self.assertEqual(qualify.DEFAULT_KERNEL.name, "vmlinux-6.1.186")
-        self.assertEqual(qualify.DEFAULT_ROOTFS.name, "rootfs-noble-20260911.ext4")
+    def test_kernel_and_rootfs_are_explicitly_pinned(self):
         self.assertEqual(qualify.KERNEL_SHA,
                          "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523")
         self.assertEqual(qualify.ROOTFS_SHA,

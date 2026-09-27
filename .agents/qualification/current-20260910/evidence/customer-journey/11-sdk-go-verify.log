@@ -1,7 +1,0 @@
-start_utc=2026-09-11T01:07:51Z
-phase=verify go
-{"phase":"verify","action":"get-typescript","ok":true}
-{"phase":"verify","action":"get-go","ok":true}
-{"phase":"verify","action":"get-rust","ok":true}
-{"phase":"verify","action":"get-dotnet","ok":true}
-exit=0

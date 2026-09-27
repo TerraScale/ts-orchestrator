@@ -1,4 +1,0 @@
-ok  	terrascale.tech/orchestrator/src/orchestrator/restoredrill	36.516s
-ok  	terrascale.tech/orchestrator/src/orchestrator/candidatesync	21.580s
-ok  	terrascale.tech/orchestrator/src/orchestrator/initialcontrol	21.771s
-ok  	terrascale.tech/orchestrator/src/orchestrator/vmqualruntime	7.258s

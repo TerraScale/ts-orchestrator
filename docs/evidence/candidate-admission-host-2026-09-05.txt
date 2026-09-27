@@ -1,5 +1,0 @@
-=== RUN   TestCandidatePreparationLocalAdmissionAndExpiredInitialResume
---- PASS: TestCandidatePreparationLocalAdmissionAndExpiredInitialResume (1.68s)
-=== RUN   TestCandidatePreparationRejectsOrdinaryInstalledCurrent
---- PASS: TestCandidatePreparationRejectsOrdinaryInstalledCurrent (0.03s)
-PASS
