@@ -1,0 +1,152 @@
+package app
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/netip"
+	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+)
+
+const controllerConfigDirectory = "/etc/terrascale-orchestrator"
+const controllerConfigFilename = "controller.json"
+const controllerManifestFilename = "controller-manifest.json"
+
+// ValidateSignedControllerConfig checks the role-specific meaning of the exact
+// signed bytes. observedPrivateIP is empty during offline signing and is the
+// independently observed primary VNIC address during guest installation.
+func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivateIP string) (Config, error) {
+	var cfg Config
+	if err := protocol.DecodeStrict(manifest.ControllerConfig, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+		return Config{}, fmt.Errorf("decode signed controller config: %w", err)
+	}
+	canonical, err := protocol.EncodeJSON(cfg)
+	if err != nil || !bytes.Equal(canonical, manifest.ControllerConfig) ||
+		controllerSHA256(canonical) != manifest.ControllerConfigSHA256 {
+		return Config{}, errors.New("signed controller config must be canonical app.Config JSON")
+	}
+	if cfg.NATS.Cell != strings.ToLower(string(manifest.Cell)) || cfg.NATS.Instance != manifest.Slot ||
+		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Lab || cfg.NATS.Embedded == nil ||
+		cfg.Controller.CandidateID != manifest.Slot || !reflect.DeepEqual(cfg.Host, HostConfig{}) ||
+		cfg.Operator != (OperatorConfig{}) ||
+		cfg.Controller.OciRegionConfig != controllerSidecarPath("oci-region.json") ||
+		cfg.Controller.OciRegionIntentFile != controllerSidecarPath("oci-region-intent.json") ||
+		cfg.Controller.PlacementConfig != controllerSidecarPath("placement.json") ||
+		cfg.NATS.NKeySeedFile != "" || cfg.Controller.TrustKeyFile != "" {
+		return Config{}, errors.New("signed controller config does not match role, slot, or fixed paths")
+	}
+	if observedPrivateIP != "" && (cfg.NATS.Embedded.Host != observedPrivateIP ||
+		cfg.NATS.Embedded.RouteHost != observedPrivateIP) {
+		return Config{}, errors.New("signed broker addresses differ from the observed primary VNIC")
+	}
+	address, addressErr := netip.ParseAddr(cfg.NATS.Embedded.Host)
+	if addressErr != nil || !address.Is4() || !address.IsPrivate() || address.String() != cfg.NATS.Embedded.Host ||
+		cfg.NATS.Embedded.RouteHost != cfg.NATS.Embedded.Host || cfg.NATS.Embedded.Port != 4222 ||
+		cfg.NATS.Embedded.RoutePort != 6222 || cfg.NATS.URL != "tls://"+cfg.NATS.Embedded.Host+":4222" ||
+		cfg.NATS.Embedded.StoreDir != "/var/lib/terrascale-orchestrator-controller/nats" ||
+		cfg.NATS.Embedded.StoreMaxBytes < 2<<30 || cfg.NATS.Embedded.StoreMaxBytes > 8<<30 ||
+		cfg.NATS.Embedded.RouteUser != "ts-route" || len(cfg.NATS.Embedded.Users) != 0 ||
+		!slices.Equal(cfg.NATS.Embedded.BrokerIDs, manifest.ControllerSlots) ||
+		len(cfg.NATS.Embedded.Routes) != len(manifest.ControllerSlots)-1 {
+		return Config{}, errors.New("signed controller broker runtime is outside the reviewed shape")
+	}
+	seenRoutes := make(map[string]bool, len(cfg.NATS.Embedded.Routes))
+	for _, route := range cfg.NATS.Embedded.Routes {
+		if !strings.HasPrefix(route, "nats-route://") || !strings.HasSuffix(route, ":6222") ||
+			seenRoutes[route] || route == "nats-route://"+cfg.NATS.Embedded.Host+":6222" {
+			return Config{}, errors.New("signed controller route is invalid or duplicated")
+		}
+		peer, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(route, "nats-route://"), ":6222"))
+		if err != nil || !peer.Is4() || !peer.IsPrivate() {
+			return Config{}, errors.New("signed controller route address is invalid")
+		}
+		seenRoutes[route] = true
+	}
+	if cfg.Controller.HostEnrollmentListenAddress != cfg.NATS.Embedded.Host+":8443" {
+		return Config{}, errors.New("host enrollment listener differs from the signed controller address")
+	}
+	if _, err := buildSignerPolicy(cfg); err != nil {
+		return Config{}, fmt.Errorf("signed controller operator grant: %w", err)
+	}
+	if len(manifest.ControllerFiles) != len(bootstrap.ControllerConfigFileNames) {
+		return Config{}, errors.New("signed controller sidecars are incomplete")
+	}
+	for index, file := range manifest.ControllerFiles {
+		if file.Name != bootstrap.ControllerConfigFileNames[index] ||
+			controllerSHA256(file.Bytes) != file.SHA256 {
+			return Config{}, errors.New("signed controller sidecar digest or name is invalid")
+		}
+	}
+	secretFiles := make(map[string]struct{}, len(manifest.Secrets))
+	for _, reference := range manifest.Secrets {
+		if reference.Purpose == bootstrap.SecretRegionalShared ||
+			reference.Purpose == bootstrap.SecretHostIssuer ||
+			reference.Purpose == bootstrap.SecretController && reference.Slot == manifest.Slot ||
+			(reference.Purpose == bootstrap.SecretSeedFounder || reference.Purpose == bootstrap.SecretSeedLedgerSigner) &&
+				manifest.Slot == manifest.SeedSlot {
+			secretFiles[reference.TargetFile] = struct{}{}
+		}
+	}
+	paths := []string{cfg.NATS.CredentialsFile, cfg.NATS.TLS.CAFile, cfg.NATS.TLS.CertFile,
+		cfg.NATS.TLS.KeyFile, cfg.NATS.Embedded.TLS.CAFile, cfg.NATS.Embedded.TLS.CertFile,
+		cfg.NATS.Embedded.TLS.KeyFile, cfg.NATS.Embedded.RouteTLS.CAFile,
+		cfg.NATS.Embedded.RouteTLS.CertFile, cfg.NATS.Embedded.RouteTLS.KeyFile,
+		cfg.NATS.Embedded.RoutePasswordFile, cfg.NATS.Embedded.OperatorJWTFile,
+		cfg.NATS.Embedded.SystemJWTFile, cfg.NATS.Embedded.CellJWTFile,
+		cfg.NATS.Embedded.SystemCredentialsFile, cfg.NATS.Embedded.TicketPublicKeyFile,
+		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile,
+		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
+		cfg.Controller.HostTLSIssuerCertFile}
+	for _, path := range paths {
+		name := filepath.Base(path)
+		if path == "" || path != filepath.Join(bootstrapstart.MaterialDirectory, name) {
+			return Config{}, errors.New("controller credential path escapes the signed material directory")
+		}
+		if _, exists := secretFiles[name]; !exists {
+			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
+		}
+	}
+	if cfg.Controller.ResponseKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, manifest.Slot+"-response.key") ||
+		cfg.Controller.BrokerTicketKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, "ticket.key") ||
+		cfg.Controller.HostNATSIssuerSeedFile != filepath.Join(bootstrapstart.MaterialDirectory, "host-nats-issuer.seed") ||
+		cfg.Controller.HostTLSIssuerKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, "host-tls-issuer-key.pem") ||
+		cfg.Controller.HostTLSIssuerCertFile != filepath.Join(bootstrapstart.MaterialDirectory, "host-tls-issuer-cert.pem") {
+		return Config{}, errors.New("controller response or broker-ticket key does not match the slot")
+	}
+	intent, err := oci.ParseRegionIntent(manifest.ControllerFiles[0].Bytes)
+	if err != nil || intent.Generation != manifest.IntentGeneration ||
+		manifest.ControllerFiles[0].SHA256 != manifest.IntentSHA256 {
+		return Config{}, errors.New("controller regional intent differs from signed anchor pin")
+	}
+	region, err := oci.ParseRegionConfig(manifest.ControllerFiles[1].Bytes)
+	if err != nil || region.Validate(intent) != nil || region.Region != manifest.Cell {
+		return Config{}, errors.New("controller fleet config differs from signed region")
+	}
+	var placement managedPlacementSettings
+	if err := protocol.DecodeStrict(manifest.ControllerFiles[2].Bytes, &placement, bootstrap.MaxControllerSidecarBytes); err != nil ||
+		placement.Environment != manifest.Environment || placement.MemberRole == "" ||
+		placement.TickMillis < 0 || placement.TickMillis > 300_000 ||
+		placement.TickMillis > 0 && placement.TickMillis < 100 {
+		return Config{}, errors.New("controller placement config differs from signed environment")
+	}
+	return cfg, nil
+}
+
+func controllerSidecarPath(name string) string {
+	return filepath.Join(controllerConfigDirectory, name)
+}
+
+func controllerSHA256(wire []byte) string {
+	sum := sha256.Sum256(wire)
+	return hex.EncodeToString(sum[:])
+}

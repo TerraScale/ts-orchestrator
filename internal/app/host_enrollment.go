@@ -111,13 +111,32 @@ type hostRegistrationResponse struct {
 
 // All controllers observe the request. Only the current leader replies; a
 // follower cannot cause a fast false failure in a replicated regional cell.
-func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy, fencer authority.Fencer, controller *host.Controller) (*nats.Subscription, error) {
+func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy,
+	fencer authority.Fencer, controller *host.Controller, managed *managedHostEnrollment,
+) (*nats.Subscription, error) {
 	return conn.Subscribe(hostRegistrationSubject(cell), func(message *nats.Msg) {
 		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxRegistrationWireBytes || !fencer.Current().CanMutate() {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
+		var envelope protocol.Envelope
+		if err := protocol.DecodeStrict(message.Data, &envelope, maxRegistrationWireBytes); err == nil &&
+			envelope.Kind == "host.enrollment.revoke" {
+			receipt, err := verifyAndRevokeHostEnrollment(requestCtx, message.Data, cell, policy, managed)
+			if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
+				return
+			}
+			reply := hostEnrollmentRevokeReply{Receipt: receipt}
+			if err != nil {
+				reply.Receipt = hostEnrollmentRevokeReceipt{}
+				reply.Error = err.Error()
+			}
+			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
+				_ = message.Respond(wire)
+			}
+			return
+		}
 		receipt, err := verifyAndRegister(requestCtx, message.Data, cell, policy, fencer, controller)
 		if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrNotLeader) || !fencer.Current().CanMutate() {
 			return

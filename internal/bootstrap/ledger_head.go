@@ -888,7 +888,8 @@ func (ledger *Ledger) RecordExternalSeed(
 		return SlotState{}, ErrExternalSeedMode
 	}
 	if state.Head.ResultDigest != "" {
-		if state.Head.ResultDigest == objectDigest(resultBytes) && state.ResultRecord != nil &&
+		if state.HeadRecord.SHA256 == objectDigest(headWithResultBytes) &&
+			state.Head.ResultDigest == objectDigest(resultBytes) && state.ResultRecord != nil &&
 			state.ResultRecord.SHA256 == objectDigest(resultBytes) && state.ManifestRecord != nil &&
 			state.ManifestRecord.SHA256 == objectDigest(manifestBytes) && state.SeedReceiptRecord != nil &&
 			state.SeedReceiptRecord.SHA256 == objectDigest(receiptBytes) {
@@ -1071,6 +1072,38 @@ func (ledger *Ledger) RecordExternalSeed(
 		return SlotState{}, err
 	}
 	return ledger.ReadSlot(ctx, scope)
+}
+
+// ExternalSeedProgress reads the immutable proof keys for one unfinished
+// external seed. It reports only exact bytes; a different existing object is
+// a conflict. A caller may use ResultStored to reconcile an old observation,
+// but this read grants no authority to create a new result or advance HEAD.
+func (ledger *Ledger) ExternalSeedProgress(ctx context.Context, scope BootstrapScope,
+	manifestBytes, receiptBytes, resultBytes []byte,
+) (manifestStored, receiptStored, resultStored bool, err error) {
+	state, err := ledger.ReadSlot(ctx, scope)
+	if err != nil {
+		return false, false, false, err
+	}
+	if state.Intent.Mode != IntentModeExternalSeed || state.Head.ResultDigest != "" {
+		return false, false, false, ErrExternalSeedMode
+	}
+	_, manifestStored, err = ledger.readExistingExact(ctx, scope, state.Head.Attempt, ledgerManifest, manifestBytes)
+	if err != nil {
+		return false, false, false, err
+	}
+	_, receiptStored, err = ledger.readExistingExact(ctx, scope, state.Head.Attempt, ledgerSeedReceipt, receiptBytes)
+	if err != nil {
+		return false, false, false, err
+	}
+	_, resultStored, err = ledger.readExistingExact(ctx, scope, state.Head.Attempt, ledgerResult, resultBytes)
+	if err != nil {
+		return false, false, false, err
+	}
+	if resultStored && (!manifestStored || !receiptStored) {
+		return false, false, false, ErrRecordAuthorization
+	}
+	return manifestStored, receiptStored, resultStored, nil
 }
 
 // RecordManagedPeer stores the root-authorized manifest and its delegated peer
@@ -2418,6 +2451,10 @@ func validateResultForIntent(result Result, intent Intent, intentDigest string) 
 	return nil
 }
 
+// ExternalSeedObservationMaxAge allows time to carry the exact observed seed
+// identity through offline signing while bounding its first durable result.
+const ExternalSeedObservationMaxAge = 15 * time.Minute
+
 func validateResultClock(result Result, stored StoredRecord, tolerance time.Duration) error {
 	if err := CheckRetryWindow(stored); err != nil && !errors.Is(err, ErrRetryWindowExpired) {
 		return err
@@ -2436,7 +2473,7 @@ func validateResultClock(result Result, stored StoredRecord, tolerance time.Dura
 	if delta < 0 {
 		delta = -delta
 	}
-	if delta > tolerance+time.Second {
+	if delta > ExternalSeedObservationMaxAge+tolerance+time.Second {
 		return ErrInvalidRetryClock
 	}
 	return nil

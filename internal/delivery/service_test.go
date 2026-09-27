@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 type testCodec struct{}
@@ -989,7 +990,16 @@ func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = controller.Register(ctx, host.Registration{Cell: "lab", Node: "node-one", Environment: "production", Roles: []string{"worker"}, PublicKey: base64.StdEncoding.EncodeToString(pub), Generation: 1})
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	userPublic, err := user.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = controller.Register(ctx, host.Registration{Cell: "lab", Node: "node-one", Environment: "production", Roles: []string{"worker"}, PublicKey: base64.StdEncoding.EncodeToString(pub), NATSUserPublicKey: userPublic, Generation: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

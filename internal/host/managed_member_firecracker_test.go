@@ -158,7 +158,7 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		Owner: "terrascale", FleetGeneration: 1, CreateKey: cfg.Node}
 	registration := Registration{Cell: "gru", Node: cfg.Node, Environment: "production",
 		FailureDomain: cfg.FailureDomain, Roles: []string{"terrabase"},
-		PublicKey: base64.StdEncoding.EncodeToString(public), Generation: 1,
+		PublicKey: base64.StdEncoding.EncodeToString(public), NATSUserPublicKey: testNATSUserKey(cfg.Node), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 4 << 30}, SystemReserveBytes: int64(cfg.SystemReserveBytes),
 		ManagedPlacement: &placement, ManagedOCI: &oci, ManagedMember: &cfg.Member}
 	launch := ManagedMemberLaunch{OCI: oci, Member: cfg.Member, Authority: cfg.Authority,
@@ -210,7 +210,7 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })
-	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: cfg.Node, Environment: "production", Roles: []string{"terrabase"},
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey(cfg.Node), Cell: "gru", Node: cfg.Node, Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
 		InstallRoot: filepath.Join(stateRoot, "install"), StateRoot: filepath.Join(stateRoot, "state"),
 		ManagedRuntimeRoot: "/srv/ts-managed", BakedSystemReserveBytes: cfg.SystemReserveBytes,

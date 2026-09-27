@@ -3,6 +3,7 @@ package bootstrapstart
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -82,5 +83,25 @@ func TestObserveRejectsMismatchedCloudInstanceAndPrimaryVNIC(t *testing.T) {
 				t.Fatalf("mismatched %s accepted: %v", name, err)
 			}
 		})
+	}
+}
+
+func TestExpectedMaterialsIncludesRegionalHostIssuerForSeedAndPeer(t *testing.T) {
+	manifest := bootstrap.Manifest{SeedSlot: "controller-a", Secrets: []bootstrap.SecretReference{
+		{Purpose: bootstrap.SecretRegionalShared, TargetFile: "ca.pem", SHA256: "regional"},
+		{Purpose: bootstrap.SecretHostIssuer, TargetFile: "host-nats-issuer.seed", SHA256: "issuer"},
+		{Purpose: bootstrap.SecretController, Slot: "controller-a", TargetFile: "controller-a.creds", SHA256: "seed"},
+		{Purpose: bootstrap.SecretController, Slot: "controller-b", TargetFile: "controller-b.creds", SHA256: "peer"},
+		{Purpose: bootstrap.SecretSeedFounder, Slot: "controller-a", TargetFile: "founder.key", SHA256: "founder"},
+	}}
+	seed := map[string]string{"ca.pem": "regional", "host-nats-issuer.seed": "issuer",
+		"controller-a.creds": "seed", "founder.key": "founder"}
+	peer := map[string]string{"ca.pem": "regional", "host-nats-issuer.seed": "issuer",
+		"controller-b.creds": "peer"}
+	if got := expectedMaterials(manifest, "controller-a"); !maps.Equal(got, seed) {
+		t.Fatalf("seed expected material = %v", got)
+	}
+	if got := expectedMaterials(manifest, "controller-b"); !maps.Equal(got, peer) {
+		t.Fatalf("peer expected material = %v", got)
 	}
 }

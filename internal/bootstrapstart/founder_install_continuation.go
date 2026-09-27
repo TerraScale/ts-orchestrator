@@ -19,7 +19,7 @@ var ErrFounderInstallContinuation = errors.New("current founder install continua
 // Vault capability.
 type FounderInstallContinuation struct {
 	reader          *CurrentFounderAuthorityReader
-	credentialBound func(map[string]string) (CredentialBound, error)
+	credentialBound func(AcceptedInstall, bootstrap.SlotState) (CredentialBound, error)
 	now             func() time.Time
 }
 
@@ -35,7 +35,33 @@ func NewOCIFounderInstallContinuation(baked BakedInputs, accepted AcceptedInstal
 		return nil, err
 	}
 	return &FounderInstallContinuation{reader: reader,
-		credentialBound: credentials.CurrentCredentialBound, now: time.Now}, nil
+		credentialBound: func(marker AcceptedInstall, state bootstrap.SlotState) (CredentialBound, error) {
+			manifest, err := pinnedCredentialManifest(marker, state)
+			if err != nil {
+				return CredentialBound{}, err
+			}
+			return credentials.CurrentCredentialBound(marker.MaterialSHA256, manifest)
+		}, now: time.Now}, nil
+}
+
+func pinnedCredentialManifest(marker AcceptedInstall, state bootstrap.SlotState) (bootstrap.Manifest, error) {
+	// Gate authenticated this manifest at installation. The root-owned marker
+	// pins its exact envelope bytes across historical restart and continuation.
+	if state.ManifestRecord == nil || len(state.ManifestRecord.Bytes) == 0 ||
+		state.ManifestRecord.SHA256 != marker.ManifestSHA256 ||
+		digestWire(state.ManifestRecord.Bytes) != marker.ManifestSHA256 {
+		return bootstrap.Manifest{}, ErrFounderInstallContinuation
+	}
+	envelope, err := trust.DecodeEnvelope(state.ManifestRecord.Bytes)
+	if err != nil {
+		return bootstrap.Manifest{}, ErrFounderInstallContinuation
+	}
+	var manifest bootstrap.Manifest
+	if err := protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil ||
+		manifest.Slot != marker.Slot || manifest.SeedSlot != marker.SeedSlot {
+		return bootstrap.Manifest{}, ErrFounderInstallContinuation
+	}
+	return manifest, nil
 }
 
 func (checker *FounderInstallContinuation) VerifyCurrentContinuation(ctx context.Context,
@@ -48,7 +74,7 @@ func (checker *FounderInstallContinuation) VerifyCurrentContinuation(ctx context
 	if err := checker.checkHistoricalBindings(marker, observed, state); err != nil {
 		return err
 	}
-	bound, err := checker.credentialBound(marker.MaterialSHA256)
+	bound, err := checker.credentialBound(marker, state)
 	if err != nil || !validFounderDigest(bound.SHA256) || bound.ValidUntil.IsZero() {
 		return fmt.Errorf("%w: live credential inventory: %v", ErrFounderInstallContinuation, err)
 	}
@@ -94,7 +120,7 @@ func (checker *FounderInstallContinuation) VerifyCurrentContinuation(ctx context
 	if err := checker.reader.floor.Observe(selected.selection.Generation, selected.selectionSHA256); err != nil {
 		return fmt.Errorf("%w: observe selector floor: %v", ErrFounderInstallContinuation, err)
 	}
-	finalBound, err := checker.credentialBound(marker.MaterialSHA256)
+	finalBound, err := checker.credentialBound(marker, state)
 	if err != nil || finalBound != bound || ctx.Err() != nil {
 		return ErrFounderInstallContinuation
 	}

@@ -2,6 +2,8 @@ package bootstrapstart
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -239,11 +242,22 @@ func founderLaunchCandidateMatches(instance core.Instance, row bootstrap.Founder
 
 func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest) (core.LaunchInstanceRequest, error) {
 	row := request.Row
+	manifestHash := sha256.Sum256(request.ManifestWire)
+	manifestEnvelope, manifestErr := trust.DecodeEnvelope(request.ManifestWire)
+	var manifest bootstrap.Manifest
+	if manifestErr == nil {
+		manifest, manifestErr = bootstrap.ManifestPayload(manifestEnvelope.Payload)
+	}
 	vpus, ok := row.BootVolumeTier.VPUsPerGB()
 	if !ok || vpus != 10 || row.Slot != request.Slot || row.WholeOCPUs == 0 ||
 		row.MemoryInGB == 0 || row.BootVolumeGB < founderMinBootVolumeGB ||
 		row.BootVolumeGB > founderMaxBootVolumeGB || request.RetryToken == "" ||
-		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 {
+		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 ||
+		len(request.ManifestWire) == 0 || len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
+		hex.EncodeToString(manifestHash[:]) != request.ManifestSHA256 || manifestErr != nil ||
+		manifest.Slot != request.Slot || manifest.DeploymentID != request.DeploymentID ||
+		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
+		manifest.ImageOCID != row.ImageOCID {
 		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
 	descriptor, err := protocol.EncodeJSON(Descriptor{SchemaVersion: 1, Slot: request.Slot})
@@ -256,7 +270,10 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest) (core.L
 			AvailabilityDomain: new(row.AvailabilityDomain), CompartmentId: new(row.CompartmentOCID),
 			FaultDomain: new(row.FaultDomain), Shape: new(row.Shape),
 			DisplayName: new(request.Slot),
-			Metadata:    map[string]string{"terrascale-bootstrap": string(descriptor)},
+			Metadata: map[string]string{
+				"terrascale-bootstrap":              string(descriptor),
+				"terrascale-controller-manifest-v1": string(request.ManifestWire),
+			},
 			ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 				Ocpus: new(float32(row.WholeOCPUs)), MemoryInGBs: new(float32(row.MemoryInGB)),
 			},

@@ -544,8 +544,12 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	req.Envelope = envelope
-	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.Node, req.Operation)
+	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.NATSUserPublicKey, req.Operation)
 	if err != nil || expectedSubject != msg.Subject || envelope.Actor != req.Node || envelope.Kind != "host."+req.Operation {
+		return
+	}
+	registration, err := c.registration(ctx, req.Node)
+	if err != nil || registration.NATSUserPublicKey != req.NATSUserPublicKey {
 		return
 	}
 	result := response{Nonce: req.Nonce, Node: req.Node, SessionID: req.SessionID, Epoch: req.Epoch, Operation: req.Operation}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 	"uuid"
 
@@ -21,9 +22,28 @@ import (
 
 var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
+type operatorForwardFlags map[string]string
+
+func (*operatorForwardFlags) String() string { return "" }
+
+func (forwards *operatorForwardFlags) Set(value string) error {
+	original, destination, ok := strings.Cut(value, "=")
+	if !ok || original == "" || destination == "" || strings.Contains(destination, "=") {
+		return errors.New("--nats-forward requires PRIVATE_IP:4222=LOOPBACK_IP:PORT")
+	}
+	if *forwards == nil {
+		*forwards = make(operatorForwardFlags)
+	}
+	if _, duplicate := (*forwards)[original]; duplicate {
+		return errors.New("duplicate --nats-forward controller")
+	}
+	(*forwards)[original] = destination
+	return nil
+}
+
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|material-prepare|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|placement-apply|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -37,9 +57,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	environment := flags.String("environment", "", "artifact environment")
 	intentPath := flags.String("intent", "", "JSON delivery intent")
 	registrationPath := flags.String("registration", "", "JSON host registration")
+	instanceID := flags.String("instance-id", "", "managed OCI host instance ID")
 	operationID := flags.String("operation-id", "", "delivery operation ID")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
+	var forwards operatorForwardFlags
+	flags.Var(&forwards, "nats-forward", "transient PRIVATE_IP:4222=LOOPBACK_IP:PORT Bastion forward (repeatable)")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -49,6 +72,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		return err
+	}
+	if len(forwards) != 0 {
+		if cfg.NATS.ClientRole != "operator" {
+			return errors.New("NATS forwarding requires the operator role config")
+		}
+		cfg.NATS.OperatorForward = forwards
 	}
 	connection := cfg.NATS
 	connection.ClientRole = "operator"
@@ -74,6 +103,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("host-register requires --registration FILE")
 		}
 		return operatorHostRegister(ctx, cfg, runtime, *registrationPath, output)
+	case "host-enrollment-revoke":
+		return operatorHostEnrollmentRevoke(ctx, cfg, runtime, *instanceID, output)
 	case "placement-apply":
 		if *intentPath == "" {
 			return errors.New("placement-apply requires --intent FILE")

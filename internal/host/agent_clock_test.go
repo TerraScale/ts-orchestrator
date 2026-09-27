@@ -40,7 +40,7 @@ func TestHostClockRejectsStartupAndSession(t *testing.T) {
 	c, conn, _, _, responseKey := testController(t)
 	hostKey := registerTestHost(t, c)
 	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Role: "terrabase", Running: true}}}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error { return errors.New("clock unsynchronized") },
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return errors.New("clock unsynchronized") },
 		WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey), Runner: runner,
 		InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
@@ -75,7 +75,7 @@ func TestPartitionedHostFencesOnClockLossOrMonotonicExpiry(t *testing.T) {
 			}
 			var badClock atomic.Bool
 			runner := &memoryRunner{observed: make(map[string]Observation)}
-			agent, err := NewAgent(AgentConfig{ClockCheck: func() error {
+			agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error {
 				if badClock.Load() {
 					return errors.New("clock unsynchronized")
 				}
@@ -157,7 +157,7 @@ func TestClockRecheckBlocksNativeApply(t *testing.T) {
 	var checks atomic.Int32
 	var enforce atomic.Bool
 	runner := &memoryRunner{observed: make(map[string]Observation)}
-	agent, err := NewAgent(AgentConfig{ClockCheck: func() error {
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error {
 		if enforce.Load() && checks.Add(1) >= 2 {
 			return errors.New("clock unsynchronized before apply")
 		}
@@ -205,7 +205,7 @@ func TestBlockedRenewalClockWatchdogStopsOnce(t *testing.T) {
 			release := func() { releaseOnce.Do(func() { close(releaseClose) }) }
 			t.Cleanup(release)
 			runner := &clockCloseRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}, entered: make(chan struct{}), release: releaseClose}
-			agent, err := NewAgent(AgentConfig{ClockCheck: func() error {
+			agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error {
 				if badClock.Load() {
 					return errors.New("clock unsynchronized")
 				}
@@ -230,7 +230,7 @@ func TestBlockedRenewalClockWatchdogStopsOnce(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("controller did not stop")
 			}
-			subject, err := protocol.AgentObservationSubject("gru", "node-a", "session")
+			subject, err := protocol.AgentObservationSubject("gru", testNATSUserKey("node-a"), "session")
 			if err != nil {
 				t.Fatal(err)
 			}

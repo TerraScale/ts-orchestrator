@@ -140,7 +140,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	})
 	registration := host.Registration{Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
+		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20}}
 	registrationPath := testJSONFile(t, root, "registration.json", registration)
 	if _, err := callR3Operator(ctx, operatorConfig, "host-register", "--registration", registrationPath); err != nil {
@@ -179,7 +179,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		}
 	}
 	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: agentRunner,
+		Conn: hostRuntime.Conn(), Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: agentRunner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
 		ClockCheck: controllerClockCheck(clock), SessionTrace: production && blackhole})
 	if err != nil {

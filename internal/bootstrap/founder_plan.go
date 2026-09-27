@@ -155,6 +155,7 @@ type VerifiedCompletedFounderPlan struct {
 type VerifiedFounderPeer struct {
 	row            FounderPeerRow
 	manifest       VerifiedManifest
+	manifestWire   []byte
 	launch         LaunchAuthorization
 	recovery       *ManagedPeerRecoveryAuthorization
 	planDigest     string
@@ -177,6 +178,7 @@ type FounderPeerLaunchRequest struct {
 	FounderPlanSHA256 string
 	PeerRowSHA256     string
 	ManifestSHA256    string
+	ManifestWire      []byte
 	CreateKey         string
 	RetryToken        string
 	HeadETag          string
@@ -664,7 +666,7 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 		return VerifiedFounderPeer{}, ErrFounderPlanExpired
 	}
 	return VerifiedFounderPeer{
-		row: cloneFounderPeerRow(row), manifest: manifest, launch: launch,
+		row: cloneFounderPeerRow(row), manifest: manifest, manifestWire: bytes.Clone(current.manifestWires[slot]), launch: launch,
 		planDigest: current.digest, rowDigest: rowDigest, effectDeadline: deadline, verified: true,
 	}, nil
 }
@@ -840,7 +842,7 @@ func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
 	recoveryCopy := recovery
 	recoveryCopy.state = cloneSlotState(state)
 	return VerifiedFounderPeer{
-		row: cloneFounderPeerRow(row), manifest: manifest, launch: launch,
+		row: cloneFounderPeerRow(row), manifest: manifest, manifestWire: bytes.Clone(current.manifestWires[slot]), launch: launch,
 		recovery: &recoveryCopy, planDigest: current.digest, rowDigest: rowDigest,
 		effectDeadline: deadline, verified: true,
 	}, nil
@@ -947,7 +949,8 @@ func (verified VerifiedFounderPeer) launchRequest() FounderPeerLaunchRequest {
 		Slot: intent.Slot, Node: intent.Node, Attempt: intent.Attempt, Generation: intent.Generation,
 		IntentSHA256: verified.launch.intentRecord.SHA256, FounderPlanSHA256: verified.planDigest,
 		PeerRowSHA256: verified.rowDigest, ManifestSHA256: verified.row.ManifestSHA256,
-		CreateKey: intent.CreateKey, RetryToken: intent.RetryToken, HeadETag: verified.launch.headRecord.ETag,
+		ManifestWire: bytes.Clone(verified.manifestWire),
+		CreateKey:    intent.CreateKey, RetryToken: intent.RetryToken, HeadETag: verified.launch.headRecord.ETag,
 		Row: cloneFounderPeerRow(verified.row),
 	}
 }

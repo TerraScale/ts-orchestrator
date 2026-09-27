@@ -65,7 +65,8 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	if details.DisplayName == nil || *details.DisplayName != config.Owner+"-"+request.Node ||
 		details.CreateVnicDetails == nil || details.CreateVnicDetails.AssignPublicIp == nil ||
 		*details.CreateVnicDetails.AssignPublicIp || details.CreateVnicDetails.PrivateIp == nil ||
-		*details.CreateVnicDetails.PrivateIp != request.PrivateIP {
+		*details.CreateVnicDetails.PrivateIp != request.PrivateIP ||
+		details.CreateVnicDetails.SkipSourceDestCheck == nil || *details.CreateVnicDetails.SkipSourceDestCheck {
 		t.Fatalf("launch lost the bounded display name or private-only VNIC: %+v", details)
 	}
 	imageDetails, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
@@ -132,6 +133,11 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 		t.Fatalf("costed boot tier drift was accepted: %v", err)
 	}
 	reader.boot.VpusPerGB = new(int64(10))
+	reader.vnic.SkipSourceDestCheck = new(true)
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+		t.Fatalf("VNIC without source/destination checks was accepted: %v", err)
+	}
+	reader.vnic.SkipSourceDestCheck = new(false)
 	reader.vnic.PublicIp = new("203.0.113.5")
 	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("public VNIC was accepted: %v", err)

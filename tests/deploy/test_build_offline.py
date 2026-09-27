@@ -1,3 +1,5 @@
+import base64
+import binascii
 import json
 import hashlib
 import importlib.util
@@ -28,6 +30,7 @@ TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/te
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
 RUNTIME_PRIORITY_HELPER_GUEST = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
 NATIVE_VERIFIER_GUEST = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
+HOST_ENROLLMENT_GUEST = "/etc/terrascale-orchestrator/host-enrollment-public.json"
 RUNTIME_PRIORITY_DROPINS = (
     "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
@@ -97,6 +100,26 @@ class BuildOfflineTests(unittest.TestCase):
         self.virt_runtime_profile_bytes = self.root / "virt-runtime-priority-profile.json"
         self.virt_runtime_helper_bytes = self.root / "virt-runtime-priority-helper.py"
         self.virt_native_verifier_bytes = self.root / "virt-native-verifier.bin"
+        self.virt_host_enrollment_bytes = self.root / "virt-host-enrollment.json"
+        account_raw = bytes([0]) + bytes(range(32))
+        account_raw += binascii.crc_hqx(account_raw, 0).to_bytes(2, "little")
+        # The builder checks PEM framing; the guest verifies X.509 CA semantics.
+        bundle = {
+            "schema_version": 1, "cell": "gru", "region": "GRU", "environment": "canary",
+            "controller_endpoints": [f"10.251.0.{number}:8443" for number in (11, 12, 13)],
+            "nats_urls": [f"tls://10.251.0.{number}:4222" for number in (11, 12, 13)],
+            "ca_pem": "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n",
+            "controller_response_public_key": base64.b64encode(bytes(range(32))).decode(),
+            "cell_account_nkey": base64.b32encode(account_raw).decode(),
+            "workload_uid": 2000, "workload_gid": 2000,
+            "install_root": "/var/lib/terrascale-orchestrator-host/install",
+            "state_root": "/var/lib/terrascale-orchestrator-host/state",
+            "managed_runtime_root": MANAGED_DIRECTORY,
+        }
+        self.host_bundle = self.write_file(
+            self.inputs / "host enrollment public.json", json.dumps(bundle, separators=(",", ":")).encode()
+        )
+        self.host_bundle_sha256 = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
         self.virt_runtime_artifacts = self.root / "virt-runtime-priority-artifacts"
         self.priority_inputs = {
             "--runtime-priority-profile-id": RUNTIME_PRIORITY_PROFILE_ID,
@@ -204,18 +227,26 @@ for index, argument in enumerate(arguments[:-1]):
             Path(os.environ["VIRT_RUNTIME_HELPER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
         if destination == os.environ["VIRT_NATIVE_VERIFIER_GUEST_PATH"]:
             Path(os.environ["VIRT_NATIVE_VERIFIER_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
+        if destination == os.environ["VIRT_HOST_ENROLLMENT_GUEST_PATH"]:
+            Path(os.environ["VIRT_HOST_ENROLLMENT_BYTES_PATH"]).write_bytes(Path(source).read_bytes())
 """,
         )
         write_executable(
             self.shims / "virt-cat",
             """#!/usr/bin/env bash
 set -euo pipefail
-[[ $# == 3 && $1 == -a && $3 == "$VIRT_NATIVE_VERIFIER_GUEST_PATH" ]]
-if [[ ${VIRT_CORRUPT_NATIVE:-0} == 1 ]]; then
-  printf 'corrupt guest bytes'
-else
-  cat "$VIRT_NATIVE_VERIFIER_BYTES_PATH"
-fi
+[[ $# == 3 && $1 == -a ]]
+case "$3" in
+  "$VIRT_NATIVE_VERIFIER_GUEST_PATH")
+    if [[ ${VIRT_CORRUPT_NATIVE:-0} == 1 ]]; then
+      printf 'corrupt guest bytes'
+    else
+      cat "$VIRT_NATIVE_VERIFIER_BYTES_PATH"
+    fi
+    ;;
+  "$VIRT_HOST_ENROLLMENT_GUEST_PATH") cat "$VIRT_HOST_ENROLLMENT_BYTES_PATH" ;;
+  *) exit 2 ;;
+esac
 """,
         )
         self.release_tool = self.root / "release tool"
@@ -307,6 +338,8 @@ printf '{}\\n'
                 "VIRT_RUNTIME_HELPER_BYTES_PATH": str(self.virt_runtime_helper_bytes),
                 "VIRT_NATIVE_VERIFIER_BYTES_PATH": str(self.virt_native_verifier_bytes),
                 "VIRT_NATIVE_VERIFIER_GUEST_PATH": NATIVE_VERIFIER_GUEST,
+                "VIRT_HOST_ENROLLMENT_BYTES_PATH": str(self.virt_host_enrollment_bytes),
+                "VIRT_HOST_ENROLLMENT_GUEST_PATH": HOST_ENROLLMENT_GUEST,
                 "VIRT_RUNTIME_ARTIFACTS_PATH": str(self.virt_runtime_artifacts),
                 "VIRT_RUNTIME_DROPIN_PATHS": os.pathsep.join(RUNTIME_PRIORITY_DROPINS),
                 "VIRT_RUNTIME_PROFILE_GUEST_PATH": RUNTIME_PRIORITY_PROFILE_GUEST,
@@ -317,19 +350,23 @@ printf '{}\\n'
         environment.update(overrides)
         return environment
 
-    def run_builder(self, *, managed_workload_gid: str | None = None,
+    def run_builder(self, *, host_enrollment_public: Path | None = None,
+                    host_enrollment_public_sha256: str | None = None,
                     native_verifier_binary: Path | None = None,
                     native_verifier_sha256: str | None = None,
                     **environment_overrides: str) -> subprocess.CompletedProcess[str]:
         return self.run_builder_with_roots(
-            [self.bootstrap_root_a, self.bootstrap_root_b], managed_workload_gid=managed_workload_gid,
+            [self.bootstrap_root_a, self.bootstrap_root_b],
+            host_enrollment_public=host_enrollment_public,
+            host_enrollment_public_sha256=host_enrollment_public_sha256,
             native_verifier_binary=native_verifier_binary,
             native_verifier_sha256=native_verifier_sha256,
             **environment_overrides
         )
 
     def run_builder_with_roots(
-        self, bootstrap_roots: list[Path], *, managed_workload_gid: str | None = None,
+        self, bootstrap_roots: list[Path], *, host_enrollment_public: Path | None = None,
+        host_enrollment_public_sha256: str | None = None,
         native_verifier_binary: Path | None = None,
         native_verifier_sha256: str | None = None,
         **environment_overrides: str
@@ -369,8 +406,10 @@ printf '{}\\n'
             arguments.extend((flag, value))
         for bootstrap_root in bootstrap_roots:
             arguments.extend(("--bootstrap-root", str(bootstrap_root)))
-        if managed_workload_gid is not None:
-            arguments.extend(("--managed-workload-gid", managed_workload_gid))
+        if host_enrollment_public is not None:
+            arguments.extend(("--host-enrollment-public", str(host_enrollment_public)))
+        if host_enrollment_public_sha256 is not None:
+            arguments.extend(("--host-enrollment-public-sha256", host_enrollment_public_sha256))
         arguments.extend(("--out", str(self.output)))
         return subprocess.run(
             arguments,
@@ -748,7 +787,7 @@ printf '{}\\n'
         self.assertIsNone(revision)
         self.assertEqual(unit_directory, Path("/etc/systemd/system"))
 
-    def test_managed_root_is_opt_in_and_matches_shipped_host_namespace(self) -> None:
+    def test_host_bundle_provisions_fixed_managed_root_and_setup_units(self) -> None:
         host_unit = (ROOT / "deploy/systemd/terrascale-orchestrator-host.service").read_text(encoding="utf-8")
         self.assertIn("ProtectSystem=strict\n", host_unit)
         self.assertIn(f"ReadWritePaths=-{MANAGED_DIRECTORY}\n", host_unit)
@@ -763,27 +802,41 @@ printf '{}\\n'
 
         self.output.unlink()
         self.virt_arguments.unlink()
-        result = self.run_builder(managed_workload_gid="65534")
+        result = self.run_builder(host_enrollment_public=self.host_bundle,
+                                  host_enrollment_public_sha256=self.host_bundle_sha256)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.virt_host_enrollment_bytes.read_bytes(), self.host_bundle.read_bytes())
         arguments = json.loads(self.virt_arguments.read_text(encoding="utf-8"))
         commands = [arguments[index + 1] for index, argument in enumerate(arguments[:-1])
                     if argument == "--run-command"]
-        managed = [command for command in commands if "install -d -o root -g 65534 -m 0750 /srv/ts-managed"
+        managed = [command for command in commands if "install -d -o root -g terrascale-workload -m 0750 /srv/ts-managed"
                    in command]
         self.assertEqual(len(managed), 1)
         self.assertIn("[ ! -L /srv ] && [ -d /srv ]", managed[0])
         self.assertIn("[ ! -e /srv/ts-managed ] && [ ! -L /srv/ts-managed ]", managed[0])
-        self.assertIn("'0:65534:750'", managed[0])
-        self.assertLess(commands.index(managed[0]), next(index for index, command in enumerate(commands)
-                                                 if "SYSTEMD_OFFLINE=1 systemctl enable" in command))
+        self.assertIn("'0:2000:750'", managed[0])
+        self.assertGreater(commands.index(managed[0]), next(index for index, command in enumerate(commands)
+                                                    if "systemd-sysusers" in command))
+        self.assertTrue(any("systemctl enable terrascale-orchestrator-host-setup.service "
+                            "terrascale-orchestrator-host-setup.timer" in command for command in commands))
+        uploads = [arguments[index + 1] for index, argument in enumerate(arguments[:-1])
+                   if argument == "--upload"]
+        self.assertTrue(any(upload.endswith(":" + HOST_ENROLLMENT_GUEST) for upload in uploads))
+        self.assertTrue(any(upload.endswith(":/etc/systemd/system/terrascale-orchestrator-host-setup.service")
+                            for upload in uploads))
+        self.assertTrue(any(upload.endswith(":/etc/systemd/system/terrascale-orchestrator-host-setup.timer")
+                            for upload in uploads))
 
-    def test_managed_workload_gid_rejects_unsafe_values_before_image_effects(self) -> None:
-        for value in ("0", "00", "065534", "-1", "abc", "4294967295", "4294967296"):
-            with self.subTest(gid=value):
-                result = self.run_builder(managed_workload_gid=value)
+    def test_host_bundle_requires_paired_digest_before_image_effects(self) -> None:
+        for inputs in (
+            {"host_enrollment_public": self.host_bundle},
+            {"host_enrollment_public_sha256": self.host_bundle_sha256},
+            {"host_enrollment_public": self.host_bundle,
+             "host_enrollment_public_sha256": "0" * 64},
+        ):
+            with self.subTest(inputs=inputs):
+                result = self.run_builder(**inputs)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("managed workload GID", result.stderr)
-                self.assertFalse(self.events.exists())
                 self.assertFalse(self.virt_arguments.exists())
                 self.assertFalse(self.output.exists())
 
@@ -1024,15 +1077,18 @@ printf '{}\\n'
             if line.strip() and not line.lstrip().startswith("#")
         ]
         users = [shlex.split(line) for line in sysusers_lines if line.startswith("u ")]
-        self.assertEqual(len(users), 1)
+        self.assertEqual(len(users), 2)
+        by_name = {entry[1]: entry for entry in users}
+        self.assertEqual(by_name["terrascale-workload"][2], "2000:2000")
+        self.assertIn("g terrascale-workload 2000", sysusers_lines)
 
         unit = (ROOT / "deploy/systemd/terrascale-orchestrator-controller.service").read_text(encoding="utf-8")
         unit_user = next(line.split("=", 1)[1] for line in unit.splitlines() if line.startswith("User="))
         unit_group = next(line.split("=", 1)[1] for line in unit.splitlines() if line.startswith("Group="))
-        self.assertEqual(users[0][1], "terrascale-orchestrator")
+        self.assertEqual(by_name["terrascale-orchestrator"][2], "-")
         self.assertEqual(unit_user, "terrascale-orchestrator")
         self.assertEqual(unit_group, "terrascale-orchestrator")
-        self.assertEqual(users[0][1], unit_user)
+        self.assertIn(unit_user, by_name)
         self.assertEqual(unit_user, unit_group)
 
 

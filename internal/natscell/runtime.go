@@ -4,10 +4,8 @@ package natscell
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -99,6 +97,9 @@ type Config struct {
 	CredentialsFile string    `json:"credentials_file"`
 	TLS             TLSFiles  `json:"tls"`
 	Embedded        *Embedded `json:"embedded"`
+	// OperatorForward is a transient CLI-only TCP route. Its keys remain the
+	// configured controller TLS identities; values are local Bastion forwards.
+	OperatorForward map[string]string `json:"-"`
 }
 
 // Runtime keeps the broker and client alive together. Closing it drains the
@@ -337,6 +338,15 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	go func() {
 		connectURL := cfg.URL
 		if !cfg.Lab && cfg.Embedded == nil {
+			if len(cfg.OperatorForward) != 0 {
+				selected, _, forwardErr := operatorForwarding(cfg)
+				if forwardErr != nil {
+					connectErr = forwardErr
+					close(connected)
+					return
+				}
+				connectURL = selected
+			}
 			connectURL = bridgeClientURLs(connectURL)
 		}
 		r.conn, connectErr = nats.Connect(connectURL, options...)
@@ -467,6 +477,11 @@ func (r *Runtime) peerCount() int {
 }
 
 func (cfg Config) validate() error {
+	if len(cfg.OperatorForward) != 0 {
+		if _, _, err := operatorForwarding(cfg); err != nil {
+			return err
+		}
+	}
 	if !cellName.MatchString(cfg.Cell) || !cellName.MatchString(cfg.Instance) {
 		return errors.New("cell and instance must be lowercase NATS tokens")
 	}
@@ -687,7 +702,16 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		if cfg.Lab {
 			options = append(options, nats.Secure(tlsConfig))
 		} else {
-			options = append(options, nats.SetCustomDialer(&tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}))
+			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+			if len(cfg.OperatorForward) != 0 {
+				_, destinations, err := operatorForwarding(cfg)
+				if err != nil {
+					return nil, err
+				}
+				dialer.forward = destinations
+				options = append(options, nats.IgnoreDiscoveredServers())
+			}
+			options = append(options, nats.SetCustomDialer(dialer))
 		}
 	}
 	return options, nil
@@ -706,9 +730,8 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 		if !cellName.MatchString(user.Node) {
 			return nil, errors.New("host NATS user needs a valid node identity")
 		}
-		sum := sha256.Sum256([]byte(user.Node))
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".agent." + hex.EncodeToString(sum[:]) + ".observation.*",
+			root + ".agent." + user.PublicKey + ".observation.*",
 		}}
 	case "controller":
 		if user.Node != "" {
@@ -725,7 +748,7 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			return nil, errors.New("operator NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
+			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", root + ".material.prepare", root + ".broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 			"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
 			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",

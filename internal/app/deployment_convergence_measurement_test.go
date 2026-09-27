@@ -128,7 +128,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
 	registration := host.Registration{
 		Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
+		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20},
 	}
 	registrationPath := testJSONFile(t, root, "registration.json", registration)
@@ -154,7 +154,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 	agent, err := host.NewAgent(host.AgentConfig{
 		WorkloadIdentity: testHostWorkloadIdentity(),
 		Cell:             "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
+		Conn: hostRuntime.Conn(), Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: runner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t),
 		PollInterval: convergencePollInterval, ClockCheck: controllerClockCheck(clock),
 	})

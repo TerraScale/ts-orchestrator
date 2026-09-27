@@ -660,12 +660,17 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
 	for _, test := range []struct {
-		name       string
-		change     func(*placementMemoryStore, *placementTestFleet, *placementTestHosts)
-		wantCreate bool
-		wantError  bool
+		name           string
+		change         func(*placementMemoryStore, *placementTestFleet, *placementTestHosts)
+		wantCreate     bool
+		wantVolumeCall bool
+		wantError      bool
 	}{
 		{name: "current exact host", wantCreate: true},
+		{name: "undersized observed volume", wantVolumeCall: true, wantError: true,
+			change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+				fleet.volumeResult.SizeGB = 1
+			}},
 		{name: "host missing", change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
 			fleet.instances = nil
 		}},
@@ -700,6 +705,7 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 			if test.change != nil {
 				test.change(store, fleet, hosts)
 			}
+			before := store.members[seat.MemberID].State
 			controller := startTestPlacementController(t, store, fleet, hosts, nil)
 			err := controller.Tick(t.Context())
 			if (err != nil) != test.wantError {
@@ -710,8 +716,14 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 				if fleet.volumeCalls != 1 || store.casCalls != 1 || state.VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
 					t.Fatalf("current host did not authorize exactly one retained volume: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
 				}
-			} else if fleet.volumeCalls != 0 || store.casCalls != 0 || state.Stage != StagePreparedVolume {
-				t.Fatalf("missing or drifted host allowed volume effect: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+			} else {
+				wantCalls := 0
+				if test.wantVolumeCall {
+					wantCalls = 1
+				}
+				if fleet.volumeCalls != wantCalls || store.casCalls != 0 || !reflect.DeepEqual(state, before) {
+					t.Fatalf("held volume altered durable placement: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+				}
 			}
 		})
 	}

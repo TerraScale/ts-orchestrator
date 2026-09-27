@@ -19,11 +19,16 @@ const (
 	founderTestBootID     = "ocid1.bootvolume.oc1.sa-saopaulo-1.peer"
 )
 
-func founderOCIRequestFixture() bootstrap.FounderPeerLaunchRequest {
+func founderOCIRequestFixture(t *testing.T) bootstrap.FounderPeerLaunchRequest {
+	t.Helper()
+	fixture := newFounderSelectionFixture(t)
+	manifestWire := fixture.manifests["controller-b"]
 	return bootstrap.FounderPeerLaunchRequest{
-		Cell: oci.RegionGRU, Slot: "controller-b", RetryToken: "fixed-original-token",
+		DeploymentID: "deployment-a", Cell: oci.RegionGRU, Environment: "production",
+		Slot: "controller-b", ManifestWire: manifestWire, ManifestSHA256: digestWire(manifestWire),
+		RetryToken: "fixed-original-token",
 		Row: bootstrap.FounderPeerRow{
-			Slot: "controller-b", ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.peer",
+			Slot: "controller-b", ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image",
 			ImageCompartmentOCID: "ocid1.compartment.oc1..images",
 			CompartmentOCID:      "ocid1.compartment.oc1..peers",
 			AvailabilityDomain:   "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-2",
@@ -40,7 +45,7 @@ func founderOCIRequestFixture() bootstrap.FounderPeerLaunchRequest {
 }
 
 func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	attempt := FounderOCIAttempt{request: request, deadline: time.Now().UTC().Add(time.Hour),
 		observationOnly: true, candidateID: founderTestInstanceID, valid: true}
 	adapter := &FounderOCI{region: oci.RegionGRU}
@@ -64,12 +69,12 @@ func (fake *lostResponseCompute) LaunchInstance(_ context.Context, request core.
 	}
 	return core.LaunchInstanceResponse{Instance: core.Instance{
 		Id: new(founderTestInstanceID), CompartmentId: request.CompartmentId,
-		ImageId: new(founderOCIRequestFixture().Row.ImageOCID),
+		ImageId: new("ocid1.image.oc1.sa-saopaulo-1.image"),
 	}}, nil
 }
 
 func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	sdk, err := founderLaunchSDKRequest(request)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +110,7 @@ func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T)
 }
 
 func TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	fake := new(lostResponseCompute)
 	for range 2 {
 		sdk, err := founderLaunchSDKRequest(request)
@@ -146,7 +151,7 @@ func TestFounderOCIBootVolumeLaunchSizeBounds(t *testing.T) {
 		{32768, true},
 		{32769, false},
 	} {
-		request := founderOCIRequestFixture()
+		request := founderOCIRequestFixture(t)
 		request.Row.BootVolumeGB = test.gigabytes
 		sdk, err := founderLaunchSDKRequest(request)
 		if test.valid {
@@ -164,7 +169,7 @@ func TestFounderOCIBootVolumeLaunchSizeBounds(t *testing.T) {
 }
 
 func TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	request.FounderPlanSHA256 = "plan-A"
 	request.IntentSHA256 = "original-intent"
 	now := time.Date(2026, time.September, 26, 7, 0, 0, 0, time.UTC)
@@ -196,7 +201,7 @@ func TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline(t *testing.T) 
 }
 
 func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	row := request.Row
 	descriptor := `{"schemaVersion":1,"slot":"controller-b"}`
 	instance := core.Instance{
@@ -320,7 +325,7 @@ func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
 }
 
 func TestFounderOCIUsesModernImageSourceAndRequiresPositiveProvenance(t *testing.T) {
-	row := founderOCIRequestFixture().Row
+	row := founderOCIRequestFixture(t).Row
 	instance := core.Instance{Id: new(founderTestInstanceID), CompartmentId: new(row.CompartmentOCID)}
 	if !founderLaunchCandidateMatches(instance, row) {
 		t.Fatal("launch response without deprecated image ID lost its exact candidate OCID")

@@ -600,7 +600,9 @@ type founderAdmissionLedger struct {
 
 type founderAdmissionCredentials struct{ calls int }
 
-func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string) error {
+func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string,
+	_ bootstrap.Manifest,
+) error {
 	checker.calls++
 	if len(expected) == 0 {
 		return ErrLiveCredentials
@@ -649,6 +651,9 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(markerDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	peerFloorDirectory := filepath.Join(t.TempDir(), "peer-floor")
 	if err := os.Mkdir(peerFloorDirectory, 0o700); err != nil {
 		t.Fatal(err)
@@ -665,8 +670,9 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 		serviceUID: serviceUID, serviceGID: serviceGID,
 		now: func() time.Time { return fixture.now }}
 	gate := Gate{Roots: fixture.baked.Roots, AnchorWire: fixture.baked.AnchorWire,
-		Expected:   fixture.baked.Identity.AnchorExpectation(),
-		Descriptor: fixedDescriptor{slot: row.Slot, instance: instanceID},
+		Expected:                     fixture.baked.Identity.AnchorExpectation(),
+		LoadedControllerConfigSHA256: testControllerConfigDigestFromManifestWire(t, fixture.current.ManifestWires[row.Slot]),
+		Descriptor:                   fixedDescriptor{slot: row.Slot, instance: instanceID},
 		Instances: fakeInstanceObserver{InstanceObservation{InstanceOCID: instanceID,
 			CompartmentOCID: row.CompartmentOCID, ImageOCID: row.ImageOCID,
 			AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain, Shape: row.Shape,

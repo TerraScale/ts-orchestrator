@@ -163,7 +163,8 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	slices.Sort(wantNSGs)
 	if stringValue(vnic.Id) != stringValue(attachments.Items[0].VnicId) ||
 		stringValue(vnic.SubnetId) != config.SubnetID ||
-		stringValue(vnic.PrivateIp) == "" || stringValue(vnic.PublicIp) != "" ||
+		!validManagedPrivateIP(stringValue(vnic.PrivateIp)) || stringValue(vnic.PublicIp) != "" ||
+		vnic.SkipSourceDestCheck != nil && *vnic.SkipSourceDestCheck ||
 		vnic.LifecycleState != core.VnicLifecycleStateAvailable ||
 		!slices.Equal(gotNSGs, wantNSGs) {
 		return "", fmt.Errorf("%w: instance VNIC differs from the private subnet and NSG pins", ErrForeignResource)
@@ -214,10 +215,11 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 			MemoryInGBs: new(float32(request.MemoryInGBs)),
 		},
 		CreateVnicDetails: &core.CreateVnicDetails{
-			SubnetId:       new(config.SubnetID),
-			PrivateIp:      new(request.PrivateIP),
-			NsgIds:         networkSecurityGroupIDs,
-			AssignPublicIp: new(false),
+			SubnetId:            new(config.SubnetID),
+			PrivateIp:           new(request.PrivateIP),
+			NsgIds:              networkSecurityGroupIDs,
+			AssignPublicIp:      new(false),
+			SkipSourceDestCheck: new(false),
 		},
 		LaunchOptions: &core.LaunchOptions{IsConsistentVolumeNamingEnabled: new(true)},
 		SourceDetails: core.InstanceSourceViaImageDetails{

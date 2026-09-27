@@ -14,7 +14,8 @@ usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE --qualificatio
   --host-memory-min-bytes BYTES --host-memory-low-bytes BYTES \
   --controller-memory-min-bytes BYTES --controller-memory-low-bytes BYTES \
   --system-slice-memory-min-bytes BYTES --system-slice-memory-low-bytes BYTES \
-  [--managed-workload-gid NONZERO_GID] --out QCOW2
+  [--host-enrollment-public FILE --host-enrollment-public-sha256 LOWERCASE_HEX] \
+  --out QCOW2
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
 It makes no OCI calls and installs no private keys or runtime secrets. The
@@ -26,14 +27,11 @@ The native verifier is the exact qualified TerraBase ARM64 tb-server artifact.
 Its SHA-256 must match the independently supplied artifact digest; the image
 installs it at the fixed managed-material verifier path. This digest is
 separate from the orchestrator binary receipt's BinarySHA256.
-The optional managed workload GID provisions /srv/ts-managed as root:GID 0750.
-It must match host.workload_gid when host.managed_runtime_root uses that path.
-For another managed root, omit --managed-workload-gid, provision root:GID 0750,
-and use a host-service systemd drop-in that resets the canonical exception:
-[Service]
-ReadWritePaths=
-ReadWritePaths=-/absolute/custom/root
-Install the drop-in before starting the host.
+The optional host enrollment bundle is public, reviewed by its exact SHA-256,
+and installed only in managed-host images with its setup service and timer.
+Host images reserve workload UID/GID 2000:2000, use separate install and state
+roots under /var/lib/terrascale-orchestrator-host, and provision /srv/ts-managed
+as root:2000 0750 for persistent member volumes.
 
 The runtime-priority memory-floor arguments have no defaults. Prefer values
 measured with the selected image and service configuration; if measurements
@@ -61,7 +59,8 @@ bootstrap_anchor=
 bootstrap_identity=
 bootstrap_roots=()
 timesyncd_config=
-managed_workload_gid=
+host_enrollment_public=
+host_enrollment_public_sha256=
 runtime_priority_profile_id=
 runtime_priority_system_reserve_bytes=
 host_memory_min_bytes=
@@ -94,7 +93,8 @@ while (($#)); do
 		--bootstrap-identity) bootstrap_identity=${2:?}; shift 2 ;;
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
-		--managed-workload-gid) managed_workload_gid=${2:?}; shift 2 ;;
+		--host-enrollment-public) host_enrollment_public=${2:?}; shift 2 ;;
+		--host-enrollment-public-sha256) host_enrollment_public_sha256=${2:?}; shift 2 ;;
 		--runtime-priority-profile-id) runtime_priority_profile_id=${2:?}; shift 2 ;;
 		--runtime-priority-system-reserve-bytes) runtime_priority_system_reserve_bytes=${2:?}; shift 2 ;;
 		--host-memory-min-bytes) host_memory_min_bytes=${2:?}; shift 2 ;;
@@ -131,19 +131,14 @@ if [[ ! $native_verifier_sha256 =~ ^[0-9a-f]{64}$ ]]; then
 	echo "native verifier SHA-256 must be 64 lowercase hex characters" >&2
 	exit 2
 fi
+if [[ -n "$host_enrollment_public" && ! $host_enrollment_public_sha256 =~ ^[0-9a-f]{64}$ ]] ||
+	[[ -z "$host_enrollment_public" && -n "$host_enrollment_public_sha256" ]]; then
+	echo "host enrollment public bundle requires a paired file and lowercase SHA-256" >&2
+	exit 2
+fi
 for command in cat cp ln mktemp python3 qemu-img realpath virt-cat virt-customize; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
-if [[ -n "$managed_workload_gid" ]]; then
-	python3 - "$managed_workload_gid" <<'PY'
-import re
-import sys
-
-value = sys.argv[1]
-if not re.fullmatch(r"[1-9][0-9]{0,9}", value) or int(value) >= 4294967295:
-	raise SystemExit("managed workload GID must be a canonical nonzero Linux GID")
-PY
-fi
 [[ -x "$release_tool" ]] || { echo "release tool must be executable" >&2; exit 1; }
 [[ -x "$bootstrap_tool" ]] || { echo "bootstrap tool must be executable" >&2; exit 1; }
 base=$(realpath -e -- "$base")
@@ -159,6 +154,10 @@ bootstrap_anchor=$(realpath -e -- "$bootstrap_anchor")
 bootstrap_identity=$(realpath -e -- "$bootstrap_identity")
 timesyncd_config=$(realpath -e -- "$timesyncd_config")
 release_tool=$(realpath -e -- "$release_tool")
+if [[ -n "$host_enrollment_public" ]]; then
+	host_enrollment_public=$(realpath -e -- "$host_enrollment_public")
+	[[ -f "$host_enrollment_public" ]] || { echo "host enrollment public bundle must be a regular file" >&2; exit 1; }
+fi
 [[ -f "$bootstrap_anchor" ]] || { echo "bootstrap anchor must be a regular file" >&2; exit 1; }
 [[ -f "$bootstrap_identity" ]] || { echo "bootstrap identity must be a regular file" >&2; exit 1; }
 [[ -f "$timesyncd_config" ]] || { echo "timesyncd config must be a regular file" >&2; exit 1; }
@@ -181,6 +180,7 @@ temporary_directory=$(mktemp -d "$output_parent/.ts-orchestrator-image.XXXXXX")
 cleanup() { rm -rf -- "$temporary_directory"; }
 trap cleanup EXIT
 timesyncd_config_image="$temporary_directory/timesyncd.conf"
+host_enrollment_public_image="$temporary_directory/host-enrollment-public.json"
 runtime_priority_root="$temporary_directory/runtime-priority"
 runtime_priority_profile="$temporary_directory/runtime-priority.json"
 python3 tests/runtime_priority/qualify.py render-drop-ins \
@@ -217,7 +217,7 @@ with profile_path.open("xb") as output:
 print(f"{profile_path} sha256={hashlib.sha256(encoded).hexdigest()}")
 PY
 
-python3 - \
+bootstrap_identity_cell=$(python3 - \
 	"$bootstrap_anchor" "$bootstrap_identity" "$environment" \
 	"$bootstrap_anchor_max_bytes" "$bootstrap_identity_max_bytes" \
 	"$bootstrap_root_max_bytes" "$bootstrap_roots_max_total_bytes" \
@@ -287,7 +287,38 @@ for root_path in root_paths:
 	total_root_bytes += root_bytes
 if total_root_bytes > roots_total_max_bytes:
 	raise SystemExit(f"bootstrap roots must total no more than {roots_total_max_bytes} bytes")
+print(identity["cell"])
 PY
+)
+
+host_setup_uploads=()
+if [[ -n "$host_enrollment_public" ]]; then
+	cp -- "$host_enrollment_public" "$host_enrollment_public_image"
+	python3 deploy/image/validate-host-enrollment-public.py \
+		"$host_enrollment_public_image" "$host_enrollment_public_sha256" \
+		"$environment" "$bootstrap_identity_cell"
+	python3 - "$host_enrollment_public_image" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+bundle = json.loads(Path(sys.argv[1]).read_bytes())
+fixed = {
+	"workload_uid": 2000,
+	"workload_gid": 2000,
+	"install_root": "/var/lib/terrascale-orchestrator-host/install",
+	"state_root": "/var/lib/terrascale-orchestrator-host/state",
+	"managed_runtime_root": "/srv/ts-managed",
+}
+if any(type(bundle[key]) is not type(value) or bundle[key] != value for key, value in fixed.items()):
+	raise SystemExit("host enrollment bundle differs from the fixed image workload identity or paths")
+PY
+	host_setup_uploads=(
+		--upload "$host_enrollment_public_image:/etc/terrascale-orchestrator/host-enrollment-public.json"
+		--upload deploy/systemd/terrascale-orchestrator-host-setup.service:/etc/systemd/system/terrascale-orchestrator-host-setup.service
+		--upload deploy/systemd/terrascale-orchestrator-host-setup.timer:/etc/systemd/system/terrascale-orchestrator-host-setup.timer
+	)
+fi
 
 python3 - "$timesyncd_config" "$timesyncd_config_max_bytes" "$timesyncd_config_image" <<'PY'
 import re
@@ -440,6 +471,11 @@ bootstrap_directory_setup=$(cat <<'COMMAND'
 set -eu
 install -d -o root -g root -m 0755 /etc/terrascale-orchestrator
 install -d -o root -g root -m 0755 /etc/terrascale-orchestrator/bootstrap/trust-roots
+[ ! -e /etc/terrascale-orchestrator/host-enrollment-public.json ] &&
+	[ ! -L /etc/terrascale-orchestrator/host-enrollment-public.json ] || {
+	echo 'base image has a conflicting host enrollment public bundle' >&2
+	exit 1
+}
 rm -f /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json
 find /etc/terrascale-orchestrator/bootstrap/trust-roots -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 COMMAND
@@ -573,7 +609,18 @@ COMMAND
 )
 bootstrap_permissions_setup=$(cat <<'COMMAND'
 set -eu
+if getent passwd 2000 >/dev/null || getent group 2000 >/dev/null ||
+	getent passwd terrascale-workload >/dev/null || getent group terrascale-workload >/dev/null; then
+	echo 'base image already uses the reserved managed workload UID, GID, or name' >&2
+	exit 1
+fi
 systemd-sysusers /etc/sysusers.d/terrascale-orchestrator.conf
+[ "$(id -u terrascale-workload)" = 2000 ] &&
+	[ "$(id -g terrascale-workload)" = 2000 ] &&
+	[ "$(getent group terrascale-workload | cut -d: -f3)" = 2000 ] || {
+	echo 'managed workload identity was not created as UID/GID 2000:2000' >&2
+	exit 1
+}
 chown root:root /etc/terrascale-orchestrator/bootstrap /etc/terrascale-orchestrator/bootstrap/trust-roots
 chmod 0755 /etc/terrascale-orchestrator/bootstrap /etc/terrascale-orchestrator/bootstrap/trust-roots
 chown root:root /etc/terrascale-orchestrator/bootstrap/anchor.json /etc/terrascale-orchestrator/bootstrap/identity.json /etc/terrascale-orchestrator/bootstrap/trust-roots/*.pem
@@ -603,6 +650,15 @@ chmod 0644 \
 	/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf
 chmod 0755 /usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py
 SYSTEMD_OFFLINE=1 systemctl enable systemd-timesyncd.service systemd-time-wait-sync.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service
+if [ -f /etc/terrascale-orchestrator/host-enrollment-public.json ]; then
+	chown root:root /etc/terrascale-orchestrator/host-enrollment-public.json \
+		/etc/systemd/system/terrascale-orchestrator-host-setup.service \
+		/etc/systemd/system/terrascale-orchestrator-host-setup.timer
+	chmod 0444 /etc/terrascale-orchestrator/host-enrollment-public.json
+	chmod 0644 /etc/systemd/system/terrascale-orchestrator-host-setup.service \
+		/etc/systemd/system/terrascale-orchestrator-host-setup.timer
+	SYSTEMD_OFFLINE=1 systemctl enable terrascale-orchestrator-host-setup.service terrascale-orchestrator-host-setup.timer
+fi
 for time_unit in systemd-timesyncd.service systemd-time-wait-sync.service; do
 	time_unit_state=$(SYSTEMD_OFFLINE=1 systemctl is-enabled "$time_unit") || {
 		echo "required time-sync unit is not enabled: $time_unit" >&2
@@ -616,7 +672,7 @@ done
 COMMAND
 )
 managed_root_commands=()
-if [[ -n "$managed_workload_gid" ]]; then
+if [[ -n "$host_enrollment_public" ]]; then
 	managed_root_setup=$(cat <<'COMMAND'
 set -eu
 [ ! -L /srv ] && [ -d /srv ] && [ "$(stat -c '%u:%g:%a' /srv)" = '0:0:755' ] || {
@@ -627,11 +683,10 @@ set -eu
 	echo 'base /srv/ts-managed must be absent' >&2
 	exit 1
 }
-install -d -o root -g __MANAGED_GID__ -m 0750 /srv/ts-managed
-[ "$(stat -c '%u:%g:%a' /srv/ts-managed)" = '0:__MANAGED_GID__:750' ]
+install -d -o root -g terrascale-workload -m 0750 /srv/ts-managed
+[ "$(stat -c '%u:%g:%a' /srv/ts-managed)" = '0:2000:750' ]
 COMMAND
 	)
-	managed_root_setup=${managed_root_setup//__MANAGED_GID__/$managed_workload_gid}
 	managed_root_commands=(--run-command "$managed_root_setup")
 fi
 virt-customize --no-network -a "$candidate" \
@@ -639,11 +694,12 @@ virt-customize --no-network -a "$candidate" \
 	--run-command "$runtime_priority_setup" \
 	--run-command "$native_verifier_setup" \
 	--run-command "$time_sync_setup" \
-	"${managed_root_commands[@]}" \
 	--upload deploy/image/terrascale-orchestrator.sysusers:/etc/sysusers.d/terrascale-orchestrator.conf \
 	--upload deploy/systemd/terrascale-orchestrator-bootstrap.service:/etc/systemd/system/terrascale-orchestrator-bootstrap.service \
+	--upload deploy/systemd/terrascale-orchestrator-controller-install.service:/etc/systemd/system/terrascale-orchestrator-controller-install.service \
 	--upload deploy/systemd/terrascale-orchestrator-controller.service:/etc/systemd/system/terrascale-orchestrator-controller.service \
 	--upload deploy/systemd/terrascale-orchestrator-host.service:/etc/systemd/system/terrascale-orchestrator-host.service \
+	"${host_setup_uploads[@]}" \
 	--upload "$runtime_priority_root/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf:/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf" \
 	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf" \
 	--upload "$runtime_priority_root/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf:/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf" \
@@ -654,7 +710,8 @@ virt-customize --no-network -a "$candidate" \
 	--upload "$timesyncd_config_image:$timesyncd_config_guest" \
 	"${bootstrap_uploads[@]}" \
 	--run-command "$bootstrap_permissions_setup" \
-	--run-command 'chmod 0644 /etc/sysusers.d/terrascale-orchestrator.conf /etc/systemd/system/terrascale-orchestrator-bootstrap.service /etc/systemd/system/terrascale-orchestrator-controller.service /etc/systemd/system/terrascale-orchestrator-host.service /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf && chmod 0755 /usr/local/bin/terrascale-orchestrator'
+	"${managed_root_commands[@]}" \
+	--run-command 'chmod 0644 /etc/sysusers.d/terrascale-orchestrator.conf /etc/systemd/system/terrascale-orchestrator-bootstrap.service /etc/systemd/system/terrascale-orchestrator-controller-install.service /etc/systemd/system/terrascale-orchestrator-controller.service /etc/systemd/system/terrascale-orchestrator-host.service /etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf && chmod 0755 /usr/local/bin/terrascale-orchestrator'
 qemu-img check -- "$candidate"
 installed_verifier_sha256=$(virt-cat -a "$candidate" "$native_verifier_guest_path" | python3 -c '
 import hashlib
@@ -669,6 +726,22 @@ if [[ "$installed_verifier_sha256" != "$native_verifier_sha256" ]]; then
 	exit 1
 fi
 printf 'native verifier image sha256=%s guest_path=%s\n' "$installed_verifier_sha256" "$native_verifier_guest_path"
+if [[ -n "$host_enrollment_public" ]]; then
+	installed_host_enrollment_sha256=$(virt-cat -a "$candidate" /etc/terrascale-orchestrator/host-enrollment-public.json | python3 -c '
+import hashlib
+import sys
+digest = hashlib.sha256()
+for chunk in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
+	digest.update(chunk)
+print(digest.hexdigest())
+')
+	if [[ "$installed_host_enrollment_sha256" != "$host_enrollment_public_sha256" ]]; then
+		echo "installed host enrollment bundle differs from the reviewed SHA-256" >&2
+		exit 1
+	fi
+	printf 'host enrollment image sha256=%s guest_path=%s\n' \
+		"$installed_host_enrollment_sha256" /etc/terrascale-orchestrator/host-enrollment-public.json
+fi
 ln -- "$candidate" "$output"
 trap - EXIT
 rm -rf -- "$temporary_directory"

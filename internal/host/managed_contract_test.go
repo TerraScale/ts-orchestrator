@@ -51,7 +51,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	registration := Registration{
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
-		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), Generation: 1,
+		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 8 << 30}, SystemReserveBytes: 1 << 30,
 		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "node-a"},
 		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
@@ -129,7 +129,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 
 func TestManagedReplyBinding(t *testing.T) {
 	r, d, key := managedContractFixture()
-	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key}, session: session{RegistrationGeneration: r.Generation}}
+	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key, NATSUserPublicKey: r.NATSUserPublicKey}, session: session{RegistrationGeneration: r.Generation}}
 	reply := desiredReply{Desired: &d, Revision: 4, Registration: &r, RegistrationRevision: 3}
 	if err := a.validateDesiredReply(reply); err != nil {
 		t.Fatal(err)

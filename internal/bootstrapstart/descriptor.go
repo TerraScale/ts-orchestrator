@@ -16,12 +16,14 @@ import (
 )
 
 const (
-	imdsAddress        = "169.254.169.254:80"
-	imdsBaseURL        = "http://169.254.169.254/opc/v2/instance/"
-	descriptorEndpoint = imdsBaseURL + "metadata/terrascale-bootstrap"
-	identityEndpoint   = imdsBaseURL + "id"
-	maxDescriptorBytes = 4096
-	imdsTimeout        = 3 * time.Second
+	imdsAddress                        = "169.254.169.254:80"
+	imdsBaseURL                        = "http://169.254.169.254/opc/v2/instance/"
+	descriptorEndpoint                 = imdsBaseURL + "metadata/terrascale-bootstrap"
+	controllerManifestEndpoint         = imdsBaseURL + "metadata/terrascale-controller-manifest-v1"
+	identityEndpoint                   = imdsBaseURL + "id"
+	maxDescriptorBytes                 = 4096
+	MaxControllerManifestMetadataBytes = 30 << 10
+	imdsTimeout                        = 3 * time.Second
 )
 
 var (
@@ -91,8 +93,16 @@ func (imds IMDSClient) FetchInstanceID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
+// FetchControllerManifest reads only the fixed public transport field. The
+// caller must verify the signed envelope against baked roots and observed OCI
+// identity before using its configuration.
+func (imds IMDSClient) FetchControllerManifest(ctx context.Context) ([]byte, error) {
+	return imds.fetch(ctx, controllerManifestEndpoint, MaxControllerManifestMetadataBytes)
+}
+
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
-	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint {
+	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
+		endpoint != controllerManifestEndpoint {
 		return nil, ErrInvalidDescriptor
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
