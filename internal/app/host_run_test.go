@@ -50,8 +50,9 @@ func TestHostRejectsUnsafeManagedRuntimeRootBeforeNativeProbe(t *testing.T) {
 	root := t.TempDir()
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	_, _ = testEd25519(t, root, "host.key")
+	_, natsSeed := testNKey(t)
 	stateRoot := filepath.Join(root, "state")
-	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Host: HostConfig{
+	cfg := Config{NATS: natscell.Config{Cell: "gru", NKeySeedFile: natsSeed}, Host: HostConfig{
 		Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		IdentityKeyFile: filepath.Join(root, "host.key"), ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic),
 		InstallRoot: filepath.Join(root, "install"), StateRoot: stateRoot, ManagedRuntimeRoot: "relative/runtime",
@@ -88,9 +89,10 @@ func TestHostCommandRejectsUnhealthyClockBeforeNativeProbeAndNATS(t *testing.T) 
 	root := t.TempDir()
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	_, _ = testEd25519(t, root, "host.key")
+	_, natsSeed := testNKey(t)
 	stateRoot := filepath.Join(root, "state")
 	config := testJSONFile(t, root, "host.json", Config{NATS: natscell.Config{
-		Cell: "gru", URL: "nats://127.0.0.1:1",
+		Cell: "gru", URL: "nats://127.0.0.1:1", NKeySeedFile: natsSeed,
 	}, Host: HostConfig{
 		Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		IdentityKeyFile: filepath.Join(root, "host.key"), ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic),

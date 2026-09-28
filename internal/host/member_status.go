@@ -62,16 +62,17 @@ type MemberCapabilities struct {
 // MemberStatus is a bounded v2 native member observation. Identity is bound to
 // the process and expected signed assignment by ReadMemberStatus.
 type MemberStatus struct {
-	SchemaVersion uint64             `json:"schema_version"`
-	Nonce         string             `json:"nonce"`
-	Process       MemberProcess      `json:"process"`
-	Scope         MemberScope        `json:"scope"`
-	Authority     MemberAuthority    `json:"authority"`
-	Local         MemberLocal        `json:"local"`
-	ReceiverOnly  bool               `json:"receiver_only"`
-	Serving       bool               `json:"serving"`
-	Capabilities  MemberCapabilities `json:"capabilities"`
-	ObservedAt    time.Time          `json:"-"`
+	SchemaVersion        uint64             `json:"schema_version"`
+	Nonce                string             `json:"nonce"`
+	Process              MemberProcess      `json:"process"`
+	Scope                MemberScope        `json:"scope"`
+	Authority            MemberAuthority    `json:"authority"`
+	Local                MemberLocal        `json:"local"`
+	ReceiverOnly         bool               `json:"receiver_only"`
+	Serving              bool               `json:"serving"`
+	Capabilities         MemberCapabilities `json:"capabilities"`
+	CredentialGeneration uint64             `json:"client_credential_generation,omitzero"`
+	ObservedAt           time.Time          `json:"-"`
 }
 
 type ExpectedMemberStatus struct {
@@ -82,9 +83,10 @@ type ExpectedMemberStatus struct {
 }
 
 type memberStatusWire struct {
-	SchemaVersion *uint64 `json:"schema_version"`
-	Nonce         *string `json:"nonce"`
-	Process       *struct {
+	SchemaVersion        *uint64 `json:"schema_version"`
+	CredentialGeneration *uint64 `json:"client_credential_generation"`
+	Nonce                *string `json:"nonce"`
+	Process              *struct {
 		PID        *int    `json:"pid"`
 		StartNonce *string `json:"start_nonce"`
 	} `json:"process"`
@@ -384,6 +386,9 @@ func decodeMemberStatus(data []byte, nonce string, pid int, expected ExpectedMem
 			Healthy: *wire.Local.Healthy, Ready: *wire.Local.Ready},
 		ReceiverOnly: *wire.ReceiverOnly, Serving: *wire.Serving,
 		Capabilities: MemberCapabilities{ServingProof: *wire.Capabilities.ServingProof, DurableDrain: *wire.Capabilities.DurableDrain},
+	}
+	if wire.CredentialGeneration != nil {
+		status.CredentialGeneration = *wire.CredentialGeneration
 	}
 	if status.SchemaVersion != 2 || status.Nonce != nonce || status.Process.PID != pid || !lowerHex(status.Process.StartNonce, 32) ||
 		status.Scope.ShardID == 0 || !canonicalMemberID(status.Scope.TenantID) ||

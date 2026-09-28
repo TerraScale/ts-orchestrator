@@ -67,16 +67,17 @@ func sessionErrorClass(err error) string {
 }
 
 type request struct {
-	Version           int               `json:"version"`
-	Node              string            `json:"node"`
-	NATSUserPublicKey string            `json:"nats_user_public_key"`
-	Operation         string            `json:"operation"`
-	SessionID         string            `json:"session_id"`
-	Epoch             uint64            `json:"epoch"`
-	Nonce             string            `json:"nonce"`
-	IssuedAt          time.Time         `json:"issued_at"`
-	Payload           json.RawMessage   `json:"payload"`
-	Envelope          protocol.Envelope `json:"-"`
+	Version            int               `json:"version"`
+	CredentialProtocol uint64            `json:"credential_protocol,omitzero"`
+	Node               string            `json:"node"`
+	NATSUserPublicKey  string            `json:"nats_user_public_key"`
+	Operation          string            `json:"operation"`
+	SessionID          string            `json:"session_id"`
+	Epoch              uint64            `json:"epoch"`
+	Nonce              string            `json:"nonce"`
+	IssuedAt           time.Time         `json:"issued_at"`
+	Payload            json.RawMessage   `json:"payload"`
+	Envelope           protocol.Envelope `json:"-"`
 }
 
 type response struct {

@@ -53,16 +53,17 @@ type Capabilities struct {
 }
 
 type Status struct {
-	SchemaVersion uint64       `json:"schema_version"`
-	Nonce         string       `json:"nonce"`
-	Process       Process      `json:"process"`
-	Scope         Scope        `json:"scope"`
-	Authority     Authority    `json:"authority"`
-	Local         Local        `json:"local"`
-	ReceiverOnly  bool         `json:"receiver_only"`
-	Serving       bool         `json:"serving"`
-	Capabilities  Capabilities `json:"capabilities"`
-	verified      bool
+	SchemaVersion        uint64       `json:"schema_version"`
+	Nonce                string       `json:"nonce"`
+	Process              Process      `json:"process"`
+	Scope                Scope        `json:"scope"`
+	Authority            Authority    `json:"authority"`
+	Local                Local        `json:"local"`
+	ReceiverOnly         bool         `json:"receiver_only"`
+	Serving              bool         `json:"serving"`
+	Capabilities         Capabilities `json:"capabilities"`
+	CredentialGeneration uint64       `json:"client_credential_generation,omitzero"`
+	verified             bool
 }
 
 type Listeners struct {

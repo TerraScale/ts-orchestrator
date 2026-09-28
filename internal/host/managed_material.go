@@ -33,6 +33,8 @@ var managedHostFileNames = [...]string{
 	"signed-v2-s3-config.json",
 }
 
+const managedCredentialFileName = "client-credentials-current.json"
+
 type materialQuery struct {
 	Role                   string `json:"role"`
 	File                   string `json:"file"`
@@ -90,7 +92,7 @@ func (c *Controller) serveMaterial(ctx context.Context, req request, registratio
 	if err := decodeStrict(req.Payload, &query); err != nil {
 		return nil, err
 	}
-	if !slices.Contains(managedHostFileNames[:], query.File) || query.Role == "" ||
+	if !slices.Contains(managedHostFileNames[:], query.File) && query.File != managedCredentialFileName || query.Role == "" ||
 		query.Length < 1 || query.Length > materialChunkBytes || query.Offset < 0 ||
 		query.Offset >= maxManagedHostFileBytes || len(query.EphemeralPublicKey) != 32 ||
 		query.RegistrationGeneration != registration.Generation ||

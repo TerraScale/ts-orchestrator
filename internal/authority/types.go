@@ -82,12 +82,13 @@ type Fencer interface {
 type HostMutationKind string
 
 const (
-	MutationRegistration     HostMutationKind = "registration"
-	MutationDesired          HostMutationKind = "desired"
-	MutationPlacementIntent  HostMutationKind = "placement-intent"
-	MutationMaterialReceipt  HostMutationKind = "material-receipt"
-	MutationTerminalIntent   HostMutationKind = "terminal-intent"
-	MutationEnrollmentEffect HostMutationKind = "enrollment-effect"
+	MutationRegistration      HostMutationKind = "registration"
+	MutationDesired           HostMutationKind = "desired"
+	MutationPlacementIntent   HostMutationKind = "placement-intent"
+	MutationMaterialReceipt   HostMutationKind = "material-receipt"
+	MutationClientCredentials HostMutationKind = "client-credentials"
+	MutationTerminalIntent    HostMutationKind = "terminal-intent"
+	MutationEnrollmentEffect  HostMutationKind = "enrollment-effect"
 )
 
 // WorkloadScope identifies one admitted database partition. The terminal gate
@@ -233,4 +234,11 @@ type EnrollmentEffect struct {
 type MaterialReceiptStore interface {
 	CommitMaterialReceipt(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
 	ReadMaterialReceipt(context.Context, string, string) (LogEntry, error)
+}
+
+// ClientCredentialStore orders signed, monotonically numbered credential
+// generations for the same database partition as the initial material.
+type ClientCredentialStore interface {
+	CommitClientCredentials(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
+	ReadClientCredentials(context.Context, string, string) (LogEntry, error)
 }

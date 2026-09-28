@@ -83,8 +83,27 @@ fj release create "$tag" --create-tag="$tag" --branch "$GITHUB_SHA" --prerelease
     --attach=dist/terrascale-d15-probe.json
 mkdir -m 0700 "$auth_home/readback"
 for name in "$probe_name" terrascale-d15-probe.json; do
-    fj release asset download "$tag" "$name" -o "$auth_home/readback/$name"
-    cmp -- "dist/$name" "$auth_home/readback/$name"
+    delay=1
+    matched=false
+    for attempt in 1 2 3 4 5 6; do
+        readback="$auth_home/readback/$name.$attempt"
+        if fj release asset download "$tag" "$name" -o "$readback" &&
+            cmp -- "dist/$name" "$readback"; then
+            matched=true
+            break
+        fi
+        if [[ -f $readback ]]; then
+            printf 'D15 release asset readback mismatch name=%s attempt=%s bytes=%s sha256=%s\n' \
+                "$name" "$attempt" "$(stat -c '%s' "$readback")" \
+                "$(sha256sum "$readback" | awk '{print $1}')" >&2
+        fi
+        if [[ $attempt == 6 ]]; then
+            break
+        fi
+        sleep "$delay"
+        delay=$((delay * 2))
+    done
+    [[ $matched == true ]] || { echo "D15 release asset readback never matched: $name" >&2; exit 1; }
 done
 # The manifest is the completion marker. A partial upload cannot be admitted.
 fj release asset create "$tag" dist/qualification.json

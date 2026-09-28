@@ -59,6 +59,19 @@ func buildSignerPolicy(cfg Config) (signerPolicy, error) {
 				return signerPolicy{}, fmt.Errorf("trusted signer %s has a non-HTTPS repository grant", grant.Actor)
 			}
 		}
+		if grant.CanManageClientKeys != (len(grant.ClientKeyScopes) > 0) {
+			return signerPolicy{}, fmt.Errorf("trusted signer %s needs explicit client-key scopes", grant.Actor)
+		}
+		seenClientScopes := make(map[string]bool, len(grant.ClientKeyScopes))
+		for _, scope := range grant.ClientKeyScopes {
+			database, partition, ok := strings.Cut(scope, ".")
+			if !ok || !grantToken.MatchString(database) || !grantToken.MatchString(partition) ||
+				seenClientScopes[scope] || !slices.Contains(grant.Roles, "terrabase") ||
+				!slices.Contains(grant.Environments, "production") {
+				return signerPolicy{}, fmt.Errorf("trusted signer %s has invalid client-key scope", grant.Actor)
+			}
+			seenClientScopes[scope] = true
+		}
 		public, err := decodePublicKey(grant.PublicKey)
 		if err != nil {
 			return signerPolicy{}, fmt.Errorf("trusted signer %s: %w", grant.Actor, err)
@@ -78,6 +91,12 @@ func buildSignerPolicy(cfg Config) (signerPolicy, error) {
 			Lifetime: time.Minute, MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second},
 		grants: grants, cell: cfg.NATS.Cell,
 	}, nil
+}
+
+func (p signerPolicy) canManageClientKeys(actor, database, partition string) bool {
+	grant, ok := p.grants[actor]
+	return ok && grant.CanManageClientKeys &&
+		slices.Contains(grant.ClientKeyScopes, database+"."+partition)
 }
 
 func (p signerPolicy) withOperator(cfg OperatorConfig) (delivery.Ed25519Codec, error) {

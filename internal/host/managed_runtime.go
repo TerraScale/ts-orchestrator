@@ -488,6 +488,13 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if err != nil {
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
 	}
+	_, credentialState, err := readManagedCredentialState(filepath.Join(paths.material, managedCredentialFileName), identity)
+	if err != nil {
+		return Workload{}, managedMount{}, "", fmt.Errorf("managed client credential state: %w", err)
+	}
+	if credentialState.Generation > 1 {
+		clientArgs = append(clientArgs, "--client-credentials-current", filepath.Join(paths.material, managedCredentialFileName))
+	}
 	args := []string{
 		"--signed-v2-s3-config", filepath.Join(paths.material, "signed-v2-s3-config.json"),
 		"--data-dir", filepath.Join(paths.mount, "data"),
@@ -634,6 +641,17 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := a.fetchManagedMaterial(ctx, d, *target.Registration); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	previousCredentialGeneration, credentialGeneration, credentialChanged, err := a.fetchManagedCredentials(ctx, d, *target.Registration)
+	if err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
+	}
+	reloadCredentials := current.Running && credentialChanged && previousCredentialGeneration >= 2
+	if current.Running && credentialChanged && credentialGeneration > 1 && !reloadCredentials {
+		if err := a.runner.Stop(ctx, d.Role); err != nil {
+			return err
+		}
+		current.Running = false
+	}
 	if err := a.ensureManagedVolume(ctx, d, target); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
@@ -656,6 +674,11 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 		}
 		if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {
 			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
+		if reloadCredentials {
+			if err := a.reloadManagedCredentials(ctx, d, socket, credentialGeneration); err != nil {
+				return errors.Join(err, a.runner.Stop(ctx, d.Role))
+			}
 		}
 		return a.reportManagedStatus(ctx, d, mount, socket)
 	}
@@ -790,6 +813,11 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	_, credentialState, err := readManagedCredentialState(filepath.Join(paths.material, managedCredentialFileName), a.cfg.WorkloadIdentity)
+	if err != nil || credentialState.Generation > 1 && status.CredentialGeneration != credentialState.Generation {
+		return errors.Join(errors.New("native client credential generation is behind the durable host floor"),
+			err, a.runner.Stop(ctx, d.Role))
+	}
 	// TerraBase constructs this status identity only after accepting the signed
 	// authority and certifying the local TLS leaf. Recheck host-owned byte pins
 	// and the mount after that native validation, before publishing any report.
@@ -813,7 +841,8 @@ func (a *Agent) reportManagedStatus(ctx context.Context, d Desired, mount manage
 	}
 	report := a.reportFor(d, "running", nil)
 	report.Managed = &ManagedRuntimeReport{
-		Member: d.ManagedMember.Member, Authority: d.ManagedMember.Authority, OCI: d.ManagedMember.OCI,
+		ClientCredentialGeneration: status.CredentialGeneration,
+		Member:                     d.ManagedMember.Member, Authority: d.ManagedMember.Authority, OCI: d.ManagedMember.OCI,
 		VolumeID: d.ManagedMember.VolumeID, AttachmentID: d.ManagedMember.AttachmentID,
 		AttachmentETag: d.ManagedMember.AttachmentETag,
 		FileSystemUUID: mount.uuid, FileSystemType: mount.fsType,

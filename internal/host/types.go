@@ -170,24 +170,25 @@ type Report struct {
 // ManagedRuntimeReport binds a native process and mounted volume to its
 // TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
-	Member           ManagedMemberBinding       `json:"member"`
-	Authority        MemberAuthority            `json:"authority"`
-	OCI              ManagedOCIBinding          `json:"oci"`
-	VolumeID         string                     `json:"volume_id"`
-	AttachmentID     string                     `json:"attachment_id"`
-	AttachmentETag   string                     `json:"attachment_etag"`
-	FileSystemUUID   string                     `json:"filesystem_uuid"`
-	FileSystemType   string                     `json:"filesystem_type"`
-	MountDevice      string                     `json:"mount_device"`
-	MountPath        string                     `json:"mount_path"`
-	MountID          uint64                     `json:"mount_id"`
-	ProcessPID       int                        `json:"process_pid"`
-	ProcessStart     string                     `json:"process_start"`
-	ProcessCgroup    string                     `json:"process_cgroup"`
-	ProcessBootID    string                     `json:"process_boot_id"`
-	StorageRecovered bool                       `json:"storage_recovered"`
-	ListenerReady    bool                       `json:"listener_ready"`
-	ServingProof     *memberstatus.ServingProof `json:"serving_proof,omitempty"`
+	ClientCredentialGeneration uint64                     `json:"client_credential_generation,omitzero"`
+	Member                     ManagedMemberBinding       `json:"member"`
+	Authority                  MemberAuthority            `json:"authority"`
+	OCI                        ManagedOCIBinding          `json:"oci"`
+	VolumeID                   string                     `json:"volume_id"`
+	AttachmentID               string                     `json:"attachment_id"`
+	AttachmentETag             string                     `json:"attachment_etag"`
+	FileSystemUUID             string                     `json:"filesystem_uuid"`
+	FileSystemType             string                     `json:"filesystem_type"`
+	MountDevice                string                     `json:"mount_device"`
+	MountPath                  string                     `json:"mount_path"`
+	MountID                    uint64                     `json:"mount_id"`
+	ProcessPID                 int                        `json:"process_pid"`
+	ProcessStart               string                     `json:"process_start"`
+	ProcessCgroup              string                     `json:"process_cgroup"`
+	ProcessBootID              string                     `json:"process_boot_id"`
+	StorageRecovered           bool                       `json:"storage_recovered"`
+	ListenerReady              bool                       `json:"listener_ready"`
+	ServingProof               *memberstatus.ServingProof `json:"serving_proof,omitempty"`
 }
 
 type HostStatus struct {
@@ -233,6 +234,7 @@ type ControllerConfig struct {
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
+	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
 }

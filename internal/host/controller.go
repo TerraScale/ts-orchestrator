@@ -33,6 +33,7 @@ type Controller struct {
 	managedVerifier   ManagedRegistrationVerifier
 	managedEffectGate func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	materialProvider  ManagedMaterialProvider
+	credentialFloor   func(context.Context, Registration) (uint64, error)
 	volumeInspector   ManagedVolumeInspector
 	artifacts         ArtifactStore
 	responseKey       ed25519.PrivateKey
@@ -105,7 +106,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider, volumeInspector: cfg.ManagedVolumeInspector, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider, credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -665,6 +666,9 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 			return nil, err
 		}
+		if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
+			return nil, err
+		}
 		now := time.Now().UTC()
 		stage = "session_read"
 		old, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
@@ -818,6 +822,9 @@ func (c *Controller) authorize(ctx context.Context, req request) (Registration, 
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 			return Registration{}, session{}, err
 		}
+		if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
+			return Registration{}, session{}, err
+		}
 		s, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 		if err != nil {
 			return Registration{}, session{}, err
@@ -843,6 +850,9 @@ func (c *Controller) authorize(ctx context.Context, req request) (Registration, 
 		return Registration{}, session{}, err
 	}
 	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+		return Registration{}, session{}, err
+	}
+	if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
 		return Registration{}, session{}, err
 	}
 	s, _, exists, err := c.sessionSnapshot(ctx, stateKey)

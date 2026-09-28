@@ -348,7 +348,7 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 	a.mu.RLock()
 	s := a.session
 	a.mu.RUnlock()
-	r := request{Version: 1, Node: a.cfg.Node, NATSUserPublicKey: a.cfg.NATSUserPublicKey, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
+	r := request{Version: 1, CredentialProtocol: 1, Node: a.cfg.Node, NATSUserPublicKey: a.cfg.NATSUserPublicKey, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
 	if err := signRequest(&r, a.cfg.Identity, a.cfg.Cell); err != nil {
 		return request{}, err
 	}

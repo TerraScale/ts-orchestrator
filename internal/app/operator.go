@@ -54,7 +54,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|placement-apply|placement-list|terminal-plan|terminal-apply|terminal-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|material-credentials|material-credentials-status|placement-apply|placement-list|terminal-plan|terminal-apply|terminal-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -139,6 +139,16 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("material-prepare requires --intent FILE")
 		}
 		return operatorMaterialPrepare(ctx, cfg, runtime, *intentPath, output)
+	case "material-credentials":
+		if *intentPath == "" {
+			return errors.New("material-credentials requires --intent FILE")
+		}
+		return operatorMaterialCredentials(ctx, cfg, runtime, *intentPath, output)
+	case "material-credentials-status":
+		if *intentPath == "" {
+			return errors.New("material-credentials-status requires --intent FILE")
+		}
+		return operatorMaterialCredentialsStatus(ctx, cfg, runtime, *intentPath, output)
 	case "broker-claim-apply":
 		if *artifactPath == "" || *expectedSequence == "" {
 			return errors.New("broker-claim-apply requires --file and --expected-sequence")

@@ -19,10 +19,98 @@ import (
 
 const maxCustomerReplyBytes = 64 << 10
 const maxCustomerSpecBytes = 16 << 10
+const maxCredentialReplyBytes = 512 << 10
+const maxCredentialRequestBytes = 16 << 10
 
 type customerPreparationReply struct {
 	Receipt  managedmaterial.PreparationReceipt `json:"receipt"`
 	Customer managedmaterial.CustomerEnvelope   `json:"customer"`
+}
+
+type customerCredentialReply struct {
+	Credential managedmaterial.CredentialReply `json:"credential"`
+	Status     string                          `json:"status"`
+}
+
+// openRotatedCustomerMaterialAt authenticates a pending rotation receipt and
+// its original intent before opening the encrypted token for its recipient.
+func openRotatedCustomerMaterialAt(args []string) error {
+	flags := flag.NewFlagSet("open-rotated-customer-material", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	replyPath := flags.String("reply", "", "operator material-credentials JSON reply")
+	requestPath := flags.String("request", "", "original credential rotation intent JSON")
+	specPath := flags.String("spec", "", "independently retained generation-one material spec JSON")
+	controllerPath := flags.String("controller-key", "", "independently pinned controller Ed25519 public key PEM")
+	cell := flags.String("cell", "", "expected regional cell")
+	recipientPath := flags.String("recipient-key", "", "owner-only rotation recipient X25519 PKCS#8 private key PEM")
+	outputPath := flags.String("out", "", "new owner-only JSON output file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *replyPath == "" || *requestPath == "" || *specPath == "" || *controllerPath == "" ||
+		*cell == "" || *recipientPath == "" || *outputPath == "" || !filepath.IsAbs(*outputPath) || flags.NArg() != 0 {
+		return errors.New("open-rotated-customer-material requires --reply, --request, --spec, --controller-key, --cell, --recipient-key, and absolute --out")
+	}
+	specWire, err := readBoundedRegular(*specPath, maxCustomerSpecBytes)
+	if err != nil {
+		return fmt.Errorf("read initial material spec: %w", err)
+	}
+	var spec managedmaterial.InitialSpec
+	if err := protocol.DecodeStrict(specWire, &spec, maxCustomerSpecBytes); err != nil {
+		return fmt.Errorf("decode initial material spec: %w", err)
+	}
+	requestWire, err := readBoundedRegular(*requestPath, maxCredentialRequestBytes)
+	if err != nil {
+		return fmt.Errorf("read credential rotation intent: %w", err)
+	}
+	var request managedmaterial.CredentialRequest
+	if err := protocol.DecodeStrict(requestWire, &request, maxCredentialRequestBytes); err != nil {
+		return fmt.Errorf("decode credential rotation intent: %w", err)
+	}
+	if request.Action != managedmaterial.CredentialRotate {
+		return errors.New("credential intent is not a rotation")
+	}
+	replyWire, err := readBoundedRegular(*replyPath, maxCredentialReplyBytes)
+	if err != nil {
+		return fmt.Errorf("read credential rotation reply: %w", err)
+	}
+	var reply customerCredentialReply
+	if err := protocol.DecodeStrict(replyWire, &reply, maxCredentialReplyBytes); err != nil {
+		return fmt.Errorf("decode credential rotation reply: %w", err)
+	}
+	if reply.Status != "pending" || reply.Credential.Receipt.Customer == nil {
+		return errors.New("credential rotation reply has no pending customer token")
+	}
+	controllerKey, err := readRootPublicKey(*controllerPath)
+	if err != nil {
+		return fmt.Errorf("read controller trust pin: %w", err)
+	}
+	if err := managedmaterial.VerifyCredentialReply(reply.Credential, request, controllerKey, *cell); err != nil {
+		return fmt.Errorf("verify signed credential rotation reply: %w", err)
+	}
+	retainedSpecWire, err := protocol.EncodeJSON(reply.Credential.Initial.Spec)
+	if err != nil {
+		return err
+	}
+	expectedSpecWire, err := protocol.EncodeJSON(spec)
+	if err != nil || !bytes.Equal(retainedSpecWire, expectedSpecWire) {
+		return errors.New("retained initial material spec differs from signed receipt")
+	}
+	recipient, err := readOwnerRecipientKey(*recipientPath)
+	if err != nil {
+		return err
+	}
+	spec.Recipient = request.Recipient
+	material, err := managedmaterial.OpenCustomerEnvelope(spec, *reply.Credential.Receipt.Customer, recipient)
+	if err != nil {
+		return err
+	}
+	output, err := protocol.EncodeJSON(material)
+	if err != nil {
+		return err
+	}
+	defer clear(output)
+	return writeNewCustomerMaterial(*outputPath, output)
 }
 
 // openCustomerMaterialAt authenticates the offline operator reply against the

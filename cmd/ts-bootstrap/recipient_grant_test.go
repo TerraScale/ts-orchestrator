@@ -28,7 +28,7 @@ func newRecipientSpecFixture(t *testing.T) recipientSpecFixture {
 	t.Helper()
 	directory := t.TempDir()
 	now := time.Now().UTC().Truncate(time.Second)
-	_, _, _, recipientPath, spec, _ := customerOpenFixture(t)
+	_, _, _, recipientPath, spec, _, _ := customerOpenFixture(t)
 	spec.Recipient = managedmaterial.RecipientGrant{}
 	draft, err := protocol.EncodeJSON(spec)
 	if err != nil {

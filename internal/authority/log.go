@@ -825,6 +825,40 @@ func (r *Runtime) ReadMaterialReceipt(ctx context.Context, databaseID, partition
 	return readMutation(ctx, r.readStream, r.config.Scope, MutationMaterialReceipt, subjectKey)
 }
 
+func (r *Runtime) CommitClientCredentials(ctx context.Context, epoch uint64,
+	databaseID, partitionID, operationID string, expectedSequence uint64, payload []byte,
+) (uint64, error) {
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateMutation(MutationClientCredentials, subjectKey, operationID, payload); err != nil {
+		return 0, err
+	}
+	release, err := r.beginWorkloadGate(ctx, WorkloadScope{DatabaseID: databaseID, PartitionID: partitionID})
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+	if err := r.requireNoTerminalIntent(ctx, databaseID, partitionID); err != nil {
+		return 0, err
+	}
+	return r.commitMutation(ctx, epoch, MutationClientCredentials, subjectKey, operationID, expectedSequence, payload)
+}
+
+func (r *Runtime) ReadClientCredentials(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return LogEntry{}, err
+	}
+	if r == nil {
+		return LogEntry{}, ErrNotFound
+	}
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+	return readMutation(ctx, r.readStream, r.config.Scope, MutationClientCredentials, subjectKey)
+}
+
 // ListPlacementIntents reads the latest admitted record for each database and partition.
 // The bound applies to current intent subjects, not retained lease history.
 func (r *Runtime) ListPlacementIntents(ctx context.Context) ([]LogEntry, error) {
@@ -938,6 +972,23 @@ func (r *Reader) ReadMaterialReceipt(ctx context.Context, databaseID, partitionI
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return readMutation(ctx, r.stream, r.scope, MutationMaterialReceipt, subjectKey)
+}
+
+func (r *Reader) CommitClientCredentials(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error) {
+	return 0, ErrFenced
+}
+
+func (r *Reader) ReadClientCredentials(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {
+	subjectKey, err := placementIntentSubjectKey(databaseID, partitionID)
+	if err != nil {
+		return LogEntry{}, err
+	}
+	if r == nil || r.stream == nil {
+		return LogEntry{}, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return readMutation(ctx, r.stream, r.scope, MutationClientCredentials, subjectKey)
 }
 
 func (r *Reader) ListPlacementIntents(ctx context.Context) ([]LogEntry, error) {
@@ -1075,6 +1126,8 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationMaterialReceipt:
 		want = 2
+	case MutationClientCredentials:
+		want = 2
 	case MutationTerminalIntent:
 		want = 2
 	case MutationEnrollmentEffect:
@@ -1099,6 +1152,9 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationMaterialReceipt {
 		return fmt.Sprintf("%s.%s.placement.material.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationClientCredentials {
+		return fmt.Sprintf("%s.%s.placement.credentials.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationTerminalIntent {
 		return fmt.Sprintf("%s.%s.placement.terminal.%s", controlSubjectRoot, scope, subjectKey)

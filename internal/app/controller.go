@@ -200,6 +200,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider
+	var credentialFloor func(context.Context, host.Registration) (uint64, error)
 	var placementStore placement.Store
 	var fleet oci.Fleet
 	var volumeInspector host.ManagedVolumeInspector
@@ -282,7 +283,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("configure managed host enrollment: %w", err)
 		}
 		if materialService != nil {
-			materialProvider = admittedManagedMaterialProvider(*materialService, control)
+			credentials := managedmaterial.CredentialService{Preparation: *materialService, Store: control}
+			materialProvider = admittedManagedMaterialProvider(*materialService, control, credentials)
+			credentialFloor = func(ctx context.Context, registration host.Registration) (uint64, error) {
+				if registration.ManagedPlacement == nil {
+					return 1, nil
+				}
+				state, _, err := credentials.Current(ctx, registration.ManagedPlacement.DatabaseID,
+					registration.ManagedPlacement.PartitionID)
+				return state.Generation, err
+			}
 		}
 	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
@@ -293,6 +303,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
 				ManagedRegistrationVerifier: registrationVerifier,
 				ManagedMaterialProvider:     materialProvider,
+				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
 			})
 		}, nil)
@@ -405,6 +416,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("serve managed material preparation: %w", err)
 		}
 		defer materialSub.Unsubscribe()
+		credentialsSub, err := serveMaterialCredentials(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, managedmaterial.CredentialService{Preparation: *materialService, Store: control})
+		if err != nil {
+			return fmt.Errorf("serve managed client credentials: %w", err)
+		}
+		defer credentialsSub.Unsubscribe()
+		credentialStatusSub, err := serveMaterialCredentialStatus(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, managedmaterial.CredentialService{Preparation: *materialService, Store: control}, hostController)
+		if err != nil {
+			return fmt.Errorf("serve managed client credential status: %w", err)
+		}
+		defer credentialStatusSub.Unsubscribe()
 	}
 	if gate != nil {
 		brokerSub, err := serveBrokerClaimAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, gate)

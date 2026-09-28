@@ -12,6 +12,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 type currentPlacementReader interface {
@@ -20,6 +21,7 @@ type currentPlacementReader interface {
 
 func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 	placements currentPlacementReader,
+	credentials ...managedmaterial.CredentialService,
 ) host.ManagedMaterialProvider {
 	return func(ctx context.Context, desired host.Desired, registration host.Registration) (map[string][]byte, error) {
 		if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
@@ -70,6 +72,17 @@ func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 				return nil, managedmaterial.ErrMaterialConflict
 			}
 			files[name] = bytes.Clone(file.Contents)
+		}
+		if len(credentials) == 1 {
+			state, _, err := credentials[0].Current(ctx, intent.DatabaseID, intent.PartitionID)
+			if err != nil {
+				return nil, err
+			}
+			wire, err := protocol.EncodeJSON(state)
+			if err != nil {
+				return nil, err
+			}
+			files["client-credentials-current.json"] = wire
 		}
 		return files, nil
 	}

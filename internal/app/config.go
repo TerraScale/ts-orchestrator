@@ -55,6 +55,8 @@ type TrustedSignerConfig struct {
 	CanPlaceTerraBase         bool     `json:"can_place_terrabase,omitzero"`
 	CanTeardownTerraBase      bool     `json:"can_teardown_terrabase,omitzero"`
 	CanPrepareManagedMaterial bool     `json:"can_prepare_managed_material,omitzero"`
+	CanManageClientKeys       bool     `json:"can_manage_client_keys,omitzero"`
+	ClientKeyScopes           []string `json:"client_key_scopes,omitempty"`
 	CanRotateBrokerAccount    bool     `json:"can_rotate_broker_account,omitzero"`
 	Repositories              []string `json:"repositories,omitempty"`
 }
