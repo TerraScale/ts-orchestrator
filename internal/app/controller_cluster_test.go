@@ -57,12 +57,9 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 	defer cancel()
 	root := t.TempDir()
 	public, _ := testEd25519(t, root, "response.key")
-	clientPorts := make([]int, 3)
-	routePorts := make([]int, 3)
-	for index := range clientPorts {
-		clientPorts[index] = reserveControllerPort(t)
-		routePorts[index] = reserveControllerPort(t)
-	}
+	const peers = 3
+	ports := reserveControllerPorts(t, 2*peers)
+	clientPorts, routePorts := ports[:peers], ports[peers:]
 	routes := make([]string, 3)
 	for index, port := range routePorts {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
@@ -270,12 +267,40 @@ type controllerChild struct {
 
 func reserveControllerPort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	return reserveControllerPorts(t, 1)[0]
+}
+
+func reserveControllerPorts(t *testing.T, count int) []int {
+	t.Helper()
+	listeners := make([]net.Listener, 0, count)
+	defer func() {
+		for _, listener := range listeners {
+			if err := listener.Close(); err != nil {
+				t.Errorf("close reserved controller port: %v", err)
+			}
+		}
+	}()
+	ports := make([]int, count)
+	for index := range ports {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		listeners = append(listeners, listener)
+		ports[index] = listener.Addr().(*net.TCPAddr).Port
 	}
-	defer listener.Close()
-	return listener.Addr().(*net.TCPAddr).Port
+	return ports
+}
+
+func TestReserveControllerPortsDistinct(t *testing.T) {
+	ports := reserveControllerPorts(t, 6)
+	seen := make(map[int]bool, len(ports))
+	for _, port := range ports {
+		if seen[port] {
+			t.Fatalf("reserved controller port %d more than once", port)
+		}
+		seen[port] = true
+	}
 }
 
 func startControllerChild(t *testing.T, ctx context.Context, root, config string, boot, index int) *controllerChild {

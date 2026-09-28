@@ -75,12 +75,9 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	hostNKey, hostSeed := testNKey(t)
 	grants = append(grants, natscell.NKeyGrant{PublicKey: operatorNKey, Role: "operator"},
 		natscell.NKeyGrant{PublicKey: hostNKey, Role: "host", Node: "node-a"})
-	clientPorts := make([]int, 3)
-	routePorts := make([]int, 3)
-	for index := range clientPorts {
-		clientPorts[index] = reserveControllerPort(t)
-		routePorts[index] = reserveControllerPort(t)
-	}
+	const peers = 3
+	ports := reserveControllerPorts(t, 2*peers)
+	clientPorts, routePorts := ports[:peers], ports[peers:]
 	routes := make([]string, 3)
 	urls := make([]string, 3)
 	for index := range routes {

@@ -90,13 +90,9 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	ticketPub, ticketPrivate := testEd25519(t, root, "broker-ticket.key")
 	ticketPubFile := write("broker-ticket.pub", base64.StdEncoding.EncodeToString(ticketPub))
 	brokerIDs := []string{"broker-a", "broker-b", "broker-c"}
-	clientPorts := make([]int, 3)
-	routePorts := make([]int, 3)
-	routes := make([]string, 3)
-	for index := range clientPorts {
-		clientPorts[index] = reserveControllerPort(t)
-		routePorts[index] = reserveControllerPort(t)
-	}
+	ports := reserveControllerPorts(t, 2*len(brokerIDs))
+	clientPorts, routePorts := ports[:len(brokerIDs)], ports[len(brokerIDs):]
+	routes := make([]string, len(brokerIDs))
 	for index, port := range routePorts {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
 	}
