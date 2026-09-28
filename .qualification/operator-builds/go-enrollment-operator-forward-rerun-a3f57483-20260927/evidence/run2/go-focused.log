@@ -1,0 +1,4 @@
+Running as unit: run-p3172521-i7431140.scope; invocation ID: a51fb4f56cee4f4eb103b3e6abf3b998
+ionice: ignoring given class data for idle class
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell	0.016s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/app	0.358s

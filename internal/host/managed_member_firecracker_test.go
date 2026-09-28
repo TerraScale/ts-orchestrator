@@ -27,6 +27,18 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+)
+
+const (
+	managedMemberFirecrackerS3SecretOCID        = "ocid1.vaultsecret.oc1.sa-saopaulo-1.managedmember-fixture"
+	managedMemberFirecrackerS3SecretVersion     = int64(1)
+	managedMemberFirecrackerS3AccessKeyEnv      = "TS_FC_MANAGED_S3_ACCESS_KEY_FILE"
+	managedMemberFirecrackerS3SecretKeyEnv      = "TS_FC_MANAGED_S3_SECRET_KEY_FILE"
+	managedMemberFirecrackerS3AccessKeyPath     = "/etc/ts-managed-member/s3-access-key-id"
+	managedMemberFirecrackerS3SecretKeyPath     = "/etc/ts-managed-member/s3-secret-access-key"
+	managedMemberFirecrackerS3CredentialMaxSize = 1024
 )
 
 // This test is built into a guest-only test binary. Its controller verifier is
@@ -90,6 +102,10 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 	var cfg managedMemberFirecrackerConfig
 	if err := json.Unmarshal(data, &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
+	}
+	s3Credentials, err := newManagedMemberFirecrackerS3CredentialResolver(cfg.Runtime.LiveS3Credential)
+	if err != nil {
+		t.Fatalf("create test-only managed S3 credential resolver: %v", err)
 	}
 	if cfg.Version != 1 || cfg.Node == "" || cfg.ArtifactPath != "/opt/ts-managed-member/tb-server" ||
 		!lowerHex(cfg.ArtifactSHA256, 64) || !lowerHex(cfg.SourceDigest, 64) ||
@@ -214,8 +230,9 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
 		InstallRoot: filepath.Join(stateRoot, "install"), StateRoot: filepath.Join(stateRoot, "state"),
 		ManagedRuntimeRoot: "/srv/ts-managed", BakedSystemReserveBytes: cfg.SystemReserveBytes,
-		WorkloadIdentity: WorkloadIdentity{UID: 65534, GID: 65534},
-		PollInterval:     250 * time.Millisecond, ClockCheck: func() error { return nil }})
+		ManagedS3Credentials: s3Credentials,
+		WorkloadIdentity:     WorkloadIdentity{UID: 65534, GID: 65534},
+		PollInterval:         250 * time.Millisecond, ClockCheck: func() error { return nil }})
 	if err != nil {
 		t.Fatalf("create native host agent: %v", err)
 	}
@@ -353,6 +370,75 @@ func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
 		t.Fatal("native agent did not stop")
 	}
 	fmt.Printf("TS_MANAGED_MEMBER_PHASE=PASS node=%s\n", cfg.Node)
+}
+
+type managedMemberFirecrackerS3CredentialResolver struct {
+	reference        oci.SecretVersionReference
+	accessKeyIDPath  string
+	secretAccessPath string
+}
+
+func newManagedMemberFirecrackerS3CredentialResolver(reference oci.SecretVersionReference) (*managedMemberFirecrackerS3CredentialResolver, error) {
+	expected := oci.SecretVersionReference{
+		SecretOCID: managedMemberFirecrackerS3SecretOCID, VersionNumber: managedMemberFirecrackerS3SecretVersion,
+	}
+	if reference != expected {
+		return nil, errors.New("guest S3 credential reference differs from exporter fixture pin")
+	}
+	accessKeyPath, accessKeyOK := os.LookupEnv(managedMemberFirecrackerS3AccessKeyEnv)
+	secretKeyPath, secretKeyOK := os.LookupEnv(managedMemberFirecrackerS3SecretKeyEnv)
+	if !accessKeyOK || !secretKeyOK || accessKeyPath != managedMemberFirecrackerS3AccessKeyPath ||
+		secretKeyPath != managedMemberFirecrackerS3SecretKeyPath {
+		return nil, errors.New("private guest S3 credential file paths are unavailable")
+	}
+	return &managedMemberFirecrackerS3CredentialResolver{
+		reference: expected, accessKeyIDPath: accessKeyPath, secretAccessPath: secretKeyPath,
+	}, nil
+}
+
+func (resolver *managedMemberFirecrackerS3CredentialResolver) Resolve(ctx context.Context, reference oci.SecretVersionReference) (ManagedS3Credentials, error) {
+	if resolver == nil || ctx == nil || ctx.Err() != nil || reference != resolver.reference {
+		return ManagedS3Credentials{}, errors.New("guest S3 credential reference is invalid")
+	}
+	accessKeyID, err := readManagedMemberFirecrackerS3Credential(resolver.accessKeyIDPath)
+	if err != nil {
+		return ManagedS3Credentials{}, errors.New("private guest S3 access key is unavailable")
+	}
+	defer clear(accessKeyID)
+	secretAccessKey, err := readManagedMemberFirecrackerS3Credential(resolver.secretAccessPath)
+	if err != nil {
+		return ManagedS3Credentials{}, errors.New("private guest S3 secret key is unavailable")
+	}
+	defer clear(secretAccessKey)
+	if err := ctx.Err(); err != nil {
+		return ManagedS3Credentials{}, errors.New("guest S3 credential resolution was canceled")
+	}
+	return ManagedS3Credentials{AccessKeyID: string(accessKeyID), SecretAccessKey: string(secretAccessKey)}, nil
+}
+
+func readManagedMemberFirecrackerS3Credential(path string) ([]byte, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_CLOEXEC|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, errors.New("private credential file could not be opened")
+	}
+	file := os.NewFile(uintptr(fd), "managed S3 credential")
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, errors.New("private credential file could not be inspected")
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || owner.Uid != 0 || info.Mode().Perm() != 0600 ||
+		info.Size() <= 0 || info.Size() > managedMemberFirecrackerS3CredentialMaxSize {
+		return nil, errors.New("private credential file has unsafe ownership, mode or size")
+	}
+	contents, err := io.ReadAll(io.LimitReader(file, managedMemberFirecrackerS3CredentialMaxSize+1))
+	if err != nil || len(contents) == 0 || len(contents) > managedMemberFirecrackerS3CredentialMaxSize ||
+		!validS3Credential(string(contents)) {
+		clear(contents)
+		return nil, errors.New("private credential file content is invalid")
+	}
+	return contents, nil
 }
 
 func managedMemberReadFixture(path, digest string, maximum int64) ([]byte, error) {

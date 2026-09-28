@@ -1,0 +1,3 @@
+go1.27.1
+/home/mariogk/Projects/TerraScale/ts-orchestrator/go.mod
+

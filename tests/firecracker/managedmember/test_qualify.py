@@ -20,6 +20,8 @@ _SPEC = importlib.util.spec_from_file_location("managed_member_qualify", Path(__
 assert _SPEC is not None and _SPEC.loader is not None
 qualify = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(qualify)
+FIXTURE_S3_SECRET_OCID = ("ocid1.vaultsecret.oc1.sa-saopaulo-1."
+                          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 
 
 class InputContractTests(unittest.TestCase):
@@ -241,6 +243,7 @@ class InputContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             mount = Path(root)
             required = (Path("/usr/lib/systemd/systemd"), Path("/usr/sbin/blkid"),
+                        Path("/usr/sbin/update-ca-certificates"),
                         *(Path("/usr/bin") / command for command in
                           ("mount", "findmnt", "mountpoint", "readlink", "systemctl", "ip")))
             for destination in required:
@@ -282,6 +285,115 @@ class InputContractTests(unittest.TestCase):
             with self.assertRaisesRegex(qualify.QualificationError, "SHA-256 mismatch"):
                 qualify.exact_input("test", record)
 
+    def test_private_s3_credentials_are_bounded_and_never_passed_as_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            access = directory / "access"
+            secret = directory / "secret"
+            access.write_text("fixture_access_123")
+            secret.write_text("fixture_secret_456")
+            access.chmod(0o600)
+            secret.chmod(0o600)
+            self.assertEqual(qualify.s3_credentials((access, secret)),
+                             ("fixture_access_123", "fixture_secret_456"))
+            runner = qualify.runner_script("a")
+            self.assertIn(f"TS_FC_MANAGED_S3_ACCESS_KEY_FILE={qualify.S3_CREDENTIAL_PATHS[0]}", runner)
+            self.assertIn(f"TS_FC_MANAGED_S3_SECRET_KEY_FILE={qualify.S3_CREDENTIAL_PATHS[1]}", runner)
+            self.assertNotIn("fixture_access_123", runner)
+            secret.write_text("fixture_secret_456\n")
+            with self.assertRaisesRegex(qualify.QualificationError, "invalid bytes"):
+                qualify.s3_credentials((access, secret))
+            secret.write_text("fixture_secret_456")
+            secret.chmod(0o644)
+            with self.assertRaisesRegex(qualify.QualificationError, "unsafe ownership, mode or size"):
+                qualify.s3_credentials((access, secret))
+            secret.chmod(0o600)
+            alias = directory / "alias"
+            alias.symlink_to(secret)
+            with self.assertRaises(OSError):
+                qualify.s3_credentials((access, alias))
+
+    def test_authenticated_s3_fixture_precedes_either_guest_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            lab = qualify.Lab.__new__(qualify.Lab)
+            lab.root = Path(root) / "run"
+            lab.logs = lab.root / "logs"
+            lab.manifest = {"sha256": "a" * 64, "source_commits": {}}
+            lab.source_paths = {}
+            lab.source_hashes = {}
+            lab.started_at = "fixture-test"
+            lab.events = []
+            lab.failure = ""
+            lab.cleanup_errors = []
+            calls = []
+            lab.prepare_dirs = lambda: lab.root.mkdir()
+            for name in ("recheck_inputs", "copy_images", "network", "start_rustfs",
+                         "start_vms", "exercise", "finish_guests", "collect_results", "cleanup"):
+                setattr(lab, name, lambda name=name: calls.append(name))
+            lab.stage_guest = lambda member: calls.append("stage_" + member)
+            with mock.patch("builtins.print"):
+                self.assertEqual(lab.run()["outcome"], "PASS")
+            self.assertEqual(calls[:7], ["recheck_inputs", "copy_images", "network", "start_rustfs",
+                                         "stage_a", "stage_b", "start_vms"])
+
+    def test_sigterm_reaches_bounded_cleanup_and_reaps_active_commands(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            lab = qualify.Lab.__new__(qualify.Lab)
+            lab.root = Path(root) / "run"
+            lab.logs = lab.root / "logs"
+            lab.manifest = {"sha256": "a" * 64, "source_commits": {}}
+            lab.source_paths = {}
+            lab.source_hashes = {}
+            lab.started_at = "fixture-test"
+            lab.events = []
+            lab.failure = ""
+            lab.cleanup_errors = []
+            calls = []
+            handlers = []
+            lab.prepare_dirs = lambda: lab.root.mkdir()
+            for name in ("recheck_inputs", "copy_images", "network"):
+                setattr(lab, name, lambda name=name: calls.append(name))
+            lab.start_rustfs = lambda: handlers[-1](qualify.signal.SIGTERM, None)
+            lab.cleanup = lambda: calls.append("cleanup")
+            with (mock.patch.object(qualify.signal, "signal",
+                                    side_effect=lambda _number, handler: handlers.append(handler)),
+                  mock.patch("builtins.print")):
+                summary = lab.run()
+            self.assertEqual(summary["outcome"], "FAILED")
+            self.assertIn("SIGTERM", summary["failure"])
+            self.assertEqual(calls[-1], "cleanup")
+
+            log = qualify.CommandLog(Path(root))
+            child = mock.Mock(pid=12345)
+            observed_reap_handlers = []
+
+            def wait_for_child(*, timeout: int) -> int:
+                if not observed_reap_handlers:
+                    observed_reap_handlers.append(None)
+                    raise qualify.QualificationError("signal")
+                observed_reap_handlers.append(qualify.signal.getsignal(qualify.signal.SIGTERM))
+                return 0
+
+            child.wait.side_effect = wait_for_child
+            previous_sigterm = qualify.signal.getsignal(qualify.signal.SIGTERM)
+            with (mock.patch.object(qualify.subprocess, "Popen", return_value=child),
+                  mock.patch.object(qualify.os, "killpg") as killpg):
+                with self.assertRaisesRegex(qualify.QualificationError, "signal"):
+                    log.run("active-child", ["unused"])
+            killpg.assert_called_once_with(12345, qualify.signal.SIGKILL)
+            self.assertEqual(child.wait.call_count, 2)
+            self.assertEqual(observed_reap_handlers[-1], qualify.signal.SIG_IGN)
+            self.assertEqual(qualify.signal.getsignal(qualify.signal.SIGTERM), previous_sigterm)
+
+            timed_child = mock.Mock(pid=12346)
+            timed_child.wait.side_effect = [subprocess.TimeoutExpired(["unused"], 1), 0]
+            with (mock.patch.object(qualify.subprocess, "Popen", return_value=timed_child),
+                  mock.patch.object(qualify.os, "killpg") as timed_killpg):
+                with self.assertRaisesRegex(qualify.QualificationError, "timed out"):
+                    log.run("timed-child", ["unused"], timeout=1)
+            timed_killpg.assert_called_once_with(12346, qualify.signal.SIGKILL)
+            self.assertEqual(timed_child.wait.call_count, 2)
+
     def test_rejects_incomplete_profile_before_touching_inputs(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             manifest = Path(root) / "manifest.json"
@@ -304,6 +416,14 @@ class InputContractTests(unittest.TestCase):
                  "database_id": "22222222-2222-2222-2222-222222222222", "shard_id": 7,
                  "member_id": qualify.MEMBER_IDS[member], "incarnation": "bb" * 16}
         inputs = {name: {"sha256": "a" * 64} for name in qualify.MEMBER_INPUTS}
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        s3_config = {"version": 1, "ack_profile": "object_durable", "bucket": "tbmm-" + "1" * 32,
+                     "region": qualify.S3_REGION, "endpoint": qualify.S3_ENDPOINT}
+        s3_path = Path(temporary.name) / "signed-v2-s3-config.json"
+        s3_path.write_text(json.dumps(s3_config, separators=(",", ":")))
+        inputs["signed_v2_s3_config"] = {"path": s3_path, "size": s3_path.stat().st_size,
+                                         "sha256": qualify.sha256_file(s3_path)}
         runtime = {
             "device_path": "/dev/oracleoci/oraclevdb",
             "mount_path": str(qualify.member_directory(scope, 1) / "volume"),
@@ -317,6 +437,10 @@ class InputContractTests(unittest.TestCase):
             "replication_peer_member_id": qualify.MEMBER_IDS["b"],
             "replication_peer_address": "10.77.39.12:7000",
             "replication_server_ca_sha256": inputs["server_ca_pem"]["sha256"],
+            "live_s3_config_sha256": inputs["signed_v2_s3_config"]["sha256"],
+            "live_s3_target_sha256": qualify.s3_target_digest(qualify.S3_REGION, s3_config["bucket"],
+                                                               qualify.S3_ENDPOINT),
+            "live_s3_credential": {"secret_ocid": FIXTURE_S3_SECRET_OCID, "version_number": 1},
         }
         config = {"version": 1, "node": "node-a", "failure_domain": "FAULT-DOMAIN-1",
                   "member": {"scope": scope, "host_attempt": 1},
@@ -348,9 +472,9 @@ class InputContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             directory = Path(root)
 
-            def record(name: str) -> dict[str, str]:
+            def record(name: str, payload: bytes | None = None) -> dict[str, str]:
                 path = directory / name
-                path.write_bytes(name.encode())
+                path.write_bytes(name.encode() if payload is None else payload)
                 if name in {"firecracker", "go_host_test", "tb_server"}:
                     path.chmod(0o700)
                 return {"path": str(path), "sha256": qualify.sha256_file(path)}
@@ -359,9 +483,13 @@ class InputContractTests(unittest.TestCase):
             members = {}
             expected_dirs = {}
             authority = record("authority.tbca")
+            s3 = {"version": 1, "ack_profile": "object_durable", "bucket": "tbmm-" + "2" * 32,
+                  "region": qualify.S3_REGION, "endpoint": qualify.S3_ENDPOINT}
+            s3_raw = json.dumps(s3, separators=(",", ":")).encode()
             for member in ("a", "b"):
                 inputs = {name: record(f"{member}-{name}") for name in qualify.MEMBER_INPUTS}
                 inputs["authority_tbca"] = authority
+                inputs["signed_v2_s3_config"] = record(f"{member}-signed-v2-s3-config.json", s3_raw)
                 scope = {"cluster_id": "11" * 16, "tenant_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                          "database_id": "22222222-2222-2222-2222-222222222222", "shard_id": 7,
                          "member_id": qualify.MEMBER_IDS[member],
@@ -379,7 +507,11 @@ class InputContractTests(unittest.TestCase):
                            "replication_listen_address": f"{qualify.GUEST_IPS[member]}:7000",
                            "replication_peer_member_id": qualify.MEMBER_IDS[peer],
                            "replication_peer_address": f"{qualify.GUEST_IPS[peer]}:7000",
-                           "replication_server_ca_sha256": inputs["server_ca_pem"]["sha256"]}
+                           "replication_server_ca_sha256": inputs["server_ca_pem"]["sha256"],
+                           "live_s3_config_sha256": inputs["signed_v2_s3_config"]["sha256"],
+                           "live_s3_target_sha256": qualify.s3_target_digest(s3["region"], s3["bucket"],
+                                                                               s3["endpoint"]),
+                           "live_s3_credential": {"secret_ocid": FIXTURE_S3_SECRET_OCID, "version_number": 1}}
                 config = {"version": 1, "node": "node-" + member,
                           "failure_domain": "FAULT-DOMAIN-1" if member == "a" else "FAULT-DOMAIN-2",
                           "member": {"scope": scope, "host_attempt": 1},
@@ -409,6 +541,43 @@ class InputContractTests(unittest.TestCase):
                     with self.assertRaisesRegex(qualify.QualificationError, "runtime pins"):
                         qualify.load_manifest(path)
                     run.assert_not_called()
+                members["b"]["guest_config"]["runtime"]["replication_peer_member_id"] = qualify.MEMBER_IDS["a"]
+                for field, replacement in (("live_s3_config_sha256", "0" * 64),
+                                           ("live_s3_target_sha256", "0" * 64)):
+                    with self.subTest(field=field):
+                        original = members["a"]["guest_config"]["runtime"][field]
+                        members["a"]["guest_config"]["runtime"][field] = replacement
+                        path.write_text(json.dumps(manifest))
+                        with self.assertRaisesRegex(qualify.QualificationError, "runtime pins"):
+                            qualify.load_manifest(path)
+                        members["a"]["guest_config"]["runtime"][field] = original
+                for version in (2, True, 1.0):
+                    with self.subTest(credential_version=version):
+                        credential = members["a"]["guest_config"]["runtime"]["live_s3_credential"]
+                        members["a"]["guest_config"]["runtime"]["live_s3_credential"] = {
+                            **credential, "version_number": version}
+                        path.write_text(json.dumps(manifest))
+                        with self.assertRaisesRegex(qualify.QualificationError, "S3 credential reference"):
+                            qualify.load_manifest(path)
+                        members["a"]["guest_config"]["runtime"]["live_s3_credential"] = credential
+                credential = members["a"]["guest_config"]["runtime"]["live_s3_credential"]
+                members["a"]["guest_config"]["runtime"]["live_s3_credential"] = {
+                    **credential, "secret_ocid": FIXTURE_S3_SECRET_OCID + "-other"}
+                path.write_text(json.dumps(manifest))
+                with self.assertRaisesRegex(qualify.QualificationError, "S3 credential reference"):
+                    qualify.load_manifest(path)
+                members["a"]["guest_config"]["runtime"]["live_s3_credential"] = credential
+                for field, replacement in (("endpoint", "http://rustfs.terrabase.test:9000"),
+                                           ("region", "us-east-1")):
+                    with self.subTest(field=field):
+                        invalid = {**s3, field: replacement}
+                        record_a = record("a-signed-v2-s3-config.json",
+                                          json.dumps(invalid, separators=(",", ":")).encode())
+                        members["a"]["inputs"]["signed_v2_s3_config"] = record_a
+                        members["a"]["guest_config"]["runtime"]["live_s3_config_sha256"] = record_a["sha256"]
+                        path.write_text(json.dumps(manifest))
+                        with self.assertRaisesRegex(qualify.QualificationError, "signed S3 target"):
+                            qualify.load_manifest(path)
 
 
 class ResultContractTests(unittest.TestCase):

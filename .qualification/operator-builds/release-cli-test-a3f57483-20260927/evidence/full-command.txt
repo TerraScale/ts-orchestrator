@@ -1,0 +1,1 @@
+systemd-run --user --scope --collect --property=MemoryMax=2G -- timeout 1800s nice -n 19 ionice -c 3 -n 7 env GOMAXPROCS=2 GOMEMLIMIT=1GiB go test -p=1 -count=1 ./cmd/ts-release ./internal/release ./internal/trust

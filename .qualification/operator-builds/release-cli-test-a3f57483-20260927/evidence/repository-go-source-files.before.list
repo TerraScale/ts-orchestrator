@@ -1,0 +1,16 @@
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/admission.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/admission_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/delegation.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/delegation_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/main.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/main_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/envelope.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/json.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/protocol_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/subjects.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/admission.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/admission_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/receipt.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/receipt_test.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/trust/envelope.go
+/home/mariogk/Projects/TerraScale/ts-orchestrator/internal/trust/envelope_test.go

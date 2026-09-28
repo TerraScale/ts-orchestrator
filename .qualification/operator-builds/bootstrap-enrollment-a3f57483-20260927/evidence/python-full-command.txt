@@ -1,0 +1,1 @@
+systemd-run --user --scope --collect --property=MemoryMax=2G -- timeout 900s nice -n 19 ionice -c 3 -n 7 python3 -m unittest discover -s tests/deploy -p 'test_build_offline.py'

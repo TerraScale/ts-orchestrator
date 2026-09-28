@@ -1,0 +1,69 @@
+ M cmd/ts-bootstrap/main.go
+ M cmd/ts-bootstrap/main_test.go
+ M deploy/image/build-offline.sh
+ M deploy/image/terrascale-orchestrator.sysusers
+ M internal/app/app.go
+ M internal/app/bootstrap_controller.go
+ M internal/app/bootstrap_credential_launcher_test.go
+ M internal/app/config.go
+ M internal/app/controller.go
+ M internal/app/controller_host_cluster_test.go
+ M internal/app/deployment_convergence_measurement_test.go
+ M internal/app/host_enrollment.go
+ M internal/app/managed_config.go
+ M internal/app/managed_enrollment_test.go
+ M internal/app/managed_placement_enrollment_integration_test.go
+ M internal/app/operator.go
+ M internal/app/operator_integration_test.go
+ M internal/app/signers.go
+ M internal/bootstrap/founder_plan.go
+ M internal/bootstrap/ledger_head.go
+ M internal/bootstrap/ledger_test.go
+ M internal/bootstrap/manifest.go
+ M internal/bootstrap/manifest_test.go
+ M internal/bootstrap/vault.go
+ M internal/bootstrapstart/admission.go
+ M internal/bootstrapstart/admission_flow_test.go
+ M internal/bootstrapstart/admission_test.go
+ M internal/bootstrapstart/credentials.go
+ M internal/bootstrapstart/credentials_test.go
+ M internal/bootstrapstart/descriptor.go
+ M internal/bootstrapstart/founder_credential_bound.go
+ M internal/bootstrapstart/founder_credential_bound_test.go
+ M internal/bootstrapstart/founder_install_continuation.go
+ M internal/bootstrapstart/founder_install_selection_test.go
+ M internal/bootstrapstart/founder_oci.go
+ M internal/bootstrapstart/founder_oci_test.go
+ M internal/bootstrapstart/founder_publish.go
+ M internal/bootstrapstart/founder_runtime_test.go
+ M internal/bootstrapstart/founder_selection_test.go
+ M internal/bootstrapstart/oci_observer.go
+ M internal/bootstrapstart/oci_observer_test.go
+ M tests/deploy/test_build_offline.py
+?? cmd/ts-bootstrap/controller_config.go
+?? cmd/ts-bootstrap/first_seed.go
+?? cmd/ts-bootstrap/first_seed_test.go
+?? cmd/ts-bootstrap/founder_initial.go
+?? cmd/ts-bootstrap/founder_initial_test.go
+?? cmd/ts-bootstrap/install_operator_material.go
+?? cmd/ts-bootstrap/material.go
+?? cmd/ts-bootstrap/material_test.go
+?? cmd/ts-bootstrap/render_controller_config.go
+?? cmd/ts-bootstrap/render_host_enrollment_public.go
+?? cmd/ts-bootstrap/render_host_enrollment_public_test.go
+?? cmd/ts-bootstrap/render_operator_config.go
+?? deploy/image/validate-host-enrollment-public.py
+?? internal/app/controller_config_install.go
+?? internal/app/controller_config_install_test.go
+?? internal/app/controller_signed_config.go
+?? internal/app/host_enrollment_revoke.go
+?? internal/app/host_enrollment_runtime.go
+?? internal/app/host_setup.go
+?? internal/app/host_setup_test.go
+?? internal/bootstrapstart/controller_config_install.go
+?? internal/bootstrapstart/controller_config_install_test.go
+?? internal/bootstrapstart/external_seed.go
+?? internal/bootstrapstart/external_seed_admission_test.go
+?? internal/bootstrapstart/external_seed_record.go
+?? internal/bootstrapstart/founder_publish_initial_test.go
+?? internal/hostenroll/

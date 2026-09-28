@@ -1,0 +1,5 @@
+Running as unit: run-p2933909-i7185802.scope; invocation ID: 5d168ef528ea40a4abb116d60cd23027
+ionice: ignoring given class data for idle class
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-release	0.066s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/release	0.016s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust	0.014s

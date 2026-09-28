@@ -1,0 +1,7 @@
+Running as unit: run-p3070741-i7325356.scope; invocation ID: 7a638a757cc243a6ab72d4ac697361c2
+ionice: ignoring given class data for idle class
+......................
+----------------------------------------------------------------------
+Ran 22 tests in 32.997s
+
+OK

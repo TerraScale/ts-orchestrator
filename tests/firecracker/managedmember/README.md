@@ -28,8 +28,13 @@ and exact `inputs` for `volume_ext4`, `authority_tbca`,
 `trusted_public_key`, `server_crt`, `server_key`, `client_ca_pem`,
 `server_ca_pem`, `client_managed_manifest`, `client_config`, `client_chain`,
 `client_private_key`, `client_api_keys`, `client_api_token`, and
-`client_https_ca_pem`. The driver checks every input hash before resource
-creation and again before boot. Its parser checks that the guest configs pin
+`client_https_ca_pem`, and `signed_v2_s3_config`. The signed V2 config pins the
+ObjectDurable fixture target shared by both members. Export for the GRU fixture
+uses the canonical HTTPS origin `https://rustfs.terrabase.test:9000`, a bucket
+name selected before export, and signing region `sa-saopaulo-1`; the runner
+starts its pinned local RustFS container and creates that bucket before either
+guest boots. The driver checks every input hash before resource creation and
+again before boot. Its parser checks that the guest configs pin
 the expected member, reciprocal peer address, material hashes, separate
 filesystem UUIDs, shared authority, and one document/schema binding.
 
@@ -72,8 +77,8 @@ qualified TerraBase source digest from the independent build record:
 
 ```sh
 # Run inside the pinned, full-copy Go snapshot:
-nice -n 10 go test -c -o /path/to/host.test ./internal/host
-nice -n 10 go run ./tests/firecracker/managedmember/exporter \
+nice -n 19 go test -c -o /path/to/host.test ./internal/host
+nice -n 19 go run ./tests/firecracker/managedmember/exporter \
   --output-dir /path/to/new/private-packet-directory \
   --kernel /path/to/pinned/vmlinux \
   --rootfs /path/to/pinned/rootfs.ext4 \
@@ -83,13 +88,30 @@ nice -n 10 go run ./tests/firecracker/managedmember/exporter \
   --orchestrator-revision FULL_ORCHESTRATOR_COMMIT \
   --terrabase-revision FULL_TERRABASE_COMMIT \
   --source-digest LOWERCASE_TERRABASE_SOURCE_SHA256 \
+  --s3-endpoint https://rustfs.terrabase.test:9000 \
+  --s3-bucket managed-member-test \
+  --s3-region sa-saopaulo-1 \
   --ephemeral-test-signer
 python3 tests/firecracker/managedmember/qualify.py check \
   --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json
 python3 tests/firecracker/managedmember/qualify.py run \
   --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json \
-  --run-dir /path/to/new/private-evidence-directory
+  --run-dir /path/to/new/private-evidence-directory \
+  --s3-access-key-file /absolute/private/s3-access-key-id \
+  --s3-secret-key-file /absolute/private/s3-secret-access-key
 ```
+
+`check` needs no S3 credential files. `run` requires both file flags above.
+Each value must be in a separate absolute, direct regular file owned by root or
+the caller, mode `0600`, containing 1–1024 ASCII letters, digits, `_`, or `-`
+with no newline. The credential bytes are not packet inputs or command-line
+arguments. The runner supplies them to its local RustFS fixture and stages them
+inside private guest rootfs copies; after the VMs stop and the mounts are
+released, cleanup removes those copies even when preserving other failure
+evidence. A cleanup error is reported if it cannot confirm stop/unmount or
+remove a private rootfs. The temporary RustFS service uses
+the fixed HTTPS endpoint and GRU signing region described above; the exported
+bucket name is created by `run`, not pre-created in the packet.
 
 For a retained local authority key, replace `--ephemeral-test-signer` with
 `--authority-seed-file /absolute/protected/seed` and
@@ -108,5 +130,8 @@ loop mounts, and guest staging. It copies each pinned image privately,
 collects bounded command/serial/VMM/Go-test logs and `summary.json`, and
 requires both guests to report one explicit non-skipped Go pass and terminal
 runner pass before their natural VMM exits. It removes only owned mounts,
-links, and sockets after both VMMs stop. Private images remain on failure for
-inspection. No VM qualification is implied by a successful build or `check`.
+links, and sockets after both VMMs stop. It removes credential-bearing private
+rootfs copies once the VMs stop and mounts are released; private volume image
+copies remain on failure for inspection. A cleanup error is reported if it
+cannot confirm stop/unmount or remove a private rootfs. No VM qualification is
+implied by a successful build or `check`.

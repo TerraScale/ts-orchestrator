@@ -1,0 +1,3 @@
+The Go command session exited with code 1; systemd-run used --scope --collect.
+Remaining matching systemd units:
+Remaining matching test processes:

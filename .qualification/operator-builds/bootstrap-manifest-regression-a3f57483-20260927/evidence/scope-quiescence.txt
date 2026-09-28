@@ -1,0 +1,3 @@
+The regression command exited; systemd-run used --scope --collect.
+Remaining matching systemd units:
+Remaining matching test processes:

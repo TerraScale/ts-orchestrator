@@ -1,0 +1,49 @@
+Running as unit: run-p3165146-i7371158.scope; invocation ID: 81958a0748334b259cec5a322f89c3f9
+ionice: ignoring given class data for idle class
+--- FAIL: TestOperatorForwardTLSVerifiesOriginalControllerIPAndClientCert (0.01s)
+    --- FAIL: TestOperatorForwardTLSVerifiesOriginalControllerIPAndClientCert/matching_controller (0.00s)
+        operator_forward_test.go:98: verified TLS name = ""
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell	0.017s
+[3165902] [INF] Starting nats-server
+[3165902] [INF]   Version:  2.15.0
+[3165902] [INF]   Git:      [not set]
+[3165902] [INF]   Cluster:  gru
+[3165902] [INF]   Name:     gru-managed-enrollment
+[3165902] [INF]   Node:     xHwN3hBe
+[3165902] [INF]   ID:       NC3FRHTZGV3GXZD43YHRTMDHBQBEEJ63TZAPUT2I7X636HULJ2UH56QW
+[3165902] [INF] Starting JetStream
+[3165902] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[3165902] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[3165902] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[3165902] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[3165902] [INF] 
+[3165902] [INF]          https://docs.nats.io/jetstream
+[3165902] [INF] 
+[3165902] [INF] ---------------- JETSTREAM ----------------
+[3165902] [INF]   Strict:          true
+[3165902] [INF]   Max Memory:      768.00 MB
+[3165902] [INF]   Max Storage:     8.00 GB
+[3165902] [INF]   Store Directory: "/tmp/TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHos3600046006/001/nats/jetstream"
+[3165902] [INF]   API Level:       5
+[3165902] [INF] -------------------------------------------
+[3165902] [INF] Took 489.87µs to start JetStream
+[3165902] [INF] Listening for client connections on 127.0.0.1:40937
+[3165902] [INF] Server is ready
+2026/09/27 06:00:54 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/09/27 06:00:54 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+2026/09/27 06:00:54 WARN withholding OCI instance without a verified regional identity instance_id=ocid1.instance.oc1..placement-sized region=GRU
+2026/09/27 06:00:54 INFO host regional NATS connection transition state=connected endpoint=127.0.0.1:40937 cause_class=none
+2026/09/27 06:00:54 INFO host session accepted phase=acquire session_id_hash=e777fb2308d131094b8ef86fddfcca64 epoch=1 expires_at=2026-09-27T09:01:24.45926074Z
+2026/09/27 06:00:54 WARN withholding OCI instance without durable controller ownership instance_id=ocid1.instance.oc1..foreign-replacement region=GRU create_key=th-821a98cc3ea55d160f9fd73df76809436007ebe5ef946042
+2026/09/27 06:00:54 INFO host regional NATS connection transition state=disconnected endpoint=127.0.0.1:40937 cause_class=none
+[3165902] [INF] Initiating Shutdown...
+[3165902] [INF] Initiating JetStream Shutdown...
+[3165902] [INF] JetStream Shutdown
+2026/09/27 06:00:54 INFO authority state transition scope=gru from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+[3165902] [INF] Server Exiting..
+--- FAIL: TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession (0.30s)
+    managed_placement_enrollment_integration_test.go:536: operator revoked a grant while OCI observed a foreign replacement on its node
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/app	0.331s
+FAIL
