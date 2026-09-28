@@ -159,11 +159,26 @@ The current GRU qualification requires no inter-region link. Its reviewed plan
 uses VCN `10.251.0.0/24` and a local Oracle Services Network service-gateway
 route; it declares no DRG, remote peering connection (RPC), peer route, or peer
 ingress rule. Do not make another cell or a private link a GRU acceptance
-condition. The current preview plan and foundation inspector accept and verify
-the declared service-gateway route and exact network rules; they do not admit or
-read back a paired DRG/RPC topology. Add reviewed plan and inspector support as
-part of a separately authorized regional change rather than appending a DRG
-route to the GRU example.
+condition, and do not append a DRG route to the GRU example.
+
+For a separately reviewed pair, the `inspect-private-peer` subcommand in
+`deploy/oci-region/preview.py` accepts `--pair-intent`, `--left-plan`,
+`--left-inventory`, `--left-admission`, the corresponding `--right-*` paths,
+and `--out`. It makes read-only OCI CLI calls and writes a hash-bound
+configuration receipt. It checks disjoint RFC1918 VCN and subnet ranges,
+reciprocal connected RPCs and attachments, exact subnet and DRG routes and
+import distributions, scoped peer security rules, and each region's existing
+local service-gateway route. This command does not change the GRU-only plan,
+provision another region, or gate the current GRU launch.
+
+The receipt reports each regional estimate separately and sets
+`budget_admission.status` to `blocked`: the per-region estimates repeat shared
+resource baselines and apply free allowances independently, so they cannot
+prove the combined USD 100 monthly ceiling. The receipt is configuration
+readback only. It does not test private endpoint reachability, verify
+application mTLS, or establish signed runtime peer consumption or native
+replication readiness. Complete those checks through separately authorized
+network testing and the later `ts-orchestrator` runtime ownership path.
 
 Before enabling cross-region member replication or required inter-cell control
 traffic, the regional foundation operator owns steps 1–4 through authenticated

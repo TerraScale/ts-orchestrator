@@ -39,6 +39,7 @@ FREE_OBJECT_GB = Decimal(10)
 MAX_PLAN_BYTES = 64 * 1024
 MAX_INVENTORY_BYTES = 4 * 1024 * 1024
 MAX_ADMISSION_BYTES = 64 * 1024
+MAX_PRIVATE_PEER_INTENT_BYTES = 64 * 1024
 MAX_IMPORT_RECEIPT_BYTES = 64 * 1024
 MAX_IMPORT_PROJECTION_BYTES = 64 * 1024
 MAX_SEED_MANIFEST_BYTES = 30 * 1024
@@ -1738,15 +1739,454 @@ def inspect_foundation(plan: dict, plan_path: pathlib.Path, inventory_path: path
             "vault_id": ids["vault"], "key_id": ids["key"]}
 
 
+PRIVATE_PEER_CELL_FIELDS = {
+    "plan_sha256", "drg_id", "vcn_attachment_id", "rpc_id", "rpc_attachment_id",
+    "vcn_drg_route_table_id", "rpc_drg_route_table_id", "vcn_import_distribution_id",
+    "rpc_import_distribution_id", "monthly_cross_region_egress_gb",
+}
+PRIVATE_PEER_IPV4_RANGES = tuple(ipaddress.ip_network(cidr) for cidr in
+                                 ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
+def ocid_realm(resource_id: str) -> str:
+    match = re.match(r"ocid1\.[a-z]+\.(oc[0-9]+)\.", resource_id)
+    if match is None:
+        fail("private peer plans must use an OCI realm OCID")
+    return match.group(1)
+
+
+def private_peer_ipv4_network(value: str, label: str) -> ipaddress.IPv4Network:
+    if not isinstance(value, str):
+        fail(f"private peer {label} CIDR must be a string")
+    network = ipaddress.ip_network(value, strict=True)
+    if (not isinstance(network, ipaddress.IPv4Network) or
+            not any(network.subnet_of(private_range) for private_range in PRIVATE_PEER_IPV4_RANGES)):
+        fail(f"private peer {label} CIDR must be inside an RFC1918 IPv4 range")
+    return network
+
+
+def validate_private_peer_inputs(intent: dict, intent_path: pathlib.Path,
+                                 plan_paths: dict[str, pathlib.Path],
+                                 intent_sha256: str) -> tuple[dict, dict, dict]:
+    """Validate the operator-owned pair mapping and regional egress assumptions."""
+    if set(intent) != {"schema_version", "tenancy_id", "realm", "allowed_tcp_ports", "cells"}:
+        fail("private peer intent has unexpected or missing fields")
+    if type(intent.get("schema_version")) is not int or intent["schema_version"] != 1:
+        fail("unsupported private peer intent schema")
+    tenancy_id = require_ocid(intent.get("tenancy_id"), "tenancy")
+    realm = ocid_realm(tenancy_id)
+    if intent.get("realm") != realm:
+        fail("private peer intent realm differs from its tenancy")
+    if not isinstance(plan_paths, dict) or set(plan_paths) != {"left", "right"}:
+        fail("private peer inspection requires two regional plans")
+    plan_hashes = {side: sha256(path) for side, path in plan_paths.items()}
+    plans = {side: load_plan(path) for side, path in plan_paths.items()}
+    if any(sha256(plan_paths[side]) != plan_hashes[side] for side in plans):
+        fail("private peer regional plan changed while its intent was being read")
+    if (plans["left"]["cell"] == plans["right"]["cell"] or
+            plans["left"]["region"] == plans["right"]["region"]):
+        fail("private peer plans must name two distinct mapped cells and regions")
+    if any(plan["tenancy_id"] != tenancy_id or ocid_realm(plan["tenancy_id"]) != realm
+           for plan in plans.values()):
+        fail("private peer plans do not share the exact tenancy and realm")
+    intent_cells = intent.get("cells")
+    if (not isinstance(intent_cells, dict) or
+            set(intent_cells) != {plan["cell"] for plan in plans.values()}):
+        fail("private peer intent cell map differs from the two regional plans")
+    ports = intent.get("allowed_tcp_ports")
+    if (not isinstance(ports, list) or not ports or len(ports) > 32 or
+            any(type(port) is not int or not 1 <= port <= 65535 for port in ports) or
+            ports != sorted(set(ports))):
+        fail("private peer intent must list sorted, unique, exact TCP ports")
+
+    contexts: dict[str, dict] = {}
+    pair_ids: set[str] = set()
+    networks = []
+    subnets = []
+    for side, plan in plans.items():
+        cell = plan["cell"]
+        row = intent_cells[cell]
+        if not isinstance(row, dict) or set(row) != PRIVATE_PEER_CELL_FIELDS:
+            fail(f"private peer intent has an incomplete or unexpected {cell} mapping")
+        if row.get("plan_sha256") != plan_hashes[side]:
+            fail(f"private peer intent is stale for the {cell} plan")
+        ids = required_resource_ids(plan)
+        for key, kind in (("drg_id", "drg"), ("vcn_attachment_id", "drgattachment"),
+                          ("rpc_id", "remotepeeringconnection"), ("rpc_attachment_id", "drgattachment"),
+                          ("vcn_drg_route_table_id", "drgroutetable"),
+                          ("rpc_drg_route_table_id", "drgroutetable"),
+                          ("vcn_import_distribution_id", "drgroutedistribution"),
+                          ("rpc_import_distribution_id", "drgroutedistribution")):
+            resource_id = require_ocid(row.get(key), kind, plan["region"])
+            if resource_id in pair_ids:
+                fail("private peer intent reuses a resource OCID")
+            pair_ids.add(resource_id)
+        if row["vcn_attachment_id"] == row["rpc_attachment_id"]:
+            fail("private peer intent reuses one DRG attachment for both networks")
+        if row["vcn_drg_route_table_id"] == row["rpc_drg_route_table_id"]:
+            fail("private peer intent must use separate VCN and RPC DRG route tables")
+        if row["vcn_import_distribution_id"] == row["rpc_import_distribution_id"]:
+            fail("private peer intent must use separate VCN and RPC import distributions")
+        if (ids["vcn"] is None or ids["subnet"] is None or ids["route_table"] is None or
+                ids["service_gateway"] is None or len(plan["network_security"]["route_rules"]) != 1 or
+                plan["network_security"]["service_gateway_service_id"] is None):
+            fail("private peer plans must preserve their exact local service-gateway route")
+        if not Decimal(0) <= decimal(row["monthly_cross_region_egress_gb"]) <= decimal(
+                plan["budget"]["egress_gb_max"]):
+            fail(f"private peer {cell} traffic exceeds the regional plan's priced egress reserve")
+        network = private_peer_ipv4_network(plan["network_cidr"], "VCN")
+        subnet = private_peer_ipv4_network(plan["subnet_cidr"], "subnet")
+        if not subnet.subnet_of(network):
+            fail("private peer subnet CIDR is outside its regional VCN")
+        networks.append(network)
+        subnets.append(subnet)
+        contexts[cell] = {"side": side, "plan": plan, "plan_path": plan_paths[side],
+                          "plan_sha256": plan_hashes[side], "ids": ids,
+                          "intent": row, "network": network, "subnet": subnet}
+    if networks[0].overlaps(networks[1]) or subnets[0].overlaps(subnets[1]):
+        fail("private peer VCN and subnet CIDRs must not overlap")
+    if sha256(intent_path) != intent_sha256:
+        fail("private peer intent changed while it was being read")
+    return plans, contexts, {"realm": realm, "tenancy_id": tenancy_id, "ports": ports,
+                             "intent_sha256": intent_sha256}
+
+
+def exact_rows(actual: object, expected: list[dict], label: str) -> list[dict]:
+    actual_rows = rows(actual)
+    canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
+    if sorted(map(canonical, actual_rows)) != sorted(map(canonical, expected)):
+        fail(f"live {label} differs from the exact private peer intent")
+    return actual_rows
+
+
+def private_peer_security_rules(plan: dict, peer_subnet: str, ports: list[int]) -> tuple[list[dict], list[dict]]:
+    nsg_rules = list(plan["network_security"]["nsg_rules"])
+    security_list_egress = list(plan["network_security"]["security_list_egress_rules"])
+    for port in ports:
+        nsg_rules.append({"direction": "INGRESS", "protocol": "6", "source": peer_subnet,
+                          "source_type": "CIDR_BLOCK", "destination": None, "destination_type": None,
+                          "tcp_min": port, "tcp_max": port, "udp_min": None, "udp_max": None,
+                          "stateless": False})
+        security_list_egress.append({"direction": "EGRESS", "protocol": "6", "source": None,
+                                     "source_type": None, "destination": peer_subnet,
+                                     "destination_type": "CIDR_BLOCK", "tcp_min": port,
+                                     "tcp_max": port, "udp_min": None, "udp_max": None,
+                                     "stateless": False})
+    return nsg_rules, security_list_egress
+
+
+def normalized_drg_route(rule: dict) -> dict:
+    return {"destination": rule.get("destination"),
+            "destination_type": rule.get("destination-type", rule.get("destination_type")),
+            "next_hop_drg_attachment_id": rule.get("next-hop-drg-attachment-id",
+                                                     rule.get("next_hop_drg_attachment_id")),
+            "route_type": rule.get("route-type", rule.get("route_type")),
+            "is_conflict": rule.get("is-conflict", rule.get("is_conflict")),
+            "is_blackhole": rule.get("is-blackhole", rule.get("is_blackhole"))}
+
+
+def read_private_peer_import_distribution(region: str, distribution_id: str, drg_id: str,
+                                          compartment_id: str, accepted_attachment_id: str) -> dict:
+    distribution = require_live_id(oci("network", "drg-route-distribution", "get",
+                                       "--route-distribution-id", distribution_id, region=region),
+                                   distribution_id, "DRG route import distribution")
+    if (distribution.get("lifecycle-state") != "AVAILABLE" or
+            distribution.get("distribution-type") != "IMPORT" or distribution.get("drg-id") != drg_id or
+            distribution.get("compartment-id") != compartment_id):
+        fail("live DRG import distribution has an unexpected type, DRG, compartment, or state")
+    statements = rows(oci("network", "drg-route-distribution-statement", "list",
+                          "--route-distribution-id", distribution_id, "--all", region=region))
+    if len(statements) != 1:
+        fail("live DRG import distribution is broad or contains extra statements")
+    statement = statements[0]
+    if set(statement) not in ({"action", "priority", "match-criteria"},
+                              {"id", "action", "priority", "match-criteria"}):
+        fail("live DRG import distribution statement has unexpected fields")
+    criteria = rows(statement.get("match-criteria"))
+    if (statement.get("action") != "ACCEPT" or type(statement.get("priority")) is not int or
+            not 0 <= statement["priority"] <= 65535 or len(criteria) != 1 or
+            set(criteria[0]) != {"match-type", "drg-attachment-id"} or
+            criteria[0].get("match-type") != "DRG_ATTACHMENT_ID" or
+            criteria[0].get("drg-attachment-id") != accepted_attachment_id):
+        fail("live DRG import distribution is not scoped to the exact paired attachment")
+    observed = {"id": distribution_id, "distribution_type": "IMPORT", "drg_id": drg_id,
+                "compartment_id": compartment_id, "statement": {
+                    "id": statement.get("id"), "action": statement["action"],
+                    "priority": statement["priority"],
+                    "match_criteria": [{"match_type": "DRG_ATTACHMENT_ID",
+                                        "drg_attachment_id": accepted_attachment_id}]}}
+    return observed
+
+
+def inspect_private_peer_side(context: dict, peer: dict, ports: list[int]) -> dict:
+    plan = context["plan"]
+    ids = context["ids"]
+    intent = context["intent"]
+    region = plan["region"]
+    network_compartment = ids["network_compartment"]
+    drg_id = intent["drg_id"]
+    vcn_attachment_id = intent["vcn_attachment_id"]
+    rpc_id = intent["rpc_id"]
+    rpc_attachment_id = intent["rpc_attachment_id"]
+
+    vcn = require_live_id(oci("network", "vcn", "get", "--vcn-id", ids["vcn"], region=region),
+                          ids["vcn"], "VCN")
+    if (vcn.get("lifecycle-state") != "AVAILABLE" or
+            vcn.get("compartment-id") != network_compartment or
+            vcn.get("cidr-block") != plan["network_cidr"]):
+        fail("live private peer VCN state, compartment, or CIDR differs from its plan")
+    subnet = require_live_id(oci("network", "subnet", "get", "--subnet-id", ids["subnet"], region=region),
+                             ids["subnet"], "subnet")
+    if (subnet.get("lifecycle-state") != "AVAILABLE" or
+            subnet.get("compartment-id") != network_compartment or subnet.get("vcn-id") != ids["vcn"] or
+            subnet.get("cidr-block") != plan["subnet_cidr"] or
+            subnet.get("prohibit-public-ip-on-vnic") is not True or
+            subnet.get("prohibit-internet-ingress") is not True or
+            subnet.get("security-list-ids") != [ids["security_list"]] or
+            subnet.get("route-table-id") != ids["route_table"]):
+        fail("live private peer subnet identity or private security differs from its plan")
+
+    nsg = require_live_id(oci("network", "nsg", "get", "--nsg-id", ids["network_security_group"],
+                              region=region), ids["network_security_group"], "network security group")
+    if nsg.get("compartment-id") != network_compartment or nsg.get("vcn-id") != ids["vcn"]:
+        fail("live private peer NSG belongs to an unexpected VCN or compartment")
+    peer_nsg_rules, peer_sl_egress = private_peer_security_rules(
+        plan, str(peer["subnet"]), ports)
+    actual_nsg_rules = [normalized_security_rule(rule) for rule in rows(oci(
+        "network", "nsg", "rules", "list", "--nsg-id", ids["network_security_group"], region=region))]
+    exact_rows(actual_nsg_rules, peer_nsg_rules, "peer NSG rules")
+
+    security_list = require_live_id(oci("network", "security-list", "get", "--security-list-id",
+                                        ids["security_list"], region=region), ids["security_list"],
+                                    "security list")
+    if (security_list.get("compartment-id") != network_compartment or
+            security_list.get("vcn-id") != ids["vcn"]):
+        fail("live private peer security list belongs to an unexpected VCN or compartment")
+    actual_sl_ingress = [normalized_security_rule(rule, "INGRESS") for rule in rows(
+        security_list.get("ingress-security-rules"))]
+    actual_sl_egress = [normalized_security_rule(rule, "EGRESS") for rule in rows(
+        security_list.get("egress-security-rules"))]
+    exact_rows(actual_sl_ingress, plan["network_security"]["security_list_ingress_rules"],
+               "peer security-list ingress rules")
+    exact_rows(actual_sl_egress, peer_sl_egress, "peer security-list egress rules")
+
+    route_table = require_live_id(oci("network", "route-table", "get", "--rt-id", ids["route_table"],
+                                      region=region), ids["route_table"], "subnet route table")
+    if (route_table.get("compartment-id") != network_compartment or
+            route_table.get("vcn-id") != ids["vcn"]):
+        fail("live subnet route table belongs to an unexpected VCN or compartment")
+    actual_subnet_routes = [{"destination": row.get("destination"),
+                             "destination_type": row.get("destination-type"),
+                             "network_entity_id": row.get("network-entity-id")}
+                            for row in rows(route_table.get("route-rules"))]
+    expected_subnet_routes = [dict(rule, network_entity_id=ids["service_gateway"])
+                              for rule in plan["network_security"]["route_rules"]]
+    expected_subnet_routes.append({"destination": str(peer["subnet"]), "destination_type": "CIDR_BLOCK",
+                                   "network_entity_id": drg_id})
+    exact_rows(actual_subnet_routes, expected_subnet_routes, "reciprocal subnet route table")
+    gateway_id = ids["service_gateway"]
+    gateway = require_live_id(oci("network", "service-gateway", "get", "--service-gateway-id",
+                                   gateway_id, region=region), gateway_id, "service gateway")
+    service_ids = sorted(service.get("service-id") for service in gateway.get("services", [])
+                         if isinstance(service, dict))
+    if (gateway.get("compartment-id") != network_compartment or gateway.get("vcn-id") != ids["vcn"] or
+            gateway.get("lifecycle-state") != "AVAILABLE" or
+            service_ids != [plan["network_security"]["service_gateway_service_id"]]):
+        fail("live local service gateway differs from the exact regional plan")
+
+    drg = require_live_id(oci("network", "drg", "get", "--drg-id", drg_id, region=region), drg_id, "DRG")
+    if drg.get("lifecycle-state") != "AVAILABLE" or drg.get("compartment-id") != network_compartment:
+        fail("live DRG is unavailable or owned by another compartment")
+    attachments = rows(oci("network", "drg-attachment", "list", "--compartment-id", network_compartment,
+                           "--drg-id", drg_id, "--attachment-type", "ALL", "--all", region=region))
+    if {row.get("id") for row in attachments} != {vcn_attachment_id, rpc_attachment_id} or any(
+            row.get("lifecycle-state") != "ATTACHED" for row in attachments):
+        fail("live DRG has an unexpected, missing, or disconnected attachment")
+
+    vcn_attachment = require_live_id(oci("network", "drg-attachment", "get", "--drg-attachment-id",
+                                          vcn_attachment_id, region=region), vcn_attachment_id,
+                                    "VCN DRG attachment")
+    vcn_details = vcn_attachment.get("network-details") or {}
+    if (vcn_attachment.get("compartment-id") != network_compartment or
+            vcn_attachment.get("drg-id") != drg_id or vcn_attachment.get("lifecycle-state") != "ATTACHED" or
+            vcn_attachment.get("vcn-id") not in (None, ids["vcn"]) or
+            vcn_details.get("type") != "VCN" or
+            vcn_details.get("id") != ids["vcn"] or vcn_attachment.get("is-cross-tenancy") is not False or
+            vcn_attachment.get("drg-route-table-id") != intent["vcn_drg_route_table_id"]):
+        fail("live VCN DRG attachment identity, ownership, or route-table mapping differs from the intent")
+    rpc_attachment = require_live_id(oci("network", "drg-attachment", "get", "--drg-attachment-id",
+                                          rpc_attachment_id, region=region), rpc_attachment_id,
+                                    "RPC DRG attachment")
+    rpc_details = rpc_attachment.get("network-details") or {}
+    if (rpc_attachment.get("compartment-id") != network_compartment or
+            rpc_attachment.get("drg-id") != drg_id or rpc_attachment.get("lifecycle-state") != "ATTACHED" or
+            rpc_details.get("type") != "REMOTE_PEERING_CONNECTION" or rpc_details.get("id") != rpc_id or
+            rpc_attachment.get("is-cross-tenancy") is True or
+            rpc_attachment.get("drg-route-table-id") != intent["rpc_drg_route_table_id"]):
+        fail("live RPC DRG attachment identity, ownership, or route-table mapping differs from the intent")
+    rpc = require_live_id(oci("network", "remote-peering-connection", "get",
+                               "--remote-peering-connection-id", rpc_id, region=region), rpc_id,
+                          "remote peering connection")
+    if (rpc.get("compartment-id") != network_compartment or rpc.get("drg-id") != drg_id or
+            rpc.get("lifecycle-state") != "AVAILABLE" or rpc.get("peering-status") != "PEERED" or
+            rpc.get("peer-id") != peer["intent"]["rpc_id"] or
+            rpc.get("peer-region-name") != peer["plan"]["region"] or
+            rpc.get("peer-tenancy-id") != plan["tenancy_id"] or
+            rpc.get("is-cross-tenancy-peering") is not False):
+        fail("live RPC is disconnected, asymmetric, cross-tenancy, or linked to an unexpected peer")
+
+    route_table_evidence = {}
+    for role, table_field, distribution_field, accepted_attachment, destination, next_hop in (
+            ("vcn", "vcn_drg_route_table_id", "vcn_import_distribution_id", rpc_attachment_id,
+             str(peer["network"]), rpc_attachment_id),
+            ("rpc", "rpc_drg_route_table_id", "rpc_import_distribution_id", vcn_attachment_id,
+             str(context["network"]), vcn_attachment_id)):
+        table_id = intent[table_field]
+        table = require_live_id(oci("network", "drg-route-table", "get", "--drg-route-table-id",
+                                    table_id, region=region), table_id, f"{role} DRG route table")
+        distribution_id = intent[distribution_field]
+        if (table.get("lifecycle-state") != "AVAILABLE" or table.get("compartment-id") != network_compartment or
+                table.get("drg-id") != drg_id or
+                table.get("import-drg-route-distribution-id") != distribution_id or
+                table.get("is-ecmp-enabled") is not False):
+            fail(f"live {role} DRG route table ownership or import mapping differs from the pair intent")
+        distribution = read_private_peer_import_distribution(region, distribution_id, drg_id,
+                                                              network_compartment, accepted_attachment)
+        actual_routes = [normalized_drg_route(rule) for rule in rows(oci(
+            "network", "drg-route-rule", "list", "--drg-route-table-id", table_id,
+            "--all", region=region))]
+        expected_routes = [{"destination": destination, "destination_type": "CIDR_BLOCK",
+                            "next_hop_drg_attachment_id": next_hop, "route_type": "DYNAMIC",
+                            "is_conflict": False, "is_blackhole": False}]
+        exact_rows(actual_routes, expected_routes, f"{role} DRG route table rules")
+        route_table_evidence[role] = {"id": table_id, "drg_id": drg_id,
+                                      "import_distribution": distribution,
+                                      "routes": actual_routes}
+
+    return {"cell": plan["cell"], "region": region, "vcn_id": ids["vcn"],
+            "vcn_cidr": str(context["network"]), "subnet_id": ids["subnet"],
+            "subnet_cidr": str(context["subnet"]), "subnet_route_table_id": ids["route_table"],
+            "subnet_routes": actual_subnet_routes, "drg": {"id": drg_id,
+            "compartment_id": network_compartment, "lifecycle_state": drg["lifecycle-state"]},
+            "vcn_attachment": {"id": vcn_attachment_id, "vcn_id": ids["vcn"],
+                               "route_table_id": intent["vcn_drg_route_table_id"]},
+            "rpc": {"id": rpc_id, "peer_id": rpc["peer-id"], "peer_region": rpc["peer-region-name"],
+                    "peering_status": rpc["peering-status"], "lifecycle_state": rpc["lifecycle-state"]},
+            "rpc_attachment": {"id": rpc_attachment_id, "rpc_id": rpc_id,
+                               "route_table_id": intent["rpc_drg_route_table_id"]},
+            "drg_route_tables": route_table_evidence,
+            "nsg_id": ids["network_security_group"], "nsg_rules": actual_nsg_rules,
+            "security_list_id": ids["security_list"], "security_list_ingress_rules": actual_sl_ingress,
+            "security_list_egress_rules": actual_sl_egress}
+
+
+def inspect_private_peer(intent_path: pathlib.Path, left_plan_path: pathlib.Path,
+                         left_inventory_path: pathlib.Path, left_admission_path: pathlib.Path,
+                         right_plan_path: pathlib.Path, right_inventory_path: pathlib.Path,
+                         right_admission_path: pathlib.Path) -> dict:
+    """Read back both private network configurations without asserting dataplane readiness."""
+    intent_wire = read_regular_bytes(intent_path, MAX_PRIVATE_PEER_INTENT_BYTES, "private peer intent")
+    try:
+        intent = json.loads(intent_wire, object_pairs_hook=unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("private peer intent is unreadable or invalid JSON") from error
+    if not isinstance(intent, dict):
+        fail("private peer intent must be an object")
+    intent_hash = hashlib.sha256(intent_wire).hexdigest()
+    if sha256(intent_path) != intent_hash:
+        fail("private peer intent changed while it was being read")
+    paths = {"left": left_plan_path, "right": right_plan_path}
+    plans, contexts, pair = validate_private_peer_inputs(intent, intent_path, paths, intent_hash)
+    evidence = {}
+    admissions = {}
+    for side, inventory_path, admission_path in (
+            ("left", left_inventory_path, left_admission_path),
+            ("right", right_inventory_path, right_admission_path)):
+        plan = plans[side]
+        inventory_hash = sha256(inventory_path)
+        admission_hash = sha256(admission_path)
+        inventory = read_json(inventory_path, MAX_INVENTORY_BYTES, "manual region inventory")
+        verify_inventory(plan, inventory, plan_path=paths[side])
+        if plan["region"] not in inventory["regions"]:
+            fail(f"{plan['cell']} plan region is absent from its ready-region inventory")
+        cost, admission, admitted_at = verify_current_admission(
+            plan, inventory, inventory_path, admission_path, paths[side])
+        cell = plan["cell"]
+        context = contexts[cell]
+        context["monthly_cost"] = cost
+        context["inventory_path"] = inventory_path
+        context["admission_path"] = admission_path
+        context["admission"] = admission
+        context["admitted_at"] = admitted_at
+        if (sha256(paths[side]) != context["plan_sha256"] or
+                sha256(inventory_path) != inventory_hash or sha256(admission_path) != admission_hash):
+            fail(f"{cell} private peer plan, inventory, or admission changed during inspection")
+        evidence[cell] = {"plan_sha256": context["plan_sha256"],
+                          "inventory_sha256": inventory_hash,
+                          "admission_sha256": admission_hash, "estimate": cost}
+        admissions[cell] = admission
+    if len(evidence) != 2:
+        fail("private peer inspection requires two regional estimates")
+
+    cells = sorted(contexts)
+    if len(cells) != 2:
+        fail("private peer intent must bind exactly two regional cells")
+    left, right = contexts[cells[0]], contexts[cells[1]]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        futures = {
+            cells[0]: pool.submit(inspect_private_peer_side, left, right, pair["ports"]),
+            cells[1]: pool.submit(inspect_private_peer_side, right, left, pair["ports"]),
+        }
+        observed = {cell: future.result() for cell, future in futures.items()}
+    inspected_at = dt.datetime.now(UTC)
+    for cell in cells:
+        admission = admissions[cell]
+        admitted_at = dt.datetime.fromisoformat(admission["admitted_at"])
+        expires_at = dt.datetime.fromisoformat(admission["expires_at"])
+        if inspected_at < admitted_at or inspected_at >= expires_at:
+            fail("private peer budget admission expired during live network inspection")
+        context = contexts[cell]
+        if (sha256(context["plan_path"]) != context["plan_sha256"] or
+                sha256(context["inventory_path"]) != evidence[cell]["inventory_sha256"] or
+                sha256(context["admission_path"]) != evidence[cell]["admission_sha256"]):
+            fail(f"{cell} private peer plan, inventory, or admission changed during live network inspection")
+    if sha256(intent_path) != pair["intent_sha256"]:
+        fail("private peer intent changed during live network inspection")
+    return {"schema_version": 1, "kind": "oci_private_peer_foundation_configuration_readback",
+            "status": "configuration_readback_pass", "pair_intent_sha256": pair["intent_sha256"],
+            "tenancy_id": pair["tenancy_id"], "realm": pair["realm"],
+            "inspected_at": rfc3339_utc(inspected_at), "readback_expires_at": rfc3339_utc(min(
+                dt.datetime.fromisoformat(admissions[cell]["expires_at"]) for cell in cells)),
+            "cells": observed, "source_evidence": evidence,
+            "allowed_tcp_ports": pair["ports"],
+            "monthly_cross_region_egress_gb_by_cell": {
+                cell: str(decimal(contexts[cell]["intent"]["monthly_cross_region_egress_gb"]))
+                for cell in cells},
+            "budget_admission": {"status": "blocked",
+                                 "reason": "Per-region estimates independently count shared baselines and "
+                                           "apply free allowances; they cannot prove the combined USD 100 "
+                                           "monthly ceiling."},
+            "dataplane_reachability": "not_tested", "application_mtls_required": True,
+            "application_mtls_verified": False, "native_replication_ready": False}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("inventory", "admit", "estimate", "seed-preflight", "seed-user-data",
-                                            "inspect-foundation", "import-inventory", "import-admit",
-                                            "import-reconcile"))
+                                            "inspect-foundation", "inspect-private-peer", "import-inventory",
+                                            "import-admit", "import-reconcile"))
     parser.add_argument("--plan", type=pathlib.Path, default=PLAN)
     parser.add_argument("--inventory", type=pathlib.Path, default=ROOT / "inventory.json")
     parser.add_argument("--out", type=pathlib.Path)
     parser.add_argument("--admission", type=pathlib.Path, default=ROOT / "admission.json")
+    parser.add_argument("--pair-intent", type=pathlib.Path,
+                        help="reviewed private peer intent JSON (schema_version 1)")
+    parser.add_argument("--left-plan", type=pathlib.Path, help="first regional plan pinned by the intent")
+    parser.add_argument("--left-inventory", type=pathlib.Path, help="first regional plan inventory")
+    parser.add_argument("--left-admission", type=pathlib.Path, help="first regional cost admission")
+    parser.add_argument("--right-plan", type=pathlib.Path, help="second regional plan pinned by the intent")
+    parser.add_argument("--right-inventory", type=pathlib.Path, help="second regional plan inventory")
+    parser.add_argument("--right-admission", type=pathlib.Path, help="second regional cost admission")
     parser.add_argument("--bootstrap-tool", type=pathlib.Path)
     parser.add_argument("--anchor", type=pathlib.Path)
     parser.add_argument("--manifest", type=pathlib.Path)
@@ -1778,6 +2218,18 @@ def main() -> None:
         wire = seed_user_data(args.manifest, args.owner_ssh_public_key, plan["cell"])
         write_output_bytes(args.out, wire)
         print(f"wrote seed user-data bytes={len(wire)} sha256={hashlib.sha256(wire).hexdigest()}")
+        return
+    if args.command == "inspect-private-peer":
+        required = ("pair_intent", "left_plan", "left_inventory", "left_admission",
+                    "right_plan", "right_inventory", "right_admission", "out")
+        if any(getattr(args, key) is None for key in required):
+            fail("private peer inspection requires pair intent, both regional plans, inventories, admissions, and --out")
+        result = inspect_private_peer(
+            args.pair_intent, args.left_plan, args.left_inventory, args.left_admission,
+            args.right_plan, args.right_inventory, args.right_admission)
+        write_json(args.out, result)
+        print(f"private peer configuration readback PASS cells={','.join(sorted(result['cells']))} "
+              f"budget_admission={result['budget_admission']['status'].upper()}")
         return
     plan = load_plan(args.plan)
     if args.command == "seed-preflight":
