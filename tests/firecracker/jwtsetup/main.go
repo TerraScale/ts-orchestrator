@@ -353,6 +353,7 @@ func controllerGrants(cell, broker, public string) ([]string, []string) {
 		root + ".agent.*.observation.*", root + ".delivery.artifact.admit",
 		root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply",
 		"ts.broker." + cell + ".ticket.>", "ts.broker." + cell + ".fence." + broker,
+		root + ".terminal.>",
 	}
 	return publish, subscribe
 }
@@ -361,7 +362,8 @@ func operatorGrants(cell, hostNode string) []string {
 	root := "ts.orch.v1." + cell
 	return []string{
 		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".broker.claim.apply", "$JS.API.INFO",
+		root + ".placement.apply", root + ".broker.claim.apply",
+		root + ".terminal.plan", root + ".terminal.apply", root + ".terminal.status", "$JS.API.INFO",
 		"$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS", "$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS", "$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
 		"$JS.API.STREAM.INFO.KV_TS_HOST_STATE", "$JS.API.STREAM.INFO.TS_CONTROL_LOG",

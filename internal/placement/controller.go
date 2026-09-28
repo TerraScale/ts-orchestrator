@@ -199,6 +199,12 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			return fmt.Errorf("%w: duplicate database/partition intent", ErrInvalidIntent)
 		}
 		seenIntents[identity] = struct{}{}
+		if _, err := controller.store.ReadTerminalIntent(ctx, intent.DatabaseID, intent.PartitionID); err == nil {
+			controller.hold(fmt.Sprintf("database %s/%s has a committed terminal teardown fence", intent.DatabaseID, intent.PartitionID))
+			continue
+		} else if !errors.Is(err, authority.ErrNotFound) {
+			return fmt.Errorf("read terminal workload fence for %s/%s: %w", intent.DatabaseID, intent.PartitionID, err)
+		}
 		if intent.SchemaVersion != IntentSchemaVersion || intent.PayloadDigest() == "" {
 			controller.hold(fmt.Sprintf("database %s/%s has no admitted managed placement profile; host reconciliation is held", intent.DatabaseID, intent.PartitionID))
 			continue
@@ -433,6 +439,8 @@ func (controller *Controller) advanceMember(
 			return false, err
 		}
 		volume, err := controller.fleet.CreateRetainedVolume(ctx, oci.VolumeCreateRequest{
+			DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+			MemberID:  seat.MemberID,
 			CreateKey: volumeCreateKey(intent, seat), SizeGB: sizeGB,
 		})
 		if err != nil {
@@ -480,6 +488,7 @@ func (controller *Controller) advanceMember(
 				return false, err
 			}
 			attached, err := controller.fleet.AttachRetainedVolume(ctx, oci.VolumeAttachRequest{
+				DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 				VolumeID: state.VolumeID, InstanceID: state.InstanceID,
 				IdempotencyKey: memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach-volume"),
 			})
@@ -860,9 +869,19 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 }
 
 func (controller *Controller) persist(ctx context.Context, epoch, revision uint64, state MemberState) (uint64, error) {
-	if err := controller.guard(ctx, epoch); err != nil {
+	barrier, ok := controller.fencer.(interface {
+		BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+	})
+	if !ok {
+		return 0, errors.New("placement authority lacks terminal workload fence")
+	}
+	release, err := barrier.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
+		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+	})
+	if err != nil {
 		return 0, err
 	}
+	defer release()
 	state.WriterEpoch = epoch
 	state.UpdatedAt = time.Now().UTC()
 	return controller.store.CompareAndSwap(ctx, revision, state)
@@ -887,6 +906,61 @@ func hostCreateKey(intent Intent, seat Seat, attempt uint64) string {
 
 func volumeCreateKey(intent Intent, seat Seat) string {
 	return digestToken("tv", intent.DatabaseID, intent.PartitionID, string(seat.Region), seat.MemberID)
+}
+
+// TerminalTargetsForRegion derives the only workload create keys that a
+// terminal plan may name. A durable member pins any later host attempt; if a
+// member has not been prepared, only the first attempt can exist.
+func TerminalTargetsForRegion(intent Intent, region oci.Region, faultDomains []string,
+	members []VersionedMemberState,
+) ([]authority.TerminalTarget, error) {
+	if len(intent.ActiveRegions) != 1 || intent.ActiveRegions[0] != region {
+		return nil, fmt.Errorf("%w: terminal plan is limited to one admitted managed region", ErrInvalidIntent)
+	}
+	seats, err := DesiredSeats(intent, map[oci.Region][]string{region: faultDomains})
+	if err != nil {
+		return nil, err
+	}
+	if len(seats) != 2 || len(members) > len(seats) {
+		return nil, fmt.Errorf("%w: terminal plan requires two exact local seats", ErrInvalidIntent)
+	}
+	bySeat := make(map[string]MemberState, len(members))
+	for _, member := range members {
+		state := member.State
+		if member.Revision == 0 || state.Validate() != nil || state.DatabaseID != intent.DatabaseID ||
+			state.PartitionID != intent.PartitionID || state.Region != region ||
+			state.IntentGeneration != intent.Generation || state.IntentPayloadDigest != intent.PayloadDigest() {
+			return nil, fmt.Errorf("%w: terminal member state differs from admitted placement", ErrStoreCorrupt)
+		}
+		if _, exists := bySeat[state.MemberID]; exists {
+			return nil, fmt.Errorf("%w: duplicate terminal member state", ErrStoreCorrupt)
+		}
+		bySeat[state.MemberID] = state
+	}
+	targets := make([]authority.TerminalTarget, 0, len(seats))
+	for _, seat := range seats {
+		row, err := intent.RosterRowForSeat(seat)
+		if err != nil {
+			return nil, err
+		}
+		attempt := uint64(1)
+		if state, exists := bySeat[seat.MemberID]; exists {
+			attempt = state.HostAttempt
+			if state.Kind != seat.Kind || state.FailureDomain != seat.FailureDomain ||
+				state.CreateKey != hostCreateKey(intent, seat, attempt) {
+				return nil, fmt.Errorf("%w: terminal host key differs from durable member", ErrStoreCorrupt)
+			}
+			delete(bySeat, seat.MemberID)
+		}
+		targets = append(targets, authority.TerminalTarget{
+			SeatID: seat.MemberID, MemberID: row.MemberID,
+			HostCreateKey: hostCreateKey(intent, seat, attempt), DataCreateKey: volumeCreateKey(intent, seat),
+		})
+	}
+	if len(bySeat) != 0 {
+		return nil, fmt.Errorf("%w: terminal member lies outside admitted seats", ErrStoreCorrupt)
+	}
+	return targets, nil
 }
 
 func memberOperationID(intent Intent, memberID string, attempt uint64, action string) string {

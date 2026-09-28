@@ -53,6 +53,7 @@ type TrustedSignerConfig struct {
 	Environments              []string `json:"environments"`
 	CanRegisterHosts          bool     `json:"can_register_hosts,omitzero"`
 	CanPlaceTerraBase         bool     `json:"can_place_terrabase,omitzero"`
+	CanTeardownTerraBase      bool     `json:"can_teardown_terrabase,omitzero"`
 	CanPrepareManagedMaterial bool     `json:"can_prepare_managed_material,omitzero"`
 	CanRotateBrokerAccount    bool     `json:"can_rotate_broker_account,omitzero"`
 	Repositories              []string `json:"repositories,omitempty"`

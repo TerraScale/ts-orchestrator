@@ -230,6 +230,7 @@ type ControllerConfig struct {
 	AuthorityGuard              func(context.Context, uint64) error
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
 	ControlLog                  jetstream.Stream
 }

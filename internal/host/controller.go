@@ -31,6 +31,7 @@ type Controller struct {
 	readOnly         bool
 	mutations        authority.HostMutationStore
 	managedVerifier  ManagedRegistrationVerifier
+	managedEffectGate func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	materialProvider ManagedMaterialProvider
 	artifacts        ArtifactStore
 	responseKey      ed25519.PrivateKey
@@ -62,6 +63,17 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	if cfg.AuthorityEpoch == nil || cfg.AuthorityGuard == nil {
 		return nil, errors.New("controller requires authority epoch and guard")
 	}
+	managedEffectGate := cfg.ManagedEffectGate
+	if managedEffectGate == nil {
+		if gate, ok := cfg.HostMutations.(interface {
+			BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+		}); ok {
+			managedEffectGate = gate.BeginActiveWorkloadEffect
+		}
+	}
+	if cfg.ManagedRegistrationVerifier != nil && managedEffectGate == nil {
+		return nil, errors.New("managed host registration requires a terminal effect gate")
+	}
 	replicas := cfg.StateReplicas
 	if replicas == 0 {
 		replicas = 3
@@ -92,7 +104,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, materialProvider: cfg.ManagedMaterialProvider, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -219,12 +231,24 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	if r.ManagedOCI != nil && r.ManagedPlacement == nil {
 		return Receipt{}, errors.New("managed host registration requires current schema-3 placement pins")
 	}
-	c.registrationMu.Lock()
-	defer c.registrationMu.Unlock()
 	authorityEpoch := c.authorityEpoch()
 	if err := c.guard(ctx, authorityEpoch); err != nil {
 		return Receipt{}, err
 	}
+	if r.ManagedMember != nil {
+		if c.managedEffectGate == nil || r.ManagedPlacement == nil {
+			return Receipt{}, errors.New("managed host registration requires a terminal effect gate and placement scope")
+		}
+		release, err := c.managedEffectGate(ctx, authorityEpoch, authority.WorkloadScope{
+			DatabaseID: r.ManagedPlacement.DatabaseID, PartitionID: r.ManagedPlacement.PartitionID,
+		})
+		if err != nil {
+			return Receipt{}, err
+		}
+		defer release()
+	}
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
 	payload, operationID, err := mutationPayload(r)
 	if err != nil {
 		return Receipt{}, err
@@ -323,6 +347,18 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	}
 	if err := validateDesired(d, c.cell, r); err != nil {
 		return Receipt{}, err
+	}
+	if d.ManagedMember != nil && !d.Withdrawn {
+		if c.managedEffectGate == nil || r.ManagedPlacement == nil {
+			return Receipt{}, errors.New("managed desired requires a terminal effect gate and placement scope")
+		}
+		release, err := c.managedEffectGate(ctx, d.AuthorityEpoch, authority.WorkloadScope{
+			DatabaseID: r.ManagedPlacement.DatabaseID, PartitionID: r.ManagedPlacement.PartitionID,
+		})
+		if err != nil {
+			return Receipt{}, err
+		}
+		defer release()
 	}
 	if !d.Withdrawn {
 		info, err := c.artifacts.GetInfo(ctx, "sha256-"+d.Digest)

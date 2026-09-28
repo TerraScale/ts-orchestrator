@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -362,6 +363,7 @@ func signPlacementPayload(t *testing.T, intent placement.Intent, privateKey ed25
 type placementAdmissionTestControl struct {
 	snapshot authority.Snapshot
 	entries  map[string]authority.LogEntry
+	terminal map[string]authority.LogEntry
 	nextSeq  uint64
 }
 
@@ -369,7 +371,8 @@ func newPlacementAdmissionControl() *placementAdmissionTestControl {
 	return &placementAdmissionTestControl{
 		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "controller-a", Leader: true, Ready: true,
 			Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)},
-		entries: make(map[string]authority.LogEntry),
+		entries:  make(map[string]authority.LogEntry),
+		terminal: make(map[string]authority.LogEntry),
 	}
 }
 
@@ -382,6 +385,36 @@ func (control *placementAdmissionTestControl) ReadPlacementIntent(_ context.Cont
 	}
 	entry.Payload = bytes.Clone(entry.Payload)
 	return entry, nil
+}
+
+func (control *placementAdmissionTestControl) ReadTerminalIntent(_ context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	entry, exists := control.terminal[databaseID+"."+partitionID]
+	if !exists {
+		return authority.LogEntry{}, authority.ErrNotFound
+	}
+	entry.Payload = bytes.Clone(entry.Payload)
+	return entry, nil
+}
+
+func (control *placementAdmissionTestControl) ConfirmActivePlacementIntent(ctx context.Context, epoch uint64,
+	databaseID, partitionID string, payload []byte,
+) (uint64, error) {
+	if epoch != control.snapshot.Epoch {
+		return 0, authority.ErrFenced
+	}
+	if _, err := control.ReadTerminalIntent(ctx, databaseID, partitionID); err == nil {
+		return 0, authority.ErrFenced
+	} else if !errors.Is(err, authority.ErrNotFound) {
+		return 0, err
+	}
+	entry, err := control.ReadPlacementIntent(ctx, databaseID, partitionID)
+	if err != nil {
+		return 0, err
+	}
+	if !bytes.Equal(entry.Payload, payload) {
+		return 0, authority.ErrConflict
+	}
+	return entry.Sequence, nil
 }
 
 func (control *placementAdmissionTestControl) CommitPlacementIntent(

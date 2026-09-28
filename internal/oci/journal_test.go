@@ -35,6 +35,38 @@ func TestRegionIntentUsesFixedProductMapping(t *testing.T) {
 	}
 }
 
+func TestJournalBootBindingSurvivesReopenAndRejectsRebinding(t *testing.T) {
+	kv := testJournalBucket(t)
+	journal, err := NewKVJournal(kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, _ := testRegionConfig()
+	binding := BootBinding{InstanceID: "ocid1.instance.boot-binding", BootVolumeID: "ocid1.bootvolume.boot-binding",
+		Region: config.Region, Generation: config.Generation, Owner: config.Owner, CreateKey: "boot-binding-host",
+		CompartmentID: config.CompartmentID, AvailabilityDomain: config.AvailabilityDomain,
+		ImageID: config.ImageID, SizeGB: int64(config.BootVolumeGB), VPUsPerGB: int64(config.BootVolumeVPUsPerGB)}
+	if err := journal.RecordBootBinding(t.Context(), binding); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewKVJournal(kv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := reopened.GetBootBinding(t.Context(), binding.InstanceID)
+	if err != nil || !found || got != binding {
+		t.Fatalf("reopened journal lost exact boot binding: %+v found=%v err=%v", got, found, err)
+	}
+	if err := reopened.RecordBootBinding(t.Context(), binding); err != nil {
+		t.Fatalf("idempotent binding failed: %v", err)
+	}
+	rebound := binding
+	rebound.BootVolumeID = "ocid1.bootvolume.foreign"
+	if err := reopened.RecordBootBinding(t.Context(), rebound); err == nil {
+		t.Fatal("journal allowed boot volume rebinding")
+	}
+}
+
 func TestJournalRepairsOwnershipProjectionAfterPartialFailure(t *testing.T) {
 	ctx := t.Context()
 	kv := testJournalBucket(t)

@@ -54,7 +54,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|placement-apply|placement-list|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|placement-apply|placement-list|terminal-plan|terminal-apply|terminal-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -67,6 +67,8 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	role := flags.String("role", "", "artifact role")
 	environment := flags.String("environment", "", "artifact environment")
 	intentPath := flags.String("intent", "", "JSON delivery intent")
+	databaseID := flags.String("database-id", "", "managed database ID")
+	partitionID := flags.String("partition-id", "", "managed partition ID")
 	registrationPath := flags.String("registration", "", "JSON host registration")
 	instanceID := flags.String("instance-id", "", "managed OCI host instance ID")
 	operationID := flags.String("operation-id", "", "delivery operation ID")
@@ -123,6 +125,15 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorPlacementApply(ctx, cfg, runtime, *intentPath, output)
 	case "placement-list":
 		return operatorPlacementList(ctx, cfg, runtime, output)
+	case "terminal-plan":
+		return operatorTerminalPlan(ctx, cfg, runtime, *databaseID, *partitionID, *operationID, output)
+	case "terminal-apply":
+		if *intentPath == "" {
+			return errors.New("terminal-apply requires --intent FILE")
+		}
+		return operatorTerminalApply(ctx, cfg, runtime, *intentPath, output)
+	case "terminal-status":
+		return operatorTerminalStatus(ctx, cfg, runtime, *databaseID, *partitionID, output)
 	case "material-prepare":
 		if *intentPath == "" {
 			return errors.New("material-prepare requires --intent FILE")

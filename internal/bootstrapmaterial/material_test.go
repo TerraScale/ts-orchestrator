@@ -15,9 +15,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nkeys"
 )
 
 func testConfig() Config {
@@ -78,6 +83,52 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 		info, err := os.Lstat(filepath.Join(directory, name))
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("%s is not owner-only: %v", name, err)
+		}
+	}
+}
+
+func TestGeneratedTerminalCredentialGrants(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "material")
+	_, err := Generate(directory, testConfig(), time.Now().UTC().Truncate(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	readClaim := func(name string) *jwt.UserClaims {
+		t.Helper()
+		wire, err := os.ReadFile(filepath.Join(directory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := nkeys.ParseDecoratedJWT(wire)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := jwt.DecodeUserClaims(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return claim
+	}
+	operator := readClaim("operator.creds")
+	if err := natscell.ValidateBrokerOperatorCredentials(filepath.Join(directory, "operator.creds"), "gru"); err != nil {
+		t.Fatalf("generated operator JWT rejected: %v", err)
+	}
+	for _, subject := range []string{"ts.orch.v1.gru.terminal.plan", "ts.orch.v1.gru.terminal.apply", "ts.orch.v1.gru.terminal.status"} {
+		if !slices.Contains(operator.Pub.Allow, subject) {
+			t.Fatalf("generated operator JWT lacks %s", subject)
+		}
+	}
+	if slices.Contains(operator.Pub.Allow, "ts.orch.v1.gru.terminal.>") {
+		t.Fatal("generated operator JWT has wildcard terminal publish")
+	}
+	for _, slot := range testConfig().Slots {
+		claim := readClaim(slot.Name + ".creds")
+		if err := natscell.ValidateBrokerControllerCredentials(filepath.Join(directory, slot.Name+".creds"), "gru", slot.Name); err != nil {
+			t.Fatalf("generated %s JWT rejected: %v", slot.Name, err)
+		}
+		if !slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.terminal.>") ||
+			slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.>") {
+			t.Fatalf("generated %s JWT has invalid terminal subscription", slot.Name)
 		}
 	}
 }

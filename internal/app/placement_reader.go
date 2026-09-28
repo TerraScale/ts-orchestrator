@@ -15,6 +15,14 @@ type admittedPlacementReader struct {
 	material placementMaterialAdmission
 }
 
+func (r admittedPlacementReader) ReadTerminalIntent(ctx context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	reader, ok := r.store.(authority.TerminalIntentReader)
+	if !ok {
+		return authority.LogEntry{}, errors.New("placement authority lacks terminal marker reads")
+	}
+	return reader.ReadTerminalIntent(ctx, databaseID, partitionID)
+}
+
 func (r admittedPlacementReader) ListPlacementIntents(ctx context.Context, cell string) ([]placement.Intent, error) {
 	if cell != r.cell || r.store == nil {
 		return nil, errors.New("placement reader is not bound to this cell")

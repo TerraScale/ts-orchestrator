@@ -272,6 +272,30 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	}
 }
 
+func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
+	public, _ := newUserIdentity(t)
+	controller, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "controller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
+		t.Fatal("controller cannot subscribe to terminal requests")
+	}
+	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, subject := range []string{"ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
+		if !slices.Contains(operator.Publish.Allow, subject) {
+			t.Fatalf("operator cannot publish %s", subject)
+		}
+	}
+	if slices.Contains(operator.Publish.Allow, "ts.orch.v1.lab.terminal.>") ||
+		slices.Contains(operator.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
+		t.Fatal("operator received wildcard terminal permissions")
+	}
+}
+
 func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T) {
 	controllerPublic, controllerSeed := newUserIdentity(t)
 	operatorPublic, operatorSeed := newUserIdentity(t)

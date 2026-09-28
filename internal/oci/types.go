@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 )
 
 var (
@@ -107,6 +109,8 @@ type HostBootPins struct {
 // VolumeAttachRequest attaches an already-owned retained data volume. The
 // idempotency key must remain stable across retries of the same desired state.
 type VolumeAttachRequest struct {
+	DatabaseID     string
+	PartitionID    string
 	VolumeID       string
 	InstanceID     string
 	IdempotencyKey string
@@ -115,6 +119,9 @@ type VolumeAttachRequest struct {
 // VolumeCreateRequest defines one retained member data volume in the region
 // pinned by a Fleet. AvailabilityDomain may be empty to use the configured AD.
 type VolumeCreateRequest struct {
+	DatabaseID         string
+	PartitionID        string
+	MemberID           string
 	CreateKey          string
 	SizeGB             int64
 	AvailabilityDomain string
@@ -150,6 +157,27 @@ type Fleet interface {
 	AttachRetainedVolume(context.Context, VolumeAttachRequest) (Attachment, error)
 	Detach(context.Context, string, string, string, WriterStopEvidence) error
 	Terminate(context.Context, string, string, WriterStopEvidence) error
+}
+
+// TerminalExecutor is the region-bound, exact-resource teardown boundary.
+// Discovery and settlement perform reads only; reconciliation requires an
+// already accepted authority marker and a current lease for every effect.
+type TerminalExecutor interface {
+	DiscoverTerminalTargets(context.Context, authority.TerminalIntent) ([]authority.TerminalTarget, error)
+	VerifyTerminalInventorySettled(context.Context, authority.TerminalIntent) error
+	InspectTerminalStatus(context.Context, authority.TerminalIntent) (TerminalStatus, error)
+	ReconcileTerminal(context.Context, authority.TerminalIntent, uint64) (TerminalStatus, error)
+}
+
+const (
+	TerminalPhasePending  = "pending"
+	TerminalPhaseHeld     = "held"
+	TerminalPhaseComplete = "complete"
+)
+
+type TerminalStatus struct {
+	Phase   string
+	Pending []string
 }
 
 // DrainRequest carries the exact observed instance and the current authority
@@ -281,6 +309,30 @@ type Journal interface {
 	IsOwnedAttachment(context.Context, AttachmentIdentity) (bool, error)
 	IsOwnedInstance(context.Context, ResourceIdentity) (bool, error)
 	IsOwnedVolume(context.Context, ResourceIdentity) (bool, error)
+	RecordBootBinding(context.Context, BootBinding) error
+	GetBootBinding(context.Context, string) (BootBinding, bool, error)
+	ListOperations(context.Context) ([]OperationRecord, error)
+}
+
+// BootBinding pins the sole validated boot volume while its owned instance is
+// active. The binding remains available after OCI removes the attachment.
+type BootBinding struct {
+	InstanceID         string `json:"instance_id"`
+	BootVolumeID       string `json:"boot_volume_id"`
+	Region             Region `json:"region"`
+	Generation         uint64 `json:"generation"`
+	Owner              string `json:"owner"`
+	CreateKey          string `json:"create_key"`
+	CompartmentID      string `json:"compartment_id"`
+	AvailabilityDomain string `json:"availability_domain"`
+	ImageID            string `json:"image_id"`
+	SizeGB             int64  `json:"size_gb"`
+	VPUsPerGB          int64  `json:"vpus_per_gb"`
+}
+
+type OperationRecord struct {
+	Intent OperationIntent
+	Result OperationResult
 }
 
 // Provider is the narrow OCI Compute/Block Volume SDK seam. Fakes can exercise
@@ -291,6 +343,7 @@ type Provider interface {
 	LaunchInstance(context.Context, LaunchRequest) (CloudInstance, error)
 	UpdateInstanceTags(context.Context, string, string, map[string]string) (CloudInstance, error)
 	TerminateInstance(context.Context, string, string) error
+	TerminateTerminalInstance(context.Context, string, string) error
 	ListVolumeAttachments(context.Context, string, string) ([]CloudAttachment, error)
 	ListInstanceDevices(context.Context, string) ([]CloudDevice, error)
 	GetVolumeAttachment(context.Context, string) (CloudAttachment, error)
@@ -299,6 +352,11 @@ type Provider interface {
 	ListVolumes(context.Context, string, string) ([]CloudVolume, error)
 	CreateVolume(context.Context, VolumeCreateRequest, map[string]string, string) (CloudVolume, error)
 	GetVolume(context.Context, string) (CloudVolume, error)
+	GetAttachedBootVolume(context.Context, string) (CloudBootVolume, error)
+	GetBootVolume(context.Context, string) (CloudBootVolume, error)
+	ListBootVolumeAttachments(context.Context, string) ([]CloudBootAttachment, error)
+	DeleteBootVolume(context.Context, string, string) error
+	DeleteVolume(context.Context, string, string) error
 }
 
 // CloudInstance and CloudAttachment are normalized SDK values used at the
@@ -358,7 +416,25 @@ type CloudVolume struct {
 	SizeGB             int64
 	VPUsPerGB          int64
 	LifecycleState     string
+	ETag               string
 	FreeformTags       map[string]string
+}
+
+type CloudBootVolume struct {
+	ID                 string
+	CompartmentID      string
+	AvailabilityDomain string
+	ImageID            string
+	SizeGB             int64
+	VPUsPerGB          int64
+	LifecycleState     string
+	ETag               string
+}
+
+type CloudBootAttachment struct {
+	InstanceID     string
+	BootVolumeID   string
+	LifecycleState string
 }
 
 // LaunchRequest carries the immutable signed placement compute profile to the

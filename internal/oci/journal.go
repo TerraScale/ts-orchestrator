@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -32,6 +33,84 @@ type journalEntry struct {
 	Result             OperationResult    `json:"result,omitzero"`
 	Identity           ResourceIdentity   `json:"identity,omitzero"`
 	AttachmentIdentity AttachmentIdentity `json:"attachment_identity,omitzero"`
+	BootBinding        BootBinding        `json:"boot_binding,omitzero"`
+}
+
+func (journal *KVJournal) RecordBootBinding(ctx context.Context, binding BootBinding) error {
+	if !validBootBinding(binding) {
+		return errors.New("OCI boot binding is incomplete")
+	}
+	entry := journalEntry{SchemaVersion: journalSchema, Kind: "boot-binding", BootBinding: binding}
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("encode OCI boot binding: %w", err)
+	}
+	key := ownershipKey("boot-binding", binding.InstanceID)
+	if _, err := journal.kv.Create(ctx, key, data); err == nil {
+		return nil
+	} else if !errors.Is(err, jetstream.ErrKeyExists) {
+		return fmt.Errorf("persist OCI boot binding: %w", err)
+	}
+	current, err := journal.read(ctx, key)
+	if err != nil {
+		return err
+	}
+	if current.Kind != "boot-binding" || current.BootBinding != binding {
+		return errors.New("OCI instance is already bound to a different boot volume")
+	}
+	return nil
+}
+
+func (journal *KVJournal) GetBootBinding(ctx context.Context, instanceID string) (BootBinding, bool, error) {
+	if instanceID == "" {
+		return BootBinding{}, false, errors.New("OCI boot binding requires instance ID")
+	}
+	entry, err := journal.read(ctx, ownershipKey("boot-binding", instanceID))
+	if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+		return BootBinding{}, false, nil
+	}
+	if err != nil {
+		return BootBinding{}, false, err
+	}
+	if entry.Kind != "boot-binding" || entry.BootBinding.InstanceID != instanceID || !validBootBinding(entry.BootBinding) {
+		return BootBinding{}, false, errors.New("OCI boot binding is corrupt")
+	}
+	return entry.BootBinding, true, nil
+}
+
+func (journal *KVJournal) ListOperations(ctx context.Context) ([]OperationRecord, error) {
+	keys, err := journal.kv.Keys(ctx)
+	if errors.Is(err, jetstream.ErrNoKeysFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list OCI journal keys: %w", err)
+	}
+	if len(keys) > 10_000 {
+		return nil, errors.New("OCI journal operation inventory exceeds safety bound")
+	}
+	var records []OperationRecord
+	for _, key := range keys {
+		if !strings.HasPrefix(key, "operation.") {
+			continue
+		}
+		entry, err := journal.read(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if entry.Kind != "operation" || operationKey(entry.Intent) != key || validateIntent(entry.Intent) != nil {
+			return nil, errors.New("OCI journal operation inventory is corrupt")
+		}
+		records = append(records, OperationRecord{Intent: entry.Intent, Result: entry.Result})
+	}
+	return records, nil
+}
+
+func validBootBinding(binding BootBinding) bool {
+	return binding.InstanceID != "" && binding.BootVolumeID != "" && binding.Region != "" &&
+		binding.Generation != 0 && binding.Owner != "" && binding.CreateKey != "" &&
+		binding.CompartmentID != "" && binding.AvailabilityDomain != "" && binding.ImageID != "" &&
+		binding.SizeGB > 0 && binding.VPUsPerGB > 0
 }
 
 // OpenJournal creates or opens the regional replicated OCI operation bucket.

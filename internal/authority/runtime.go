@@ -98,6 +98,8 @@ type Runtime struct {
 
 	mu                     sync.Mutex
 	readMu                 sync.Mutex
+	terminalMu             sync.Mutex
+	terminalGates          map[WorkloadScope]*sync.RWMutex
 	stateMu                sync.Mutex
 	diagMu                 sync.Mutex
 	diagTimes              map[string]time.Time

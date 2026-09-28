@@ -202,6 +202,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var materialProvider host.ManagedMaterialProvider
 	var placementStore placement.Store
 	var fleet oci.Fleet
+	var terminalExecutor oci.TerminalExecutor
 	var materialService *managedmaterial.PreparationService
 	var materialAdmission placementMaterialAdmission
 	if managed != nil {
@@ -233,6 +234,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
+		}
+		var ok bool
+		terminalExecutor, ok = fleet.(oci.TerminalExecutor)
+		if !ok {
+			return errors.New("managed OCI fleet lacks exact terminal reconciliation")
 		}
 		placementStore, _, err = retryControllerOpen(ctx, "open regional placement state", fullClusterReady, false,
 			func(attempt context.Context) (placement.Store, error) {
@@ -304,6 +310,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		defer listener.Close()
 		enrollmentErrors = serveErrors
 	}
+	var terminalRuntime *managedTerminalRuntime
+	if managed != nil {
+		terminalRuntime = &managedTerminalRuntime{
+			control: control, placements: placementStore, hosts: hostController,
+			executor: terminalExecutor, enrollment: managedEnrollment,
+			requireEnrollment: !cfg.NATS.Lab,
+		}
+	}
 	artifactSub, err := serveArtifactAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, control, service)
 	if err != nil {
 		return fmt.Errorf("serve artifact admission: %w", err)
@@ -323,6 +337,41 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return fmt.Errorf("serve placement admission: %w", err)
 	}
 	defer placementSub.Unsubscribe()
+	if managed != nil {
+		terminalEnrollment := func() (*managedHostEnrollment, error) {
+			if managedEnrollment == nil || managedEnrollment.grants == nil {
+				return nil, errors.New("managed terminal admission requires the enrollment grant store")
+			}
+			return managedEnrollment, nil
+		}
+		grantFence := func(ctx context.Context, epoch uint64, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.fenceTerminalGrants(ctx, epoch, intent)
+		}
+		grantProof := func(ctx context.Context, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.verifyTerminalGrantFence(ctx, intent)
+		}
+		grantStatus := func(ctx context.Context, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.verifyTerminalGrants(ctx, intent)
+		}
+		terminalAdmissionSub, err := serveTerminalAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, control, managed.region, placementStore, terminalExecutor, grantFence, grantProof, grantStatus)
+		if err != nil {
+			return fmt.Errorf("serve managed terminal admission: %w", err)
+		}
+		defer terminalAdmissionSub.Unsubscribe()
+	}
 	if materialService != nil {
 		materialSub, err := serveMaterialPreparation(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, *materialService)
 		if err != nil {
@@ -337,12 +386,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 4)
+	workerErrors := make(chan error, 5)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
 	if managedController != nil {
 		workers.Go(func() { workerErrors <- managedController.Run(runCtx) })
+	}
+	if terminalRuntime != nil {
+		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

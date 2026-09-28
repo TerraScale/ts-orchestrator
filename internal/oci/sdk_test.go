@@ -3,11 +3,49 @@ package oci
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
+
+type terminalSDKRecorder struct {
+	requests []*http.Request
+}
+
+func (recorder *terminalSDKRecorder) Do(request *http.Request) (*http.Response, error) {
+	recorder.requests = append(recorder.requests, request)
+	return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+}
+
+func TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot(t *testing.T) {
+	config, _ := testRegionConfig()
+	recorder := &terminalSDKRecorder{}
+	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
+		UserAgent: "oci-terminal-test", Signer: observeSDKSigner{}, HTTPClient: recorder}
+	provider := &sdkProvider{config: config, compute: core.ComputeClient{BaseClient: base},
+		storage: core.BlockstorageClient{BaseClient: base}}
+	if err := provider.TerminateTerminalInstance(t.Context(), "ocid1.instance.exact", "instance-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.DeleteBootVolume(t.Context(), "ocid1.bootvolume.exact", "boot-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.DeleteVolume(t.Context(), "ocid1.volume.exact", "data-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.requests) != 3 || recorder.requests[0].Header.Get("If-Match") != "instance-etag" ||
+		recorder.requests[1].Header.Get("If-Match") != "boot-etag" ||
+		recorder.requests[2].Header.Get("If-Match") != "data-etag" ||
+		recorder.requests[0].URL.Query().Get("preserveBootVolume") != "true" {
+		t.Fatalf("terminal SDK lost conditional ETags or boot preservation: %+v", recorder.requests)
+	}
+}
 
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()

@@ -148,6 +148,38 @@ func credentialAccount(claim *jwt.UserClaims) string {
 	return claim.Issuer
 }
 
+// BrokerOperatorPublishPermissions is the exact operator publish surface used
+// by the embedded Lab broker, the production issuer, and credential validation.
+func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
+	root := "ts.orch.v1." + cell
+	return jwt.StringList{
+		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
+		root + ".placement.apply", root + ".material.prepare", root + ".broker.claim.apply",
+		root + ".terminal.plan", root + ".terminal.apply", root + ".terminal.status",
+		"$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
+		"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
+		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
+		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
+		"$JS.API.STREAM.INFO.KV_TS_HOST_STATE",
+		"$JS.API.STREAM.INFO.TS_CONTROL_LOG",
+		"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS",
+		"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
+		"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS",
+		"$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
+		"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
+		"$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
+		"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*",
+		"$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
+		"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS",
+		"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
+		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
+		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>",
+		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
+		"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>",
+		"$O.TS_ARTIFACTS.>",
+	}
+}
+
 // ValidateBrokerControllerCredentials enforces the production issuer contract
 // for ephemeral ticket/fence RPCs and signed claim-apply admission. These
 // subjects are outside the durable control stream, and NATS grants one
@@ -177,6 +209,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 		root + ".delivery.artifact.admit": true,
 		root + ".host.register":           true,
 		root + ".placement.apply":         true,
+		root + ".terminal.>":              true,
 	}
 	for _, grant := range claim.Sub.Allow {
 		if !allowedSubscriptions[grant] {
@@ -185,6 +218,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	}
 	if !slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
 		!slices.Contains(claim.Sub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
+		!slices.Contains(claim.Sub.Allow, root+".terminal.>") ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
 		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
 		claim.Resp.Expires <= 0 || claim.Resp.Expires > 5*time.Second {
@@ -193,7 +227,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	return nil
 }
 
-// ValidateBrokerOperatorCredentials requires exact claim-apply publish,
+// ValidateBrokerOperatorCredentials requires exact claim-apply and terminal publishes,
 // JetStream INFO and control-stream INFO/MSG.GET read grants, and the caller's
 // private inbox. These are the production issuer grants needed by the CLI's
 // readiness and authority observation before publishing its signed request.
@@ -205,11 +239,20 @@ func ValidateBrokerOperatorCredentials(path, cell string) error {
 	if err != nil {
 		return fmt.Errorf("broker operator credentials: %w", err)
 	}
+	allowedPublishes := BrokerOperatorPublishPermissions(cell)
+	for _, grant := range claim.Pub.Allow {
+		if !slices.Contains(allowedPublishes, grant) {
+			return fmt.Errorf("broker operator credentials have unscoped publish %q", grant)
+		}
+	}
 	if !slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
+		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.plan") ||
+		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.apply") ||
+		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.status") ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.INFO") ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.INFO.TS_CONTROL_LOG") ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG") ||
-		!slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
+		len(claim.Sub.Allow) != 1 || claim.Sub.Allow[0] != inboxPrefix(cell, public)+".>" ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 {
 		return errors.New("broker operator credentials need claim-apply publish and private reply grants")
 	}

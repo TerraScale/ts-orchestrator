@@ -121,6 +121,8 @@ type placementApplyResponse struct {
 type placementAdmissionControl interface {
 	Current() authority.Snapshot
 	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
+	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
+	ConfirmActivePlacementIntent(context.Context, uint64, string, string, []byte) (uint64, error)
 	CommitPlacementIntent(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
 }
 
@@ -198,6 +200,11 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		}
 	}
 	for range 8 {
+		if _, err := control.ReadTerminalIntent(ctx, intent.DatabaseID, intent.PartitionID); err == nil {
+			return placementApplyResponse{}, authority.ErrFenced
+		} else if !errors.Is(err, authority.ErrNotFound) {
+			return placementApplyResponse{}, err
+		}
 		var expected uint64
 		current, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
 		if err == nil {
@@ -209,7 +216,11 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 				return placementApplyResponse{}, authority.ErrConflict
 			}
 			if old.Generation == intent.Generation {
-				return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: current.Sequence}, nil
+				sequence, err := control.ConfirmActivePlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, payload)
+				if err != nil {
+					return placementApplyResponse{}, err
+				}
+				return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: sequence}, nil
 			}
 			if err := intent.ValidateSupersession(old); err != nil {
 				return placementApplyResponse{}, err

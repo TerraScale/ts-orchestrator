@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
@@ -193,4 +194,8 @@ func committedIntentForTest(t *testing.T, intent Intent) Intent {
 
 func (reader intentReaderFunc) ListPlacementIntents(ctx context.Context, cell string) ([]Intent, error) {
 	return reader(ctx, cell)
+}
+
+func (intentReaderFunc) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
 }

@@ -742,34 +742,12 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".broker.claim.apply")
+			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".broker.claim.apply", root+".terminal.>")
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")
 		}
-		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", root + ".material.prepare", root + ".broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
-			"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
-			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
-			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
-			"$JS.API.STREAM.INFO.KV_TS_HOST_STATE",
-			"$JS.API.STREAM.INFO.TS_CONTROL_LOG",
-			"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
-			"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
-			"$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
-			"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*",
-			"$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
-			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS",
-			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>",
-			"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
-			"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>",
-			"$O.TS_ARTIFACTS.>",
-		}}
+		permissions.Publish = &server.SubjectPermission{Allow: []string(BrokerOperatorPublishPermissions(cell))}
 	default:
 		return nil, fmt.Errorf("invalid NATS user role %q", user.Role)
 	}

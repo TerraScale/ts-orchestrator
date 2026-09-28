@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"reflect"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -23,7 +24,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
+	"uuid"
 )
 
 func hostNATSUserPublicKey(config natscell.Config) (string, error) {
@@ -134,8 +137,8 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 		http.Error(writer, "invalid host enrollment request", http.StatusBadRequest)
 		return
 	}
-	authority := enrollment.fencer.Current()
-	if !authority.CanMutate() {
+	snapshot := enrollment.fencer.Current()
+	if !snapshot.CanMutate() {
 		http.Error(writer, "regional authority is not writable", http.StatusServiceUnavailable)
 		return
 	}
@@ -172,7 +175,14 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 			return
 		}
 	}
-	response, err := enrollment.enroll(request.Context(), authority.Epoch, peerIP, wire, enrollmentRequest, descriptor)
+	requestCtx := authority.WithActiveWorkloadEffectContext(request.Context())
+	release, err := enrollment.beginActiveEffect(requestCtx, snapshot.Epoch, descriptor)
+	if err != nil {
+		http.Error(writer, "host enrollment held", http.StatusConflict)
+		return
+	}
+	defer release()
+	response, err := enrollment.enrollActive(requestCtx, snapshot.Epoch, peerIP, wire, enrollmentRequest, descriptor)
 	if err != nil {
 		if errors.Is(err, errStaleUnclaimedRenewal) {
 			writer.Header().Set("X-TerraScale-Host-Enrollment-Error", staleUnclaimedRenewal)
@@ -190,7 +200,33 @@ func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, r
 func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint64, peerIP string, wire []byte,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) ([]byte, error) {
-	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
+	ctx = authority.WithActiveWorkloadEffectContext(ctx)
+	release, err := enrollment.beginActiveEffect(ctx, epoch, descriptor)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return enrollment.enrollActive(ctx, epoch, peerIP, wire, request, descriptor)
+}
+
+func (enrollment *managedHostEnrollment) beginActiveEffect(ctx context.Context, epoch uint64,
+	descriptor hostboot.Descriptor,
+) (func(), error) {
+	gate, ok := enrollment.fencer.(interface {
+		BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+	})
+	if !ok {
+		return nil, errors.New("managed host enrollment requires a terminal effect gate")
+	}
+	return gate.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{
+		DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID,
+	})
+}
+
+func (enrollment *managedHostEnrollment) enrollActive(ctx context.Context, epoch uint64, peerIP string, wire []byte,
+	request hostenroll.Request, descriptor hostboot.Descriptor,
+) ([]byte, error) {
+	if err := enrollment.guardActiveEffect(ctx, epoch, descriptor); err != nil {
 		return nil, err
 	}
 	if descriptor.Cell != enrollment.cell || descriptor.Region != string(enrollment.region) ||
@@ -218,6 +254,9 @@ func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint6
 	}
 	var grant hostenroll.Grant
 	var revision uint64
+	var effectID string
+	var effectSequence uint64
+	var priorGrant enrollmentGrantSnapshot
 	if request.Operation == "renew" {
 		prior, _, err := enrollment.grants.Read(ctx, request.InstanceID)
 		if err != nil || prior.Disabled || prior.CreateKey != descriptor.CreateKey ||
@@ -233,13 +272,34 @@ func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint6
 		if time.Since(request.IssuedAt) > 5*time.Minute && !bytes.Equal(prior.RenewalRequest, wire) {
 			return nil, errStaleUnclaimedRenewal
 		}
+		priorGrant, err = enrollment.readGrantSnapshot(ctx, request.InstanceID)
+		if err != nil {
+			return nil, err
+		}
+		effectID, effectSequence, err = enrollment.beginGrantMutation(ctx, epoch, descriptor, request.InstanceID)
+		if err != nil {
+			return nil, err
+		}
 		grant, revision, err = enrollment.grants.ClaimRenew(ctx, request.InstanceID, wire, time.Now().UTC())
 	} else {
+		priorGrant, err = enrollment.readGrantSnapshot(ctx, request.InstanceID)
+		if err != nil {
+			return nil, err
+		}
+		effectID, effectSequence, err = enrollment.beginGrantMutation(ctx, epoch, descriptor, request.InstanceID)
+		if err != nil {
+			return nil, err
+		}
 		grant, revision, err = enrollment.grants.Claim(ctx, hostenroll.Grant{SchemaVersion: 1,
 			InstanceID: request.InstanceID, CreateKey: descriptor.CreateKey,
 			DescriptorSHA256: digest, Request: wire})
 	}
 	if err != nil {
+		return nil, enrollment.settleKnownNoWrite(ctx, epoch, descriptor, request.InstanceID,
+			effectID, effectSequence, priorGrant, err)
+	}
+	if err := enrollment.settleGrantMutation(ctx, epoch, descriptor, request.InstanceID,
+		effectID, effectSequence, grant, revision, false); err != nil {
 		return nil, err
 	}
 	cached := grant.Response
@@ -247,7 +307,7 @@ func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint6
 		cached = grant.RenewalResponse
 	}
 	if len(cached) != 0 {
-		if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
+		if err := enrollment.guardActiveEffect(ctx, epoch, descriptor); err != nil {
 			return nil, err
 		}
 		return cached, nil
@@ -259,7 +319,7 @@ func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint6
 	if _, err := enrollment.observePeer(ctx, peerIP, request.InstanceID, descriptor); err != nil {
 		return nil, err
 	}
-	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
+	if err := enrollment.guardActiveEffect(ctx, epoch, descriptor); err != nil {
 		return nil, err
 	}
 	jwt, chain, expires, err := enrollment.issuer.Issue(request, csr, descriptor.Node, time.Now().UTC())
@@ -280,19 +340,136 @@ func (enrollment *managedHostEnrollment) enroll(ctx context.Context, epoch uint6
 	if _, err := enrollment.observePeer(ctx, peerIP, request.InstanceID, descriptor); err != nil {
 		return nil, err
 	}
-	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
+	priorGrant, err = enrollment.readGrantSnapshot(ctx, request.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+	effectID, effectSequence, err = enrollment.beginGrantMutation(ctx, epoch, descriptor, request.InstanceID)
+	if err != nil {
 		return nil, err
 	}
 	if request.Operation == "renew" {
 		if err := enrollment.grants.FinishRenew(ctx, grant, revision, responseWire, time.Now().UTC()); err != nil {
-			return nil, err
+			return nil, enrollment.settleKnownNoWrite(ctx, epoch, descriptor, request.InstanceID,
+				effectID, effectSequence, priorGrant, err)
 		}
+		grant.RenewalResponse = bytes.Clone(responseWire)
 	} else {
-		if _, err := enrollment.grants.Finish(ctx, grant, revision, responseWire); err != nil {
-			return nil, err
+		grant, err = enrollment.grants.Finish(ctx, grant, revision, responseWire)
+		if err != nil {
+			return nil, enrollment.settleKnownNoWrite(ctx, epoch, descriptor, request.InstanceID,
+				effectID, effectSequence, priorGrant, err)
 		}
 	}
+	if err := enrollment.settleGrantMutation(ctx, epoch, descriptor, request.InstanceID,
+		effectID, effectSequence, grant, revision, true); err != nil {
+		return nil, err
+	}
 	return responseWire, nil
+}
+
+type enrollmentGrantJournal interface {
+	BeginEnrollmentEffect(context.Context, uint64, authority.WorkloadScope, string, string) (uint64, error)
+	SettleEnrollmentEffect(context.Context, uint64, authority.WorkloadScope, string, string, uint64) (uint64, error)
+}
+
+type enrollmentGrantSnapshot struct {
+	grant    hostenroll.Grant
+	revision uint64
+	absent   bool
+}
+
+func (enrollment *managedHostEnrollment) readGrantSnapshot(ctx context.Context,
+	instanceID string,
+) (enrollmentGrantSnapshot, error) {
+	grant, revision, err := enrollment.grants.Read(ctx, instanceID)
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return enrollmentGrantSnapshot{absent: true}, nil
+	}
+	if err != nil {
+		return enrollmentGrantSnapshot{}, err
+	}
+	return enrollmentGrantSnapshot{grant: grant, revision: revision}, nil
+}
+
+func (enrollment *managedHostEnrollment) settleKnownNoWrite(ctx context.Context, epoch uint64,
+	descriptor hostboot.Descriptor, instanceID, effectID string, effectSequence uint64,
+	before enrollmentGrantSnapshot, mutationErr error,
+) error {
+	if !hostenroll.IsGrantMutationNotApplied(mutationErr) {
+		return mutationErr
+	}
+	after, err := enrollment.readGrantSnapshot(ctx, instanceID)
+	if err != nil || !reflect.DeepEqual(after, before) {
+		return mutationErr
+	}
+	journal, ok := enrollment.fencer.(enrollmentGrantJournal)
+	if !ok {
+		return mutationErr
+	}
+	scope := authority.WorkloadScope{DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID}
+	if _, err := journal.SettleEnrollmentEffect(ctx, epoch, scope, effectID, instanceID, effectSequence); err != nil {
+		return errors.Join(mutationErr, err)
+	}
+	return mutationErr
+}
+
+func (enrollment *managedHostEnrollment) beginGrantMutation(ctx context.Context, epoch uint64,
+	descriptor hostboot.Descriptor, instanceID string,
+) (string, uint64, error) {
+	journal, ok := enrollment.fencer.(enrollmentGrantJournal)
+	if !ok {
+		return "", 0, errors.New("managed host enrollment requires an R3 grant effect journal")
+	}
+	effectID := uuid.New().String()
+	scope := authority.WorkloadScope{DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID}
+	sequence, err := journal.BeginEnrollmentEffect(ctx, epoch, scope, effectID, instanceID)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := enrollment.guardActiveEffect(ctx, epoch, descriptor); err != nil {
+		return "", 0, err
+	}
+	return effectID, sequence, nil
+}
+
+func (enrollment *managedHostEnrollment) settleGrantMutation(ctx context.Context, epoch uint64,
+	descriptor hostboot.Descriptor, instanceID, effectID string, effectSequence uint64,
+	expected hostenroll.Grant, revision uint64, requireNewRevision bool,
+) error {
+	observed, observedRevision, err := enrollment.grants.Read(ctx, instanceID)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(observed, expected) ||
+		(!requireNewRevision && observedRevision != revision) ||
+		(requireNewRevision && observedRevision <= revision) {
+		return errors.New("host enrollment grant changed before exact effect readback")
+	}
+	journal, ok := enrollment.fencer.(enrollmentGrantJournal)
+	if !ok {
+		return errors.New("managed host enrollment requires an R3 grant effect journal")
+	}
+	scope := authority.WorkloadScope{DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID}
+	_, err = journal.SettleEnrollmentEffect(ctx, epoch, scope, effectID, instanceID, effectSequence)
+	return err
+}
+
+func (enrollment *managedHostEnrollment) guardActiveEffect(ctx context.Context, epoch uint64,
+	descriptor hostboot.Descriptor,
+) error {
+	reader, ok := enrollment.fencer.(authority.TerminalIntentReader)
+	if !ok {
+		return errors.New("managed host enrollment requires terminal marker readback")
+	}
+	_, err := reader.ReadTerminalIntent(ctx, descriptor.DatabaseID, descriptor.PartitionID)
+	if err == nil {
+		return authority.ErrFenced
+	}
+	if !errors.Is(err, authority.ErrNotFound) {
+		return err
+	}
+	return enrollment.fencer.Guard(ctx, epoch)
 }
 
 func (enrollment *managedHostEnrollment) observePeer(ctx context.Context, peerIP, instanceID string,

@@ -160,6 +160,7 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 			"ts.orch.v1.lab.delivery.artifact.admit", "ts.orch.v1.lab.host.register",
 			"ts.orch.v1.lab.placement.apply", "ts.orch.v1.lab.broker.claim.apply",
 			"ts.broker.lab.ticket.>", "ts.broker.lab.fence." + broker,
+			"ts.orch.v1.lab.terminal.>",
 		}
 		if !slices.Equal([]string(claim.Pub.Allow), wantPublish) || !slices.Equal([]string(claim.Sub.Allow), wantSubscribe) ||
 			claim.Resp == nil || claim.Resp.MaxMsgs != 1 || claim.Resp.Expires != 5*time.Second ||
@@ -406,6 +407,10 @@ type emptyPlacementIntentReader struct{}
 
 func (emptyPlacementIntentReader) ListPlacementIntents(context.Context, string) ([]placement.Intent, error) {
 	return nil, nil
+}
+
+func (emptyPlacementIntentReader) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
 }
 
 func assertR3StreamReservation(t *testing.T, ctx context.Context, js jetstream.JetStream, name string, wantMaxBytes int64) {

@@ -937,6 +937,39 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 	return state
 }
 
+func TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seats, err := DesiredSeats(intent, map[oci.Region][]string{
+		oci.RegionGRU: {"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := testMemberState(t, intent, seats[0], StageAwaitingRuntimeContract)
+	states := []VersionedMemberState{{State: state, Revision: 1}}
+	targets, err := TerminalTargetsForRegion(intent, oci.RegionGRU,
+		[]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}, states)
+	if err != nil || len(targets) != 2 {
+		t.Fatalf("derive exact terminal targets: %+v, %v", targets, err)
+	}
+	for index, seat := range seats {
+		row, err := intent.RosterRowForSeat(seat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if targets[index].SeatID != seat.MemberID || targets[index].MemberID != row.MemberID ||
+			targets[index].HostCreateKey != hostCreateKey(intent, seat, 1) ||
+			targets[index].DataCreateKey != volumeCreateKey(intent, seat) {
+			t.Fatalf("terminal target changed signed seat or durable create key: %+v", targets[index])
+		}
+	}
+	states[0].State.CreateKey = "other-host-key"
+	if _, err := TerminalTargetsForRegion(intent, oci.RegionGRU,
+		[]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}, states); err == nil {
+		t.Fatal("terminal plan accepted a durable member with a different host create key")
+	}
+}
+
 func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 	t.Helper()
 	seats := []Seat{
@@ -1015,6 +1048,10 @@ type placementMemoryStore struct {
 	onCAS    func(MemberState) error
 }
 
+func (*placementMemoryStore) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
+}
+
 func (store *placementMemoryStore) ListIntents(context.Context) ([]Intent, error) {
 	return slices.Clone(store.intents), nil
 }
@@ -1063,6 +1100,10 @@ func (placementTestFencer) Current() authority.Snapshot {
 }
 
 func (placementTestFencer) Guard(context.Context, uint64) error { return nil }
+
+func (placementTestFencer) BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error) {
+	return func() {}, nil
+}
 
 type placementTestHosts struct {
 	statuses      []host.HostStatus

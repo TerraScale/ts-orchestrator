@@ -256,6 +256,10 @@ func (provider *sdkProvider) UpdateInstanceTags(ctx context.Context, id, etag st
 }
 
 func (provider *sdkProvider) TerminateInstance(ctx context.Context, id, etag string) error {
+	return provider.TerminateTerminalInstance(ctx, id, etag)
+}
+
+func (provider *sdkProvider) TerminateTerminalInstance(ctx context.Context, id, etag string) error {
 	preserve := true
 	_, err := provider.compute.TerminateInstance(ctx, core.TerminateInstanceRequest{
 		InstanceId:                         new(id),
@@ -419,8 +423,90 @@ func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVol
 		SizeGB:             int64Value(volume.SizeInGBs),
 		VPUsPerGB:          int64Value(volume.VpusPerGB),
 		LifecycleState:     string(volume.LifecycleState),
+		ETag:               stringValue(response.Etag),
 		FreeformTags:       cloneStringMap(volume.FreeformTags),
 	}, nil
+}
+
+func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instanceID string) (CloudBootVolume, error) {
+	response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+		CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
+		InstanceId: new(instanceID),
+	})
+	if err != nil {
+		return CloudBootVolume{}, fmt.Errorf("list exact OCI boot attachment: %w", err)
+	}
+	if len(response.Items) != 1 || stringValue(response.OpcNextPage) != "" ||
+		response.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
+		stringValue(response.Items[0].InstanceId) != instanceID || stringValue(response.Items[0].BootVolumeId) == "" {
+		return CloudBootVolume{}, fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
+	}
+	boot, err := provider.GetBootVolume(ctx, stringValue(response.Items[0].BootVolumeId))
+	if err != nil {
+		return CloudBootVolume{}, err
+	}
+	if boot.CompartmentID != provider.config.CompartmentID || boot.AvailabilityDomain != provider.config.AvailabilityDomain ||
+		boot.ImageID != provider.config.ImageID || boot.SizeGB != int64(provider.config.BootVolumeGB) ||
+		boot.VPUsPerGB != int64(provider.config.BootVolumeVPUsPerGB) || boot.ETag == "" {
+		return CloudBootVolume{}, fmt.Errorf("%w: attached boot volume differs from fleet pins", ErrForeignResource)
+	}
+	return boot, nil
+}
+
+func (provider *sdkProvider) GetBootVolume(ctx context.Context, id string) (CloudBootVolume, error) {
+	response, err := provider.storage.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: new(id)})
+	if err != nil {
+		return CloudBootVolume{}, fmt.Errorf("get OCI boot volume: %w", err)
+	}
+	return CloudBootVolume{
+		ID: stringValue(response.Id), CompartmentID: stringValue(response.CompartmentId),
+		AvailabilityDomain: stringValue(response.AvailabilityDomain), ImageID: stringValue(response.ImageId),
+		SizeGB: int64Value(response.SizeInGBs), VPUsPerGB: int64Value(response.VpusPerGB),
+		LifecycleState: string(response.LifecycleState), ETag: stringValue(response.Etag),
+	}, nil
+}
+
+func (provider *sdkProvider) ListBootVolumeAttachments(ctx context.Context, bootID string) ([]CloudBootAttachment, error) {
+	var attachments []CloudBootAttachment
+	var page *string
+	for {
+		response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+			CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
+			BootVolumeId: new(bootID), Page: page, Limit: new(100),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list exact OCI boot attachments: %w", err)
+		}
+		for _, item := range response.Items {
+			attachments = append(attachments, CloudBootAttachment{
+				InstanceID: stringValue(item.InstanceId), BootVolumeID: stringValue(item.BootVolumeId),
+				LifecycleState: string(item.LifecycleState),
+			})
+			if len(attachments) > maxProviderItems {
+				return nil, errors.New("OCI boot attachment list exceeds its safety bound")
+			}
+		}
+		if stringValue(response.OpcNextPage) == "" {
+			return attachments, nil
+		}
+		page = response.OpcNextPage
+	}
+}
+
+func (provider *sdkProvider) DeleteBootVolume(ctx context.Context, id, etag string) error {
+	_, err := provider.storage.DeleteBootVolume(ctx, core.DeleteBootVolumeRequest{BootVolumeId: new(id), IfMatch: new(etag)})
+	if err != nil {
+		return fmt.Errorf("delete OCI boot volume: %w", err)
+	}
+	return nil
+}
+
+func (provider *sdkProvider) DeleteVolume(ctx context.Context, id, etag string) error {
+	_, err := provider.storage.DeleteVolume(ctx, core.DeleteVolumeRequest{VolumeId: new(id), IfMatch: new(etag)})
+	if err != nil {
+		return fmt.Errorf("delete OCI retained volume: %w", err)
+	}
+	return nil
 }
 
 func cloudVolume(volume core.Volume) CloudVolume {

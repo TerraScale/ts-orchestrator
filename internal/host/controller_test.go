@@ -251,7 +251,7 @@ func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifi
 		t.Fatal(err)
 	}
 	mutations := &memoryMutations{entries: make(map[string]authority.LogEntry), js: js}
-	c, err := NewController(t.Context(), ControllerConfig{Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey, StateReplicas: 1, HostMutations: mutations, ManagedRegistrationVerifier: verifier, AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil }})
+	c, err := NewController(t.Context(), ControllerConfig{Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey, StateReplicas: 1, HostMutations: mutations, ManagedRegistrationVerifier: verifier, ManagedEffectGate: func(context.Context, uint64, authority.WorkloadScope) (func(), error) { return func() {}, nil }, AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

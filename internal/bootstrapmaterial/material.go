@@ -377,7 +377,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	operatorClaim := jwt.NewUserClaims(operatorID)
 	operatorClaim.IssuerAccount = cellID
 	operatorClaim.IssuedAt, operatorClaim.Expires = now.Unix(), expires.Unix()
-	operatorClaim.Pub.Allow = operatorPublishPermissions(cfg.Cell)
+	operatorClaim.Pub.Allow = natscell.BrokerOperatorPublishPermissions(cfg.Cell)
 	operatorClaim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, operatorID)}
 	files["operator.creds"], err = credentials(operatorClaim, cell, operatorUser)
 	if err != nil {
@@ -450,7 +450,8 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim.Pub.Allow = jwt.StringList{"ts.orch.v1." + cfg.Cell + ".>", "ts.control." + cfg.Cell + ".>", "$JS.API.>", "$KV.>", "$O.>", "ts.broker." + cfg.Cell + ".ticket.>", "ts.broker." + cfg.Cell + ".fence.>"}
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), "ts.broker." + cfg.Cell + ".ticket.>", "ts.broker." + cfg.Cell + ".fence." + slot.Name,
 			"ts.orch.v1." + cfg.Cell + ".broker.claim.apply", "ts.orch.v1." + cfg.Cell + ".agent.*.observation.*",
-			"ts.orch.v1." + cfg.Cell + ".delivery.artifact.admit", "ts.orch.v1." + cfg.Cell + ".host.register", "ts.orch.v1." + cfg.Cell + ".placement.apply"}
+			"ts.orch.v1." + cfg.Cell + ".delivery.artifact.admit", "ts.orch.v1." + cfg.Cell + ".host.register", "ts.orch.v1." + cfg.Cell + ".placement.apply",
+			"ts.orch.v1." + cfg.Cell + ".terminal.>"}
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
 		user.Wipe()
@@ -492,38 +493,6 @@ func expectedHostScope(cell, issuer string) *jwt.UserScope {
 	scope.Template.Pub.Allow = jwt.StringList{"ts.orch.v1." + cell + ".agent.{{subject()}}.observation.*"}
 	scope.Template.Sub.Allow = jwt.StringList{"ts.orch.v1." + cell + ".inbox.{{subject()}}.>"}
 	return scope
-}
-
-// These grants follow the production operator's actual request, read, and
-// artifact upload paths. The separate signed operator grant still authorizes
-// each control operation after the broker accepts this client credential.
-func operatorPublishPermissions(cell string) jwt.StringList {
-	root := "ts.orch.v1." + cell
-	return jwt.StringList{
-		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".material.prepare", root + ".broker.claim.apply",
-		"$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
-		"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
-		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
-		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
-		"$JS.API.STREAM.INFO.KV_TS_HOST_STATE",
-		"$JS.API.STREAM.INFO.TS_CONTROL_LOG",
-		"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS",
-		"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
-		"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS",
-		"$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
-		"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
-		"$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
-		"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*",
-		"$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
-		"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS",
-		"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
-		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
-		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>",
-		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
-		"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>",
-		"$O.TS_ARTIFACTS.>",
-	}
 }
 
 func makeCA(cfg Config, now, expires time.Time) ([]byte, *ecdsa.PrivateKey, *x509.Certificate, error) {
@@ -841,7 +810,7 @@ func validateSignerFiles(directory string, record Record) error {
 	operatorPair.Wipe()
 	if err != nil || operatorID != operatorClaim.Subject || operatorClaim.Issuer != cellClaim.Subject ||
 		operatorClaim.IssuerAccount != cellClaim.Subject || !cellClaim.DidSign(operatorClaim) ||
-		!slices.Equal(operatorClaim.Pub.Allow, operatorPublishPermissions(record.Config.Cell)) ||
+		!slices.Equal(operatorClaim.Pub.Allow, natscell.BrokerOperatorPublishPermissions(record.Config.Cell)) ||
 		!slices.Equal(operatorClaim.Sub.Allow, jwt.StringList{inbox(record.Config.Cell, operatorID)}) ||
 		len(operatorClaim.Pub.Deny) != 0 || len(operatorClaim.Sub.Deny) != 0 || operatorClaim.Resp != nil {
 		return ErrMaterial

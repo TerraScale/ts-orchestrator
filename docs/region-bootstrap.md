@@ -368,3 +368,7 @@ three fixed mappings above, subject to the host-enrollment limitation. It does
 not establish cross-region replication, continuous management during controller
 loss, database serving, a live SFO/FRA deployment, or production readiness.
 Those require their own current source and runtime evidence.
+
+The post-handoff owner for ARM workload hosts and TerraBase also owns their
+disposable-preview removal. For the current GRU cost cutoff and exact workload
+teardown procedure, see [Explicit disposable workload teardown](disposable-workload-teardown.md).

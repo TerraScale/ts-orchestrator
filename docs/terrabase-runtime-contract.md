@@ -4,6 +4,11 @@ Status: **A and C source snapshots are frozen and accepted; B has matching Go/Ru
 
 ## Current boundary
 
+The operator's explicit whole-workload teardown path for the current
+disposable GRU preview is documented in
+[Explicit disposable workload teardown](disposable-workload-teardown.md).
+That procedure covers terminal workload removal and its provider readbacks.
+
 | Area | Verified source behavior | Remaining gap |
 | --- | --- | --- |
 | Placement identity | New managed placement admission accepts schema 5. Schemas 1–4 remain decodable as history; schema 5 is the only admission schema. It pins a canonical roster with two seat rows per active region and a runtime manifest per roster row. The top-level placement `database_id` / `partition_id`, roster `database_id` / numeric `shard_id`, `seat_id`, and TerraBase `member_id` are distinct fields. Schema 5 validates canonical native UUID strings for roster tenant, database, and member IDs; cluster ID is 16 bytes encoded as 32 lowercase hex characters. [`Intent.ValidateForAdmission`](../internal/placement/terrabase.go), [`verifyAndApplyPlacement`](../internal/app/placement_admission.go), [`verifyManagedRegistration`](../internal/app/managed_enrollment.go). | A accepts the pinned placement/member-status source set listed below. Keep `seat_id` as the placement key and `member_id` as the TerraBase identity; the signed row is the binding between them. Do not infer an alias or equate top-level placement `database_id` with roster `database_id`. The current controller reconciles only one active region because the fixed outbound sender is bound to a two-member authority. |

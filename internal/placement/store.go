@@ -30,12 +30,14 @@ var (
 // values from a mutable local file.
 type AdmittedIntentReader interface {
 	ListPlacementIntents(context.Context, string) ([]Intent, error)
+	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
 }
 
 type authorityIntentReader struct {
-	store  authority.PlacementIntentStore
-	cell   string
-	region oci.Region
+	store    authority.PlacementIntentStore
+	terminal authority.TerminalIntentReader
+	cell     string
+	region   oci.Region
 }
 
 // NewAuthorityIntentReader adapts the ordered regional placement log.
@@ -43,7 +45,15 @@ func NewAuthorityIntentReader(store authority.PlacementIntentStore, cell string,
 	if store == nil || !validToken(cell) || !knownRegion(region) {
 		return nil, errors.New("placement intent reader requires an authority log, cell, and supported region")
 	}
-	return authorityIntentReader{store: store, cell: cell, region: region}, nil
+	terminal, ok := store.(authority.TerminalIntentReader)
+	if !ok {
+		return nil, errors.New("placement intent reader requires a terminal authority fence")
+	}
+	return authorityIntentReader{store: store, terminal: terminal, cell: cell, region: region}, nil
+}
+
+func (reader authorityIntentReader) ReadTerminalIntent(ctx context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	return reader.terminal.ReadTerminalIntent(ctx, databaseID, partitionID)
 }
 
 func (reader authorityIntentReader) ListPlacementIntents(ctx context.Context, cell string) ([]Intent, error) {
@@ -86,6 +96,7 @@ type MemberPinReader interface {
 type Store interface {
 	MemberPinReader
 	ListIntents(context.Context) ([]Intent, error)
+	ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error)
 	ListMembers(context.Context, string, string) ([]VersionedMemberState, error)
 	CompareAndSwap(context.Context, uint64, MemberState) (uint64, error)
 }
@@ -154,6 +165,10 @@ func (store *jetStreamStore) ListIntents(ctx context.Context) ([]Intent, error) 
 		return strings.Compare(a.PartitionID, b.PartitionID)
 	})
 	return intents, nil
+}
+
+func (store *jetStreamStore) ReadTerminalIntent(ctx context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	return store.intents.ReadTerminalIntent(ctx, databaseID, partitionID)
 }
 
 func (store *jetStreamStore) ListMembers(ctx context.Context, databaseID, partitionID string) ([]VersionedMemberState, error) {

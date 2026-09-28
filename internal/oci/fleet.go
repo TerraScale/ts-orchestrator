@@ -262,6 +262,14 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if err != nil {
 		return Instance{}, err
 	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, descriptor.DatabaseID, descriptor.PartitionID)
+	if err != nil {
+		return Instance{}, err
+	}
+	defer release()
+	if err := f.verifyLaunchScope(ctx, descriptor, request.CreateKey); err != nil {
+		return Instance{}, err
+	}
 	intent := f.intent(actionLaunch, request.CreateKey, "", request.CreateKey, "", request.FaultDomain, "")
 	intent.Shape = request.Shape
 	intent.PrivateIP = request.PrivateIP
@@ -310,6 +318,9 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			}
 			// The launch receipt is immutable; the live ETag belongs to this
 			// observation and will fence the next tag/termination operation.
+			if err := f.captureBootBinding(ctx, epoch, cloud, identity); err != nil {
+				return Instance{}, err
+			}
 			return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
 		}
 		if !hasPriorResult || !priorResult.Unknown {
@@ -389,7 +400,36 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
 		return Instance{}, err
 	}
+	if err := f.captureBootBinding(ctx, epoch, cloud, identity); err != nil {
+		return Instance{}, err
+	}
 	return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
+}
+
+func (f *fleet) captureBootBinding(ctx context.Context, epoch uint64, cloud CloudInstance, identity ResourceIdentity) error {
+	if cloud.LifecycleState == "TERMINATING" || cloud.LifecycleState == "TERMINATED" {
+		binding, found, err := f.journal.GetBootBinding(ctx, cloud.ID)
+		if err != nil || !found || binding.InstanceID != cloud.ID {
+			return fmt.Errorf("%w: terminated host lacks its active-instance boot binding: %v", ErrHostBootBindingMismatch, err)
+		}
+		return nil
+	}
+	boot, err := f.provider.GetAttachedBootVolume(ctx, cloud.ID)
+	if err != nil {
+		return fmt.Errorf("capture active OCI boot attachment: %w", err)
+	}
+	if !f.terminalBootMatches(boot, boot.ID) {
+		return ErrHostBootBindingMismatch
+	}
+	if err := f.guard(ctx, epoch); err != nil {
+		return err
+	}
+	return f.journal.RecordBootBinding(ctx, BootBinding{
+		InstanceID: cloud.ID, BootVolumeID: boot.ID, Region: f.config.Region,
+		Generation: f.config.Generation, Owner: f.config.Owner, CreateKey: identity.CreateKey,
+		CompartmentID: boot.CompartmentID, AvailabilityDomain: boot.AvailabilityDomain,
+		ImageID: boot.ImageID, SizeGB: boot.SizeGB, VPUsPerGB: boot.VPUsPerGB,
+	})
 }
 
 // CreateRetainedVolume creates or recovers one region-pinned member data
@@ -414,6 +454,14 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
+		return RetainedVolume{}, err
+	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, request.DatabaseID, request.PartitionID)
+	if err != nil {
+		return RetainedVolume{}, err
+	}
+	defer release()
+	if err := f.verifyDataCreateScope(ctx, request); err != nil {
 		return RetainedVolume{}, err
 	}
 	intent := f.intent(actionVolumeCreate, request.CreateKey, "", request.CreateKey, "", "", "")
@@ -589,6 +637,11 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err != nil {
 		return Attachment{}, err
 	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, request.DatabaseID, request.PartitionID)
+	if err != nil {
+		return Attachment{}, err
+	}
+	defer release()
 	instance, identity, err := f.ownedInstance(ctx, request.InstanceID)
 	if err != nil {
 		return Attachment{}, err
@@ -596,7 +649,11 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err := f.verifyRetainedVolumeHostImage(instance); err != nil {
 		return Attachment{}, err
 	}
-	if _, err := f.ownedVolume(ctx, request.VolumeID); err != nil {
+	volume, err := f.ownedVolume(ctx, request.VolumeID)
+	if err != nil {
+		return Attachment{}, err
+	}
+	if err := f.verifyAttachScope(ctx, request.DatabaseID, request.PartitionID, request.InstanceID, volume); err != nil {
 		return Attachment{}, err
 	}
 
@@ -1120,6 +1177,18 @@ func (f *fleet) currentEpoch() (uint64, error) {
 		return 0, authority.ErrNotLeader
 	}
 	return snapshot.Epoch, nil
+}
+
+type activeWorkloadFencer interface {
+	BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+}
+
+func (f *fleet) beginActiveWorkloadEffect(ctx context.Context, epoch uint64, databaseID, partitionID string) (func(), error) {
+	gate, ok := f.fencer.(activeWorkloadFencer)
+	if !ok || databaseID == "" || partitionID == "" {
+		return nil, errors.New("OCI active workload effect requires a terminal-aware authority gate and workload scope")
+	}
+	return gate.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{DatabaseID: databaseID, PartitionID: partitionID})
 }
 
 func checkCreateRetryWindow(resource, createKey string, intent OperationIntent, now time.Time) error {
