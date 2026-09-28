@@ -5,7 +5,7 @@ for tool in fj jq; do
 	command -v "$tool" >/dev/null || { echo "$tool is required" >&2; exit 1; }
 done
 
-: "${FORGEJO_TOKEN:?Forgejo Actions token is required}"
+: "${FORGEJO_READ_TOKEN:?Forgejo read token is required}"
 : "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
 : "${IMAGE_INPUT_TAG:?image-input release tag is required}"
 : "${IMAGE_INPUT_MANIFEST_SHA256:?image-input manifest SHA-256 is required}"
@@ -17,24 +17,29 @@ done
 	echo 'invalid image-input tag, manifest SHA-256, or byte count' >&2
 	exit 2
 }
+[[ ${RUNNER_TEMP:-/tmp} == /* ]] || {
+	echo 'RUNNER_TEMP must be an absolute path' >&2
+	exit 2
+}
 
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/image-input-preflight.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-export XDG_DATA_HOME="$work/fj-auth"
-mkdir -m 0700 "$XDG_DATA_HOME"
-auth_token=$FORGEJO_TOKEN
-unset FORGEJO_TOKEN GITHUB_TOKEN
-if ! printf '%s\n' "$auth_token" | fj auth add-token --host "$FORGEJO_SERVER_URL" \
+read_profile="$work/fj-read-auth"
+mkdir -m 0700 "$read_profile"
+read_token=$FORGEJO_READ_TOKEN
+unset FORGEJO_READ_TOKEN FORGEJO_TOKEN GITHUB_TOKEN
+fj_read() { XDG_DATA_HOME="$read_profile" fj "$@"; }
+if ! printf '%s\n' "$read_token" | fj_read auth add-token --host "$FORGEJO_SERVER_URL" \
 	>/dev/null 2>"$work/auth.stderr"; then
-	echo 'pinned fj could not configure temporary authentication' >&2
+	echo 'pinned fj could not configure temporary read authentication' >&2
 	exit 1
 fi
-auth_token=
-unset auth_token
+read_token=
+unset read_token
 
 set +e
-probe_json=$(fj --host "$FORGEJO_SERVER_URL" release --repo TerraScale/ts-orchestrator \
+probe_json=$(fj_read --host "$FORGEJO_SERVER_URL" release --repo TerraScale/ts-orchestrator \
 	asset probe "$IMAGE_INPUT_TAG" image-inputs.json \
 	--expect-sha256 "$IMAGE_INPUT_MANIFEST_SHA256" \
 	--expect-bytes "$IMAGE_INPUT_MANIFEST_BYTES" --compare-anonymous \

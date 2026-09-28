@@ -502,6 +502,7 @@ def case_preflight_gates(temp: Path) -> None:
     preflight = Path(__file__).resolve().with_name("preflight-image-input-attachment.sh")
     stub_source = """#!/usr/bin/env bash
 set -euo pipefail
+printf 'call\\n' >> "$PREFLIGHT_FJ_CALL_LOG"
 case ${1:-} in
   auth) cat >/dev/null ;;
   --host)
@@ -549,12 +550,13 @@ esac
         env = {
             "PATH": f"{mock_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
             "RUNNER_TEMP": str(runner_temp),
-            "FORGEJO_TOKEN": "fixture-preflight-token-do-not-log",
+            "FORGEJO_READ_TOKEN": "fixture-preflight-token-do-not-log",
             "FORGEJO_SERVER_URL": "https://forgejo.example",
             "IMAGE_INPUT_TAG": TAG,
             "IMAGE_INPUT_MANIFEST_SHA256": EXPECTED_MANIFEST_SHA256,
             "IMAGE_INPUT_MANIFEST_BYTES": str(EXPECTED_MANIFEST_BYTES),
             "PREFLIGHT_REPORT_PATH": str(report_path),
+            "PREFLIGHT_FJ_CALL_LOG": str(case_root / "fj-calls.log"),
             "PREFLIGHT_PROBE_STATUS": "0" if report["authenticated"]["matches_expected"] else "1",
         }
         loader_path = os.environ.get("LD_LIBRARY_PATH")
@@ -571,7 +573,48 @@ esac
         leaked_token = "fixture-preflight-token-do-not-log" in result.stdout + result.stderr
         if leaked_token or (result.returncode == 0) != should_pass:
             raise AssertionError(f"preflight case {name} had an unexpected result")
-    print("image-input preflight gate fixture passed cases=3")
+
+    case_root = temp / "preflight-relative-runner-temp"
+    mock_bin = case_root / "bin"
+    mock_bin.mkdir(parents=True, mode=0o700)
+    report_path = case_root / "report.json"
+    report_path.write_text(json.dumps(preflight_report(True)))
+    fj = mock_bin / "fj"
+    fj.write_text(stub_source)
+    fj.chmod(0o700)
+    call_log = case_root / "fj-calls.log"
+    env = {
+        "PATH": f"{mock_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "RUNNER_TEMP": "relative-runner-temp",
+        "FORGEJO_READ_TOKEN": "fixture-preflight-token-do-not-log",
+        "FORGEJO_SERVER_URL": "https://forgejo.example",
+        "IMAGE_INPUT_TAG": TAG,
+        "IMAGE_INPUT_MANIFEST_SHA256": EXPECTED_MANIFEST_SHA256,
+        "IMAGE_INPUT_MANIFEST_BYTES": str(EXPECTED_MANIFEST_BYTES),
+        "PREFLIGHT_REPORT_PATH": str(report_path),
+        "PREFLIGHT_FJ_CALL_LOG": str(call_log),
+        "PREFLIGHT_PROBE_STATUS": "0",
+    }
+    loader_path = os.environ.get("LD_LIBRARY_PATH")
+    if loader_path:
+        env["LD_LIBRARY_PATH"] = loader_path
+    result = subprocess.run(
+        ["bash", str(preflight)],
+        cwd=case_root,
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+        timeout=20,
+    )
+    if (
+        result.returncode != 2
+        or "RUNNER_TEMP must be an absolute path" not in result.stderr
+        or call_log.exists()
+        or "fixture-preflight-token-do-not-log" in result.stdout + result.stderr
+    ):
+        raise AssertionError("relative RUNNER_TEMP did not fail before fj calls")
+    print("image-input preflight gate fixture passed cases=4")
 
 
 def main() -> int:

@@ -47,7 +47,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
           test "${SOURCE_REF:?event ref is required}" = refs/heads/main
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          for tool in fj jq; do
+          for tool in fj jq sha256sum stat; do
             command -v "${tool}" >/dev/null
           done
           printf 'source=%s tree=%s\n' "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')"
@@ -62,6 +62,88 @@ jobs:
       - name: Probe authenticated and anonymous attachment routes
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/preflight-image-input-attachment.sh
+
+      - name: Verify read access to retained qualification and CI run details
+        shell: bash
+        env:
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          TERRABASE_TAG: ci-3dfd967e31d522064d650fc8770b150394bc3ccc-run-11549
+          TERRABASE_QUALIFICATION_BYTES: "1791"
+          TERRABASE_QUALIFICATION_SHA256: 4dbde629f37f877701db415c9eb2f84fe3735770642490aaf1be39f64bec16a9
+          TERRABASE_SOURCE_SHA: 3dfd967e31d522064d650fc8770b150394bc3ccc
+          TERRABASE_SOURCE_TREE: f010394aa2e26a2b034e1e790a73e77fb370452e
+          TERRABASE_BINARY_SHA256: af33b6e868cec577bb550e288e9cfb7ba8f30108a7f76a53ff6f88722db7cb2f
+          ORCHESTRATOR_CI_RUN_ID: "11567"
+          ORCHESTRATOR_CI_RUN_NUMBER: "664"
+          ORCHESTRATOR_CI_SOURCE_SHA: 059bce1b4782d2979e19fc62472735985619ff26
+        run: |
+          set -euo pipefail
+          : "${FORGEJO_READ_TOKEN:?Forgejo read token is required}"
+          : "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
+          [[ ${RUNNER_TEMP:-/tmp} == /* ]] || {
+            echo 'RUNNER_TEMP must be an absolute path' >&2
+            exit 2
+          }
+          work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/image-read-diagnostic.XXXXXXXX")
+          trap 'rm -rf -- "$work"' EXIT
+          read_profile="$work/fj-read-auth"
+          mkdir -m 0700 "$read_profile"
+          read_token=$FORGEJO_READ_TOKEN
+          unset FORGEJO_READ_TOKEN FORGEJO_TOKEN GITHUB_TOKEN
+          fj_read() { XDG_DATA_HOME="$read_profile" fj "$@"; }
+          if ! printf '%s\n' "$read_token" | fj_read auth add-token --host "$FORGEJO_SERVER_URL" \
+            >/dev/null 2>"$work/auth.stderr"; then
+            echo 'pinned fj could not configure temporary read authentication' >&2
+            exit 1
+          fi
+          read_token=
+          unset read_token
+
+          qualification="$work/terrabase-qualification.json"
+          if ! fj_read release asset download --repo TerraScale/TerraBase \
+            "$TERRABASE_TAG" qualification.json -o "$qualification" \
+            2>"$work/terrabase-download.stderr"; then
+            echo 'pinned fj could not read the retained TerraBase qualification' >&2
+            exit 1
+          fi
+          [[ $(stat -c '%s' -- "$qualification") == "$TERRABASE_QUALIFICATION_BYTES" ]]
+          printf '%s  %s\n' "$TERRABASE_QUALIFICATION_SHA256" "$qualification" |
+            sha256sum --check --status
+          jq -e --arg source "$TERRABASE_SOURCE_SHA" --arg tree "$TERRABASE_SOURCE_TREE" \
+            --arg binary "$TERRABASE_BINARY_SHA256" '
+            .schema == "terrascale.terrabase.qualification.v2" and
+            .repository == "TerraScale/TerraBase" and .source_revision == $source and
+            .source_tree == $tree and .verification.workflow == "fast.yml" and
+            .verification.job == "fast" and .verification.run_id == 11549 and
+            .verification.run_number == 993 and .verification.conclusion == "success" and
+            ([.artifacts[] | select(.name == "tb-server-linux-arm64" and
+              .target == "aarch64-unknown-linux-musl" and .sha256 == $binary)] | length) == 1
+          ' "$qualification" >/dev/null
+
+          fj_read actions run-detail "$ORCHESTRATOR_CI_RUN_NUMBER" \
+            -r TerraScale/ts-orchestrator > "$work/orchestrator-run-detail.json" \
+            2>"$work/orchestrator-run-detail.stderr"
+          jq -e --arg source "$ORCHESTRATOR_CI_SOURCE_SHA" \
+            --argjson run_id "$ORCHESTRATOR_CI_RUN_ID" \
+            --argjson run_number "$ORCHESTRATOR_CI_RUN_NUMBER" '
+            .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
+            .workflow == "ci.yml" and .status == "success" and
+            ([.jobs[] | select(.run_id == $run_id and .id == 25008 and .attempt == 1 and
+              .name == "verify/go + artifact/linux-amd64-arm64" and .status == "success")] |
+              length) == 1
+          ' "$work/orchestrator-run-detail.json" >/dev/null
+
+          fj_read actions run-detail 993 -r TerraScale/TerraBase > \
+            "$work/terrabase-run-detail.json" 2>"$work/terrabase-run-detail.stderr"
+          jq -e --arg source "$TERRABASE_SOURCE_SHA" '
+            .run_id == 11549 and .run_number == 993 and .head_sha == $source and
+            .workflow == "fast.yml" and .status == "success" and
+            ([.jobs[] | select(.run_id == 11549 and .attempt == 1 and
+              (.id == 24955 or .id == 24956 or .id == 24957) and .status == "success")] |
+              length) == 3
+          ' "$work/terrabase-run-detail.json" >/dev/null
+          echo 'read credential verified retained manifest, TerraBase qualification, and CI run details'

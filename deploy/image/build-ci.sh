@@ -5,7 +5,8 @@ repository_root=$(cd -- "$(dirname -- "$(realpath -- "$0")")/../.." && pwd)
 cd "$repository_root"
 
 for name in SOURCE_SHA SOURCE_REF CANDIDATE_RUN_ID CANDIDATE_RUN_NUMBER IMAGE_INPUT_TAG \
-	IMAGE_INPUT_MANIFEST_SHA256 GITHUB_RUN_ID GITHUB_RUN_NUMBER FORGEJO_TOKEN FORGEJO_SERVER_URL; do
+	IMAGE_INPUT_MANIFEST_SHA256 GITHUB_RUN_ID GITHUB_RUN_NUMBER FORGEJO_READ_TOKEN \
+	FORGEJO_TOKEN FORGEJO_SERVER_URL; do
 	[[ -n ${!name:-} ]] || { echo "missing CI input: $name" >&2; exit 2; }
 done
 [[ $SOURCE_SHA =~ ^[0-9a-f]{40}$ && $SOURCE_REF == refs/heads/main &&
@@ -14,6 +15,10 @@ done
 	$IMAGE_INPUT_TAG =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ &&
 	$IMAGE_INPUT_MANIFEST_SHA256 =~ ^[0-9a-f]{64}$ ]] || {
 	echo 'invalid source, run, tag, or public manifest pin' >&2
+	exit 2
+}
+[[ ${RUNNER_TEMP:-/tmp} == /* ]] || {
+	echo 'RUNNER_TEMP must be an absolute path' >&2
 	exit 2
 }
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" && -z $(git status --porcelain=v1 --untracked-files=all) ]] || {
@@ -30,10 +35,28 @@ umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/ts-image-ci.XXXXXXXX")
 cleanup() { rm -rf -- "$work"; }
 trap cleanup EXIT
-export XDG_DATA_HOME="$work/fj-auth"
-mkdir -m 0700 "$XDG_DATA_HOME"
-printf '%s\n' "$FORGEJO_TOKEN" | fj auth add-token --host "$FORGEJO_SERVER_URL" >/dev/null
-unset FORGEJO_TOKEN GITHUB_TOKEN
+read_profile="$work/fj-read-auth"
+write_profile="$work/fj-write-auth"
+mkdir -m 0700 "$read_profile" "$write_profile"
+read_token=$FORGEJO_READ_TOKEN
+write_token=$FORGEJO_TOKEN
+unset FORGEJO_READ_TOKEN FORGEJO_TOKEN GITHUB_TOKEN
+if ! printf '%s\n' "$read_token" | XDG_DATA_HOME="$read_profile" \
+	fj auth add-token --host "$FORGEJO_SERVER_URL" >/dev/null 2>"$work/read-auth.stderr"; then
+	echo 'pinned fj could not configure temporary read authentication' >&2
+	exit 1
+fi
+read_token=
+unset read_token
+if ! printf '%s\n' "$write_token" | XDG_DATA_HOME="$write_profile" \
+	fj auth add-token --host "$FORGEJO_SERVER_URL" >/dev/null 2>"$work/write-auth.stderr"; then
+	echo 'pinned fj could not configure temporary write authentication' >&2
+	exit 1
+fi
+write_token=
+unset write_token
+fj_read() { XDG_DATA_HOME="$read_profile" fj "$@"; }
+fj_write() { XDG_DATA_HOME="$write_profile" fj "$@"; }
 
 inputs="$work/inputs"
 go_release="$work/go-release"
@@ -155,8 +178,8 @@ validate_image_input_manifest() {
 }
 # END image input stage diagnostics
 
-run_image_stage manifest-download "$manifest" fj release asset download \
-	"$IMAGE_INPUT_TAG" image-inputs.json -o "$manifest"
+run_image_stage manifest-download "$manifest" fj_read release asset download \
+	-r TerraScale/ts-orchestrator "$IMAGE_INPUT_TAG" image-inputs.json -o "$manifest"
 run_image_stage manifest-size "$manifest" check_manifest_size
 run_image_stage manifest-sha256 "$manifest" check_manifest_hash
 run_image_stage manifest-admission "$manifest" validate_image_input_manifest
@@ -164,8 +187,8 @@ run_image_stage manifest-admission "$manifest" validate_image_input_manifest
 for asset in base-image.qcow2 bootstrap-anchor.json bootstrap-identity.json \
 	bootstrap-root-001.pem timesyncd-gru.conf host-enrollment-public.json \
 	ubuntu-cloud-image-keyring.gpg ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg; do
-	run_image_stage "asset-download:$asset" "$inputs/$asset" fj release asset download \
-		"$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
+	run_image_stage "asset-download:$asset" "$inputs/$asset" fj_read release asset download \
+		-r TerraScale/ts-orchestrator "$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
 	run_image_stage "asset-verify:$asset" "$inputs/$asset" verify_file "$inputs/$asset" \
 		"$(jq -r --arg asset "$asset" '.assets[$asset].sha256' "$manifest")" \
 		"$(jq -r --arg asset "$asset" '.assets[$asset].bytes' "$manifest")"
@@ -233,7 +256,8 @@ kernel_bytes=$(stat -c '%s' "$work/kernel/guest-kernel")
 go_tag="ci-${SOURCE_SHA}-run-${CANDIDATE_RUN_ID}"
 for asset in qualification.json terrascale-orchestrator-linux-arm64 \
 	canary-linux-arm64.receipt.json canary-release-delegation.json canary-release-root.pub; do
-	fj release asset download "$go_tag" "$asset" -o "$go_release/$asset"
+	fj_read release asset download -r TerraScale/ts-orchestrator \
+		"$go_tag" "$asset" -o "$go_release/$asset"
 done
 for pair in \
 	"qualification.json:qualification_sha256" \
@@ -262,7 +286,8 @@ jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
 ' "$qualification" >/dev/null
 test "$(jq -r .go_mod_sha256 "$qualification")" = "$(sha256sum go.mod | awk '{print $1}')"
 test "$(jq -r .go_sum_sha256 "$qualification")" = "$(sha256sum go.sum | awk '{print $1}')"
-fj actions run-detail "$CANDIDATE_RUN_NUMBER" -r TerraScale/ts-orchestrator > "$work/go-run-detail.json"
+fj_read actions run-detail "$CANDIDATE_RUN_NUMBER" -r TerraScale/ts-orchestrator \
+	> "$work/go-run-detail.json"
 jq -e --arg source "$SOURCE_SHA" --argjson run_id "$CANDIDATE_RUN_ID" \
 	--argjson run_number "$CANDIDATE_RUN_NUMBER" '
   .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
@@ -272,8 +297,10 @@ jq -e --arg source "$SOURCE_SHA" --argjson run_id "$CANDIDATE_RUN_ID" \
 ' "$work/go-run-detail.json" >/dev/null
 
 terrabase_tag=ci-3dfd967e31d522064d650fc8770b150394bc3ccc-run-11549
-fj release asset download "$terrabase_tag" qualification.json -o "$terrabase/qualification.json"
-fj release asset download "$terrabase_tag" tb-server-linux-arm64 -o "$terrabase/tb-server-linux-arm64"
+fj_read release asset download -r TerraScale/TerraBase "$terrabase_tag" qualification.json \
+	-o "$terrabase/qualification.json"
+fj_read release asset download -r TerraScale/TerraBase "$terrabase_tag" \
+	tb-server-linux-arm64 -o "$terrabase/tb-server-linux-arm64"
 printf '%s  %s\n' "$(jq -r .terrabase.qualification_sha256 "$manifest")" \
 	"$terrabase/qualification.json" | sha256sum --check --status
 printf '%s  %s\n' "$(jq -r .terrabase.binary_sha256 "$manifest")" \
@@ -289,7 +316,7 @@ jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" \
   ([.artifacts[] | select(.name == "tb-server-linux-arm64" and
     .target == "aarch64-unknown-linux-musl" and .sha256 == $binary)] | length) == 1
 ' "$terrabase/qualification.json" >/dev/null
-fj actions run-detail 993 -r TerraScale/TerraBase > "$work/terrabase-run-detail.json"
+fj_read actions run-detail 993 -r TerraScale/TerraBase > "$work/terrabase-run-detail.json"
 jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" '
   .run_id == 11549 and .run_number == 993 and .head_sha == $source and
   .workflow == "fast.yml" and .status == "success" and
@@ -351,7 +378,8 @@ verify_file dist/image/guest-kernel "$kernel_hash" "$kernel_bytes"
 
 image_hash=$(sha256sum dist/image/terrascale-gru-arm64.qcow2 | awk '{print $1}')
 image_bytes=$(stat -c '%s' dist/image/terrascale-gru-arm64.qcow2)
-fj actions run-detail "$GITHUB_RUN_NUMBER" -r TerraScale/ts-orchestrator > "$work/image-run-detail.json"
+fj_read actions run-detail "$GITHUB_RUN_NUMBER" -r TerraScale/ts-orchestrator \
+	> "$work/image-run-detail.json"
 jq -e --arg source "$SOURCE_SHA" --argjson run_id "$GITHUB_RUN_ID" \
 	--argjson run_number "$GITHUB_RUN_NUMBER" '
   .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
@@ -409,9 +437,12 @@ jq -cnS --slurpfile inputs "$manifest" \
 	> dist/image/image-qualification.json
 (cd dist/image && sha256sum terrascale-gru-arm64.qcow2 guest-kernel image-qualification.json) > dist/image/SHA256SUMS
 
-if ! fj release view --by-tag "$output_tag" > "$work/release-view.txt" 2> "$work/release-view-error.txt"; then
-	fj release create "$output_tag" --create-tag="$output_tag" --branch "$SOURCE_SHA" --prerelease
-	fj release view --by-tag "$output_tag" > "$work/release-view.txt"
+if ! fj_read release view --repo TerraScale/ts-orchestrator --by-tag "$output_tag" \
+	> "$work/release-view.txt" 2> "$work/release-view-error.txt"; then
+	fj_write release create -r TerraScale/ts-orchestrator "$output_tag" \
+		--create-tag="$output_tag" --branch "$SOURCE_SHA" --prerelease
+	fj_read release view --repo TerraScale/ts-orchestrator --by-tag "$output_tag" \
+		> "$work/release-view.txt"
 fi
 grep -Fq "$output_tag" "$work/release-view.txt" || {
 	echo 'image release tag readback differs from the selected run' >&2
@@ -430,9 +461,10 @@ retain_asset() {
 	local name=$1 expected_hash=$2 expected_bytes=$3
 	local source="dist/image/$name"
 	if ! grep -Fqx -- "- $name" "$work/release-view.txt"; then
-		fj release asset create "$output_tag" "$source"
+		fj_write release asset create -r TerraScale/ts-orchestrator "$output_tag" "$source"
 	fi
-	fj release asset download "$output_tag" "$name" -o "$readback/$name"
+	fj_read release asset download -r TerraScale/ts-orchestrator \
+		"$output_tag" "$name" -o "$readback/$name"
 	verify_file "$readback/$name" "$expected_hash" "$expected_bytes" || {
 		echo "retained image asset differs from this exact run: $name" >&2
 		return 1

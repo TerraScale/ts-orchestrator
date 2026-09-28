@@ -75,13 +75,14 @@ jobs:
       - name: Preflight authenticated image-input attachment
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/preflight-image-input-attachment.sh
 
       - name: Verify, build, and retain exact image candidate
         shell: bash
         env:
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_TOKEN: ${{ github.token }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: |

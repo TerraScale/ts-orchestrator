@@ -50,6 +50,7 @@ nix shell --no-write-lock-file \
     "${nixpkgs_flake}#pkg-config" \
     "${nixpkgs_flake}#openssl.dev" \
     --command env \
+    "CARGO_PROFILE_RELEASE_LTO=false" \
     "PKG_CONFIG_PATH=${openssl_dev}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" \
     bash -c 'cd "$1" && rustup run 1.98.1 cargo build --locked --release --bin fj -j 4' \
     bash "$work/source"
