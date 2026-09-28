@@ -35,12 +35,12 @@ mise exec -- make release-linux
 ```
 
 `make verify` checks Go formatting, runs the Python Firecracker harness contract
-tests, runs Go tests and `go vet`, and repeats the tests with the race
-detector. `make build` creates `dist/terrascale-orchestrator` for the current
-host. `make release-linux` creates static Linux amd64 and
-arm64 executables and requires no Go runtime on the target machine. Forgejo CI
-repeats the checks against the event's exact commit, verifies both ELF
-architectures and the embedded Git revision, and prints SHA-256 digests.
+tests, runs `go vet`, and runs the Go tests once with the race detector.
+`make build` creates `dist/terrascale-orchestrator` for the current host.
+`make release-linux` creates static Linux amd64 and arm64 executables and
+requires no Go runtime on the target machine. Forgejo CI repeats the checks
+against the event's exact commit, verifies both ELF architectures and the
+embedded Git revision, and prints SHA-256 digests.
 
 See [local development](docs/local-development.md) for Firecracker
 qualification and [release boundaries](docs/releases.md) for what CI proves

@@ -13,7 +13,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
 .PHONY: verify format-check firecracker-contract-test test vet race-test build build-linux release-linux run host check clean
 
-verify: format-check firecracker-contract-test test vet race-test
+verify: format-check firecracker-contract-test vet race-test
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \

@@ -25,9 +25,8 @@ nice -n 10 mise exec -- make release-linux
 ```
 
 `make verify` checks formatting, runs the Python Firecracker harness contract
-tests, runs all Go tests and `go vet`, and runs the tests with the race
-detector. `make build` writes the current-platform binary
-to `dist/terrascale-orchestrator`.
+tests, runs `go vet`, and runs all Go tests with the race detector. `make build`
+writes the current-platform binary to `dist/terrascale-orchestrator`.
 
 `make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
 It is a cross-build target; it does not demonstrate execution on ARM64 or

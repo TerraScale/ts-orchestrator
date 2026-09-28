@@ -2,8 +2,8 @@
 
 The Forgejo verification workflow checks out the event's exact Git revision and
 requires a clean tree. Its single job runs `make verify`: Go formatting
-checks, the Python Firecracker harness contract tests, Go tests, `go vet`, and
-race-enabled tests using Go 1.27.1. The `terrascale-builder` image supplies
+checks, the Python Firecracker harness contract tests, `go vet`, and
+race-enabled Go tests using Go 1.27.1. The `terrascale-builder` image supplies
 that exact Go version; `.mise.toml` pins the same version for local development.
 
 The same job then cross-compiles one static executable for Linux amd64 and one
