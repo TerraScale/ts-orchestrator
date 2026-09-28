@@ -23,34 +23,34 @@ import (
 // Controller holds the durable host authority and serves restricted host RPCs.
 // Administrative callers own admission of Register and ApplyDesired operations.
 type Controller struct {
-	cell             string
-	conn             *nats.Conn
-	sessionRead      func(context.Context, string) (session, uint64, bool, error)
-	state            jetstream.KeyValue
-	controlLog       jetstream.Stream
-	readOnly         bool
-	mutations        authority.HostMutationStore
-	managedVerifier  ManagedRegistrationVerifier
+	cell              string
+	conn              *nats.Conn
+	sessionRead       func(context.Context, string) (session, uint64, bool, error)
+	state             jetstream.KeyValue
+	controlLog        jetstream.Stream
+	readOnly          bool
+	mutations         authority.HostMutationStore
+	managedVerifier   ManagedRegistrationVerifier
 	managedEffectGate func(context.Context, uint64, authority.WorkloadScope) (func(), error)
-	materialProvider ManagedMaterialProvider
-	artifacts        ArtifactStore
-	responseKey      ed25519.PrivateKey
-	registrationMu   sync.Mutex
-	ready            chan struct{}
-	readyOnce        sync.Once
-	cacheMu          sync.Mutex
-	cacheFile        *os.File
-	cacheDigest      string
-	cacheSize        int64
-	cacheDownloading bool
-	cacheClosed      bool
-	cacheCancel      context.CancelFunc
-	cacheContext     context.Context
-	cacheRetryAfter  time.Time
-	sessionDiagMu    sync.Mutex
-	sessionDiagAt    map[string]time.Time
-	authorityEpoch   func() uint64
-	authorityGuard   func(context.Context, uint64) error
+	materialProvider  ManagedMaterialProvider
+	artifacts         ArtifactStore
+	responseKey       ed25519.PrivateKey
+	registrationMu    sync.Mutex
+	ready             chan struct{}
+	readyOnce         sync.Once
+	cacheMu           sync.Mutex
+	cacheFile         *os.File
+	cacheDigest       string
+	cacheSize         int64
+	cacheDownloading  bool
+	cacheClosed       bool
+	cacheCancel       context.CancelFunc
+	cacheContext      context.Context
+	cacheRetryAfter   time.Time
+	sessionDiagMu     sync.Mutex
+	sessionDiagAt     map[string]time.Time
+	authorityEpoch    func() uint64
+	authorityGuard    func(context.Context, uint64) error
 }
 
 func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
