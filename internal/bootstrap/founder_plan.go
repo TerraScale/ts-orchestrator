@@ -473,7 +473,7 @@ func verifyFounderPlan(
 		if !exists {
 			return VerifiedFounderPlan{}, fmt.Errorf("%w: missing manifest for controller slot %q", ErrFounderPlanAuthorization, slot)
 		}
-		manifest, err := verifyFounderManifest(manifestWire, slot, roots, anchor, now, policy)
+		manifest, err := verifyFounderManifest(manifestWire, slot, roots, anchor, now)
 		if err != nil {
 			return VerifiedFounderPlan{}, err
 		}
@@ -548,7 +548,6 @@ func verifyFounderManifest(
 	roots trust.Keyring,
 	anchor VerifiedBootstrapAnchor,
 	now time.Time,
-	policy trust.Policy,
 ) (VerifiedManifest, error) {
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
@@ -561,7 +560,8 @@ func verifyFounderManifest(
 	if envelope.Scope != expectedScope {
 		return VerifiedManifest{}, fmt.Errorf("%w: manifest scope differs for slot %q", ErrFounderPlanAuthorization, slot)
 	}
-	payload, err := trust.VerifyCurrent(envelope, expectedScope, roots, now, policy)
+	manifestPolicy := ManifestTrustPolicy()
+	payload, err := trust.VerifyCurrent(envelope, expectedScope, roots, now, manifestPolicy)
 	if err != nil {
 		return VerifiedManifest{}, fmt.Errorf("%w: verify current manifest for slot %q: %v", ErrFounderPlanAuthorization, slot, err)
 	}
@@ -573,7 +573,7 @@ func verifyFounderManifest(
 	if err != nil {
 		return VerifiedManifest{}, fmt.Errorf("%w: manifest is outside the current anchor: %v", ErrFounderPlanAuthorization, err)
 	}
-	verified, err := VerifyManifest(envelope, roots, expected, now, policy)
+	verified, err := VerifyManifest(envelope, roots, expected, now, manifestPolicy)
 	if err != nil {
 		return VerifiedManifest{}, fmt.Errorf("%w: verify root-signed manifest for slot %q: %v", ErrFounderPlanAuthorization, slot, err)
 	}
