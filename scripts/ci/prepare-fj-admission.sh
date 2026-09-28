@@ -10,7 +10,7 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 output_dir=$1
 upstream_revision=7f44ff1a1587a406b627ac45f0a2485b970c6379
 upstream_lock_sha256=4de42ee153468f31e6f0f0062777fa684cc519a122e5e7139020428a9da72651
-extension_patch_sha256=2df019ddd5355b2ca1106d65ecec3916094e70de012d934ddac576cbaacff596
+extension_patch_sha256=de00f79cb97cc6b218b576e47f28b6397e6182a6e8231863877e9ca2f98f02a4
 nixpkgs_flake=github:NixOS/nixpkgs/e554fab72f81915600f3f449b786fd9af40439a5
 nixpkgs_nar_hash=sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM=
 patch="$repo/scripts/ci/fj-run-detail.patch"
