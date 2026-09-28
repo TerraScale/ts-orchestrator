@@ -1542,7 +1542,7 @@ printf 'agent_pid=%s\nagent_state=%s\nagent_cgroup=%s\nservice_cgroup=%s\ninvoca
             path = self.logs / "nats-live-diagnostics.jsonl"
             try:
                 command = [str(self.natsdiag), "--creds", str(self.secrets / "c1.creds"),
-                           "--operator-creds", str(self.secrets / "operator.creds"),
+                           "--operator-creds", str(self.secrets / "natsdiag.creds"),
                            "--cell", CELL, "--urls", urls,
                            "--ca", str(self.secrets / "nats-ca.pem"),
                            "--cert", str(self.secrets / "nats-c1.pem"),

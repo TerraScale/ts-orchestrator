@@ -113,7 +113,8 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 			t.Fatal(err)
 		}
 		controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerPub + ".>",
-			"ts.broker.gru.ticket.>", "ts.broker.gru.fence." + id, "ts.orch.v1.gru.broker.claim.apply"}
+			"ts.broker.gru.ticket.>", "ts.broker.gru.fence." + id, "ts.orch.v1.gru.broker.claim.apply",
+			"ts.orch.v1.gru.terminal.>"}
 		controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		controllerCreds = testBrokerJWTUserWithClaim(t, root, fmt.Sprintf("controller-%d.creds", index), cellKey, controllerClaim)
 		systemPub, systemCreds := testBrokerJWTUser(t, root, fmt.Sprintf("system-%d.creds", index), sysKey, sysID,
@@ -212,7 +213,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		admissionSubs[index] = sub
 	}
 	operatorPub, operatorCreds := testBrokerJWTUser(t, root, "claim-operator.creds", cellKey, cellID,
-		[]string{"ts.orch.v1.gru.broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_CONTROL_LOG", "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG"}, nil)
+		[]string(natscell.BrokerOperatorPublishPermissions("gru")), nil)
 	operatorClaim, err := jwt.DecodeUserClaims(testDecoratedJWT(t, operatorCreds))
 	if err != nil {
 		t.Fatal(err)

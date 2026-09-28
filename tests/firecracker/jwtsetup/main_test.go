@@ -93,7 +93,7 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 	if strings.Contains(stdout.String(), "-----BEGIN") {
 		t.Fatal("public manifest contains decorated credentials")
 	}
-	for _, name := range []string{"operator.jwt", "system.jwt", "cell.jwt", "system.creds", "c1.creds", "c2.creds", "c3.creds", "host.creds", "operator.creds", "broker-ticket.key"} {
+	for _, name := range []string{"operator.jwt", "system.jwt", "cell.jwt", "system.creds", "c1.creds", "c2.creds", "c3.creds", "host.creds", "operator.creds", "natsdiag.creds", "broker-ticket.key"} {
 		contents, err := os.ReadFile(filepath.Join(secrets, name))
 		if err != nil {
 			t.Fatal(err)
@@ -135,9 +135,9 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 		}
 		publicUsers[public] = struct{}{}
 	}
-	if len(manifest.Users) != 6 || manifest.Users["c1"] == "" || manifest.Users["c2"] == "" ||
+	if len(manifest.Users) != 7 || manifest.Users["c1"] == "" || manifest.Users["c2"] == "" ||
 		manifest.Users["c3"] == "" || manifest.Users["host"] == "" ||
-		manifest.Users["operator"] == "" || manifest.Users["system"] == "" {
+		manifest.Users["operator"] == "" || manifest.Users["natsdiag"] == "" || manifest.Users["system"] == "" {
 		t.Fatalf("manifest is missing per-role identities: %+v", manifest.Users)
 	}
 
@@ -179,13 +179,29 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 	operatorPath := filepath.Join(secrets, "operator.creds")
 	operatorUserClaim, operatorID := readFixtureUser(t, operatorPath)
 	if operatorID != manifest.Users["operator"] || operatorUserClaim.IssuerAccount != manifest.CellAccount ||
-		!slices.Equal([]string(operatorUserClaim.Pub.Allow), operatorGrants("lab", "host-a")) ||
+		!slices.Equal([]string(operatorUserClaim.Pub.Allow), []string(natscell.BrokerOperatorPublishPermissions("lab"))) ||
 		!slices.Equal([]string(operatorUserClaim.Sub.Allow), []string{inboxPrefix("lab", operatorID) + ".>"}) ||
 		operatorUserClaim.Resp != nil || len(operatorUserClaim.Pub.Deny) != 0 || len(operatorUserClaim.Sub.Deny) != 0 {
 		t.Fatalf("operator credential grants are not scoped: pub=%v sub=%v", operatorUserClaim.Pub.Allow, operatorUserClaim.Sub.Allow)
 	}
 	if err := natscell.ValidateBrokerOperatorCredentials(operatorPath, "lab"); err != nil {
-		t.Fatalf("runtime rejected operator credentials: %v", err)
+		t.Fatalf("runtime rejected restricted operator credentials: %v", err)
+	}
+	diagnosticPath := filepath.Join(secrets, "natsdiag.creds")
+	diagnosticClaim, diagnosticID := readFixtureUser(t, diagnosticPath)
+	if diagnosticID == operatorID || diagnosticID != manifest.Users["natsdiag"] ||
+		!slices.Equal([]string(diagnosticClaim.Pub.Allow), diagnosticGrants("lab", "host-a")) ||
+		!slices.Equal([]string(diagnosticClaim.Sub.Allow), []string{inboxPrefix("lab", diagnosticID) + ".>"}) {
+		t.Fatalf("diagnostic credential grants are not scoped: pub=%v sub=%v", diagnosticClaim.Pub.Allow, diagnosticClaim.Sub.Allow)
+	}
+	if err := natscell.ValidateBrokerOperatorCredentials(diagnosticPath, "lab"); err == nil {
+		t.Fatal("runtime accepted diagnostic credentials with grants beyond the restricted operator surface")
+	}
+	for _, subject := range diagnosticClaim.Pub.Allow {
+		if strings.HasPrefix(subject, "ts.orch.v1.") || strings.HasPrefix(subject, "$JS.API.CONSUMER.CREATE.") ||
+			strings.HasPrefix(subject, "$JS.API.CONSUMER.DELETE.") || strings.HasPrefix(subject, "$O.") {
+			t.Fatalf("diagnostic JWT has a mutating publish grant %q", subject)
+		}
 	}
 	for _, subject := range []string{
 		"$JS.API.STREAM.INFO.KV_TS_HOST_STATE", "$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
@@ -193,15 +209,13 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.$KV.TS_HOST_STATE.session.lab.host-a",
 		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.$KV.TS_HOST_STATE.report.lab.host-a.terrabase",
 		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.$KV.TS_DELIVERY_OPERATIONS.*",
-		"$JS.API.CONSUMER.INFO.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER",
 	} {
-		if !slices.Contains([]string(operatorUserClaim.Pub.Allow), subject) {
-			t.Fatalf("operator JWT lacks the natsdiag read grant %q", subject)
+		if !slices.Contains([]string(diagnosticClaim.Pub.Allow), subject) {
+			t.Fatalf("diagnostic JWT lacks the natsdiag read grant %q", subject)
 		}
 	}
 	for _, subject := range []string{
-		"$JS.API.>", "$KV.>", "$O.>", "$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
-		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>", "$JS.API.STREAM.LEADER.>",
+		"$JS.API.>", "$KV.>", "$O.>", "$JS.API.STREAM.LEADER.>",
 	} {
 		if slices.Contains([]string(operatorUserClaim.Pub.Allow), subject) {
 			t.Fatalf("operator JWT has an unnecessarily broad grant %q", subject)

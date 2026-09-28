@@ -906,6 +906,33 @@ class ClockReadinessTests(unittest.TestCase):
 
 
 class FirecrackerHarnessResourceTests(unittest.TestCase):
+    def test_cluster_diagnostics_use_separate_diagnostic_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            secrets = root / "secrets"
+            logs = root / "logs"
+            secrets.mkdir()
+            logs.mkdir()
+            (secrets / "c1.creds").touch()
+            diagnostic = secrets / "natsdiag.creds"
+            diagnostic.touch()
+            lab = object.__new__(qualify.Lab)
+            lab.secrets = secrets
+            lab.logs = logs
+            lab.natsdiag = root / "natsdiag"
+            lab.natsdiag.touch()
+            lab.vms = {}
+            lab.addresses = {name: f"198.19.1.{index}" for index, name in enumerate(qualify.CONTROLLERS, 11)}
+            lab.active_operation_id = None
+            lab.note = Mock()
+            lab.capture_host_status = Mock()
+            lab.cluster_diagnostics_captured = False
+            with patch.object(qualify, "run", return_value=SimpleNamespace(stdout="", stderr="", returncode=0)) as run:
+                lab.capture_cluster_diagnostics()
+            command = run.call_args.args[0]
+            self.assertEqual(command[command.index("--operator-creds") + 1], str(diagnostic))
+            self.assertNotIn(str(secrets / "operator.creds"), command)
+
     def test_kernel_and_rootfs_are_explicitly_pinned(self):
         self.assertEqual(qualify.KERNEL_SHA,
                          "586a02db8ea1fd331d45efa6ebf502fff21ceddfedf010ef70ba389b8e095523")
