@@ -1,0 +1,24 @@
+ M internal/app/app.go
+ M internal/app/bootstrap_controller.go
+ M internal/app/bootstrap_credential_launcher_test.go
+ M internal/app/config.go
+ M internal/app/controller.go
+ M internal/app/controller_host_cluster_test.go
+ M internal/app/deployment_convergence_measurement_test.go
+ M internal/app/host_enrollment.go
+ M internal/app/managed_config.go
+ M internal/app/managed_enrollment_test.go
+ M internal/app/managed_placement_enrollment_integration_test.go
+ M internal/app/operator.go
+ M internal/app/operator_integration_test.go
+ M internal/app/signers.go
+ M internal/placement/controller_test.go
+?? internal/app/controller_config_install.go
+?? internal/app/controller_config_install_test.go
+?? internal/app/controller_signed_config.go
+?? internal/app/host_enrollment_revoke.go
+?? internal/app/host_enrollment_runtime.go
+?? internal/app/host_setup.go
+?? internal/app/host_setup_https_test.go
+?? internal/app/host_setup_test.go
+?? internal/hostenroll/

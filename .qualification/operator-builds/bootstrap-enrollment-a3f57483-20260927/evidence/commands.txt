@@ -1,0 +1,3 @@
+go test -p=1 -count=1 ./internal/bootstrap ./internal/bootstrapstart ./cmd/ts-bootstrap
+go test -p=1 -count=1 ./internal/hostenroll ./internal/app -run <managed_launch focused enrollment test regex>
+python3 -m unittest tests.deploy.test_build_offline

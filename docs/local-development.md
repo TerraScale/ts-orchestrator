@@ -19,9 +19,9 @@ targets used in CI:
 ```bash
 mise trust .mise.toml
 mise install
-nice -n 10 mise exec -- make verify
-nice -n 10 mise exec -- make build
-nice -n 10 mise exec -- make release-linux
+mise exec -- make verify
+mise exec -- make build
+mise exec -- make release-linux
 ```
 
 `make verify` checks formatting, runs the Python Firecracker harness contract

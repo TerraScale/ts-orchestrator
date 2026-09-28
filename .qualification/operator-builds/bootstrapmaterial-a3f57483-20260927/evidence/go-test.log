@@ -1,0 +1,7 @@
+Running as unit: run-p2947586-i7177997.scope; invocation ID: b1a4f584d79a4397a932c756bfa3dab5
+ionice: ignoring given class data for idle class
+--- FAIL: TestProvisionRetriesUnknownCreateWithSameToken (0.14s)
+    vault_test.go:217: retry did not retain token: creates=26 tokens=[50bd8601-4f02-4272-9944-cc57ca7ff69a 50bd8601-4f02-4272-9944-cc57ca7ff69a]
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial	0.824s
+FAIL

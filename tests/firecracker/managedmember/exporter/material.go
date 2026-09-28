@@ -5,20 +5,69 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
+
+const (
+	fixtureS3Endpoint   = "https://rustfs.terrabase.test:9000"
+	fixtureS3Region     = "sa-saopaulo-1"
+	fixtureS3SecretOCID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+)
+
+func localS3Target(cfg options) (managedmaterial.LiveS3Target, []byte, string, error) {
+	if cfg.s3Endpoint != fixtureS3Endpoint || cfg.s3Region != fixtureS3Region || !validFixtureS3Bucket(cfg.s3Bucket) {
+		return managedmaterial.LiveS3Target{}, nil, "", errors.New("local RustFS endpoint, region, or bucket is invalid")
+	}
+	target := managedmaterial.LiveS3Target{
+		Bucket: cfg.s3Bucket, Region: cfg.s3Region, Endpoint: cfg.s3Endpoint,
+		Credential: oci.SecretVersionReference{SecretOCID: fixtureS3SecretOCID, VersionNumber: 1},
+	}
+	config, err := target.ConfigJSON()
+	if err != nil {
+		return managedmaterial.LiveS3Target{}, nil, "", err
+	}
+	digest, err := target.Digest()
+	if err != nil {
+		return managedmaterial.LiveS3Target{}, nil, "", err
+	}
+	return target, config, digest, nil
+}
+
+func validFixtureS3Bucket(bucket string) bool {
+	if len(bucket) < 3 || len(bucket) > 63 || strings.Contains(bucket, "..") {
+		return false
+	}
+	for index := range len(bucket) {
+		char := bucket[index]
+		if char >= 'a' && char <= 'z' || char >= '0' && char <= '9' {
+			continue
+		}
+		if index != 0 && index != len(bucket)-1 && (char == '.' || char == '-') {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 func exportMember(root string, index int, authority []byte, public ed25519.PublicKey, configurationID, schemaDigest string,
 	member, client memberCertificate, memberCAPEM, clientCAPEM, registry []byte, token, sourceDigest string,
+	s3Target managedmaterial.LiveS3Target, s3Config []byte, s3TargetDigest string,
 ) (memberPacket, error) {
 	name := []string{"a", "b"}[index]
 	directory := filepath.Join(root, "member-"+name)
 	if err := os.Mkdir(directory, 0700); err != nil {
 		return memberPacket{}, err
 	}
-	inputs := make(map[string]inputFile, 14)
+	inputs := make(map[string]inputFile, 15)
 	add := func(key, filename string, contents []byte) error {
 		path := filepath.Join(directory, filename)
 		if err := writeExclusive(path, contents); err != nil {
@@ -46,6 +95,7 @@ func exportMember(root string, index int, authority []byte, public ed25519.Publi
 		{"client_api_keys", "client-api-keys.json", registry},
 		{"client_api_token", "client-api-token", []byte(token)},
 		{"client_https_ca_pem", "client-https-ca.pem", clientCAPEM},
+		{"signed_v2_s3_config", "signed-v2-s3-config.json", s3Config},
 	} {
 		if err := add(item.key, item.filename, item.contents); err != nil {
 			return memberPacket{}, err
@@ -101,18 +151,21 @@ func exportMember(root string, index int, authority []byte, public ed25519.Publi
 			"certificate_sha256": inputs["authority_tbca"].SHA256,
 			"tls_leaf_sha256":    hex.EncodeToString(leafHash[:]),
 		},
-		"runtime": map[string]any{
-			"device_path": "/dev/oracleoci/oraclevdb", "mount_path": filepath.Join(memberDirs[index], "volume"),
-			"filesystem_uuid": volumeUUIDs[index], "filesystem_type": "ext4",
-			"trusted_key_sha256":                      inputs["trusted_public_key"].SHA256,
-			"server_certificate_sha256":               inputs["server_crt"].SHA256,
-			"server_private_key_sha256":               inputs["server_key"].SHA256,
-			"client_ca_roots_sha256":                  inputs["client_ca_pem"].SHA256,
-			"client_managed_material_manifest_sha256": inputs["client_managed_manifest"].SHA256,
-			"replication_listen_address":              guestIPs[index] + ":7000",
-			"replication_peer_member_id":              memberIDs[other],
-			"replication_peer_address":                guestIPs[other] + ":7000",
-			"replication_server_ca_sha256":            inputs["server_ca_pem"].SHA256,
+		"runtime": host.ManagedRuntimePins{
+			DevicePath: "/dev/oracleoci/oraclevdb", MountPath: filepath.Join(memberDirs[index], "volume"),
+			FileSystemUUID: volumeUUIDs[index], FileSystemType: "ext4",
+			TrustedKeySHA256:                    inputs["trusted_public_key"].SHA256,
+			ServerCertificateSHA256:             inputs["server_crt"].SHA256,
+			ServerPrivateKeySHA256:              inputs["server_key"].SHA256,
+			ClientCARootsSHA256:                 inputs["client_ca_pem"].SHA256,
+			ClientManagedMaterialManifestSHA256: inputs["client_managed_manifest"].SHA256,
+			LiveS3ConfigSHA256:                  inputs["signed_v2_s3_config"].SHA256,
+			LiveS3TargetSHA256:                  s3TargetDigest,
+			LiveS3Credential:                    s3Target.Credential,
+			ReplicationListenAddress:            guestIPs[index] + ":7000",
+			ReplicationPeerMemberID:             memberIDs[other],
+			ReplicationPeerAddress:              guestIPs[other] + ":7000",
+			ReplicationServerCASHA256:           inputs["server_ca_pem"].SHA256,
 		},
 		"volume_id":            "ocid1.volume.fixture-" + name,
 		"attachment_id":        "ocid1.volumeattachment.fixture-" + name,
@@ -124,7 +177,7 @@ func exportMember(root string, index int, authority []byte, public ed25519.Publi
 		"schema_digest":        schemaDigest,
 		"document_id":          documentID,
 	}
-	if len(inputs) != 14 {
+	if len(inputs) != 15 {
 		return memberPacket{}, fmt.Errorf("member %s packet has %d inputs", name, len(inputs))
 	}
 	return memberPacket{Inputs: inputs, GuestConfig: bound}, nil

@@ -1,0 +1,3 @@
+Running as unit: run-p3005091-i7236193.scope; invocation ID: 225fa22c508e4550801fcd4aaec4ca82
+ionice: ignoring given class data for idle class
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial	0.828s

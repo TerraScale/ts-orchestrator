@@ -58,6 +58,7 @@ type options struct {
 	outputDir, kernel, rootfs, firecracker, goHostTest, tbServer string
 	orchestratorRevision, terrabaseRevision, sourceDigest        string
 	authoritySeedFile, authorityPublicSHA256                     string
+	s3Endpoint, s3Bucket, s3Region                               string
 	ephemeralTestSigner                                          bool
 }
 
@@ -72,6 +73,9 @@ func main() {
 	flag.StringVar(&cfg.orchestratorRevision, "orchestrator-revision", "", "full source revision of host.test")
 	flag.StringVar(&cfg.terrabaseRevision, "terrabase-revision", "", "full source revision of tb-server")
 	flag.StringVar(&cfg.sourceDigest, "source-digest", "", "qualified TerraBase source digest for signed desired")
+	flag.StringVar(&cfg.s3Endpoint, "s3-endpoint", "", "canonical HTTPS origin of local RustFS reachable by both members")
+	flag.StringVar(&cfg.s3Bucket, "s3-bucket", "", "private local RustFS bucket selected before export")
+	flag.StringVar(&cfg.s3Region, "s3-region", "", "S3 signing region matching the GRU placement")
 	flag.StringVar(&cfg.authoritySeedFile, "authority-seed-file", "", "protected existing 32-byte Ed25519 authority seed")
 	flag.StringVar(&cfg.authorityPublicSHA256, "authority-public-sha256", "", "independent SHA-256 pin of the seed's derived public key")
 	flag.BoolVar(&cfg.ephemeralTestSigner, "ephemeral-test-signer", false, "generate and discard an authority signer for disposable local qualification")
@@ -94,6 +98,10 @@ func export(cfg options) (err error) {
 		(cfg.ephemeralTestSigner && cfg.authorityPublicSHA256 != "") ||
 		(cfg.authoritySeedFile != "" && !lowerSHA256.MatchString(cfg.authorityPublicSHA256)) {
 		return errors.New("output, source revisions, digest or signer selection is invalid")
+	}
+	s3Target, s3Config, s3TargetDigest, err := localS3Target(cfg)
+	if err != nil {
+		return fmt.Errorf("local ObjectDurable target: %w", err)
 	}
 	commonPaths := map[string]string{"kernel": cfg.kernel, "rootfs": cfg.rootfs, "firecracker": cfg.firecracker,
 		"go_host_test": cfg.goHostTest, "tb_server": cfg.tbServer}
@@ -168,7 +176,8 @@ func export(cfg options) (err error) {
 	for index, name := range []string{"a", "b"} {
 		var member memberPacket
 		member, err = exportMember(cfg.outputDir, index, authority, public, configurationID, schemaDigest,
-			memberLeaves[index], clientLeaves[index], memberCAPEM, clientCAPEM, registry, token, cfg.sourceDigest)
+			memberLeaves[index], clientLeaves[index], memberCAPEM, clientCAPEM, registry, token,
+			cfg.sourceDigest, s3Target, s3Config, s3TargetDigest)
 		if err != nil {
 			return err
 		}

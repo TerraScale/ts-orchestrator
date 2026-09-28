@@ -1,0 +1,6 @@
+ M internal/bootstrap/manifest.go
+ M internal/bootstrap/manifest_test.go
+ M internal/bootstrap/vault.go
+ M internal/bootstrapstart/credentials.go
+ M internal/bootstrapstart/credentials_test.go
+?? internal/bootstrapmaterial/

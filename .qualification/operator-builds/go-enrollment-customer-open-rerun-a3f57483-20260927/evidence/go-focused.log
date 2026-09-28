@@ -1,0 +1,52 @@
+Running as unit: run-p3117625-i7346089.scope; invocation ID: a4c529d9dcea4b859778e87ab8d9c0ba
+ionice: ignoring given class data for idle class
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial	0.024s
+--- FAIL: TestOpenCustomerMaterialRejectsWrongKeyTamperAndBinding (0.00s)
+    customer_open_test.go:192: bad-receipt published customer material after failure
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-bootstrap	0.037s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap	0.022s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart	0.016s [no tests to run]
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll	0.024s
+[3118155] [INF] Starting nats-server
+[3118155] [INF]   Version:  2.15.0
+[3118155] [INF]   Git:      [not set]
+[3118155] [INF]   Cluster:  gru
+[3118155] [INF]   Name:     gru-managed-enrollment
+[3118155] [INF]   Node:     xHwN3hBe
+[3118155] [INF]   ID:       NBSEMI2NHOANOAGYCYPNM5G25ALIQEGWZEWJ5DY7EFZ6YSSZNW3ECTFD
+[3118155] [INF] Starting JetStream
+[3118155] [INF]     _ ___ _____ ___ _____ ___ ___   _   __  __
+[3118155] [INF]  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  |
+[3118155] [INF] | || | _|  | | \__ \ | | |   / _| / _ \| |\/| |
+[3118155] [INF]  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_|
+[3118155] [INF] 
+[3118155] [INF]          https://docs.nats.io/jetstream
+[3118155] [INF] 
+[3118155] [INF] ---------------- JETSTREAM ----------------
+[3118155] [INF]   Strict:          true
+[3118155] [INF]   Max Memory:      768.00 MB
+[3118155] [INF]   Max Storage:     8.00 GB
+[3118155] [INF]   Store Directory: "/tmp/TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHos2478133583/001/nats/jetstream"
+[3118155] [INF]   API Level:       5
+[3118155] [INF] -------------------------------------------
+[3118155] [INF] Took 475.235µs to start JetStream
+[3118155] [INF] Listening for client connections on 127.0.0.1:41541
+[3118155] [INF] Server is ready
+2026/09/27 05:40:22 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/09/27 05:40:22 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+[3118155] [INF] Initiating Shutdown...
+[3118155] [INF] Initiating JetStream Shutdown...
+[3118155] [INF] JetStream Shutdown
+2026/09/27 05:40:22 INFO authority state transition scope=gru from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+[3118155] [INF] Server Exiting..
+--- FAIL: TestManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession (0.08s)
+    managed_placement_enrollment_integration_test.go:275: exact >48h grant replay: status=409
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/app	0.113s
+--- FAIL: TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost (0.01s)
+    --- FAIL: TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost/existing_volume_retained_on_host_loss (0.00s)
+        controller_test.go:724: held volume altered durable placement: calls=0 CAS=0 state={SchemaVersion:4 DatabaseID:db-main PartitionID:partition-a MemberID:permanent-a Region:GRU FailureDomain:FAULT-DOMAIN-1 Kind:permanent Stage:prepared-volume CreateKey:th-821a98cc3ea55d160f9fd73df76809436007ebe5ef946042 HostNode:node-permanent-a InstanceID:instance-permanent-a InstanceETag:etag-1 VolumeID:volume-existing AttachmentID: AttachmentDevice: AttachmentETag: HostAttempt:1 WriterEpoch:0 IntentGeneration:1 IntentPayloadDigest:3676ae418ca100ca52cffdf985a080ce87b9d2a7bea267b10880d64b5bbb83cb ManagedHostProfile:{Region:GRU Compute:{Shape:VM.Standard.E4.Flex WholeOCPUs:1 MemoryInGBs:6} ProcessMemoryBytes:4294967296 MemoryHeadroomBytes:1073741824 CgroupMemoryMaxBytes:4294967296 SystemReserveBytes:1073741824 AllocatableMemoryBytes:5368709120} ManagedHostProfileDigest:af742141d646bb7435630fb9d41c66e508c54370dd4f379cbff95d7172fc36d4 CanonicalRosterRow:{Region:GRU SeatID:permanent-a FailureDomain:FAULT-DOMAIN-1 MemberID:018f0000-0000-7000-8000-000000000001 Incarnation:00000000000000000000000000000001 TLSLeafSHA256:0000000000000000000000000000000000000000000000000000000000000001 ServerName:permanent-gru.tb.example} CanonicalRosterDigest:83130c55b035a73d5df555c2145fd4daddd5b1dbcedf27eb6bfe3f82eabeda8d AuthorityReference:{Version:2 Epoch:7 ConfigurationID:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa CertificateSHA256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb TrustedKeySHA256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc} RuntimeManifest:{Region:GRU SeatID:permanent-a ArtifactDigest:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd SourceDigest:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ManagedRuntimeRoot:/srv/terrascale-managed FileSystemUUID:00000001-1234-1234-1234-123456789abc FileSystemType:ext4 TrustedKeySHA256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc ServerCertificateSHA256:1111111111111111111111111111111111111111111111111111111111111111 ServerPrivateKeySHA256:2222222222222222222222222222222222222222222222222222222222222222 ClientCARootsSHA256:3333333333333333333333333333333333333333333333333333333333333333 ClientManagedMaterialManifestSHA256:4444444444444444444444444444444444444444444444444444444444444444 LiveS3ConfigSHA256:5555555555555555555555555555555555555555555555555555555555555555 LiveS3TargetSHA256:6666666666666666666666666666666666666666666666666666666666666666 LiveS3Credential:{SecretOCID:ocid1.secret.oc1.sa-saopaulo-1.alpha VersionNumber:3} ReplicationListenAddress:10.0.0.11:7000 ReplicationPeerMemberID:018f0000-0000-7000-8000-000000000002 ReplicationPeerAddress:10.0.0.12:7001 ReplicationServerCASHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa} RuntimeManifestDigest:691b578edcd16d7c60f87893f18e7b918d0ededaa2d101543d246b73d9e71505 DesiredGeneration:1 HostGeneration:1 OperationID:p-fce6c3dc675d74f71bfee5774df06a23c11b4a3744974311 UpdatedAt:2026-09-27 08:40:25.494789993 +0000 UTC}
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement	0.021s
+FAIL
