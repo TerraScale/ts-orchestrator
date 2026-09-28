@@ -209,6 +209,10 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	go func() { agentDone <- agent.Run(agentCtx) }()
 	firstSession := waitR3HostSession(t, ctx, operatorConfig, agentDone, time.Time{})
 	firstDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 1)
+	// The controller and authority can be ready before the delivery stream has
+	// two current followers. Crashing a peer before they catch up does not
+	// exercise a recoverable one-controller loss.
+	waitR3DeliveryIntentQuorum(t, ctx, probe, -1)
 	connected := hostConn.ConnectedUrl()
 	failedPeer := -1
 	for index, url := range hostURLs {
@@ -326,6 +330,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	defer operatorProbe.Close()
 	secondDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 2,
 		&r3CallerDiagnostics{probe: probe, operatorProbe: operatorProbe, agentDone: agentDone})
+	waitR3DeliveryIntentQuorum(t, ctx, probe, failedPeer)
 	if firstDigest == secondDigest {
 		t.Fatal("replacement workload did not change artifact digest")
 	}
@@ -481,6 +486,70 @@ func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime,
 	t.Fatalf("authority not ready after peer%d loss: prior epoch=%d last=%+v err=%v probe_url=%s: %v",
 		failedPeer, priorEpoch, last, lastErr, probe.Conn().ConnectedUrl(), checkCtx.Err())
 	return authority.Snapshot{}
+}
+
+func waitR3DeliveryIntentQuorum(t *testing.T, ctx context.Context, probe *natscell.Runtime, failedPeer int) {
+	t.Helper()
+	started := time.Now()
+	checkCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	var lastCluster *jetstream.ClusterInfo
+	var lastErr error
+	for checkCtx.Err() == nil {
+		attempt, stop := context.WithTimeout(checkCtx, 2*time.Second)
+		stream, err := probe.JetStream().Stream(attempt, delivery.IntentStream)
+		if err == nil {
+			var info *jetstream.StreamInfo
+			info, err = stream.Info(attempt)
+			if info != nil {
+				lastCluster = info.Cluster
+			}
+			if err == nil && r3DeliveryIntentQuorate(info, failedPeer) {
+				t.Logf("delivery intent stream quorate after peer%d loss: leader=%s replicas=%+v wait=%s",
+					failedPeer, info.Cluster.Leader, info.Cluster.Replicas, time.Since(started))
+				stop()
+				return
+			}
+		}
+		stop()
+		lastErr = err
+		select {
+		case <-checkCtx.Done():
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	t.Fatalf("delivery intent stream lacks a current surviving quorum after peer%d loss: cluster=%+v err=%v: %v",
+		failedPeer, lastCluster, lastErr, checkCtx.Err())
+}
+
+func r3DeliveryIntentQuorate(info *jetstream.StreamInfo, failedPeer int) bool {
+	if info == nil || info.Config.Replicas != 3 || info.Cluster == nil ||
+		info.Cluster.Leader == "" || len(info.Cluster.Replicas) != 2 {
+		return false
+	}
+	failedName := fmt.Sprintf("lab-peer%d", failedPeer)
+	if info.Cluster.Leader == failedName {
+		return false
+	}
+	current := map[string]bool{info.Cluster.Leader: true}
+	for _, peer := range info.Cluster.Replicas {
+		if peer == nil || current[peer.Name] {
+			return false
+		}
+		if peer.Name != failedName {
+			current[peer.Name] = peer.Current && !peer.Offline && !peer.Pending
+		}
+	}
+	for index := range 3 {
+		name := fmt.Sprintf("lab-peer%d", index)
+		if index == failedPeer {
+			continue
+		}
+		if !current[name] {
+			return false
+		}
+	}
+	return true
 }
 
 func callR3Operator(ctx context.Context, config, operation string, args ...string) ([]byte, error) {
@@ -770,6 +839,9 @@ func deployR3Workload(t *testing.T, ctx context.Context, root, config string, ru
 	intentPath := testJSONFile(t, root, fmt.Sprintf("intent-%d.json", generation), intent)
 	data, err = callR3Operator(ctx, config, "deploy", "--intent", intentPath)
 	if err != nil {
+		if len(diagnostics) != 0 {
+			logR3AdmissionState(t, t.Context(), diagnostics[0].probe, diagnostics[0].operatorProbe)
+		}
 		t.Fatalf("submit workload generation %d: %v", generation, err)
 	}
 	var submitted struct {
@@ -890,7 +962,8 @@ func logR3AdmissionState(t *testing.T, ctx context.Context, probe, operatorProbe
 	} else {
 		t.Logf("admission controller account: %+v", account.API)
 	}
-	for _, name := range []string{authority.ControlStreamName, "KV_TS_DELIVERY_ADMISSIONS", "OBJ_TS_ARTIFACTS"} {
+	for _, name := range []string{authority.ControlStreamName, delivery.IntentStream,
+		"KV_TS_DELIVERY_ADMISSIONS", "OBJ_TS_ARTIFACTS"} {
 		attempt, stop := context.WithTimeout(ctx, 2*time.Second)
 		stream, err := probe.JetStream().Stream(attempt, name)
 		if err == nil {
