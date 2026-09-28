@@ -378,14 +378,91 @@ and the intended network boundary.
    ```
 
    Do not launch controller A until the exact signed reservation is published.
-9. Start only controller A using the reviewed seed launch profile, the exact
-   user-data, and the same `create_identity` as its `BootstrapCreateKey`
-   freeform tag. Record the exact OCI instance OCID.
-10. Re-read controller A and its primary VNIC and boot-volume sizing with
-    `ts-bootstrap observe-external-seed`, sign the resulting completion bundle
-    offline with `ts-bootstrap sign-external-seed-completion`, then publish it
-    with `ts-bootstrap publish-external-seed-completion`. Follow steps 4 and 5
-    in [Initial founder authority](founder-genesis-cli.md#first-external-seed-transaction)
+9. Start only controller A using one OCI CLI launch-input JSON file. The file
+   is input to `oci compute instance launch --from-json`, not a raw request
+   body copied from an SDK example. Check the installed command input with
+   `oci compute instance launch --generate-full-command-json-input`. Put the
+   default VNIC's `subnetId`, `privateIp`, `nsgIds`, and `assignPublicIp` at
+   the top level; `--subnet-id` is required, and nested SDK `createVnicDetails`
+   values are not a substitute for these CLI fields. Keep every value bound
+   to the reviewed seed profile and current signed inventory:
+
+   ```json
+   {
+     "availabilityDomain": "<REVIEWED_AVAILABILITY_DOMAIN>",
+     "faultDomain": "<REVIEWED_FAULT_DOMAIN>",
+     "compartmentId": "<REVIEWED_COMPARTMENT_OCID>",
+     "displayName": "controller-a",
+     "shape": "VM.Standard.A1.Flex",
+     "shapeConfig": {"ocpus": 1, "memoryInGBs": 6},
+     "sourceDetails": {
+       "sourceType": "image",
+       "imageId": "<SIGNED_IMAGE_OCID>",
+       "bootVolumeSizeInGBs": 50,
+       "bootVolumeVpusPerGB": 10
+     },
+     "subnetId": "<REVIEWED_SUBNET_OCID>",
+     "privateIp": "<RESERVED_CONTROLLER_A_PRIVATE_IP>",
+     "nsgIds": ["<SIGNED_NSG_1_OCID>", "<SIGNED_NSG_2_OCID>"],
+     "assignPublicIp": false,
+     "userDataFile": "/ABSOLUTE/PATH/controller-a-user-data.yaml",
+     "metadata": {
+       "terrascale-bootstrap": "{\"schemaVersion\":1,\"slot\":\"controller-a\"}"
+     },
+     "freeformTags": {
+       "BootstrapCreateKey": "<EXACT_PREFLIGHT_CREATE_IDENTITY>"
+     }
+   }
+   ```
+
+   Use the shape and boot-volume values from the signed profile if they differ
+   from this validated A1 example. The `terrascale-bootstrap` metadata value
+   is the exact v1 descriptor for the first slot in the signed anchor; it is
+   an untrusted slot locator, not an authority or a replacement for signed
+   manifest and OCI identity checks. `userDataFile` supplies cloud-init data;
+   it does not populate this metadata key. Do not synthesize
+   `terrascale_hostboot_v1` for this controller-only seed; managed-host
+   descriptors must come from the signed placement path.
+
+   If the seed metadata key is missing after launch, do not submit a partial
+   metadata map as though OCI will merge it. `UpdateInstance` replaces the
+   metadata map: start from an authenticated current instance readback, retain
+   the exact existing `user_data`, and use the current ETag with `If-Match`.
+   OCI does not allow changing `user_data` after launch. Re-read the metadata
+   after an update and rerun the observer; do not sign completion on the
+   update response alone.
+
+   Leave `launchOptions` absent unless the reviewed profile explicitly
+   requires an override. This launch uses OCI's default firmware and boot
+   volume options. Submit the file with the configured profile and region:
+
+   ```sh
+   oci compute instance launch \
+     --config-file /ABSOLUTE/PATH/oci-config \
+     --profile DEFAULT \
+     --region <REVIEWED_REGION> \
+     --from-json file:///ABSOLUTE/PATH/controller-a-launch-cli.json
+   ```
+
+   Record the exact OCI instance OCID returned by the CLI. OCI accepting the
+   launch request is not proof that the signed network profile was applied.
+10. Re-read controller A, its primary VNIC, and boot-volume sizing with
+    `ts-bootstrap observe-external-seed`, then compare them with the reviewed
+    plan before signing anything. Require the exact instance in `RUNNING`,
+    the exact `BootstrapCreateKey`, signed image and shape, primary VNIC on
+    the reviewed subnet and reserved private IP, both signed NSGs, and no
+    public IP. Require the attached boot volume to report the signed image
+    and exact requested size and VPU setting. Any missing or different field
+    must make observation fail. Do not sign or publish completion, refresh
+    inventory, or hand off controller A after a failed observation. A launch
+    with VNIC settings only under nested `createVnicDetails` previously
+    produced the wrong private IP and no NSGs, and the observer rejected that
+    instance.
+
+    After observation succeeds, sign the resulting completion bundle offline
+    with `ts-bootstrap sign-external-seed-completion`, then publish it with
+    `ts-bootstrap publish-external-seed-completion`. Follow steps 4 and 5 in
+    [Initial founder authority](founder-genesis-cli.md#first-external-seed-transaction)
     for the exact flags. Do not hand off controller A until completion
     publication succeeds or its exact uncertain outcome is reconciled.
     Before any later inventory or admission refresh, use a new plan copy with
@@ -393,8 +470,13 @@ and the intended network boundary.
     `seed_a_create_identity` set to the preserved preflight value. The helper
     rejects post-launch inventory if A's exact OCID and `BootstrapCreateKey`
     are not recorded. Preserve the original preflight-bound plan and evidence.
-11. Explicitly hand controller A's identity, authority, and inventory to the
-    orchestrator owner. The admitted founder then launches only the signed
+11. Completion publication records the observed seed reservation; it does not
+    prove that the controller's signed bootstrap gate admitted A. Before
+    handoff, require the controller to complete its current signed anchor,
+    slot, image, credential, and founder-floor checks. A failed or pending gate
+    holds the handoff even when OCI readback and completion publication passed.
+    Then explicitly hand controller A's identity, authority, and inventory to
+    the orchestrator owner. The admitted founder launches only the signed
     same-cell B/C peers. Preserve the signed plan and exact IDs so retries and
     reconciliation use the same intent. Do not create replacement seed
     instances to resolve an uncertain handoff or publication result.
