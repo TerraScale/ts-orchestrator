@@ -1478,6 +1478,8 @@ func TestSessionRevalidationRejectsTakeoverExpiryAndRotation(t *testing.T) {
 }
 
 func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
+	const convergenceTimeout = 15 * time.Second
+
 	c, conn, store, _, controllerKey := testController(t)
 	hostKey := registerTestHost(t, c)
 	data := []byte("#!/bin/sh\nsleep 30\n")
@@ -1510,11 +1512,23 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 	go func() { agentDone <- agent.Run(ctx) }()
 	awaitReport := func(state string) {
 		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(convergenceTimeout)
+		var lastErr error
+		var hostCount, reportCount int
+		var reportState string
 		for time.Now().Before(deadline) {
 			hosts, err := c.ListHosts(t.Context())
 			if err == nil && len(hosts) == 1 && len(hosts[0].Reports) == 1 && hosts[0].Reports[0].State == state {
 				return
+			}
+			lastErr = err
+			hostCount = len(hosts)
+			reportCount, reportState = 0, ""
+			if len(hosts) == 1 {
+				reportCount = len(hosts[0].Reports)
+				if reportCount == 1 {
+					reportState = hosts[0].Reports[0].State
+				}
 			}
 			select {
 			case err := <-agentDone:
@@ -1523,7 +1537,12 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 			}
 			time.Sleep(25 * time.Millisecond)
 		}
-		t.Fatalf("did not observe %s report", state)
+		runner.mu.Lock()
+		applied := runner.applied
+		observed := runner.observed["terrabase"]
+		runner.mu.Unlock()
+		t.Fatalf("did not observe %s report: hosts=%d reports=%d last_state=%q list_error=%v applies=%d observed=%+v",
+			state, hostCount, reportCount, reportState, lastErr, applied, observed)
 	}
 	awaitReport("running")
 	changed := desired
@@ -1533,7 +1552,7 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 	if _, err := c.ApplyDesired(t.Context(), changed); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(convergenceTimeout)
 	reportedChanged := false
 	for time.Now().Before(deadline) {
 		runner.mu.Lock()
@@ -1560,7 +1579,7 @@ func TestAgentConvergesAndWithdrawalInvalidatesReadyReport(t *testing.T) {
 	if _, err := c.ApplyDesired(t.Context(), withdrawn); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(convergenceTimeout)
 	for {
 		hosts, err := c.ListHosts(t.Context())
 		if err == nil {

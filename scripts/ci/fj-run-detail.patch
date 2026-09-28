@@ -222,10 +222,10 @@ index 453db63..3e7d535 100644
              },
 diff --git a/src/release/probe.rs b/src/release/probe.rs
 new file mode 100644
-index 0000000..8cff150
+index 0000000..1c3218b
 --- /dev/null
 +++ b/src/release/probe.rs
-@@ -0,0 +1,496 @@
+@@ -0,0 +1,508 @@
 +//! Bounded, non-persistent diagnosis of a release attachment download.
 +
 +use std::{
@@ -234,7 +234,7 @@ index 0000000..8cff150
 +};
 +
 +use eyre::eyre;
-+use forgejo_api::{Forgejo, ForgejoError};
++use forgejo_api::ForgejoError;
 +use futures::{TryStreamExt, io::AsyncReadExt};
 +use reqwest::{
 +    Client, Url,
@@ -429,6 +429,18 @@ index 0000000..8cff150
 +    }
 +}
 +
++fn sha256_hex(body: &[u8]) -> String {
++    const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
++
++    let digest = Sha256::digest(body);
++    let mut hash = String::with_capacity(64);
++    for &byte in digest.iter() {
++        hash.push(HEX_DIGITS[(byte >> 4) as usize] as char);
++        hash.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
++    }
++    hash
++}
++
 +async fn fetch(
 +    url: &Url,
 +    token: Option<&str>,
@@ -553,7 +565,7 @@ index 0000000..8cff150
 +        }
 +    }
 +    result.body_bytes = Some(body.len() as u64);
-+    result.body_sha256 = Some(format!("{:x}", Sha256::digest(&body)));
++    result.body_sha256 = Some(sha256_hex(&body));
 +    if !status_success {
 +        result.error = Some("http_status");
 +    }
