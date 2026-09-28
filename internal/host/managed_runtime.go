@@ -26,7 +26,7 @@ import (
 // controller field. An operator provisions the exact files and a mounted,
 // preformatted retained volume before the signed desired may be executed.
 type managedRuntimePaths struct {
-	memberDir, mount, material, socket string
+	memberDir, mount, material, socket, nativeRoot string
 }
 
 type managedMount struct {
@@ -119,13 +119,14 @@ func runtimePaths(root string, launch ManagedMemberLaunch) (managedRuntimePaths,
 		strconv.FormatUint(launch.Member.HostAttempt, 10)))
 	memberDir := filepath.Join(root, hex.EncodeToString(sum[:16]))
 	paths := managedRuntimePaths{
-		memberDir: memberDir,
-		mount:     filepath.Join(memberDir, "volume"),
-		material:  filepath.Join(memberDir, "material"),
-		socket:    filepath.Join(memberDir, "control", "member.sock"),
+		memberDir:  memberDir,
+		mount:      filepath.Join(memberDir, "volume"),
+		material:   filepath.Join(memberDir, "material"),
+		socket:     filepath.Join(memberDir, "control", "member.sock"),
+		nativeRoot: filepath.Join(memberDir, "native-root.sock"),
 	}
-	if len(paths.socket) >= 108 {
-		return managedRuntimePaths{}, errors.New("managed control socket path exceeds Unix limit")
+	if len(paths.socket) >= 108 || len(paths.nativeRoot) >= 108 {
+		return managedRuntimePaths{}, errors.New("managed socket path exceeds Unix limit")
 	}
 	return paths, nil
 }
@@ -468,6 +469,10 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if len(contents["trusted-public-key"]) != 32 {
 		return Workload{}, managedMount{}, "", errors.New("authority trust key has wrong length")
 	}
+	_, nativeRoot, err := nativeRootTarget(*launch, contents["signed-v2-s3-config.json"])
+	if err != nil {
+		return Workload{}, managedMount{}, "", err
+	}
 	chain, err := tls.X509KeyPair(contents["server.crt"], contents["server.key"])
 	if err != nil || len(chain.Certificate) == 0 {
 		return Workload{}, managedMount{}, "", errors.New("member TLS leaf and private key do not match")
@@ -502,6 +507,9 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 		"--member-id", launch.Member.Scope.MemberID,
 		"--member-incarnation", launch.Member.Scope.Incarnation,
 		"--member-control-socket", paths.socket,
+	}
+	if nativeRoot {
+		args = append(args, "--native-oci-root-socket", paths.nativeRoot)
 	}
 	if launch.Runtime.ReplicationPeerMemberID != "" {
 		roots, err := verifyManagedMaterial(filepath.Join(paths.material, "server-ca.pem"), launch.Runtime.ReplicationServerCASHA256, identity, 1<<20)
@@ -582,7 +590,12 @@ func readManagedStatus(ctx context.Context, runner Runner, d Desired, socket str
 	}
 }
 
-func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredReply) error {
+func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredReply) (resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(resultErr, a.stopManagedNativeRoot(d.Role))
+		}
+	}()
 	launch := d.ManagedMember
 	current, err := a.runner.Observe(ctx, d.Role)
 	if err != nil {
@@ -611,6 +624,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err != nil {
 		return err
 	}
+	if err := a.stopManagedNativeRootIfChanged(d.Role, fingerprint); err != nil {
+		return err
+	}
 	executable, err := a.fetchArtifact(ctx, d.Role, d.Digest)
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
@@ -635,7 +651,13 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 		if err != nil {
 			return errors.Join(err, a.runner.Stop(ctx, d.Role))
 		}
+		if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
 		return a.reportManagedStatus(ctx, d, mount, socket)
+	}
+	if err := a.stopManagedNativeRoot(d.Role); err != nil {
+		return err
 	}
 	if err := a.runner.Stop(ctx, d.Role); err != nil {
 		return err
@@ -732,6 +754,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 		return fmt.Errorf("managed retained volume claim held: %w", err)
 	}
 	if _, _, err := a.executionLease(); err != nil {
+		return err
+	}
+	if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {
 		return err
 	}
 	if err := a.runner.Apply(ctx, currentWorkload); err != nil {

@@ -1,0 +1,67 @@
+name: Image input attachment diagnostic
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_input_tag:
+        description: Public image-input prerelease tag to inspect
+        required: true
+        default: image-inputs-48e3f39c46ed462b1368487cfad96a850247cab9-20260928
+        type: string
+      image_input_manifest_sha256:
+        description: Expected SHA-256 for image-inputs.json
+        required: true
+        default: 773dd889b55136d4b8569560c47b823232eace81a5ccb262cb5aa9970594dd97
+        type: string
+      image_input_manifest_bytes:
+        description: Expected byte count for image-inputs.json
+        required: true
+        default: "3294"
+        type: string
+
+jobs:
+  probe:
+    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    name: diagnose/image-input-attachment
+    runs-on: terrascale-builder
+    timeout-minutes: 20
+    env:
+      SOURCE_SHA: ${{ forgejo.sha }}
+      SOURCE_REF: ${{ forgejo.ref }}
+      IMAGE_INPUT_TAG: ${{ inputs.image_input_tag }}
+      IMAGE_INPUT_MANIFEST_SHA256: ${{ inputs.image_input_manifest_sha256 }}
+      IMAGE_INPUT_MANIFEST_BYTES: ${{ inputs.image_input_manifest_bytes }}
+    steps:
+      - name: Check out the exact diagnostic source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ forgejo.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable source and probe toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
+          test "${SOURCE_REF:?event ref is required}" = refs/heads/main
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          for tool in fj jq; do
+            command -v "${tool}" >/dev/null
+          done
+          printf 'source=%s tree=%s\n' "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')"
+
+      - name: Prepare pinned Forgejo admission client
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Probe authenticated and anonymous attachment routes
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/preflight-image-input-attachment.sh

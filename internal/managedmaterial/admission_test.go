@@ -13,8 +13,15 @@ import (
 )
 
 func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
+	return admittedInitialFixtureWithNativeRoot(t, false)
+}
+
+func admittedInitialFixtureWithNativeRoot(t *testing.T, nativeRoot bool) (placement.Intent, PreparationReceipt) {
 	t.Helper()
 	service, spec, _, _ := preparationFixture(t)
+	if nativeRoot {
+		spec.LiveS3 = nativeTestTarget(t)
+	}
 	root := "/srv/terrabase-managed"
 	for index, member := range spec.Members {
 		path, err := host.ManagedMaterialPath(root, host.ManagedMemberBinding{Scope: host.MemberScope{
@@ -72,6 +79,39 @@ func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt)
 		})
 	}
 	return intent, receipt
+}
+
+func TestVerifyIntentAgainstReceiptBindsNativeOCIRoot(t *testing.T) {
+	intent, receipt := admittedInitialFixtureWithNativeRoot(t, true)
+	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
+		t.Fatalf("matching native root target was rejected: %v", err)
+	}
+	for index, manifest := range intent.RuntimeManifests {
+		if manifest.LiveS3TargetSHA256 != nativeTestDigest ||
+			manifest.LiveS3ConfigSHA256 != receipt.Members[index].Files["signed-v2-s3-config.json"] {
+			t.Fatalf("member %d placement lacks native root pins", index)
+		}
+	}
+	for _, test := range []struct {
+		name string
+		edit func(*placement.RuntimeManifest)
+	}{
+		{"generic target digest", func(manifest *placement.RuntimeManifest) {
+			manifest.LiveS3TargetSHA256 = strings.Repeat("0", 64)
+		}},
+		{"different config file", func(manifest *placement.RuntimeManifest) {
+			manifest.LiveS3ConfigSHA256 = strings.Repeat("0", 64)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := intent
+			changed.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
+			test.edit(&changed.RuntimeManifests[0])
+			if err := VerifyIntentAgainstReceipt(changed, receipt); err == nil {
+				t.Fatal("substituted native target pin was admitted")
+			}
+		})
+	}
 }
 
 func TestVerifyIntentAgainstReceiptRejectsMaterialAndPrivateIPSubstitution(t *testing.T) {

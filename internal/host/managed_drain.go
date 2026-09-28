@@ -309,15 +309,23 @@ func (a *Agent) reconcileManagedDrain(ctx context.Context, desired Desired, regi
 	if err != nil {
 		return err
 	}
+	if err := a.stopManagedNativeRootIfChanged(desired.Role, fingerprint); err != nil {
+		return err
+	}
 	current, err := a.runner.Observe(ctx, desired.Role)
 	if err != nil {
 		return err
 	}
 	if current.Running && (current.Digest != desired.Digest || current.Fingerprint != fingerprint ||
 		current.CgroupMemoryMaxBytes != desired.ManagedMember.CgroupMemoryMaxBytes) {
-		return errors.Join(memberstatus.ErrStaleBinding, a.runner.Stop(ctx, desired.Role))
+		return errors.Join(memberstatus.ErrStaleBinding, a.stopManagedNativeRoot(desired.Role),
+			a.runner.Stop(ctx, desired.Role))
 	}
-	if !current.Running {
+	if current.Running {
+		if err := a.ensureManagedNativeRoot(ctx, desired, fingerprint); err != nil {
+			return err
+		}
+	} else {
 		if !found {
 			return errors.New("managed drain source stopped before its durable request was prepared")
 		}
@@ -372,7 +380,12 @@ func (a *Agent) reconcileManagedDrain(ctx context.Context, desired Desired, regi
 // A persisted Rust drain intent can resume after its native process exits.
 // This path starts only the same signed desired against the same retained
 // volume; it does not publish a serving report while the drain is pending.
-func (a *Agent) restoreManagedProcessForDrain(ctx context.Context, desired Desired, fingerprint string, mount managedMount, socket string) error {
+func (a *Agent) restoreManagedProcessForDrain(ctx context.Context, desired Desired, fingerprint string, mount managedMount, socket string) (resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			resultErr = errors.Join(resultErr, a.stopManagedNativeRoot(desired.Role))
+		}
+	}()
 	executable, err := a.fetchArtifact(ctx, desired.Role, desired.Digest)
 	if err != nil {
 		return err
@@ -395,6 +408,9 @@ func (a *Agent) restoreManagedProcessForDrain(ctx context.Context, desired Desir
 		return err
 	}
 	if _, _, err := a.executionLease(); err != nil {
+		return err
+	}
+	if err := a.ensureManagedNativeRoot(ctx, desired, fingerprint); err != nil {
 		return err
 	}
 	if err := a.runner.Apply(ctx, workload); err != nil {

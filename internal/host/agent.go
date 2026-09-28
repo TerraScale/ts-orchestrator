@@ -42,6 +42,9 @@ type Agent struct {
 	diagAt           time.Time
 	diagClass        string
 	diagFailed       bool
+	nativeRootMu     sync.Mutex
+	nativeRoots      map[string]*managedNativeRoot
+	nativeDesired    map[string]nativeRootDesired
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
 	watchdogTicks    <-chan time.Time
@@ -110,7 +113,8 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle)}, nil
+	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle),
+		nativeRoots: make(map[string]*managedNativeRoot)}, nil
 }
 
 // ValidateWorkloadPaths rejects roots that could expose supervisor state or
@@ -245,6 +249,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer stopCancel()
 		_ = a.runner.Close(stopCtx)
 	}()
+	defer a.stopAllManagedNativeRoots()
 	if err := a.checkClock(); err != nil {
 		return err
 	}
@@ -584,6 +589,9 @@ func (a *Agent) failSession(cancel context.CancelFunc, lost chan<- error, reason
 func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error, reason error) {
 	a.sessionLost.Store(true)
 	cancel()
+	if err := a.stopAllManagedNativeRoots(); err != nil {
+		reason = errors.Join(reason, err)
+	}
 	if a.cfg.SessionTrace {
 		a.mu.RLock()
 		accepted := a.session
@@ -633,12 +641,15 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err := a.request(ctx, "desired", struct {
 		Role string `json:"role"`
 	}{role}, &target); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
 	}
 	if err := a.validateDesiredReply(target); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
 	}
 	if target.Desired == nil {
+		if err := a.revokeManagedNativeRoot(role); err != nil {
+			return err
+		}
 		if hasPending {
 			if err := a.failPendingCycle(ctx, role); err != nil {
 				return err
@@ -648,10 +659,22 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	d := *target.Desired
 	if d.Cell != a.cfg.Cell || d.Node != a.cfg.Node || d.Environment != a.cfg.Environment || d.Role != role || d.Generation == 0 {
-		return errors.New("desired identity mismatch")
+		return errors.Join(errors.New("desired identity mismatch"), a.revokeManagedNativeRoot(role))
 	}
 	if err := validateDesired(d, a.cfg.Cell, *target.Registration); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
+	}
+	if !d.Withdrawn && d.ManagedMember != nil {
+		fingerprint, err := desiredFingerprint(d)
+		if err != nil {
+			return errors.Join(err, a.revokeManagedNativeRoot(role))
+		}
+		if err := a.pinManagedNativeRootDesired(role, fingerprint); err != nil {
+			return errors.Join(err, a.revokeManagedNativeRoot(role))
+		}
+		if err := a.stopManagedNativeRootIfChanged(role, fingerprint); err != nil {
+			return err
+		}
 	}
 	if hasPending && (d.Withdrawn || d.Generation != pending.query.Generation || d.Digest != pending.query.Digest || d.AuthorityEpoch != pending.query.AuthorityEpoch) {
 		if err := a.failPendingCycle(ctx, role); err != nil {
@@ -665,6 +688,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		}
 	}()
 	if d.Withdrawn {
+		if err := a.revokeManagedNativeRoot(role); err != nil {
+			return err
+		}
 		if err := a.runner.Stop(ctx, role); err != nil {
 			return err
 		}
@@ -684,6 +710,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 			}
 		}
 		return a.reconcileManaged(ctx, d, target)
+	}
+	if err := a.revokeManagedNativeRoot(role); err != nil {
+		return err
 	}
 	fingerprint, err := desiredFingerprint(d)
 	if err != nil {

@@ -19,6 +19,10 @@ on:
         description: SHA-256 of image-inputs.json on that prerelease
         required: true
         type: string
+      image_input_manifest_bytes:
+        description: Byte count of image-inputs.json on that prerelease
+        required: true
+        type: string
 
 concurrency:
   group: ts-orchestrator-image-${{ forgejo.sha }}
@@ -37,6 +41,7 @@ jobs:
       CANDIDATE_RUN_NUMBER: ${{ inputs.candidate_run_number }}
       IMAGE_INPUT_TAG: ${{ inputs.image_input_tag }}
       IMAGE_INPUT_MANIFEST_SHA256: ${{ inputs.image_input_manifest_sha256 }}
+      IMAGE_INPUT_MANIFEST_BYTES: ${{ inputs.image_input_manifest_bytes }}
     steps:
       - name: Check out the exact qualified source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -66,6 +71,13 @@ jobs:
           set -euo pipefail
           bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
           printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Preflight authenticated image-input attachment
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/preflight-image-input-attachment.sh
 
       - name: Verify, build, and retain exact image candidate
         shell: bash
