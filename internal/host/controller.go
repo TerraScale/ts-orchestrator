@@ -33,6 +33,7 @@ type Controller struct {
 	managedVerifier   ManagedRegistrationVerifier
 	managedEffectGate func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	materialProvider  ManagedMaterialProvider
+	volumeInspector   ManagedVolumeInspector
 	artifacts         ArtifactStore
 	responseKey       ed25519.PrivateKey
 	registrationMu    sync.Mutex
@@ -104,7 +105,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider, volumeInspector: cfg.ManagedVolumeInspector, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -533,7 +534,7 @@ func sameReportMeaning(a, b Report) bool {
 // durable CAS resolves concurrent admission and report writes.
 func (c *Controller) Run(ctx context.Context) error {
 	var subscriptions []*nats.Subscription
-	for _, operation := range []string{"session", "desired", "artifact", "material", "cycle", "report", "drain-command", "drain-result"} {
+	for _, operation := range []string{"session", "desired", "artifact", "material", "cycle", "report", "drain-command", "drain-result", "volume-init"} {
 		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
 		if err != nil {
 			for _, existing := range subscriptions {
@@ -566,7 +567,8 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	}
 	deadline := 4 * time.Second
 	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
-		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result")) {
+		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result") ||
+		strings.Contains(msg.Subject, ".volume-init")) {
 		deadline = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(parent, deadline)
@@ -593,7 +595,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "volume-init":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -901,6 +903,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.serveArtifact(ctx, req, r)
 	case "material":
 		return c.serveMaterial(ctx, req, r, s)
+	case "volume-init":
+		return c.serveVolumeInit(ctx, req, r, s)
 	case "drain-command":
 		return c.serveManagedDrainCommand(ctx, req, r)
 	case "drain-result":

@@ -183,6 +183,12 @@ func decodeStrict(data []byte, destination any) error {
 }
 
 func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey, r request, out any) error {
+	return exchangeWithEnvelope(ctx, conn, cell, controllerKey, r, out, nil)
+}
+
+func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey,
+	r request, out any, signedOut *protocol.Envelope,
+) error {
 	if conn == nil {
 		return errors.New("NATS connection is required")
 	}
@@ -198,7 +204,7 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 		return err
 	}
 	timeout := 5 * time.Second
-	if r.Operation == "material" {
+	if r.Operation == "material" || r.Operation == "volume-init" {
 		timeout = 30 * time.Second
 	}
 	deadline, cancel := context.WithTimeout(ctx, timeout)
@@ -243,7 +249,12 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 		return fmt.Errorf("host request denied: %s", result.Error)
 	}
 	if out != nil {
-		return decodeStrict(result.Payload, out)
+		if err := decodeStrict(result.Payload, out); err != nil {
+			return err
+		}
+	}
+	if signedOut != nil {
+		*signedOut = signed
 	}
 	return nil
 }

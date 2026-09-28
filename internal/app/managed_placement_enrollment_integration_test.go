@@ -323,6 +323,15 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err != nil || len(observed) != 1 || observed[0].ID != member.State.InstanceID {
 		t.Fatalf("OCI reobservation: instances=%+v err=%v", observed, err)
 	}
+	bootBinding, found, err := journal.GetBootBinding(ctx, observed[0].ID)
+	if err != nil || !found || bootBinding.InstanceID != observed[0].ID ||
+		bootBinding.BootVolumeID != provider.bootVolume.ID || bootBinding.Region != regionID ||
+		bootBinding.Generation != region.Generation || bootBinding.Owner != region.Owner ||
+		bootBinding.CreateKey != observed[0].CreateKey || bootBinding.CompartmentID != region.CompartmentID ||
+		bootBinding.ImageID != region.ImageID || bootBinding.SizeGB != int64(region.BootVolumeGB) ||
+		bootBinding.VPUsPerGB != int64(region.BootVolumeVPUsPerGB) {
+		t.Fatalf("managed launch did not persist exact boot ownership: binding=%+v found=%v err=%v", bootBinding, found, err)
+	}
 	provider.instance.LifecycleState = "RUNNING"
 	descriptorWire := provider.launches[0].BootDescriptor
 	descriptor, err := hostboot.Parse([]byte(descriptorWire))
@@ -808,6 +817,9 @@ func (provider *managedEnrollmentProvider) LaunchInstance(ctx context.Context, r
 	}
 	instance.ID = "ocid1.instance.oc1." + ociRegion + ".managed-enrollment-" + strings.ToLower(string(provider.config.Region))
 	provider.instance.ID = instance.ID
+	if err := provider.bindBootVolume(instance.ID); err != nil {
+		return oci.CloudInstance{}, err
+	}
 	return instance, nil
 }
 

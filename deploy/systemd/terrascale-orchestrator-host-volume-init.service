@@ -1,0 +1,20 @@
+[Unit]
+Description=TerraScale Orchestrator managed volume initializer
+ConditionPathExists=/etc/terrascale-orchestrator/host.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/local/bin/terrascale-orchestrator host-volume-init --config /etc/terrascale-orchestrator/host.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_CHOWN
+NoNewPrivileges=yes
+UMask=0077
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native

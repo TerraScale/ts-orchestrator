@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
@@ -56,6 +57,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if command == "host-setup" {
 		return runHostSetup(ctx, args[1:], output)
+	}
+	if command == "host-volume-init" {
+		return runHostVolumeInit(ctx, args[1:])
 	}
 	if command == "operator" {
 		return runOperator(ctx, args[1:], output)
@@ -155,13 +159,47 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
-		ClockCheck: clockCheck,
+		ClockCheck:       clockCheck,
+		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
 	})
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
 	return hostRunResult(ctx, agent.Run(ctx))
+}
+
+func runHostVolumeInit(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("host-volume-init", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "", "host role configuration")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("host-volume-init accepts no positional arguments")
+	}
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	key, err := decodePublicKey(cfg.Host.ControllerPublicKey)
+	if err != nil {
+		return err
+	}
+	return host.RunVolumeInitializer(ctx, host.VolumeInitConfig{
+		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
+		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
+		StateRoot:        "/var/lib/terrascale-orchestrator-volume-init",
+		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
+		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
+			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
+			if err != nil {
+				return host.VolumeInitMetadata{}, err
+			}
+			return host.VolumeInitMetadata{InstanceID: metadata.InstanceID, Descriptor: metadata.Descriptor}, nil
+		},
+	})
 }
 
 // A canceled parent is a normal shutdown. An agent that cancels its own work

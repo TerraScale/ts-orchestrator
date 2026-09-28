@@ -202,6 +202,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var materialProvider host.ManagedMaterialProvider
 	var placementStore placement.Store
 	var fleet oci.Fleet
+	var volumeInspector host.ManagedVolumeInspector
 	var terminalExecutor oci.TerminalExecutor
 	var materialService *managedmaterial.PreparationService
 	var materialAdmission placementMaterialAdmission
@@ -235,7 +236,32 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
-		var ok bool
+		inspector, ok := fleet.(oci.VolumeInitializationInspector)
+		if !ok {
+			return errors.New("managed OCI fleet lacks exact volume initialization inspection")
+		}
+		volumeInspector = func(ctx context.Context, desired host.Desired, registration host.Registration) (host.VolumeInitObservation, error) {
+			if err := verifyCurrentVolumeInitSeat(ctx, placementStore, desired, registration); err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			launch := *desired.ManagedMember
+			proof, err := inspector.InspectVolumeInitialization(ctx, oci.VolumeInitializationPins{
+				DatabaseID:  registration.ManagedPlacement.DatabaseID,
+				PartitionID: registration.ManagedPlacement.PartitionID,
+				InstanceID:  launch.OCI.InstanceID, HostCreateKey: launch.OCI.CreateKey,
+				VolumeID: launch.VolumeID, AttachmentID: launch.AttachmentID,
+				AttachmentETag: launch.AttachmentETag, Device: launch.Runtime.DevicePath,
+				FileSystemUUID: launch.Runtime.FileSystemUUID, FileSystemType: launch.Runtime.FileSystemType,
+			})
+			if err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			if err := verifyCurrentVolumeInitSeat(ctx, placementStore, desired, registration); err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			return host.VolumeInitObservation{BootDescriptorSHA256: proof.BootDescriptorSHA256,
+				AllowFormat: proof.AllowFormat}, nil
+		}
 		terminalExecutor, ok = fleet.(oci.TerminalExecutor)
 		if !ok {
 			return errors.New("managed OCI fleet lacks exact terminal reconciliation")
@@ -267,6 +293,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
 				ManagedRegistrationVerifier: registrationVerifier,
 				ManagedMaterialProvider:     materialProvider,
+				ManagedVolumeInspector:      volumeInspector,
 			})
 		}, nil)
 	if err != nil {

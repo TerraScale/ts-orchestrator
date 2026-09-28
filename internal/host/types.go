@@ -216,6 +216,7 @@ type AgentConfig struct {
 	PollInterval            time.Duration
 	SessionTrace            bool
 	ClockCheck              func() error
+	VolumeInitSocket        string
 }
 
 type ControllerConfig struct {
@@ -232,7 +233,17 @@ type ControllerConfig struct {
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
+	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
+}
+
+// ManagedVolumeInspector independently reobserves the exact owned OCI host,
+// retained volume and attachment before a host may prepare its local device.
+type ManagedVolumeInspector func(context.Context, Desired, Registration) (VolumeInitObservation, error)
+
+type VolumeInitObservation struct {
+	BootDescriptorSHA256 string `json:"boot_descriptor_sha256"`
+	AllowFormat          bool   `json:"allow_format"`
 }
 
 // ManagedMaterialProvider returns only a currently admitted member's exact

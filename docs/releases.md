@@ -363,8 +363,8 @@ does not inspect or suppress. Production qualification must establish that
 the image's network policy supplies only approved reachable servers.
 
 The image installs the single orchestrator executable, sysusers definition,
-and bootstrap, controller, and host systemd units. It requires the base image
-to provide both `systemd-timesyncd.service` and
+and bootstrap, controller, host, and host-volume-initializer systemd units. It
+requires the base image to provide both `systemd-timesyncd.service` and
 `systemd-time-wait-sync.service`; offline enablement fails the build if either
 unit is unavailable, and the builder does not install packages. The inspected
 upstream systemd v255 wait unit sets an unbounded start timeout, so the image
@@ -380,6 +380,19 @@ controller and host inactive. The builder makes no OCI calls. A future image
 receipt can only be made after a custom image has been imported and its OCI
 image OCID is known. This workflow has not been run because the pinned base
 image, signer, and image-import authorization are not yet approved.
+
+For a host-enrollment image, the offline builder also checks that the base guest
+already contains `e2fsprogs` `1.47.0-2.4~exp1ubuntu4.1` and `util-linux`
+`2.39.3-9ubuntu6.6`, and that `/usr/sbin/mkfs.ext4`, `/usr/sbin/blkid`, `/usr/sbin/wipefs`, and
+`/usr/bin/mount` resolve to executable guest files. It follows tool symlinks
+within the guest root and fails on missing packages, version mismatches, or
+missing/nonexecutable tools; it does not install packages. The image stages
+the separate root service and root-owned mode-`0600` socket, and enables the
+socket. The service's capability bounding set is `CAP_SYS_ADMIN CAP_CHOWN`. It
+also provisions `/var/lib/terrascale-orchestrator-volume-init` as root-owned
+mode `0700` for the helper's local format-attempt record. The helper has no
+private filesystem namespace, so its verified mount is visible in the host
+service's mount namespace. [`offline-guestfs.py`](../deploy/image/offline-guestfs.py), [image-builder tests](../tests/deploy/test_build_offline.py), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket).
 
 The controller unit runs as the pre-created `terrascale-orchestrator` user,
 reads `/etc/terrascale-orchestrator/controller.json`, and persists embedded

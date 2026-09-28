@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,6 +234,23 @@ func (f placementSizingFencer) Guard(ctx context.Context, epoch uint64) error {
 	return nil
 }
 
+func (f placementSizingFencer) BeginActiveWorkloadEffect(ctx context.Context, epoch uint64,
+	scope authority.WorkloadScope,
+) (func(), error) {
+	if scope.DatabaseID == "" || scope.PartitionID == "" {
+		return nil, authority.ErrFenced
+	}
+	if err := f.Guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	if _, err := f.control.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID); err == nil {
+		return nil, authority.ErrFenced
+	} else if !errors.Is(err, authority.ErrNotFound) {
+		return nil, err
+	}
+	return func() {}, nil
+}
+
 type placementSizingHosts struct{}
 
 func (placementSizingHosts) ListHosts(context.Context) ([]host.HostStatus, error) { return nil, nil }
@@ -247,9 +265,11 @@ func (placementSizingHosts) ApplyDesired(context.Context, host.Desired) (host.Re
 
 type placementSizingProvider struct {
 	oci.Provider
-	config   oci.RegionConfig
-	instance oci.CloudInstance
-	launches []oci.LaunchRequest
+	config         oci.RegionConfig
+	instance       oci.CloudInstance
+	bootInstanceID string
+	bootVolume     oci.CloudBootVolume
+	launches       []oci.LaunchRequest
 }
 
 func (p *placementSizingProvider) ListInstances(_ context.Context, compartmentID string) ([]oci.CloudInstance, error) {
@@ -291,7 +311,36 @@ func (p *placementSizingProvider) LaunchInstance(_ context.Context, request oci.
 		Metadata:     map[string]string{hostboot.MetadataKey: request.BootDescriptor, "terrascale_host_node": request.Node},
 		FreeformTags: maps.Clone(request.FreeformTags),
 	}
+	if err := p.bindBootVolume(p.instance.ID); err != nil {
+		return oci.CloudInstance{}, err
+	}
 	return p.instance, nil
+}
+
+func (p *placementSizingProvider) bindBootVolume(instanceID string) error {
+	if instanceID == "" || p.instance.ID != instanceID || len(p.launches) != 1 {
+		return errors.New("fake OCI boot volume requires its one launched instance")
+	}
+	suffix, ok := strings.CutPrefix(instanceID, "ocid1.instance.")
+	if !ok || suffix == "" {
+		return errors.New("fake OCI instance has no valid boot-volume identity")
+	}
+	p.bootInstanceID = instanceID
+	p.bootVolume = oci.CloudBootVolume{
+		ID: "ocid1.bootvolume." + suffix, CompartmentID: p.config.CompartmentID,
+		AvailabilityDomain: p.config.AvailabilityDomain, ImageID: p.config.ImageID,
+		SizeGB: int64(p.config.BootVolumeGB), VPUsPerGB: int64(p.config.BootVolumeVPUsPerGB),
+		LifecycleState: "AVAILABLE", ETag: "boot-etag-1",
+	}
+	return nil
+}
+
+func (p *placementSizingProvider) GetAttachedBootVolume(_ context.Context, instanceID string) (oci.CloudBootVolume, error) {
+	if instanceID == "" || p.instance.ID != instanceID || p.bootInstanceID != instanceID ||
+		p.bootVolume.ID == "" {
+		return oci.CloudBootVolume{}, errors.New("unknown fake OCI boot attachment")
+	}
+	return p.bootVolume, nil
 }
 
 func (p *placementSizingProvider) ListVolumeAttachments(_ context.Context, compartmentID, instanceID string) ([]oci.CloudAttachment, error) {

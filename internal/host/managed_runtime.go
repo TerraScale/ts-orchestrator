@@ -634,6 +634,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := a.fetchManagedMaterial(ctx, d, *target.Registration); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
+	if err := a.ensureManagedVolume(ctx, d, target); err != nil {
+		return errors.Join(err, a.runner.Stop(ctx, d.Role))
+	}
 	_, mount, socket, err := prepareManagedRuntime(ctx, a.cfg, d, "", "")
 	if err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))

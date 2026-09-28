@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import posixpath
 import re
 import shutil
 import stat
@@ -21,6 +22,7 @@ TIME_CONFIG = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 PROFILE = APP + "/runtime-priority.json"
 HELPER = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
+VOLUME_INIT_STATE = "/var/lib/terrascale-orchestrator-volume-init"
 DROPINS = (
     "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
@@ -35,6 +37,21 @@ UNITS = (
 HOST_UNITS = (
     "terrascale-orchestrator-host-setup.service",
     "terrascale-orchestrator-host-setup.timer",
+    "terrascale-orchestrator-host-volume-init.socket",
+)
+HOST_UNIT_FILES = (
+    *HOST_UNITS,
+    "terrascale-orchestrator-host-volume-init.service",
+)
+HOST_VOLUME_PACKAGES = {
+    "e2fsprogs": "1.47.0-2.4~exp1ubuntu4.1",
+    "util-linux": "2.39.3-9ubuntu6.6",
+}
+HOST_VOLUME_TOOLS = (
+    "/usr/sbin/mkfs.ext4",
+    "/usr/sbin/blkid",
+    "/usr/sbin/wipefs",
+    "/usr/bin/mount",
 )
 
 
@@ -236,6 +253,45 @@ def audit_systemd_version(guest: Guest, work: Path) -> None:
     print(f"offline unit enablement: guest systemd={versions[0]} host tool={host}")
 
 
+def audit_host_volume_tools(guest: Guest, work: Path) -> None:
+    status = guest.read("/var/lib/dpkg/status", work / "volume-tools-dpkg-status").decode("utf-8")
+    packages = [dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+                for block in status.split("\n\n")]
+    for name, version in HOST_VOLUME_PACKAGES.items():
+        installed = [package for package in packages
+                     if package.get("Package") == name and package.get("Status") == "install ok installed"]
+        if len(installed) != 1 or installed[0].get("Version") != version:
+            observed = ", ".join(package.get("Version", "unknown") for package in installed) or "absent"
+            raise RuntimeError(
+                f"host base image must contain pinned {name} {version} (observed {observed})"
+            )
+    for path in HOST_VOLUME_TOOLS:
+        current = path
+        visited = set()
+        for _ in range(40):
+            if current in visited:
+                raise RuntimeError(f"host base image volume tool has a symlink loop: {path}")
+            visited.add(current)
+            kind = guest.kind(current)
+            if kind == "file":
+                mode = guest.metadata(current)["st_mode"]
+                if not mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
+                    raise RuntimeError(f"host base image volume tool is not executable: {path}")
+                break
+            if kind != "symlink":
+                raise RuntimeError(f"host base image is missing required volume tool: {path}")
+            target = guest.call("readlink", current)
+            if not target or "\x00" in target:
+                raise RuntimeError(f"host base image volume tool has an invalid symlink: {path}")
+            resolved = target if target.startswith("/") else posixpath.join(posixpath.dirname(current), target)
+            current = posixpath.normpath(resolved)
+            if not current.startswith("/") or current == "/" or current.startswith("/../"):
+                raise RuntimeError(f"host base image volume tool escapes its root: {path}")
+        else:
+            raise RuntimeError(f"host base image volume tool has too many symlinks: {path}")
+    print("offline host volume tools verified packages=e2fsprogs,util-linux tools=" + ",".join(HOST_VOLUME_TOOLS))
+
+
 def active_time_setting(data: bytes) -> bool:
     try:
         lines = data.decode("utf-8").splitlines()
@@ -336,19 +392,20 @@ def install_links(guest: Guest, work: Path, source_root: Path, host: bool) -> No
     etc_units = stage / "etc/systemd/system"
     for name in (
         "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
-        *(HOST_UNITS if host else ()),
+        *(HOST_UNIT_FILES if host else ()),
     ):
         shutil.copyfile(source_root / "deploy/systemd" / name, etc_units / name)
     names = (*UNITS, *(HOST_UNITS if host else ()))
-    for name in names:
+    files = (*names, *(tuple(name for name in HOST_UNIT_FILES if name not in names) if host else ()))
+    for name in files:
         for directory in ("/run/systemd/system", "/usr/local/lib/systemd/system"):
             guest.assert_absent(f"{directory}/{name}", "systemd unit override")
-    for name in names:
+    for name in files:
         unit = etc_units / name
         if unit.is_symlink() and os.readlink(unit) == "/dev/null":
             raise RuntimeError(f"required systemd unit is masked: {name}")
         if not unit.exists() and not (stage / "usr/lib/systemd/system" / name).exists():
-            raise RuntimeError(f"missing a required systemd time unit: {name}")
+            raise RuntimeError(f"missing a required systemd unit: {name}")
     expected = expected_install_links(stage, names)
     before = collect_links(etc_units)
     env = dict(os.environ, SYSTEMD_OFFLINE="1")
@@ -455,6 +512,8 @@ def build(args: argparse.Namespace) -> None:
         require_direct_parents(guest, str(Path(NATIVE).parent))
         audit_systemd_version(guest, work)
         audit_time_config(guest, work)
+        if args.host_enrollment_public:
+            audit_host_volume_tools(guest, work)
         for path in (PROFILE, HELPER, *DROPINS):
             guest.assert_absent(path, "runtime-priority profile artifact")
         guest.assert_absent(APP + "/host-enrollment-public.json", "host enrollment public bundle")
@@ -478,6 +537,7 @@ def build(args: argparse.Namespace) -> None:
             if (meta["st_uid"], meta["st_gid"], stat.S_IMODE(meta["st_mode"])) != (0, 0, 0o755):
                 raise RuntimeError("base /srv must be a direct root:root 0755 directory")
             guest.assert_absent("/srv/ts-managed", "managed root")
+            guest.assert_absent(VOLUME_INIT_STATE, "managed volume initialization state root")
         orchestrator_uid, orchestrator_gid, account_files = accounts(guest, work, Path(args.sysusers))
 
         directories = (
@@ -502,6 +562,7 @@ def build(args: argparse.Namespace) -> None:
         guest.directory("/var/lib/terrascale-orchestrator-controller", orchestrator_uid, orchestrator_gid, 0o700)
         if args.host_enrollment_public:
             guest.directory("/srv/ts-managed", 0, 2000, 0o750)
+            guest.directory(VOLUME_INIT_STATE, 0, 0, 0o700)
 
         uploads = [
             (Path(args.sysusers), "/etc/sysusers.d/terrascale-orchestrator.conf", 0o644),
@@ -509,7 +570,7 @@ def build(args: argparse.Namespace) -> None:
               for name in (
                   "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service",
                   "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
-                  *(HOST_UNITS if args.host_enrollment_public else ()),
+                  *(HOST_UNIT_FILES if args.host_enrollment_public else ()),
               )),
             (Path(args.profile), PROFILE, 0o644),
             *((Path(args.priority_root) / path.lstrip("/"), path, 0o644) for path in DROPINS),

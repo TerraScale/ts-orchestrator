@@ -27,6 +27,10 @@ MARKER_DIRECTORY = "/var/lib/terrascale-orchestrator-bootstrap"
 SECRETS_DIRECTORY = "/var/lib/terrascale-orchestrator-secrets"
 CONTROLLER_DIRECTORY = "/var/lib/terrascale-orchestrator-controller"
 MANAGED_DIRECTORY = "/srv/ts-managed"
+VOLUME_INIT_SOCKET_PATH = "/run/terrascale-orchestrator-volume-init.sock"
+VOLUME_INIT_SOCKET_UNIT = "terrascale-orchestrator-host-volume-init.socket"
+VOLUME_INIT_SERVICE_UNIT = "terrascale-orchestrator-host-volume-init.service"
+VOLUME_INIT_STATE = "/var/lib/terrascale-orchestrator-volume-init"
 TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
@@ -149,9 +153,17 @@ esac
         (self.base_image_root / "srv").chmod(0o755)
         (self.base_image_root / "var/lib/dpkg").mkdir(parents=True)
         (self.base_image_root / "var/lib/dpkg/status").write_text(
-            "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\n",
+            "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\n"
+            "Package: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\n"
+            "Package: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\n",
             encoding="utf-8",
         )
+        for directory in ("/usr/bin", "/usr/sbin"):
+            (self.base_image_root / directory.lstrip("/")).mkdir(parents=True, exist_ok=True)
+        for guest_path in ("/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"):
+            tool = self.base_image_root / guest_path.lstrip("/")
+            tool.write_bytes(b"pinned base image volume tool fixture")
+            tool.chmod(0o755)
         for name, contents, mode in (
             ("passwd", "root:x:0:0:root:/root:/bin/bash\n", 0o644),
             ("group", "root:x:0:\n", 0o644),
@@ -846,9 +858,102 @@ printf '{}\\n'
         self.assertEqual(stat.S_IMODE(managed.stat().st_mode), 0o750)
         metadata = json.loads(self.fs_metadata.read_text())
         self.assertEqual(tuple(metadata[MANAGED_DIRECTORY]), (0, 2000))
+        self.assertEqual(tuple(metadata[VOLUME_INIT_STATE]), (0, 0))
+        state = root / VOLUME_INIT_STATE.lstrip("/")
+        self.assertTrue(state.is_dir() and not state.is_symlink())
+        self.assertEqual(stat.S_IMODE(state.stat().st_mode), 0o700)
         for unit, target in (("terrascale-orchestrator-host-setup.service", "multi-user.target"),
-                             ("terrascale-orchestrator-host-setup.timer", "timers.target")):
+                             ("terrascale-orchestrator-host-setup.timer", "timers.target"),
+                             (VOLUME_INIT_SOCKET_UNIT, "sockets.target")):
             self.assertTrue((root / "etc/systemd/system" / (target + ".wants") / unit).is_symlink())
+        for unit in (VOLUME_INIT_SOCKET_UNIT, VOLUME_INIT_SERVICE_UNIT):
+            installed = root / "etc/systemd/system" / unit
+            self.assertEqual(installed.read_bytes(), (ROOT / "deploy/systemd" / unit).read_bytes())
+            self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o644)
+
+    def test_volume_init_units_are_root_only_and_mount_in_the_host_namespace(self) -> None:
+        socket_source = (ROOT / "deploy/systemd" / VOLUME_INIT_SOCKET_UNIT).read_text(encoding="utf-8")
+        service_source = (ROOT / "deploy/systemd" / VOLUME_INIT_SERVICE_UNIT).read_text(encoding="utf-8")
+
+        def directives(source: str, selected_section: str) -> dict[str, str]:
+            section = ""
+            found = {}
+            for raw in source.splitlines():
+                line = raw.strip()
+                if not line or line.startswith(("#", ";")):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1]
+                elif section == selected_section and "=" in line:
+                    key, value = line.split("=", 1)
+                    found[key] = value
+            return found
+
+        socket = directives(socket_source, "Socket")
+        self.assertEqual(socket["ListenStream"], VOLUME_INIT_SOCKET_PATH)
+        self.assertEqual(socket["SocketMode"], "0600")
+        self.assertEqual(socket["SocketUser"], "root")
+        self.assertEqual(socket["SocketGroup"], "root")
+        self.assertEqual(socket["Accept"], "no")
+        self.assertEqual(socket["Service"], VOLUME_INIT_SERVICE_UNIT)
+        self.assertIn("WantedBy=sockets.target", socket_source)
+
+        service = directives(service_source, "Service")
+        self.assertEqual(service["User"], "root")
+        self.assertEqual(service["Group"], "root")
+        self.assertEqual(
+            service["ExecStart"],
+            "/usr/local/bin/terrascale-orchestrator host-volume-init --config /etc/terrascale-orchestrator/host.json",
+        )
+        self.assertEqual(set(service["CapabilityBoundingSet"].split()), {"CAP_SYS_ADMIN", "CAP_CHOWN"})
+        self.assertEqual(service["NoNewPrivileges"], "yes")
+        self.assertEqual(service["RestrictNamespaces"], "yes")
+
+        filesystem_namespace_directives = {
+            "BindPaths", "BindReadOnlyPaths", "CacheDirectory", "ConfigurationDirectory", "InaccessiblePaths",
+            "LogsDirectory", "MountAPIVFS", "PrivateDevices", "PrivateMounts", "PrivateTmp", "PrivateUsers",
+            "ProtectClock", "ProtectControlGroups", "ProtectHome", "ProtectHostname", "ProtectKernelLogs",
+            "ProtectKernelModules", "ProtectKernelTunables", "ProtectProc", "ProtectSystem", "ProcSubset",
+            "ReadOnlyPaths", "ReadWritePaths", "RootDirectory", "RootImage", "RuntimeDirectory",
+            "StateDirectory", "TemporaryFileSystem",
+        }
+        self.assertFalse(filesystem_namespace_directives.intersection(service))
+
+    def test_non_host_image_does_not_require_volume_initialization_tools(self) -> None:
+        status_path = self.base_image_root / "var/lib/dpkg/status"
+        status_path.write_text(
+            "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\n",
+            encoding="utf-8",
+        )
+        for guest_path in ("/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"):
+            (self.base_image_root / guest_path.lstrip("/")).unlink()
+        result = self.run_builder()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_host_volume_tool_audit_fails_closed_for_missing_package_or_executable(self) -> None:
+        status_path = self.base_image_root / "var/lib/dpkg/status"
+        original_status = status_path.read_text(encoding="utf-8")
+        cases = (
+            ("missing package", original_status.replace(
+                "Package: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\n", ""), None,
+             "pinned e2fsprogs"),
+            ("missing tool", original_status, "/usr/sbin/mkfs.ext4", "missing required volume tool"),
+        )
+        for name, status, missing_tool, expected in cases:
+            with self.subTest(name=name):
+                status_path.write_text(status, encoding="utf-8")
+                tool = self.base_image_root / missing_tool.lstrip("/") if missing_tool else None
+                if tool:
+                    tool.unlink()
+                result = self.run_builder(host_enrollment_public=self.host_bundle,
+                                          host_enrollment_public_sha256=self.host_bundle_sha256)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(expected, result.stderr)
+                self.assertFalse(self.output.exists())
+                if tool:
+                    tool.write_bytes(b"pinned base image volume tool fixture")
+                    tool.chmod(0o755)
+                status_path.write_text(original_status, encoding="utf-8")
 
     def test_sfo_host_bundle_matches_baked_identity_and_is_installed(self) -> None:
         self.set_sfo_host_bundle()
