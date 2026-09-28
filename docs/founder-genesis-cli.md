@@ -191,11 +191,16 @@ reservation and completion bundles.
      --out seed-completion.json
    ```
 
-5. Publish the completion while the reviewed plan, admission, and signed proofs
-   are current. Before a new completion write, the publisher reads the exact
-   instance and VNIC again and checks the reviewed sizing. It stores the
-   manifest, root receipt, delegated result, and completed HEAD in order.
-   Preserve exact bytes for an uncertain response.
+5. Publish completion for the exact controller A created under the original
+   reviewed admission while the signed founder plan's `launchDeadline` remains
+   in the future. The 15-minute admission proves A was created during its
+   approved window; the current founder plan authorizes observation and a new
+   completion for that exact instance until the deadline. Before a new
+   completion write, the publisher reads the exact instance and VNIC again and
+   checks the reviewed sizing. Replacing controller A requires fresh inventory
+   and a newly reviewed admission. The publisher stores the manifest, root
+   receipt, delegated result, and completed HEAD in order. Preserve exact bytes
+   for an uncertain response.
 
    ```text
    ts-bootstrap publish-external-seed-completion \

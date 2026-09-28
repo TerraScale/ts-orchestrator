@@ -18,12 +18,16 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// GuestObservation is the exact VNIC identity accepted during each synthetic
-// first install. The caller must serve matching authenticated Compute/VNIC
-// responses from the packet before a production-mode VM run can be claimed.
+// GuestObservation is the exact VNIC and network identity accepted during
+// each synthetic first install. Network compartment and VCN facts are
+// host-side inputs for the authenticated Compute replay; they are not guest
+// configuration. The packet must serve matching responses before a
+// production-mode VM run can be claimed.
 type GuestObservation struct {
-	PrimaryVNICOCID  string
-	PrimaryPrivateIP string
+	PrimaryVNICOCID        string
+	PrimaryPrivateIP       string
+	NetworkCompartmentOCID string
+	VCNOCID                string
 }
 
 // GuestMaterialInputs supplies private service material by each manifest's

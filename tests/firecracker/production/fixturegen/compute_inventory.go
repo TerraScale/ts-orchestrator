@@ -38,7 +38,7 @@ func BuildComputeInventory(recipe SignedHistoryRecipe, guests GuestMaterialInput
 		return ComputeInventory{}, err
 	}
 	imageOCID := plan.Plan().Peers[0].ImageOCID
-	inventory := ComputeInventory{Bodies: make(map[string][]byte, 9)}
+	inventory := ComputeInventory{Bodies: make(map[string][]byte, 12)}
 	add := func(slot, instanceOCID, requestURI, etag string, body []byte) error {
 		if requestURI == "" || etag == "" || len(body) == 0 {
 			return errors.New("Compute response lacks exact URI, ETag, or body")
@@ -60,7 +60,11 @@ func BuildComputeInventory(recipe SignedHistoryRecipe, guests GuestMaterialInput
 		if !ok || !hasVNIC || !strings.HasPrefix(observed.InstanceOCID,
 			"ocid1.instance.oc1.sa-saopaulo-1.") ||
 			!strings.HasPrefix(vnic.PrimaryVNICOCID, "ocid1.vnic.oc1.sa-saopaulo-1.") ||
-			vnic.PrimaryPrivateIP == "" {
+			vnic.PrimaryPrivateIP == "" ||
+			!strings.HasPrefix(vnic.NetworkCompartmentOCID, "ocid1.compartment.") ||
+			strings.ContainsAny(vnic.NetworkCompartmentOCID, " /?#\r\n") ||
+			!strings.HasPrefix(vnic.VCNOCID, "ocid1.vcn.oc1.sa-saopaulo-1.") ||
+			strings.ContainsAny(vnic.VCNOCID, " /?#\r\n") {
 			return ComputeInventory{}, fmt.Errorf("controller %q lacks GRU Compute/VNIC identity", slot)
 		}
 		manifestWire := recipe.ManifestWires[slot]
@@ -81,6 +85,9 @@ func BuildComputeInventory(recipe SignedHistoryRecipe, guests GuestMaterialInput
 		profile, ok := manifest.Profile(slot)
 		if !ok {
 			return ComputeInventory{}, fmt.Errorf("manifest has no Compute profile for %q", slot)
+		}
+		if vnic.NetworkCompartmentOCID == profile.CompartmentOCID {
+			return ComputeInventory{}, fmt.Errorf("controller %q fixture does not separate network and control compartments", slot)
 		}
 		instanceBody, err := jsonv1.Marshal(core.Instance{Id: new(observed.InstanceOCID),
 			CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.Manifest().ImageOCID),
@@ -114,7 +121,7 @@ func BuildComputeInventory(recipe SignedHistoryRecipe, guests GuestMaterialInput
 			return ComputeInventory{}, err
 		}
 		vnicBody, err := jsonv1.Marshal(core.Vnic{Id: new(vnic.PrimaryVNICOCID),
-			CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain),
+			CompartmentId: new(vnic.NetworkCompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain),
 			SubnetId: new(profile.SubnetOCID), PrivateIp: new(vnic.PrimaryPrivateIP), IsPrimary: new(true),
 			NsgIds: slices.Clone(profile.NetworkSecurityGroupOCIDs), LifecycleState: core.VnicLifecycleStateAvailable})
 		if err != nil {
@@ -126,6 +133,20 @@ func BuildComputeInventory(recipe SignedHistoryRecipe, guests GuestMaterialInput
 			return ComputeInventory{}, err
 		}
 		if err := add(slot, observed.InstanceOCID, vnicRequest.URL.RequestURI(), "vnic-"+slot, vnicBody); err != nil {
+			return ComputeInventory{}, err
+		}
+		subnetBody, err := jsonv1.Marshal(core.Subnet{Id: new(profile.SubnetOCID),
+			CompartmentId: new(vnic.NetworkCompartmentOCID), VcnId: new(vnic.VCNOCID),
+			AvailabilityDomain: new(profile.AvailabilityDomain), LifecycleState: core.SubnetLifecycleStateAvailable})
+		if err != nil {
+			return ComputeInventory{}, err
+		}
+		subnetRequest, err := (core.GetSubnetRequest{SubnetId: new(profile.SubnetOCID)}).HTTPRequest(
+			http.MethodGet, "/20160918/subnets/{subnetId}", nil, nil)
+		if err != nil {
+			return ComputeInventory{}, err
+		}
+		if err := add(slot, observed.InstanceOCID, subnetRequest.URL.RequestURI(), "subnet-"+slot, subnetBody); err != nil {
 			return ComputeInventory{}, err
 		}
 	}

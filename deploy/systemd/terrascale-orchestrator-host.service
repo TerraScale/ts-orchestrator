@@ -47,7 +47,7 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=no
 ProtectHostname=yes
-ProtectClock=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native

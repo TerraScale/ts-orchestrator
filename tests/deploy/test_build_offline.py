@@ -1156,6 +1156,31 @@ printf '{}\\n'
         )
         self.assertIn("After=terrascale-orchestrator-bootstrap.service", controller_unit)
 
+    def test_clock_probe_units_preserve_read_only_adjtimex_access_in_image(self) -> None:
+        # ProtectClock's syscall filter blocks adjtimex even with a zero-mode
+        # Timex. The probe needs that read; clock mutation still needs CAP_SYS_TIME.
+        result = self.run_builder()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for name in (
+            "terrascale-orchestrator-controller-install.service",
+            "terrascale-orchestrator-bootstrap.service",
+            "terrascale-orchestrator-controller.service",
+            "terrascale-orchestrator-host.service",
+        ):
+            with self.subTest(unit=name):
+                source = (ROOT / "deploy/systemd" / name).read_bytes()
+                installed = (self.base_image_root / "etc/systemd/system" / name).read_bytes()
+                self.assertEqual(installed, source)
+                directives = dict(
+                    line.split("=", 1) for line in source.decode().splitlines()
+                    if "=" in line and not line.startswith("#")
+                )
+                self.assertNotIn("ProtectClock", directives)
+                self.assertNotIn("SystemCallFilter", directives)
+                self.assertEqual(directives["NoNewPrivileges"], "yes")
+                self.assertEqual(directives["AmbientCapabilities"], "")
+                self.assertNotIn("CAP_SYS_TIME", directives["CapabilityBoundingSet"].split())
+
     def test_rejected_anchor_prevents_guest_copy_and_output_creation(self) -> None:
         result = self.run_builder(BOOTSTRAP_VERIFY_FAIL="1")
         self.assertNotEqual(result.returncode, 0)
