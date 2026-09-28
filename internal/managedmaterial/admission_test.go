@@ -1,6 +1,8 @@
 package managedmaterial
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"net"
 	"strconv"
 	"strings"
@@ -13,14 +15,37 @@ import (
 )
 
 func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureWithNativeRoot(t, false)
+	return admittedInitialFixtureOptions(t, false, false)
 }
 
 func admittedInitialFixtureWithNativeRoot(t *testing.T, nativeRoot bool) (placement.Intent, PreparationReceipt) {
+	return admittedInitialFixtureOptions(t, nativeRoot, false)
+}
+
+func admittedInitialSQLFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
+	return admittedInitialFixtureOptions(t, false, true)
+}
+
+func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled bool) (placement.Intent, PreparationReceipt) {
 	t.Helper()
 	service, spec, _, _ := preparationFixture(t)
 	if nativeRoot {
 		spec.LiveS3 = nativeTestTarget(t)
+	}
+	if sqlEnabled {
+		public, signer, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service.RecipientSigner = public
+		spec.SQLTables = []InitialSQLTable{{
+			TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+			KeyColumn: "id", PayloadColumn: "body",
+		}}
+		for index := range spec.Members {
+			spec.Members[index].SQLListenPort = 5432
+		}
+		spec.Recipient.Signature = ed25519.Sign(signer, RecipientGrantMessage(spec))
 	}
 	root := "/srv/terrabase-managed"
 	for index, member := range spec.Members {
@@ -69,6 +94,7 @@ func admittedInitialFixtureWithNativeRoot(t *testing.T, nativeRoot bool) (placem
 			ServerCertificateSHA256: pins.Files["server.crt"], ServerPrivateKeySHA256: pins.Files["server.key"],
 			ClientCARootsSHA256:                 pins.Files["client-ca.pem"],
 			ClientManagedMaterialManifestSHA256: pins.Files["client-managed-manifest.json"],
+			SQLSchemaBundleSHA256:               pins.Files[sqlSchemaBundleFileName],
 			LiveS3ConfigSHA256:                  pins.Files["signed-v2-s3-config.json"],
 			LiveS3TargetSHA256:                  targetDigest,
 			LiveS3Credential:                    spec.LiveS3.Credential,
@@ -111,6 +137,34 @@ func TestVerifyIntentAgainstReceiptBindsNativeOCIRoot(t *testing.T) {
 				t.Fatal("substituted native target pin was admitted")
 			}
 		})
+	}
+}
+
+func TestVerifyIntentAgainstReceiptPinsSQLSchemaBundleToEveryMember(t *testing.T) {
+	intent, receipt := admittedInitialSQLFixture(t)
+	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
+		t.Fatalf("matching SQL schema bundle pins were rejected: %v", err)
+	}
+	for index, manifest := range intent.RuntimeManifests {
+		if manifest.SQLSchemaBundleSHA256 == "" ||
+			manifest.SQLSchemaBundleSHA256 != receipt.Members[index].Files[sqlSchemaBundleFileName] {
+			t.Fatalf("member %d placement did not pin the receipt SQL bundle", index)
+		}
+	}
+	changedIntent := intent
+	changedIntent.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
+	changedIntent.RuntimeManifests[0].SQLSchemaBundleSHA256 = strings.Repeat("f", 64)
+	if err := VerifyIntentAgainstReceipt(changedIntent, receipt); err == nil {
+		t.Fatal("SQL bundle digest substituted after signed placement admission")
+	}
+	changedReceipt := receipt
+	changedReceipt.Members[0].Files = make(map[string]string, len(receipt.Members[0].Files))
+	for name, digest := range receipt.Members[0].Files {
+		changedReceipt.Members[0].Files[name] = digest
+	}
+	changedReceipt.Members[0].Files[sqlSchemaBundleFileName] = strings.Repeat("e", 64)
+	if err := VerifyIntentAgainstReceipt(intent, changedReceipt); err == nil {
+		t.Fatal("placement admitted a receipt with a substituted SQL bundle digest")
 	}
 }
 

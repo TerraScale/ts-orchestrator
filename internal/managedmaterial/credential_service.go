@@ -247,7 +247,8 @@ func applyCredentialChange(current []byte, request CredentialRequest, spec Initi
 		registry.Keys = append(registry.Keys, apiKeyEntry{ID: id, VerifierSHA256: verifierSHA,
 			Tenant: spec.Scope.TenantID, Database: spec.Scope.DatabaseID,
 			Shard:       strconv.FormatUint(spec.Scope.ShardID, 10),
-			Collections: initialCollectionIDs(spec.Catalogs), Permissions: []string{"read", "write"}})
+			Collections: initialCollectionIDs(spec.Catalogs), TableIDs: initialSQLTableIDs(spec.SQLTables),
+			Permissions: []string{"read", "write"}})
 		grantSpec := spec
 		grantSpec.Recipient = request.Recipient
 		chain := bundle.Members[0].Files["client-chain.pem"].Contents
@@ -286,7 +287,8 @@ func validateCredentialRegistry(spec InitialSpec, wire []byte) error {
 			key.Tenant != spec.Scope.TenantID || key.Database != spec.Scope.DatabaseID ||
 			key.Shard != strconv.FormatUint(spec.Scope.ShardID, 10) ||
 			len(key.Permissions) != 2 || key.Permissions[0] != "read" || key.Permissions[1] != "write" ||
-			!slicesEqual(key.Collections, initialCollectionIDs(spec.Catalogs)) {
+			!slicesEqual(key.Collections, initialCollectionIDs(spec.Catalogs)) ||
+			!slicesEqual(key.TableIDs, initialSQLTableIDs(spec.SQLTables)) {
 			return ErrMaterialConflict
 		}
 		seen[key.ID] = true

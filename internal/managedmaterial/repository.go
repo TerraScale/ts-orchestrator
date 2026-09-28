@@ -414,8 +414,21 @@ func validateStoredBundle(bundle InitialBundle) error {
 	if _, err := ecdh.X25519().NewPublicKey(public); err != nil {
 		return ErrMaterialConflict
 	}
-	for _, member := range bundle.Members {
-		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != len(initialHostFiles) {
+	var sqlBundleBytes []byte
+	for index, member := range bundle.Members {
+		sqlFile, hasSQL := member.Files[sqlSchemaBundleFileName]
+		wantFileCount := len(initialHostFiles)
+		if hasSQL {
+			wantFileCount++
+		}
+		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != wantFileCount {
+			return ErrMaterialConflict
+		}
+		if index == 0 {
+			if hasSQL {
+				sqlBundleBytes = sqlFile.Contents
+			}
+		} else if hasSQL != (sqlBundleBytes != nil) || hasSQL && !bytes.Equal(sqlBundleBytes, sqlFile.Contents) {
 			return ErrMaterialConflict
 		}
 		for _, name := range initialHostFiles {
@@ -429,6 +442,11 @@ func validateStoredBundle(bundle InitialBundle) error {
 				return ErrMaterialConflict
 			}
 		}
+		for name := range member.Files {
+			if !slices.Contains(initialHostFiles[:], name) && name != sqlSchemaBundleFileName {
+				return ErrMaterialConflict
+			}
+		}
 	}
 	return nil
 }
@@ -437,6 +455,9 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 	if err := validateStoredBundle(bundle); err != nil {
 		return err
 	}
+	if validateSQLTables(spec.SQLTables, spec.Catalogs) != nil {
+		return ErrMaterialConflict
+	}
 	catalogs, err := initialCatalogs(spec.Catalogs)
 	if err != nil {
 		return ErrMaterialConflict
@@ -444,7 +465,8 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 	var authorityMembers [2]AuthorityMember
 	for index, seat := range spec.Members {
 		member := bundle.Members[index]
-		if member.MemberID != seat.MemberID {
+		_, hasSQL := member.Files[sqlSchemaBundleFileName]
+		if member.MemberID != seat.MemberID || hasSQL != (len(spec.SQLTables) > 0) {
 			return ErrMaterialConflict
 		}
 		server := member.Files["server.crt"].Contents
@@ -459,7 +481,7 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 			!verifyStoredLiveS3(spec, member) ||
 			!bytes.Contains(server, member.Files["server-ca.pem"].Contents) ||
 			verifyStoredTLS(seat, member, bundle.Retained) != nil ||
-			verifyStoredClientConfig(seat, member) != nil ||
+			verifyStoredClientConfig(spec, seat, member) != nil ||
 			verifyStoredRegistry(spec, member, bundle.Customer) != nil {
 			return ErrMaterialConflict
 		}
@@ -481,6 +503,15 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 		recreated.ConfigurationID != bundle.Authority.ConfigurationID ||
 		!bytes.Equal(recreated.TrustedKey, bundle.Authority.TrustedKey) {
 		return ErrMaterialConflict
+	}
+	if len(spec.SQLTables) > 0 {
+		wantSQLBundle, err := encodeSQLSchemaBundle(spec.Scope, recreated.ConfigurationID,
+			spec.SQLTables, bundle.Retained.AuthoritySigner)
+		if err != nil || !bytes.Equal(wantSQLBundle, bundle.Members[0].Files[sqlSchemaBundleFileName].Contents) ||
+			!bytes.Equal(bundle.Members[0].Files[sqlSchemaBundleFileName].Contents,
+				bundle.Members[1].Files[sqlSchemaBundleFileName].Contents) {
+			return ErrMaterialConflict
+		}
 	}
 	return nil
 }
@@ -549,16 +580,18 @@ func verifyStoredTLS(seat InitialMember, member MemberBundle, retained RetainedS
 	return nil
 }
 
-func verifyStoredClientConfig(seat InitialMember, member MemberBundle) error {
+func verifyStoredClientConfig(spec InitialSpec, seat InitialMember, member MemberBundle) error {
 	var config struct {
 		Version          uint64 `json:"version"`
 		ListenAddress    string `json:"listen_addr"`
+		SQLListenAddress string `json:"sql_listen_addr,omitempty"`
 		CertificateChain string `json:"certificate_chain"`
 		PrivateKey       string `json:"private_key"`
 		APIKeyRegistry   string `json:"api_key_registry"`
 	}
 	if err := json.Unmarshal(member.Files["client-config.json"].Contents, &config, json.RejectUnknownMembers(true)); err != nil ||
 		config.Version != 1 || config.ListenAddress != net.JoinHostPort(seat.ClientIP, strconv.Itoa(int(seat.ClientPort))) ||
+		config.SQLListenAddress != sqlListenAddress(seat) || (len(spec.SQLTables) > 0) != (config.SQLListenAddress != "") ||
 		config.CertificateChain != filepath.Join(seat.MaterialDirectory, "client-chain.pem") ||
 		config.PrivateKey != filepath.Join(seat.MaterialDirectory, "client-private-key.pem") ||
 		config.APIKeyRegistry != filepath.Join(seat.MaterialDirectory, "client-api-keys.json") {
@@ -594,6 +627,7 @@ func verifyStoredRegistry(spec InitialSpec, member MemberBundle, customer Custom
 		key.Tenant != spec.Scope.TenantID || key.Database != spec.Scope.DatabaseID ||
 		key.Shard != strconv.FormatUint(spec.Scope.ShardID, 10) ||
 		!slices.Equal(key.Collections, initialCollectionIDs(spec.Catalogs)) ||
+		!slices.Equal(key.TableIDs, initialSQLTableIDs(spec.SQLTables)) ||
 		len(key.Permissions) != 2 || key.Permissions[0] != "read" || key.Permissions[1] != "write" ||
 		key.Revoked || bytes.Contains(member.Files["client-api-keys.json"].Contents, []byte("tbk1.")) {
 		return ErrMaterialConflict

@@ -15,8 +15,9 @@ import (
 )
 
 // signInitialMaterialSpecAt binds an owner-held X25519 recipient to one exact
-// initial catalog set and shard scope. The input is an InitialSpec with its
-// recipient omitted; the output is the exact spec sent to material-prepare.
+// catalog set and shard scope. SQL-enabled specs also bind every initial table
+// ID and definition. The input omits the recipient; the output is the exact
+// spec sent to material-prepare.
 func signInitialMaterialSpecAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-initial-material-spec", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -49,6 +50,9 @@ func signInitialMaterialSpecAt(args []string, now time.Time) error {
 	if len(spec.Catalogs) == 0 || len(spec.Catalogs) > 1024 ||
 		len(spec.Recipient.PublicKey) != 0 || !spec.Recipient.ExpiresAt.IsZero() || len(spec.Recipient.Signature) != 0 {
 		return errors.New("initial material draft needs canonical catalogs and no recipient")
+	}
+	if err := spec.ValidateSQLConfiguration(); err != nil {
+		return fmt.Errorf("initial material SQL configuration is invalid: %w", err)
 	}
 	recipient, err := readOwnerRecipientKey(*recipientPath)
 	if err != nil {

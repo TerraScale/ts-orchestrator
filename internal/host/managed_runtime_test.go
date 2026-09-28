@@ -45,6 +45,15 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 	if err := validateDesired(desired, registration.Cell, registration); err != nil {
 		t.Fatal(err)
 	}
+	sqlDesired := desired
+	sqlPins := pins
+	sqlPins.SQLSchemaBundleSHA256 = strings.Repeat("9", 64)
+	sqlLaunch := *desired.ManagedMember
+	sqlLaunch.Runtime = &sqlPins
+	sqlDesired.ManagedMember = &sqlLaunch
+	if err := validateDesired(sqlDesired, registration.Cell, registration); err != nil {
+		t.Fatalf("valid signed SQL bundle pin was rejected: %v", err)
+	}
 	for _, test := range []struct {
 		name   string
 		change func(*ManagedRuntimePins)
@@ -54,6 +63,7 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		{"missing trust key digest", func(p *ManagedRuntimePins) { p.TrustedKeySHA256 = "" }},
 		{"missing signed client manifest", func(p *ManagedRuntimePins) { p.ClientManagedMaterialManifestSHA256 = "" }},
 		{"missing live S3 config", func(p *ManagedRuntimePins) { p.LiveS3ConfigSHA256 = "" }},
+		{"invalid SQL bundle digest", func(p *ManagedRuntimePins) { p.SQLSchemaBundleSHA256 = "bad" }},
 		{"missing exact Vault version", func(p *ManagedRuntimePins) { p.LiveS3Credential.VersionNumber = 0 }},
 		{"invalid filesystem UUID", func(p *ManagedRuntimePins) { p.FileSystemUUID = "unknown" }},
 		{"unapproved filesystem type", func(p *ManagedRuntimePins) { p.FileSystemType = "fuse" }},

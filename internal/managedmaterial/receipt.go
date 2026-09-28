@@ -58,7 +58,7 @@ func SignPreparationReceipt(cell, partition string, spec InitialSpec, bundle Ini
 		object.SpecSHA256 == "" {
 		return PreparationReceipt{}, errors.New("managed material receipt signing inputs are invalid")
 	}
-	if err := validateStoredBundle(bundle); err != nil {
+	if err := validateBundleForSpec(spec, bundle); err != nil {
 		return PreparationReceipt{}, err
 	}
 	specSHA, err := specDigest(spec)
@@ -187,7 +187,7 @@ func VerifyPreparationReceipt(receipt PreparationReceipt, controllerKey ed25519.
 		cell, partition, receipt.Spec); err != nil {
 		return err
 	}
-	if err := validateStoredBundle(objectBundle); err != nil {
+	if err := validateBundleForSpec(receipt.Spec, objectBundle); err != nil {
 		return err
 	}
 	certificate := sha256.Sum256(objectBundle.Authority.Certificate)

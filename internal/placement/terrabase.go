@@ -106,6 +106,7 @@ type RuntimeManifest struct {
 	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
 	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
 	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256,omitempty"`
+	SQLSchemaBundleSHA256               string                     `json:"sql_schema_bundle_sha256,omitempty"`
 	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
 	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
 	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
@@ -145,6 +146,9 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 	if requireManagedClient && (!validLowerSHA256Digest(manifest.LiveS3ConfigSHA256) ||
 		!validLowerSHA256Digest(manifest.LiveS3TargetSHA256) || manifest.LiveS3Credential.Validate() != nil) {
 		return fmt.Errorf("%w: managed ObjectDurable target or credential pin is incomplete", ErrInvalidIntent)
+	}
+	if manifest.SQLSchemaBundleSHA256 != "" && !validLowerSHA256Digest(manifest.SQLSchemaBundleSHA256) {
+		return fmt.Errorf("%w: invalid SQL schema bundle pin", ErrInvalidIntent)
 	}
 	if !requireManagedClient && manifest.ClientManagedMaterialManifestSHA256 != "" {
 		return fmt.Errorf("%w: historical runtime manifest cannot carry managed client material", ErrInvalidIntent)

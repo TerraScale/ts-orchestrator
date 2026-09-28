@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,76 @@ func TestSignInitialMaterialSpecFeedsProducerAndCustomerOpener(t *testing.T) {
 	}
 	if err := signInitialMaterialSpecAt(fixture.args(output, fixture.now.Add(time.Hour).Format(time.RFC3339)), fixture.now); err == nil {
 		t.Fatal("signed spec output was overwritten")
+	}
+}
+
+func TestSignInitialMaterialSpecBindsSQLTableSetToRecipientGrant(t *testing.T) {
+	fixture := newRecipientSpecFixture(t)
+	wire, err := os.ReadFile(fixture.draftPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec managedmaterial.InitialSpec
+	if err := protocol.DecodeStrict(wire, &spec, maxCustomerSpecBytes); err != nil {
+		t.Fatal(err)
+	}
+	spec.SQLTables = []managedmaterial.InitialSQLTable{{
+		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		KeyColumn: "id", PayloadColumn: "body",
+	}}
+	for index := range spec.Members {
+		spec.Members[index].SQLListenPort = 5432
+	}
+	wire, err = protocol.EncodeJSON(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.draftPath, wire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(fixture.directory, "sql-material-spec.json")
+	if err := signInitialMaterialSpecAt(fixture.args(output,
+		fixture.now.Add(time.Hour).Format(time.RFC3339)), fixture.now); err != nil {
+		t.Fatalf("sign SQL-enabled initial material spec: %v", err)
+	}
+	signedWire, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := protocol.DecodeStrict(signedWire, &spec, maxCustomerSpecBytes); err != nil {
+		t.Fatal(err)
+	}
+	if !ed25519.Verify(fixture.signerPublic, managedmaterial.RecipientGrantMessage(spec), spec.Recipient.Signature) {
+		t.Fatal("SQL recipient grant signature does not bind the exact table definitions")
+	}
+	changed := spec
+	changed.SQLTables = slices.Clone(spec.SQLTables)
+	changed.SQLTables[0].PayloadColumn = "value"
+	if bytes.Equal(managedmaterial.RecipientGrantMessage(spec), managedmaterial.RecipientGrantMessage(changed)) {
+		t.Fatal("recipient grant message did not bind SQL column definitions")
+	}
+	if _, err := managedmaterial.GenerateInitial(spec, fixture.signerPublic, fixture.now); err != nil {
+		t.Fatalf("SQL-enabled recipient grant was rejected by material producer: %v", err)
+	}
+	invalid := spec
+	invalid.SQLTables = slices.Clone(spec.SQLTables)
+	invalid.SQLTables[0].Name = "pg_items"
+	invalid.Recipient = managedmaterial.RecipientGrant{}
+	invalidWire, err := protocol.EncodeJSON(invalid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.draftPath, invalidWire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalidOutput := filepath.Join(fixture.directory, "invalid-sql-material-spec.json")
+	if err := signInitialMaterialSpecAt(fixture.args(invalidOutput,
+		fixture.now.Add(time.Hour).Format(time.RFC3339)), fixture.now); err == nil {
+		t.Fatal("recipient-grant command signed an invalid SQL table name")
+	}
+	if _, err := os.Lstat(invalidOutput); !os.IsNotExist(err) {
+		t.Fatalf("invalid SQL table request wrote a signed spec: %v", err)
 	}
 }
 

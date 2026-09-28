@@ -71,11 +71,33 @@ func VerifyCredentialState(state CredentialState, initialReceiptSHA string, auth
 		registry.Version != 1 || len(registry.Keys) == 0 || len(registry.Keys) > 128 {
 		return ErrMaterialConflict
 	}
+	for _, key := range registry.Keys {
+		if !validSQLTableGrantIDs(key.TableIDs) {
+			return ErrMaterialConflict
+		}
+	}
 	canonical, err := protocol.EncodeJSON(registry)
 	if err != nil || !bytes.Equal(canonical, state.Registry) || bytes.Contains(state.Registry, []byte("tbk1.")) {
 		return ErrMaterialConflict
 	}
 	return nil
+}
+
+func validSQLTableGrantIDs(ids []string) bool {
+	if len(ids) > sqlSchemaBundleMaxRows {
+		return false
+	}
+	var previous []byte
+	for _, id := range ids {
+		decoded, err := hex.DecodeString(id)
+		if err != nil || len(decoded) != 16 || hex.EncodeToString(decoded) != id ||
+			decoded[6]>>4 != 7 || decoded[8]&0xc0 != 0x80 ||
+			previous != nil && bytes.Compare(previous, decoded) >= 0 {
+			return false
+		}
+		previous = decoded
+	}
+	return true
 }
 
 func CredentialStateDigest(state CredentialState) (string, error) {

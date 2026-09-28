@@ -99,7 +99,7 @@ func (client *fakeMaterialObjectClient) GetObject(_ context.Context, request obj
 }
 
 func TestStoredBundleRejectsSemanticallySubstitutedHostMaterial(t *testing.T) {
-	spec, signer, _ := initialFixture(t)
+	spec, signer, _ := initialSQLFixture(t)
 	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +114,7 @@ func TestStoredBundleRejectsSemanticallySubstitutedHostMaterial(t *testing.T) {
 	}{
 		{"client config redirect", "client-config.json", []byte(`{"version":1,"listen_addr":"10.0.0.11:9465","certificate_chain":"/foreign/client-chain.pem","private_key":"/foreign/client-private-key.pem","api_key_registry":"/foreign/client-api-keys.json"}`)},
 		{"client manifest mismatch", "client-managed-manifest.json", []byte(`{"version":1,"client_config_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_chain_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","private_key_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","api_key_registry_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`)},
+		{"SQL schema bundle substitution", sqlSchemaBundleFileName, []byte("substituted schema bundle")},
 		{"extra host file", "foreign.key", []byte("foreign")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -131,7 +132,7 @@ func TestStoredBundleRejectsSemanticallySubstitutedHostMaterial(t *testing.T) {
 }
 
 func TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes(t *testing.T) {
-	spec, signer, _ := initialFixture(t)
+	spec, signer, _ := initialSQLFixture(t)
 	controllerPublic, controllerPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)

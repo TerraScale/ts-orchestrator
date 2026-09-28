@@ -6,8 +6,11 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +55,13 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	preparation.RecipientSigner = signer.Public().(ed25519.PublicKey)
+	spec.SQLTables = []InitialSQLTable{{
+		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		KeyColumn: "id", PayloadColumn: "body",
+	}}
+	for index := range spec.Members {
+		spec.Members[index].SQLListenPort = 5432
+	}
 	spec.Recipient.Signature = ed25519.Sign(signer, RecipientGrantMessage(spec))
 	now := time.Now().UTC()
 	initial, err := preparation.PrepareInitial(t.Context(), 9, spec.PartitionID, spec, now)
@@ -72,6 +82,30 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 	if err := json.Unmarshal(first.Registry, &initialRegistry); err != nil {
 		t.Fatal(err)
 	}
+	if len(initialRegistry.Keys) != 1 ||
+		!slicesEqual(initialRegistry.Keys[0].TableIDs, []string{"44444444444474448444444444444444"}) {
+		t.Fatal("initial credential does not carry the immutable SQL table grant")
+	}
+	removedTableGrant := initialRegistry
+	removedTableGrant.Keys = slices.Clone(initialRegistry.Keys)
+	removedTableGrant.Keys[0].TableIDs = nil
+	removedWire, err := json.Marshal(removedTableGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCredentialRegistry(spec, removedWire); !errors.Is(err, ErrMaterialConflict) {
+		t.Fatalf("registry without the initial SQL table grant was accepted: %v", err)
+	}
+	substitutedTableGrant := initialRegistry
+	substitutedTableGrant.Keys = slices.Clone(initialRegistry.Keys)
+	substitutedTableGrant.Keys[0].TableIDs = []string{"44444444444474448444444444444445"}
+	substitutedWire, err := json.Marshal(substitutedTableGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateCredentialRegistry(spec, substitutedWire); !errors.Is(err, ErrMaterialConflict) {
+		t.Fatalf("registry with a different valid SQL table ID was accepted: %v", err)
+	}
 	recipient, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +117,17 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 	rotate := CredentialRequest{DatabaseID: spec.PlacementDatabaseID, PartitionID: spec.PartitionID,
 		InitialReceiptSHA: initialSHA, ExpectedGeneration: 1, OperationID: "rotate-one",
 		Action: CredentialRotate, Recipient: grantSpec.Recipient}
+	foreignTableSet := grantSpec
+	foreignTableSet.SQLTables = slices.Clone(grantSpec.SQLTables)
+	foreignTableSet.SQLTables[0].PayloadColumn = "value"
+	foreignTableGrant := grantSpec.Recipient
+	foreignTableGrant.Signature = ed25519.Sign(signer, RecipientGrantMessage(foreignTableSet))
+	wrongScopeRotation := rotate
+	wrongScopeRotation.OperationID = "rotate-wrong-table-scope"
+	wrongScopeRotation.Recipient = foreignTableGrant
+	if _, err := service.Apply(t.Context(), 9, wrongScopeRotation, now); err == nil || store.next != 0 {
+		t.Fatalf("recipient grant signed for different SQL definitions authorized a credential rotation: %v", err)
+	}
 	store.loseAck = true
 	rotated, err := service.Apply(t.Context(), 9, rotate, now)
 	if err != nil || rotated.State.Generation != 2 || rotated.Customer == nil {
@@ -116,6 +161,11 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 		len(rotatedRegistry.Keys) != 2 || rotatedRegistry.Keys[0].Revoked || rotatedRegistry.Keys[1].Revoked {
 		t.Fatal("rotation failed to overlap old and new keys")
 	}
+	for index, key := range rotatedRegistry.Keys {
+		if !slicesEqual(key.TableIDs, []string{"44444444444474448444444444444444"}) {
+			t.Fatalf("credential generation %d lost or changed its SQL table grants", index)
+		}
+	}
 	retry, err := service.Apply(t.Context(), 9, rotate, now)
 	if err != nil || retry.Signature != rotated.Signature || store.next != 1 {
 		t.Fatalf("retry reminted or replaced committed credential: %v", err)
@@ -143,11 +193,55 @@ func TestManagedCredentialRotationRevocationAndReplay(t *testing.T) {
 		!finalRegistry.Keys[0].Revoked || finalRegistry.Keys[1].Revoked {
 		t.Fatal("revocation changed the wrong key")
 	}
+	for index, key := range finalRegistry.Keys {
+		if !slicesEqual(key.TableIDs, []string{"44444444444474448444444444444444"}) {
+			t.Fatalf("revocation generation %d changed immutable SQL table grants", index)
+		}
+	}
 	if _, err := service.Apply(t.Context(), 9, rotate, now); !errors.Is(err, authority.ErrConflict) {
 		t.Fatalf("stale rotate replay was accepted: %v", err)
 	}
 	store.entry.Payload[0] ^= 1
 	if _, _, err := service.Current(t.Context(), spec.PlacementDatabaseID, spec.PartitionID); !errors.Is(err, ErrMaterialConflict) {
 		t.Fatalf("tampered durable state was accepted: %v", err)
+	}
+}
+
+func TestCredentialStateValidatesCanonicalSQLTableGrantIDs(t *testing.T) {
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x11}, 16))
+	base := apiKeyEntry{ID: keyID, VerifierSHA256: strings.Repeat("a", 64),
+		Tenant: "10000000-0000-0000-0000-000000000001", Database: "20000000-0000-0000-0000-000000000001",
+		Shard: "7", TableIDs: []string{"44444444444474448444444444444444"},
+		Permissions: []string{"read", "write"}}
+	makeState := func(tableIDs []string) CredentialState {
+		t.Helper()
+		registry, err := json.Marshal(apiKeyRegistry{Version: 1, Keys: []apiKeyEntry{{
+			ID: base.ID, VerifierSHA256: base.VerifierSHA256, Tenant: base.Tenant, Database: base.Database,
+			Shard: base.Shard, TableIDs: tableIDs, Permissions: base.Permissions,
+		}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, err := SignCredentialState(2, strings.Repeat("b", 64), registry, private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	if err := VerifyCredentialState(makeState(base.TableIDs), strings.Repeat("b", 64), public); err != nil {
+		t.Fatalf("canonical UUIDv7 SQL grant was rejected: %v", err)
+	}
+	for _, ids := range [][]string{
+		{"4444444444447444844444444444444A"},
+		{"44444444444464448444444444444444"},
+		{"44444444444474448444444444444445", "44444444444474448444444444444444"},
+	} {
+		if err := VerifyCredentialState(makeState(ids), strings.Repeat("b", 64), public); err == nil {
+			t.Fatalf("noncanonical SQL table grants %v were accepted", ids)
+		}
 	}
 }

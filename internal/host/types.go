@@ -138,6 +138,7 @@ type ManagedRuntimePins struct {
 	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
 	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
 	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256"`
+	SQLSchemaBundleSHA256               string                     `json:"sql_schema_bundle_sha256,omitempty"`
 	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
 	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
 	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
@@ -526,6 +527,7 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
 		!lowerHex(pins.ClientManagedMaterialManifestSHA256, 64) ||
 		!lowerHex(pins.LiveS3ConfigSHA256, 64) || !lowerHex(pins.LiveS3TargetSHA256, 64) ||
+		pins.SQLSchemaBundleSHA256 != "" && !lowerHex(pins.SQLSchemaBundleSHA256, 64) ||
 		pins.LiveS3Credential.Validate() != nil ||
 		!validSocketAddress(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")

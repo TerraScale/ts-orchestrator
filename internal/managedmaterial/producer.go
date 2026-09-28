@@ -27,6 +27,7 @@ import (
 )
 
 const recipientDomain = "TB-CUSTOMER-RECIPIENT-V1\x00"
+const sqlRecipientDomain = "TB-CUSTOMER-RECIPIENT-V2\x00"
 
 // InitialMember fixes the two initial seats before certificate and file hashes
 // are admitted. MaterialDirectory is the deterministic directory for attempt 1.
@@ -41,6 +42,7 @@ type InitialMember struct {
 	ReplicationPort   uint16 `json:"replication_port"`
 	ClientIP          string `json:"client_ip"`
 	ClientPort        uint16 `json:"client_port"`
+	SQLListenPort     uint16 `json:"sql_listen_port,omitzero"`
 }
 
 // RecipientGrant is signed by the customer recipient signer pinned by the
@@ -58,6 +60,7 @@ type InitialSpec struct {
 	Scope               AuthorityScope        `json:"scope"`
 	LiveS3              LiveS3Target          `json:"live_s3"`
 	Catalogs            []InitialCatalogInput `json:"catalogs"`
+	SQLTables           []InitialSQLTable     `json:"sql_tables,omitempty"`
 	Members             [2]InitialMember      `json:"members"`
 	Recipient           RecipientGrant        `json:"recipient"`
 }
@@ -112,6 +115,7 @@ type apiKeyEntry struct {
 	Database       string   `json:"database"`
 	Shard          string   `json:"shard"`
 	Collections    []string `json:"collections"`
+	TableIDs       []string `json:"table_ids,omitempty"`
 	Permissions    []string `json:"permissions"`
 	Revoked        bool     `json:"revoked"`
 }
@@ -172,6 +176,13 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 	if err != nil {
 		return InitialBundle{}, err
 	}
+	var sqlSchemaBundle []byte
+	if len(spec.SQLTables) > 0 {
+		sqlSchemaBundle, err = encodeSQLSchemaBundle(spec.Scope, authority.ConfigurationID, spec.SQLTables, authorityKey)
+		if err != nil {
+			return InitialBundle{}, err
+		}
+	}
 	var tokenID [16]byte
 	var tokenSecret [32]byte
 	if _, err := rand.Read(tokenID[:]); err != nil {
@@ -191,6 +202,9 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		files := members[index].Files
 		files["authority.tbca"] = makeFile(authority.Certificate)
 		files["trusted-public-key"] = makeFile(authority.TrustedKey)
+		if len(sqlSchemaBundle) > 0 {
+			files[sqlSchemaBundleFileName] = makeFile(sqlSchemaBundle)
+		}
 		liveS3, err := spec.LiveS3.ConfigJSON()
 		if err != nil {
 			return InitialBundle{}, err
@@ -200,6 +214,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 			ID: base64.RawURLEncoding.EncodeToString(tokenID[:]), VerifierSHA256: verifierHex,
 			Tenant: spec.Scope.TenantID, Database: spec.Scope.DatabaseID,
 			Shard: strconv.FormatUint(spec.Scope.ShardID, 10), Collections: initialCollectionIDs(spec.Catalogs),
+			TableIDs:    initialSQLTableIDs(spec.SQLTables),
 			Permissions: []string{"read", "write"}, Revoked: false}}})
 		if err != nil {
 			return InitialBundle{}, err
@@ -208,13 +223,15 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		config, err := json.Marshal(struct {
 			Version          uint64 `json:"version"`
 			ListenAddress    string `json:"listen_addr"`
+			SQLListenAddress string `json:"sql_listen_addr,omitempty"`
 			CertificateChain string `json:"certificate_chain"`
 			PrivateKey       string `json:"private_key"`
 			APIKeyRegistry   string `json:"api_key_registry"`
-		}{1, net.JoinHostPort(seat.ClientIP, strconv.Itoa(int(seat.ClientPort))),
-			filepath.Join(seat.MaterialDirectory, "client-chain.pem"),
-			filepath.Join(seat.MaterialDirectory, "client-private-key.pem"),
-			filepath.Join(seat.MaterialDirectory, "client-api-keys.json")})
+		}{Version: 1, ListenAddress: net.JoinHostPort(seat.ClientIP, strconv.Itoa(int(seat.ClientPort))),
+			SQLListenAddress: sqlListenAddress(seat),
+			CertificateChain: filepath.Join(seat.MaterialDirectory, "client-chain.pem"),
+			PrivateKey:       filepath.Join(seat.MaterialDirectory, "client-private-key.pem"),
+			APIKeyRegistry:   filepath.Join(seat.MaterialDirectory, "client-api-keys.json")})
 		if err != nil {
 			return InitialBundle{}, err
 		}
@@ -337,6 +354,9 @@ func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Ti
 	if _, err := initialCatalogs(spec.Catalogs); err != nil {
 		return err
 	}
+	if err := spec.ValidateSQLConfiguration(); err != nil {
+		return err
+	}
 	if !repositoryToken.MatchString(spec.PlacementDatabaseID) || !repositoryToken.MatchString(spec.PartitionID) {
 		return errors.New("initial material placement database or partition ID is invalid")
 	}
@@ -383,6 +403,16 @@ func validPrivateIP(value string) bool {
 func RecipientGrantMessage(spec InitialSpec) []byte { return recipientGrantMessage(spec) }
 
 func recipientGrantMessage(spec InitialSpec) []byte {
+	if len(spec.SQLTables) > 0 {
+		tableDigest, err := sqlTableSetDigest(spec.SQLTables)
+		if err != nil {
+			return nil
+		}
+		return []byte(sqlRecipientDomain + spec.PlacementDatabaseID + "/" + spec.PartitionID + "/" + spec.Scope.ClusterID + "/" + spec.Scope.TenantID + "/" +
+			spec.Scope.DatabaseID + "/" + strconv.FormatUint(spec.Scope.ShardID, 10) + "/" +
+			catalogSetDigest(spec.Catalogs) + "/" + tableDigest + "/" + hex.EncodeToString(spec.Recipient.PublicKey) + "/" +
+			strconv.FormatInt(spec.Recipient.ExpiresAt.UTC().Unix(), 10))
+	}
 	return []byte(recipientDomain + spec.PlacementDatabaseID + "/" + spec.PartitionID + "/" + spec.Scope.ClusterID + "/" + spec.Scope.TenantID + "/" +
 		spec.Scope.DatabaseID + "/" + strconv.FormatUint(spec.Scope.ShardID, 10) + "/" +
 		catalogSetDigest(spec.Catalogs) + "/" + hex.EncodeToString(spec.Recipient.PublicKey) + "/" +

@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"crypto/ecdh"
 	"crypto/rand"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -54,5 +56,21 @@ func TestManagedMaterialChunkIsConfidentialAndBoundToHostSession(t *testing.T) {
 	}
 	if _, err := aead.Open(nil, reply.Nonce, reply.Ciphertext, wrongAAD); err == nil {
 		t.Fatal("material chunk decrypted under another OCI instance")
+	}
+}
+
+func TestManagedSQLBundleDeliveryIsConditionalAndDigestPinned(t *testing.T) {
+	desired := Desired{ManagedMember: &ManagedMemberLaunch{Runtime: &ManagedRuntimePins{}}}
+	if slices.Contains(managedHostFilesFor(desired), sqlSchemaBundleName) ||
+		managedHostFileEnabled(desired, sqlSchemaBundleName) {
+		t.Fatal("SQL bundle was enabled without a signed placement digest")
+	}
+	digest := strings.Repeat("a", 64)
+	desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 = digest
+	if !slices.Contains(managedHostFilesFor(desired), sqlSchemaBundleName) ||
+		!managedHostFileEnabled(desired, sqlSchemaBundleName) ||
+		expectedHostMaterialDigest(desired, sqlSchemaBundleName) != digest ||
+		managedHostFileLimit(sqlSchemaBundleName) != 4<<10 {
+		t.Fatal("SQL bundle delivery is not tied to the signed digest and 4096-byte cap")
 	}
 }

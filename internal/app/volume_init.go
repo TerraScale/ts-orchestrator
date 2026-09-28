@@ -56,6 +56,7 @@ func verifyCurrentVolumeInitSeat(ctx context.Context, members placement.MemberPi
 		manifest.ServerPrivateKeySHA256 != runtime.ServerPrivateKeySHA256 ||
 		manifest.ClientCARootsSHA256 != runtime.ClientCARootsSHA256 ||
 		manifest.ClientManagedMaterialManifestSHA256 != runtime.ClientManagedMaterialManifestSHA256 ||
+		manifest.SQLSchemaBundleSHA256 != runtime.SQLSchemaBundleSHA256 ||
 		manifest.LiveS3ConfigSHA256 != runtime.LiveS3ConfigSHA256 ||
 		manifest.LiveS3TargetSHA256 != runtime.LiveS3TargetSHA256 ||
 		manifest.LiveS3Credential != runtime.LiveS3Credential ||

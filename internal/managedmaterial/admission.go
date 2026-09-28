@@ -3,6 +3,7 @@ package managedmaterial
 import (
 	"errors"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,6 +16,14 @@ var initialHostFiles = [...]string{
 	"server-ca.pem", "client-ca.pem", "client-chain.pem", "client-private-key.pem",
 	"client-api-keys.json", "client-config.json", "client-managed-manifest.json",
 	"signed-v2-s3-config.json",
+}
+
+func initialHostFileNames(spec InitialSpec) []string {
+	names := slices.Clone(initialHostFiles[:])
+	if len(spec.SQLTables) > 0 {
+		names = append(names, sqlSchemaBundleFileName)
+	}
+	return names
 }
 
 // VerifyIntentAgainstReceipt requires an initial placement to use the exact
@@ -63,10 +72,11 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 				found = true
 			}
 		}
+		files := initialHostFileNames(spec)
 		if !found || row.Region != intent.ActiveRegions[0] || row.MemberID != seat.MemberID ||
 			row.Incarnation != seat.Incarnation || row.ServerName != seat.ServerName ||
 			row.FailureDomain != seat.FailureDomain || row.TLSLeafSHA256 != pins.TLSLeafSHA256 ||
-			pins.MemberID != seat.MemberID || len(pins.Files) != len(initialHostFiles) ||
+			pins.MemberID != seat.MemberID || len(pins.Files) != len(files) ||
 			manifest.SeatID != seat.SeatID || manifest.Region != row.Region ||
 			manifest.TrustedKeySHA256 != receipt.TrustedKeySHA256 ||
 			manifest.ServerCertificateSHA256 != pins.Files["server.crt"] ||
@@ -74,13 +84,14 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 			manifest.ClientCARootsSHA256 != pins.Files["client-ca.pem"] ||
 			manifest.ClientManagedMaterialManifestSHA256 != pins.Files["client-managed-manifest.json"] ||
 			manifest.LiveS3ConfigSHA256 != pins.Files["signed-v2-s3-config.json"] ||
+			manifest.SQLSchemaBundleSHA256 != pins.Files[sqlSchemaBundleFileName] ||
 			manifest.LiveS3TargetSHA256 != liveTargetDigest ||
 			manifest.LiveS3Credential != spec.LiveS3.Credential ||
 			manifest.ReplicationServerCASHA256 != pins.Files["server-ca.pem"] ||
 			manifest.ReplicationListenAddress != net.JoinHostPort(seat.ReplicationIP, strconv.Itoa(int(seat.ReplicationPort))) {
 			return ErrMaterialConflict
 		}
-		for _, name := range initialHostFiles {
+		for _, name := range files {
 			if !lowerHexDigest(pins.Files[name]) {
 				return ErrMaterialConflict
 			}

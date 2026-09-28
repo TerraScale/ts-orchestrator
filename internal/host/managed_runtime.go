@@ -484,7 +484,9 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if pool := x509.NewCertPool(); !pool.AppendCertsFromPEM(contents["client-ca.pem"]) {
 		return Workload{}, managedMount{}, "", errors.New("member client CA roots are invalid")
 	}
-	clientArgs, err := readManagedClientMaterial(paths.material, launch.Runtime.ClientManagedMaterialManifestSHA256, identity, 0)
+	clientArgs, err := readManagedClientMaterial(paths.material,
+		launch.Runtime.ClientManagedMaterialManifestSHA256, launch.Runtime.SQLSchemaBundleSHA256,
+		launch.Runtime.ReplicationListenAddress, identity, 0)
 	if err != nil {
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
 	}

@@ -62,7 +62,9 @@ func TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect(t *testing.T
 }
 
 func TestControllerAppliesOnlyPreparedObservedManagedDesired(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	draft := validIntent(oci.RegionGRU)
+	draft.RuntimeManifests[0].SQLSchemaBundleSHA256 = strings.Repeat("b", 64)
+	intent := committedTestIntent(t, draft)
 	store := newPlacementMemoryStore(t, intent)
 	instances := attachedInstances(t, intent)
 	for index := range instances {
@@ -93,6 +95,7 @@ func TestControllerAppliesOnlyPreparedObservedManagedDesired(t *testing.T) {
 	if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
 		desired.AuthorityEpoch != 1 || desired.ManagedMember.Authority.Epoch != 7 ||
 		desired.ManagedMember.Runtime.DevicePath != prepared.AttachmentDevice ||
+		desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 != prepared.RuntimeManifest.SQLSchemaBundleSHA256 ||
 		desired.ManagedMember.AttachmentETag != prepared.AttachmentETag ||
 		desired.ManagedMember.SourceDigest != prepared.RuntimeManifest.SourceDigest ||
 		desired.Digest != prepared.RuntimeManifest.ArtifactDigest {

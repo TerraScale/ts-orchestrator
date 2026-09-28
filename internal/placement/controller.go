@@ -1080,6 +1080,7 @@ func (controller *Controller) memberDesired(epoch uint64, intent Intent, state M
 				ServerPrivateKeySHA256:              manifest.ServerPrivateKeySHA256,
 				ClientCARootsSHA256:                 manifest.ClientCARootsSHA256,
 				ClientManagedMaterialManifestSHA256: manifest.ClientManagedMaterialManifestSHA256,
+				SQLSchemaBundleSHA256:               manifest.SQLSchemaBundleSHA256,
 				LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256,
 				LiveS3TargetSHA256:                  manifest.LiveS3TargetSHA256,
 				LiveS3Credential:                    manifest.LiveS3Credential,

@@ -25,12 +25,14 @@ import (
 
 const materialChunkBytes = 16 << 10
 const maxManagedHostFileBytes = 1 << 20
+const sqlSchemaBundleName = "sql-schema-bundle.tbsqb"
+const managedSQLSchemaBundleMaxBytes = 4 << 10
 
 var managedHostFileNames = [...]string{
 	"authority.tbca", "trusted-public-key", "server.crt", "server.key",
 	"server-ca.pem", "client-ca.pem", "client-chain.pem", "client-private-key.pem",
 	"client-api-keys.json", "client-config.json", "client-managed-manifest.json",
-	"signed-v2-s3-config.json",
+	"signed-v2-s3-config.json", sqlSchemaBundleName,
 }
 
 const managedCredentialFileName = "client-credentials-current.json"
@@ -112,6 +114,12 @@ func (c *Controller) serveMaterial(ctx context.Context, req request, registratio
 		validateDesired(desired, c.cell, registration) != nil {
 		return nil, errors.New("managed material is not current desired for this host")
 	}
+	if slices.Contains(managedHostFileNames[:], query.File) && !managedHostFileEnabled(desired, query.File) {
+		return nil, errors.New("managed material file is not enabled by signed desired")
+	}
+	if slices.Contains(managedHostFileNames[:], query.File) && query.Offset >= managedHostFileLimit(query.File) {
+		return nil, errors.New("managed material chunk offset exceeds its file limit")
+	}
 	fingerprint, err := desiredFingerprint(desired)
 	if err != nil || fingerprint != query.DesiredFingerprint {
 		return nil, errors.New("managed material desired fingerprint changed")
@@ -124,11 +132,36 @@ func (c *Controller) serveMaterial(ctx context.Context, req request, registratio
 		return nil, err
 	}
 	contents := files[query.File]
-	if len(contents) == 0 || len(contents) > maxManagedHostFileBytes || query.Offset >= len(contents) {
+	if len(contents) == 0 || len(contents) > managedHostFileLimit(query.File) || query.Offset >= len(contents) {
 		return nil, errors.New("managed material file is missing or oversized")
 	}
 	end := min(len(contents), query.Offset+query.Length)
 	return encryptMaterialChunk(req, query, contents[query.Offset:end], len(contents), contents)
+}
+
+func managedHostFileLimit(name string) int {
+	if name == sqlSchemaBundleName {
+		return managedSQLSchemaBundleMaxBytes
+	}
+	return maxManagedHostFileBytes
+}
+
+func managedHostFileEnabled(desired Desired, name string) bool {
+	if name != sqlSchemaBundleName {
+		return slices.Contains(managedHostFileNames[:], name)
+	}
+	return desired.ManagedMember != nil && desired.ManagedMember.Runtime != nil &&
+		desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 != ""
+}
+
+func managedHostFilesFor(desired Desired) []string {
+	names := make([]string, 0, len(managedHostFileNames))
+	for _, name := range managedHostFileNames {
+		if managedHostFileEnabled(desired, name) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func encryptMaterialChunk(req request, query materialQuery, chunk []byte, total int, whole []byte) (materialReply, error) {
@@ -179,7 +212,7 @@ func (a *Agent) fetchManagedMaterial(ctx context.Context, desired Desired, regis
 	if err != nil {
 		return err
 	}
-	for _, name := range managedHostFileNames {
+	for _, name := range managedHostFilesFor(desired) {
 		contents, digest, err := a.downloadManagedFile(ctx, desired, registration, fingerprint, name)
 		if err != nil {
 			return fmt.Errorf("retrieve managed material %s: %w", name, err)
@@ -216,6 +249,8 @@ func expectedHostMaterialDigest(desired Desired, name string) string {
 		return launch.Runtime.ClientManagedMaterialManifestSHA256
 	case "signed-v2-s3-config.json":
 		return launch.Runtime.LiveS3ConfigSHA256
+	case sqlSchemaBundleName:
+		return launch.Runtime.SQLSchemaBundleSHA256
 	default:
 		return ""
 	}
@@ -247,7 +282,7 @@ func (a *Agent) downloadManagedFile(ctx context.Context, desired Desired, regist
 			return nil, "", err
 		}
 		if reply.File != name || reply.Offset != query.Offset || reply.Total < 1 ||
-			reply.Total > maxManagedHostFileBytes || !lowerHex(reply.SHA256, 64) ||
+			reply.Total > managedHostFileLimit(name) || !lowerHex(reply.SHA256, 64) ||
 			len(reply.EphemeralPublicKey) != 32 || len(reply.Nonce) != 12 ||
 			total != 0 && (reply.Total != total || reply.SHA256 != digest) {
 			return nil, "", errors.New("managed material chunk identity changed")
@@ -286,7 +321,7 @@ func (a *Agent) downloadManagedFile(ctx context.Context, desired Desired, regist
 
 func installManagedFile(directory, name string, contents []byte, digest string, identity WorkloadIdentity) error {
 	if !slices.Contains(managedHostFileNames[:], name) || len(contents) == 0 ||
-		len(contents) > maxManagedHostFileBytes {
+		len(contents) > managedHostFileLimit(name) {
 		return errors.New("invalid managed material installation")
 	}
 	sum := sha256.Sum256(contents)
@@ -295,7 +330,7 @@ func installManagedFile(directory, name string, contents []byte, digest string, 
 	}
 	target := filepath.Join(directory, name)
 	if _, err := os.Lstat(target); err == nil {
-		_, err = verifyManagedMaterial(target, digest, identity, maxManagedHostFileBytes)
+		_, err = verifyManagedMaterial(target, digest, identity, int64(managedHostFileLimit(name)))
 		return err
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -337,7 +372,7 @@ func installManagedFile(directory, name string, contents []byte, digest string, 
 	}
 	if err := unix.Renameat2(dirFD, temporary, dirFD, name, unix.RENAME_NOREPLACE); err != nil {
 		if errors.Is(err, unix.EEXIST) {
-			_, err = verifyManagedMaterial(target, digest, identity, maxManagedHostFileBytes)
+			_, err = verifyManagedMaterial(target, digest, identity, int64(managedHostFileLimit(name)))
 		}
 		return err
 	}

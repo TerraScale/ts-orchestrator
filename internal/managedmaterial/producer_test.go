@@ -13,9 +13,11 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"hash/crc32"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +67,24 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 				ClientIP: "10.0.0.12", ClientPort: 9465},
 		},
 		Recipient: RecipientGrant{PublicKey: recipient.PublicKey().Bytes(), ExpiresAt: time.Now().UTC().Add(time.Hour).Truncate(time.Second)},
+	}
+	spec.Recipient.Signature = ed25519.Sign(signer, RecipientGrantMessage(spec))
+	return spec, public, recipient
+}
+
+func initialSQLFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.PrivateKey) {
+	t.Helper()
+	spec, _, recipient := initialFixture(t)
+	public, signer, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.SQLTables = []InitialSQLTable{{
+		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		KeyColumn: "id", PayloadColumn: "body",
+	}}
+	for index := range spec.Members {
+		spec.Members[index].SQLListenPort = 5432
 	}
 	spec.Recipient.Signature = ed25519.Sign(signer, RecipientGrantMessage(spec))
 	return spec, public, recipient
@@ -308,6 +328,414 @@ func TestGenerateInitialRejectsRecipientAndMemberSubstitution(t *testing.T) {
 	if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
 		t.Fatal("out-of-order authority members were accepted")
 	}
+}
+
+func TestSQLSchemaBundleMatchesFrozenRustRowVector(t *testing.T) {
+	table := InitialSQLTable{
+		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		KeyColumn: "id", PayloadColumn: "body",
+	}
+	row, err := sqlTableRow(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRow, err := hex.DecodeString("44444444444474448444444444444444010000000000000001000200056974656d7302696404626f6479")
+	if err != nil || !bytes.Equal(row, wantRow) || len(row) != 42 {
+		t.Fatalf("canonical SQL row = %x (%d bytes), want frozen Rust vector", row, len(row))
+	}
+	digestInput := append([]byte(sqlTableDigestDomain), row...)
+	digest := sha256.Sum256(digestInput)
+	if got := hex.EncodeToString(digest[:]); got != "7d9ad68383d500d959e80918e2db23e34ffa72e26d8a07a7bd06f7a58ce0e6bc" {
+		t.Fatalf("SQL table digest = %s, want frozen Rust vector", got)
+	}
+
+	seed := bytes.Repeat([]byte{0x42}, ed25519.SeedSize)
+	signer := ed25519.NewKeyFromSeed(seed)
+	bundle, err := encodeSQLSchemaBundle(AuthorityScope{
+		ClusterID: "0102030405060708090a0b0c0d0e0f10",
+		TenantID:  "10000000-0000-0000-0000-000000000001", DatabaseID: "20000000-0000-0000-0000-000000000001",
+		ShardID: 7, Epoch: 1,
+	}, strings.Repeat("a", 64), []InitialSQLTable{table}, signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle) != 218 || binary.LittleEndian.Uint32(bundle[8:12]) != 154 ||
+		binary.LittleEndian.Uint16(bundle[12:14]) != sqlSchemaBundleVersion ||
+		binary.LittleEndian.Uint16(bundle[14:16]) != 1 || !bytes.Equal(bundle[sqlSchemaHeaderBytes:len(bundle)-sqlSchemaSignatureBytes], wantRow) {
+		t.Fatalf("SQL bundle header or payload differs from frozen ABI: len=%d", len(bundle))
+	}
+	signingInput := append([]byte(sqlSchemaSignDomain), bundle[:len(bundle)-sqlSchemaSignatureBytes]...)
+	if !ed25519.Verify(signer.Public().(ed25519.PublicKey), signingInput, bundle[len(bundle)-sqlSchemaSignatureBytes:]) {
+		t.Fatal("SQL bundle signature does not verify over the Rust domain and payload")
+	}
+	tableSetDigest, err := sqlTableSetDigest([]InitialSQLTable{table})
+	if err != nil || tableSetDigest != "b47712d2f954fbb5321dd225d5d4787b5b81af89c03087ddeb363a63b3ce9178" {
+		t.Fatalf("SQL table-set digest = %s, want frozen grant digest: %v", tableSetDigest, err)
+	}
+}
+
+func TestNoSQLInitialMaterialPreservesGenerationOneContract(t *testing.T) {
+	spec, signer, _ := initialFixture(t)
+	wantGrant := []byte(recipientDomain + spec.PlacementDatabaseID + "/" + spec.PartitionID + "/" + spec.Scope.ClusterID + "/" +
+		spec.Scope.TenantID + "/" + spec.Scope.DatabaseID + "/" +
+		strconv.FormatUint(spec.Scope.ShardID, 10) + "/" + catalogSetDigest(spec.Catalogs) + "/" +
+		hex.EncodeToString(spec.Recipient.PublicKey) + "/" + strconv.FormatInt(spec.Recipient.ExpiresAt.UTC().Unix(), 10))
+	if got := RecipientGrantMessage(spec); !bytes.Equal(got, wantGrant) || !ed25519.Verify(signer, got, spec.Recipient.Signature) {
+		t.Fatal("no-SQL recipient grant no longer uses its exact generation-one message")
+	}
+
+	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("produce generation-one no-SQL material: %v", err)
+	}
+	if err := validateBundleForSpec(spec, bundle); err != nil {
+		t.Fatalf("validate generation-one no-SQL material: %v", err)
+	}
+	for index, member := range bundle.Members {
+		if len(member.Files) != len(initialHostFiles) {
+			t.Fatalf("member %d generation-one file count = %d, want %d", index, len(member.Files), len(initialHostFiles))
+		}
+		if _, exists := member.Files[sqlSchemaBundleFileName]; exists {
+			t.Fatalf("member %d has an SQL bundle without an SQL table set", index)
+		}
+		for filename, field := range map[string]string{
+			"client-config.json":   "sql_listen_addr",
+			"client-api-keys.json": "table_ids",
+		} {
+			if bytes.Contains(member.Files[filename].Contents, []byte(`"`+field+`"`)) {
+				t.Fatalf("member %d %s unexpectedly contains %s", index, filename, field)
+			}
+		}
+	}
+}
+
+func TestGenerateInitialBindsSQLBundleAndTableGrants(t *testing.T) {
+	spec, signer, _ := initialSQLFixture(t)
+	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("produce SQL material: %v", err)
+	}
+	if err := validateBundleForSpec(spec, bundle); err != nil {
+		t.Fatalf("validate SQL material: %v", err)
+	}
+	left, leftOK := bundle.Members[0].Files[sqlSchemaBundleFileName]
+	right, rightOK := bundle.Members[1].Files[sqlSchemaBundleFileName]
+	if !leftOK || !rightOK || len(left.Contents) > sqlSchemaBundleMaxBytes ||
+		!bytes.Equal(left.Contents, right.Contents) || left.SHA256 != right.SHA256 {
+		t.Fatal("members do not hold the same bounded immutable SQL schema bundle")
+	}
+	for index, member := range bundle.Members {
+		var config struct {
+			SQLListenAddress string `json:"sql_listen_addr"`
+		}
+		if err := json.Unmarshal(member.Files["client-config.json"].Contents, &config); err != nil ||
+			config.SQLListenAddress != sqlListenAddress(spec.Members[index]) {
+			t.Fatalf("member %d SQL listener is not bound into client config: %v", index, err)
+		}
+		var registry apiKeyRegistry
+		if err := json.Unmarshal(member.Files["client-api-keys.json"].Contents, &registry); err != nil ||
+			len(registry.Keys) != 1 || !slices.Equal(registry.Keys[0].TableIDs, []string{"44444444444474448444444444444444"}) ||
+			!slices.Equal(registry.Keys[0].Collections, initialCollectionIDs(spec.Catalogs)) {
+			t.Fatalf("member %d registry does not bind SQL table and catalog grants: %v", index, err)
+		}
+		if len(member.Files) != len(initialHostFiles)+1 {
+			t.Fatalf("member %d file count = %d, want conditional 13-file SQL set", index, len(member.Files))
+		}
+	}
+
+	changed := spec
+	changed.SQLTables = slices.Clone(spec.SQLTables)
+	changed.SQLTables[0].PayloadColumn = "value"
+	if _, err := GenerateInitial(changed, signer, time.Now().UTC()); err == nil {
+		t.Fatal("recipient grant authorized changed SQL definitions")
+	}
+	message := RecipientGrantMessage(spec)
+	digest, err := sqlTableSetDigest(spec.SQLTables)
+	if err != nil || !bytes.HasPrefix(message, []byte(sqlRecipientDomain)) || !bytes.Contains(message, []byte(digest)) {
+		t.Fatalf("SQL recipient grant does not identify its versioned table-set digest: %v", err)
+	}
+	if bytes.Equal(message, RecipientGrantMessage(changed)) {
+		t.Fatal("SQL recipient grant message did not change with the table-set scope")
+	}
+	changedScope := spec
+	changedScope.Scope.ShardID++
+	if bytes.Equal(message, RecipientGrantMessage(changedScope)) {
+		t.Fatal("SQL recipient grant message did not bind its shard scope")
+	}
+	changedBundle := bundle
+	changedMember := bundle.Members[0]
+	changedFiles := make(map[string]File, len(changedMember.Files))
+	for name, file := range changedMember.Files {
+		changedFiles[name] = file
+	}
+	corrupted := bytes.Clone(left.Contents)
+	corrupted[len(corrupted)-1] ^= 0x01
+	changedFiles[sqlSchemaBundleFileName] = makeFile(corrupted)
+	changedMember.Files = changedFiles
+	changedBundle.Members[0] = changedMember
+	if err := validateBundleForSpec(spec, changedBundle); err == nil {
+		t.Fatal("re-signed SQL bundle substitution escaped exact spec validation")
+	}
+}
+
+type sqlProcessPacketFile struct {
+	Name   string `json:"name"`
+	SHA256 string `json:"sha256"`
+}
+
+type sqlProcessPacketMember struct {
+	SeatID                   string                 `json:"seat_id"`
+	FilesDirectory           string                 `json:"files_directory"`
+	MemberID                 string                 `json:"member_id"`
+	Incarnation              string                 `json:"incarnation"`
+	ServerName               string                 `json:"server_name"`
+	FailureDomain            string                 `json:"failure_domain"`
+	TLSLeafSHA256            string                 `json:"tls_leaf_sha256"`
+	ClientListenAddress      string                 `json:"client_listen_address"`
+	SQLListenAddress         string                 `json:"sql_listen_address"`
+	ReplicationListenAddress string                 `json:"replication_listen_address"`
+	ReplicationPeerMemberID  string                 `json:"replication_peer_member_id"`
+	ReplicationPeerAddress   string                 `json:"replication_peer_address"`
+	Files                    []sqlProcessPacketFile `json:"files"`
+}
+
+type sqlProcessPacketManifest struct {
+	Version                     uint64                   `json:"version"`
+	Scope                       AuthorityScope           `json:"scope"`
+	AuthorityConfigurationID    string                   `json:"authority_configuration_id"`
+	AuthoritySHA256             string                   `json:"authority_sha256"`
+	TrustedPublicKeySHA256      string                   `json:"trusted_public_key_sha256"`
+	SQLSchemaBundleSHA256       string                   `json:"sql_schema_bundle_sha256"`
+	SQLSchemaBundlePath         string                   `json:"sql_schema_bundle_path"`
+	TableSetDigest              string                   `json:"table_set_digest"`
+	Tables                      []InitialSQLTable        `json:"tables"`
+	Collections                 []string                 `json:"collections"`
+	RecipientGrantMessageSHA256 string                   `json:"recipient_grant_message_sha256"`
+	ClientTLSRootPath           string                   `json:"client_tls_root_path"`
+	PGPassFile                  string                   `json:"pgpass_file"`
+	SQLUsername                 string                   `json:"sql_username"`
+	Members                     []sqlProcessPacketMember `json:"members"`
+}
+
+// Run with TB_SQL_PROCESS_PACKET_DIR set to a private, nonexistent absolute
+// directory. The token appears only in the exported mode-0600 pgpass file.
+func TestExportSQLProcessPacket(t *testing.T) {
+	packetDirectory := os.Getenv("TB_SQL_PROCESS_PACKET_DIR")
+	if packetDirectory == "" {
+		t.Skip("set TB_SQL_PROCESS_PACKET_DIR for the cross-language SQL process oracle")
+	}
+	if !filepath.IsAbs(packetDirectory) || filepath.Clean(packetDirectory) != packetDirectory || packetDirectory == "/" {
+		t.Fatal("SQL process packet directory must be a clean absolute path")
+	}
+	if _, err := os.Lstat(packetDirectory); err == nil || !os.IsNotExist(err) {
+		t.Fatal("SQL process packet directory must not already exist")
+	}
+	parent := filepath.Dir(packetDirectory)
+	parentInfo, err := os.Stat(parent)
+	if err != nil || !parentInfo.IsDir() {
+		t.Fatal("SQL process packet parent must already exist")
+	}
+	staging, err := os.MkdirTemp(parent, ".terrabase-sql-process-packet-")
+	if err != nil {
+		t.Fatal("create private SQL process packet staging directory")
+	}
+	defer os.RemoveAll(staging)
+
+	spec, _, recipient := initialFixture(t)
+	activeCatalog, err := EmptyInitialCatalog("21212121-2121-2121-2121-212121212121")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inactiveCatalog, err := EmptyInitialCatalog("22222222-2222-2222-2222-222222222222")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Scope = AuthorityScope{
+		ClusterID: strings.Repeat("31", 16),
+		TenantID:  "41414141-4141-4141-4141-414141414141", DatabaseID: "51515151-5151-5151-5151-515151515151",
+		ShardID: 7, Epoch: 1,
+	}
+	spec.Catalogs = []InitialCatalogInput{
+		{CollectionID: activeCatalog.CollectionID, CanonicalCatalog: activeCatalog.Bytes},
+		{CollectionID: inactiveCatalog.CollectionID, CanonicalCatalog: inactiveCatalog.Bytes},
+	}
+	spec.SQLTables = []InitialSQLTable{{
+		TableID: "44444444-4444-7444-8444-444444444444", Name: "items",
+		KeyColumn: "id", PayloadColumn: "body",
+	}}
+	memberIDs := [2]string{
+		"61616161-6161-6161-6161-616161616161",
+		"71717171-7171-7171-7171-717171717171",
+	}
+	incarnations := [2]string{strings.Repeat("62", 16), strings.Repeat("72", 16)}
+	clientIPs := [2]string{"10.0.0.11", "10.0.0.12"}
+	for index := range spec.Members {
+		suffix := string(rune('a' + index))
+		spec.Members[index] = InitialMember{
+			SeatID: "member-" + suffix, MemberID: memberIDs[index], Incarnation: incarnations[index],
+			ServerName: suffix + ".replication.example", FailureDomain: "FAULT-DOMAIN-" + strconv.Itoa(index+1),
+			MaterialDirectory: filepath.Join(packetDirectory, "member-"+suffix),
+			ReplicationIP:     clientIPs[index], ReplicationPort: 9443,
+			ClientIP: clientIPs[index], ClientPort: 9465, SQLListenPort: 5432,
+		}
+	}
+	if err := os.Mkdir(filepath.Join(staging, "member-a"), 0o700); err != nil {
+		t.Fatal("create member-a packet directory")
+	}
+	if err := os.Mkdir(filepath.Join(staging, "member-b"), 0o700); err != nil {
+		t.Fatal("create member-b packet directory")
+	}
+	for index := range spec.Members {
+		if len(spec.Members[index].MaterialDirectory) > 100 {
+			t.Fatal("SQL process packet path exceeds the managed material path limit")
+		}
+	}
+	_, recipientSigner, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Recipient.ExpiresAt = time.Now().UTC().Add(2 * time.Hour).Truncate(time.Second)
+	spec.Recipient.Signature = ed25519.Sign(recipientSigner, RecipientGrantMessage(spec))
+	bundle, err := GenerateInitial(spec, recipientSigner.Public().(ed25519.PublicKey), time.Now().UTC())
+	if err != nil {
+		t.Fatal("produce SQL process packet material")
+	}
+	customer, err := OpenCustomerEnvelope(spec, bundle.Customer, recipient)
+	if err != nil {
+		t.Fatal("open SQL process packet customer envelope")
+	}
+
+	writePacketFile := func(name string, contents []byte) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(staging, name), contents, 0o600); err != nil {
+			t.Fatal("write SQL process packet file")
+		}
+	}
+	packetMembers := make([]sqlProcessPacketMember, 0, len(spec.Members))
+	for index, member := range spec.Members {
+		memberDirectoryName := "member-" + string(rune('a'+index))
+		memberDirectory := filepath.Join(staging, memberDirectoryName)
+		files := bundle.Members[index].Files
+		fileNames := make([]string, 0, len(files))
+		for name := range files {
+			fileNames = append(fileNames, name)
+		}
+		slices.Sort(fileNames)
+		fileHashes := make([]sqlProcessPacketFile, 0, len(fileNames))
+		for _, name := range fileNames {
+			file := files[name]
+			digest := sha256.Sum256(file.Contents)
+			if file.SHA256 != hex.EncodeToString(digest[:]) {
+				t.Fatalf("producer returned an invalid %s digest", name)
+			}
+			if err := os.WriteFile(filepath.Join(memberDirectory, name), file.Contents, 0o600); err != nil {
+				t.Fatal("write SQL process packet member file")
+			}
+			fileHashes = append(fileHashes, sqlProcessPacketFile{Name: name, SHA256: file.SHA256})
+		}
+		peer := spec.Members[0]
+		if peer.MemberID == member.MemberID {
+			peer = spec.Members[1]
+		}
+		packetMembers = append(packetMembers, sqlProcessPacketMember{
+			SeatID: member.SeatID, FilesDirectory: memberDirectoryName,
+			MemberID: member.MemberID, Incarnation: member.Incarnation,
+			ServerName: member.ServerName, FailureDomain: member.FailureDomain,
+			TLSLeafSHA256:            bundle.Members[index].TLSLeafSHA256,
+			ClientListenAddress:      net.JoinHostPort(member.ClientIP, strconv.Itoa(int(member.ClientPort))),
+			SQLListenAddress:         sqlListenAddress(member),
+			ReplicationListenAddress: net.JoinHostPort(member.ReplicationIP, strconv.Itoa(int(member.ReplicationPort))),
+			ReplicationPeerMemberID:  peer.MemberID,
+			ReplicationPeerAddress:   net.JoinHostPort(peer.ReplicationIP, strconv.Itoa(int(peer.ReplicationPort))),
+			Files:                    fileHashes,
+		})
+	}
+	firstFiles := bundle.Members[0].Files
+	writePacketFile("authority.tbca", bundle.Authority.Certificate)
+	writePacketFile("authority.pub", bundle.Authority.TrustedKey)
+	writePacketFile("sql-schema.tbsqb", firstFiles[sqlSchemaBundleFileName].Contents)
+	writePacketFile("https-ca.pem", []byte(customer.HTTPSCAPEM))
+	keyID := strings.Split(customer.Token, ".")[1]
+	var passfile strings.Builder
+	for _, member := range spec.Members {
+		passfile.WriteString(strings.Join([]string{
+			member.ClientIP, strconv.Itoa(int(member.SQLListenPort)), spec.Scope.DatabaseID, keyID, customer.Token,
+		}, ":"))
+		passfile.WriteByte('\n')
+	}
+	writePacketFile("pgpass", []byte(passfile.String()))
+	tableSetDigest, err := sqlTableSetDigest(spec.SQLTables)
+	if err != nil {
+		t.Fatal("digest SQL process packet table set")
+	}
+	grantMessageDigest := sha256.Sum256(RecipientGrantMessage(spec))
+	bundleDigest := firstFiles[sqlSchemaBundleFileName].SHA256
+	manifest := sqlProcessPacketManifest{
+		Version: 1, Scope: spec.Scope, AuthorityConfigurationID: bundle.Authority.ConfigurationID,
+		AuthoritySHA256:        sha256Hex(bundle.Authority.Certificate),
+		TrustedPublicKeySHA256: sha256Hex(bundle.Authority.TrustedKey),
+		SQLSchemaBundleSHA256:  bundleDigest, SQLSchemaBundlePath: "sql-schema.tbsqb",
+		TableSetDigest: tableSetDigest, Tables: spec.SQLTables,
+		Collections:                 initialCollectionIDs(spec.Catalogs),
+		RecipientGrantMessageSHA256: hex.EncodeToString(grantMessageDigest[:]),
+		ClientTLSRootPath:           "https-ca.pem", PGPassFile: "pgpass", SQLUsername: keyID, Members: packetMembers,
+	}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal("encode SQL process packet manifest")
+	}
+	writePacketFile("manifest.json", manifestBytes)
+	if err := os.Rename(staging, packetDirectory); err != nil {
+		t.Fatal("atomically publish SQL process packet")
+	}
+	staging = ""
+	t.Logf("exported SQL process packet path=%s schema_bundle_sha256=%s", packetDirectory, bundleDigest)
+}
+
+func TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts(t *testing.T) {
+	tests := []struct {
+		name   string
+		change func(*InitialSpec)
+	}{
+		{"invalid version", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "44444444-4444-6444-8444-444444444444" }},
+		{"invalid variant", func(spec *InitialSpec) { spec.SQLTables[0].TableID = "44444444-4444-7444-7444-444444444444" }},
+		{"reserved table name", func(spec *InitialSpec) { spec.SQLTables[0].Name = "tb_items" }},
+		{"invalid column name", func(spec *InitialSpec) { spec.SQLTables[0].PayloadColumn = "Payload" }},
+		{"duplicate columns", func(spec *InitialSpec) { spec.SQLTables[0].PayloadColumn = spec.SQLTables[0].KeyColumn }},
+		{"missing SQL port", func(spec *InitialSpec) { spec.Members[0].SQLListenPort = 0 }},
+		{"HTTPS port reuse", func(spec *InitialSpec) { spec.Members[0].SQLListenPort = spec.Members[0].ClientPort }},
+		{"replication port reuse", func(spec *InitialSpec) { spec.Members[0].SQLListenPort = spec.Members[0].ReplicationPort }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			spec, signer, _ := initialSQLFixture(t)
+			test.change(&spec)
+			if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
+				t.Fatal("invalid SQL-enabled initial spec was accepted")
+			}
+		})
+	}
+
+	t.Run("duplicate names", func(t *testing.T) {
+		spec, signer, _ := initialSQLFixture(t)
+		spec.SQLTables = append(spec.SQLTables, InitialSQLTable{
+			TableID: "44444444-4444-7444-8444-444444444445", Name: "items", KeyColumn: "id", PayloadColumn: "body",
+		})
+		if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
+			t.Fatal("duplicate SQL table names were accepted")
+		}
+	})
+	t.Run("table ID reuses catalog identity", func(t *testing.T) {
+		spec, signer, _ := initialSQLFixture(t)
+		catalog, err := EmptyInitialCatalog(spec.SQLTables[0].TableID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec.Catalogs[1] = InitialCatalogInput{CollectionID: catalog.CollectionID, CanonicalCatalog: catalog.Bytes}
+		if _, err := GenerateInitial(spec, signer, time.Now().UTC()); err == nil {
+			t.Fatal("SQL table ID equal to a catalog collection ID was accepted")
+		}
+	})
 }
 
 // Run with TB_MANAGED_AUTHORITY_EXPORT_DIR set to a private disposable absolute

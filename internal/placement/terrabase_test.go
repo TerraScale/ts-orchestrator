@@ -117,6 +117,9 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 		}},
 		{"wrong trusted key", func(intent *Intent) { intent.RuntimeManifests[0].TrustedKeySHA256 = strings.Repeat("f", 64) }},
 		{"missing artifact digest", func(intent *Intent) { intent.RuntimeManifests[0].ArtifactDigest = "" }},
+		{"invalid SQL schema bundle digest", func(intent *Intent) {
+			intent.RuntimeManifests[0].SQLSchemaBundleSHA256 = "bad"
+		}},
 		{"missing managed HTTPS manifest", func(intent *Intent) { intent.RuntimeManifests[0].ClientManagedMaterialManifestSHA256 = "" }},
 		{"missing outbound peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = ""

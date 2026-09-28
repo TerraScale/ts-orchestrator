@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +127,15 @@ func TestVolumeInitRequiresCurrentExactPlacementSeat(t *testing.T) {
 	reader := &volumeInitMemberReader{member: placement.VersionedMemberState{State: state, Revision: 5}}
 	if err := verifyCurrentVolumeInitSeat(t.Context(), reader, desired, registration); err != nil {
 		t.Fatalf("current exact placement seat was rejected: %v", err)
+	}
+	mismatchedSQLPin := desired
+	changedLaunch := *desired.ManagedMember
+	changedRuntime := *changedLaunch.Runtime
+	changedRuntime.SQLSchemaBundleSHA256 = strings.Repeat("a", 64)
+	changedLaunch.Runtime = &changedRuntime
+	mismatchedSQLPin.ManagedMember = &changedLaunch
+	if err := verifyCurrentVolumeInitSeat(t.Context(), reader, mismatchedSQLPin, registration); err == nil {
+		t.Fatal("volume-init preflight accepted a SQL bundle pin absent from the current placement manifest")
 	}
 	for _, test := range []struct {
 		name   string
