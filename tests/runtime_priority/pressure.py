@@ -32,10 +32,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "terrascale.runtime-priority-pressure/v3"
-ADAPTER_INPUT_SCHEMA = "terrascale.d15.adapter-input/v1"
+SCHEMA = "terrascale.runtime-priority-pressure/v4"
+ADAPTER_INPUT_SCHEMA = "terrascale.d15.adapter-input/v2"
 ADAPTER_RESULT_SCHEMA = "terrascale.d15.adapter-result/v1"
-ADAPTER_CONTRACT_SCHEMA = "terrascale.d15.adapter-contract/v3"
+ADAPTER_CONTRACT_SCHEMA = "terrascale.d15.adapter-contract/v4"
 DATABASE_FRONTIER_BINDING = "object_durable.event{database,shard,replica,incarnation,sequence};serving_proof.v1/same_scope/v1"
 OOM_JOURNAL_FORMAT = "systemd-journal-kernel-oom/v1"
 FAILURE_TARGET_WITNESS = "accepted-managed-report+proc-stat+cgroup+boot-id/v1"
@@ -64,7 +64,7 @@ MAX_ADAPTER_OBSERVATION_BYTES = 16 << 10
 MAX_PRESSURE_WORKER_STATE_BYTES = 16 << 10
 MAX_PINNED_FILE_BYTES = 16 << 20
 MAX_OOM_EVENTS = 4096
-MEMORY_USAGE_SAMPLE_SCHEMA = "terrascale.d15.memory-usage-sample/v1"
+MEMORY_USAGE_SAMPLE_SCHEMA = "terrascale.d15.memory-usage-sample/v2"
 MAX_MEMORY_COUNTER_BYTES = 128
 MAX_MEMORY_STAT_BYTES = 16_384
 MAX_SYSTEM_SLICE_CHILD_CGROUPS = 256
@@ -142,8 +142,7 @@ def _memory_stat_values(raw: object, field: str) -> dict[str, int]:
 
 
 def validate_memory_usage_sample(sample: object, *, identity: dict[str, Any],
-                                 expected_host_cgroup: str,
-                                 expected_controller_cgroup: str,
+                                 guest_role: str, expected_service_cgroup: str,
                                  expected_boot_id: str,
                                  expected_systemd_version: str,
                                  not_before: dt.datetime,
@@ -151,7 +150,7 @@ def validate_memory_usage_sample(sample: object, *, identity: dict[str, Any],
     """Validate root-read cgroup usage telemetry and its exact qualification identity."""
     sample = require_object(sample, "qualify.summary.memory_usage_sample")
     expected_fields = {
-        "schema", "oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id",
+        "schema", "guest_role", "oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id",
         "host_boot_id", "kernel_release", "systemd_version", "started_at_utc",
         "finished_at_utc", "scopes", "system_slice_direct_child_cgroups", "sample_sha256",
     }
@@ -159,12 +158,14 @@ def validate_memory_usage_sample(sample: object, *, identity: dict[str, Any],
         raise HarnessError("memory usage sample fields differ from the pinned schema")
     if sample.get("schema") != MEMORY_USAGE_SAMPLE_SCHEMA:
         raise HarnessError("memory usage sample schema is unsupported")
+    if guest_role not in {"host", "controller"} or sample.get("guest_role") != guest_role:
+        raise HarnessError("memory usage sample guest role differs from the pinned target")
     for key in ("oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id"):
         if sample.get(key) != identity.get(key):
             raise HarnessError(f"memory usage sample {key} differs from the pinned target")
     boot_id = require_text(sample.get("host_boot_id"), "memory usage sample host_boot_id")
     if not UUID_RE.fullmatch(boot_id) or boot_id != expected_boot_id:
-        raise HarnessError("memory usage sample boot ID differs from the accepted source host")
+        raise HarnessError("memory usage sample boot ID differs from the accepted guest")
     require_text(sample.get("kernel_release"), "memory usage sample kernel_release")
     systemd_version = require_text(sample.get("systemd_version"), "memory usage sample systemd_version")
     if systemd_version != expected_systemd_version:
@@ -175,17 +176,14 @@ def validate_memory_usage_sample(sample: object, *, identity: dict[str, Any],
         raise HarnessError("memory usage sample is stale or outside its exact qualification request")
 
     scopes = require_object(sample.get("scopes"), "memory usage sample scopes")
-    if set(scopes) != set(FLOOR_SCOPES):
-        raise HarnessError("memory usage sample must contain the host, controller, and system.slice scopes")
-    host_path = Path(expected_host_cgroup)
-    controller_path = Path(expected_controller_cgroup)
-    system_slice_path = host_path.parent
-    if (not host_path.is_absolute() or not controller_path.is_absolute() or
-            host_path.parent != controller_path.parent or system_slice_path.name != "system.slice"):
-        raise HarnessError("qualified host/controller cgroups do not share the expected system.slice")
+    if set(scopes) != {f"{guest_role}_service", "system_slice"}:
+        raise HarnessError("memory usage sample must contain the selected service and system.slice scopes")
+    service_path = Path(expected_service_cgroup)
+    system_slice_path = service_path.parent
+    if not service_path.is_absolute() or system_slice_path.name != "system.slice":
+        raise HarnessError("qualified service cgroup is outside the expected system.slice")
     expected_paths = {
-        "host_service": expected_host_cgroup,
-        "controller_service": expected_controller_cgroup,
+        f"{guest_role}_service": expected_service_cgroup,
         "system_slice": str(system_slice_path),
     }
     for scope, expected_path in expected_paths.items():
@@ -235,8 +233,8 @@ def validate_memory_usage_sample(sample: object, *, identity: dict[str, Any],
         raise HarnessError("memory usage sample system.slice child list is malformed or exceeds its fixed evidence bound")
     if children != sorted(set(children)):
         raise HarnessError("memory usage sample system.slice child list is malformed or unordered")
-    if not {host_path.name, controller_path.name}.issubset(set(children)):
-        raise HarnessError("memory usage sample system.slice does not list both protected service cgroups")
+    if service_path.name not in children:
+        raise HarnessError("memory usage sample system.slice does not list its protected service cgroup")
     digest = require_text(sample.get("sample_sha256"), "memory usage sample sample_sha256")
     unhashed = {key: value for key, value in sample.items() if key != "sample_sha256"}
     if not HASH_RE.fullmatch(digest) or hashlib.sha256(canonical_json_bytes(unhashed)).hexdigest() != digest:
@@ -419,11 +417,11 @@ def validate_transport(manifest: dict[str, Any], missing: list[str]) -> None:
     except HarnessError as error:
         missing.append(f"SSH executable pin: {error}")
     targets = require_object(ssh.get("targets"), "transport.ssh.targets")
-    if set(targets) != {"source", "peer"}:
-        raise HarnessError("transport.ssh.targets must contain exactly source and peer targets")
+    if set(targets) != {"source", "peer", "controller"}:
+        raise HarnessError("transport.ssh.targets must contain source, peer, and controller targets")
     member = manifest["managed_member"]
     target_ids: set[str] = set()
-    for label in ("source", "peer"):
+    for label in ("source", "peer", "controller"):
         target = require_object(targets[label], f"transport.ssh.targets.{label}")
         required = {"address", "user", "port", "host_key_alias", "known_hosts_path",
                     "known_hosts_sha256", "identity_file_path", "oci_instance_id"}
@@ -447,7 +445,7 @@ def validate_transport(manifest: dict[str, Any], missing: list[str]) -> None:
         if not OCI_INSTANCE_ID_RE.fullmatch(target["oci_instance_id"]):
             missing.append(f"transport.ssh.targets.{label}.oci_instance_id must be a real OCI instance OCID")
         if target["oci_instance_id"] in target_ids:
-            raise HarnessError("source and peer SSH targets must pin distinct OCI instance IDs")
+            raise HarnessError("SSH targets must pin distinct OCI instance IDs")
         target_ids.add(target["oci_instance_id"])
         verify_pinned_file(target.get("known_hosts_path"), target.get("known_hosts_sha256"),
                            f"{label} SSH known_hosts", missing)
@@ -455,6 +453,8 @@ def validate_transport(manifest: dict[str, Any], missing: list[str]) -> None:
                                f"{label} SSH identity file", missing)
     if targets["source"]["oci_instance_id"] != manifest["identity"]["oci_instance_id"]:
         raise HarnessError("source SSH target OCI instance ID differs from the target identity pin")
+    if targets["controller"]["oci_instance_id"] != manifest["controller_identity"]["oci_instance_id"]:
+        raise HarnessError("controller SSH target OCI instance ID differs from its target identity pin")
 
     https = require_object(transport.get("https"), "transport.https")
     for label in ("source", "peer"):
@@ -531,6 +531,16 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
         image_identity_missing = None
     if identity["architecture"] != "aarch64":
         raise HarnessError("D15 target architecture must be aarch64")
+    controller_identity = require_object(manifest.get("controller_identity"), "controller_identity")
+    if set(controller_identity) != set(IDENTITY_KEYS):
+        raise HarnessError("controller_identity must pin the exact controller guest identity")
+    for key in IDENTITY_KEYS:
+        require_text(controller_identity.get(key), f"controller_identity.{key}")
+    if (controller_identity["architecture"] != "aarch64" or
+            controller_identity["cell"] != identity["cell"] or
+            controller_identity["environment"] != identity["environment"] or
+            controller_identity["oci_instance_id"] == identity["oci_instance_id"]):
+        raise HarnessError("controller identity must pin a distinct ARM guest in the same cell/environment")
     member_identity = validate_managed_member(manifest.get("managed_member"))
     if (member_identity["source"]["cell"] != identity["cell"] or
             member_identity["source"]["environment"] != identity["environment"]):
@@ -546,6 +556,10 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
         missing.append(missing_identity)
     if image_identity_missing:
         missing.append(image_identity_missing)
+    if not OCI_INSTANCE_ID_RE.fullmatch(controller_identity["oci_instance_id"]):
+        missing.append("controller_identity.oci_instance_id must be a real OCI instance OCID")
+    if not OCI_IMAGE_ID_RE.fullmatch(controller_identity["image_id"]):
+        missing.append("controller_identity.image_id must be the actual imported OCI image OCID")
     if authorization.get("live_stress_authorized") is not True:
         missing.append("OCI owner has not explicitly authorized live pressure")
     if not HASH_RE.fullmatch(str(authorization.get("owner_handoff_sha256", ""))):
@@ -556,8 +570,8 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
     if contract.get("frozen") is not True:
         missing.append("alpha host, database, target, and recovery adapter contract is not frozen")
     if (contract.get("schema") != ADAPTER_CONTRACT_SCHEMA or
-            type(contract.get("version")) is not int or contract.get("version") != 3):
-        missing.append(f"adapter contract must declare schema {ADAPTER_CONTRACT_SCHEMA!r} and version 3")
+            type(contract.get("version")) is not int or contract.get("version") != 4):
+        missing.append(f"adapter contract must declare schema {ADAPTER_CONTRACT_SCHEMA!r} and version 4")
     require_text(contract.get("id"), "adapter_contract.id")
     if contract.get("database_frontier_binding") != DATABASE_FRONTIER_BINDING:
         missing.append("adapter contract must bind ObjectDurable event identity to the matching v1 serving proof")
@@ -607,6 +621,30 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
             qualification["expected_memory_low_bytes"] + qualification["expected_controller_memory_low_bytes"] or
             qualification["expected_system_slice_memory_low_bytes"] > qualification["system_reserve_bytes"]):
         raise HarnessError("service and system.slice floor values violate the signed reserve relationship")
+    controller_qualification = require_object(manifest.get("controller_qualification"),
+                                              "controller_qualification")
+    controller_keys = (
+        "expected_controller_memory_min_bytes", "expected_controller_memory_low_bytes",
+        "expected_system_slice_memory_min_bytes", "expected_system_slice_memory_low_bytes",
+        "system_reserve_bytes", "allocatable_memory_bytes",
+    )
+    if set(controller_qualification) != set(controller_keys):
+        raise HarnessError("controller_qualification must pin exact controller memory allocations")
+    for key in controller_keys:
+        value = require_int(controller_qualification.get(key), f"controller_qualification.{key}")
+        if value % page:
+            raise HarnessError(f"controller_qualification.{key} must be page aligned")
+    if (controller_qualification["expected_controller_memory_min_bytes"] >
+            controller_qualification["expected_controller_memory_low_bytes"] or
+            controller_qualification["expected_system_slice_memory_min_bytes"] <
+            controller_qualification["expected_controller_memory_min_bytes"] or
+            controller_qualification["expected_system_slice_memory_low_bytes"] <
+            controller_qualification["expected_controller_memory_low_bytes"] or
+            controller_qualification["expected_system_slice_memory_min_bytes"] >
+            controller_qualification["expected_system_slice_memory_low_bytes"] or
+            controller_qualification["expected_system_slice_memory_low_bytes"] >
+            controller_qualification["system_reserve_bytes"]):
+        raise HarnessError("controller service and system.slice floors violate its signed reserve")
 
     floor_evidence = require_object(manifest.get("memory_floor_evidence"), "memory_floor_evidence")
     for scope in FLOOR_SCOPES:
@@ -622,6 +660,22 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
         missing.extend(source_reasons)
         if evidence["basis"] != "measured" and not allow_allocations:
             missing.append(f"{scope} memory floors are allocations, not measured floors")
+    controller_floor_evidence = require_object(manifest.get("controller_memory_floor_evidence"),
+                                               "controller_memory_floor_evidence")
+    if set(controller_floor_evidence) != {"controller_service", "system_slice"}:
+        raise HarnessError("controller floor evidence must pin controller service and slice sources")
+    for scope, evidence_value in controller_floor_evidence.items():
+        evidence = require_object(evidence_value, f"controller_memory_floor_evidence.{scope}")
+        if evidence.get("basis") not in {"measured", "allocation"}:
+            raise HarnessError(f"controller_memory_floor_evidence.{scope}.basis must be measured or allocation")
+        require_text(evidence.get("source"), f"controller_memory_floor_evidence.{scope}.source")
+        observed_at = require_text(evidence.get("observed_at_utc"),
+                                   f"controller_memory_floor_evidence.{scope}.observed_at_utc")
+        parse_timestamp(observed_at, f"controller_memory_floor_evidence.{scope}.observed_at_utc")
+        verify_pinned_file(evidence.get("source_path"), evidence.get("source_sha256"),
+                           f"controller {scope} floor evidence", missing)
+        if evidence["basis"] != "measured" and not allow_allocations:
+            missing.append(f"controller {scope} memory floors are allocations, not measured floors")
 
     pressure = require_object(manifest.get("pressure"), "pressure")
     scenario = require_text(pressure.get("scenario"), "pressure.scenario")
@@ -1681,6 +1735,8 @@ def dry_run(manifest: dict[str, Any], manifest_hash: str) -> int:
         "pressure_started": False,
         "manifest_sha256": manifest_hash,
         "identity": identity,
+        "controller_identity": manifest["controller_identity"],
+        "controller_memory_floor_evidence": manifest["controller_memory_floor_evidence"],
         "adapter_source": {
             "python_path": adapter.get("python_path"),
             "python_sha256": adapter.get("python_sha256"),

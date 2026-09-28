@@ -1,8 +1,9 @@
 # Runtime priority qualification
 
 `qualify.py` has two read-only/profile-staging commands. It does not start
-load generators, restart systemd units, or write to a live target. The
-controller and host units require systemd 255 or newer; the host keeps
+load generators, restart systemd units, or write to a live target. Each
+`qualify --role` invocation inspects one guest. Controller and host units
+require systemd 255 or newer; the host keeps
 `Delegate=yes` and `DelegateSubgroup=supervisor` so the native runner can
 isolate workload cgroups.
 
@@ -12,8 +13,7 @@ requires an explicit profile ID, system reserve, and all six memory floors;
 it has no memory-floor defaults. Prefer values measured with the exact base
 image, kernel, and service configuration. If selected values are used before
 measurements exist, record them as allocations rather than measured results.
-For the selected
-1 OCPU/6 GiB preview placement, use the signed managed-host profile's
+For the selected 1 OCPU/6 GiB preview placement, use the managed-host profile's
 1 GiB `SystemReserveBytes`. The builder writes the reserve into a root-owned
 `/etc/terrascale-orchestrator/runtime-priority.json` profile and packages the
 renderer at
@@ -27,13 +27,13 @@ survives the tested workload.
 ## Render memory protection drop-ins
 
 The OCI image/profile preparer supplies page-aligned floor allocations and
-the selected signed managed-host reserve. Do not label selected allocations
-or fixture values as measured usage.
-The service
-minimum must be positive, no greater than its low value, and the service low
-value must fit within the signed `SystemReserveBytes`. The controller must be
-measured separately. The `system.slice` values must cover the aggregate of
-the controller and host service floors and fit within the same signed reserve.
+the selected reserve. Do not label selected allocations or fixture values as
+measured usage. The service minimum must be positive, no greater than its
+low value, and the service low value must fit within `SystemReserveBytes`.
+The controller must be measured separately on a controller guest. The image
+renderer requires the slice allocation to cover both unit floors. On a
+dedicated guest, the live probe checks that the slice covers its active role
+and fits the guest's reserve; it does not infer that both units run there.
 
 Run the renderer against an image staging root before packaging the image:
 
@@ -68,104 +68,99 @@ image and profile IDs. It also packages the canonical baked reserve profile at
 signed allocatable-plus-reserve budget against physical memory and every
 ancestor `memory.max`.
 
-## Verify a target guest
+## Verify each target guest
 
-After image boot and before the managed database role is launched, run the
-probe on that target guest with values from its signed placement profile and
-the exact artifact/configuration/profile IDs:
+The deployment has three dedicated controller VMs and separate ARM TerraBase
+workload VMs. Run the packaged probe on each selected controller and workload
+guest with that guest's own reviewed memory profile and exact
+OCI instance, image, artifact, configuration, and profile IDs. Controller
+and workload evidence must carry distinct instance and boot IDs. The live
+manifest pins separate controller floor-source artifacts for the controller
+service and its slice. One live manifest witnesses one controller guest; run
+separate role probes for the other controller VMs before claiming their unit
+settings are qualified.
 
-```sh
-/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py qualify \
-  --oci-instance-id "$OCI_INSTANCE_ID" \
-  --image-id "$IMAGE_ID" \
-  --artifact-id "$ARTIFACT_ID" \
-  --config-id "$CONFIG_ID" \
-  --profile-id "$PROFILE_ID" \
-  --expected-memory-min-bytes "$HOST_SERVICE_MEMORY_MIN_BYTES" \
-  --expected-memory-low-bytes "$HOST_SERVICE_MEMORY_LOW_BYTES" \
-  --expected-controller-memory-min-bytes "$CONTROLLER_MEMORY_MIN_BYTES" \
-  --expected-controller-memory-low-bytes "$CONTROLLER_MEMORY_LOW_BYTES" \
-  --expected-system-slice-memory-min-bytes "$SYSTEM_SLICE_MEMORY_MIN_BYTES" \
-  --expected-system-slice-memory-low-bytes "$SYSTEM_SLICE_MEMORY_LOW_BYTES" \
-  --system-reserve-bytes "$SIGNED_SYSTEM_RESERVE_BYTES" \
-  --allocatable-memory-bytes "$SIGNED_ALLOCATABLE_MEMORY_BYTES" \
-  --evidence-dir "$NEW_EVIDENCE_DIR"
-```
-
-After the managed database role starts, run it again with the observed
-TerraBase PID and signed per-role cap:
+On a workload guest, run the host probe before and after managed TerraBase
+launch. The second run includes the witnessed TerraBase PID and signed role cap:
 
 ```sh
 /usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py qualify \
-  --oci-instance-id "$OCI_INSTANCE_ID" \
-  --image-id "$IMAGE_ID" \
-  --artifact-id "$ARTIFACT_ID" \
-  --config-id "$CONFIG_ID" \
-  --profile-id "$PROFILE_ID" \
+  --role host \
+  --oci-instance-id "$HOST_OCI_INSTANCE_ID" \
+  --image-id "$HOST_IMAGE_ID" \
+  --artifact-id "$HOST_ARTIFACT_ID" \
+  --config-id "$HOST_CONFIG_ID" \
+  --profile-id "$HOST_PROFILE_ID" \
   --expected-memory-min-bytes "$HOST_SERVICE_MEMORY_MIN_BYTES" \
   --expected-memory-low-bytes "$HOST_SERVICE_MEMORY_LOW_BYTES" \
-  --expected-controller-memory-min-bytes "$CONTROLLER_MEMORY_MIN_BYTES" \
-  --expected-controller-memory-low-bytes "$CONTROLLER_MEMORY_LOW_BYTES" \
-  --expected-system-slice-memory-min-bytes "$SYSTEM_SLICE_MEMORY_MIN_BYTES" \
-  --expected-system-slice-memory-low-bytes "$SYSTEM_SLICE_MEMORY_LOW_BYTES" \
-  --system-reserve-bytes "$SIGNED_SYSTEM_RESERVE_BYTES" \
-  --allocatable-memory-bytes "$SIGNED_ALLOCATABLE_MEMORY_BYTES" \
+  --expected-system-slice-memory-min-bytes "$HOST_SYSTEM_SLICE_MEMORY_MIN_BYTES" \
+  --expected-system-slice-memory-low-bytes "$HOST_SYSTEM_SLICE_MEMORY_LOW_BYTES" \
+  --system-reserve-bytes "$HOST_SIGNED_SYSTEM_RESERVE_BYTES" \
+  --allocatable-memory-bytes "$HOST_SIGNED_ALLOCATABLE_MEMORY_BYTES" \
   --database-pid "$TERRABASE_PID" \
   --database-memory-max-bytes "$SIGNED_TERRABASE_CGROUP_MEMORY_MAX_BYTES" \
-  --evidence-dir "$NEW_ACTIVE_EVIDENCE_DIR"
+  --evidence-dir "$NEW_HOST_EVIDENCE_DIR"
 ```
 
-Each evidence directory must be new. `summary.json` records the repository
-revision when available, the packaged probe SHA-256, baked profile hash, unit
-hashes, systemd version, systemd properties, process `nice`,
-`oom_score_adj` and `ionice`, cgroup weights and limits, ancestor memory
-protections and the physical/ancestor memory budget. The summary also captures
-raw `memory.current`, `memory.peak`, and `memory.stat` for the host service,
-controller service, and aggregate `system.slice`. The sample includes exact
-cgroup paths and inodes, system.slice direct children, boot and OCI instance
-IDs, kernel/systemd versions, image/artifact/config/profile IDs, a UTC sampling window, and a
-canonical content hash. `commands.log` records
-the read-only systemd queries. The probe fails on missing or mismatched
-settings, a unit or ancestor with insufficient memory protection, inherited
-manager process priority, absent delegated controllers, or a role that is not
-bounded below the supervisor's CPU/I/O weights. It checks the native runner
-and role CPU quota against 75% of the host's effective affinity/ancestor CPU
-budget, leaving the rest available to the manager without limiting idle
-database burst capacity.
+Omit only `--database-pid` and `--database-memory-max-bytes` before the
+database process starts. On a controller guest, use its own values:
 
-The `memory_profile` fields are configured effective `MemoryMin`/`MemoryLow`
-values. The separate `memory_usage_sample` contains observed usage and does
-not relabel those allocations as measured floor sizing or infer headroom. The
-D15 runner checks its schema, hashes, scope, boot ID, target IDs, and sample
-time before retaining it. Each run records a baseline before pressure,
-samples during pressure, and a final sample after cleanup/recovery. A
-successful result applies only to the exact tested image/profile, configured
-limits, workload, and observed scenario; it does not assert a universal
-headroom rule.
+```sh
+/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py qualify \
+  --role controller \
+  --oci-instance-id "$CONTROLLER_OCI_INSTANCE_ID" \
+  --image-id "$CONTROLLER_IMAGE_ID" \
+  --artifact-id "$CONTROLLER_ARTIFACT_ID" \
+  --config-id "$CONTROLLER_CONFIG_ID" \
+  --profile-id "$CONTROLLER_PROFILE_ID" \
+  --expected-controller-memory-min-bytes "$CONTROLLER_MEMORY_MIN_BYTES" \
+  --expected-controller-memory-low-bytes "$CONTROLLER_MEMORY_LOW_BYTES" \
+  --expected-system-slice-memory-min-bytes "$CONTROLLER_SYSTEM_SLICE_MEMORY_MIN_BYTES" \
+  --expected-system-slice-memory-low-bytes "$CONTROLLER_SYSTEM_SLICE_MEMORY_LOW_BYTES" \
+  --system-reserve-bytes "$CONTROLLER_SIGNED_SYSTEM_RESERVE_BYTES" \
+  --allocatable-memory-bytes "$CONTROLLER_SIGNED_ALLOCATABLE_MEMORY_BYTES" \
+  --evidence-dir "$NEW_CONTROLLER_EVIDENCE_DIR"
+```
+
+Each evidence directory must be new. `summary.json` records the guest role,
+repository revision when available, packaged probe SHA-256, baked profile
+hash, active unit hash, systemd version, unit properties, process priority and
+OOM values, cgroup weights and limits, ancestor memory protection, and
+physical/ancestor budget. Its `memory_usage_sample` contains the active
+service and its `system.slice` on the same guest, with raw
+`memory.current`, `memory.peak`, and `memory.stat`, cgroup paths and
+inodes, boot and OCI instance IDs, kernel/systemd versions, image/artifact/
+config/profile IDs, a UTC window, and a canonical hash. `commands.log`
+retains the read-only systemd queries. The host probe also verifies native
+runner and role CPU/memory/I/O caps, OOM eligibility, and that TerraBase
+runs below the native workload runner.
+
+The `memory_profile` fields are configured effective `MemoryMin`/
+`MemoryLow` values. The separate `memory_usage_sample` contains observed
+usage. Neither field establishes measured floor adequacy by itself. The D15
+runner retains before, during, and after samples from both pinned guests.
+Its during observations must complete inside the worker's active pressure
+window. The read-only operator `hosts` query also must return fresh admitted
+source and peer reports and advances during pressure; this is the controller
+management response witness. A controller unit snapshot alone does not prove
+that the controller answered management requests.
 
 The probe is a preflight and state snapshot; it does not create pressure.
-OCI acceptance must separately run task-owned, bounded CPU, memory, and block
-I/O pressure against the managed workload while checking host/controller
-session continuity, host control responsiveness, database progress and the
-same effective cgroup values. Capture the pressure command, workload limits,
-timestamps, and before/during/after probe evidence under the OCI artifact and
-configuration IDs. A successful drop-in render or idle snapshot alone does
-not qualify survival under pressure.
+OCI acceptance must run bounded CPU, memory, and block I/O pressure against
+the managed workload while checking host management continuity, controller
+response, database progress, and effective cgroup values. Capture the pressure
+command, limits, timestamps, and before/during/after evidence under the
+actual OCI artifact/configuration IDs. A render or idle snapshot does not
+qualify survival under pressure.
 
-The target probe requires the baked profile to be canonical version-1 JSON
-owned by root with mode 0644 and no extra fields. Its `profile_id` and
-`system_reserve_bytes` must match the invocation values supplied from the
-signed placement profile. It hashes the installed service units under
-`/etc/systemd/system`; when run from the packaged helper path it records no
-Git revision and reports its own script hash instead.
-
-The units use `ManagedOOMPreference=omit`. systemd-oomd records this as the
-nonrecursive `user.oomd_omit=1` cgroup attribute. The service manager applies
-it to each unit cgroup; the native supervisor applies it to its `supervisor`
-subgroup. The TerraBase runner and role groups remain eligible for systemd-
-oomd and start with `nice=0`, `oom_score_adj=0`, and best-effort I/O priority
-4. These settings govern systemd-oomd selection; they do not claim that the
-manager cannot be killed by every kernel failure mode.
+The baked profile must be canonical version-1 JSON owned by root with mode
+0644 and no extra fields. Its profile ID and system reserve must match that
+guest's signed placement. The service unit hash is selected by guest role.
+Both units use `ManagedOOMPreference=omit`, which systemd-oomd applies
+nonrecursively. On a host guest, the native supervisor also sets
+`user.oomd_omit=1`; TerraBase runner and role groups remain eligible with
+reset nice, OOM score, and I/O priority. These protections do not cover
+kernel or host failure.
 
 ## Pressure runner and evidence adapters
 
@@ -179,12 +174,14 @@ The raw `HostStatus.verified` value is retained and must be `false`, as emitted
 by the controller's read-only reader. That output is controller-admitted data;
 it is not represented as a portable signature.
 
-The identity preflight compares each controller registration's OCI instance
-ID with its pinned SSH target and checks both targets' `uname` architecture.
-Through the already verified source SSH connection, it also reads only OCI
+The identity preflight compares source and peer controller-admitted host
+registrations with their pinned SSH targets, and checks source, peer, and
+controller `uname` architecture. Through the verified source and controller
+SSH connections, it reads only OCI
 metadata v2 `id`, `image`, `regionInfo/regionIdentifier`, and `shape` fields.
-It matches the live instance and imported image IDs to the source pins and
-compares the canonical region to the controller registration. It uses the
+It matches both live instance and imported image IDs to their separate
+manifest pins and checks that the controller is in the source cell's OCI
+region. It uses the
 fixed `169.254.169.254` endpoint, `Authorization: Bearer Oracle`, no proxy or
 redirect handling, and bounded direct HTTP requests. The raw metadata response
 and user data are never retained. Field names and the v2 header follow
@@ -197,14 +194,15 @@ python3 tests/runtime_priority/pressure.py dry-run \
   --manifest tests/runtime_priority/example-dry-run.json
 ```
 
-It has valid v3 structure and reserved example identities and paths. It has no
+It has valid v4 structure and reserved example identities and paths. It has no
 live authorization, available floor-source artifacts, credential or pin files,
 or frozen contract source, so it reports `UNQUALIFIED` without
 starting a command or creating evidence. Replace every example value from the
 real deployment handoff before considering a live run. In particular, pin the
-actual OCI instance, image, artifact, configuration and signed profile; both
-members and their scoped authorities; the read-only operator configuration;
-SSH targets, identity files and known-hosts files; HTTPS origins, private API
+actual source-host and controller OCI instance, image, artifact, configuration
+and signed profile; both members and their scoped authorities; the read-only
+operator configuration; source, peer, and controller SSH targets, identity
+files and known-hosts files; HTTPS origins, private API
 tokens and CA bundle; remote tool paths and hashes; and floor-source artifacts.
 The SSH account must have noninteractive `sudo` for the fixed
 systemd, journal and cgroup actions. The harness never deploys product files.
@@ -274,7 +272,9 @@ The runner always attempts to stop the exact run-named scope and remove its
 run-specific scratch path, including when startup or a fault fails. Cleanup
 must prove that no scope process, child cgroup, or scratch path remains. The
 final summary is `PASS` only after baseline, during-pressure, and final
-same-guest usage samples validate; all workers complete the requested
+role-bound source-host and controller usage samples validate, and both
+during-pressure samples complete in the active worker interval; all workers
+complete the requested
 duration; the selected failure and recovery evidence match the named
 scenario; the ObjectDurable event remains peer-visible; and cleanup is
 verified. Floor origin remains labelled `allocation` or `measured`; actual

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -44,7 +45,7 @@ class RuntimePriorityManifestTests(unittest.TestCase):
         self.manifest, self.manifest_wire = pressure.load_json(EXAMPLE)
         self.manifest_hash = hashlib.sha256(self.manifest_wire).hexdigest()
 
-    def test_example_is_a_structural_v3_dry_run_and_starts_no_command(self) -> None:
+    def test_example_is_a_structural_v4_dry_run_and_starts_no_command(self) -> None:
         reasons = pressure.validate_manifest(self.manifest, dry_run=True)
         self.assertIn("OCI owner has not explicitly authorized live pressure", reasons)
         self.assertIn("host_service memory floors are allocations, not measured floors", reasons)
@@ -139,6 +140,11 @@ class RuntimePriorityManifestTests(unittest.TestCase):
             evidence["source_path"], evidence["source_sha256"] = self.write_pinned_file(
                 root / f"{scope}-allocation.json", json.dumps({"scope": scope, "basis": "allocation"}).encode(),
             )
+        for scope, evidence in manifest["controller_memory_floor_evidence"].items():
+            evidence["source_path"], evidence["source_sha256"] = self.write_pinned_file(
+                root / f"controller-{scope}-allocation.json",
+                json.dumps({"guest": "controller", "scope": scope, "basis": "allocation"}).encode(),
+            )
 
         transport = manifest["transport"]
         operator = transport["operator"]
@@ -177,7 +183,7 @@ class RuntimePriorityManifestTests(unittest.TestCase):
             manifest = self.fully_pinned_allocation_manifest(Path(temporary))
             dry_reasons = pressure.validate_manifest(manifest, dry_run=True)
             self.assertEqual(len([reason for reason in dry_reasons if "allocations, not measured" in reason]),
-                             len(pressure.FLOOR_SCOPES))
+                             len(pressure.FLOOR_SCOPES) + 2)
             runnable_reasons = pressure.validate_manifest(
                 manifest, dry_run=True, allow_allocations=True,
             )
@@ -223,7 +229,8 @@ class RuntimePriorityManifestTests(unittest.TestCase):
             })
 
     def test_allocation_origin_only_passes_after_pressure_recovery_and_samples(self) -> None:
-        complete_phases = {"before", "during", "after"}
+        complete_phases = {f"{role}:{phase}" for role in ("host", "controller")
+                           for phase in ("before", "during", "after")}
         status, reasons = alpha_runner.evaluate_run_status(
             [], pressure_started=True, pressure_completed=True,
             scenario="terrabase_oom", recovery_observed=True,
@@ -250,7 +257,7 @@ class RuntimePriorityManifestTests(unittest.TestCase):
         incomplete, reasons = alpha_runner.evaluate_run_status(
             [], pressure_started=True, pressure_completed=True,
             scenario="management_stability", recovery_observed=False,
-            memory_sample_phases={"during", "after"},
+            memory_sample_phases=complete_phases - {"controller:before"},
         )
         self.assertEqual(incomplete, "UNQUALIFIED")
         self.assertIn("before", reasons[0])
@@ -276,7 +283,6 @@ class MemoryUsageSampleTests(unittest.TestCase):
         scopes = {}
         paths = {
             "host_service": (self.host_cgroup, 101),
-            "controller_service": (self.controller_cgroup, 102),
             "system_slice": ("/sys/fs/cgroup/system.slice", 100),
         }
         for name, (path, inode) in paths.items():
@@ -290,6 +296,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
             }
         sample: dict[str, object] = {
             "schema": pressure.MEMORY_USAGE_SAMPLE_SCHEMA,
+            "guest_role": "host",
             "oci_instance_id": self.identity["oci_instance_id"],
             **{key: self.identity[key] for key in ("image_id", "artifact_id", "config_id", "profile_id")},
             "host_boot_id": self.boot_id, "kernel_release": "6.8.0-test",
@@ -305,8 +312,8 @@ class MemoryUsageSampleTests(unittest.TestCase):
 
     def validate(self, sample: object) -> dict[str, object]:
         return pressure.validate_memory_usage_sample(
-            sample, identity=self.identity, expected_host_cgroup=self.host_cgroup,
-            expected_controller_cgroup=self.controller_cgroup, expected_boot_id=self.boot_id,
+            sample, identity=self.identity, guest_role="host",
+            expected_service_cgroup=self.host_cgroup, expected_boot_id=self.boot_id,
             expected_systemd_version="systemd 255 (test)",
             not_before=self.started - dt.timedelta(seconds=1),
             not_after=self.finished + dt.timedelta(seconds=1),
@@ -333,6 +340,28 @@ class MemoryUsageSampleTests(unittest.TestCase):
         self.seal(changed)
         with self.assertRaisesRegex(pressure.HarnessError, "exact unit scope"):
             self.validate(changed)
+
+    def test_controller_usage_sample_requires_its_own_identity_and_scope(self) -> None:
+        sample = self.sample()
+        controller_identity = self.manifest["controller_identity"]
+        sample.update({key: controller_identity[key] for key in (
+            "oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id",
+        )})
+        sample["guest_role"] = "controller"
+        sample["scopes"]["controller_service"] = sample["scopes"].pop("host_service")
+        sample["scopes"]["controller_service"]["cgroup_path"] = self.controller_cgroup
+        self.seal(sample)
+        kwargs = dict(identity=controller_identity, guest_role="controller",
+                      expected_service_cgroup=self.controller_cgroup,
+                      expected_boot_id=self.boot_id,
+                      expected_systemd_version="systemd 255 (test)",
+                      not_before=self.started - dt.timedelta(seconds=1),
+                      not_after=self.finished + dt.timedelta(seconds=1))
+        self.assertEqual(pressure.validate_memory_usage_sample(sample, **kwargs), sample)
+        sample["oci_instance_id"] = self.identity["oci_instance_id"]
+        self.seal(sample)
+        with self.assertRaisesRegex(pressure.HarnessError, "oci_instance_id"):
+            pressure.validate_memory_usage_sample(sample, **kwargs)
 
     def test_stale_or_malformed_raw_usage_is_rejected_even_with_resealed_hashes(self) -> None:
         changed = copy.deepcopy(self.sample())
@@ -398,30 +427,34 @@ class MemoryUsageSampleTests(unittest.TestCase):
             "host_boot_id": self.boot_id,
             "managed_identity": {"pid": 77, "cgroup": role_path},
         }}}
+        runner.service_snapshot = {alpha_runner.SOURCE_UNIT: {
+            "main_pid": 70, "process_start": "700",
+            "control_group": "/system.slice/terrascale-orchestrator-host.service",
+            "host_boot_id": self.boot_id,
+        }}
         sample = self.sample()
         summary = {
-            "status": "PASS", "qualifier_sha256": "1" * 64,
+            "status": "PASS", "guest_role": "host", "qualifier_sha256": "1" * 64,
+            "oci_instance_id": self.identity["oci_instance_id"],
+            "image_id": self.identity["image_id"],
             "unit_sha256": {
                 alpha_runner.SOURCE_UNIT: "2" * 64,
-                alpha_runner.CONTROLLER_UNIT: "3" * 64,
             },
             "systemd_version": "systemd 255 (test)",
             "artifact_id": self.identity["artifact_id"], "config_id": self.identity["config_id"],
             "profile_id": self.identity["profile_id"],
             "memory_profile": {
-                "service_memory_min_bytes": manifest["qualification"]["expected_memory_min_bytes"],
-                "service_memory_low_bytes": manifest["qualification"]["expected_memory_low_bytes"],
-                "controller_memory_min_bytes": manifest["qualification"]["expected_controller_memory_min_bytes"],
-                "controller_memory_low_bytes": manifest["qualification"]["expected_controller_memory_low_bytes"],
+                "host_memory_min_bytes": manifest["qualification"]["expected_memory_min_bytes"],
+                "host_memory_low_bytes": manifest["qualification"]["expected_memory_low_bytes"],
                 "system_slice_memory_min_bytes": manifest["qualification"]["expected_system_slice_memory_min_bytes"],
                 "system_slice_memory_low_bytes": manifest["qualification"]["expected_system_slice_memory_low_bytes"],
                 "system_reserve_bytes": manifest["qualification"]["system_reserve_bytes"],
                 "allocatable_memory_bytes": manifest["qualification"]["allocatable_memory_bytes"],
             },
-            "processes": {"terrabase": {"pid": 77, "cgroup": role_path}},
+            "processes": {"host_supervisor": {"pid": 70, "process_start_time": "700"},
+                          "terrabase": {"pid": 77, "cgroup": role_path}},
             "cgroups": {
                 "host_service": self.host_cgroup,
-                "controller_service": self.controller_cgroup,
                 "native_runner": "/sys/fs/cgroup/system.slice/terrascale-orchestrator-host.service/supervisor/runner",
                 "roles": {"terrabase": {"memory": {
                     "memory_max": str(manifest["qualification"]["database_memory_max_bytes"]),
@@ -434,7 +467,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
         summary_wire = json.dumps(summary, sort_keys=True, indent=2) + "\n"
         commands = "$ systemctl show\n"
         request = {
-            "request_id": "memory-sample-request",
+            "request_id": "memory-sample-request", "guest_role": "host",
             "sent_at_utc": timestamp(self.started - dt.timedelta(seconds=1)),
         }
         evidence = {
@@ -448,7 +481,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
         }
         runner._validate_qualifier(evidence, request, timestamp(), "before")
         self.assertEqual(runner.memory_usage_samples, [{
-            "phase": "before", "request_id": "memory-sample-request",
+            "phase": "before", "guest_role": "host", "request_id": "memory-sample-request",
             "sample_sha256": sample["sample_sha256"],
         }])
 
@@ -488,18 +521,18 @@ class MemoryUsageSampleTests(unittest.TestCase):
                 oci_instance_id=self.identity["oci_instance_id"],
                 image_id=self.identity["image_id"], artifact_id=self.identity["artifact_id"],
                 config_id=self.identity["config_id"], profile_id=self.identity["profile_id"],
+                role="host",
             )
             probe = qualify.Probe(args)
             with (mock.patch.object(qualify, "CGROUP_ROOT", root),
                   mock.patch.object(qualify, "PROC_ROOT", proc),
                   mock.patch.object(pressure, "CGROUP_ROOT", root)):
                 sample = probe.memory_usage_sample({
-                    "host_service": host, "controller_service": controller,
-                    "system_slice": system_slice,
+                    "host_service": host, "system_slice": system_slice,
                 }, "systemd 255 (test)")
                 validated = pressure.validate_memory_usage_sample(
-                    sample, identity=self.identity, expected_host_cgroup=str(host),
-                    expected_controller_cgroup=str(controller), expected_boot_id=self.boot_id,
+                    sample, identity=self.identity, guest_role="host",
+                    expected_service_cgroup=str(host), expected_boot_id=self.boot_id,
                     expected_systemd_version="systemd 255 (test)",
                     not_before=pressure.parse_timestamp(sample["started_at_utc"], "sample started_at"),
                     not_after=pressure.parse_timestamp(sample["finished_at_utc"], "sample finished_at"),
@@ -531,6 +564,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
                 oci_instance_id=self.identity["oci_instance_id"],
                 image_id=self.identity["image_id"], artifact_id=self.identity["artifact_id"],
                 config_id=self.identity["config_id"], profile_id=self.identity["profile_id"],
+                role="host",
             )
             probe = qualify.Probe(args)
             original_iterdir = Path.iterdir
@@ -549,8 +583,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
                   mock.patch.object(Path, "iterdir", tracked_iterdir)):
                 with self.assertRaisesRegex(qualify.QualificationError, "evidence bound"):
                     probe.memory_usage_sample({
-                        "host_service": host, "controller_service": controller,
-                        "system_slice": system_slice,
+                        "host_service": host, "system_slice": system_slice,
                     }, "systemd 255 (test)")
             self.assertLess(len(visited), 303)
 
@@ -572,6 +605,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
                 oci_instance_id=self.identity["oci_instance_id"],
                 image_id=self.identity["image_id"], artifact_id=self.identity["artifact_id"],
                 config_id=self.identity["config_id"], profile_id=self.identity["profile_id"],
+                role="host",
             )
             probe = qualify.Probe(args)
             original_open = os.open
@@ -592,8 +626,7 @@ class MemoryUsageSampleTests(unittest.TestCase):
                   mock.patch.object(qualify.os, "open", replace_after_open)):
                 with self.assertRaisesRegex(qualify.QualificationError, "changed before capture"):
                     probe.memory_usage_sample({
-                        "host_service": host, "controller_service": controller,
-                        "system_slice": system_slice,
+                        "host_service": host, "system_slice": system_slice,
                     }, "systemd 255 (test)")
             self.assertTrue(replaced)
 
@@ -1099,6 +1132,11 @@ class AlphaHostAndDatabaseEvidenceTests(unittest.TestCase):
         )
         runner.previous_services = copy.deepcopy(runner.baseline_services)
         runner._compare_services(current_services, "post_recovery")
+        changed_controller = copy.deepcopy(current_services)
+        changed_controller[alpha_runner.CONTROLLER_UNIT]["main_pid"] += 1
+        with self.assertRaisesRegex(pressure.HarnessError, "process identity/restart counter changed"):
+            runner._compare_services({alpha_runner.CONTROLLER_UNIT:
+                                      changed_controller[alpha_runner.CONTROLLER_UNIT]}, "post_recovery")
         self.assertEqual(accepted["members"]["source"]["epoch"], 2)
 
         for field, changed in (("session_id", "unexpected-peer-session"), ("epoch", 2)):
@@ -1166,7 +1204,12 @@ class AlphaHostAndDatabaseEvidenceTests(unittest.TestCase):
             "evidence": {
                 "operator_hosts_json": raw,
                 "operator_hosts_sha256": digest,
-                "architecture_by_member": {"source": "aarch64", "peer": "aarch64"},
+                "architecture_by_member": {"source": "aarch64", "peer": "aarch64", "controller": "aarch64"},
+                "controller_oci_metadata": {
+                    "instance_id": self.manifest["controller_identity"]["oci_instance_id"],
+                    "image_id": self.manifest["controller_identity"]["image_id"],
+                    "region": "sa-saopaulo-1", "shape": "VM.Standard.A1.Flex",
+                },
                 "source_oci_metadata": {
                     "instance_id": self.manifest["identity"]["oci_instance_id"],
                     "image_id": self.manifest["identity"]["image_id"],
@@ -1178,6 +1221,10 @@ class AlphaHostAndDatabaseEvidenceTests(unittest.TestCase):
 
         response["evidence"]["source_oci_metadata"]["image_id"] = "ocid1.image.other-region.not-the-imported-image"
         with self.assertRaisesRegex(pressure.HarnessError, "live OCI metadata"):
+            runner._validate_role("target_identity", "preflight", request, response)
+        response["evidence"]["source_oci_metadata"]["image_id"] = self.manifest["identity"]["image_id"]
+        response["evidence"]["controller_oci_metadata"]["instance_id"] = self.manifest["identity"]["oci_instance_id"]
+        with self.assertRaisesRegex(pressure.HarnessError, "pinned controller instance"):
             runner._validate_role("target_identity", "preflight", request, response)
 
     def test_object_durable_receipt_sequence_is_bound_to_exact_peer_read(self) -> None:
@@ -1421,6 +1468,78 @@ class AlphaPressureAndOomTests(unittest.TestCase):
         receipt["restored_memory_max_bytes"] -= pressure.os.sysconf("SC_PAGE_SIZE")
         with self.assertRaisesRegex(pressure.HarnessError, "not safely lowered and restored"):
             self.runner._validate_oom(evidence, request, timestamp(now))
+
+
+class GuestRoleTopologyTests(unittest.TestCase):
+    def test_during_pressure_peer_proof_must_finish_before_workers_end(self) -> None:
+        manifest, _ = pressure.load_json(EXAMPLE)
+        runner = alpha_runner.AdapterRunner(manifest, "a" * 64, Path("/unused/evidence"))
+        runner.pressure_started_at = dt.datetime.now(dt.timezone.utc)
+        runner.pressure_completed = False
+        snapshot = {"members": {"source": {}, "peer": {}}}
+        request: dict[str, object] = {}
+        response = {"observed_at_utc": timestamp(runner.pressure_started_at + dt.timedelta(seconds=10)),
+                    "evidence": {}}
+        with mock.patch.object(alpha_runner, "validate_report_evidence", return_value=snapshot):
+            runner._validate_role("host_status", "after_write", request, response)
+            response["observed_at_utc"] = timestamp(
+                runner.pressure_started_at + dt.timedelta(seconds=manifest["pressure"]["duration_seconds"] + 1)
+            )
+            with self.assertRaisesRegex(pressure.HarnessError, "did not complete during active pressure"):
+                runner._validate_role("host_status", "after_write", request, response)
+
+    def test_manifest_requires_distinct_pinned_controller_guest(self) -> None:
+        manifest, _ = pressure.load_json(EXAMPLE)
+        del manifest["controller_identity"]
+        with self.assertRaisesRegex(pressure.HarnessError, "controller_identity"):
+            pressure.validate_manifest(manifest, dry_run=True)
+
+        manifest, _ = pressure.load_json(EXAMPLE)
+        manifest["transport"]["ssh"]["targets"]["controller"]["oci_instance_id"] = (
+            "ocid1.instance.oc1.sa-saopaulo-1.other-controller-id"
+        )
+        with self.assertRaisesRegex(pressure.HarnessError, "controller SSH target OCI instance ID"):
+            pressure.validate_manifest(manifest, dry_run=True)
+
+    def test_controller_service_and_probe_route_to_controller_target(self) -> None:
+        request = {"guest_role": "controller"}
+        service = {"guest_role": "controller", "units": {}, "host_boot_id": "boot"}
+        with mock.patch.object(alpha_adapter, "_ssh", return_value=service) as ssh:
+            self.assertEqual(alpha_adapter._service_state(request), service)
+            ssh.assert_called_once_with(request, "controller", "service_state")
+        with mock.patch.object(alpha_adapter, "_ssh", return_value={
+                "summary": {}, "commands_log": "read-only\n"}) as ssh:
+            alpha_adapter._qualify({"guest_role": "controller", "request_id": "request"})
+            ssh.assert_called_once_with({"guest_role": "controller", "request_id": "request"},
+                                        "controller", "qualify")
+
+    def test_controller_probe_does_not_query_absent_host_unit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            unit_root = Path(temporary)
+            (unit_root / qualify.CONTROLLER_UNIT_DEFAULT).write_text("[Service]\n")
+            args = types.SimpleNamespace(role="controller", controller_unit=qualify.CONTROLLER_UNIT_DEFAULT,
+                                         host_unit=qualify.HOST_UNIT_DEFAULT, database_pid=None,
+                                         oci_instance_id="controller-ocid", image_id="image-ocid",
+                                         artifact_id="artifact", config_id="config", profile_id="profile")
+            probe = qualify.Probe(args)
+            service = qualify.CGROUP_ROOT / "system.slice" / qualify.CONTROLLER_UNIT_DEFAULT
+            probe.command = mock.Mock(return_value="systemd 255")
+            probe.unit = mock.Mock(return_value={"ControlGroup": "/system.slice/" + args.controller_unit})
+            probe.verify_baked_profile = mock.Mock(return_value={})
+            probe.assert_unit_priority = mock.Mock(return_value=42)
+            probe.assert_process = mock.Mock(return_value={"pid": 42, "cgroup": str(service)})
+            probe.verify_priority_cgroup = mock.Mock(return_value={"cpu_weight": 10000, "io_weight": 10000})
+            probe.verify_memory_budget = mock.Mock(return_value={})
+            probe.verify_oomd_policy = mock.Mock(return_value={})
+            probe.verify_host_runtime = mock.Mock(side_effect=AssertionError("host role queried"))
+            probe.source_identity = mock.Mock(return_value=(None, unit_root))
+            probe.memory_usage_sample = mock.Mock(return_value={})
+            with mock.patch.object(qualify, "normalize_cpu_max", return_value="max 100000"):
+                summary = probe.run()
+            self.assertEqual(summary["guest_role"], "controller")
+            self.assertEqual(set(summary["unit_sha256"]), {qualify.CONTROLLER_UNIT_DEFAULT})
+            probe.unit.assert_called_once_with(qualify.CONTROLLER_UNIT_DEFAULT)
+            probe.verify_host_runtime.assert_not_called()
 
 
 if __name__ == "__main__":

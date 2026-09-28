@@ -440,6 +440,8 @@ class AdapterRunner:
         self.contract_id = self.contract["id"]
         self.run_id = str(uuid.uuid4())
         self.identity = manifest["identity"]
+        self.controller_identity = manifest["controller_identity"]
+        self.controller_qualification = manifest["controller_qualification"]
         self.member = manifest["managed_member"]
         self.qualification = manifest["qualification"]
         self.pressure = manifest["pressure"]
@@ -457,7 +459,7 @@ class AdapterRunner:
         self.last_event_sequence_by_origin: dict[tuple[str, str, str, str], int] = {}
         self.last_database_receipt: dict[str, Any] | None = None
         self.database_operations: set[str] = set()
-        self.probe_fingerprint: dict[str, Any] | None = None
+        self.probe_fingerprint: dict[str, dict[str, Any]] = {}
         self.memory_usage_samples: list[dict[str, str]] = []
         self.native_runner_path: Path | None = None
         self.database_cgroup_path: Path | None = None
@@ -500,11 +502,13 @@ class AdapterRunner:
             "deadline_at_utc": (sent + dt.timedelta(seconds=deadline)).isoformat(
                 timespec="milliseconds").replace("+00:00", "Z"),
             "identity": self.identity,
+            "controller_identity": self.controller_identity,
             "managed_member": self.member,
             "transport": self.manifest["transport"],
             "adapter_source_path": adapter["source_path"],
             "adapter_source_sha256": adapter["source_sha256"],
             "qualification": self.qualification,
+            "controller_qualification": self.controller_qualification,
             "memory_floor_evidence": self.manifest["memory_floor_evidence"],
             "pressure": self.pressure,
             "evidence_dir": str(self.evidence_dir),
@@ -517,7 +521,12 @@ class AdapterRunner:
             }
             request["document_id"] = str(uuid.uuid4())
             request["value"] = time.time_ns() % 2_000_000_000
-        if role == "qualify" and self.host_snapshot:
+        if role in {"qualify", "service_state"}:
+            guest_role = fields.get("guest_role")
+            if guest_role not in {"host", "controller"}:
+                raise HarnessError(f"{role} requires an explicit guest role")
+            request["guest_role"] = guest_role
+        if role == "qualify" and request["guest_role"] == "host" and self.host_snapshot:
             request["managed_process"] = self.host_snapshot["members"]["source"]["managed_identity"]
         if role == "host_status" and self.last_event is not None:
             request["pending_object_durable_event"] = self.last_event
@@ -683,9 +692,19 @@ class AdapterRunner:
                        response: dict[str, Any]) -> None:
         evidence = response["evidence"]
         observed_at = response["observed_at_utc"]
+        active_write_proof = (role == "host_status" and phase == "after_write" and
+                              self.pressure_started_at is not None and not self.pressure_completed)
+        if ((phase == "during" and role in {"service_state", "host_status", "qualify", "database_progress"}) or
+                active_write_proof):
+            observed = parse_timestamp(observed_at, f"{role} pressure observed_at_utc")
+            if (self.pressure_started_at is None or observed < self.pressure_started_at or
+                    observed >= self.pressure_started_at + dt.timedelta(
+                        seconds=self.pressure["duration_seconds"])):
+                raise HarnessError(f"{role} observation did not complete during active pressure")
         if role == "target_identity":
             if set(evidence) != {"operator_hosts_json", "operator_hosts_sha256",
-                                 "architecture_by_member", "source_oci_metadata"}:
+                                 "architecture_by_member", "source_oci_metadata",
+                                 "controller_oci_metadata"}:
                 raise HarnessError("target identity evidence does not match its alpha source schema")
             raw_hosts = require_text(evidence.get("operator_hosts_json"), "target_identity.operator_hosts_json")
             _verify_wire_hash(raw_hosts, evidence.get("operator_hosts_sha256"),
@@ -695,7 +714,7 @@ class AdapterRunner:
                 raise HarnessError("target identity HostStatus evidence must be an array")
             architectures = require_object(evidence.get("architecture_by_member"),
                                            "target_identity.architecture_by_member")
-            if architectures != {"source": "aarch64", "peer": "aarch64"}:
+            if architectures != {"source": "aarch64", "peer": "aarch64", "controller": "aarch64"}:
                 raise HarnessError("SSH targets do not report the pinned aarch64 architecture")
             target_ids = self.manifest["transport"]["ssh"]["targets"]
             registrations: dict[str, dict[str, Any]] = {}
@@ -732,6 +751,15 @@ class AdapterRunner:
                     metadata.get("region") != OCI_REGION_NAMES[source_oci["region"]] or
                     not isinstance(metadata.get("shape"), str) or not metadata["shape"]):
                 raise HarnessError("live OCI metadata does not match the pinned source instance, image and region")
+            controller_metadata = require_object(evidence.get("controller_oci_metadata"),
+                                                 "target_identity.controller_oci_metadata")
+            if (set(controller_metadata) != {"instance_id", "image_id", "region", "shape"} or
+                    controller_metadata.get("instance_id") != self.controller_identity["oci_instance_id"] or
+                    controller_metadata.get("image_id") != self.controller_identity["image_id"] or
+                    controller_metadata.get("region") != OCI_REGION_NAMES[source_oci["region"]] or
+                    not isinstance(controller_metadata.get("shape"), str) or
+                    not controller_metadata["shape"]):
+                raise HarnessError("live OCI metadata does not match the pinned controller instance, image and region")
         elif role == "host_status":
             snapshot = validate_report_evidence(
                 evidence, request, observed_at, self.member, self.previous_host_rows,
@@ -748,13 +776,17 @@ class AdapterRunner:
                 assert_event_covered(snapshot, self.member, self.last_event, self.last_database_receipt["event_sequence"])
                 self.last_event = None
         elif role == "service_state":
+            if evidence.get("guest_role") != request["guest_role"]:
+                raise HarnessError("service_state guest role differs from its request")
             current = self._parse_service_state(evidence, observed_at)
-            if not self.baseline_services:
-                self.baseline_services = current
-            else:
+            if all(unit in self.baseline_services for unit in current):
                 self._compare_services(current, phase)
-            self.previous_services = current
-            self.service_snapshot = current
+            else:
+                self.baseline_services.update(current)
+            self.previous_services.update(current)
+            if self.service_snapshot is None:
+                self.service_snapshot = {}
+            self.service_snapshot.update(current)
         elif role == "qualify":
             self._validate_qualifier(evidence, request, observed_at, phase)
         elif role == "database_progress":
@@ -797,18 +829,26 @@ class AdapterRunner:
                 self.oom_restore_unresolved_reason = None
 
     def _parse_service_state(self, evidence: dict[str, Any], observed_at: str) -> dict[str, Any]:
-        if set(evidence) != {"units", "host_boot_id"}:
+        if set(evidence) != {"guest_role", "units", "host_boot_id"}:
             raise HarnessError("service_state evidence must contain exact systemd snapshots and host boot ID")
+        guest_role = evidence.get("guest_role")
+        if guest_role not in {"host", "controller"}:
+            raise HarnessError("service_state has no valid guest role")
         units = require_object(evidence.get("units"), "service_state.units")
-        if set(units) != {SOURCE_UNIT, CONTROLLER_UNIT}:
-            raise HarnessError("service_state must observe the exact alpha host and controller units")
+        expected_unit = SOURCE_UNIT if guest_role == "host" else CONTROLLER_UNIT
+        if set(units) != {expected_unit}:
+            raise HarnessError("service_state must observe only its guest's exact unit")
         host_boot = evidence.get("host_boot_id")
         if not isinstance(host_boot, str) or not UUID_RE.fullmatch(host_boot):
             raise HarnessError("service_state host_boot_id is malformed")
-        if self.host_snapshot is not None and host_boot != self.host_snapshot["members"]["source"]["host_boot_id"]:
-            raise HarnessError("systemd and managed report witnesses disagree on the source host boot ID")
+        if guest_role == "host":
+            if (self.host_snapshot is not None and
+                    host_boot != self.host_snapshot["members"]["source"]["host_boot_id"]):
+                raise HarnessError("systemd and managed report witnesses disagree on the source host boot ID")
+        elif CONTROLLER_UNIT in self.baseline_services and host_boot != self.baseline_services[CONTROLLER_UNIT]["host_boot_id"]:
+            raise HarnessError("controller service boot ID changed during D15")
         result: dict[str, Any] = {}
-        for unit in (SOURCE_UNIT, CONTROLLER_UNIT):
+        for unit in (expected_unit,):
             row = require_object(units[unit], f"service_state.units.{unit}")
             if set(row) != {"systemctl_show_raw", "process_stat_raw", "process_cgroup_raw"}:
                 raise HarnessError(f"{unit} evidence must retain raw systemctl and /proc process identity")
@@ -831,6 +871,8 @@ class AdapterRunner:
             actual_pid, start = proc_stat_identity(stat_raw)
             actual_group = proc_cgroup_path(cgroup_raw)
             expected_group = CGROUP_ROOT / values["ControlGroup"].lstrip("/")
+            if guest_role == "host":
+                expected_group /= "supervisor"
             if actual_pid != pid or actual_group != expected_group:
                 raise HarnessError(f"{unit} raw /proc identity differs from systemd MainPID/ControlGroup")
             result[unit] = {
@@ -838,13 +880,14 @@ class AdapterRunner:
                 "control_group": values["ControlGroup"], "n_restarts": restarts,
                 "process_start": start, "process_stat_raw": stat_raw,
                 "process_cgroup_raw": cgroup_raw,
+                "host_boot_id": host_boot,
                 "observed_at": parse_timestamp(observed_at, "service_state observed_at_utc"),
             }
         return result
 
     def _compare_services(self, current: dict[str, Any], phase: str) -> None:
         scenario = self.pressure["scenario"]
-        for unit in (SOURCE_UNIT, CONTROLLER_UNIT):
+        for unit in current:
             old = self.previous_services[unit]
             now = current[unit]
             if old["control_group"] != now["control_group"]:
@@ -874,58 +917,81 @@ class AdapterRunner:
                 not isinstance(commands, str) or
                 hashlib.sha256(commands.encode("utf-8")).hexdigest() != probe["commands_sha256"]):
             raise HarnessError("qualify summary/commands log differs from its exact content hashes")
+        guest_role = request["guest_role"]
+        if summary.get("guest_role") != guest_role:
+            raise HarnessError("qualifier guest role differs from its pinned request")
+        identity = self.identity if guest_role == "host" else self.controller_identity
+        qualification = self.qualification if guest_role == "host" else self.controller_qualification
+        unit = SOURCE_UNIT if guest_role == "host" else CONTROLLER_UNIT
         units = summary.get("unit_sha256")
         if (not HASH_RE.fullmatch(str(summary.get("qualifier_sha256", ""))) or
-                type(units) is not dict or set(units) != {SOURCE_UNIT, CONTROLLER_UNIT} or
-                any(not HASH_RE.fullmatch(str(value)) for value in units.values())):
-            raise HarnessError("qualify summary omits the packaged probe and host/controller unit hashes")
+                type(units) is not dict or set(units) != {unit} or
+                not HASH_RE.fullmatch(str(units[unit]))):
+            raise HarnessError("qualify summary omits its packaged probe or role unit hash")
         fingerprint = {"qualifier_sha256": summary["qualifier_sha256"], "unit_sha256": units,
                        "systemd_version": summary.get("systemd_version")}
-        if self.probe_fingerprint is None:
-            self.probe_fingerprint = fingerprint
-        elif fingerprint != self.probe_fingerprint:
-            raise HarnessError("qualifier or systemd unit identity changed during D15")
-        for key in ("artifact_id", "config_id", "profile_id"):
-            if summary.get(key) != self.identity[key]:
-                raise HarnessError(f"qualify summary {key} differs from the pinned target")
+        previous_fingerprint = self.probe_fingerprint.get(guest_role)
+        if previous_fingerprint is None:
+            self.probe_fingerprint[guest_role] = fingerprint
+        elif fingerprint != previous_fingerprint:
+            raise HarnessError(f"{guest_role} qualifier or systemd unit identity changed during D15")
+        for key in ("oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id"):
+            if summary.get(key) != identity[key]:
+                raise HarnessError(f"{guest_role} qualify summary {key} differs from its pinned target")
         profile = require_object(summary.get("memory_profile"), "qualify.summary.memory_profile")
+        prefix = guest_role
         expected_profile = {
-            "service_memory_min_bytes": self.qualification["expected_memory_min_bytes"],
-            "service_memory_low_bytes": self.qualification["expected_memory_low_bytes"],
-            "controller_memory_min_bytes": self.qualification["expected_controller_memory_min_bytes"],
-            "controller_memory_low_bytes": self.qualification["expected_controller_memory_low_bytes"],
-            "system_slice_memory_min_bytes": self.qualification["expected_system_slice_memory_min_bytes"],
-            "system_slice_memory_low_bytes": self.qualification["expected_system_slice_memory_low_bytes"],
-            "system_reserve_bytes": self.qualification["system_reserve_bytes"],
-            "allocatable_memory_bytes": self.qualification["allocatable_memory_bytes"],
+            f"{prefix}_memory_min_bytes": qualification[f"expected_{'memory' if guest_role == 'host' else 'controller_memory'}_min_bytes"],
+            f"{prefix}_memory_low_bytes": qualification[f"expected_{'memory' if guest_role == 'host' else 'controller_memory'}_low_bytes"],
+            "system_slice_memory_min_bytes": qualification["expected_system_slice_memory_min_bytes"],
+            "system_slice_memory_low_bytes": qualification["expected_system_slice_memory_low_bytes"],
+            "system_reserve_bytes": qualification["system_reserve_bytes"],
+            "allocatable_memory_bytes": qualification["allocatable_memory_bytes"],
         }
         for key, expected in expected_profile.items():
             if profile.get(key) != expected:
-                raise HarnessError(f"qualify summary {key} differs from the pinned profile values")
-        if self.host_snapshot is None:
-            raise HarnessError("qualify must follow a current accepted operator hosts observation")
-        current = self.host_snapshot["members"]["source"]["managed_identity"]
+                raise HarnessError(f"{guest_role} qualify summary {key} differs from its pinned profile values")
+        if self.service_snapshot is None or unit not in self.service_snapshot:
+            raise HarnessError(f"{guest_role} qualify must follow a current service witness")
+        process_key = "host_supervisor" if guest_role == "host" else "controller"
         processes = require_object(summary.get("processes"), "qualify.summary.processes")
-        database = require_object(processes.get("terrabase"), "qualify.summary.processes.terrabase")
-        if database.get("pid") != current["pid"] or database.get("cgroup") != current["cgroup"]:
-            raise HarnessError("priority probe TerraBase identity differs from the accepted host report")
+        process = require_object(processes.get(process_key), f"qualify.summary.processes.{process_key}")
+        service = self.service_snapshot[unit]
+        if (process.get("pid") != service["main_pid"] or
+                process.get("process_start_time") != service["process_start"]):
+            raise HarnessError(f"{guest_role} qualifier process differs from the witnessed unit process")
         cgroups = require_object(summary.get("cgroups"), "qualify.summary.cgroups")
-        native, database_path, db_role = _qualified_role_cgroups(
-            cgroups.get("native_runner"), database.get("cgroup"),
-        )
-        if database_path != _cgroup_file_path(current["cgroup"]):
-            raise HarnessError("priority probe TerraBase cgroup differs from the accepted host report")
-        roles = require_object(cgroups.get("roles"), "qualify.summary.cgroups.roles")
-        if db_role not in roles:
-            raise HarnessError("qualifier summary does not identify the signed TerraBase role")
-        db_memory = require_object(roles[db_role].get("memory"), f"qualify role {db_role}.memory")
-        if db_memory.get("memory_max") != str(self.qualification["database_memory_max_bytes"]):
-            raise HarnessError("TerraBase cgroup memory.max differs from its signed profile cap")
-        if self.native_runner_path is None:
-            self.native_runner_path = native
-            self.database_cgroup_path = database_path
-        elif self.native_runner_path != native or self.database_cgroup_path != database_path:
-            raise HarnessError("native runner or TerraBase cgroup path changed during qualification")
+        service_path = require_text(cgroups.get(f"{guest_role}_service"), f"{guest_role} service cgroup")
+        if service_path != str(CGROUP_ROOT / service["control_group"].lstrip("/")):
+            raise HarnessError(f"{guest_role} qualifier cgroup differs from the witnessed unit")
+        if guest_role == "host":
+            if self.host_snapshot is None:
+                raise HarnessError("host qualify must follow a current accepted operator hosts observation")
+            current = self.host_snapshot["members"]["source"]["managed_identity"]
+            database = require_object(processes.get("terrabase"), "qualify.summary.processes.terrabase")
+            if database.get("pid") != current["pid"] or database.get("cgroup") != current["cgroup"]:
+                raise HarnessError("priority probe TerraBase identity differs from the accepted host report")
+            native, database_path, db_role = _qualified_role_cgroups(
+                cgroups.get("native_runner"), database.get("cgroup"),
+            )
+            if database_path != _cgroup_file_path(current["cgroup"]):
+                raise HarnessError("priority probe TerraBase cgroup differs from the accepted host report")
+            roles = require_object(cgroups.get("roles"), "qualify.summary.cgroups.roles")
+            if db_role not in roles:
+                raise HarnessError("qualifier summary does not identify the signed TerraBase role")
+            db_memory = require_object(roles[db_role].get("memory"), f"qualify role {db_role}.memory")
+            if db_memory.get("memory_max") != str(self.qualification["database_memory_max_bytes"]):
+                raise HarnessError("TerraBase cgroup memory.max differs from its signed profile cap")
+            if self.native_runner_path is None:
+                self.native_runner_path = native
+                self.database_cgroup_path = database_path
+            elif self.native_runner_path != native or self.database_cgroup_path != database_path:
+                raise HarnessError("native runner or TerraBase cgroup path changed during qualification")
+        else:
+            if (set(processes) != {"controller"} or
+                    set(cgroups) != {"controller_service", "controller_weights", "controller_cpu_max"} or
+                    not re.fullmatch(r"max [1-9][0-9]*", str(cgroups.get("controller_cpu_max", "")))):
+                raise HarnessError("controller qualifier must contain only controller role state")
         sent = parse_timestamp(request["sent_at_utc"], "qualify request sent_at_utc")
         finished = parse_timestamp(summary.get("finished_at_utc"), "qualify summary finished_at_utc")
         observed = parse_timestamp(observed_at, "qualify observed_at_utc")
@@ -933,17 +999,17 @@ class AdapterRunner:
         if not sent <= started <= finished <= observed:
             raise HarnessError("priority probe is stale or outside this exact request window")
         sample = pressure.validate_memory_usage_sample(
-            summary.get("memory_usage_sample"), identity=self.identity,
-            expected_host_cgroup=str(Path(cgroups["host_service"])),
-            expected_controller_cgroup=str(Path(cgroups["controller_service"])),
-            expected_boot_id=self.host_snapshot["members"]["source"]["host_boot_id"],
+            summary.get("memory_usage_sample"), identity=identity,
+            guest_role=guest_role, expected_service_cgroup=service_path,
+            expected_boot_id=service["host_boot_id"],
             expected_systemd_version=require_text(summary.get("systemd_version"),
                                                    "qualify.summary.systemd_version"),
             not_before=sent, not_after=finished,
         )
         sample_hash = require_text(sample.get("sample_sha256"), "memory usage sample sample_sha256")
         self.memory_usage_samples.append({
-            "phase": phase, "request_id": require_text(request.get("request_id"), "qualify request_id"),
+            "phase": phase, "guest_role": guest_role,
+            "request_id": require_text(request.get("request_id"), "qualify request_id"),
             "sample_sha256": sample_hash,
         })
 
@@ -1327,35 +1393,38 @@ class AdapterRunner:
                 max(unit_age, report_age) * 1000 > self.contract["target_witness_max_age_ms"]):
             raise HarnessError("host manager and accepted managed report witnesses are stale before SIGKILL")
         return {"kind": "host_manager", "unit": SOURCE_UNIT, "pid": unit["main_pid"],
-                "process_start": unit["process_start"], "cgroup": unit["control_group"],
+                "process_start": unit["process_start"],
+                "cgroup": unit["control_group"].rstrip("/") + "/supervisor",
                 "host_boot_id": self.host_snapshot["members"]["source"]["host_boot_id"],
                 "stat_raw": unit["process_stat_raw"], "cgroup_raw": unit["process_cgroup_raw"]}
 
     def _protected_processes(self) -> list[dict[str, Any]]:
         values = []
         if self.host_snapshot:
-            for label in ("source", "peer"):
-                row = self.host_snapshot["members"][label]
-                values.append({"kind": f"terrabase:{label}", **row["managed_identity"]})
-        if self.service_snapshot:
-            for unit, row in self.service_snapshot.items():
-                values.append({"kind": unit, "pid": row["main_pid"],
-                               "process_start": row["process_start"], "cgroup": row["control_group"]})
+            row = self.host_snapshot["members"]["source"]
+            values.append({"kind": "terrabase:source", **row["managed_identity"]})
+        if self.service_snapshot and SOURCE_UNIT in self.service_snapshot:
+            row = self.service_snapshot[SOURCE_UNIT]
+            values.append({"kind": SOURCE_UNIT, "pid": row["main_pid"],
+                           "process_start": row["process_start"],
+                           "cgroup": row["control_group"].rstrip("/") + "/supervisor"})
         return values
 
     def _protected_pids(self) -> set[int]:
         if self.host_snapshot is None:
             return set()
-        result = {row["managed_identity"]["pid"] for row in self.host_snapshot["members"].values()}
-        if self.service_snapshot:
-            result.update(row["main_pid"] for row in self.service_snapshot.values())
+        result = {self.host_snapshot["members"]["source"]["managed_identity"]["pid"]}
+        if self.service_snapshot and SOURCE_UNIT in self.service_snapshot:
+            result.add(self.service_snapshot[SOURCE_UNIT]["main_pid"])
         return result
 
     def recovery_observation(self) -> None:
         """Require a replacement accepted report/proof and a renewed peer-visible write."""
         self.call("host_status", "post_recovery", wait_for_running_report=True)
-        self.call("service_state", "post_recovery")
-        self.call("qualify", "post_recovery")
+        for guest_role in ("host", "controller"):
+            self.call("service_state", "post_recovery", guest_role=guest_role)
+        for guest_role in ("host", "controller"):
+            self.call("qualify", "post_recovery", guest_role=guest_role)
         self.call("database_progress", "post_recovery")
         self.call("host_status", "after_write", wait_for_running_report=True)
         if self.last_event is not None:
@@ -1396,10 +1465,12 @@ def evaluate_run_status(failures: list[str], *, pressure_started: bool,
         return "FAIL", ["all load workers did not complete the full configured duration"]
     if scenario != "management_stability" and not recovery_observed:
         return "FAIL", ["recovery evidence is incomplete"]
-    missing_phases = sorted({"before", "during", "after"} - memory_sample_phases)
+    required = {f"{guest_role}:{phase}" for guest_role in ("host", "controller")
+                for phase in ("before", "during", "after")}
+    missing_phases = sorted(required - memory_sample_phases)
     if missing_phases:
         return "UNQUALIFIED", [
-            "same-guest memory usage samples are missing phases: " + ", ".join(missing_phases),
+            "role-bound guest memory usage samples are missing phases: " + ", ".join(missing_phases),
         ]
     return "PASS", []
 
@@ -1419,8 +1490,10 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
             "schema": pressure.SCHEMA, "qualification_status": "UNQUALIFIED",
             "started_at_utc": utc_now(), "finished_at_utc": utc_now(),
             "manifest_sha256": manifest_hash, "identity": manifest["identity"],
+            "controller_identity": manifest["controller_identity"],
             "managed_member": manifest["managed_member"],
             "memory_floor_evidence": manifest["memory_floor_evidence"],
+            "controller_memory_floor_evidence": manifest["controller_memory_floor_evidence"],
             "pressure": manifest["pressure"],
             "missing_or_unqualified": sorted(set(missing)),
             "commands_executed": False, "pressure_started": False,
@@ -1440,8 +1513,10 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
     try:
         runner.call("target_identity", "preflight")
         runner.call("host_status", "before")
-        runner.call("service_state", "before")
-        runner.call("qualify", "before")
+        for guest_role in ("host", "controller"):
+            runner.call("service_state", "before", guest_role=guest_role)
+        for guest_role in ("host", "controller"):
+            runner.call("qualify", "before", guest_role=guest_role)
         runner.call("database_progress", "before")
         runner.call("host_status", "after_write")
         if runner.last_event is not None:
@@ -1472,14 +1547,16 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
                 scenario = manifest["pressure"]["scenario"]
                 runner.call("pressure_status", "pre_injection", pressure_handle=runner.handle)
                 if scenario == "terrabase_oom":
-                    runner.call("service_state", "pre_failure")
+                    for guest_role in ("controller", "host"):
+                        runner.call("service_state", "pre_failure", guest_role=guest_role)
                     runner.call("host_status", "pre_failure")
                     runner.call("kernel_oom_evidence", "during", wait_for_event=True)
                     fault_completed = runner.oom_observed
                     if fault_completed:
                         runner.recovery_observation()
                 else:
-                    runner.call("service_state", "pre_failure")
+                    for guest_role in ("controller", "host"):
+                        runner.call("service_state", "pre_failure", guest_role=guest_role)
                     runner.call("host_status", "pre_failure")
                     runner.call("failure_inject", "during", mode=scenario,
                                 pressure_handle=runner.handle)
@@ -1499,13 +1576,15 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
                     runner.call("kernel_oom_evidence", "during", wait_for_event=True)
                     if runner.oom_observed:
                         runner.recovery_observation()
-                runner.call("service_state", "during")
+                for guest_role in ("host", "controller"):
+                    runner.call("service_state", "during", guest_role=guest_role)
                 runner.call("host_status", "during", oom_window_open=(
                     manifest["pressure"]["scenario"] == "terrabase_oom" and
                     runner.pressure_started_at is not None and
                     dt.datetime.now(dt.timezone.utc) >= runner.pressure_started_at + dt.timedelta(
                         seconds=manifest["pressure"]["scenario_event_after_seconds"])))
-                runner.call("qualify", "during")
+                for guest_role in ("host", "controller"):
+                    runner.call("qualify", "during", guest_role=guest_role)
                 runner.call("database_progress", "during")
                 runner.call("host_status", "after_write")
                 if runner.last_event is not None:
@@ -1533,9 +1612,11 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
                         runner.oom_restore_unresolved_reason = f"cleanup adapter failed: {type(error).__name__}"
             if pressure_started:
                 try:
-                    runner.call("service_state", "after")
+                    for guest_role in ("host", "controller"):
+                        runner.call("service_state", "after", guest_role=guest_role)
                     runner.call("host_status", "after", wait_for_running_report=True)
-                    runner.call("qualify", "after")
+                    for guest_role in ("host", "controller"):
+                        runner.call("qualify", "after", guest_role=guest_role)
                     runner.call("database_progress", "after")
                     runner.call("host_status", "after_write", wait_for_running_report=True)
                     if runner.last_event is not None:
@@ -1548,7 +1629,8 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
                     except (HarnessError, OSError, ValueError, subprocess.SubprocessError) as error:
                         failures.append(str(error))
 
-    sample_phases = {sample["phase"] for sample in runner.memory_usage_samples}
+    sample_phases = {f"{sample['guest_role']}:{sample['phase']}"
+                     for sample in runner.memory_usage_samples}
     state, status_reasons = evaluate_run_status(
         failures, pressure_started=pressure_started,
         pressure_completed=runner.pressure_completed,
@@ -1564,18 +1646,28 @@ def run_qualification(manifest: dict[str, Any], manifest_wire: bytes,
         "harness_sha256": runner.harness_sha256, "manifest_sha256": manifest_hash,
         "run_id": runner.run_id, "adapter_contract": manifest["adapter_contract"],
         "authorization": manifest["authorization"], "identity": manifest["identity"],
+        "controller_identity": manifest["controller_identity"],
         "managed_member": manifest["managed_member"], "qualification": manifest["qualification"],
+        "controller_qualification": manifest["controller_qualification"],
         "memory_floor_evidence": manifest["memory_floor_evidence"], "pressure": manifest["pressure"],
+        "controller_memory_floor_evidence": manifest["controller_memory_floor_evidence"],
         "memory_usage_sampling": {
             "schema": pressure.MEMORY_USAGE_SAMPLE_SCHEMA,
-            "baseline_sample_sha256": next((sample["sample_sha256"]
-                                              for sample in runner.memory_usage_samples
-                                              if sample["phase"] == "before"), None),
+            "baseline_sample_sha256_by_guest": {
+                guest_role: next((sample["sample_sha256"]
+                                  for sample in runner.memory_usage_samples
+                                  if sample["phase"] == "before" and sample["guest_role"] == guest_role), None)
+                for guest_role in ("host", "controller")
+            },
             "sample_count": len(runner.memory_usage_samples),
             "sample_phases": sorted(sample_phases),
             "samples": runner.memory_usage_samples,
             "floor_basis_by_scope": {scope: manifest["memory_floor_evidence"][scope]["basis"]
                                       for scope in pressure.FLOOR_SCOPES},
+            "controller_floor_basis_by_scope": {
+                scope: evidence["basis"]
+                for scope, evidence in manifest["controller_memory_floor_evidence"].items()
+            },
         },
         "pressure_attempted": pressure_attempted, "pressure_started": pressure_started,
         "pressure_completed": runner.pressure_completed,

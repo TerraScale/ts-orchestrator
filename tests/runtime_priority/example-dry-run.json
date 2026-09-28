@@ -1,5 +1,5 @@
 {
-  "schema": "terrascale.runtime-priority-pressure/v3",
+  "schema": "terrascale.runtime-priority-pressure/v4",
   "repository_revision": "0000000000000000000000000000000000000000",
   "identity": {
     "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
@@ -17,8 +17,8 @@
     "owner_handoff_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
   "adapter_contract": {
-    "schema": "terrascale.d15.adapter-contract/v3",
-    "version": 3,
+    "schema": "terrascale.d15.adapter-contract/v4",
+    "version": 4,
     "id": "UNFROZEN-D15-INTERFACE",
     "frozen": false,
     "source_path": "/usr/local/lib/terrascale-d15/alpha_adapter.py",
@@ -147,6 +147,16 @@
           "known_hosts_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
           "identity_file_path": "/run/terrascale-d15/peer-key",
           "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer"
+        },
+        "controller": {
+          "address": "192.0.2.12",
+          "user": "qualification",
+          "port": 22,
+          "host_key_alias": "dry-run-controller",
+          "known_hosts_path": "/run/terrascale-d15/controller-known-hosts",
+          "known_hosts_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "identity_file_path": "/run/terrascale-d15/controller-key",
+          "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller"
         }
       }
     },
@@ -214,6 +224,40 @@
       "memory_max_bytes": 536870912,
       "io_weight": 1000,
       "io_device": "0:0"
+    }
+  },
+  "controller_identity": {
+    "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+    "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+    "artifact_id": "dry-run-artifact",
+    "config_id": "dry-run-controller-config",
+    "profile_id": "dry-run-controller-profile",
+    "architecture": "aarch64",
+    "cell": "gru",
+    "environment": "qualification"
+  },
+  "controller_qualification": {
+    "expected_controller_memory_min_bytes": 67108864,
+    "expected_controller_memory_low_bytes": 134217728,
+    "expected_system_slice_memory_min_bytes": 134217728,
+    "expected_system_slice_memory_low_bytes": 268435456,
+    "system_reserve_bytes": 1073741824,
+    "allocatable_memory_bytes": 5368709120
+  },
+  "controller_memory_floor_evidence": {
+    "controller_service": {
+      "basis": "allocation",
+      "source": "illustrative controller guest allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/controller-controller_service-floor.json",
+      "source_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    },
+    "system_slice": {
+      "basis": "allocation",
+      "source": "illustrative controller guest allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/controller-system_slice-floor.json",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
     }
   }
 }

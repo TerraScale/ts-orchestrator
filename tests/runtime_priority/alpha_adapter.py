@@ -299,37 +299,49 @@ def main():
     if action=="oci_metadata":
         emit({"oci_metadata":oci_instance_metadata()}); return
     if action=="service_state":
-        units={}; names=runtime["service_names"]
-        for unit in (names["host"],names["controller"]):
-            raw,values=properties(unit,["ActiveState","MainPID","ControlGroup","NRestarts"])
-            pid=int(values.get("MainPID","0"))
-            if pid<=1:
-                raise RuntimeError("service has no active main process")
-            root=Path("/proc")/str(pid)
-            units[unit]={"systemctl_show_raw":raw,"process_stat_raw":(root/"stat").read_text(),
-                         "process_cgroup_raw":(root/"cgroup").read_text()}
-        emit({"units":units,"host_boot_id":Path("/proc/sys/kernel/random/boot_id").read_text().strip()}); return
+        guest_role=req["guest_role"]
+        if guest_role not in {"host","controller"}:
+            raise RuntimeError("service state has no pinned guest role")
+        unit=runtime["service_names"][guest_role]
+        raw,values=properties(unit,["ActiveState","MainPID","ControlGroup","NRestarts"])
+        pid=int(values.get("MainPID","0"))
+        if pid<=1:
+            raise RuntimeError("service has no active main process")
+        root=Path("/proc")/str(pid)
+        emit({"guest_role":guest_role,"units":{unit:{"systemctl_show_raw":raw,
+              "process_stat_raw":(root/"stat").read_text(),
+              "process_cgroup_raw":(root/"cgroup").read_text()}},
+              "host_boot_id":Path("/proc/sys/kernel/random/boot_id").read_text().strip()}); return
     if action=="qualify":
         import tempfile
         with tempfile.TemporaryDirectory(prefix="terrascale-d15-qualify-",dir="/run") as temporary:
             evidence=Path(temporary)/"evidence"
-            q=req["qualification"]
+            guest_role=req["guest_role"]
+            if guest_role not in {"host","controller"}:
+                raise RuntimeError("qualifier has no pinned guest role")
+            identity=req["identity"] if guest_role=="host" else req["controller_identity"]
+            q=req["qualification"] if guest_role=="host" else req["controller_qualification"]
             argv=[runtime["remote_python_path"],runtime["qualify_path"],"qualify",
-                  "--artifact-id",req["identity"]["artifact_id"],"--config-id",req["identity"]["config_id"],
-                  "--image-id",req["identity"]["image_id"],
-                  "--oci-instance-id",req["identity"]["oci_instance_id"],
-                  "--profile-id",req["identity"]["profile_id"],
-                  "--expected-memory-min-bytes",str(q["expected_memory_min_bytes"]),
-                  "--expected-memory-low-bytes",str(q["expected_memory_low_bytes"]),
-                  "--expected-controller-memory-min-bytes",str(q["expected_controller_memory_min_bytes"]),
-                  "--expected-controller-memory-low-bytes",str(q["expected_controller_memory_low_bytes"]),
+                  "--role",guest_role,
+                  "--artifact-id",identity["artifact_id"],"--config-id",identity["config_id"],
+                  "--image-id",identity["image_id"],
+                  "--oci-instance-id",identity["oci_instance_id"],
+                  "--profile-id",identity["profile_id"],
                   "--expected-system-slice-memory-min-bytes",str(q["expected_system_slice_memory_min_bytes"]),
                   "--expected-system-slice-memory-low-bytes",str(q["expected_system_slice_memory_low_bytes"]),
                   "--system-reserve-bytes",str(q["system_reserve_bytes"]),
                   "--allocatable-memory-bytes",str(q["allocatable_memory_bytes"]),
-                  "--database-pid",str(req["managed_process"]["pid"]),
-                  "--database-memory-max-bytes",str(q["database_memory_max_bytes"]),
                   "--evidence-dir",str(evidence)]
+            if guest_role=="host":
+                argv.extend(["--expected-memory-min-bytes",str(q["expected_memory_min_bytes"]),
+                             "--expected-memory-low-bytes",str(q["expected_memory_low_bytes"]),
+                             "--database-pid",str(req["managed_process"]["pid"]),
+                             "--database-memory-max-bytes",str(q["database_memory_max_bytes"])])
+            else:
+                argv.extend(["--expected-controller-memory-min-bytes",
+                             str(q["expected_controller_memory_min_bytes"]),
+                             "--expected-controller-memory-low-bytes",
+                             str(q["expected_controller_memory_low_bytes"])])
             result=subprocess.run(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
                                   timeout=req["deadline_seconds"],check=False,
                                   env={"HOME":"/","LANG":"C","LC_ALL":"C","PATH":"/usr/bin:/bin"})
@@ -696,7 +708,8 @@ def main():
             raise RuntimeError("SIGKILL target changed from its immediate accepted witness")
         if target["kind"]=="host_manager":
             raw,values=properties(target["unit"],["ActiveState","MainPID","ControlGroup"])
-            if values.get("ActiveState")!="active" or int(values.get("MainPID","0"))!=pid or values.get("ControlGroup")!=target["cgroup"]:
+            if (values.get("ActiveState")!="active" or int(values.get("MainPID","0"))!=pid or
+                    values.get("ControlGroup","").rstrip("/")+"/supervisor"!=target["cgroup"]):
                 raise RuntimeError("host-manager unit no longer identifies the witnessed PID")
         requested=dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00","Z")
         os.kill(pid,signal.SIGKILL)
@@ -770,7 +783,7 @@ def _verify_transport(request: dict[str, Any]) -> None:
     _verify_pinned_file(operator["config_path"], operator["config_sha256"], "operator config")
     ssh = transport["ssh"]
     _verify_hash(ssh["executable_path"], ssh["executable_sha256"], "SSH executable", executable=True)
-    for label in ("source", "peer"):
+    for label in ("source", "peer", "controller"):
         target = ssh["targets"][label]
         _verify_pinned_file(target["known_hosts_path"], target["known_hosts_sha256"],
                             f"{label} known_hosts")
@@ -911,14 +924,16 @@ def _host_status(request: dict[str, Any]) -> dict[str, Any]:
 
 
 def _service_state(request: dict[str, Any]) -> dict[str, Any]:
-    evidence = _ssh(request, "source", "service_state")
-    if set(evidence) != {"units", "host_boot_id"}:
+    guest_role = request["guest_role"]
+    evidence = _ssh(request, "source" if guest_role == "host" else "controller", "service_state")
+    if set(evidence) != {"guest_role", "units", "host_boot_id"}:
         raise pressure.HarnessError("remote service state has an unexpected evidence shape")
     return evidence
 
 
 def _qualify(request: dict[str, Any]) -> dict[str, Any]:
-    result = _ssh(request, "source", "qualify")
+    guest_role = request["guest_role"]
+    result = _ssh(request, "source" if guest_role == "host" else "controller", "qualify")
     summary = result.get("summary")
     commands = result.get("commands_log")
     if type(summary) is not dict or not isinstance(commands, str):
@@ -1023,18 +1038,24 @@ def _dispatch(request: dict[str, Any]) -> dict[str, Any]:
         if role == "target_identity":
             source = _ssh(request, "source", "uname")
             peer = _ssh(request, "peer", "uname")
+            controller = _ssh(request, "controller", "uname")
             metadata = _ssh(request, "source", "oci_metadata")
-            if source.get("architecture") != request["identity"]["architecture"] or peer.get("architecture") != request["identity"]["architecture"]:
+            controller_metadata = _ssh(request, "controller", "oci_metadata")
+            if (source.get("architecture") != request["identity"]["architecture"] or
+                    peer.get("architecture") != request["identity"]["architecture"] or
+                    controller.get("architecture") != request["controller_identity"]["architecture"]):
                 raise pressure.HarnessError("SSH target architecture differs from the pinned ARM identity")
-            if set(metadata) != {"oci_metadata"}:
+            if set(metadata) != {"oci_metadata"} or set(controller_metadata) != {"oci_metadata"}:
                 raise pressure.HarnessError("OCI metadata action returned an unexpected evidence shape")
             return {
                 "operator_hosts_json": raw,
                 "operator_hosts_sha256": hashlib.sha256(raw.encode()).hexdigest(),
                 "architecture_by_member": {
                     "source": source["architecture"], "peer": peer["architecture"],
+                    "controller": controller["architecture"],
                 },
                 "source_oci_metadata": metadata["oci_metadata"],
+                "controller_oci_metadata": controller_metadata["oci_metadata"],
             }
         witnesses = {}
         for label in ("source", "peer"):
