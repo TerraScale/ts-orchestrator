@@ -304,7 +304,9 @@ def active_time_setting(data: bytes) -> bool:
             continue
         if line.startswith("["):
             section = line[1:].split("]", 1)[0].strip()
-        elif section == "Time" and re.match(r"^(?:NTP|FallbackNTP)\s*=", line):
+        elif section == "Time" and re.match(
+            r"^(?:NTP|FallbackNTP|PollIntervalMinSec|PollIntervalMaxSec)\s*=", line
+        ):
             return True
     return False
 
@@ -332,7 +334,7 @@ def audit_time_config(guest: Guest, work: Path) -> None:
         except RuntimeError as error:
             raise RuntimeError(f"unresolvable systemd timesyncd config symlink: {path}") from error
         if active_time_setting(data):
-            raise RuntimeError(f"base image has active NTP/FallbackNTP configuration: {path}")
+            raise RuntimeError(f"base image has active NTP/FallbackNTP or poll interval configuration: {path}")
     guest.assert_absent(TIME_CONFIG, "timesyncd config")
 
 

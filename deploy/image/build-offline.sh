@@ -360,6 +360,10 @@ for line_number, line in enumerate(config.splitlines(keepends=True), 1):
 	if not separator:
 		raise SystemExit(f"invalid timesyncd config line {line_number}")
 	key = key.strip()
+	if section == "Time" and key in ("PollIntervalMinSec", "PollIntervalMaxSec"):
+		# The kernel clock bound requires a short, image-pinned NTP poll interval.
+		# Do not let the input image asset replace this safety setting.
+		continue
 	if section == "Time" and key in server_lists:
 		value = value.strip()
 		if any(character in value for character in ("#", ";", chr(34), chr(39), chr(92))):
@@ -390,6 +394,7 @@ if section != "Time":
 normalized += "NTP=\nNTP=" + " ".join(server_lists["NTP"]) + "\nFallbackNTP=\n"
 if server_lists["FallbackNTP"]:
 	normalized += "FallbackNTP=" + " ".join(server_lists["FallbackNTP"]) + "\n"
+normalized += "PollIntervalMinSec=32\nPollIntervalMaxSec=64\n"
 normalized_path.write_bytes(normalized.encode("utf-8"))
 PY
 

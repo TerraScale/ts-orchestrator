@@ -546,7 +546,10 @@ printf '{}\\n'
         installed("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes(), 0o755)
         installed(RUNTIME_PRIORITY_HELPER_GUEST, RUNTIME_PRIORITY_QUALIFIER.read_bytes(), 0o755)
         installed(TIME_WAIT_SYNC_DROPIN, b"[Service]\nTimeoutStartSec=300s\n")
-        normalized_time = b"[Time]\nNTP=\nNTP=ntp.deployment.example\nFallbackNTP=\n"
+        normalized_time = (
+            b"[Time]\nNTP=\nNTP=ntp.deployment.example\nFallbackNTP=\n"
+            b"PollIntervalMinSec=32\nPollIntervalMaxSec=64\n"
+        )
         installed(TIMESYNCD_CONFIG_GUEST, normalized_time)
         self.assertIn(hashlib.sha256(normalized_time).hexdigest(), result.stdout)
         profile = json.dumps({
@@ -1079,15 +1082,17 @@ printf '{}\\n'
 
         self.timesyncd_config.write_bytes(
             b"# Systemd empty assignments reset earlier list members.\n"
-            b"[Time]\nPollIntervalSec=32\nNTP=198.19.8.1\nNTP=\nNTP=ntp.deployment.example\n"
+            b"[Time]\nPollIntervalMinSec=16\nPollIntervalMaxSec=2048\n"
+            b"NTP=198.19.8.1\nNTP=\nNTP=ntp.deployment.example\n"
             b"FallbackNTP=198.19.3.5\nFallbackNTP=\nFallbackNTP=fallback.deployment.example\n"
         )
         result = self.run_builder()
         self.assertEqual(result.returncode, 0, result.stderr)
         generated_timesyncd_config = (
             b"# Systemd empty assignments reset earlier list members.\n"
-            b"[Time]\nPollIntervalSec=32\nNTP=\nNTP=ntp.deployment.example\n"
+            b"[Time]\nNTP=\nNTP=ntp.deployment.example\n"
             b"FallbackNTP=\nFallbackNTP=fallback.deployment.example\n"
+            b"PollIntervalMinSec=32\nPollIntervalMaxSec=64\n"
         )
         self.assertEqual((self.base_image_root / TIMESYNCD_CONFIG_GUEST.lstrip("/")).read_bytes(), generated_timesyncd_config)
         self.assertNotIn(b"198.19.", (self.base_image_root / TIMESYNCD_CONFIG_GUEST.lstrip("/")).read_bytes())
@@ -1099,10 +1104,19 @@ printf '{}\\n'
         competing_config.write_text("[Time]\nNTP=base.example\n", encoding="utf-8")
         result = self.run_builder()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("base image has active NTP/FallbackNTP configuration", result.stderr)
+        self.assertIn("base image has active NTP/FallbackNTP or poll interval configuration", result.stderr)
         self.assertIn("/etc/systemd/timesyncd.conf.d/20-base.conf", result.stderr)
         self.assertFalse(self.output.exists())
         self.assertIn("guestfish-listen", self.events.read_text(encoding="utf-8"))
+
+    def test_competing_base_timesyncd_poll_interval_fails_closed(self) -> None:
+        competing = self.base_image_root / "etc/systemd/timesyncd.conf.d/zz-base.conf"
+        competing.parent.mkdir(parents=True)
+        competing.write_text("[Time]\nPollIntervalMaxSec=2048\n", encoding="utf-8")
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("base image has active NTP/FallbackNTP or poll interval configuration", result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_base_time_config_section_and_dropin_mask_precedence_are_respected(self) -> None:
         masked_name = "20-base.conf"

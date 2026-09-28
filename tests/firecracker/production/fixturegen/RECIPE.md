@@ -54,7 +54,9 @@ binding are separate checks: source pins do not establish the receipt's
 `ValidateProductionGuests` additionally checks canonical production configs,
 real-format NATS JWT/TLS credentials, credential digests, the guest OCI CA,
 host-only HTTPS and per-slot IMDS identities, and exact private network/time
-files. `fixturegen production-preflight` applies those gates with the source
+files. The signed timesync drop-in pins `PollIntervalMinSec=32` and
+`PollIntervalMaxSec=64`, matching the offline image builder. The
+`fixturegen production-preflight` command applies these gates with the source
 and image checks. `fixturegen stage` also rejects `/` or a plain host
 directory, requires a distinct ext4 mount, checks the guest service UID/GID
 and shipped units, installs the executable and signed guest files, refreshes

@@ -364,12 +364,18 @@ fallback defaults unless a fallback list was supplied. The effective lists
 must not contain the Firecracker qualification range. The normalized file is
 installed at
 `/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf`; the builder
-prints its SHA-256 for review. The deployment must provide reachable NTP
-endpoints for its network, and the builder does not bake the lab endpoint. The
+also pins `PollIntervalMinSec=32` and `PollIntervalMaxSec=64`, replacing any
+poll interval values in the input. The bounded polling limits unchecked growth
+of the kernel NTP maximum error between samples; admission still requires a
+fresh measured error no greater than 250 ms.
+The builder prints the installed config's SHA-256 for review. The deployment
+must provide reachable NTP endpoints for its network, and the builder does not
+bake the lab endpoint. The
 resulting config is part of the image signed by the normal release flow.
 
 Before installation, the builder fails closed if it finds an active static
-`NTP=` or `FallbackNTP=` assignment in the base image's timesyncd config. It
+`NTP=`, `FallbackNTP=`, `PollIntervalMinSec=`, or `PollIntervalMaxSec=` assignment
+in the base image's timesyncd config. It
 checks the systemd v255 main-file paths `/etc/systemd/timesyncd.conf` and
 `/usr/lib/systemd/timesyncd.conf`, with `/etc` taking precedence, and the
 drop-in paths `/etc/systemd/timesyncd.conf.d`,

@@ -46,7 +46,8 @@ func productionNetworkFiles(privateIP string) (map[string][]byte, error) {
 	return map[string][]byte{
 		guestNetworkPath: []byte("[Match]\nName=eth0\n[Network]\nAddress=" + privateIP +
 			"/24\n[Route]\nDestination=169.254.169.254/32\nGateway=" + fixtureGateway + "\n"),
-		guestTimesyncPath: []byte("[Time]\nNTP=" + fixtureGateway + "\nFallbackNTP=\nRootDistanceMaxSec=1\n"),
+		guestTimesyncPath: []byte("[Time]\nNTP=" + fixtureGateway +
+			"\nFallbackNTP=\nRootDistanceMaxSec=1\nPollIntervalMinSec=32\nPollIntervalMaxSec=64\n"),
 		guestHostsPath: []byte("127.0.0.1 localhost\n::1 localhost\n" + fixtureGateway +
 			" auth.sa-saopaulo-1.oraclecloud.com iaas.sa-saopaulo-1.oraclecloud.com objectstorage.sa-saopaulo-1.oraclecloud.com\n"),
 		guestCloudDisabledPath: []byte{},
