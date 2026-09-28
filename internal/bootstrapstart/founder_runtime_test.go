@@ -1323,25 +1323,25 @@ func TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete(t *tes
 	if err := caller.pinCandidate(t.Context(), snapshot, slot, instanceID); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err = caller.fresh(t.Context(), slot)
-	if err != nil {
-		t.Fatal(err)
+	// A previously observed candidate has aged out before result writing. The
+	// recovery path must reread the pinned instance instead of using these facts.
+	row := attempt.request.Row
+	observed := FounderOCIObservation{
+		InstanceOCID: instanceID, InstanceETag: "founder-instance-etag-" + slot,
+		PrimaryVNICID: "ocid1.vnic.oc1.sa-saopaulo-1." + slot,
+		BootVolumeID:  "ocid1.bootvolume.oc1.sa-saopaulo-1." + slot,
+		CompartmentID: row.CompartmentOCID, ImageID: row.ImageOCID,
+		PrivateIP: row.PrivateIP, Shape: row.Shape, WholeOCPUs: row.WholeOCPUs,
+		MemoryInGB: row.MemoryInGB, BootVolumeGB: row.BootVolumeGB, BootVPUsPerGB: 10,
+		ObservedAt:   snapshot.now,
+		observedMono: time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second),
 	}
-	observationAttempt, err := NewFounderOCIObservationAttempt(snapshot.peer, snapshot.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := caller.adapter.Observe(t.Context(), observationAttempt, caller.peerRefresh(slot), instanceID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
 	fake.instanceChanged = true
 	writes := objects.writes
 	if err := caller.completePeer(t.Context(), slot, observed); err == nil {
 		t.Fatal("changed instance produced a positive result from stale facts")
 	}
-	if fake.launches != 1 || fake.observations <= 1 || objects.writes != writes {
+	if fake.launches != 1 || fake.observations == 0 || objects.writes != writes {
 		t.Fatalf("changed instance touched founder ledger or relaunched: launches=%d observations=%d writes=%d/%d",
 			fake.launches, fake.observations, objects.writes, writes)
 	}

@@ -669,7 +669,7 @@ def current_object_head(namespace: str, bucket: str, name: str, region: str) -> 
         raise ValueError("OCI current object HEAD response is invalid") from error
     if not isinstance(headers, dict):
         fail("OCI current object HEAD response is invalid")
-    version_id = headers.get("opc-version-id")
+    version_id = headers.get("version-id")
     modified = headers.get("last-modified")
     try:
         size = int(headers["content-length"])
@@ -1008,7 +1008,7 @@ def import_estimate(plan: dict, inventory: dict, projection_path: pathlib.Path, 
     if phase == "post-import" and imported_path is None:
         fail("imported image OCID receipt is required")
     if imported_path is not None:
-        expected_roles = {"base", "final"} if phase == "post-import" else {"base"}
+        expected_roles = set(imports) if phase == "post-import" else {"base"}
         if phase == "pre-stage":
             fail("pre-stage cannot bind imported images")
         imported = import_receipt(imported_path, "images", projection_hash, expected_roles)
@@ -1861,9 +1861,9 @@ def main() -> None:
                     if previous.get("staged_versions_sha256") != sha256(args.previous_staged_versions):
                         fail("preceding base object receipt changed")
                     base = import_receipt(args.previous_staged_versions, "versions", sha256(args.projection), {"base"})
-                    both = import_receipt(args.staged_versions, "versions", sha256(args.projection), {"base", "final"})
-                    if base["base"] != both["base"]:
-                        fail("full staged receipt changed the admitted base object version")
+                    current = import_receipt(args.staged_versions, "versions", sha256(args.projection), set(imports))
+                    if base["base"] != current["base"]:
+                        fail("staged receipt changed the admitted base object version")
             if phase == "pre-import" and args.imported_images and previous.get("imported_images_sha256") is not None:
                 fail("base readback requires the preceding two-maximum pre-import admission")
             if phase == "post-import":

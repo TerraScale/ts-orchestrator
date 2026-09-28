@@ -3,6 +3,7 @@ import importlib.util
 import json
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 from copy import deepcopy
@@ -711,6 +712,83 @@ class PreviewAdmissionTests(unittest.TestCase):
                 "size": entry["bytes"], "last_modified": format_datetime(now, usegmt=True),
                 "head_at": now.isoformat()}
 
+    def test_base_only_pre_import_cli_accepts_uploaded_base_receipt(self):
+        directory, _, entries = self.import_case()
+        base_projection = directory / "base-projection.json"
+        base_projection.write_text(json.dumps({"schema_version": 1, "imports": [entries[0]]}))
+        projection_hash = preview.sha256(base_projection)
+        staged = directory / "base-staged.json"
+        staged.write_text(json.dumps({"schema_version": 1, "projection_sha256": projection_hash,
+                                      "versions": {"base": "new-base"}}))
+
+        bucket = self.inventory["buckets"][-1]
+        bucket["versions"].append({"name": entries[0]["object"]["key"], "version_id": "new-base",
+                                   "is_delete_marker": False, "size": entries[0]["bytes"],
+                                   "storage_tier": "Standard", "archival_state": None})
+        bucket["object_count"] += 1
+        bucket["bytes"] += entries[0]["bytes"]
+        self.inventory["current_objects"] = [self.current_head(entries[0])]
+        inventory_path = directory / "import-inventory.json"
+        inventory_path.write_text(json.dumps(self.inventory))
+        estimate = preview.import_estimate(self.plan, self.inventory, base_projection, "pre-stage",
+                                           staged, plan_path=preview.PLAN)
+        admitted = dt.datetime.now(dt.timezone.utc)
+        previous = {"schema_version": 3, "phase": "pre-stage", "admitted_at": admitted.isoformat(),
+                    "expires_at": (admitted + dt.timedelta(minutes=15)).isoformat(),
+                    "plan_sha256": preview.sha256(preview.PLAN),
+                    "inventory_sha256": preview.sha256(inventory_path),
+                    "projection_sha256": projection_hash,
+                    "staged_versions_sha256": preview.sha256(staged),
+                    "imported_images_sha256": None, "estimate": estimate}
+        previous_path = directory / "upload-readback-admission.json"
+        previous_path.write_text(json.dumps(previous))
+        output_path = directory / "pre-import-admission.json"
+        result = subprocess.run([
+            sys.executable, str(preview.ROOT / "preview.py"), "import-admit",
+            "--plan", str(preview.PLAN), "--inventory", str(inventory_path),
+            "--projection", str(base_projection), "--phase", "pre-import",
+            "--staged-versions", str(staged), "--previous-staged-versions", str(staged),
+            "--previous-admission", str(previous_path), "--out", str(output_path),
+        ], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        admitted_value = json.loads(output_path.read_text())
+        self.assertEqual(admitted_value["phase"], "pre-import")
+        self.assertEqual(admitted_value["staged_versions_sha256"], preview.sha256(staged))
+        self.assertEqual(admitted_value["estimate"]["object_projected_bytes"], 0)
+
+        self.inventory["images"].append({"region": self.plan["region"], "id": "ocid1.image.base",
+                                          "compartment_id": "ocid1.compartment.control",
+                                          "display_name": entries[0]["image"]["display_name"],
+                                          "lifecycle_state": "AVAILABLE", "billable_size_in_gbs": 2})
+        inventory_path.write_text(json.dumps(self.inventory))
+        images = directory / "base-images.json"
+        images.write_text(json.dumps({"schema_version": 1, "projection_sha256": projection_hash,
+                                      "images": {"base": "ocid1.image.base"}}))
+        image_readback = preview.import_estimate(self.plan, self.inventory, base_projection, "pre-import",
+                                                 staged, images, preview.PLAN)
+        readback_at = dt.datetime.now(dt.timezone.utc)
+        readback = {"schema_version": 3, "phase": "pre-import", "admitted_at": readback_at.isoformat(),
+                    "expires_at": (readback_at + dt.timedelta(minutes=15)).isoformat(),
+                    "plan_sha256": preview.sha256(preview.PLAN),
+                    "inventory_sha256": preview.sha256(inventory_path),
+                    "projection_sha256": projection_hash,
+                    "staged_versions_sha256": preview.sha256(staged),
+                    "imported_images_sha256": preview.sha256(images), "estimate": image_readback}
+        readback_path = directory / "base-image-readback-admission.json"
+        readback_path.write_text(json.dumps(readback))
+        reconcile_path = directory / "base-post-import-admission.json"
+        result = subprocess.run([
+            sys.executable, str(preview.ROOT / "preview.py"), "import-reconcile",
+            "--plan", str(preview.PLAN), "--inventory", str(inventory_path),
+            "--projection", str(base_projection), "--staged-versions", str(staged),
+            "--imported-images", str(images), "--previous-imported-images", str(images),
+            "--previous-admission", str(readback_path), "--out", str(reconcile_path),
+        ], capture_output=True, text=True, timeout=60, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        reconciled = json.loads(reconcile_path.read_text())
+        self.assertEqual(reconciled["phase"], "post-import")
+        self.assertEqual(reconciled["estimate"]["import_image_billed_gib"], "2")
+
     def test_full_projection_carries_exact_base_only_admission_lineage(self):
         directory, full_projection, entries = self.import_case()
         unapproved_inventory = directory / "unapproved-inventory.json"
@@ -964,16 +1042,17 @@ class PreviewAdmissionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid timestamps"):
             preview.verify_previous_import_admission(prior_path, "pre-stage", preview.sha256(projection), preview.PLAN)
 
-    def test_current_head_uses_unqualified_object_and_requires_version_header(self):
-        now = format_datetime(dt.datetime.now(dt.timezone.utc), usegmt=True)
-        response = {"opc-version-id": "v1", "content-length": "123", "last-modified": now}
+    def test_current_head_uses_oci_cli_version_header_and_requires_it(self):
+        response = {"version-id": "c1e5a9ab-ec20-428f-a7b2-ebe560b2bd5e",
+                    "content-length": "620224512", "last-modified": "Sun, 27 Sep 2026 23:56:25 GMT"}
         completed = subprocess.CompletedProcess([], 0, stdout=json.dumps(response), stderr="")
         with mock.patch.object(preview.subprocess, "run", return_value=completed) as run:
             current = preview.current_object_head("namespace", "bucket", "key", self.plan["region"])
-            self.assertEqual(current["version_id"], "v1")
-            self.assertEqual(current["size"], 123)
+            self.assertEqual(current["version_id"], "c1e5a9ab-ec20-428f-a7b2-ebe560b2bd5e")
+            self.assertEqual(current["size"], 620224512)
             self.assertNotIn("--version-id", run.call_args.args[0])
-        completed.stdout = json.dumps({"content-length": "123", "last-modified": now})
+        completed.stdout = json.dumps({"opc-version-id": "unsupported-alias", "content-length": "123",
+                                       "last-modified": "Sun, 27 Sep 2026 23:56:25 GMT"})
         with mock.patch.object(preview.subprocess, "run", return_value=completed):
             with self.assertRaisesRegex(ValueError, "version identity"):
                 preview.current_object_head("namespace", "bucket", "key", self.plan["region"])

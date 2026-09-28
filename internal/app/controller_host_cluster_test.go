@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,26 +31,28 @@ import (
 // three controller subscribers. This test keeps the real signed operator and
 // host protocols active across the loss of the broker the host is using.
 func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
-	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, false, false)
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, false, false, false)
 }
 
 // Legacy static NKeys remain an explicit TLS lab regression; production JWT
 // admission is exercised separately through the broker bridge.
-func TestLabTLSHostSessionSurvivesControllerLoss(t *testing.T) {
+func TestLabTLSHostSessionRecoversAfterControllerLoss(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		blackhole bool
+		name         string
+		blackhole    bool
+		forceRestart bool
 	}{
 		{name: "clean_kill"},
 		{name: "blackholed_socket", blackhole: true},
+		{name: "fenced_then_restarted", blackhole: true, forceRestart: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, test.blackhole)
+			testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, test.blackhole, test.forceRestart)
 		})
 	}
 }
 
-func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole bool) {
+func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole, forceRestart bool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 165*time.Second)
 	defer cancel()
 	root := t.TempDir()
@@ -123,6 +126,9 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			if err := os.WriteFile(filepath.Join(logDir, fmt.Sprintf("peer%d.log", index)), data, 0o600); err != nil {
 				t.Logf("preserve controller %d log: %v", index, err)
 			}
+			// The CI runner discards its container filesystem after a failed job.
+			// Include the controller stages in the retained test log as well.
+			t.Logf("controller peer%d log:\n%s", index, data)
 		}
 		t.Logf("controller logs: %s", logDir)
 	})
@@ -163,6 +169,18 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		t.Fatal(err)
 	}
 	defer hostRuntime.Close()
+	hostConn := hostRuntime.Conn()
+	if forceRestart {
+		// Keep every host connection on the controllable proxies. The normal
+		// lab client may learn direct broker URLs from NATS INFO messages.
+		options := hostConn.Opts
+		options.IgnoreDiscoveredServers = true
+		hostConn, err = options.Connect()
+		if err != nil {
+			t.Fatalf("connect isolated host through proxies: %v", err)
+		}
+		defer hostConn.Close()
+	}
 	runner := &inMemoryRunner{}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
@@ -180,10 +198,11 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			defer slog.SetDefault(originalLogger)
 		}
 	}
-	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		Conn: hostRuntime.Conn(), Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: agentRunner,
+	agentConfig := host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
+		Conn: hostConn, Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: agentRunner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
-		ClockCheck: controllerClockCheck(clock), SessionTrace: production && blackhole})
+		ClockCheck: controllerClockCheck(clock), SessionTrace: production && blackhole}
+	agent, err := host.NewAgent(agentConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +212,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	go func() { agentDone <- agent.Run(agentCtx) }()
 	firstSession := waitR3HostSession(t, ctx, operatorConfig, agentDone, time.Time{})
 	firstDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 1)
-	connected := hostRuntime.Conn().ConnectedUrl()
+	connected := hostConn.ConnectedUrl()
 	failedPeer := -1
 	for index, url := range hostURLs {
 		if connected == url {
@@ -222,21 +241,74 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	reconnectPoll := time.NewTicker(50 * time.Millisecond)
 	defer reconnectDeadline.Stop()
 	defer reconnectPoll.Stop()
-	for !hostRuntime.Conn().IsConnected() || hostRuntime.Conn().ConnectedUrl() == connected {
+	for !hostConn.IsConnected() || hostConn.ConnectedUrl() == connected {
 		select {
 		case err := <-agentDone:
 			t.Fatalf("host agent exited before reconnecting away from crashed controller: %v", err)
 		case <-reconnectDeadline.C:
-			t.Fatalf("host did not reconnect away from crashed controller %q within session headroom; current %q", connected, hostRuntime.Conn().ConnectedUrl())
+			t.Fatalf("host did not reconnect away from crashed controller %q within session headroom; current %q", connected, hostConn.ConnectedUrl())
 		case <-ctx.Done():
 			t.Fatalf("host reconnect interrupted after controller loss: %v", ctx.Err())
 		case <-reconnectPoll.C:
 		}
 	}
-	_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
-	if blackhole {
-		waitR3HostReconnect(t, ctx, hostRuntime.Conn(), hostURLs, urls, failedPeer,
-			&acceptedSessions, postCrashExpiry, postCrashAdvancements, agentDone)
+	if production && blackhole {
+		var stoppedErr error
+		var stopped bool
+		if forceRestart {
+			// Hide both surviving broker links until the old signed execution
+			// reserve expires. This exercises the supervisor restart path even
+			// when the controller backend recovers promptly in the lab.
+			for index := range proxies {
+				if index != failedPeer {
+					proxies[index].blocked.Store(true)
+				}
+			}
+			select {
+			case stoppedErr = <-agentDone:
+				stopped = true
+			case <-ctx.Done():
+				t.Fatalf("host did not fence while session links were blocked: %v", ctx.Err())
+			}
+		} else {
+			_, stoppedErr, stopped = observeR3HostSession(ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt)
+			if stoppedErr == nil {
+				stoppedErr, stopped = observeR3HostReconnect(ctx, hostConn, hostURLs, urls, failedPeer,
+					&acceptedSessions, postCrashExpiry, postCrashAdvancements, agentDone)
+			}
+		}
+		if stopped {
+			// A surviving NATS connection does not prove the JetStream session
+			// backend recovered before the old signed lease ran out. This is the
+			// host's fail-closed branch, followed by supervised restart.
+			assertR3HostFenced(t, ctx, runner, stopRunner, &acceptedSessions, stoppedErr)
+			t.Logf("host fenced during controller recovery: %v", stoppedErr)
+			oldSession, ok := acceptedSessions.latest()
+			if !ok {
+				t.Fatal("host did not trace the fenced signed session")
+			}
+			if forceRestart {
+				for index := range proxies {
+					if index != failedPeer {
+						proxies[index].blocked.Store(false)
+					}
+				}
+			}
+			agent, err = host.NewAgent(agentConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			agentCtx, stopAgent = context.WithCancel(ctx)
+			defer stopAgent()
+			agentDone = make(chan error, 1)
+			go func() { agentDone <- agent.Run(agentCtx) }()
+			_ = waitR3RestartedSession(t, ctx, operatorConfig, hostConn, hostURLs, urls, failedPeer,
+				&acceptedSessions, oldSession, agentDone)
+		} else if stoppedErr != nil {
+			t.Fatalf("host recovery observation failed: %v", stoppedErr)
+		}
+	} else {
+		_ = waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt, probe)
 	}
 	for index, child := range children {
 		if index != failedPeer {
@@ -248,7 +320,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		priorEpoch = before.Epoch
 	}
 	after := waitR3Authority(t, ctx, probe, priorEpoch, failedPeer)
-	t.Logf("host_url=%s authority_after=%+v", hostRuntime.Conn().ConnectedUrl(), after)
+	t.Logf("host_url=%s authority_after=%+v", hostConn.ConnectedUrl(), after)
 	operatorProbe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3,
 		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles})
 	if err != nil {
@@ -262,6 +334,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	if production && blackhole {
 		lastSession := waitR3HostSession(t, ctx, operatorConfig, agentDone, firstSession.SessionExpiresAt)
+		stopRunner.stoppedAt.Store(0)
 		for index, child := range children {
 			if index != failedPeer {
 				crashControllerChild(t, child)
@@ -270,22 +343,8 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		}
 		select {
 		case err := <-agentDone:
-			if err == nil || errors.Is(err, context.Canceled) {
-				t.Fatalf("host did not fail closed on quorum loss: %v", err)
-			}
-			if !strings.Contains(err.Error(), "host session execution reserve exhausted") {
-				t.Fatalf("host stopped for a reason other than signed lease reserve: %v", err)
-			}
-			stoppedAt := stopRunner.stoppedAt.Load()
-			acceptedUntil, _ := acceptedSessions.snapshot()
-			if stoppedAt == 0 || acceptedUntil == 0 || !time.Unix(0, stoppedAt).Before(time.Unix(0, acceptedUntil)) {
-				t.Fatalf("host workload stop missed accepted signed expiry: stopped_at=%s accepted_expiry=%s observed_expiry=%s err=%v",
-					time.Unix(0, stoppedAt), time.Unix(0, acceptedUntil), lastSession.SessionExpiresAt, err)
-			}
-			observed, observeErr := runner.Observe(ctx, "terrabase")
-			if observeErr != nil || observed.Running {
-				t.Fatalf("host retained workload after session loss: observed=%+v err=%v", observed, observeErr)
-			}
+			assertR3HostFenced(t, ctx, runner, stopRunner, &acceptedSessions, err)
+			t.Logf("host fenced before accepted expiry after quorum loss: observed_expiry=%s", lastSession.SessionExpiresAt)
 		case <-ctx.Done():
 			t.Fatalf("host did not fail closed after quorum loss: %v", ctx.Err())
 		}
@@ -324,11 +383,22 @@ type r3AcceptedSessionTrace struct {
 	mu           sync.Mutex
 	expiry       int64
 	advancements uint64
+	events       []r3AcceptedSessionEvent
 }
 
-func (trace *r3AcceptedSessionTrace) record(expiry int64) {
+type r3AcceptedSessionEvent struct {
+	sequence      uint64
+	phase         string
+	sessionIDHash string
+	expiresAt     time.Time
+}
+
+func (trace *r3AcceptedSessionTrace) record(event r3AcceptedSessionEvent) {
 	trace.mu.Lock()
 	defer trace.mu.Unlock()
+	event.sequence = uint64(len(trace.events) + 1)
+	trace.events = append(trace.events, event)
+	expiry := event.expiresAt.UnixNano()
 	if expiry > trace.expiry {
 		trace.expiry = expiry
 		trace.advancements++
@@ -341,20 +411,45 @@ func (trace *r3AcceptedSessionTrace) snapshot() (expiry int64, advancements uint
 	return trace.expiry, trace.advancements
 }
 
+func (trace *r3AcceptedSessionTrace) latest() (r3AcceptedSessionEvent, bool) {
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	if len(trace.events) == 0 {
+		return r3AcceptedSessionEvent{}, false
+	}
+	return trace.events[len(trace.events)-1], true
+}
+
+func (trace *r3AcceptedSessionTrace) eventsAfter(sequence uint64) []r3AcceptedSessionEvent {
+	trace.mu.Lock()
+	defer trace.mu.Unlock()
+	if sequence >= uint64(len(trace.events)) {
+		return nil
+	}
+	return slices.Clone(trace.events[sequence:])
+}
+
 func (h r3AcceptedSessionHandler) Enabled(ctx context.Context, level slog.Level) bool {
 	return h.next.Enabled(ctx, level)
 }
 
 func (h r3AcceptedSessionHandler) Handle(ctx context.Context, record slog.Record) error {
 	if record.Message == "host session accepted" {
+		var event r3AcceptedSessionEvent
 		record.Attrs(func(attr slog.Attr) bool {
-			if attr.Key == "expires_at" {
-				if expiry, err := time.Parse(time.RFC3339Nano, attr.Value.String()); err == nil {
-					h.sessions.record(expiry.UnixNano())
-				}
+			switch attr.Key {
+			case "phase":
+				event.phase = attr.Value.String()
+			case "session_id_hash":
+				event.sessionIDHash = attr.Value.String()
+			case "expires_at":
+				event.expiresAt, _ = time.Parse(time.RFC3339Nano, attr.Value.String())
 			}
 			return true
 		})
+		if event.phase != "" && event.sessionIDHash != "" && !event.expiresAt.IsZero() {
+			h.sessions.record(event)
+		}
 	}
 	return h.next.Handle(ctx, record)
 }
@@ -400,6 +495,23 @@ func callR3Operator(ctx context.Context, config, operation string, args ...strin
 
 func waitR3HostSession(t *testing.T, ctx context.Context, config string, agentDone <-chan error, after time.Time, probe ...*natscell.Runtime) host.HostStatus {
 	t.Helper()
+	status, err, stopped := observeR3HostSession(ctx, config, agentDone, after)
+	if stopped {
+		if len(probe) != 0 {
+			attempt, stop := context.WithTimeout(ctx, 2*time.Second)
+			snapshot, observeErr := authority.Observe(attempt, probe[0].JetStream(), "lab")
+			stop()
+			t.Logf("authority on host session failure: %+v, observe error: %v, probe_url=%s", snapshot, observeErr, probe[0].Conn().ConnectedUrl())
+		}
+		t.Fatalf("host agent exited before session renewal: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("host session did not renew after controller loss: %v", err)
+	}
+	return status
+}
+
+func observeR3HostSession(ctx context.Context, config string, agentDone <-chan error, after time.Time) (host.HostStatus, error, bool) {
 	var lastErr error
 	for ctx.Err() == nil {
 		attempt, stop := context.WithTimeout(ctx, 8*time.Second)
@@ -410,53 +522,132 @@ func waitR3HostSession(t *testing.T, ctx context.Context, config string, agentDo
 			err = json.Unmarshal(data, &statuses)
 			if err == nil && len(statuses) == 1 && statuses[0].SessionExpiresAt.After(after) &&
 				statuses[0].SessionExpiresAt.After(time.Now().Add(5*time.Second)) {
-				return statuses[0]
+				select {
+				case agentErr := <-agentDone:
+					return host.HostStatus{}, agentErr, true
+				default:
+				}
+				return statuses[0], nil, false
 			}
 		}
 		lastErr = err
 		select {
-		case err := <-agentDone:
-			if len(probe) != 0 {
-				attempt, stop := context.WithTimeout(ctx, 2*time.Second)
-				snapshot, observeErr := authority.Observe(attempt, probe[0].JetStream(), "lab")
-				stop()
-				t.Logf("authority on host session failure: %+v, observe error: %v, probe_url=%s", snapshot, observeErr, probe[0].Conn().ConnectedUrl())
-			}
-			t.Fatalf("host agent exited before session renewal: %v", err)
+		case agentErr := <-agentDone:
+			return host.HostStatus{}, agentErr, true
 		case <-ctx.Done():
 		case <-time.After(150 * time.Millisecond):
 		}
 	}
-	t.Fatalf("host session did not renew after controller loss: %v; last error %v", ctx.Err(), lastErr)
+	return host.HostStatus{}, fmt.Errorf("%w; last error %v", ctx.Err(), lastErr), false
+}
+
+func waitR3RestartedSession(t *testing.T, ctx context.Context, config string, conn *nats.Conn,
+	hostURLs, urls []string, failedPeer int, acceptedSessions *r3AcceptedSessionTrace,
+	oldSession r3AcceptedSessionEvent, agentDone <-chan error) host.HostStatus {
+	t.Helper()
+	var lastStatus host.HostStatus
+	var lastErr error
+	for ctx.Err() == nil {
+		var acquired, renewed r3AcceptedSessionEvent
+		for _, event := range acceptedSessions.eventsAfter(oldSession.sequence) {
+			if event.phase == "acquire" && event.sessionIDHash != oldSession.sessionIDHash {
+				acquired = event
+				renewed = r3AcceptedSessionEvent{}
+			}
+			if acquired.sequence != 0 && event.phase == "renew" &&
+				event.sequence > acquired.sequence && event.sessionIDHash == acquired.sessionIDHash &&
+				event.expiresAt.After(acquired.expiresAt) && event.expiresAt.After(time.Now().Add(5*time.Second)) {
+				renewed = event
+			}
+		}
+		if renewed.sequence != 0 && conn.IsConnected() &&
+			r3ConnectedToSurvivor(conn.ConnectedUrl(), hostURLs, urls, failedPeer) {
+			attempt, stop := context.WithTimeout(ctx, 2*time.Second)
+			data, err := callR3Operator(attempt, config, "hosts")
+			stop()
+			if err == nil {
+				var statuses []host.HostStatus
+				err = json.Unmarshal(data, &statuses)
+				if err == nil && len(statuses) == 1 {
+					lastStatus = statuses[0]
+					if !lastStatus.SessionExpiresAt.Before(renewed.expiresAt) &&
+						lastStatus.SessionExpiresAt.After(time.Now().Add(5*time.Second)) {
+						select {
+						case agentErr := <-agentDone:
+							t.Fatalf("restarted host agent exited after signed acquire and renew: %v", agentErr)
+						default:
+						}
+						t.Logf("restarted host accepted fresh signed session: old_hash=%s new_hash=%s acquire_expiry=%s renew_expiry=%s status_expiry=%s",
+							oldSession.sessionIDHash, acquired.sessionIDHash, acquired.expiresAt, renewed.expiresAt, lastStatus.SessionExpiresAt)
+						return lastStatus
+					}
+				}
+			}
+			lastErr = err
+		}
+		select {
+		case agentErr := <-agentDone:
+			t.Fatalf("restarted host agent exited before fresh signed acquire and renew: %v", agentErr)
+		case <-ctx.Done():
+		case <-time.After(150 * time.Millisecond):
+		}
+	}
+	t.Fatalf("restarted host did not accept a distinct signed acquisition and renewal on a surviving endpoint: old_hash=%s status_expiry=%s last_error=%v: %v",
+		oldSession.sessionIDHash, lastStatus.SessionExpiresAt, lastErr, ctx.Err())
 	return host.HostStatus{}
 }
 
-func waitR3HostReconnect(t *testing.T, ctx context.Context, conn *nats.Conn, hostURLs, urls []string,
-	failedPeer int, acceptedSessions *r3AcceptedSessionTrace, priorExpiry int64, priorAdvancements uint64,
-	agentDone <-chan error) {
+func assertR3HostFenced(t *testing.T, ctx context.Context, runner *inMemoryRunner, stopRunner *r3TimedStopRunner,
+	acceptedSessions *r3AcceptedSessionTrace, err error) {
 	t.Helper()
+	if err == nil || errors.Is(err, context.Canceled) {
+		t.Fatalf("host did not fail closed on session loss: %v", err)
+	}
+	if !strings.Contains(err.Error(), "host session execution reserve exhausted") {
+		t.Fatalf("host stopped for a reason other than signed lease reserve: %v", err)
+	}
+	stoppedAt := stopRunner.stoppedAt.Load()
+	acceptedUntil, _ := acceptedSessions.snapshot()
+	if stoppedAt == 0 || acceptedUntil == 0 || !time.Unix(0, stoppedAt).Before(time.Unix(0, acceptedUntil)) {
+		t.Fatalf("host workload stop missed accepted signed expiry: stopped_at=%s accepted_expiry=%s err=%v",
+			time.Unix(0, stoppedAt), time.Unix(0, acceptedUntil), err)
+	}
+	observed, observeErr := runner.Observe(ctx, "terrabase")
+	if observeErr != nil || observed.Running {
+		t.Fatalf("host retained workload after session loss: observed=%+v err=%v", observed, observeErr)
+	}
+}
+
+func observeR3HostReconnect(ctx context.Context, conn *nats.Conn, hostURLs, urls []string,
+	failedPeer int, acceptedSessions *r3AcceptedSessionTrace, priorExpiry int64, priorAdvancements uint64,
+	agentDone <-chan error) (error, bool) {
 	if priorExpiry == 0 {
-		t.Fatal("host session trace did not capture the accepted pre-failure session")
+		return errors.New("host session trace did not capture the accepted pre-failure session"), false
 	}
 	for ctx.Err() == nil {
 		connectedToSurvivor := conn.IsConnected() && r3ConnectedToSurvivor(conn.ConnectedUrl(), hostURLs, urls, failedPeer)
 		currentExpiry, currentAdvancements := acceptedSessions.snapshot()
 		if connectedToSurvivor && currentAdvancements >= priorAdvancements+2 &&
 			time.Unix(0, currentExpiry).After(time.Now().Add(5*time.Second)) {
-			return
+			select {
+			case err := <-agentDone:
+				return err, true
+			default:
+			}
+			return nil, false
 		}
 		select {
 		case err := <-agentDone:
-			t.Fatalf("host agent exited before reconnecting to a surviving controller and accepting a renewed session: %v", err)
+			return err, true
 		case <-ctx.Done():
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	currentExpiry, currentAdvancements := acceptedSessions.snapshot()
-	t.Fatalf("host did not reconnect to a surviving controller and accept renewed valid sessions: connected_to_survivor=%t prior_expiry=%s current_expiry=%s prior_advancements=%d current_advancements=%d: %v",
+	return fmt.Errorf("host did not reconnect to a surviving controller and accept renewed valid sessions: connected_to_survivor=%t prior_expiry=%s current_expiry=%s prior_advancements=%d current_advancements=%d: %w",
 		conn.IsConnected() && r3ConnectedToSurvivor(conn.ConnectedUrl(), hostURLs, urls, failedPeer),
 		time.Unix(0, priorExpiry).Format(time.RFC3339Nano), time.Unix(0, currentExpiry).Format(time.RFC3339Nano),
-		priorAdvancements, currentAdvancements, ctx.Err())
+		priorAdvancements, currentAdvancements, ctx.Err()), false
 }
 
 func r3ConnectedToSurvivor(currentURL string, hostURLs, urls []string, failedPeer int) bool {
