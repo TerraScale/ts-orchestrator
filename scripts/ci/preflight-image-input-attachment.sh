@@ -158,7 +158,6 @@ if ! jq -e --arg tag "$IMAGE_INPUT_TAG" \
 	--arg sha256 "$IMAGE_INPUT_MANIFEST_SHA256" \
 	--argjson bytes "$IMAGE_INPUT_MANIFEST_BYTES" '
   .schema == "terrascale.fj-attachment-probe.v1" and
-  .repository.private == false and
   .release.tag == $tag and .release.draft == false and
   .asset.name == "image-inputs.json" and
   .asset.size == $bytes and
@@ -167,10 +166,7 @@ if ! jq -e --arg tag "$IMAGE_INPUT_TAG" \
   .authenticated.matches_expected == true and
   .authenticated.body_bytes == $bytes and
   .authenticated.body_sha256 == $sha256 and
-  ((.release.draft == false and .repository.private == false and
-    .anonymous.skipped == false) or
-    ((.release.draft != false or .repository.private != false) and
-      .anonymous.skipped == true))
+  (.repository.private == false or .anonymous.skipped == true)
 ' <<<"$safe_probe_json" >/dev/null 2>"$work/probe-gate.stderr"; then
 	echo 'authenticated image-input attachment did not match its pinned digest and size' >&2
 	exit 1

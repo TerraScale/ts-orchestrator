@@ -72,6 +72,13 @@ def handler_for(state: State, root_origin: str | None = None):
             has_authorization = authorization is not None
             valid_token = authorization == f"token {FIXTURE_TOKEN}"
             state.record(path, has_authorization)
+            attachment = {
+                "id": 33,
+                "uuid": ASSET_UUID,
+                "name": "image-inputs.json",
+                "size": state.asset_size,
+                "browser_download_url": state.browser_url,
+            }
 
             if root_origin is None and path == f"/objects/{ASSET_UUID}":
                 self.send_body(200, SUCCESS_BODY)
@@ -87,24 +94,18 @@ def handler_for(state: State, root_origin: str | None = None):
                 self.send_body(200, body, "application/json")
                 return
             if path == f"/api/v1/repos/TerraScale/ts-orchestrator/releases/tags/{TAG}":
-                browser_url = state.browser_url
                 release = {
                     "id": 22,
                     "tag_name": TAG,
                     "name": "fixture image inputs",
                     "draft": state.draft,
                     "prerelease": True,
-                    "assets": [
-                        {
-                            "id": 33,
-                            "uuid": ASSET_UUID,
-                            "name": "image-inputs.json",
-                            "size": state.asset_size,
-                            "browser_download_url": browser_url,
-                        }
-                    ],
+                    "assets": [attachment],
                 }
                 self.send_body(200, json.dumps(release).encode(), "application/json")
+                return
+            if path == "/api/v1/repos/TerraScale/ts-orchestrator/releases/22/assets/33":
+                self.send_body(200, json.dumps(attachment).encode(), "application/json")
                 return
             if path == f"/attachments/{ASSET_UUID}":
                 if state.mode == "error-body":
@@ -161,6 +162,9 @@ def run_probe(
         "TERM": "dumb",
         "LANG": "C.UTF-8",
     }
+    loader_path = os.environ.get("LD_LIBRARY_PATH")
+    if loader_path:
+        env["LD_LIBRARY_PATH"] = loader_path
     auth = subprocess.run(
         [str(binary), "--host", server_origin, "auth", "add-token"],
         input=f"{FIXTURE_TOKEN}\n",
@@ -214,6 +218,20 @@ def auth_requests(state: State) -> list[bool]:
 
 def assert_no_sensitive_output(result: subprocess.CompletedProcess[str]) -> None:
     combined = result.stdout + result.stderr
+    lines = combined.splitlines()
+    sanitized_lines = []
+    index = 0
+    while index < len(lines):
+        if (
+            lines[index] == "Location:"
+            and index + 1 < len(lines)
+            and lines[index + 1].lstrip().startswith("src/release/probe.rs:")
+        ):
+            index += 2
+            continue
+        sanitized_lines.append(lines[index])
+        index += 1
+    combined = "\n".join(sanitized_lines)
     for forbidden in (
         FIXTURE_TOKEN,
         ASSET_UUID,
@@ -399,6 +417,163 @@ def case_cross_origin_browser_url(
     assert_no_sensitive_output(result)
 
 
+def preflight_report(
+    private: bool | None,
+    *,
+    authenticated_status: int = 200,
+    authenticated_matches: bool = True,
+    anonymous_skipped: bool = True,
+    anonymous_status: int | None = None,
+) -> dict[str, object]:
+    authenticated_body_bytes = (
+        EXPECTED_MANIFEST_BYTES if authenticated_status == 200 else len(ERROR_BODY)
+    )
+    authenticated_body_sha256 = (
+        EXPECTED_MANIFEST_SHA256
+        if authenticated_status == 200
+        else hashlib.sha256(ERROR_BODY).hexdigest()
+    )
+    authenticated = {
+        "status": authenticated_status,
+        "sent_authorization": True,
+        "initial_origin": "https://forgejo.example",
+        "final_origin": "https://forgejo.example",
+        "redirect_count": 0,
+        "redirect_origins": [],
+        "body_bytes": authenticated_body_bytes,
+        "body_sha256": authenticated_body_sha256,
+        "matches_expected": authenticated_matches,
+        "error": None if authenticated_status == 200 else "http_status",
+    }
+    if anonymous_skipped:
+        anonymous = {
+            "skipped": True,
+            "status": None,
+            "initial_origin": None,
+            "final_origin": None,
+            "redirect_count": 0,
+            "redirect_origins": [],
+            "body_bytes": None,
+            "body_sha256": None,
+            "error": None,
+        }
+    else:
+        anonymous_body_bytes = (
+            EXPECTED_MANIFEST_BYTES if anonymous_status == 200 else len(ERROR_BODY)
+        )
+        anonymous_body_sha256 = (
+            EXPECTED_MANIFEST_SHA256
+            if anonymous_status == 200
+            else hashlib.sha256(ERROR_BODY).hexdigest()
+        )
+        anonymous = {
+            "skipped": False,
+            "status": anonymous_status,
+            "initial_origin": "https://forgejo.example",
+            "final_origin": "https://forgejo.example",
+            "redirect_count": 0,
+            "redirect_origins": [],
+            "body_bytes": anonymous_body_bytes,
+            "body_sha256": anonymous_body_sha256,
+            "error": None if anonymous_status == 200 else "http_status",
+        }
+    return {
+        "schema": "terrascale.fj-attachment-probe.v1",
+        "repository": {"private": private},
+        "server_version": "v16.0.5+gitea1.22",
+        "release": {
+            "tag": TAG,
+            "draft": False,
+            "prerelease": True,
+            "id": 22,
+        },
+        "asset": {"name": "image-inputs.json", "size": EXPECTED_MANIFEST_BYTES, "id": 33},
+        "url_comparison": {
+            "origin_equal": True,
+            "path_equal": True,
+            "query_equal": True,
+        },
+        "authenticated": authenticated,
+        "anonymous": anonymous,
+    }
+
+
+def case_preflight_gates(temp: Path) -> None:
+    preflight = Path(__file__).resolve().with_name("preflight-image-input-attachment.sh")
+    stub_source = """#!/usr/bin/env bash
+set -euo pipefail
+case ${1:-} in
+  auth) cat >/dev/null ;;
+  --host)
+    cat "$PREFLIGHT_REPORT_PATH"
+    exit "$PREFLIGHT_PROBE_STATUS"
+    ;;
+  *) exit 2 ;;
+esac
+"""
+
+    cases = (
+        ("private-success-skipped", preflight_report(True), True),
+        (
+            "public-success-anonymous-failure",
+            preflight_report(
+                False,
+                anonymous_skipped=False,
+                anonymous_status=404,
+            ),
+            True,
+        ),
+        (
+            "authenticated-failure-anonymous-success",
+            preflight_report(
+                False,
+                authenticated_status=404,
+                authenticated_matches=False,
+                anonymous_skipped=False,
+                anonymous_status=200,
+            ),
+            False,
+        ),
+    )
+    for name, report, should_pass in cases:
+        case_root = temp / f"preflight-{name}"
+        mock_bin = case_root / "bin"
+        runner_temp = case_root / "runner-temp"
+        mock_bin.mkdir(parents=True, mode=0o700)
+        runner_temp.mkdir(mode=0o700)
+        report_path = case_root / "report.json"
+        report_path.write_text(json.dumps(report))
+        fj = mock_bin / "fj"
+        fj.write_text(stub_source)
+        fj.chmod(0o700)
+        env = {
+            "PATH": f"{mock_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "RUNNER_TEMP": str(runner_temp),
+            "FORGEJO_TOKEN": "fixture-preflight-token-do-not-log",
+            "FORGEJO_SERVER_URL": "https://forgejo.example",
+            "IMAGE_INPUT_TAG": TAG,
+            "IMAGE_INPUT_MANIFEST_SHA256": EXPECTED_MANIFEST_SHA256,
+            "IMAGE_INPUT_MANIFEST_BYTES": str(EXPECTED_MANIFEST_BYTES),
+            "PREFLIGHT_REPORT_PATH": str(report_path),
+            "PREFLIGHT_PROBE_STATUS": "0" if report["authenticated"]["matches_expected"] else "1",
+        }
+        loader_path = os.environ.get("LD_LIBRARY_PATH")
+        if loader_path:
+            env["LD_LIBRARY_PATH"] = loader_path
+        result = subprocess.run(
+            ["bash", str(preflight)],
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+            timeout=20,
+        )
+        leaked_token = "fixture-preflight-token-do-not-log" in result.stdout + result.stderr
+        if leaked_token or (result.returncode == 0) != should_pass:
+            raise AssertionError(f"preflight case {name} had an unexpected result")
+    print("image-input preflight gate fixture passed cases=3")
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: test-fj-attachment-probe.py PATH_TO_PINNED_FJ", file=sys.stderr)
@@ -427,6 +602,7 @@ def main() -> int:
             case_cross_origin_browser_url(
                 binary, root_state, root_origin, sink_state, sink_origin, temp
             )
+            case_preflight_gates(temp)
     finally:
         stop_server(root, root_thread)
         stop_server(sink, sink_thread)
