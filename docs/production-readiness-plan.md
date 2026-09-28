@@ -249,7 +249,8 @@ source is [Oracle's VCN-local managed service](https://docs.oracle.com/en-us/iaa
 at `169.254.169.254` UDP/123; it needs guest chrony/timesyncd configuration
 and an effective route/firewall audit, but no service-gateway or NAT route.
 Stage signed artifacts in the pinned offline image and separately review the
-private operator path. Guest clocks must pass the production `adjtimex`
+private operator path; the GRU path is the
+[operator gateway](region-bootstrap.md#operator-gateway-peering). Guest clocks must pass the production `adjtimex`
 predicate (`TIME_OK`, no `STA_UNSYNC` or `STA_CLOCKERR`, maxerror at most
 250 ms), and actual service reachability must be demonstrated before workload
 admission.
@@ -348,7 +349,9 @@ priced subtotal.
 The unpriced or quantity-unknown items are actual VM and block-volume
 availability, exact volume retention and boot disposition, tenancy/contract/tax
 price differences, custom-image storage and licensing, VCN/gateway charges,
-private NTP and operator paths, eligible service traffic, data transfer and
+private NTP and operator paths (the GRU
+[operator gateway](region-bootstrap.md#operator-gateway-peering) adds no priced
+OCI resource), eligible service traffic, data transfer and
 any cross-region traffic, object retention and version-history growth, API
 request volume, logs and metrics volume, Vault tier and shared free-range
 consumption, and backup storage/lifecycle. The public catalog showing no

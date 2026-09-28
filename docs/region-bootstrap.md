@@ -26,7 +26,8 @@ for current scope and evidence.
 `generate-controller-material`, the first-seed commands, and the preview
 helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing
-Forgejo resources. For SFO or FRA, copy it to a separate reviewed plan and fill
+Forgejo resources and the [operator gateway](#operator-gateway-peering) that
+Forgejo VM hosts. For SFO or FRA, copy it to a separate reviewed plan and fill
 the cell, region, tenancy, availability domain, compartments, network, Vault,
 key, buckets, IAM identities, host credential secret, resource inventory, and
 cell-specific host profiles. Changing only `cell` and `region` is not enough.
@@ -54,6 +55,8 @@ cell has been deployed.
 | Regional foundation, bootstrap material, and first controller A | Runbook operator; assistant for the currently authorized GRU qualification, until explicit identity, authority, and inventory handoff |
 | Controllers B and C in the admitted cell | `ts-orchestrator` founder after the handoff |
 | ARM managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
+| Operator gateway peering: the LPG pair, the cell and Forgejo peering routes, and the gateway NSG rules | Runbook operator; `ts-orchestrator` never changes them |
+| NetBird server and routing peer on the Forgejo VM | Forgejo VM owner (HomeLab `ops/ts-forgejo-server/netbird/`) |
 | Shared Email Delivery | `ts-infra` (four email resources) |
 
 The handoff is a real ownership boundary. Do not launch B or C manually, run a
@@ -148,20 +151,179 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    permission alone does not authorize peer or workload provisioning.
 
    Also check Vault/KMS and Object Storage access, private routes,
-   service-gateway routes, and network security rules against the signed plan.
+   service-gateway routes, the operator gateway peering route and LPG pair,
+   and network security rules against the signed plan.
    The source plan may pin these values, but do not claim an automated check
    for any field unless the frozen inspector actually checks it.
 6. A stale inventory, expired admission, mismatched region or resource ID, or
    cost above the ceiling is a stop condition. The ceiling is an admission
    condition and remains a constraint on each resource action.
 
+## Operator gateway peering
+
+Operators reach the private cell through a NetBird routing peer on the Forgejo
+VM (`ts-forgejo-server`, private IP `10.250.10.155` in `ts-forgejo-vcn`
+`10.250.0.0/16`). The NetBird server and routing peer belong to that VM's owner
+and are documented in HomeLab `ops/ts-forgejo-server/netbird/`. This runbook
+owns only the OCI side: one local peering gateway (LPG) in each VCN, one route
+in each VCN's subnet route table, and the gateway rules in the cell NSGs. The
+routing peer masquerades, so every operator packet reaches the cell from
+`10.250.10.155`.
+
+| Cell NSG | Gateway access |
+| --- | --- |
+| Controller (`network_security_group`) | TCP 4222, the NATS mTLS bridge |
+| Seed SSH (`seed_ssh_network_security_group`, controller A only) | TCP 22 |
+| Member workload (`workload_network_security_group`) | TCP 9465, the TerraBase client API |
+
+The gateway never reaches 8443: host enrollment accepts only the enrolling
+instance's own private IP. The cell keeps no internet gateway, NAT gateway, or
+public IP, and its egress rules do not change; replies use the stateful ingress
+rules. The OCI Bastion and `operator --nats-forward` remain the break-glass
+path. LPGs have no separate charge, and the NetBird server adds no OCI resource
+to the cost admission.
+
+`preview.py` enforces this boundary. In the plan, `operator_gateway` must be a
+private address inside its own VCN that does not overlap the cell. Every NSG
+and security-list ingress source must be inside the cell or exactly the gateway
+`/32` on the ports above. Egress may reach only the cell, NTP, and Oracle
+services, and the route table must hold only the service-gateway route and the
+`10.250.10.155/32` peering route. Inventory admits only Forgejo's internet
+gateway and the recorded LPG pair, and fails on any DRG. `inspect-foundation`
+reads back both LPGs (`PEERED`, each other's peer, no LPG route table, exact
+advertised CIDRs), the member workload NSG, and the gateway VNIC (one primary
+VNIC at `10.250.10.155` with source/destination checks enabled).
+
+### Apply
+
+Start from a reviewed plan copy that declares `operator_gateway` with null LPG
+IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
+`SEED_SSH_NSG`, and `WORKLOAD_NSG` from that plan, and `FORGEJO_COMPARTMENT`,
+`FORGEJO_VCN`, and `FORGEJO_RT` from the Forgejo resource manifest.
+
+1. Take a read-only snapshot. Save both route tables with their ETags and all
+   three cell NSGs, and confirm that no LPG or DRG exists and that the only
+   internet gateway is Forgejo's:
+
+   ```sh
+   oci network route-table get --rt-id "$CELL_RT" > cell-rt-before.json
+   oci network route-table get --rt-id "$FORGEJO_RT" > forgejo-rt-before.json
+   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG"; do
+     oci network nsg rules list --nsg-id "$nsg" --all > "nsg-rules-$nsg-before.json"
+   done
+   for compartment in "$NETWORK_COMPARTMENT" "$FORGEJO_COMPARTMENT"; do
+     oci network local-peering-gateway list --compartment-id "$compartment" --all
+     oci network internet-gateway list --compartment-id "$compartment" --all
+     oci network drg list --compartment-id "$compartment" --all
+   done
+   ```
+
+   Then run `preview.py inventory` and `admit` against the plan copy.
+2. Create and connect the LPGs. Do not pass `--route-table-id`: an LPG route
+   table would let the peering carry traffic for other networks.
+
+   ```sh
+   CELL_LPG=$(oci network local-peering-gateway create \
+     --compartment-id "$NETWORK_COMPARTMENT" --vcn-id "$CELL_VCN" \
+     --display-name gru-ts-forgejo --wait-for-state AVAILABLE \
+     --query data.id --raw-output)
+   FORGEJO_LPG=$(oci network local-peering-gateway create \
+     --compartment-id "$FORGEJO_COMPARTMENT" --vcn-id "$FORGEJO_VCN" \
+     --display-name ts-forgejo-gru --wait-for-state AVAILABLE \
+     --query data.id --raw-output)
+   oci network local-peering-gateway connect \
+     --local-peering-gateway-id "$CELL_LPG" --peer-id "$FORGEJO_LPG"
+   ```
+
+   Both LPGs must read back `peering-status` `PEERED`, with the other VCN's CIDR
+   as `peer-advertised-cidr`.
+3. Add the gateway NSG rules while no route reaches them yet, and remove the
+   unused 7422 and 8080 controller rules:
+
+   ```sh
+   gateway_rule() {
+     printf '[{"direction":"INGRESS","protocol":"6","source":"10.250.10.155/32","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$1"
+   }
+   oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(gateway_rule 4222)"
+   oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(gateway_rule 22)"
+   oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(gateway_rule 9465)"
+   UNUSED_RULE_IDS=$(oci network nsg rules list --nsg-id "$CONTROL_NSG" --all \
+     --query 'data[?"tcp-options"."destination-port-range".min==`7422` || "tcp-options"."destination-port-range".min==`8080`].id')
+   oci network nsg rules remove --nsg-id "$CONTROL_NSG" --security-rule-ids "$UNUSED_RULE_IDS"
+   ```
+4. Add the routes. `route-table update` replaces the whole rule list, so derive
+   each list from the saved table, review the diff, and guard the write with
+   the saved ETag. The Forgejo table must keep its default route to the
+   internet gateway; losing it takes Forgejo offline.
+
+   ```sh
+   route_rules() {
+     jq --argjson extra "${2:-null}" '[.data["route-rules"][]
+       | {destination, destinationType: .["destination-type"],
+          networkEntityId: .["network-entity-id"], description}
+       | with_entries(select(.value != null))] + (if $extra then [$extra] else [] end)' "$1"
+   }
+   route_rules cell-rt-before.json > cell-rt-restore.json
+   route_rules forgejo-rt-before.json > forgejo-rt-restore.json
+   route_rules cell-rt-before.json \
+     "{\"destination\":\"10.250.10.155/32\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$CELL_LPG\"}" \
+     > cell-rt-rules.json
+   route_rules forgejo-rt-before.json \
+     "{\"destination\":\"10.251.0.0/24\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$FORGEJO_LPG\"}" \
+     > forgejo-rt-rules.json
+   diff cell-rt-restore.json cell-rt-rules.json
+   diff forgejo-rt-restore.json forgejo-rt-rules.json
+   oci network route-table update --rt-id "$CELL_RT" --route-rules file://cell-rt-rules.json \
+     --if-match "$(jq -r .etag cell-rt-before.json)" --force
+   oci network route-table update --rt-id "$FORGEJO_RT" --route-rules file://forgejo-rt-rules.json \
+     --if-match "$(jq -r .etag forgejo-rt-before.json)" --force
+   ```
+
+   Each diff must add exactly one rule. Right after the Forgejo update, confirm
+   `curl -fsS https://git.terrascale.tech/api/v1/version` and Git SSH still
+   work. If either fails, restore `forgejo-rt-restore.json` before anything
+   else.
+5. Record `CELL_LPG` as `resource_ids.local_peering_gateway` and `FORGEJO_LPG`
+   as `operator_gateway.local_peering_gateway_id` in the reviewed plan copy.
+   Then run `inventory`, `admit`, and `inspect-foundation`; all three must pass.
+6. From an enrolled NetBird operator device, check that TCP 4222 on the
+   controllers, 22 on controller A, and 9465 on members connect, and that 8443
+   and 6222 do not. `operator ... --config FILE` then dials the controllers'
+   private IPs directly, without `--nats-forward`.
+
+### Rollback
+
+Remove access in reverse order, so that no route outlives its target:
+
+1. Restore both route tables from `cell-rt-restore.json` and
+   `forgejo-rt-restore.json`, using the same ETag-guarded
+   `route-table update` with a fresh `get`.
+2. Remove every NSG rule whose source is the gateway:
+
+   ```sh
+   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG"; do
+     ids=$(oci network nsg rules list --nsg-id "$nsg" --all \
+       --query "data[?source=='10.250.10.155/32'].id")
+     oci network nsg rules remove --nsg-id "$nsg" --security-rule-ids "$ids"
+   done
+   ```
+3. Delete both LPGs with `oci network local-peering-gateway delete
+   --local-peering-gateway-id ID --force --wait-for-state TERMINATED`.
+4. In a new reviewed plan copy, set `operator_gateway` to `null` and remove the
+   gateway rules and the peering route. Then rerun `inventory`, `admit`, and
+   `inspect-foundation`.
+
+The 7422 and 8080 rules are not restored; nothing listens on those ports.
+
 ## Inter-region private networking (future authorization only)
 
 The current GRU qualification requires no inter-region link. Its reviewed plan
 uses VCN `10.251.0.0/24` and a local Oracle Services Network service-gateway
-route; it declares no DRG, remote peering connection (RPC), peer route, or peer
-ingress rule. Do not make another cell or a private link a GRU acceptance
-condition, and do not append a DRG route to the GRU example.
+route; it declares no DRG, remote peering connection (RPC), or inter-cell peer
+route or ingress rule. Its only peering is the same-region
+[operator gateway](#operator-gateway-peering) LPG pair. Do not make another cell
+or a private link a GRU acceptance condition, and do not append a DRG route to
+the GRU example.
 
 For a separately reviewed pair, the `inspect-private-peer` subcommand in
 `deploy/oci-region/preview.py` accepts `--pair-intent`, `--left-plan`,
