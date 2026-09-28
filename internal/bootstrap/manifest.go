@@ -41,7 +41,7 @@ var (
 	ErrIdentityMismatch = errors.New("bootstrap instance identity does not match receipt")
 	deploymentRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
 	clusterRE           = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	ociIDRE             = regexp.MustCompile(`^ocid1\.[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]*\.[a-z0-9-]+$`)
+	ociIDRE             = regexp.MustCompile(`^ocid1\.[a-z0-9-]+\.[a-z0-9-]+\.[a-z0-9-]*\.[a-z0-9-]+(?:\.[a-z0-9-]+)?$`)
 	sha256RE            = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	fileNameRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	slotNameRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$`)

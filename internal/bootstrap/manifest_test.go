@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -759,6 +760,33 @@ var _ SecretBundleReader = (*memorySecretReader)(nil)
 func TestManifestCurrentRootKeyTypeMatchesOCICompartmentOCID(t *testing.T) {
 	if !isOCID("ocid1.compartment.oc1..compartment", "compartment") {
 		t.Fatal("global OCI compartment OCID with an empty region was rejected")
+	}
+}
+
+func TestOCIDAcceptsOptionalFutureUseWithoutLosingTypeOrComponentChecks(t *testing.T) {
+	tests := []struct {
+		name, value, kind string
+		want              bool
+	}{
+		{name: "regional KMS key", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.uniquekey", kind: "key", want: true},
+		{name: "regional vault", value: "ocid1.vault.oc1.sa-saopaulo-1.vaultpart.uniquevault", kind: "vault", want: true},
+		{name: "regional instance", value: "ocid1.instance.oc1.sa-saopaulo-1.uniqueinstance", kind: "instance", want: true},
+		{name: "regional subnet", value: "ocid1.subnet.oc1.sa-saopaulo-1.uniquesubnet", kind: "subnet", want: true},
+		{name: "global compartment", value: "ocid1.compartment.oc1..uniquecompartment", kind: "compartment", want: true},
+		{name: "regional secret", value: "ocid1.vaultsecret.oc1.sa-saopaulo-1.uniquesecret", kind: "vaultsecret", want: true},
+		{name: "wrong kind", value: "ocid1.vault.oc1.sa-saopaulo-1.vaultpart.uniquevault", kind: "key"},
+		{name: "empty future-use component", value: "ocid1.key.oc1.sa-saopaulo-1..uniquekey", kind: "key"},
+		{name: "empty unique component", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.", kind: "key"},
+		{name: "extra component", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.extra.uniquekey", kind: "key"},
+		{name: "invalid character", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.unique_key", kind: "key"},
+		{name: "oversized", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart." + strings.Repeat("a", 220), kind: "key"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isOCID(test.value, test.kind); got != test.want {
+				t.Fatalf("isOCID(%q, %q) = %t, want %t", test.value, test.kind, got, test.want)
+			}
+		})
 	}
 }
 
