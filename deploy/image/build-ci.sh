@@ -40,17 +40,75 @@ go_release="$work/go-release"
 terrabase="$work/terrabase"
 mkdir -m 0700 "$inputs" "$go_release" "$terrabase"
 manifest="$inputs/image-inputs.json"
-fj release asset download "$IMAGE_INPUT_TAG" image-inputs.json -o "$manifest"
-[[ $(stat -c '%s' "$manifest") -le 65536 ]] || {
-	echo 'public image input manifest exceeds 64 KiB' >&2
-	exit 1
-}
-printf '%s  %s\n' "$IMAGE_INPUT_MANIFEST_SHA256" "$manifest" | sha256sum --check --status
-
 source_tree=$(git rev-parse 'HEAD^{tree}')
-jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
-	--arg tag "$IMAGE_INPUT_TAG" --argjson run_id "$CANDIDATE_RUN_ID" \
-	--argjson run_number "$CANDIDATE_RUN_NUMBER" '
+
+# BEGIN image input stage diagnostics
+file_observation() {
+	local path=$1 bytes=missing digest=missing line
+	if [[ -f $path ]]; then
+		if bytes=$(stat -c '%s' -- "$path" 2>/dev/null); then :; else bytes=unavailable; fi
+		if line=$(sha256sum -- "$path" 2>/dev/null); then digest=${line%% *}; else digest=unavailable; fi
+	fi
+	printf '%s %s\n' "$bytes" "$digest"
+}
+
+report_image_stage_failure() {
+	local stage=$1 status=$2 artifact_path=$3
+	local manifest_observation artifact_observation manifest_bytes manifest_sha256 artifact_bytes artifact_sha256
+	manifest_observation=$(file_observation "$manifest")
+	artifact_observation=$(file_observation "$artifact_path")
+	manifest_bytes=${manifest_observation%% *}
+	manifest_sha256=${manifest_observation#* }
+	artifact_bytes=${artifact_observation%% *}
+	artifact_sha256=${artifact_observation#* }
+	printf 'image build stage failed: stage=%s exit_status=%s source=%s tree=%s tag=%s candidate_run=%s/%s expected_manifest_sha256=%s manifest_bytes=%s manifest_sha256=%s artifact=%s artifact_bytes=%s artifact_sha256=%s\n' \
+		"$stage" "$status" "$SOURCE_SHA" "$source_tree" "$IMAGE_INPUT_TAG" \
+		"$CANDIDATE_RUN_ID" "$CANDIDATE_RUN_NUMBER" "$IMAGE_INPUT_MANIFEST_SHA256" \
+		"$manifest_bytes" "$manifest_sha256" "${artifact_path##*/}" "$artifact_bytes" "$artifact_sha256" >&2
+}
+
+run_image_stage() {
+	local stage=$1 artifact_path=$2 status
+	shift 2
+	if "$@"; then
+		printf 'image build stage passed: stage=%s\n' "$stage"
+		return 0
+	else
+		status=$?
+	fi
+	report_image_stage_failure "$stage" "$status" "$artifact_path"
+	return "$status"
+}
+
+check_manifest_size() {
+	local size status
+	if size=$(stat -c '%s' -- "$manifest"); then :; else status=$?; return "$status"; fi
+	if [[ $size =~ ^[0-9]+$ ]] && (( size <= 65536 )); then return 0; fi
+	echo 'public image input manifest exceeds 64 KiB' >&2
+	return 1
+}
+
+check_manifest_hash() {
+	printf '%s  %s\n' "$IMAGE_INPUT_MANIFEST_SHA256" "$manifest" | sha256sum --check --status
+}
+
+verify_file() {
+	local path=$1 expected_hash=$2 expected_bytes=$3
+	[[ $expected_hash =~ ^[0-9a-f]{64}$ && $expected_bytes =~ ^[1-9][0-9]*$ ]] || {
+		echo "invalid public asset pin for $(basename -- "$path")" >&2
+		return 1
+	}
+	[[ $(stat -c '%s' "$path") == "$expected_bytes" ]] || {
+		echo "public asset size differs: $(basename -- "$path")" >&2
+		return 1
+	}
+	printf '%s  %s\n' "$expected_hash" "$path" | sha256sum --check --status
+}
+
+validate_image_input_manifest() {
+	jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
+		--arg tag "$IMAGE_INPUT_TAG" --argjson run_id "$CANDIDATE_RUN_ID" \
+		--argjson run_number "$CANDIDATE_RUN_NUMBER" '
   (keys == ["assets", "base_image_ocid", "base_provenance", "environment", "go_candidate",
     "input_release_tag", "kernel_release", "priority", "region", "schema",
     "source_revision", "source_tree", "terrabase"]) and
@@ -94,25 +152,21 @@ jq -e --arg source "$SOURCE_SHA" --arg tree "$source_tree" \
        .go_candidate.receipt_sha256, .go_candidate.delegation_sha256,
        .go_candidate.root_key_sha256][]; type == "string" and test("^[0-9a-f]{64}$"))
 ' "$manifest" >/dev/null
-
-verify_file() {
-	local path=$1 expected_hash=$2 expected_bytes=$3
-	[[ $expected_hash =~ ^[0-9a-f]{64}$ && $expected_bytes =~ ^[1-9][0-9]*$ ]] || {
-		echo "invalid public asset pin for $(basename -- "$path")" >&2
-		return 1
-	}
-	[[ $(stat -c '%s' "$path") == "$expected_bytes" ]] || {
-		echo "public asset size differs: $(basename -- "$path")" >&2
-		return 1
-	}
-	printf '%s  %s\n' "$expected_hash" "$path" | sha256sum --check --status
 }
+# END image input stage diagnostics
+
+run_image_stage manifest-download "$manifest" fj release asset download \
+	"$IMAGE_INPUT_TAG" image-inputs.json -o "$manifest"
+run_image_stage manifest-size "$manifest" check_manifest_size
+run_image_stage manifest-sha256 "$manifest" check_manifest_hash
+run_image_stage manifest-admission "$manifest" validate_image_input_manifest
 
 for asset in base-image.qcow2 bootstrap-anchor.json bootstrap-identity.json \
 	bootstrap-root-001.pem timesyncd-gru.conf host-enrollment-public.json \
 	ubuntu-cloud-image-keyring.gpg ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg; do
-	fj release asset download "$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
-	verify_file "$inputs/$asset" \
+	run_image_stage "asset-download:$asset" "$inputs/$asset" fj release asset download \
+		"$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
+	run_image_stage "asset-verify:$asset" "$inputs/$asset" verify_file "$inputs/$asset" \
 		"$(jq -r --arg asset "$asset" '.assets[$asset].sha256' "$manifest")" \
 		"$(jq -r --arg asset "$asset" '.assets[$asset].bytes' "$manifest")"
 done
