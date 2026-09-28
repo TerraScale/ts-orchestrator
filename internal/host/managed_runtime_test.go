@@ -36,9 +36,9 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		LiveS3ConfigSHA256:                  strings.Repeat("7", 64),
 		LiveS3TargetSHA256:                  strings.Repeat("8", 64),
 		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
-		ReplicationListenAddress:            "127.0.0.1:7000",
+		ReplicationListenAddress:            "10.0.0.11:7000",
 		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
-		ReplicationPeerAddress:              "127.0.0.1:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
+		ReplicationPeerAddress:              "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
 	}
 	desired.ManagedMember.Runtime = &pins
 	desired.ManagedMember.AttachmentETag = "etag-current"
@@ -68,6 +68,11 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		{"invalid filesystem UUID", func(p *ManagedRuntimePins) { p.FileSystemUUID = "unknown" }},
 		{"unapproved filesystem type", func(p *ManagedRuntimePins) { p.FileSystemType = "fuse" }},
 		{"DNS listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "example.com:7000" }},
+		{"loopback listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "127.0.0.1:7000" }},
+		{"public listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "198.51.100.11:7000" }},
+		{"wildcard listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "0.0.0.0:7000" }},
+		{"IPv6 listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "[fd00::11]:7000" }},
+		{"public peer", func(p *ManagedRuntimePins) { p.ReplicationPeerAddress = "198.51.100.12:7001" }},
 		{"partial peer", func(p *ManagedRuntimePins) { p.ReplicationPeerAddress = "" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {

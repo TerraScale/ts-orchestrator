@@ -35,9 +35,9 @@ func TestManagedDrainCommandPersistsAcrossLeaderEpoch(t *testing.T) {
 		LiveS3ConfigSHA256:                  strings.Repeat("7", 64),
 		LiveS3TargetSHA256:                  strings.Repeat("8", 64),
 		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
-		ReplicationListenAddress:            "127.0.0.1:7000",
+		ReplicationListenAddress:            "10.0.0.11:7000",
 		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
-		ReplicationPeerAddress:              "127.0.0.1:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
+		ReplicationPeerAddress:              "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
 	}
 	desired.ManagedMember.AttachmentETag = "etag-current"
 	artifact := []byte("managed drain replay artifact")

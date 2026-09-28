@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -123,11 +124,10 @@ func readManagedClientMaterial(material, digest, sqlBundleDigest, replicationLis
 	if address == "" {
 		address = "127.0.0.1:9465"
 	}
-	host, port, err := net.SplitHostPort(address)
-	ip := net.ParseIP(host)
-	number, numberErr := strconv.Atoi(port)
-	if err != nil || numberErr != nil || number < 1 || number > 65535 || ip == nil || ip.IsUnspecified() {
-		return nil, errors.New("managed client listener must be a concrete IP and port")
+	listen, err := netip.ParseAddrPort(address)
+	if err != nil || listen.String() != address || listen.Port() == 0 || !listen.Addr().Is4() ||
+		!listen.Addr().IsLoopback() && !listen.Addr().IsPrivate() {
+		return nil, errors.New("managed client listener must be an IPv4 loopback or private address and port")
 	}
 	for _, file := range []struct {
 		name, digest string
@@ -159,7 +159,7 @@ func readManagedClientMaterial(material, digest, sqlBundleDigest, replicationLis
 	if sqlBundleDigest != "" {
 		args = append(args, "--sql-schema-bundle", filepath.Join(material, sqlSchemaBundleName))
 	}
-	if !ip.IsLoopback() {
+	if !listen.Addr().IsLoopback() {
 		args = append(args, "--client-allow-nonloopback")
 	}
 	return args, nil

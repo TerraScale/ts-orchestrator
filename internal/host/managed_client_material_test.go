@@ -40,7 +40,7 @@ func TestManagedClientMaterialPinsFilesAndDeterministicPaths(t *testing.T) {
 	write(managedClientKeyName, key)
 	write(managedClientRegistryName, registry)
 	config := managedClientConfig{
-		Version: 1, ListenAddress: "192.0.2.10:9465",
+		Version: 1, ListenAddress: "10.251.0.21:9465",
 		CertificateChain: filepath.Join(material, managedClientChainName),
 		PrivateKey:       filepath.Join(material, managedClientKeyName),
 		APIKeyRegistry:   filepath.Join(material, managedClientRegistryName),
@@ -66,6 +66,23 @@ func TestManagedClientMaterialPinsFilesAndDeterministicPaths(t *testing.T) {
 	if err != nil || !slices.Contains(args, "--client-allow-nonloopback") || !slices.Contains(args, pin) {
 		t.Fatalf("valid pinned client material = %v, %v", args, err)
 	}
+	for address, nonloopback := range map[string]bool{
+		"": false, "127.0.0.1:9465": false, "10.251.0.21:9465": true, "172.16.0.5:9465": true, "192.168.1.2:9465": true,
+	} {
+		config.ListenAddress = address
+		args, err := readManagedClientMaterial(material, writeConfig(), "", "", identity, identity.UID)
+		if err != nil || slices.Contains(args, "--client-allow-nonloopback") != nonloopback {
+			t.Fatalf("private or loopback listener %q = %v, %v", address, args, err)
+		}
+	}
+	for _, address := range []string{"192.0.2.10:9465", "8.8.8.8:9465", "0.0.0.0:9465", "169.254.169.254:9465",
+		"[::1]:9465", "[fd00::1]:9465", "10.251.0.21:0", "10.251.0.21", "localhost:9465", "010.251.0.21:9465"} {
+		config.ListenAddress = address
+		if _, err := readManagedClientMaterial(material, writeConfig(), "", "", identity, identity.UID); err == nil {
+			t.Fatalf("non-private client listener %q was accepted", address)
+		}
+	}
+	config.ListenAddress = "10.251.0.21:9465"
 	config.CertificateChain = filepath.Join(material, "foreign.pem")
 	pin = writeConfig()
 	if _, err := readManagedClientMaterial(material, pin, "", "", identity, identity.UID); err == nil {

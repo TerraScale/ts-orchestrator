@@ -129,9 +129,24 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 		{"incomplete peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerAddress = ""
 		}},
+		{"loopback replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "127.0.0.1:7000"
+		}},
+		{"public replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "198.51.100.11:7000"
+		}},
+		{"wildcard replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "0.0.0.0:7000"
+		}},
+		{"IPv6 replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "[fd00::11]:7000"
+		}},
+		{"public replication peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "198.51.100.12:7001"
+		}},
 		{"foreign peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = "018f0000-0000-7000-8000-000000000016"
-			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
 			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
 		}},
 	} {
@@ -407,7 +422,7 @@ func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
 		{"ULID member", func(intent *Intent) { intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV" }},
 		{"ULID peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
 			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
 		}},
 		{"noncanonical UUID", func(intent *Intent) {
@@ -470,7 +485,7 @@ func TestMemberStateSchemaFourPinsNativeUUIDAndReadsSchemaThreeAsHistory(t *test
 	historical.SchemaVersion = ulidMemberStateSchemaVersion
 	historical.CanonicalRosterRow.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	historical.RuntimeManifest.ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	historical.RuntimeManifest.ReplicationPeerAddress = "127.0.0.1:7001"
+	historical.RuntimeManifest.ReplicationPeerAddress = "10.0.0.12:7001"
 	historical.RuntimeManifest.ReplicationServerCASHA256 = strings.Repeat("a", 64)
 	historical.RuntimeManifest.ClientManagedMaterialManifestSHA256 = ""
 	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID, false)

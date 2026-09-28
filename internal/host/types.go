@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -543,11 +543,11 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		!lowerHex(pins.LiveS3ConfigSHA256, 64) || !lowerHex(pins.LiveS3TargetSHA256, 64) ||
 		pins.SQLSchemaBundleSHA256 != "" && !lowerHex(pins.SQLSchemaBundleSHA256, 64) ||
 		pins.LiveS3Credential.Validate() != nil ||
-		!validSocketAddress(pins.ReplicationListenAddress) {
+		!validPrivateIPv4Endpoint(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
 	}
 	peer := pins.ReplicationPeerMemberID != "" || pins.ReplicationPeerAddress != "" || pins.ReplicationServerCASHA256 != ""
-	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
+	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validPrivateIPv4Endpoint(pins.ReplicationPeerAddress) ||
 		!lowerHex(pins.ReplicationServerCASHA256, 64) {
 		return errors.New("managed runtime outbound peer pins are incomplete")
 	}
@@ -570,20 +570,8 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 	return nil
 }
 
-func validSocketAddress(address string) bool {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil || net.ParseIP(host) == nil || port == "" {
-		return false
-	}
-	var number uint64
-	for _, digit := range port {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-		number = number*10 + uint64(digit-'0')
-		if number > 65535 {
-			return false
-		}
-	}
-	return number > 0
+func validPrivateIPv4Endpoint(address string) bool {
+	endpoint, err := netip.ParseAddrPort(address)
+	return err == nil && endpoint.String() == address && endpoint.Port() != 0 &&
+		endpoint.Addr().Is4() && endpoint.Addr().IsPrivate()
 }

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -140,12 +140,12 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 		!validLowerSHA256Digest(manifest.ServerCertificateSHA256) ||
 		!validLowerSHA256Digest(manifest.ServerPrivateKeySHA256) ||
 		!validLowerSHA256Digest(manifest.ClientCARootsSHA256) ||
-		!validIPAddressPort(manifest.ReplicationListenAddress) {
+		!validPrivateIPv4Endpoint(manifest.ReplicationListenAddress) {
 		return fmt.Errorf("%w: incomplete runtime manifest", ErrInvalidIntent)
 	}
 	peer := manifest.ReplicationPeerMemberID != "" || manifest.ReplicationPeerAddress != "" || manifest.ReplicationServerCASHA256 != ""
 	if peer && (!validMemberID(manifest.ReplicationPeerMemberID) ||
-		!validIPAddressPort(manifest.ReplicationPeerAddress) ||
+		!validPrivateIPv4Endpoint(manifest.ReplicationPeerAddress) ||
 		!validLowerSHA256Digest(manifest.ReplicationServerCASHA256)) {
 		return fmt.Errorf("%w: incomplete runtime peer triple", ErrInvalidIntent)
 	}
@@ -988,22 +988,10 @@ func validFilesystemUUID(value string) bool {
 	return true
 }
 
-func validIPAddressPort(value string) bool {
-	host, port, err := net.SplitHostPort(value)
-	if err != nil || net.ParseIP(host) == nil || port == "" {
-		return false
-	}
-	var number uint64
-	for _, digit := range port {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-		number = number*10 + uint64(digit-'0')
-		if number > 65535 {
-			return false
-		}
-	}
-	return number > 0
+func validPrivateIPv4Endpoint(value string) bool {
+	endpoint, err := netip.ParseAddrPort(value)
+	return err == nil && endpoint.String() == value && endpoint.Port() != 0 &&
+		endpoint.Addr().Is4() && endpoint.Addr().IsPrivate()
 }
 
 func knownStage(stage MemberStage) bool {
