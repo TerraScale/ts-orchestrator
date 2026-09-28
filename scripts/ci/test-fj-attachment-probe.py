@@ -79,6 +79,14 @@ def handler_for(state: State, root_origin: str | None = None):
                 "size": state.asset_size,
                 "browser_download_url": state.browser_url,
             }
+            release = {
+                "id": 22,
+                "tag_name": TAG,
+                "name": TAG,
+                "draft": state.draft,
+                "prerelease": True,
+                "assets": [attachment],
+            }
 
             if root_origin is None and path == f"/objects/{ASSET_UUID}":
                 self.send_body(200, SUCCESS_BODY)
@@ -94,15 +102,16 @@ def handler_for(state: State, root_origin: str | None = None):
                 self.send_body(200, body, "application/json")
                 return
             if path == f"/api/v1/repos/TerraScale/ts-orchestrator/releases/tags/{TAG}":
-                release = {
-                    "id": 22,
-                    "tag_name": TAG,
-                    "name": "fixture image inputs",
-                    "draft": state.draft,
-                    "prerelease": True,
-                    "assets": [attachment],
-                }
                 self.send_body(200, json.dumps(release).encode(), "application/json")
+                return
+            if path == "/api/v1/repos/TerraScale/ts-orchestrator/releases":
+                body = json.dumps([release]).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("X-Total-Count", "1")
+                self.end_headers()
+                self.wfile.write(body)
                 return
             if path == "/api/v1/repos/TerraScale/ts-orchestrator/releases/22/assets/33":
                 self.send_body(200, json.dumps(attachment).encode(), "application/json")
@@ -212,6 +221,49 @@ def run_probe(
     return result, report
 
 
+def run_download(
+    binary: Path, server_origin: str, data_home: Path
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    data_home.mkdir(mode=0o700)
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "XDG_DATA_HOME": str(data_home),
+        "NO_COLOR": "1",
+        "TERM": "dumb",
+        "LANG": "C.UTF-8",
+    }
+    loader_path = os.environ.get("LD_LIBRARY_PATH")
+    if loader_path:
+        env["LD_LIBRARY_PATH"] = loader_path
+    auth = subprocess.run(
+        [str(binary), "--host", server_origin, "auth", "add-token"],
+        input=f"{FIXTURE_TOKEN}\n",
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+        timeout=20,
+    )
+    if auth.returncode != 0:
+        raise AssertionError("fixture token setup failed")
+    output = data_home / "downloaded-asset"
+    result = subprocess.run(
+        [
+            str(binary), "--host", server_origin, "release", "--repo",
+            "TerraScale/ts-orchestrator", "asset", "download", TAG,
+            "image-inputs.json", "--output", str(output),
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        check=False,
+        timeout=20,
+    )
+    if FIXTURE_TOKEN in result.stdout or FIXTURE_TOKEN in result.stderr:
+        raise AssertionError("fixture token appeared in fj output")
+    return result, output
+
+
 def auth_requests(state: State) -> list[bool]:
     return [authorized for path, authorized in state.snapshot() if path.startswith("/attachments/")]
 
@@ -267,6 +319,80 @@ def case_error_body(binary: Path, root_state: State, root_origin: str, temp: Pat
         raise AssertionError("HTTP error-body SHA-256 was not reported")
     if authenticated["sent_authorization"] is not True:
         raise AssertionError("same-origin attachment request did not use the fixture token")
+    assert_no_sensitive_output(result)
+
+
+def case_download_http_status(binary: Path, root_state: State, root_origin: str, temp: Path) -> None:
+    root_state.mode = "error-body"
+    root_state.private = False
+    root_state.browser_url = f"{root_origin}/attachments/{ASSET_UUID}"
+    root_state.reset_requests()
+    result, output = run_download(binary, root_origin, temp / "download-404-data")
+    if result.returncode == 0 or output.exists():
+        raise AssertionError("attachment HTTP 404 was accepted or written to disk")
+    if "release attachment HTTP status 404" not in result.stderr:
+        raise AssertionError("attachment HTTP status was not reported safely")
+    if auth_requests(root_state) != [True]:
+        raise AssertionError("download did not use the authenticated attachment route")
+    assert_no_sensitive_output(result)
+
+
+def case_download_success(binary: Path, root_state: State, root_origin: str, temp: Path) -> None:
+    root_state.mode = "auth-vs-anonymous"
+    root_state.private = False
+    root_state.browser_url = f"{root_origin}/attachments/{ASSET_UUID}"
+    root_state.reset_requests()
+    result, output = run_download(binary, root_origin, temp / "download-200-data")
+    if result.returncode != 0 or not output.exists() or output.read_bytes() != SUCCESS_BODY:
+        raise AssertionError("authenticated attachment download did not return exact bytes")
+    if auth_requests(root_state) != [True]:
+        raise AssertionError("download did not use only the authenticated attachment route")
+    assert_no_sensitive_output(result)
+
+
+def case_download_cross_origin(
+    binary: Path,
+    root_state: State,
+    root_origin: str,
+    sink_state: State,
+    sink_origin: str,
+    temp: Path,
+) -> None:
+    root_state.mode = "private"
+    root_state.private = False
+    root_state.browser_url = f"{sink_origin}/objects/{ASSET_UUID}?{SECRET_QUERY}=value"
+    root_state.reset_requests()
+    sink_state.reset_requests()
+    result, output = run_download(binary, root_origin, temp / "download-cross-origin-data")
+    if result.returncode == 0 or output.exists():
+        raise AssertionError("cross-origin initial attachment URL was accepted")
+    if auth_requests(root_state) or sink_state.snapshot():
+        raise AssertionError("download sent a request to an untrusted attachment origin")
+    assert_no_sensitive_output(result)
+
+
+def case_download_redirect(
+    binary: Path,
+    root_state: State,
+    root_origin: str,
+    sink_state: State,
+    sink_origin: str,
+    temp: Path,
+) -> None:
+    root_state.mode = "redirect"
+    root_state.private = False
+    root_state.browser_url = f"{root_origin}/attachments/{ASSET_UUID}"
+    root_state.redirect_url = f"{sink_origin}/objects/{ASSET_UUID}?{SECRET_QUERY}=value"
+    sink_state.mode = "object"
+    root_state.reset_requests()
+    sink_state.reset_requests()
+    result, output = run_download(binary, root_origin, temp / "download-redirect-data")
+    if result.returncode != 0 or not output.exists() or output.read_bytes() != SUCCESS_BODY:
+        raise AssertionError("attachment redirect did not return exact bytes")
+    if auth_requests(root_state) != [True]:
+        raise AssertionError("initial attachment request lacked authentication")
+    if any(authorized for _path, authorized in sink_state.snapshot()):
+        raise AssertionError("Authorization reached the cross-origin redirect destination")
     assert_no_sensitive_output(result)
 
 
@@ -635,6 +761,8 @@ def main() -> int:
         with tempfile.TemporaryDirectory(prefix="fj-attachment-fixture-") as temporary:
             temp = Path(temporary)
             case_error_body(binary, root_state, root_origin, temp)
+            case_download_http_status(binary, root_state, root_origin, temp)
+            case_download_success(binary, root_state, root_origin, temp)
             case_auth_vs_anonymous(binary, root_state, root_origin, temp)
             case_cross_origin_redirect(
                 binary, root_state, root_origin, sink_state, sink_origin, temp
@@ -645,11 +773,17 @@ def main() -> int:
             case_cross_origin_browser_url(
                 binary, root_state, root_origin, sink_state, sink_origin, temp
             )
+            case_download_cross_origin(
+                binary, root_state, root_origin, sink_state, sink_origin, temp
+            )
+            case_download_redirect(
+                binary, root_state, root_origin, sink_state, sink_origin, temp
+            )
             case_preflight_gates(temp)
     finally:
         stop_server(root, root_thread)
         stop_server(sink, sink_thread)
-    print("pinned fj attachment probe fixture passed cases=7")
+    print("pinned fj attachment probe fixture passed cases=11")
     return 0
 
 

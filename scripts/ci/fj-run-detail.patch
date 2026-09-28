@@ -14,7 +14,8 @@ index 592f7f1..caabbdc 100644
   "wasm-bindgen-futures",
 + "wasm-streams",
   "web-sys",
-@@ -2877,1 +2880,14 @@ dependencies = [
+@@ -2876,2 +2879,15 @@ dependencies = [
+
 +[[package]]
 +name = "wasm-streams"
 +version = "0.5.0"
@@ -42,7 +43,7 @@ index c1f55a3..0a23d09 100644
 +  "time",
  ] }
 diff --git a/src/actions.rs b/src/actions.rs
-index 779fd81..13e85da 100644
+index 779fd81..025d2dc 100644
 --- a/src/actions.rs
 +++ b/src/actions.rs
 @@ -3,3 +3,3 @@ use std::{collections::BTreeMap, fmt::Display};
@@ -51,7 +52,7 @@ index 779fd81..13e85da 100644
 +use eyre::{OptionExt, eyre};
  use forgejo_api::{
 @@ -41,2 +41,11 @@ pub enum ActionsSubcommand {
- 
+
 +    /// Print the latest plaintext job logs of an action run by its displayed run number.
 +    Logs { run_number: i64 },
 +
@@ -69,9 +70,9 @@ index 779fd81..13e85da 100644
 +            ActionsSubcommand::RunDetail { run_number } => {
 +                view_run_detail(repo, &api, run_number).await?
 +            }
- 
+
 @@ -162,2 +176,109 @@ impl ActionsCommand {
- 
+
 +async fn view_run_detail(repo: &RepoName, api: &Forgejo, run_number: i64) -> eyre::Result<()> {
 +    if run_number <= 0 {
 +        return Err(eyre!("run number must be positive"));
@@ -181,14 +182,19 @@ index 779fd81..13e85da 100644
 +
  async fn view_tasks(repo: &RepoName, api: &Forgejo, page: u32) -> eyre::Result<()> {
 diff --git a/src/release.rs b/src/release.rs
-index 453db63..3e7d535 100644
+index 453db63..43e15b1 100644
 --- a/src/release.rs
 +++ b/src/release.rs
-@@ -18,1 +18,3 @@ use crate::{
+@@ -8,2 +8,3 @@ use futures::stream::TryStreamExt;
+ use tokio::io::AsyncWriteExt;
++use url::Url;
+
+@@ -17,2 +18,4 @@ use crate::{
+
 +mod probe;
 +
  #[derive(Args, Clone, Debug)]
-@@ -121,2 +123,13 @@ pub enum AssetCommand {
+@@ -121,2 +124,13 @@ pub enum AssetCommand {
      },
 +    /// Probe one release attachment without writing its body to disk.
 +    Probe {
@@ -202,7 +208,7 @@ index 453db63..3e7d535 100644
 +        compare_anonymous: bool,
 +    },
  }
-@@ -131,7 +144,30 @@ impl ReleaseCommand {
+@@ -131,7 +145,31 @@ impl ReleaseCommand {
          )?;
 -        let api = keys.get_api(repo.host_url()).await?;
 -        let repo = repo
@@ -232,20 +238,47 @@ index 453db63..3e7d535 100644
 +            }
 +            command => command,
 +        };
-+        let api = keys.get_api(repo.host_url()).await?;
++        let host = repo.host_url().clone();
++        let api = keys.get_api(&host).await?;
 +        let repo = repo_name;
 +        match command {
              ReleaseSubcommand::Create {
-@@ -184,2 +220,3 @@ impl ReleaseCommand {
-                 } => download_asset(repo, &api, release, asset, output).await?,
+@@ -183,3 +221,4 @@ impl ReleaseCommand {
+                     output,
+-                } => download_asset(repo, &api, release, asset, output).await?,
++                } => download_asset(repo, &api, &host, keys, release, asset, output).await?,
 +                AssetCommand::Probe { .. } => unreachable!("probe is dispatched before API setup"),
              },
+@@ -518,2 +557,4 @@ async fn download_asset(
+     api: &Forgejo,
++    host: &Url,
++    keys: &mut KeyInfo,
+     release: String,
+@@ -555,4 +596,17 @@ async fn download_asset(
+                 .ok_or_else(|| eyre::eyre!("asset does not have id"))?;
+-            api.download_release_attachment(repo.owner(), repo.name(), release_id, asset_id)
++            let attachment = api
++                .repo_get_release_attachment(repo.owner(), repo.name(), release_id, asset_id)
++                .await?;
++            if attachment.id != Some(asset_id) || attachment.name.as_deref() != Some(name) {
++                return Err(eyre!("release attachment metadata changed"));
++            }
++            let url = attachment
++                .browser_download_url
++                .as_ref()
++                .ok_or_eyre("release attachment has no download URL")?;
++            probe::checked_attachment_response(host, keys, url)
+                 .await?
++                .bytes()
++                .await
++                .map_err(|_| eyre!("release attachment body read failed"))?
+         }
 diff --git a/src/release/probe.rs b/src/release/probe.rs
 new file mode 100644
-index 0000000..1c3218b
+index 0000000..dc0e83b
 --- /dev/null
 +++ b/src/release/probe.rs
-@@ -0,0 +0,508 @@
+@@ -0,0 +1,548 @@
 +//! Bounded, non-persistent diagnosis of a release attachment download.
 +
 +use std::{
@@ -459,6 +492,46 @@ index 0000000..1c3218b
 +        hash.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
 +    }
 +    hash
++}
++
++pub(super) async fn checked_attachment_response(
++    host: &Url,
++    keys: &mut KeyInfo,
++    url: &Url,
++) -> eyre::Result<reqwest::Response> {
++    let Some(server_origin) = origin(host) else {
++        return Err(eyre!("Forgejo host URL has no safe origin"));
++    };
++    if origin(url).as_deref() != Some(server_origin.as_str()) {
++        return Err(eyre!(
++            "release attachment origin differs from the Forgejo host"
++        ));
++    }
++    let client = Client::builder()
++        .user_agent(crate::USER_AGENT)
++        .redirect(Policy::limited(MAX_REDIRECTS))
++        .connect_timeout(Duration::from_secs(5))
++        .timeout(Duration::from_secs(120))
++        .build()
++        .map_err(|_| eyre!("release attachment client setup failed"))?;
++    let mut request = client.get(url.clone());
++    if let Some(token) = token_for(keys, host) {
++        let mut value = HeaderValue::from_str(&format!("token {token}"))
++            .map_err(|_| eyre!("release attachment authorization is invalid"))?;
++        value.set_sensitive(true);
++        request = request.header(AUTHORIZATION, value);
++    }
++    let response = request
++        .send()
++        .await
++        .map_err(|_| eyre!("release attachment request failed"))?;
++    if response.status() != reqwest::StatusCode::OK {
++        return Err(eyre!(
++            "release attachment HTTP status {}",
++            response.status().as_u16()
++        ));
++    }
++    Ok(response)
 +}
 +
 +async fn fetch(

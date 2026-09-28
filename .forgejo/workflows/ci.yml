@@ -83,9 +83,17 @@ jobs:
             terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
           cat dist/SHA256SUMS
 
+      - name: Prepare pinned Forgejo admission client
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
       - name: Retain verified binaries and qualification manifest
         shell: bash
         env:
           FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/publish-qualification.sh
