@@ -54,6 +54,12 @@ class PrivatePeerInspectionTests(unittest.TestCase):
 
     def make_plan(self, cell, region, vcn_cidr, subnet_cidr):
         plan = json.loads(preview.PLAN.read_text())
+        # Another cell has no Forgejo-hosted operator gateway or GRU seat rules.
+        plan["operator_gateway"] = None
+        plan["network_security"]["nsg_rules"] = [
+            rule for rule in plan["network_security"]["nsg_rules"] if rule["source"] != "10.250.10.155/32"]
+        plan["network_security"]["seed_ssh_nsg_rules"] = []
+        plan["network_security"]["workload_nsg_rules"] = []
         plan["cell"] = cell
         plan["region"] = region
         plan["network_cidr"] = vcn_cidr
@@ -142,6 +148,8 @@ class PrivatePeerInspectionTests(unittest.TestCase):
                  "vpus-per-gb": existing["expected_volume_vpus_per_gb"]},
                 {"kind": "public-ip", "id": existing["public_ip_id"], "compartment-id": shared,
                  "lifecycle-state": "ASSIGNED"},
+                {"kind": "internet-gateway", "id": existing["internet_gateway_id"], "compartment-id": shared,
+                 "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"},
             ],
         }
         path = self.directory / f"{plan['cell'].lower()}-inventory.json"

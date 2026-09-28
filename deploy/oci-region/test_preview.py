@@ -86,6 +86,8 @@ class PreviewAdmissionTests(unittest.TestCase):
                  "vpus-per-gb": existing["expected_volume_vpus_per_gb"]},
                 {"kind": "public-ip", "id": existing["public_ip_id"], "compartment-id": shared,
                  "lifecycle-state": "ASSIGNED"},
+                {"kind": "internet-gateway", "id": existing["internet_gateway_id"], "compartment-id": shared,
+                 "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"},
             ],
         }
 
@@ -102,9 +104,12 @@ class PreviewAdmissionTests(unittest.TestCase):
             "vcn": "ocid1.vcn.oc1.sa-saopaulo-1.testvcn",
             "subnet": "ocid1.subnet.oc1.sa-saopaulo-1.testsubnet",
             "network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testnsg",
+            "seed_ssh_network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testseednsg",
+            "workload_network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testworkloadnsg",
             "security_list": "ocid1.securitylist.oc1.sa-saopaulo-1.testsecuritylist",
             "route_table": "ocid1.routetable.oc1.sa-saopaulo-1.testroute",
             "service_gateway": "ocid1.servicegateway.oc1.sa-saopaulo-1.testgateway",
+            "local_peering_gateway": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.testcellpeering",
             "controller_dynamic_group": "ocid1.dynamicgroup.oc1..testcontroller",
             "controller_policy": "ocid1.policy.oc1..testcontroller",
             "objectstorage_key_policy": "ocid1.policy.oc1..testobjectstorage",
@@ -115,6 +120,8 @@ class PreviewAdmissionTests(unittest.TestCase):
             "compartment_id": "ocid1.compartment.oc1..secretstore",
             "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
+        plan_value["operator_gateway"]["local_peering_gateway_id"] = (
+            "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.testforgejopeering")
         plan_path = directory / "plan.json"
         plan_path.write_text(json.dumps(plan_value))
         plan = preview.load_plan(plan_path)
@@ -122,6 +129,13 @@ class PreviewAdmissionTests(unittest.TestCase):
         inventory["plan_sha256"] = preview.sha256(plan_path)
         inventory["preview_compartment_ids"] = {
             role: ids[f"{role}_compartment"] for role in ("control", "network", "workload")}
+        inventory["resources"] += [
+            {"kind": "local-peering-gateway", "id": ids["local_peering_gateway"], "lifecycle-state": "AVAILABLE",
+             "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]},
+            {"kind": "local-peering-gateway", "id": plan["operator_gateway"]["local_peering_gateway_id"],
+             "lifecycle-state": "AVAILABLE", "compartment-id": plan["shared_compartment_id"],
+             "vcn-id": plan["existing_forgejo"]["vcn_id"]},
+        ]
         for role, name in plan["foundation_buckets"].items():
             inventory["buckets"].append({
                 "region": plan["region"], "compartment_id": ids["control_compartment"], "name": name,
@@ -167,6 +181,198 @@ class PreviewAdmissionTests(unittest.TestCase):
             path.write_text(json.dumps(plan))
             with self.assertRaisesRegex(ValueError, "invalid vaultsecret OCID"):
                 preview.load_plan(path)
+
+    def assert_plan_rejected(self, change, message):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = json.loads(preview.PLAN.read_text())
+            change(plan)
+            path = pathlib.Path(directory) / "plan.json"
+            path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError, message):
+                preview.load_plan(path)
+
+    def test_checked_in_plan_pins_reconciled_private_ports(self):
+        network_security = self.plan["network_security"]
+        pinned = lambda key: {(rule["tcp_min"], rule["source"]) for rule in network_security[key]}
+        gateway = "10.250.10.155/32"
+        self.assertEqual(pinned("nsg_rules"), {(4222, "10.251.0.0/24"), (4222, gateway),
+                                               (6222, "10.251.0.0/24"), (8443, "10.251.0.0/24")})
+        self.assertEqual(pinned("seed_ssh_nsg_rules"), {(22, "10.251.0.18/32"), (22, gateway)})
+        self.assertEqual(pinned("workload_nsg_rules"), {(9443, "10.251.0.21/32"), (9443, "10.251.0.22/32"),
+                                                        (9465, "10.251.0.18/32"), (9465, gateway)})
+        self.assertEqual(network_security["security_list_ingress_rules"], [])
+        self.assertEqual(self.plan["operator_gateway"], {"private_ip": "10.250.10.155", "vcn_cidr": "10.250.0.0/16",
+                                                         "local_peering_gateway_id": None})
+
+    def test_operator_gateway_private_outside_cell_inside_its_vcn(self):
+        def gateway(**fields):
+            return lambda plan: plan["operator_gateway"].update(fields)
+
+        for name, change, message in (
+                ("public address", gateway(private_ip="163.176.73.79"), "operator gateway"),
+                ("inside the cell", gateway(private_ip="10.251.0.40", vcn_cidr="10.251.0.0/16"), "operator gateway"),
+                ("outside its VCN", gateway(private_ip="10.9.0.4"), "operator gateway"),
+                ("public VCN", gateway(private_ip="163.176.73.79", vcn_cidr="163.176.0.0/16"), "operator gateway"),
+                ("noncanonical address", gateway(private_ip="10.250.010.155"), "operator gateway"),
+                ("integer address", gateway(private_ip=180000000), "operator gateway"),
+                ("host bits in VCN", gateway(vcn_cidr="10.250.10.0/16"), "operator gateway"),
+                ("wrong peering kind", gateway(local_peering_gateway_id="ocid1.drg.oc1.sa-saopaulo-1.x"),
+                 "invalid localpeeringgateway OCID"),
+                ("extra field", gateway(public_ip="163.176.73.79"), "operator gateway"),
+                ("missing declaration", lambda plan: plan.pop("operator_gateway"), "operator gateway")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, message)
+
+    def test_rule_sources_limited_to_cell_or_gateway(self):
+        def rule(port, source, **fields):
+            return {"direction": "INGRESS", "protocol": "6", "source": source, "source_type": "CIDR_BLOCK",
+                    "destination": None, "destination_type": None, "tcp_min": port, "tcp_max": port,
+                    "udp_min": None, "udp_max": None, "stateless": False, **fields}
+
+        def add(key, value):
+            return lambda plan: plan["network_security"][key].append(value)
+
+        def without_gateway(plan):
+            plan["operator_gateway"] = None
+            plan["network_security"]["route_rules"] = plan["network_security"]["route_rules"][:1]
+
+        for name, change, message in (
+                ("internet source", add("nsg_rules", rule(4222, "0.0.0.0/0")), "outside the private cell"),
+                ("whole gateway subnet", add("nsg_rules", rule(4222, "10.250.10.0/24")), "outside the private cell"),
+                ("gateway on enrollment", add("nsg_rules", rule(8443, "10.250.10.155/32")), "single allowed port"),
+                ("gateway on replication", add("workload_nsg_rules", rule(9443, "10.250.10.155/32")),
+                 "single allowed port"),
+                ("gateway in security list", add("security_list_ingress_rules", rule(4222, "10.250.10.155/32")),
+                 "single allowed port"),
+                ("stateless gateway rule", add("nsg_rules", rule(6222, "10.250.10.155/32", stateless=True)),
+                 "stateful CIDR ingress"),
+                ("NSG egress", add("nsg_rules", rule(4222, None, direction="EGRESS", source_type=None,
+                                                      destination="0.0.0.0/0", destination_type="CIDR_BLOCK")),
+                 "stateful CIDR ingress"),
+                ("service source", add("nsg_rules", rule(4222, "all-gru-services-in-oracle-services-network",
+                                                          source_type="SERVICE_CIDR_BLOCK")),
+                 "stateful CIDR ingress"),
+                ("egress to gateway", add("security_list_egress_rules", rule(
+                    4222, None, direction="EGRESS", source_type=None, destination="10.250.10.155/32",
+                    destination_type="CIDR_BLOCK")), "egress leaves the private cell"),
+                ("egress to internet", add("security_list_egress_rules", rule(
+                    443, None, direction="EGRESS", source_type=None, destination="0.0.0.0/0",
+                    destination_type="CIDR_BLOCK")), "egress leaves the private cell"),
+                ("link-local TCP", add("security_list_egress_rules", rule(
+                    123, None, direction="EGRESS", source_type=None, destination="169.254.169.254/32",
+                    destination_type="CIDR_BLOCK")), "egress leaves the private cell"),
+                ("gateway rules without gateway", without_gateway, "outside the private cell")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, message)
+
+    def test_route_rules_service_gateway_plus_single_gateway_peering(self):
+        peering = {"destination": "10.250.10.155/32", "destination_type": "CIDR_BLOCK",
+                   "network_entity_id": "{local_peering_gateway_id}"}
+
+        def routes(*rows):
+            return lambda plan: plan["network_security"].update(
+                route_rules=[plan["network_security"]["route_rules"][0], *rows] if rows else
+                plan["network_security"]["route_rules"][:1])
+
+        def unplanned_cell_peering(plan):
+            plan["operator_gateway"] = None
+            plan["network_security"]["route_rules"] = plan["network_security"]["route_rules"][:1]
+            for key in ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules"):
+                plan["network_security"][key] = [rule for rule in plan["network_security"][key]
+                                                 if rule["source"] != "10.250.10.155/32"]
+            plan["resource_ids"]["local_peering_gateway"] = "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.x"
+
+        for name, change, message in (
+                ("missing peering route", routes(), "exact service gateway route"),
+                ("duplicate peering route", routes(peering, peering), "exact service gateway route"),
+                ("whole gateway VCN", routes(dict(peering, destination="10.250.0.0/16")),
+                 "exact service gateway route"),
+                ("default route", routes(dict(peering, destination="0.0.0.0/0")), "exact service gateway route"),
+                ("wrong placeholder", routes(dict(peering, network_entity_id="{service_gateway_id}")),
+                 "exact service gateway route"),
+                ("peering without gateway", unplanned_cell_peering, "requires a declared operator gateway")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, message)
+        def without_service_gateway(plan):
+            network_security = plan["network_security"]
+            network_security.update(route_rules=[], service_gateway_service_id=None, service_gateway_cidr_block=None)
+            network_security["security_list_egress_rules"] = [
+                rule for rule in network_security["security_list_egress_rules"]
+                if rule["destination_type"] != "SERVICE_CIDR_BLOCK"]
+
+        self.assert_plan_rejected(without_service_gateway, "route resources without a service gateway")
+
+    def test_inventory_rejects_unplanned_internet_drg_and_peering_gateways(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan, plan_path, inventory, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
+            preview.verify_inventory(plan, inventory, plan_path=plan_path)
+            ids = plan["resource_ids"]
+            forgejo_igw = plan["existing_forgejo"]["internet_gateway_id"]
+
+            def extra(row):
+                return lambda resources: resources + [row]
+
+            def without(kind, resource_id):
+                return lambda resources: [row for row in resources
+                                          if row["kind"] != kind or row["id"] != resource_id]
+
+            def moved(kind, resource_id, **fields):
+                return lambda resources: [dict(row, **fields) if row["kind"] == kind and row["id"] == resource_id
+                                          else row for row in resources]
+
+            for name, change, message in (
+                    ("cell internet gateway", extra({"kind": "internet-gateway", "id": "ocid1.internetgateway.x",
+                                                     "compartment-id": ids["network_compartment"],
+                                                     "vcn-id": ids["vcn"], "lifecycle-state": "AVAILABLE"}),
+                     "internet gateway inventory"),
+                    ("missing Forgejo internet gateway", without("internet-gateway", forgejo_igw),
+                     "internet gateway inventory"),
+                    ("Forgejo gateway in another VCN", moved("internet-gateway", forgejo_igw, **{"vcn-id": "x"}),
+                     "internet gateway inventory"),
+                    ("any DRG", extra({"kind": "drg", "id": "ocid1.drg.x", "compartment-id": ids["network_compartment"],
+                                       "lifecycle-state": "PROVISIONING"}), "unplanned DRG"),
+                    ("unrecorded peering", extra({"kind": "local-peering-gateway", "id": "ocid1.localpeeringgateway.x",
+                                                  "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
+                                                  "lifecycle-state": "AVAILABLE"}), "local peering gateway"),
+                    ("missing cell peering", without("local-peering-gateway", ids["local_peering_gateway"]),
+                     "local peering gateway"),
+                    ("cell peering in workload", moved("local-peering-gateway", ids["local_peering_gateway"],
+                                                       **{"compartment-id": ids["workload_compartment"]}),
+                     "local peering gateway")):
+                with self.subTest(case=name):
+                    changed = dict(inventory, resources=change(deepcopy(inventory["resources"])))
+                    with self.assertRaisesRegex(ValueError, message):
+                        preview.verify_inventory(plan, changed, plan_path=plan_path)
+            terminated = dict(inventory, resources=[
+                *inventory["resources"], {"kind": "drg", "id": "ocid1.drg.x", "lifecycle-state": "TERMINATED"}])
+            preview.verify_inventory(plan, terminated, plan_path=plan_path)
+
+    def test_collect_inventory_lists_gateway_kinds(self):
+        region = self.plan["region"]
+        compartments = [self.plan["tenancy_id"], self.plan["parent_compartment_id"], self.plan["shared_compartment_id"]]
+        commands = []
+        forgejo_igw = {"id": self.plan["existing_forgejo"]["internet_gateway_id"], "lifecycle-state": "AVAILABLE",
+                       "compartment-id": self.plan["shared_compartment_id"],
+                       "vcn-id": self.plan["existing_forgejo"]["vcn_id"]}
+
+        def fake_oci(*args, region=None):
+            commands.append(args)
+            if args[:3] == ("iam", "region-subscription", "list"):
+                return [{"region-name": self.plan["region"], "status": "READY"}]
+            if args[:3] == ("os", "ns", "get"):
+                return "namespace"
+            if (args[:3] == ("network", "internet-gateway", "list") and
+                    args[args.index("--compartment-id") + 1] == self.plan["shared_compartment_id"]):
+                return [forgejo_igw]
+            return []
+
+        with mock.patch.object(preview, "oci", side_effect=fake_oci):
+            inventory = preview.collect_inventory(self.plan)
+        for kind in ("internet-gateway", "local-peering-gateway", "drg"):
+            listed = [command[command.index("--compartment-id") + 1] for command in commands
+                      if command[:3] == ("network", kind, "list") and "--all" in command]
+            self.assertEqual(sorted(listed), sorted(compartments), kind)
+        self.assertIn({"kind": "internet-gateway", "region": region, **forgejo_igw}, inventory["resources"])
 
     def test_inspection_readback_binds_fresh_plan_inventory_and_cell(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -327,80 +533,166 @@ class PreviewAdmissionTests(unittest.TestCase):
         self.assertEqual(checked.call_args_list[1].args[:2], ("/ts-bootstrap", "verify-manifest"))
         self.assertEqual(verify.call_args.args[3:5], (anchor, manifest))
 
-    def test_live_network_rules_and_route_are_exact(self):
+    def live_rules(self, expected):
+        result = []
+        for row in expected:
+            live = {"direction": row["direction"], "protocol": row["protocol"], "is-stateless": row["stateless"]}
+            for key in ("source", "source_type", "destination", "destination_type"):
+                if row[key] is not None:
+                    live[key.replace("_", "-")] = row[key]
+            for protocol in ("tcp", "udp"):
+                if row[f"{protocol}_min"] is not None:
+                    live[f"{protocol}-options"] = {"destination-port-range": {
+                        "min": row[f"{protocol}_min"], "max": row[f"{protocol}_max"]}}
+            result.append(live)
+        return result
+
+    def live_network_oci(self, plan, ids, drift, rule_commands):
+        network_security = plan["network_security"]
+        gateway = plan["operator_gateway"]
+        existing = plan["existing_forgejo"]
+        rule_roles = {ids["network_security_group"]: "nsg_rules",
+                      ids["seed_ssh_network_security_group"]: "seed_ssh_nsg_rules",
+                      ids["workload_network_security_group"]: "workload_nsg_rules"}
+        peerings = {
+            ids["local_peering_gateway"]: {
+                "id": ids["local_peering_gateway"], "lifecycle-state": "AVAILABLE", "peering-status": "PEERED",
+                "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
+                "peer-id": gateway["local_peering_gateway_id"], "is-cross-tenancy-peering": False,
+                "route-table-id": None, "peer-advertised-cidr": gateway["vcn_cidr"],
+                "peer-advertised-cidr-details": [gateway["vcn_cidr"]]},
+            gateway["local_peering_gateway_id"]: {
+                "id": gateway["local_peering_gateway_id"], "lifecycle-state": "AVAILABLE",
+                "peering-status": "PEERED", "compartment-id": plan["shared_compartment_id"],
+                "vcn-id": existing["vcn_id"], "peer-id": ids["local_peering_gateway"],
+                "is-cross-tenancy-peering": False, "route-table-id": None,
+                "peer-advertised-cidr": plan["network_cidr"], "peer-advertised-cidr-details": [plan["network_cidr"]]},
+        }
+
+        def fake_oci(*args, region=None):
+            command = args[:3]
+            if command == ("network", "vcn", "get"):
+                return {"id": ids["vcn"], "lifecycle-state": "AVAILABLE",
+                        "compartment-id": ids["network_compartment"], "cidr-block": plan["network_cidr"]}
+            if command == ("network", "subnet", "get"):
+                return {"id": ids["subnet"], "lifecycle-state": "AVAILABLE",
+                        "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
+                        "cidr-block": plan["subnet_cidr"], "prohibit-public-ip-on-vnic": True,
+                        "prohibit-internet-ingress": True, "security-list-ids": [ids["security_list"]],
+                        "route-table-id": ids["route_table"]}
+            if command == ("network", "nsg", "get"):
+                return {"id": args[args.index("--nsg-id") + 1],
+                        "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]}
+            if command == ("network", "nsg", "rules"):
+                self.assertIn("--nsg-id", args)
+                self.assertNotIn("--network-security-group-id", args)
+                rule_commands.append(args)
+                role = rule_roles[args[args.index("--nsg-id") + 1]]
+                return drift.get(role, lambda rules: rules)(self.live_rules(network_security[role]))
+            if command == ("network", "security-list", "get"):
+                return {"id": ids["security_list"], "compartment-id": ids["network_compartment"],
+                        "vcn-id": ids["vcn"],
+                        "ingress-security-rules": self.live_rules(network_security["security_list_ingress_rules"]),
+                        "egress-security-rules": self.live_rules(network_security["security_list_egress_rules"])}
+            if command == ("network", "route-table", "get"):
+                routes = [{"destination": row["destination"], "destination-type": row["destination_type"],
+                           "network-entity-id": ids[preview.ROUTE_TARGET_IDS[row["network_entity_id"]]]}
+                          for row in network_security["route_rules"]]
+                return {"id": ids["route_table"], "compartment-id": ids["network_compartment"],
+                        "vcn-id": ids["vcn"], "route-rules": drift.get("routes", lambda value: value)(routes)}
+            if command == ("network", "service-gateway", "get"):
+                return {"id": ids["service_gateway"], "compartment-id": ids["network_compartment"],
+                        "vcn-id": ids["vcn"], "lifecycle-state": "AVAILABLE",
+                        "services": [{"service-id": network_security["service_gateway_service_id"]}]}
+            if command == ("network", "local-peering-gateway", "get"):
+                peering = deepcopy(peerings[args[args.index("--local-peering-gateway-id") + 1]])
+                return drift.get("peering", lambda value: value)(peering)
+            if command == ("compute", "instance", "list-vnics"):
+                self.assertEqual(args[args.index("--instance-id") + 1], existing["instance_id"])
+                self.assertIn("--all", args)
+                vnic = {"lifecycle-state": "AVAILABLE", "is-primary": True,
+                        "private-ip": gateway["private_ip"], "skip-source-dest-check": False}
+                return drift.get("vnics", lambda value: value)([vnic])
+            self.fail(f"unexpected OCI command: {args}")
+
+        return fake_oci
+
+    def test_live_network_rules_routes_and_operator_gateway_are_exact(self):
         with tempfile.TemporaryDirectory() as directory:
             plan, _, _, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
             ids = plan["resource_ids"]
-            ids["seed_ssh_network_security_group"] = "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.seednsg"
-            plan["network_security"]["seed_ssh_nsg_rules"] = deepcopy(plan["network_security"]["nsg_rules"])
-            drift = False
             rule_commands = []
-
-            def live_rules(expected):
-                result = []
-                for row in expected:
-                    live = {"direction": row["direction"], "protocol": row["protocol"],
-                            "is-stateless": row["stateless"]}
-                    for key in ("source", "source_type", "destination", "destination_type"):
-                        if row[key] is not None:
-                            live[key.replace("_", "-")] = row[key]
-                    for protocol in ("tcp", "udp"):
-                        if row[f"{protocol}_min"] is not None:
-                            live[f"{protocol}-options"] = {"destination-port-range": {
-                                "min": row[f"{protocol}_min"], "max": row[f"{protocol}_max"]}}
-                    result.append(live)
-                return result
-
-            def fake_oci(*args, region=None):
-                command = args[:3]
-                if command == ("network", "vcn", "get"):
-                    return {"id": ids["vcn"], "lifecycle-state": "AVAILABLE",
-                            "compartment-id": ids["network_compartment"], "cidr-block": plan["network_cidr"]}
-                if command == ("network", "subnet", "get"):
-                    return {"id": ids["subnet"], "lifecycle-state": "AVAILABLE",
-                            "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
-                            "cidr-block": plan["subnet_cidr"], "prohibit-public-ip-on-vnic": True,
-                            "prohibit-internet-ingress": True, "security-list-ids": [ids["security_list"]],
-                            "route-table-id": ids["route_table"]}
-                if command == ("network", "nsg", "get"):
-                    return {"id": args[args.index("--nsg-id") + 1],
-                            "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]}
-                if command == ("network", "nsg", "rules"):
-                    self.assertIn("--nsg-id", args)
-                    self.assertNotIn("--network-security-group-id", args)
-                    rule_commands.append(args)
-                    group = args[args.index("--nsg-id") + 1]
-                    role = "seed_ssh_nsg_rules" if group == ids["seed_ssh_network_security_group"] else "nsg_rules"
-                    rules = live_rules(plan["network_security"][role])
-                    if drift and role == "nsg_rules":
-                        rules[0]["tcp-options"]["destination-port-range"]["max"] += 1
-                    return rules
-                if command == ("network", "security-list", "get"):
-                    return {"id": ids["security_list"], "compartment-id": ids["network_compartment"],
-                            "vcn-id": ids["vcn"],
-                            "ingress-security-rules": live_rules(plan["network_security"]["security_list_ingress_rules"]),
-                            "egress-security-rules": live_rules(plan["network_security"]["security_list_egress_rules"])}
-                if command == ("network", "route-table", "get"):
-                    routes = [{"destination": row["destination"], "destination-type": row["destination_type"],
-                               "network-entity-id": ids["service_gateway"]}
-                              for row in plan["network_security"]["route_rules"]]
-                    return {"id": ids["route_table"], "compartment-id": ids["network_compartment"],
-                            "vcn-id": ids["vcn"], "route-rules": routes}
-                if command == ("network", "service-gateway", "get"):
-                    return {"id": ids["service_gateway"], "compartment-id": ids["network_compartment"],
-                            "vcn-id": ids["vcn"], "lifecycle-state": "AVAILABLE",
-                            "services": [{"service-id": plan["network_security"]["service_gateway_service_id"]}]}
-                self.fail(f"unexpected OCI command: {args}")
-
-            with mock.patch.object(preview, "oci", side_effect=fake_oci):
+            with mock.patch.object(preview, "oci", side_effect=self.live_network_oci(plan, ids, {}, rule_commands)):
                 preview.check_live_network(plan, ids)
-            self.assertEqual(len(rule_commands), 2)
             self.assertEqual({command[command.index("--nsg-id") + 1] for command in rule_commands},
-                             {ids["network_security_group"], ids["seed_ssh_network_security_group"]})
-            drift = True
-            with mock.patch.object(preview, "oci", side_effect=fake_oci):
-                with self.assertRaisesRegex(ValueError, "network security group rules differ"):
-                    preview.check_live_network(plan, ids)
+                             {ids["network_security_group"], ids["seed_ssh_network_security_group"],
+                              ids["workload_network_security_group"]})
+
+            def widen_port(rules):
+                rules[0]["tcp-options"]["destination-port-range"]["max"] += 1
+                return rules
+
+            def set_field(key, value):
+                def change(resource):
+                    resource[key] = value
+                    return resource
+                return change
+
+            def vnic_field(key, value):
+                def change(vnics):
+                    vnics[0][key] = value
+                    return vnics
+                return change
+
+            def peering_to_service_gateway(routes):
+                for route in routes:
+                    route["network-entity-id"] = ids["service_gateway"]
+                return routes
+
+            for name, drift, message in (
+                    ("controller port", {"nsg_rules": widen_port}, "controller network security group rules differ"),
+                    ("member port", {"workload_nsg_rules": widen_port}, "member workload network security group"),
+                    ("peering pending", {"peering": set_field("peering-status", "PENDING")}, "peering differs"),
+                    ("foreign peer", {"peering": set_field("peer-id", "ocid1.localpeeringgateway.oc1..x")},
+                     "peering differs"),
+                    ("extra advertised CIDR", {"peering": set_field("peer-advertised-cidr-details",
+                                                                    ["10.250.0.0/16", "10.9.0.0/16"])},
+                     "peering differs"),
+                    ("transit route table", {"peering": set_field("route-table-id", "ocid1.routetable.oc1..x")},
+                     "peering differs"),
+                    ("wrong VCN", {"peering": set_field("vcn-id", "ocid1.vcn.oc1..other")}, "peering differs"),
+                    ("peering route retargeted", {"routes": peering_to_service_gateway}, "route table rules differ"),
+                    ("gateway address", {"vnics": vnic_field("private-ip", "10.250.10.156")}, "gateway VNIC"),
+                    ("source check skipped", {"vnics": vnic_field("skip-source-dest-check", True)}, "gateway VNIC"),
+                    ("secondary VNIC", {"vnics": lambda vnics: vnics * 2}, "gateway VNIC")):
+                with self.subTest(drift=name):
+                    fake = self.live_network_oci(plan, ids, drift, [])
+                    with mock.patch.object(preview, "oci", side_effect=fake):
+                        with self.assertRaisesRegex(ValueError, message):
+                            preview.check_live_network(plan, ids)
+
+    def test_live_network_without_gateway_reads_no_peering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan, _, _, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
+            plan["operator_gateway"] = None
+            plan["network_security"]["route_rules"] = plan["network_security"]["route_rules"][:1]
+            ids = dict(plan["resource_ids"], local_peering_gateway=None)
+            for key in ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules"):
+                plan["network_security"][key] = [rule for rule in plan["network_security"][key]
+                                                 if rule["source"] != "10.250.10.155/32"]
+            commands = []
+            fake = self.live_network_oci({**plan, "operator_gateway": {"local_peering_gateway_id": None,
+                                                                      "vcn_cidr": None, "private_ip": None}},
+                                         ids, {}, [])
+
+            def recording_oci(*args, region=None):
+                commands.append(args[:3])
+                return fake(*args, region=region)
+
+            with mock.patch.object(preview, "oci", side_effect=recording_oci):
+                preview.check_live_network(plan, ids)
+            self.assertNotIn(("network", "local-peering-gateway", "get"), commands)
+            self.assertNotIn(("compute", "instance", "list-vnics"), commands)
 
     def test_live_network_requires_every_planned_route_identity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -415,6 +707,13 @@ class PreviewAdmissionTests(unittest.TestCase):
                         preview.check_live_network(plan, ids)
                     changed_plan = {**plan, "resource_ids": ids}
                     with self.assertRaisesRegex(ValueError, "exact route table and service gateway IDs"):
+                        preview.required_resource_ids(changed_plan)
+            for name, changed_plan in (
+                    ("cell", {**plan, "resource_ids": dict(plan["resource_ids"], local_peering_gateway=None)}),
+                    ("forgejo", {**plan, "operator_gateway": dict(plan["operator_gateway"],
+                                                                  local_peering_gateway_id=None)})):
+                with self.subTest(missing_peering=name):
+                    with self.assertRaisesRegex(ValueError, "exact cell and operator gateway local peering gateway"):
                         preview.required_resource_ids(changed_plan)
 
     def test_kms_key_must_be_enabled_not_merely_active(self):
@@ -708,6 +1007,7 @@ class PreviewAdmissionTests(unittest.TestCase):
                     "security_list": "ocid1.securitylist.gru", "vault": "ocid1.vault.gru",
                     "key": "ocid1.key.gru", "route_table": "ocid1.routetable.gru",
                     "service_gateway": "ocid1.servicegateway.gru",
+                    "local_peering_gateway": "ocid1.localpeeringgateway.gru",
                     "controller_dynamic_group": "ocid1.dynamicgroup.oc1..controller",
                     "controller_policy": "ocid1.policy.oc1..controller",
                     "objectstorage_key_policy": "ocid1.policy.oc1..objectstorage",
@@ -717,9 +1017,17 @@ class PreviewAdmissionTests(unittest.TestCase):
             "compartment_id": "ocid1.compartment.oc1..secretstore",
             "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
+        self.plan["operator_gateway"]["local_peering_gateway_id"] = "ocid1.localpeeringgateway.forgejo"
         self.inventory["preview_compartment_ids"] = {"control": ids["control_compartment"],
                                                       "network": ids["network_compartment"],
                                                       "workload": ids["workload_compartment"]}
+        self.inventory["resources"] += [
+            {"kind": "local-peering-gateway", "id": ids["local_peering_gateway"], "lifecycle-state": "AVAILABLE",
+             "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]},
+            {"kind": "local-peering-gateway", "id": "ocid1.localpeeringgateway.forgejo",
+             "lifecycle-state": "AVAILABLE", "compartment-id": self.plan["shared_compartment_id"],
+             "vcn-id": self.plan["existing_forgejo"]["vcn_id"]},
+        ]
         for kind, key in (("vcn", "vcn"), ("subnet", "subnet"),
                           ("network-security-group", "network_security_group")):
             resource = {"kind": kind, "id": ids[key], "compartment-id": ids["network_compartment"],
