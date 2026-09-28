@@ -119,10 +119,15 @@ func newFounderSelectionFixture(t *testing.T) *founderSelectionFixture {
 	profiles := make([]bootstrap.LaunchProfile, 0, 3)
 	ipBySlot := map[string]string{"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "seed-a": "10.44.0.10"}
 	for i, slot := range slots {
+		networkSecurityGroupOCIDs := []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1." + slot}
+		if slot == "seed-a" {
+			networkSecurityGroupOCIDs = append(networkSecurityGroupOCIDs,
+				"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.seed-a-secondary")
+		}
 		profiles = append(profiles, bootstrap.LaunchProfile{Slot: slot,
 			CompartmentOCID: "ocid1.compartment.oc1..compartment", AvailabilityDomain: "SA-SAOPAULO-1-AD-1",
 			FaultDomain: fmt.Sprintf("FAULT-DOMAIN-%d", i+1), SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1." + slot,
-			NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1." + slot}, Shape: "VM.Standard.E5.Flex"})
+			NetworkSecurityGroupOCIDs: networkSecurityGroupOCIDs, Shape: "VM.Standard.E5.Flex"})
 	}
 	manifests := make(map[string][]byte, 3)
 	pins := make([]FounderManifestPin, 0, 3)

@@ -89,6 +89,10 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 		NSGOCIDs:        slices.Clone(profile.NetworkSecurityGroupOCIDs),
 		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.seed-a", PrimaryPrivateIP: fixture.plan.SeedPrivateIP,
 		PrimaryVNIC: true, LifecycleState: "RUNNING"}
+	if len(observed.NSGOCIDs) != 2 {
+		t.Fatalf("fixture must exercise the two-NSG OCI ordering case: %v", observed.NSGOCIDs)
+	}
+	slices.Reverse(observed.NSGOCIDs)
 	reader := &founderAdmissionLedger{ledger: ledger}
 	markerDirectory := filepath.Join(t.TempDir(), "marker")
 	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
@@ -152,12 +156,50 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 	if err != nil || committed.ResultRecord == nil {
 		t.Fatalf("publish signed seed completion: state=%+v err=%v", committed, err)
 	}
+	if !slices.Equal(reserved.Intent.NetworkSecurityGroupIDs, profile.NetworkSecurityGroupOCIDs) {
+		t.Fatalf("signed intent changed the manifest NSG order: intent=%v manifest=%v",
+			reserved.Intent.NetworkSecurityGroupIDs, profile.NetworkSecurityGroupOCIDs)
+	}
+	seedReceipt, err := bootstrap.ReceiptPayload(receiptEnvelope.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signedProfileWire, err := trust.EncodePayload(profile)
+	if err != nil || seedReceipt.ProfileSHA256 != digestWire(signedProfileWire) {
+		t.Fatalf("receipt profile digest no longer binds signed NSG order: receipt=%s err=%v",
+			seedReceipt.ProfileSHA256, err)
+	}
 	writes := objects.writes
 	replayed, err := ledger.RecordExternalSeed(t.Context(), scope, manifestWire, completion.ReceiptWire,
 		facts, completion.ResultWire, completion.CompletedHeadWire)
 	if err != nil || replayed.Head.ResultDigest != committed.Head.ResultDigest || objects.writes != writes {
 		t.Fatalf("exact seed completion replay changed ledger: writes=%d prior=%d err=%v",
 			objects.writes, writes, err)
+	}
+	for _, test := range []struct {
+		name string
+		ids  []string
+	}{
+		{name: "missing", ids: slices.Clone(observed.NSGOCIDs[:1])},
+		{name: "extra", ids: append(slices.Clone(observed.NSGOCIDs), "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.foreign")},
+		{name: "duplicate", ids: []string{observed.NSGOCIDs[0], observed.NSGOCIDs[0]}},
+	} {
+		t.Run("reject_"+test.name+"_OCI_NSG_set", func(t *testing.T) {
+			badObservation := observed
+			badObservation.NSGOCIDs = test.ids
+			badGate := gate
+			badGate.Instances = fakeInstanceObserver{badObservation}
+			if _, err := badGate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
+				t.Fatalf("changed OCI NSG set reached admission: %v", err)
+			}
+			if material.initialCalls != 0 || credentials.calls != 0 {
+				t.Fatalf("changed OCI NSG set reached side effects: material=%d credentials=%d",
+					material.initialCalls, credentials.calls)
+			}
+			if _, err := badGate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("changed OCI NSG set left an accepted marker: %v", err)
+			}
+		})
 	}
 	marker, err := gate.AdmitInitial(t.Context())
 	if err != nil || marker.Slot != scope.Slot || marker.InstanceOCID != instanceID ||

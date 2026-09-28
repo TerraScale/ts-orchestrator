@@ -207,8 +207,11 @@ func (gate Gate) observe(ctx context.Context, instanceID string, state bootstrap
 		Profile: bootstrap.LaunchProfile{
 			Slot: state.Intent.Slot, CompartmentOCID: observed.CompartmentOCID,
 			AvailabilityDomain: observed.AvailabilityDomain, FaultDomain: observed.FaultDomain,
-			SubnetOCID: observed.SubnetOCID, NetworkSecurityGroupOCIDs: slices.Clone(observed.NSGOCIDs),
-			Shape: observed.Shape,
+			SubnetOCID: observed.SubnetOCID,
+			// OCI reports NSG membership without a stable order. The exact set
+			// was checked above; keep the signed order for receipt verification.
+			NetworkSecurityGroupOCIDs: slices.Clone(state.Intent.NetworkSecurityGroupIDs),
+			Shape:                     observed.Shape,
 		},
 	}
 	return observed, nil

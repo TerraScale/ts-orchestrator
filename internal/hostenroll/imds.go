@@ -2,7 +2,6 @@ package hostenroll
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -14,8 +13,9 @@ import (
 )
 
 const (
-	imdsURL      = "http://169.254.169.254/opc/v2/instance/"
-	maxIMDSBytes = 16 << 10
+	imdsInstanceURL   = "http://169.254.169.254/opc/v2/instance/id"
+	imdsDescriptorURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.MetadataKey
+	maxIMDSIDBytes    = 255
 )
 
 type HTTPDoer interface {
@@ -46,38 +46,46 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 	if client == nil {
 		return InstanceMetadata{}, errors.New("IMDS client is required")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, imdsURL, nil)
+	idWire, err := readIMDS(ctx, client, imdsInstanceURL, maxIMDSIDBytes)
 	if err != nil {
-		return InstanceMetadata{}, err
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 instance ID: %w", err)
 	}
-	request.Header.Set("Authorization", "Bearer Oracle")
-	response, err := client.Do(request)
-	if err != nil {
-		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 instance: %w", err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK || response.ContentLength > maxIMDSBytes {
-		return InstanceMetadata{}, errors.New("OCI IMDSv2 instance response is invalid or too large")
-	}
-	wire, err := io.ReadAll(io.LimitReader(response.Body, maxIMDSBytes+1))
-	if err != nil || len(wire) == 0 || len(wire) > maxIMDSBytes {
-		return InstanceMetadata{}, errors.New("OCI IMDSv2 instance body is missing or too large")
-	}
-	var instance struct {
-		ID       string            `json:"id"`
-		Metadata map[string]string `json:"metadata"`
-	}
-	if err := json.Unmarshal(wire, &instance); err != nil {
-		return InstanceMetadata{}, fmt.Errorf("decode OCI IMDSv2 instance: %w", err)
-	}
-	if !strings.HasPrefix(instance.ID, "ocid1.instance.") || len(instance.ID) > 255 ||
-		strings.ContainsAny(instance.ID, " \t\r\n\f\v") {
+	instanceID := strings.TrimSpace(string(idWire))
+	if !strings.HasPrefix(instanceID, "ocid1.instance.") || len(instanceID) > maxIMDSIDBytes ||
+		strings.ContainsAny(instanceID, " \t\r\n\f\v") {
 		return InstanceMetadata{}, errors.New("OCI IMDSv2 instance ID is invalid")
 	}
-	encoded := []byte(instance.Metadata[hostboot.MetadataKey])
+	encoded, err := readIMDS(ctx, client, imdsDescriptorURL, hostboot.MaxDescriptorBytes)
+	if err != nil {
+		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 host descriptor: %w", err)
+	}
 	descriptor, err := hostboot.Parse(encoded)
 	if err != nil {
 		return InstanceMetadata{}, fmt.Errorf("parse OCI IMDSv2 host descriptor: %w", err)
 	}
-	return InstanceMetadata{InstanceID: instance.ID, Descriptor: descriptor, Wire: encoded}, nil
+	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
+}
+
+func readIMDS(ctx context.Context, client HTTPDoer, endpoint string, maximum int64) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer Oracle")
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	if response == nil || response.Body == nil {
+		return nil, errors.New("OCI IMDSv2 response is missing")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.ContentLength > maximum {
+		return nil, errors.New("OCI IMDSv2 response is invalid or too large")
+	}
+	wire, err := io.ReadAll(io.LimitReader(response.Body, maximum+1))
+	if err != nil || len(wire) == 0 || int64(len(wire)) > maximum {
+		return nil, errors.New("OCI IMDSv2 body is missing or too large")
+	}
+	return wire, nil
 }
