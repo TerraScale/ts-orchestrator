@@ -213,7 +213,7 @@ func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
 	image := core.Image{Id: new(row.ImageOCID), CompartmentId: new(row.ImageCompartmentOCID),
 		LifecycleState: core.ImageLifecycleStateAvailable}
 	vnic := core.Vnic{
-		Id: new(founderTestVNICID), CompartmentId: new(row.CompartmentOCID),
+		Id: new(founderTestVNICID), CompartmentId: new("ocid1.compartment.oc1..network"),
 		AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
 		PrivateIp: new(row.PrivateIP), IsPrimary: new(true), LifecycleState: core.VnicLifecycleStateAvailable,
 		NsgIds: slices.Clone(row.NetworkSecurityGroupOCIDs),
@@ -321,6 +321,26 @@ func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
 				t.Fatal("mismatched OCI observation was accepted")
 			}
 		})
+	}
+}
+
+func TestFounderVNICRequiresSubnetNetworkOwnership(t *testing.T) {
+	row := founderOCIRequestFixture(t).Row
+	vnic := core.Vnic{
+		Id: new(founderTestVNICID), CompartmentId: new("ocid1.compartment.oc1..network"),
+		AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
+		PrivateIp: new(row.PrivateIP), IsPrimary: new(true), LifecycleState: core.VnicLifecycleStateAvailable,
+		NsgIds: slices.Clone(row.NetworkSecurityGroupOCIDs),
+	}
+	subnet := core.Subnet{Id: new(row.SubnetOCID), CompartmentId: new("ocid1.compartment.oc1..network"),
+		VcnId: new("ocid1.vcn.oc1.sa-saopaulo-1.founder"), LifecycleState: core.SubnetLifecycleStateAvailable}
+	if !founderVNICMatches(vnic, founderTestVNICID, row) ||
+		!vnicSubnetMatches(vnic, subnet, founderTestInstanceID) {
+		t.Fatal("valid founder VNIC in network compartment rejected")
+	}
+	subnet.CompartmentId = new(row.CompartmentOCID)
+	if vnicSubnetMatches(vnic, subnet, founderTestInstanceID) {
+		t.Fatal("founder VNIC accepted subnet in control compartment")
 	}
 }
 

@@ -80,6 +80,7 @@ type founderComputeAPI interface {
 
 type founderNetworkAPI interface {
 	GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error)
+	GetSubnet(context.Context, core.GetSubnetRequest) (core.GetSubnetResponse, error)
 }
 
 type founderVolumeAPI interface {
@@ -455,6 +456,20 @@ func (adapter *FounderOCI) observeFounderVNIC(ctx context.Context, attempt Found
 	if !founderVNICMatches(vnic, vnicID, row) {
 		return "", ErrFounderOCI
 	}
+	effectCtx, cancel, err = adapter.beforeEffect(ctx, attempt, refresh)
+	if err != nil {
+		return "", err
+	}
+	subnetResponse, err := adapter.network.GetSubnet(effectCtx, core.GetSubnetRequest{
+		SubnetId: new(row.SubnetOCID), RequestMetadata: noFounderSDKRetry(),
+	})
+	cancel()
+	if err != nil {
+		return "", fmt.Errorf("GetSubnet exact founder primary: %w", err)
+	}
+	if !vnicSubnetMatches(vnic, subnetResponse.Subnet, instanceID) {
+		return "", ErrFounderOCI
+	}
 	return vnicID, nil
 }
 
@@ -511,7 +526,7 @@ func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt
 func founderVNICMatches(vnic core.Vnic, vnicID string, row bootstrap.FounderPeerRow) bool {
 	nsgs := slices.Clone(vnic.NsgIds)
 	slices.Sort(nsgs)
-	return value(vnic.Id) == vnicID && value(vnic.CompartmentId) == row.CompartmentOCID &&
+	return value(vnic.Id) == vnicID && strings.HasPrefix(value(vnic.CompartmentId), "ocid1.compartment.") &&
 		value(vnic.AvailabilityDomain) == row.AvailabilityDomain && value(vnic.SubnetId) == row.SubnetOCID &&
 		value(vnic.PrivateIp) == row.PrivateIP && vnic.IsPrimary != nil && *vnic.IsPrimary &&
 		vnic.LifecycleState == core.VnicLifecycleStateAvailable && slices.Equal(nsgs, row.NetworkSecurityGroupOCIDs) &&

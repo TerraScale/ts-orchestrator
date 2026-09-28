@@ -1566,7 +1566,7 @@ func (fake *founderFakeOCI) GetVnic(_ context.Context, request core.GetVnicReque
 	for slot, row := range fake.rows {
 		if *request.VnicId == "ocid1.vnic.oc1.sa-saopaulo-1."+slot {
 			return core.GetVnicResponse{Vnic: core.Vnic{
-				Id: request.VnicId, CompartmentId: new(row.CompartmentOCID),
+				Id: request.VnicId, CompartmentId: new("ocid1.compartment.oc1..network"),
 				AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
 				PrivateIp: new(row.PrivateIP), IsPrimary: new(true),
 				LifecycleState: core.VnicLifecycleStateAvailable,
@@ -1575,6 +1575,19 @@ func (fake *founderFakeOCI) GetVnic(_ context.Context, request core.GetVnicReque
 		}
 	}
 	return core.GetVnicResponse{}, errors.New("unknown founder VNIC")
+}
+
+func (fake *founderFakeOCI) GetSubnet(_ context.Context, request core.GetSubnetRequest) (core.GetSubnetResponse, error) {
+	for _, row := range fake.rows {
+		if value(request.SubnetId) == row.SubnetOCID {
+			return core.GetSubnetResponse{Subnet: core.Subnet{
+				Id: request.SubnetId, CompartmentId: new("ocid1.compartment.oc1..network"),
+				VcnId:          new("ocid1.vcn.oc1.sa-saopaulo-1.founder"),
+				LifecycleState: core.SubnetLifecycleStateAvailable,
+			}}, nil
+		}
+	}
+	return core.GetSubnetResponse{}, errors.New("unknown founder subnet")
 }
 
 func (fake *founderFakeOCI) ListBootVolumeAttachments(_ context.Context, request core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {

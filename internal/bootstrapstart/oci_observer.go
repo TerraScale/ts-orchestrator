@@ -23,6 +23,7 @@ type computeObservationAPI interface {
 
 type networkObservationAPI interface {
 	GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error)
+	GetSubnet(context.Context, core.GetSubnetRequest) (core.GetSubnetResponse, error)
 }
 
 // OCIInstanceObserver uses an authenticated provider supplied by the caller.
@@ -129,10 +130,17 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 				return InstanceObservation{}, fmt.Errorf("GetVnic attached to exact instance: %w", err)
 			}
 			vnic := vnicResponse.Vnic
-			if value(vnic.Id) != vnicID || value(vnic.CompartmentId) != observation.CompartmentOCID ||
+			if value(vnic.Id) != vnicID ||
 				value(vnic.AvailabilityDomain) != observation.AvailabilityDomain ||
 				vnic.LifecycleState != core.VnicLifecycleStateAvailable ||
 				value(vnic.SubnetId) != value(attachment.SubnetId) {
+				return InstanceObservation{}, ErrInstanceObservation
+			}
+			subnetResponse, err := observer.network.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: vnic.SubnetId})
+			if err != nil {
+				return InstanceObservation{}, fmt.Errorf("GetSubnet attached VNIC: %w", err)
+			}
+			if !vnicSubnetMatches(vnic, subnetResponse.Subnet, candidateID) {
 				return InstanceObservation{}, ErrInstanceObservation
 			}
 			if vnic.IsPrimary == nil || !*vnic.IsPrimary {
@@ -160,6 +168,31 @@ func (observer *OCIInstanceObserver) ObserveInstance(ctx context.Context, candid
 		return InstanceObservation{}, ErrInstanceObservation
 	}
 	return observation, nil
+}
+
+// The VNIC belongs to the subnet's network compartment, which can differ from
+// the instance and VNIC attachment's control compartment. Callers separately
+// compare the observed subnet OCID with their signed launch intent.
+func vnicSubnetMatches(vnic core.Vnic, subnet core.Subnet, instanceID string) bool {
+	subnetID := value(vnic.SubnetId)
+	region := regionalOCID(instanceID, "instance")
+	return region != "" && regionalOCID(value(vnic.Id), "vnic") == region &&
+		regionalOCID(subnetID, "subnet") == region &&
+		regionalOCID(value(subnet.VcnId), "vcn") == region &&
+		value(subnet.Id) == subnetID &&
+		strings.HasPrefix(value(subnet.CompartmentId), "ocid1.compartment.") &&
+		value(vnic.CompartmentId) == value(subnet.CompartmentId) &&
+		subnet.LifecycleState == core.SubnetLifecycleStateAvailable &&
+		(subnet.AvailabilityDomain == nil || value(subnet.AvailabilityDomain) == value(vnic.AvailabilityDomain))
+}
+
+func regionalOCID(id, resource string) string {
+	parts := strings.Split(id, ".")
+	if len(parts) != 5 || parts[0] != "ocid1" || parts[1] != resource ||
+		parts[2] != "oc1" || parts[3] == "" || parts[4] == "" {
+		return ""
+	}
+	return parts[3]
 }
 
 func value(value *string) string {
