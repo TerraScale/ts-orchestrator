@@ -41,6 +41,10 @@ jobs:
         shell: bash
         run: make verify GO=go GOFMT=gofmt
 
+      - name: Verify D15 diagnostic contract
+        shell: bash
+        run: python3 -m unittest discover -s tests/runtime_priority -p 'test_*.py'
+
       - name: Build and verify static source-matched binaries
         shell: bash
         run: |

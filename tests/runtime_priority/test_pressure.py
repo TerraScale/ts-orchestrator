@@ -17,6 +17,7 @@ from unittest import mock
 import alpha_adapter
 import alpha_runner
 import pressure
+import probe_admission
 import qualify
 
 
@@ -45,7 +46,7 @@ class RuntimePriorityManifestTests(unittest.TestCase):
         self.manifest, self.manifest_wire = pressure.load_json(EXAMPLE)
         self.manifest_hash = hashlib.sha256(self.manifest_wire).hexdigest()
 
-    def test_example_is_a_structural_v4_dry_run_and_starts_no_command(self) -> None:
+    def test_example_is_a_structural_v5_dry_run_and_starts_no_command(self) -> None:
         reasons = pressure.validate_manifest(self.manifest, dry_run=True)
         self.assertIn("OCI owner has not explicitly authorized live pressure", reasons)
         self.assertIn("host_service memory floors are allocations, not measured floors", reasons)
@@ -175,6 +176,30 @@ class RuntimePriorityManifestTests(unittest.TestCase):
             )
         runtime = transport["runtime"]
         runtime["stress_launcher_sha256"] = hashlib.sha256((ROOT / "pressure.py").read_bytes()).hexdigest()
+        runtime["qualify_sha256"] = hashlib.sha256((ROOT / "qualify.py").read_bytes()).hexdigest()
+        runtime["qualify_path"] = (f"/run/terrascale-d15/probes/{manifest['repository_revision']}/"
+                                   f"{runtime['qualify_sha256']}/qualify.py")
+        receipt = {
+            "schema": probe_admission.ADMISSION_SCHEMA,
+            "repository": "TerraScale/ts-orchestrator",
+            "source_revision": manifest["repository_revision"],
+            "source_tree": "a" * 40,
+            "release_tag": f"ci-{manifest['repository_revision']}-run-1",
+            "run_id": 1, "run_number": 1,
+            "workflow": "ci.yml", "job": probe_admission.JOB_NAME,
+            "job_id": 1, "attempt": 1,
+            "probe_asset": probe_admission.PROBE_ASSET,
+            "probe_bytes": (ROOT / "qualify.py").stat().st_size,
+            "probe_sha256": runtime["qualify_sha256"],
+            "publication_sha256": "b" * 64,
+            "qualification_sha256": "c" * 64,
+            "run_detail_sha256": "d" * 64,
+            "job_log_sha256": "e" * 64,
+        }
+        pin = manifest["probe_admission"]
+        pin["receipt_path"], pin["receipt_sha256"] = self.write_pinned_file(
+            root / "probe-admission.json", (json.dumps(receipt, sort_keys=True) + "\n").encode(),
+        )
         manifest["pressure"]["workload_cgroup"]["io_device"] = "8:1"
         return manifest
 
@@ -434,7 +459,8 @@ class MemoryUsageSampleTests(unittest.TestCase):
         }}
         sample = self.sample()
         summary = {
-            "status": "PASS", "guest_role": "host", "qualifier_sha256": "1" * 64,
+            "status": "PASS", "guest_role": "host",
+            "qualifier_sha256": manifest["transport"]["runtime"]["qualify_sha256"],
             "oci_instance_id": self.identity["oci_instance_id"],
             "image_id": self.identity["image_id"],
             "unit_sha256": {

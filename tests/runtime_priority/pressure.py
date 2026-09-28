@@ -32,10 +32,10 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "terrascale.runtime-priority-pressure/v4"
-ADAPTER_INPUT_SCHEMA = "terrascale.d15.adapter-input/v2"
+SCHEMA = "terrascale.runtime-priority-pressure/v5"
+ADAPTER_INPUT_SCHEMA = "terrascale.d15.adapter-input/v3"
 ADAPTER_RESULT_SCHEMA = "terrascale.d15.adapter-result/v1"
-ADAPTER_CONTRACT_SCHEMA = "terrascale.d15.adapter-contract/v4"
+ADAPTER_CONTRACT_SCHEMA = "terrascale.d15.adapter-contract/v5"
 DATABASE_FRONTIER_BINDING = "object_durable.event{database,shard,replica,incarnation,sequence};serving_proof.v1/same_scope/v1"
 OOM_JOURNAL_FORMAT = "systemd-journal-kernel-oom/v1"
 FAILURE_TARGET_WITNESS = "accepted-managed-report+proc-stat+cgroup+boot-id/v1"
@@ -474,6 +474,13 @@ def validate_transport(manifest: dict[str, Any], missing: list[str]) -> None:
         value = require_text(runtime.get(key), f"transport.runtime.{key}")
         if not value.startswith("/") or not re.fullmatch(r"/[A-Za-z0-9._/-]+", value):
             raise HarnessError(f"transport.runtime.{key} must be an absolute safe executable path")
+    qualify_sha256 = require_text(runtime.get("qualify_sha256"), "transport.runtime.qualify_sha256")
+    if not HASH_RE.fullmatch(qualify_sha256):
+        raise HarnessError("transport.runtime.qualify_sha256 must pin the exact CI probe bytes")
+    expected_probe_path = (f"/run/terrascale-d15/probes/{manifest['repository_revision']}/"
+                           f"{qualify_sha256}/qualify.py")
+    if runtime["qualify_path"] != expected_probe_path:
+        raise HarnessError("qualify_path must use the exact root-owned temporary staging path")
     workload_slice = require_text(runtime.get("workload_slice"), "transport.runtime.workload_slice")
     if not re.fullmatch(r"[A-Za-z0-9_.@:-]+\.slice", workload_slice):
         raise HarnessError("transport.runtime.workload_slice must be one exact systemd .slice unit")
@@ -513,6 +520,44 @@ def validate_transport(manifest: dict[str, Any], missing: list[str]) -> None:
             missing.append("database progress deadline differs from the frozen alpha contract")
 
 
+def validate_probe_admission(manifest: dict[str, Any], missing: list[str]) -> None:
+    pin = require_object(manifest.get("probe_admission"), "probe_admission")
+    if set(pin) != {"receipt_path", "receipt_sha256"}:
+        raise HarnessError("probe_admission must pin one exact CI readback receipt")
+    reasons: list[str] = []
+    verify_pinned_file(pin["receipt_path"], pin["receipt_sha256"],
+                       "D15 probe admission", reasons)
+    missing.extend(reasons)
+    if reasons:
+        return
+    receipt, _ = load_json(Path(pin["receipt_path"]), 16_384)
+    expected_fields = {
+        "schema", "repository", "source_revision", "source_tree", "release_tag",
+        "run_id", "run_number", "workflow", "job", "job_id", "attempt",
+        "probe_asset", "probe_bytes", "probe_sha256", "publication_sha256",
+        "qualification_sha256", "run_detail_sha256", "job_log_sha256",
+    }
+    if (set(receipt) != expected_fields or
+            receipt.get("schema") != "terrascale.d15.probe-admission/v1" or
+            receipt.get("repository") != "TerraScale/ts-orchestrator" or
+            receipt.get("source_revision") != manifest["repository_revision"] or
+            receipt.get("workflow") != "ci.yml" or
+            receipt.get("job") != "verify/go + artifact/linux-amd64-arm64" or
+            receipt.get("probe_asset") != "terrascale-d15-qualify.py" or
+            receipt.get("probe_sha256") != manifest["transport"]["runtime"]["qualify_sha256"]):
+        raise HarnessError("D15 probe admission differs from the exact source, CI job, or probe pin")
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(receipt["source_tree"])) or
+            any(not HASH_RE.fullmatch(str(receipt[key])) for key in (
+                "publication_sha256", "qualification_sha256", "run_detail_sha256",
+                "job_log_sha256"))):
+        raise HarnessError("D15 probe admission lacks exact source and readback hashes")
+    for key in ("run_id", "run_number", "job_id", "attempt", "probe_bytes"):
+        require_int(receipt[key], f"D15 probe admission {key}")
+    if receipt["probe_bytes"] > 262_144 or receipt["release_tag"] != (
+            f"ci-{receipt['source_revision']}-run-{receipt['run_id']}"):
+        raise HarnessError("D15 probe admission has an invalid release or bounded asset size")
+
+
 def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
                       allow_allocations: bool = False) -> list[str]:
     if manifest.get("schema") != SCHEMA:
@@ -546,8 +591,8 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
             member_identity["source"]["environment"] != identity["environment"]):
         raise HarnessError("identity cell/environment differs from the signed source member")
     revision = manifest.get("repository_revision")
-    if not isinstance(revision, str) or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision):
-        raise HarnessError("repository_revision must pin a full Git object ID")
+    if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise HarnessError("repository_revision must pin the full 40-character Git source ID")
 
     authorization = require_object(manifest.get("authorization"), "authorization")
     contract = require_object(manifest.get("adapter_contract"), "adapter_contract")
@@ -570,8 +615,8 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
     if contract.get("frozen") is not True:
         missing.append("alpha host, database, target, and recovery adapter contract is not frozen")
     if (contract.get("schema") != ADAPTER_CONTRACT_SCHEMA or
-            type(contract.get("version")) is not int or contract.get("version") != 4):
-        missing.append(f"adapter contract must declare schema {ADAPTER_CONTRACT_SCHEMA!r} and version 4")
+            type(contract.get("version")) is not int or contract.get("version") != 5):
+        missing.append(f"adapter contract must declare schema {ADAPTER_CONTRACT_SCHEMA!r} and version 5")
     require_text(contract.get("id"), "adapter_contract.id")
     if contract.get("database_frontier_binding") != DATABASE_FRONTIER_BINDING:
         missing.append("adapter contract must bind ObjectDurable event identity to the matching v1 serving proof")
@@ -602,6 +647,7 @@ def validate_manifest(manifest: dict[str, Any], *, dry_run: bool,
         missing.append("adapter contract source SHA-256 is missing")
     verify_pinned_file(contract.get("source_path"), contract.get("source_sha256"),
                        "adapter contract", missing)
+    validate_probe_admission(manifest, missing)
 
     qualification = require_object(manifest.get("qualification"), "qualification")
     for key in QUALIFICATION_KEYS:

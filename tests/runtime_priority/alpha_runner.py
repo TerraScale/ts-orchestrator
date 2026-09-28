@@ -502,6 +502,7 @@ class AdapterRunner:
             "deadline_at_utc": (sent + dt.timedelta(seconds=deadline)).isoformat(
                 timespec="milliseconds").replace("+00:00", "Z"),
             "identity": self.identity,
+            "probe_source_revision": self.manifest["repository_revision"],
             "controller_identity": self.controller_identity,
             "managed_member": self.member,
             "transport": self.manifest["transport"],
@@ -924,10 +925,10 @@ class AdapterRunner:
         qualification = self.qualification if guest_role == "host" else self.controller_qualification
         unit = SOURCE_UNIT if guest_role == "host" else CONTROLLER_UNIT
         units = summary.get("unit_sha256")
-        if (not HASH_RE.fullmatch(str(summary.get("qualifier_sha256", ""))) or
+        if (summary.get("qualifier_sha256") != self.manifest["transport"]["runtime"]["qualify_sha256"] or
                 type(units) is not dict or set(units) != {unit} or
                 not HASH_RE.fullmatch(str(units[unit]))):
-            raise HarnessError("qualify summary omits its packaged probe or role unit hash")
+            raise HarnessError("qualify summary probe digest differs from the CI pin or omits its role unit hash")
         fingerprint = {"qualifier_sha256": summary["qualifier_sha256"], "unit_sha256": units,
                        "systemd_version": summary.get("systemd_version")}
         previous_fingerprint = self.probe_fingerprint.get(guest_role)

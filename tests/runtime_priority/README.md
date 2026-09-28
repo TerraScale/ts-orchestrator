@@ -70,8 +70,93 @@ ancestor `memory.max`.
 
 ## Verify each target guest
 
+For the unchanged cc9a ARM image, D15 uses the exact `qualify.py` bytes
+published by the successful source-matched `ci.yml` run. The image's baked
+probe does not establish this newer D15 contract. CI publishes
+`terrascale-d15-qualify.py` and `terrascale-d15-probe.json` alongside the two
+binaries on `ci-${SOURCE_SHA}-run-${RUN_ID}`; the existing
+`qualification.json` keeps its strict two-binary schema. Download all three
+readback files into a new private directory and admit them against the live
+Forgejo job record before staging on any guest:
+
+```sh
+umask 077
+WORK=$(mktemp -d)
+TAG="ci-${SOURCE_SHA}-run-${RUN_ID}"
+fj release asset download "$TAG" terrascale-d15-qualify.py \
+  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-qualify.py"
+fj release asset download "$TAG" terrascale-d15-probe.json \
+  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-probe.json"
+fj release asset download "$TAG" qualification.json \
+  -r TerraScale/ts-orchestrator -o "$WORK/qualification.json"
+fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator \
+  > "$WORK/ci-run-detail.json"
+JOB_ID=$(jq -er '.jobs | if length == 1 then .[0].id else error("expected one job") end' \
+  "$WORK/ci-run-detail.json")
+fj actions job-logs "$JOB_ID" -r TerraScale/ts-orchestrator \
+  > "$WORK/ci-job.log"
+python3 tests/runtime_priority/probe_admission.py \
+  --probe "$WORK/terrascale-d15-qualify.py" \
+  --publication "$WORK/terrascale-d15-probe.json" \
+  --qualification "$WORK/qualification.json" \
+  --run-detail "$WORK/ci-run-detail.json" --job-log "$WORK/ci-job.log" \
+  --release-tag "$TAG" \
+  --out "$WORK/probe-admission.json"
+PROBE_SHA256=$(sha256sum "$WORK/terrascale-d15-qualify.py" | awk '{print $1}')
+RECEIPT_SHA256=$(sha256sum "$WORK/probe-admission.json" | awk '{print $1}')
+PROBE_PATH="/run/terrascale-d15/probes/${SOURCE_SHA}/${PROBE_SHA256}/qualify.py"
+```
+
+Use the pinned `fj` extension described in [release admission](../../docs/releases.md)
+for `actions run-detail` and `actions job-logs`. Admission requires one exact
+timestamped probe publication marker and one exact binary qualification marker
+in the successful producing job's log. The receipt binds the exact downloaded
+probe, publication and strict two-binary qualification files, source commit/tree,
+release tag, run/job ID, job attempt, and log hash. Preserve those readback files and the receipt in
+the operator evidence. Set the live manifest's `repository_revision` to
+`SOURCE_SHA`, `transport.runtime.qualify_sha256` to `PROBE_SHA256`, and
+`transport.runtime.qualify_path` to `PROBE_PATH`. Set
+`probe_admission.receipt_path` to the local receipt and
+`probe_admission.receipt_sha256` to `RECEIPT_SHA256`. The manifest rejects a
+different path, probe digest, source, or receipt. All selected guests must
+receive the same admitted bytes at that path.
+
+Stage each guest once under root-owned mode-0700
+`/run/terrascale-d15/probes/<source SHA>/<probe SHA>/` directories, with one
+root-owned regular mode-0444 `qualify.py` and no hard links or symlinks. Copy
+from the admitted readback file, verify its SHA-256 on the guest, and check
+ownership and modes before the run. Stage a fresh path on a new source or
+probe digest; never replace the pinned file during a run. The adapter checks
+the path, metadata, inode, bounded size, and digest before it executes the
+opened file descriptor. It also requires each summary to report that exact
+digest. The staging path is temporary and is lost on reboot.
+
+For each pinned controller or host SSH target, an operator can stage through a
+new guest temporary file, then promote it into the root-only path:
+
+```sh
+: "${GUEST:?set the selected pinned SSH target}"
+GUEST_TMP=$(ssh "$GUEST" 'mktemp -p /tmp terrascale-d15.XXXXXXXX')
+scp "$WORK/terrascale-d15-qualify.py" "$GUEST:$GUEST_TMP"
+ssh "$GUEST" "set -e; \
+  sudo install -d -o root -g root -m 0700 \
+    /run/terrascale-d15 /run/terrascale-d15/probes \
+    /run/terrascale-d15/probes/$SOURCE_SHA \
+    /run/terrascale-d15/probes/$SOURCE_SHA/$PROBE_SHA256; \
+  sudo test ! -e '$PROBE_PATH'; sudo test ! -L '$PROBE_PATH'; \
+  sudo install -o root -g root -m 0444 '$GUEST_TMP' '$PROBE_PATH'"
+test "$(ssh "$GUEST" "sudo sha256sum '$PROBE_PATH'" | awk '{print $1}')" = \
+  "$PROBE_SHA256"
+ssh "$GUEST" "rm -f '$GUEST_TMP'"
+```
+
+Review `stat` on the guest for root ownership, `0700` on all four staging
+directories, `0444` and one link on the regular probe. The run requires the
+fixed sudo and SSH permissions in the manifest; an operator's staging session
+is separate from the qualification adapter.
+
 The deployment has three dedicated controller VMs and separate ARM TerraBase
-workload VMs. Run the packaged probe on each selected controller and workload
+workload VMs. Run the staged probe as root on each selected controller and workload
 guest with that guest's own reviewed memory profile and exact
 OCI instance, image, artifact, configuration, and profile IDs. Controller
 and workload evidence must carry distinct instance and boot IDs. The live
@@ -84,7 +169,7 @@ On a workload guest, run the host probe before and after managed TerraBase
 launch. The second run includes the witnessed TerraBase PID and signed role cap:
 
 ```sh
-/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py qualify \
+sudo /usr/bin/python3 "$PROBE_PATH" qualify \
   --role host \
   --oci-instance-id "$HOST_OCI_INSTANCE_ID" \
   --image-id "$HOST_IMAGE_ID" \
@@ -106,7 +191,7 @@ Omit only `--database-pid` and `--database-memory-max-bytes` before the
 database process starts. On a controller guest, use its own values:
 
 ```sh
-/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py qualify \
+sudo /usr/bin/python3 "$PROBE_PATH" qualify \
   --role controller \
   --oci-instance-id "$CONTROLLER_OCI_INSTANCE_ID" \
   --image-id "$CONTROLLER_IMAGE_ID" \
@@ -194,7 +279,7 @@ python3 tests/runtime_priority/pressure.py dry-run \
   --manifest tests/runtime_priority/example-dry-run.json
 ```
 
-It has valid v4 structure and reserved example identities and paths. It has no
+It has valid v5 structure and reserved example identities and paths. It has no
 live authorization, available floor-source artifacts, credential or pin files,
 or frozen contract source, so it reports `UNQUALIFIED` without
 starting a command or creating evidence. Replace every example value from the

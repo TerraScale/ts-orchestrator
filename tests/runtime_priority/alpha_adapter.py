@@ -25,7 +25,7 @@ import pressure
 
 MAX_REQUEST_BYTES = 1 << 20
 MAX_REMOTE_OUTPUT_BYTES = 1 << 20
-REMOTE_ACTIONS = r'''import copy,datetime as dt,hashlib,http.client,json,os,signal,stat,subprocess,sys,time
+REMOTE_ACTIONS = r'''import copy,datetime as dt,hashlib,http.client,json,os,re,signal,stat,subprocess,sys,time
 from pathlib import Path
 
 req=json.load(sys.stdin)
@@ -84,6 +84,45 @@ def process_witness(pid):
         raise RuntimeError("process PID changed while reading its witness")
     return {"pid":pid,"stat_raw":stat_raw,"cgroup_raw":cgroup_raw,
             "host_boot_id":Path("/proc/sys/kernel/random/boot_id").read_text().strip()}
+
+def open_pinned_probe(base=None):
+    source=req["probe_source_revision"]
+    expected=runtime["qualify_sha256"]
+    if (not re.fullmatch(r"[0-9a-f]{40}",source) or
+            not re.fullmatch(r"[0-9a-f]{64}",expected)):
+        raise RuntimeError("D15 probe lacks a full source and digest pin")
+    if base is None:
+        base=Path("/run/terrascale-d15")
+    root=base/"probes"
+    source_dir=root/source
+    digest_dir=source_dir/expected
+    path=digest_dir/"qualify.py"
+    if runtime["qualify_path"]!=str(path):
+        raise RuntimeError("D15 probe path differs from its exact temporary staging pin")
+    for directory in (base,root,source_dir,digest_dir):
+        metadata=directory.lstat()
+        if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid!=0 or
+                metadata.st_gid!=0 or stat.S_IMODE(metadata.st_mode)!=0o700):
+            raise RuntimeError("D15 probe staging directory is not root-owned mode 0700")
+    metadata=path.lstat()
+    if (not stat.S_ISREG(metadata.st_mode) or metadata.st_uid!=0 or
+            metadata.st_gid!=0 or stat.S_IMODE(metadata.st_mode)!=0o444 or
+            metadata.st_nlink!=1 or metadata.st_size<=0 or metadata.st_size>262144):
+        raise RuntimeError("D15 probe is not a bounded root-owned regular mode-0444 file")
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        opened=os.fstat(fd)
+        if ((opened.st_dev,opened.st_ino)!=(metadata.st_dev,metadata.st_ino) or
+                opened.st_size!=metadata.st_size):
+            raise RuntimeError("D15 probe changed between path and descriptor inspection")
+        wire=os.read(fd,262145)
+        if len(wire)!=metadata.st_size or hashlib.sha256(wire).hexdigest()!=expected:
+            raise RuntimeError("D15 probe bytes differ from the exact CI digest pin")
+        os.lseek(fd,0,os.SEEK_SET)
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
 
 def oci_instance_metadata():
     fields={"instance_id":"id","image_id":"image","region":"regionInfo/regionIdentifier",
@@ -321,7 +360,8 @@ def main():
                 raise RuntimeError("qualifier has no pinned guest role")
             identity=req["identity"] if guest_role=="host" else req["controller_identity"]
             q=req["qualification"] if guest_role=="host" else req["controller_qualification"]
-            argv=[runtime["remote_python_path"],runtime["qualify_path"],"qualify",
+            probe_fd=open_pinned_probe()
+            argv=[runtime["remote_python_path"],f"/proc/self/fd/{probe_fd}","qualify",
                   "--role",guest_role,
                   "--artifact-id",identity["artifact_id"],"--config-id",identity["config_id"],
                   "--image-id",identity["image_id"],
@@ -342,11 +382,15 @@ def main():
                              str(q["expected_controller_memory_min_bytes"]),
                              "--expected-controller-memory-low-bytes",
                              str(q["expected_controller_memory_low_bytes"])])
-            result=subprocess.run(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
-                                  timeout=req["deadline_seconds"],check=False,
-                                  env={"HOME":"/","LANG":"C","LC_ALL":"C","PATH":"/usr/bin:/bin"})
+            try:
+                result=subprocess.run(argv,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                                      timeout=req["deadline_seconds"],check=False,
+                                      pass_fds=(probe_fd,),
+                                      env={"HOME":"/","LANG":"C","LC_ALL":"C","PATH":"/usr/bin:/bin"})
+            finally:
+                os.close(probe_fd)
             if result.returncode:
-                raise RuntimeError("packaged priority qualifier failed")
+                raise RuntimeError("staged D15 priority qualifier failed")
             summary_path=evidence/"summary.json"; log_path=evidence/"commands.log"
             summary_info=summary_path.stat(follow_symlinks=False)
             log_info=log_path.stat(follow_symlinks=False)
@@ -356,7 +400,10 @@ def main():
             summary_raw=summary_path.read_bytes(); log_raw=log_path.read_bytes()
             if len(summary_raw)>65536 or len(log_raw)>262144:
                 raise RuntimeError("qualifier evidence exceeded its bound")
-            emit({"summary":json.loads(summary_raw),"commands_log":log_raw.decode("utf-8")}); return
+            summary=json.loads(summary_raw)
+            if summary.get("qualifier_sha256")!=runtime["qualify_sha256"]:
+                raise RuntimeError("executed D15 probe reported a different source digest")
+            emit({"summary":summary,"commands_log":log_raw.decode("utf-8")}); return
     if action=="pressure_start":
         source=Path(runtime["stress_launcher_path"])
         actual_hash=hashlib.sha256(source.read_bytes()).hexdigest()

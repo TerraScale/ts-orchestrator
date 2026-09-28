@@ -10,7 +10,7 @@ repo=$(cd "$(dirname "$0")/../.." && pwd)
 output_dir=$1
 upstream_revision=7f44ff1a1587a406b627ac45f0a2485b970c6379
 upstream_lock_sha256=4de42ee153468f31e6f0f0062777fa684cc519a122e5e7139020428a9da72651
-extension_patch_sha256=5821d55916a57a3f4b41c4b068e4c3618ea3032702d9db62919e296338f2b7fe
+extension_patch_sha256=7ed16b298362a8fe53997ab91cbf646e68692440b0dd82a6b4e45cc3d19c85c8
 nixpkgs_flake=github:NixOS/nixpkgs/e554fab72f81915600f3f449b786fd9af40439a5
 nixpkgs_nar_hash=sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM=
 patch="$repo/scripts/ci/fj-run-detail.patch"
@@ -58,6 +58,7 @@ mkdir -p "$output_dir"
 install -m 0755 "$CARGO_TARGET_DIR/release/fj" "$output_dir/fj"
 "$output_dir/fj" actions run-detail --help >/dev/null
 "$output_dir/fj" actions logs --help >/dev/null
+"$output_dir/fj" actions job-logs --help >/dev/null
 python3 "$repo/scripts/ci/test-fj-attachment-probe.py" "$output_dir/fj"
 printf 'fj admission upstream=%s lock_sha256=%s patch_sha256=%s binary_sha256=%s\n' \
     "$upstream_revision" "$upstream_lock_sha256" "$extension_patch_sha256" \

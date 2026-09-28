@@ -25,6 +25,26 @@ Go version, module-file digests, CI run ID and number, workflow, job, and
 successful conclusion. The manifest is uploaded after the binaries and is the
 CI release's completion marker. CI does not sign those artifacts.
 
+The same CI job also publishes the source-matched D15 diagnostic
+`terrascale-d15-qualify.py` and its separate
+`terrascale-d15-probe.json` descriptor on that tag. CI downloads both back
+and compares their exact bytes before uploading `qualification.json`. The
+binary qualification manifest retains its strict two-binary schema; the
+D15 probe is not a signed release binary or an image input. For D15, an
+operator downloads the probe, descriptor, and completed binary qualification
+manifest with `fj release asset download`, saves
+`fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator`, then
+fetches that readback's one producing job log with
+`fj actions job-logs "$JOB_ID" -r TerraScale/ts-orchestrator`. The
+`tests/runtime_priority/probe_admission.py` check requires exact timestamped
+probe and binary qualification digest markers in that job log and binds their
+exact hashes, source/tree, successful run, producing job ID, attempt, and job
+log hash in a pinned receipt.
+See [D15 guest staging](../tests/runtime_priority/README.md#verify-each-target-guest)
+for the readback commands, temporary root-owned path, and manifest fields.
+This source route permits qualifying the unchanged cc9a ARM image. It does
+not establish that the image's runtime or any live guest passed D15 pressure.
+
 The deployed Forgejo 16.0.4 backend has no protected-environment reviewer gate
 or environment-scoped Actions secrets; the reviewed 16.0.5 source has the same
 limitation. The former `release.yml` signing and publishing job is retired.
