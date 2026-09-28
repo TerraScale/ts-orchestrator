@@ -153,6 +153,55 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    cost above the ceiling is a stop condition. The ceiling is an admission
    condition and remains a constraint on each resource action.
 
+## Inter-region private networking (future authorization only)
+
+The current GRU qualification requires no inter-region link. Its reviewed plan
+uses VCN `10.251.0.0/24` and a local Oracle Services Network service-gateway
+route; it declares no DRG, remote peering connection (RPC), peer route, or peer
+ingress rule. Do not make another cell or a private link a GRU acceptance
+condition. The current preview plan and foundation inspector accept and verify
+the declared service-gateway route and exact network rules; they do not admit or
+read back a paired DRG/RPC topology. Add reviewed plan and inspector support as
+part of a separately authorized regional change rather than appending a DRG
+route to the GRU example.
+
+Before enabling cross-region member replication or required inter-cell control
+traffic, the regional foundation operator owns steps 1–4 through authenticated
+OCI readback. After controller A's identity, authority, and inventory handoff,
+`ts-orchestrator` owns step 5 through signed runtime state:
+
+1. Confirm that the destination region is subscribed and in the tenancy's
+   realm, and review tenancy limits, cost admission, and ownership. Choose VCN
+   CIDRs that do not overlap each other or GRU's `10.251.0.0/24`.
+2. Attach a DRG to each VCN and create and connect the two named RPCs using
+   Oracle's [remote VCN peering procedure for upgraded DRGs](https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/scenario_e.htm).
+3. Configure each upgraded DRG's route tables and import distributions to
+   admit only the approved paired VCN/RPC routes. Add reciprocal rules for only
+   the approved peer subnet CIDRs in each VCN's subnet route table, targeting
+   that VCN's DRG. Permit only the required replication and control ports from
+   the peer CIDRs in the applicable NSG and security-list rules. Keep each
+   region's service-gateway route local; do not use the peer as transit for OCI
+   services or unrelated networks.
+4. Before runtime traffic or handoff, record OCI readback for both VCN/DRG
+   attachments, DRG route tables and import distributions, connected RPC state,
+   subnet routes, and network security rules.
+   Check private endpoint reachability and that unrelated peer paths remain
+   denied.
+5. Publish the reviewed private peer IP and port and matching trust material
+   through the signed runtime ownership path. Keep TerraBase replication mTLS
+   and signed member-authority checks: private addressing and OCI's documented
+   inter-region MACsec protection between data centers do not authenticate a
+   TerraBase member.
+
+Oracle's [VCN FAQ](https://www.oracle.com/cloud/networking/virtual-cloud-network/faq/)
+says remote VCN peering has no separate charge; outbound transfer charges still
+apply after the applicable allowance. Use the current
+[networking price list](https://www.oracle.com/cloud/price-list/#pricing-networking)
+to estimate outbound usage from both regions against the allowance and the
+combined monthly ceiling. Do not assume an allowance per RPC, pair, or direction,
+or a private-peering bandwidth discount. Select peering for private addressing
+and the intended network boundary.
+
 ## Bootstrap sequence
 
 1. Create the reviewed regional foundation under the selected ownership
