@@ -35,6 +35,22 @@ type backupCompleteProcessResult struct {
 // bytes with the production wire and frontier validators. It does not exercise
 // the producer methods that require a Go PreparationService CurrentBundle.
 func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
+	runBackupGoRustCompleteProcessBridge(t, false)
+}
+
+// TestBackupGoRustFullProducerProcessBridge uses an authenticated, versioned
+// Go material object and R3 preparation receipt before the live Rust caller.
+// The separate full-material packet leaves the accepted direct bridge packet
+// and its test selector unchanged.
+func TestBackupGoRustFullProducerProcessBridge(t *testing.T) {
+	if os.Getenv("TS_D10_FULL_MATERIAL_PACKET") == "" {
+		t.Skip("Rust full material packet was not supplied")
+	}
+	runBackupGoRustCompleteProcessBridge(t, true)
+}
+
+func runBackupGoRustCompleteProcessBridge(t *testing.T, fullProducer bool) {
+	t.Helper()
 	packetPath := os.Getenv("TS_D10_PROCESS_PACKET")
 	if packetPath == "" {
 		t.Skip("Rust live-process packet was not supplied")
@@ -56,15 +72,29 @@ func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	epoch := runtime.Current().Epoch
+	producer := BackupOperationProducer{Store: runtime}
+	if fullProducer {
+		material := backupFullProcessMaterial(t, ctx, runtime, packet, signer,
+			os.Getenv("TS_D10_FULL_MATERIAL_PACKET"))
+		producer.Preparation = material.preparation
+		receipt, bundle, manifest = material.receipt, material.bundle, material.manifest
+	}
 	placementSequence, err := runtime.CommitPlacementIntent(ctx, epoch,
 		packet.DatabaseID, packet.PartitionID, "d10-complete-placement", 0, []byte("live-rust-members"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	producer := BackupOperationProducer{Store: runtime}
-	record, sequence, err := producer.allocatePrepareWithMaterial(ctx, epoch,
-		packet.DatabaseID, packet.PartitionID, placementSequence, roster,
-		time.Now().UTC(), receipt, manifest, signer, func(context.Context) error { return nil })
+	var record authority.BackupOperationRecord
+	var sequence uint64
+	if fullProducer {
+		record, sequence, err = producer.AllocatePrepare(ctx, epoch,
+			packet.DatabaseID, packet.PartitionID, placementSequence, roster,
+			time.Now().UTC(), func(context.Context) error { return nil })
+	} else {
+		record, sequence, err = producer.allocatePrepareWithMaterial(ctx, epoch,
+			packet.DatabaseID, packet.PartitionID, placementSequence, roster,
+			time.Now().UTC(), receipt, manifest, signer, func(context.Context) error { return nil })
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +110,12 @@ func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
 			t.Fatalf("member %s Prepare failed: %v", member.MemberID, err)
 		}
 		var leafDER []byte
-		cut, err := verifyCutWithBundleLeaf(record, member.MemberID, wire, receipt, bundle, &leafDER)
+		var cut BackupCut
+		if fullProducer {
+			cut, leafDER, err = producer.VerifyCutWithLeaf(ctx, record, member.MemberID, wire)
+		} else {
+			cut, err = verifyCutWithBundleLeaf(record, member.MemberID, wire, receipt, bundle, &leafDER)
+		}
 		if err != nil || len(leafDER) == 0 || len(leafDER) > 4096 {
 			t.Fatalf("member %s signed Cut or pinned DER is invalid: %v", member.MemberID, err)
 		}
@@ -100,25 +135,33 @@ func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
 		t.Fatal("commit exact Cut+DER rows:", err)
 	}
 	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
-	expires, err := backupCompleteExpiry(time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	barrier, err := signBackupOperation(backupBarrierDomain, backupBarrierWire{
-		backupBinding: bindingFor(record), SourceCutAtMS: cutAt,
-		ExpiresAtMS: expires, SignerKeyID: manifest.SignerKeyID, Roster: barrierRoster,
-	}, signer)
-	if err != nil || len(barrier) > 8<<10 {
-		t.Fatalf("sign bounded R3 Barrier: %v", err)
-	}
-	record.BarrierEnvelope = barrier
-	record.State = "barrier"
-	sequence, err = runtime.CommitBackupOperation(ctx, epoch,
-		record.DatabaseID, record.PartitionID, sequence, record)
-	if err != nil {
-		t.Fatal("commit exact Barrier before relay:", err)
+	if fullProducer {
+		record, sequence, err = producer.CommitBarrier(ctx, epoch, record, sequence, time.Now().UTC())
+		if err != nil {
+			t.Fatal("production CommitBarrier rejected exact live Cuts:", err)
+		}
+	} else {
+		expires, err := backupCompleteExpiry(time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		barrier, signErr := signBackupOperation(backupBarrierDomain, backupBarrierWire{
+			backupBinding: bindingFor(record), SourceCutAtMS: cutAt,
+			ExpiresAtMS: expires, SignerKeyID: manifest.SignerKeyID, Roster: barrierRoster,
+		}, signer)
+		if signErr != nil || len(barrier) > 8<<10 {
+			t.Fatalf("sign bounded R3 Barrier: %v", signErr)
+		}
+		record.BarrierEnvelope = barrier
+		record.State = "barrier"
+		sequence, err = runtime.CommitBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, sequence, record)
+		if err != nil {
+			t.Fatal("commit exact Barrier before relay:", err)
+		}
 	}
 	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	barrier := record.BarrierEnvelope
 	barrierSHA := backupSHA(barrier)
 	for _, target := range packet.Roster {
 		client := backupProcessClient(t, target)
@@ -165,56 +208,87 @@ func TestBackupGoRustCompleteProcessBridge(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	ownerRow, err := backupOwner(record, manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ownerPublic, err := backupOwnerPublic(ownerRow)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var candidate backupCandidateWire
-	if err := decodeCanonicalBackupSigned(candidateWire, backupCandidateDomain,
-		ownerPublic, 8<<10, &candidate); err != nil ||
-		!candidateMatches(record, ownerRow, candidate, ownerPublic, cuts) {
-		t.Fatalf("live owner Candidate failed signed exact-frontier validation: %v", err)
-	}
-	record.CandidateEnvelope = bytes.Clone(candidateWire)
-	sequence, err = runtime.CommitBackupOperation(ctx, epoch,
-		record.DatabaseID, record.PartitionID, sequence, record)
-	if err != nil {
-		t.Fatal("commit exact verified Candidate:", err)
-	}
-	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
-	expires, err = backupCompleteExpiry(time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
-	completionWire, err := signBackupOperation(backupCompletionDomain, backupCompletionWire{
-		backupBinding: bindingFor(record), PointSHA256: candidate.PointSHA256,
-		ClosureSHA256:          candidate.ClosureSHA256,
-		PreviousHeadSHA256:     candidate.PreviousHeadSHA256,
-		ExpectedHeadGeneration: candidate.ExpectedHeadGeneration,
-		SelectedFrontier:       slices.Clone(candidate.SelectedFrontier),
-		ExpiresAtMS:            expires, SignerKeyID: manifest.SignerKeyID,
-	}, signer)
-	if err != nil || len(completionWire) > 8<<10 {
-		t.Fatalf("sign bounded exact Candidate Completion: %v", err)
-	}
-	record.CompletionEnvelope = completionWire
-	record.State = "publishing"
-	sequence, err = runtime.CommitBackupOperation(ctx, epoch,
-		record.DatabaseID, record.PartitionID, sequence, record)
-	if err != nil {
-		t.Fatal("commit Completion before owner delivery:", err)
+	if fullProducer {
+		candidate, err = producer.VerifyCandidate(ctx, record, candidateWire)
+		if err != nil {
+			t.Fatal("production VerifyCandidate rejected live owner proof:", err)
+		}
+		t.Logf("producer stage=VerifyCandidate candidate_sha256=%s", backupSHA(candidateWire))
+		record, sequence, err = producer.AcceptCandidate(ctx, epoch, record, sequence, candidateWire)
+		if err != nil {
+			t.Fatal("production AcceptCandidate rejected live owner proof:", err)
+		}
+	} else {
+		ownerRow, ownerErr := backupOwner(record, manifest)
+		if ownerErr != nil {
+			t.Fatal(ownerErr)
+		}
+		ownerPublic, publicErr := backupOwnerPublic(ownerRow)
+		if publicErr != nil {
+			t.Fatal(publicErr)
+		}
+		if err := decodeCanonicalBackupSigned(candidateWire, backupCandidateDomain,
+			ownerPublic, 8<<10, &candidate); err != nil ||
+			!candidateMatches(record, ownerRow, candidate, ownerPublic, cuts) {
+			t.Fatalf("live owner Candidate failed signed exact-frontier validation: %v", err)
+		}
+		record.CandidateEnvelope = bytes.Clone(candidateWire)
+		sequence, err = runtime.CommitBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, sequence, record)
+		if err != nil {
+			t.Fatal("commit exact verified Candidate:", err)
+		}
 	}
 	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	if fullProducer {
+		t.Logf("producer stage=AcceptCandidate r3_sequence=%d candidate_sha256=%s",
+			sequence, backupSHA(record.CandidateEnvelope))
+	}
+	if fullProducer {
+		record, sequence, err = producer.CommitCompletion(ctx, epoch, record, sequence, time.Now().UTC())
+		if err != nil {
+			t.Fatal("production CommitCompletion rejected accepted Candidate:", err)
+		}
+	} else {
+		expires, expiryErr := backupCompleteExpiry(time.Now().UTC())
+		if expiryErr != nil {
+			t.Fatal(expiryErr)
+		}
+		completionWire, signErr := signBackupOperation(backupCompletionDomain, backupCompletionWire{
+			backupBinding: bindingFor(record), PointSHA256: candidate.PointSHA256,
+			ClosureSHA256:          candidate.ClosureSHA256,
+			PreviousHeadSHA256:     candidate.PreviousHeadSHA256,
+			ExpectedHeadGeneration: candidate.ExpectedHeadGeneration,
+			SelectedFrontier:       slices.Clone(candidate.SelectedFrontier),
+			ExpiresAtMS:            expires, SignerKeyID: manifest.SignerKeyID,
+		}, signer)
+		if signErr != nil || len(completionWire) > 8<<10 {
+			t.Fatalf("sign bounded exact Candidate Completion: %v", signErr)
+		}
+		record.CompletionEnvelope = completionWire
+		record.State = "publishing"
+		sequence, err = runtime.CommitBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, sequence, record)
+		if err != nil {
+			t.Fatal("commit Completion before owner delivery:", err)
+		}
+	}
+	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	if fullProducer {
+		t.Logf("producer stage=CommitCompletion r3_sequence=%d completion_sha256=%s",
+			sequence, backupSHA(record.CompletionEnvelope))
+	}
+	completionWire := record.CompletionEnvelope
 	result := backupCompleteProcessResult{Version: 1, OperationID: record.OperationID,
 		Nonce: record.Nonce, Ordinal: record.Ordinal, Attempt: record.Attempt,
 		CandidateEnvelope: string(candidateWire), CompletionEnvelope: string(completionWire)}
 	backupCompleteProcessWriteResult(t, resultPath, result)
 	t.Logf("R3 committed live owner Candidate %s and Completion %s for %s",
 		backupSHA(candidateWire), backupSHA(completionWire), record.OperationID)
+	if fullProducer {
+		t.Logf("full producer CurrentBundle, VerifyCandidate, AcceptCandidate and CommitCompletion returned successfully at R3 sequence %d", sequence)
+	}
 }
 
 func backupCompleteProcessMaterial(t *testing.T, path string) (backupProcessPacket,
