@@ -527,7 +527,8 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 
 func verifyStoredTLS(seat InitialMember, member MemberBundle, retained RetainedSecrets) error {
 	serverPair, err := tls.X509KeyPair(member.Files["server.crt"].Contents, member.Files["server.key"].Contents)
-	if err != nil || len(serverPair.Certificate) == 0 {
+	if err != nil || len(serverPair.Certificate) == 0 || len(serverPair.Certificate[0]) == 0 ||
+		len(serverPair.Certificate[0]) > 4096 {
 		return ErrMaterialConflict
 	}
 	serverLeaf, err := x509.ParseCertificate(serverPair.Certificate[0])

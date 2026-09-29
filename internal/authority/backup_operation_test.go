@@ -22,6 +22,7 @@ func backupRecordFixture() BackupOperationRecord {
 		SourceScopeDigest: strings.Repeat("a", 64), SourceAuthoritySHA256: strings.Repeat("b", 64),
 		SourceConfigurationID: strings.Repeat("c", 64), SourceTargetDigest: strings.Repeat("d", 64),
 		BackupSet: strings.Repeat("e", 32), BackupTargetDigest: strings.Repeat("f", 64),
+		OwnerMemberID: "33333333-3333-3333-3333-333333333333", OwnerIncarnation: strings.Repeat("5", 32),
 		Ordinal: 1, Attempt: 1, AttemptHighWater: 1,
 		OperationID: "77777777-7777-7777-7777-777777777777",
 		Nonce:       strings.Repeat("9", 32), PrepareEnvelope: []byte(`{"version":1}`),
@@ -108,10 +109,18 @@ func TestBackupHeldRequiresEveryCutAndAbortCannotClearNewerHold(t *testing.T) {
 	held.State = "held"
 	held.Roster = slices.Clone(first.Roster)
 	held.Roster[0].CutEnvelope = []byte("cut-a")
+	held.Roster[0].CutLeafDER = []byte("leaf-a")
+	firstLeaf := sha256.Sum256(held.Roster[0].CutLeafDER)
+	first.Roster[0].TLSLeafSHA256 = hex.EncodeToString(firstLeaf[:])
+	held.Roster[0].TLSLeafSHA256 = first.Roster[0].TLSLeafSHA256
 	if err := validateBackupTransition(&first, held); err == nil {
 		t.Fatal("held state accepted with one missing Cut")
 	}
 	held.Roster[1].CutEnvelope = []byte("cut-b")
+	held.Roster[1].CutLeafDER = []byte("leaf-b")
+	secondLeaf := sha256.Sum256(held.Roster[1].CutLeafDER)
+	first.Roster[1].TLSLeafSHA256 = hex.EncodeToString(secondLeaf[:])
+	held.Roster[1].TLSLeafSHA256 = first.Roster[1].TLSLeafSHA256
 	if err := validateBackupTransition(&first, held); err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +129,201 @@ func TestBackupHeldRequiresEveryCutAndAbortCannotClearNewerHold(t *testing.T) {
 	changed.Roster[0].CutEnvelope = []byte("other-cut")
 	if err := validateBackupTransition(&held, changed); !errors.Is(err, ErrInvalidTransition) {
 		t.Fatalf("changed Cut accepted: %v", err)
+	}
+}
+
+func TestBackupCompleteRequiresCommittedProofsAndEveryAcknowledgment(t *testing.T) {
+	accepted := backupRecordFixture()
+	held := accepted
+	held.State = "held"
+	held.Roster = slices.Clone(accepted.Roster)
+	for index := range held.Roster {
+		leaf := []byte{byte(index + 1)}
+		digest := sha256.Sum256(leaf)
+		held.Roster[index].TLSLeafSHA256 = hex.EncodeToString(digest[:])
+		accepted.Roster[index].TLSLeafSHA256 = held.Roster[index].TLSLeafSHA256
+		held.Roster[index].CutLeafDER = leaf
+		held.Roster[index].CutEnvelope = []byte{byte(index + 3)}
+	}
+	if err := validateBackupTransition(&accepted, held); err != nil {
+		t.Fatal(err)
+	}
+	barrier := held
+	barrier.State = "barrier"
+	barrier.BarrierEnvelope = []byte("signed-barrier")
+	if err := validateBackupTransition(&held, barrier); err != nil {
+		t.Fatal(err)
+	}
+	premature := barrier
+	premature.CandidateEnvelope = []byte("signed-candidate")
+	if err := validateBackupTransition(&barrier, premature); err == nil {
+		t.Fatalf("candidate before durable Barrier acknowledgments: %v", err)
+	}
+	acknowledged := barrier
+	acknowledged.Roster = slices.Clone(barrier.Roster)
+	acknowledged.Roster[0].BarrierAcknowledged = true
+	if err := validateBackupTransition(&barrier, acknowledged); err != nil {
+		t.Fatal(err)
+	}
+	allBarrier := acknowledged
+	allBarrier.Roster = slices.Clone(acknowledged.Roster)
+	allBarrier.Roster[1].BarrierAcknowledged = true
+	if err := validateBackupTransition(&acknowledged, allBarrier); err != nil {
+		t.Fatal(err)
+	}
+	candidate := allBarrier
+	candidate.CandidateEnvelope = []byte("signed-candidate")
+	if err := validateBackupTransition(&allBarrier, candidate); err != nil {
+		t.Fatal(err)
+	}
+	publishing := candidate
+	publishing.State = "publishing"
+	publishing.CompletionEnvelope = []byte("signed-completion")
+	if err := validateBackupTransition(&candidate, publishing); err != nil {
+		t.Fatal(err)
+	}
+	abort := publishing
+	abort.State = "aborting"
+	abort.AbortEnvelope = []byte("signed-abort")
+	abort.AbortExpiresAtMS = publishing.PrepareExpiresAtMS + 1000
+	if err := validateBackupTransition(&publishing, abort); err == nil {
+		t.Fatalf("Abort after publishing was accepted: %v", err)
+	}
+	releasing := publishing
+	releasing.State = "releasing"
+	releasing.PublicationReceipt = []byte("signed-receipt")
+	releasing.CompleteRelease = []byte("signed-release")
+	releasing.CompleteReleaseExpiresAtMS = 1_900_000_240_000
+	releasing.HeadGeneration = 1
+	if err := validateBackupTransition(&publishing, releasing); err != nil {
+		t.Fatal(err)
+	}
+	prematureComplete := releasing
+	prematureComplete.State = "complete"
+	prematureComplete.CompletedOrdinal = 1
+	if err := validateBackupTransition(&releasing, prematureComplete); err == nil {
+		t.Fatal("Complete advanced ordinal without roster acknowledgments")
+	}
+	oneAck := releasing
+	oneAck.Roster = slices.Clone(releasing.Roster)
+	oneAck.Roster[0].CompleteAcknowledged = true
+	if err := validateBackupTransition(&releasing, oneAck); err != nil {
+		t.Fatal(err)
+	}
+	renewed := oneAck
+	renewed.CompleteRelease = []byte("signed-release-renewed")
+	renewed.CompleteReleaseExpiresAtMS += 60_000
+	if err := validateBackupTransition(&oneAck, renewed); err != nil {
+		t.Fatalf("Release-only renewal after one member ack: %v", err)
+	}
+	stale := renewed
+	stale.CompleteReleaseExpiresAtMS = oneAck.CompleteReleaseExpiresAtMS
+	if err := validateBackupTransition(&oneAck, stale); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("Release renewal without later expiry: %v", err)
+	}
+	changedReceipt := renewed
+	changedReceipt.PublicationReceipt = []byte("different-receipt")
+	if err := validateBackupTransition(&oneAck, changedReceipt); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("Release renewal changed immutable receipt: %v", err)
+	}
+	combinedAck := renewed
+	combinedAck.Roster = slices.Clone(renewed.Roster)
+	combinedAck.Roster[1].CompleteAcknowledged = true
+	if err := validateBackupTransition(&oneAck, combinedAck); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("Release renewal shared an acknowledgment commit: %v", err)
+	}
+	complete := renewed
+	complete.Roster = slices.Clone(renewed.Roster)
+	complete.Roster[1].CompleteAcknowledged = true
+	complete.State = "complete"
+	complete.CompletedOrdinal = 1
+	if err := validateBackupTransition(&renewed, complete); err != nil {
+		t.Fatal(err)
+	}
+	for _, prior := range []BackupOperationRecord{barrier, publishing, releasing, complete} {
+		injected := prior
+		injected.AbortEnvelope = []byte("signed-abort-injected")
+		injected.AbortExpiresAtMS = 1_900_000_300_000
+		if err := validateBackupTransition(&prior, injected); err == nil {
+			t.Fatalf("Abort envelope entered %s without an Abort transition", prior.State)
+		}
+	}
+	next := backupRecordFixture()
+	next.CompletedOrdinal = 1
+	next.Ordinal = 2
+	next.OperationID = "88888888-8888-8888-8888-888888888888"
+	next.Nonce = strings.Repeat("8", 32)
+	next.Terminal = []BackupTerminalReceipt{{OperationID: complete.OperationID,
+		Ordinal: 1, Attempt: 1, State: "complete"}}
+	if err := validateBackupTransition(&complete, next); err != nil {
+		t.Fatalf("next ordinal after all durable acks: %v", err)
+	}
+}
+
+func TestBackupHistoryPagesExactPartitionAndPayloadOperationID(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "backup-history-page", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	subject := mutationSubject("gru", MutationBackupOperation, "database-a.partition-a")
+	old := backupRecordFixture()
+	later := backupRecordFixture()
+	later.OperationID = "88888888-8888-8888-8888-888888888888"
+	var oldSequence uint64
+	for index := range 130 {
+		record := later
+		if index == 0 {
+			record = old
+		}
+		payload, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outer, err := json.Marshal(controlRecord{Version: 1, Kind: MutationBackupOperation,
+			Scope: "gru", SubjectKey: "database-a.partition-a",
+			OperationID: "mutation-record", Epoch: runtime.Current().Epoch, Payload: payload})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ack, err := js.Publish(ctx, subject, outer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if index == 0 {
+			oldSequence = ack.Sequence
+		}
+	}
+	first, err := runtime.ReadBackupHistoryPage(ctx, old.DatabaseID, old.PartitionID,
+		old.OperationID, 0, 0)
+	if err != nil || first.Exhausted || first.LatestMatchSequence != oldSequence ||
+		first.NextSequence <= oldSequence {
+		t.Fatalf("first bounded history page: %+v, %v", first, err)
+	}
+	second, err := runtime.ReadBackupHistoryPage(ctx, old.DatabaseID, old.PartitionID,
+		old.OperationID, first.Watermark, first.NextSequence)
+	if err != nil || !second.Exhausted || second.LatestMatchSequence != 0 {
+		t.Fatalf("second bounded history page: %+v, %v", second, err)
+	}
+	recovered, err := runtime.ReadBackupOperationAtSequence(ctx, old.DatabaseID, old.PartitionID,
+		old.OperationID, oldSequence)
+	if err != nil || recovered.OperationID != old.OperationID {
+		t.Fatalf("exact prior operation was lost: %v", err)
+	}
+	if _, err := runtime.ReadBackupOperationAtSequence(ctx, old.DatabaseID, old.PartitionID,
+		old.OperationID, second.Watermark); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("different payload operation ID was accepted: %v", err)
+	}
+	corrupt, err := js.Publish(ctx, subject, []byte(`{"invalid":"control-record"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.ReadBackupOperationAtSequence(ctx, old.DatabaseID, old.PartitionID,
+		old.OperationID, corrupt.Sequence); err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("corrupt historical entry was reported as not found: %v", err)
 	}
 }
 

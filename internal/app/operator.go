@@ -72,6 +72,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	registrationPath := flags.String("registration", "", "JSON host registration")
 	instanceID := flags.String("instance-id", "", "managed OCI host instance ID")
 	operationID := flags.String("operation-id", "", "operation ID (required for backup-abort; optional for current backup-status)")
+	historyCursor := flags.String("history-cursor", "", "signed backup history continuation cursor")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
 	var forwards operatorForwardFlags
@@ -140,11 +141,11 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	case "terminal-status":
 		return operatorTerminalStatus(ctx, cfg, runtime, *databaseID, *partitionID, output)
 	case "backup-start":
-		return operatorBackupOperation(ctx, cfg, runtime, "start", *databaseID, *partitionID, "", output)
+		return operatorBackupOperation(ctx, cfg, runtime, "start", *databaseID, *partitionID, "", "", output)
 	case "backup-abort":
-		return operatorBackupOperation(ctx, cfg, runtime, "abort", *databaseID, *partitionID, *operationID, output)
+		return operatorBackupOperation(ctx, cfg, runtime, "abort", *databaseID, *partitionID, *operationID, "", output)
 	case "backup-status":
-		return operatorBackupOperation(ctx, cfg, runtime, "status", *databaseID, *partitionID, *operationID, output)
+		return operatorBackupOperation(ctx, cfg, runtime, "status", *databaseID, *partitionID, *operationID, *historyCursor, output)
 	case "material-prepare":
 		if *intentPath == "" {
 			return errors.New("material-prepare requires --intent FILE")

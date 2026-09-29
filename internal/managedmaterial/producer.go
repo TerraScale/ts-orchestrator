@@ -149,6 +149,9 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		if leafErr != nil {
 			return InitialBundle{}, leafErr
 		}
+		if len(replicationDER) == 0 || len(replicationDER) > 4096 {
+			return InitialBundle{}, ErrMaterialConflict
+		}
 		_, httpsPEM, httpsPrivate, leafErr := generateLeaf(
 			httpsCA, httpsKey, seat.ServerName, net.ParseIP(seat.ClientIP), now,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})

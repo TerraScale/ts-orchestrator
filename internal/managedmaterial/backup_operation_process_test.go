@@ -149,6 +149,7 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	}) {
 		t.Fatal("Rust process roster is unsorted or lacks owner")
 	}
+	manifest.OwnerIncarnation = owner.Incarnation
 	js := backupProcessJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
@@ -176,7 +177,9 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal("Go process-bound owner Prepare failed:", err)
 	}
-	if _, err := verifyCutWithBundle(record, owner.MemberID, cut, receipt, bundle); err != nil {
+	var ownerLeafDER []byte
+	if _, err := verifyCutWithBundleLeaf(record, owner.MemberID, cut, receipt, bundle,
+		&ownerLeafDER); err != nil {
 		t.Fatal("Rust owner Cut failed Go leaf verification:", err)
 	}
 	heldStatus, err := ownerClient.BackupOperationStatus(ctx, record.OperationID)
@@ -192,6 +195,7 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	for index := range record.Roster {
 		if record.Roster[index].MemberID == owner.MemberID {
 			record.Roster[index].CutEnvelope = bytes.Clone(cut)
+			record.Roster[index].CutLeafDER = ownerLeafDER
 		}
 	}
 	sequence, err = runtime.CommitBackupOperation(ctx, epoch, packet.DatabaseID,
@@ -218,11 +222,14 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	if record.State != "aborted" {
 		t.Fatal("R3 did not reach roster-wide aborted state")
 	}
-	prepareSum := sha256.Sum256(record.PrepareEnvelope)
-	abortSum := sha256.Sum256(record.AbortEnvelope)
-	result := backupProcessResult{Version: 1, OperationID: record.OperationID,
-		Nonce: record.Nonce, Ordinal: record.Ordinal, Attempt: record.Attempt,
-		PrepareEnvelope: string(record.PrepareEnvelope), PrepareSHA256: hex.EncodeToString(prepareSum[:]),
+	aborted := record
+	backupProcessBarrierAttempt(t, ctx, runtime, producer, packet, placementSequence,
+		roster, receipt, bundle, manifest, signer)
+	prepareSum := sha256.Sum256(aborted.PrepareEnvelope)
+	abortSum := sha256.Sum256(aborted.AbortEnvelope)
+	result := backupProcessResult{Version: 1, OperationID: aborted.OperationID,
+		Nonce: aborted.Nonce, Ordinal: aborted.Ordinal, Attempt: aborted.Attempt,
+		PrepareEnvelope: string(aborted.PrepareEnvelope), PrepareSHA256: hex.EncodeToString(prepareSum[:]),
 		AbortSHA256: hex.EncodeToString(abortSum[:])}
 	encoded, err := json.Marshal(result)
 	if err != nil {
@@ -243,6 +250,115 @@ func TestBackupGoRustProcessBridge(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func backupProcessBarrierAttempt(t *testing.T, ctx context.Context, runtime *authority.Runtime,
+	producer BackupOperationProducer, packet backupProcessPacket, placementSequence uint64,
+	roster []authority.BackupOperationMember, receipt PreparationReceipt, bundle InitialBundle,
+	manifest BackupManifestPayload, signer ed25519.PrivateKey,
+) {
+	t.Helper()
+	epoch := runtime.Current().Epoch
+	record, sequence, err := producer.allocatePrepareWithMaterial(ctx, epoch,
+		packet.DatabaseID, packet.PartitionID, placementSequence, roster,
+		time.Now().UTC(), receipt, manifest, signer, func(context.Context) error { return nil })
+	if err != nil || record.Attempt != 2 || record.Ordinal != 1 {
+		t.Fatalf("R3 did not allocate the next attempt after Abort: %+v, %v", record, err)
+	}
+	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	var cutAt uint64
+	barrierRoster := make([]backupBarrierMember, len(record.Roster))
+	for index, member := range packet.Roster {
+		client := backupProcessClient(t, member)
+		cutEnvelope, err := client.BackupPrepare(ctx, record.PrepareEnvelope)
+		if err != nil {
+			t.Fatalf("member %s did not accept next Prepare: %v", member.MemberID, err)
+		}
+		var leafDER []byte
+		cut, err := verifyCutWithBundleLeaf(record, member.MemberID, cutEnvelope,
+			receipt, bundle, &leafDER)
+		if err != nil || len(leafDER) == 0 || len(leafDER) > 4096 {
+			t.Fatalf("member %s Cut or pinned DER is invalid: %v", member.MemberID, err)
+		}
+		record.Roster[index].CutEnvelope = bytes.Clone(cutEnvelope)
+		record.Roster[index].CutLeafDER = leafDER
+		barrierRoster[index] = backupBarrierMember{cut.Origin, cut.MemberID, cut.Incarnation,
+			cut.RootSHA256, cut.RootGeneration, cut.NativeCommitSeq,
+			cut.AppliedSequence, cut.DurableSequence}
+		cutAt = max(cutAt, cut.HeldAtMS)
+	}
+	record.State = "held"
+	sequence, err = runtime.CommitBackupOperation(ctx, epoch, record.DatabaseID,
+		record.PartitionID, sequence, record)
+	if err != nil {
+		t.Fatalf("R3 did not commit both exact Cut+DER rows: %v", err)
+	}
+	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	expires, err := backupCompleteExpiry(time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier, err := signBackupOperation(backupBarrierDomain, backupBarrierWire{
+		backupBinding: bindingFor(record), SourceCutAtMS: cutAt,
+		ExpiresAtMS: expires, SignerKeyID: manifest.SignerKeyID,
+		Roster: barrierRoster}, signer)
+	if err != nil || len(barrier) > 8<<10 {
+		t.Fatalf("sign bounded R3 Barrier: %v", err)
+	}
+	record.BarrierEnvelope = barrier
+	record.State = "barrier"
+	sequence, err = runtime.CommitBackupOperation(ctx, epoch, record.DatabaseID,
+		record.PartitionID, sequence, record)
+	if err != nil {
+		t.Fatalf("R3 did not commit exact Barrier before relay: %v", err)
+	}
+	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	barrierSHA := backupSHA(barrier)
+	for _, target := range packet.Roster {
+		client := backupProcessClient(t, target)
+		for _, source := range record.Roster {
+			if source.MemberID == target.MemberID {
+				continue
+			}
+			if err := client.BackupCutProof(ctx, source.CutEnvelope, source.CutLeafDER); err != nil {
+				t.Fatalf("member %s rejected peer %s committed Cut+DER: %v",
+					target.MemberID, source.MemberID, err)
+			}
+		}
+		ack, err := client.BackupBarrier(ctx, record.BarrierEnvelope)
+		if err != nil || ack != barrierSHA {
+			t.Fatalf("member %s did not durably acknowledge R3 Barrier: %s, %v",
+				target.MemberID, ack, err)
+		}
+		status, err := client.BackupOperationStatus(ctx, record.OperationID)
+		if err != nil || status.State != "pending" || status.BarrierSHA256 != barrierSHA ||
+			status.HeadGeneration != 0 || status.OperationID != record.OperationID ||
+			status.Nonce != record.Nonce || status.Ordinal != record.Ordinal ||
+			status.Attempt != record.Attempt {
+			t.Fatalf("member %s post-Barrier status differs from R3: %+v, %v",
+				target.MemberID, status, err)
+		}
+		record, sequence, err = producer.AcknowledgeBarrier(ctx, epoch, record, sequence,
+			target.MemberID, ack)
+		if err != nil {
+			t.Fatalf("R3 did not commit member %s Barrier ack: %v", target.MemberID, err)
+		}
+		assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	}
+	record, sequence, err = producer.beginAbortWithMaterial(ctx, epoch,
+		record.DatabaseID, record.PartitionID, time.Now().UTC(), manifest, signer)
+	if err != nil {
+		t.Fatalf("pre-publication Abort after Barrier was not committed: %v", err)
+	}
+	assertBackupProcessReadback(t, ctx, runtime, record, sequence)
+	for _, member := range packet.Roster {
+		record, sequence = backupProcessAbortMember(t, ctx, runtime, record, sequence, member)
+	}
+	if record.State != "aborted" {
+		t.Fatal("Barrier attempt did not finish roster-wide Abort cleanup")
+	}
+	t.Logf("process-bound R3 Barrier attempt %s had two durable acknowledgments at %s",
+		record.OperationID, barrierSHA)
 }
 
 func backupProcessAbortMember(t *testing.T, ctx context.Context, runtime *authority.Runtime,
@@ -287,9 +403,10 @@ func assertBackupProcessReadback(t *testing.T, ctx context.Context, runtime *aut
 ) {
 	t.Helper()
 	read, observed, err := runtime.ReadBackupOperation(ctx, record.DatabaseID, record.PartitionID)
-	if err != nil || observed != sequence || !bytes.Equal(read.PrepareEnvelope, record.PrepareEnvelope) ||
-		!bytes.Equal(read.AbortEnvelope, record.AbortEnvelope) || read.Attempt != record.Attempt ||
-		read.State != record.State {
+	want, wantErr := json.Marshal(record)
+	actual, actualErr := json.Marshal(read)
+	if err != nil || wantErr != nil || actualErr != nil || observed != sequence ||
+		!bytes.Equal(want, actual) {
 		t.Fatalf("R3 exact operation readback failed: sequence=%d/%d error=%v", observed, sequence, err)
 	}
 }

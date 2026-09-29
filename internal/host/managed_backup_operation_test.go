@@ -63,6 +63,43 @@ func (reader backupTestMutationReader) ReadBackupOperation(_ context.Context,
 	return reader.record, 1, nil
 }
 
+func TestBackupRelaySerializedBoundsAtDERAndCompleteCaps(t *testing.T) {
+	cut := bytes.Repeat([]byte("c"), 1753)
+	der := bytes.Repeat([]byte{0x42}, 4096)
+	record := authority.BackupOperationRecord{State: "barrier",
+		Roster: []authority.BackupOperationMember{
+			{MemberID: "33333333-3333-3333-3333-333333333333", CutEnvelope: cut, CutLeafDER: der},
+			{MemberID: "44444444-4444-4444-4444-444444444444"}},
+	}
+	proof, err := backupRelayEnvelope(record, record.Roster[1].MemberID,
+		"cut-proof", record.Roster[0].MemberID)
+	if err != nil || len(proof) > maxBackupRelayBytes {
+		t.Fatalf("maximal CutProof does not fit 8 KiB: %d, %v", len(proof), err)
+	}
+	record.Roster[0].CutLeafDER = append(der, 0)
+	if _, err := backupRelayEnvelope(record, record.Roster[1].MemberID,
+		"cut-proof", record.Roster[0].MemberID); err == nil {
+		t.Fatal("oversize pinned leaf entered CutProof relay")
+	}
+	command := ManagedBackupCommand{Kind: "complete",
+		Envelope:       bytes.Repeat([]byte("x"), maxBackupCompleteRelayBytes),
+		EnvelopeSHA256: strings.Repeat("a", 64),
+		OperationID:    "77777777-7777-7777-7777-777777777777",
+		DatabaseID:     "database-a", PartitionID: "partition-a",
+		MemberID: record.Roster[1].MemberID, Node: "host-a", Role: "terrabase"}
+	status := memberstatus.BackupOperationStatus{Version: 1,
+		OperationID: command.OperationID, State: "complete",
+		PublishedHeadReceipt: string(bytes.Repeat([]byte("r"), 18<<10))}
+	commandWire, err := json.Marshal(command)
+	if err != nil || len(commandWire) > 64<<10 {
+		t.Fatalf("maximal Complete command KV exceeds 64 KiB: %d, %v", len(commandWire), err)
+	}
+	resultWire, err := json.Marshal(ManagedBackupResult{Command: command, Status: status})
+	if err != nil || len(resultWire) > 64<<10 {
+		t.Fatalf("maximal Complete result KV exceeds 64 KiB: %d, %v", len(resultWire), err)
+	}
+}
+
 func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	registration, desired, hostKey := managedContractFixture()
 	registration.ManagedPlacement = &ManagedPlacementBinding{DatabaseID: "db-main", PartitionID: "partition-a",
@@ -251,6 +288,76 @@ func TestBackupHeldRestartDiscoversR3WithoutPriorHostCommand(t *testing.T) {
 	drain, err := agent.fetchManagedDrainCommand(t.Context(), desired.Role)
 	if err != nil || drain != nil {
 		t.Fatalf("signed Agent could not resume serving reconciliation: %+v, %v", drain, err)
+	}
+	// The member completed under the original Release, but the controller lost
+	// its R3 acknowledgment. A status-only relay must recover its exact proof
+	// even after R3 holds a renewed Release with another digest.
+	record.State = "releasing"
+	record.AbortEnvelope = nil
+	record.Ordinal, record.Attempt = 1, 1
+	record.Nonce = strings.Repeat("9", 32)
+	record.BackupSet = strings.Repeat("a", 32)
+	record.SourceScopeDigest = strings.Repeat("b", 64)
+	record.SourceAuthoritySHA256 = strings.Repeat("c", 64)
+	record.SourceTargetDigest = strings.Repeat("d", 64)
+	record.BackupTargetDigest = strings.Repeat("e", 64)
+	record.PublicationReceipt = []byte("exact-committed-receipt")
+	record.CompleteRelease = []byte("first-signed-complete-release")
+	record.CompleteReleaseExpiresAtMS = uint64(time.Now().Add(-time.Minute).UnixMilli())
+	record.HeadGeneration = 1
+	controller.mutations = backupTestMutationReader{HostMutationStore: withReader,
+		VerifiedHostMutationStore: verifiedStore, record: record}
+	memberID := desired.ManagedMember.Member.Scope.MemberID
+	if err := controller.RequestManagedBackupOperation(t.Context(), 1,
+		record.DatabaseID, record.PartitionID, memberID, "complete-status"); err != nil {
+		t.Fatal(err)
+	}
+	statusCommand, err := agent.fetchManagedBackupCommand(t.Context(), desired.Role)
+	if err != nil || statusCommand.Command == nil || statusCommand.Command.Kind != "complete-status" ||
+		!bytes.Equal(statusCommand.Command.Envelope, record.CompleteRelease) {
+		t.Fatalf("signed Agent did not receive exact status-only recovery command: %+v, %v", statusCommand, err)
+	}
+	memberStatus := memberstatus.BackupOperationStatus{Version: 1,
+		OperationID: record.OperationID, Nonce: record.Nonce, State: "complete",
+		BackupSet: record.BackupSet, Ordinal: record.Ordinal, Attempt: record.Attempt,
+		SourceScopeDigest:     record.SourceScopeDigest,
+		SourceAuthoritySHA256: record.SourceAuthoritySHA256,
+		SourceTargetDigest:    record.SourceTargetDigest,
+		BackupTargetDigest:    record.BackupTargetDigest,
+		HeadGeneration:        record.HeadGeneration,
+		PublishedHeadReceipt:  string(record.PublicationReceipt)}
+	result := ManagedBackupResult{Command: *statusCommand.Command, Status: memberStatus}
+	bad := result
+	bad.Status.PublishedHeadReceipt = "other-receipt"
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"backup-result", s.SessionID, s.Epoch, bad)); err == nil {
+		t.Fatal("status-only recovery accepted a substituted publication receipt")
+	}
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"backup-result", s.SessionID, s.Epoch, result)); err != nil {
+		t.Fatalf("exact terminal status could not recover lost acknowledgment: %v", err)
+	}
+	if _, found, err := controller.ReadManagedBackupResult(t.Context(), desired.Node, desired.Role); err != nil || !found {
+		t.Fatalf("host did not retain exact process status result: %v", err)
+	}
+	record.CompleteRelease = []byte("renewed-signed-complete-release")
+	record.CompleteReleaseExpiresAtMS += 4 * 60_000
+	controller.mutations = backupTestMutationReader{HostMutationStore: withReader,
+		VerifiedHostMutationStore: verifiedStore, record: record}
+	if err := controller.RequestManagedBackupOperation(t.Context(), 1,
+		record.DatabaseID, record.PartitionID, memberID, "complete-status"); err != nil {
+		t.Fatal(err)
+	}
+	renewedCommand, err := agent.fetchManagedBackupCommand(t.Context(), desired.Role)
+	if err != nil || renewedCommand.Command == nil ||
+		renewedCommand.Command.Kind != "complete-status" ||
+		!bytes.Equal(renewedCommand.Command.Envelope, record.CompleteRelease) {
+		t.Fatalf("renewal replayed Complete before checking terminal status: %+v, %v", renewedCommand, err)
+	}
+	result.Command = *renewedCommand.Command
+	if _, err := controller.handleAuthorized(t.Context(), signedHostRequest(t, hostKey,
+		"backup-result", s.SessionID, s.Epoch, result)); err != nil {
+		t.Fatalf("old terminal receipt was rejected after Release renewal: %v", err)
 	}
 }
 

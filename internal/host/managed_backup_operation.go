@@ -6,10 +6,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -17,6 +20,7 @@ import (
 )
 
 const maxBackupRelayBytes = 8 << 10
+const maxBackupCompleteRelayBytes = 30 << 10
 
 // ManagedBackupCommand is a host relay of an already committed R3 envelope.
 // It has no signing key, backup credentials or data key.
@@ -28,6 +32,8 @@ type ManagedBackupCommand struct {
 	Node              string               `json:"node"`
 	Role              string               `json:"role"`
 	Kind              string               `json:"kind"`
+	ProofMemberID     string               `json:"proof_member_id,omitempty"`
+	RefreshAtMS       uint64               `json:"refresh_at_ms,omitzero"`
 	Epoch             uint64               `json:"epoch"`
 	DesiredGeneration uint64               `json:"desired_generation"`
 	DesiredDigest     string               `json:"desired_digest"`
@@ -40,9 +46,10 @@ type ManagedBackupCommand struct {
 }
 
 type ManagedBackupResult struct {
-	Command     ManagedBackupCommand               `json:"command"`
-	CutEnvelope []byte                             `json:"cut_envelope,omitempty"`
-	Status      memberstatus.BackupOperationStatus `json:"status"`
+	Command         ManagedBackupCommand               `json:"command"`
+	CutEnvelope     []byte                             `json:"cut_envelope,omitempty"`
+	ReceiptEnvelope []byte                             `json:"receipt_envelope,omitempty"`
+	Status          memberstatus.BackupOperationStatus `json:"status"`
 }
 
 type managedBackupQuery struct {
@@ -84,7 +91,7 @@ func (command ManagedBackupCommand) matchesDesired(desired Desired, registration
 func (command ManagedBackupCommand) matchesRecord(record authority.BackupOperationRecord) bool {
 	if command.OperationID != record.OperationID || command.DatabaseID != record.DatabaseID ||
 		command.PartitionID != record.PartitionID ||
-		(command.Kind != "prepare" && command.Kind != "abort") {
+		!slices.Contains([]string{"prepare", "abort", "cut-proof", "barrier", "publish", "complete-status", "complete"}, command.Kind) {
 		return false
 	}
 	var memberFound bool
@@ -99,18 +106,58 @@ func (command ManagedBackupCommand) matchesRecord(record authority.BackupOperati
 	if !memberFound {
 		return false
 	}
-	want := record.PrepareEnvelope
-	if command.Kind == "abort" {
-		if record.State != "aborting" && record.State != "uncertain" && record.State != "aborted" {
-			return false
-		}
-		want = record.AbortEnvelope
-	} else if record.State == "aborting" || record.State == "aborted" || len(record.AbortEnvelope) != 0 {
+	want, err := backupRelayEnvelope(record, command.MemberID, command.Kind, command.ProofMemberID)
+	if err != nil {
 		return false
 	}
 	sum := sha256.Sum256(want)
-	return len(want) > 0 && len(want) <= maxBackupRelayBytes &&
+	limit := maxBackupRelayBytes
+	if command.Kind == "complete" || command.Kind == "complete-status" {
+		limit = maxBackupCompleteRelayBytes
+	}
+	return len(want) > 0 && len(want) <= limit &&
 		bytes.Equal(command.Envelope, want) && command.EnvelopeSHA256 == hex.EncodeToString(sum[:])
+}
+
+func backupRelayEnvelope(record authority.BackupOperationRecord, memberID, kind, proofMemberID string) ([]byte, error) {
+	switch kind {
+	case "prepare":
+		if proofMemberID == "" && record.State != "aborting" && record.State != "aborted" &&
+			len(record.AbortEnvelope) == 0 {
+			return record.PrepareEnvelope, nil
+		}
+	case "abort":
+		if proofMemberID == "" && slices.Contains([]string{"aborting", "uncertain", "aborted"}, record.State) {
+			return record.AbortEnvelope, nil
+		}
+	case "cut-proof":
+		if record.State == "barrier" && proofMemberID != "" && proofMemberID != memberID {
+			for _, member := range record.Roster {
+				if member.MemberID == proofMemberID && len(member.CutEnvelope) > 0 &&
+					len(member.CutLeafDER) > 0 && len(member.CutLeafDER) <= 4096 {
+					return json.Marshal(struct {
+						Version     uint64 `json:"version"`
+						CutEnvelope string `json:"cut_envelope"`
+						LeafDER     string `json:"leaf_der"`
+					}{1, base64.RawURLEncoding.EncodeToString(member.CutEnvelope),
+						base64.RawURLEncoding.EncodeToString(member.CutLeafDER)})
+				}
+			}
+		}
+	case "barrier":
+		if record.State == "barrier" && proofMemberID == "" {
+			return record.BarrierEnvelope, nil
+		}
+	case "publish":
+		if record.State == "publishing" && memberID == record.OwnerMemberID && proofMemberID == "" {
+			return record.CompletionEnvelope, nil
+		}
+	case "complete-status", "complete":
+		if record.State == "releasing" && proofMemberID == "" {
+			return record.CompleteRelease, nil
+		}
+	}
+	return nil, errors.New("backup relay is not authorized by current R3 state")
 }
 
 // RequestManagedBackupOperation derives a relay solely from the current R3
@@ -136,7 +183,11 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 			break
 		}
 	}
-	if rosterMember.Node == "" || !slices.Contains([]string{"prepare", "abort"}, kind) {
+	proofMemberID := ""
+	if suffix, ok := strings.CutPrefix(kind, "cut-proof/"); ok {
+		kind, proofMemberID = "cut-proof", suffix
+	}
+	if rosterMember.Node == "" || !slices.Contains([]string{"prepare", "abort", "cut-proof", "barrier", "publish", "complete-status", "complete"}, kind) {
 		return errors.New("backup relay member or kind is invalid")
 	}
 	registration, _, found, err := c.readRegistration(ctx, rosterMember.Node)
@@ -166,14 +217,29 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 		!lowerHex(report.Managed.ProcessBootID, 32) {
 		return errors.Join(errors.New("backup relay lacks a current native process report"), err)
 	}
-	envelope := record.PrepareEnvelope
-	if kind == "abort" {
-		envelope = record.AbortEnvelope
+	envelope, err := backupRelayEnvelope(record, memberID, kind, proofMemberID)
+	if err != nil {
+		return err
 	}
 	sum := sha256.Sum256(envelope)
+	var refreshAtMS uint64
+	if kind == "complete-status" {
+		refreshAtMS = uint64(time.Now().UnixMilli())
+	}
+	if kind == "barrier" && memberID == record.OwnerMemberID &&
+		len(record.CandidateEnvelope) == 0 {
+		all := true
+		for _, member := range record.Roster {
+			all = all && member.BarrierAcknowledged
+		}
+		if all {
+			refreshAtMS = uint64(time.Now().UnixMilli())
+		}
+	}
 	command := ManagedBackupCommand{OperationID: record.OperationID, DatabaseID: databaseID,
 		PartitionID: partitionID, MemberID: memberID, Node: rosterMember.Node, Role: rosterMember.Role,
-		Kind: kind, Epoch: epoch, DesiredGeneration: desired.Generation, DesiredDigest: desired.Digest,
+		Kind: kind, ProofMemberID: proofMemberID, RefreshAtMS: refreshAtMS,
+		Epoch: epoch, DesiredGeneration: desired.Generation, DesiredDigest: desired.Digest,
 		Member: desired.ManagedMember.Member, Authority: desired.ManagedMember.Authority,
 		OCI: desired.ManagedMember.OCI,
 		ExpectedProcess: memberstatus.Process{PID: report.Managed.ProcessPID,
@@ -303,7 +369,19 @@ func (c *Controller) storeManagedBackupResult(ctx context.Context, req request,
 		command.Kind == "prepare" && (result.Status.State != "pending" ||
 			len(result.CutEnvelope) == 0 || len(result.CutEnvelope) > maxBackupRelayBytes) ||
 		command.Kind == "abort" && (result.Status.State != "failed" ||
-			result.Status.ErrorCode != "aborted" || len(result.CutEnvelope) != 0) {
+			result.Status.ErrorCode != "aborted" || len(result.CutEnvelope) != 0) ||
+		command.Kind == "cut-proof" && (result.Status.State != "pending" ||
+			len(result.CutEnvelope) != 0 || len(result.ReceiptEnvelope) != 0) ||
+		command.Kind == "barrier" && (result.Status.State != "pending" ||
+			result.Status.BarrierSHA256 != command.EnvelopeSHA256) ||
+		command.Kind == "publish" && (result.Status.State != "pending" ||
+			len(result.ReceiptEnvelope) == 0 || len(result.ReceiptEnvelope) > 18<<10 ||
+			result.Status.PublishedHeadReceipt != string(result.ReceiptEnvelope)) ||
+		command.Kind == "complete-status" &&
+			(result.Status.State != "pending" && result.Status.State != "complete" ||
+				len(result.CutEnvelope) != 0 || len(result.ReceiptEnvelope) != 0) ||
+		command.Kind == "complete" && (result.Status.State != "complete" ||
+			len(result.CutEnvelope) != 0 || len(result.ReceiptEnvelope) != 0) {
 		return nil, errors.Join(errors.New("backup result is not a matching durable member observation"), err)
 	}
 	reader, ok := c.mutations.(backupOperationReader)
@@ -319,6 +397,12 @@ func (c *Controller) storeManagedBackupResult(ctx context.Context, req request,
 		result.Status.SourceTargetDigest != record.SourceTargetDigest ||
 		result.Status.BackupTargetDigest != record.BackupTargetDigest {
 		return nil, errors.Join(errors.New("backup result differs from current R3 operation"), err)
+	}
+	if (command.Kind == "complete" ||
+		command.Kind == "complete-status" && result.Status.State == "complete") &&
+		(result.Status.HeadGeneration != record.HeadGeneration ||
+			result.Status.PublishedHeadReceipt != string(record.PublicationReceipt)) {
+		return nil, errors.New("backup Complete result differs from committed publication")
 	}
 	key := managedBackupResultKey(c.cell, command.Node, command.Role)
 	for range 8 {
@@ -390,11 +474,21 @@ func (a *Agent) reconcileManagedBackup(ctx context.Context, desired Desired,
 	if err != nil || status.Process != command.ExpectedProcess {
 		return errors.Join(memberstatus.ErrStaleBinding, err)
 	}
-	var cut []byte
+	var cut, receipt []byte
 	if command.Kind == "prepare" {
 		cut, err = client.BackupPrepare(ctx, command.Envelope)
 	} else if command.Kind == "abort" {
 		err = client.BackupAbort(ctx, command.Envelope)
+	} else if command.Kind == "cut-proof" {
+		err = client.BackupCutProofWire(ctx, command.Envelope)
+	} else if command.Kind == "barrier" {
+		_, err = client.BackupBarrier(ctx, command.Envelope)
+	} else if command.Kind == "publish" {
+		receipt, err = client.BackupPublish(ctx, command.Envelope)
+	} else if command.Kind == "complete" {
+		err = client.BackupComplete(ctx, command.Envelope)
+	} else if command.Kind == "complete-status" {
+		// Recover a durable terminal member without replaying its old Release.
 	} else {
 		return errors.New("backup host command kind is invalid")
 	}
@@ -414,7 +508,7 @@ func (a *Agent) reconcileManagedBackup(ctx context.Context, desired Desired,
 	}
 	var accepted ManagedBackupResult
 	return a.request(ctx, "backup-result", ManagedBackupResult{
-		Command: command, CutEnvelope: cut, Status: memberStatus}, &accepted)
+		Command: command, CutEnvelope: cut, ReceiptEnvelope: receipt, Status: memberStatus}, &accepted)
 }
 
 // A restored held member may open its Unix socket before local recovery has

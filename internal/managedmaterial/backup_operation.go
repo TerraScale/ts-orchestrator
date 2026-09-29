@@ -22,9 +22,13 @@ import (
 )
 
 const (
-	backupPrepareDomain = "TB-BACKUP-PREPARE-V1\x00"
-	backupReleaseDomain = "TB-BACKUP-RELEASE-V1\x00"
-	backupCutDomain     = "TB-BACKUP-CUT-V1\x00"
+	backupPrepareDomain       = "TB-BACKUP-PREPARE-V1\x00"
+	backupReleaseDomain       = "TB-BACKUP-RELEASE-V1\x00"
+	backupCutDomain           = "TB-BACKUP-CUT-V1\x00"
+	backupBarrierDomain       = "TB-BACKUP-BARRIER-V1\x00"
+	backupCompletionDomain    = "TB-BACKUP-COMPLETION-V1\x00"
+	backupCandidateDomain     = "TB-BACKUP-CANDIDATE-V1\x00"
+	backupPublishedHeadDomain = "TB-BACKUP-PUBLISHED-HEAD-V1\x00"
 )
 
 type BackupOperationStore interface {
@@ -69,18 +73,21 @@ type backupPrepareWire struct {
 }
 
 type backupReleaseWire struct {
-	Version               uint64 `json:"version"`
-	OperationID           string `json:"operation_id"`
-	Nonce                 string `json:"nonce"`
-	SourceScopeDigest     string `json:"source_scope_digest"`
-	SourceAuthoritySHA256 string `json:"source_authority_sha256"`
-	SourceConfigurationID string `json:"source_configuration_id"`
-	BackupSet             string `json:"backup_set"`
-	Ordinal               uint64 `json:"ordinal"`
-	Attempt               uint64 `json:"attempt"`
-	Reason                string `json:"reason"`
-	ExpiresAtMS           uint64 `json:"expires_at_ms"`
-	SignerKeyID           string `json:"signer_key_id"`
+	Version                  uint64 `json:"version"`
+	OperationID              string `json:"operation_id"`
+	Nonce                    string `json:"nonce"`
+	SourceScopeDigest        string `json:"source_scope_digest"`
+	SourceAuthoritySHA256    string `json:"source_authority_sha256"`
+	SourceConfigurationID    string `json:"source_configuration_id"`
+	BackupSet                string `json:"backup_set"`
+	Ordinal                  uint64 `json:"ordinal"`
+	Attempt                  uint64 `json:"attempt"`
+	Reason                   string `json:"reason"`
+	ExpiresAtMS              uint64 `json:"expires_at_ms"`
+	SignerKeyID              string `json:"signer_key_id"`
+	PublicationReceiptSHA256 string `json:"publication_receipt_sha256"`
+	PublicationReceipt       string `json:"publication_receipt"`
+	CompletionEnvelope       string `json:"completion_envelope"`
 }
 
 // BackupCut is a member's leaf-signed, locally fsynced hold observation.
@@ -190,16 +197,18 @@ func validateBackupRoster(receipt PreparationReceipt, members []authority.Backup
 				break
 			}
 		}
-		if !found || member.Node == "" || member.Role == "" || len(member.CutEnvelope) != 0 || member.AbortAcknowledged {
+		if !found || member.Node == "" || member.Role == "" || len(member.CutEnvelope) != 0 ||
+			len(member.CutLeafDER) != 0 || member.AbortAcknowledged ||
+			member.BarrierAcknowledged || member.CompleteAcknowledged {
 			return ErrMaterialConflict
 		}
 	}
 	return nil
 }
 
-// AllocatePrepare supports the generation-one, never-completed backup set.
-// Publication is deliberately closed until catalog/closure proof is wired.
-// The verifier must recheck the caller's exact serving roster at final R3 CAS.
+// AllocatePrepare advances one ordinal only after every prior Complete
+// acknowledgment, or advances the attempt after a roster-wide Abort. The
+// verifier rechecks the exact serving roster at final R3 CAS.
 func (producer BackupOperationProducer) AllocatePrepare(ctx context.Context, epoch uint64,
 	database, partition string, placementSequence uint64,
 	members []authority.BackupOperationMember, now time.Time,
@@ -240,15 +249,24 @@ func (producer BackupOperationProducer) allocatePrepareWithMaterial(ctx context.
 	if err != nil && !errors.Is(err, authority.ErrNotFound) {
 		return authority.BackupOperationRecord{}, 0, err
 	}
-	if err == nil && (prior.State != "aborted" || prior.CompletedOrdinal != 0 || prior.Ordinal != 1 ||
+	if err == nil && (prior.State != "aborted" && prior.State != "complete" ||
 		prior.SourceAuthoritySHA256 != manifest.SourceAuthoritySHA256 || prior.BackupSet != manifest.BackupSet ||
-		prior.AttemptHighWater == math.MaxUint64) {
+		prior.State == "aborted" && prior.AttemptHighWater == math.MaxUint64 ||
+		prior.State == "complete" && prior.Ordinal == math.MaxUint64) {
 		return authority.BackupOperationRecord{}, 0, authority.ErrInvalidTransition
 	}
 	attempt := uint64(1)
+	ordinal := uint64(1)
+	completed := uint64(0)
 	var terminal []authority.BackupTerminalReceipt
 	if expected != 0 {
-		attempt = prior.AttemptHighWater + 1
+		completed = prior.CompletedOrdinal
+		if prior.State == "aborted" {
+			attempt = prior.AttemptHighWater + 1
+			ordinal = prior.Ordinal
+		} else {
+			ordinal = prior.Ordinal + 1
+		}
 		terminal = append(slices.Clone(prior.Terminal), authority.BackupTerminalReceipt{
 			OperationID: prior.OperationID, Ordinal: prior.Ordinal, Attempt: prior.Attempt, State: prior.State})
 		if len(terminal) > 1024 {
@@ -276,7 +294,7 @@ func (producer BackupOperationProducer) allocatePrepareWithMaterial(ctx context.
 		SourceScopeDigest: manifest.SourceScopeDigest, SourceAuthoritySHA256: manifest.SourceAuthoritySHA256,
 		SourceConfigurationID: manifest.SourceConfigurationID, SourceTargetDigest: manifest.SourceTargetDigest,
 		BackupSet: manifest.BackupSet, BackupTargetDigest: manifest.BackupTargetDigest,
-		Ordinal: 1, Attempt: attempt, ExpiresAtMS: uint64(expires), SignerKeyID: manifest.SignerKeyID,
+		Ordinal: ordinal, Attempt: attempt, ExpiresAtMS: uint64(expires), SignerKeyID: manifest.SignerKeyID,
 		Roster: roster}, signer)
 	if err != nil {
 		return authority.BackupOperationRecord{}, 0, err
@@ -286,7 +304,9 @@ func (producer BackupOperationProducer) allocatePrepareWithMaterial(ctx context.
 		SourceScopeDigest: manifest.SourceScopeDigest, SourceAuthoritySHA256: manifest.SourceAuthoritySHA256,
 		SourceConfigurationID: manifest.SourceConfigurationID, SourceTargetDigest: manifest.SourceTargetDigest,
 		BackupSet: manifest.BackupSet, BackupTargetDigest: manifest.BackupTargetDigest,
-		Ordinal: 1, Attempt: attempt, AttemptHighWater: attempt, OperationID: operationID,
+		OwnerMemberID: manifest.OwnerMemberID, OwnerIncarnation: manifest.OwnerIncarnation,
+		CompletedOrdinal: completed, Ordinal: ordinal, Attempt: attempt,
+		AttemptHighWater: attempt, OperationID: operationID,
 		Nonce: hex.EncodeToString(nonce[:]), PrepareEnvelope: prepare,
 		PrepareExpiresAtMS: uint64(expires), State: "accepted",
 		Roster: slices.Clone(members), Terminal: terminal}
@@ -327,7 +347,8 @@ func (producer BackupOperationProducer) beginAbortWithMaterial(ctx context.Conte
 	if err != nil {
 		return authority.BackupOperationRecord{}, 0, err
 	}
-	if record.State == "aborted" || record.CompletedOrdinal != 0 || record.Ordinal != 1 {
+	if record.State == "aborted" || record.State == "publishing" ||
+		record.State == "releasing" || record.State == "complete" {
 		return authority.BackupOperationRecord{}, 0, authority.ErrInvalidTransition
 	}
 	if manifest.BackupSet != record.BackupSet || manifest.SourceAuthoritySHA256 != record.SourceAuthoritySHA256 ||
@@ -348,7 +369,8 @@ func (producer BackupOperationProducer) beginAbortWithMaterial(ctx context.Conte
 		SourceScopeDigest: record.SourceScopeDigest, SourceAuthoritySHA256: record.SourceAuthoritySHA256,
 		SourceConfigurationID: record.SourceConfigurationID, BackupSet: record.BackupSet,
 		Ordinal: record.Ordinal, Attempt: record.Attempt, Reason: "abort",
-		ExpiresAtMS: uint64(expires), SignerKeyID: manifest.SignerKeyID}, signer)
+		ExpiresAtMS: uint64(expires), SignerKeyID: manifest.SignerKeyID,
+		PublicationReceiptSHA256: strings.Repeat("0", 64)}, signer)
 	if err != nil {
 		return authority.BackupOperationRecord{}, 0, err
 	}
@@ -388,20 +410,37 @@ func (producer BackupOperationProducer) confirmBackupCommit(ctx context.Context,
 func (producer BackupOperationProducer) VerifyCut(ctx context.Context,
 	record authority.BackupOperationRecord, memberID string, wire []byte,
 ) (BackupCut, error) {
-	if len(wire) == 0 || len(wire) > 64<<10 {
-		return BackupCut{}, ErrMaterialConflict
+	cut, _, err := producer.VerifyCutWithLeaf(ctx, record, memberID, wire)
+	return cut, err
+}
+
+// VerifyCutWithLeaf returns the exact authenticated DER used to verify the
+// signed Cut. R3 stores both bytes so a later host relay has no material lookup.
+func (producer BackupOperationProducer) VerifyCutWithLeaf(ctx context.Context,
+	record authority.BackupOperationRecord, memberID string, wire []byte,
+) (BackupCut, []byte, error) {
+	if len(wire) == 0 || len(wire) > 8<<10 {
+		return BackupCut{}, nil, ErrMaterialConflict
 	}
 	receipt, bundle, err := producer.Preparation.CurrentBundle(ctx, record.DatabaseID, record.PartitionID)
 	if err != nil {
-		return BackupCut{}, err
+		return BackupCut{}, nil, err
 	}
-	return verifyCutWithBundle(record, memberID, wire, receipt, bundle)
+	var leaf []byte
+	cut, err := verifyCutWithBundleLeaf(record, memberID, wire, receipt, bundle, &leaf)
+	return cut, leaf, err
 }
 
 func verifyCutWithBundle(record authority.BackupOperationRecord, memberID string, wire []byte,
 	receipt PreparationReceipt, bundle InitialBundle,
 ) (BackupCut, error) {
-	if len(wire) == 0 || len(wire) > 64<<10 {
+	return verifyCutWithBundleLeaf(record, memberID, wire, receipt, bundle, nil)
+}
+
+func verifyCutWithBundleLeaf(record authority.BackupOperationRecord, memberID string, wire []byte,
+	receipt PreparationReceipt, bundle InitialBundle, leafDER *[]byte,
+) (BackupCut, error) {
+	if len(wire) == 0 || len(wire) > 8<<10 {
 		return BackupCut{}, ErrMaterialConflict
 	}
 	var member authority.BackupOperationMember
@@ -427,7 +466,7 @@ func verifyCutWithBundle(record authority.BackupOperationRecord, memberID string
 		return BackupCut{}, ErrMaterialConflict
 	}
 	block, _ := pem.Decode(bundle.Members[bundleIndex].Files["server.crt"].Contents)
-	if block == nil || block.Type != "CERTIFICATE" {
+	if block == nil || block.Type != "CERTIFICATE" || len(block.Bytes) == 0 || len(block.Bytes) > 4096 {
 		return BackupCut{}, ErrMaterialConflict
 	}
 	leafSHA := sha256.Sum256(block.Bytes)
@@ -444,6 +483,10 @@ func verifyCutWithBundle(record authority.BackupOperationRecord, memberID string
 	}
 	var envelope backupManifestEnvelope
 	if err := json.Unmarshal(wire, &envelope, json.RejectUnknownMembers(true)); err != nil || envelope.Version != 1 {
+		return BackupCut{}, ErrMaterialConflict
+	}
+	canonicalEnvelope, err := json.Marshal(envelope)
+	if err != nil || !bytes.Equal(canonicalEnvelope, wire) {
 		return BackupCut{}, ErrMaterialConflict
 	}
 	body, err := base64.RawURLEncoding.DecodeString(envelope.Payload)
@@ -473,6 +516,9 @@ func verifyCutWithBundle(record authority.BackupOperationRecord, memberID string
 		cut.DurableSequence < cut.AppliedSequence || cut.HeldAtMS == 0 ||
 		cut.SignerKeyID != backupKeyID(public) {
 		return BackupCut{}, ErrMaterialConflict
+	}
+	if leafDER != nil {
+		*leafDER = bytes.Clone(block.Bytes)
 	}
 	return cut, nil
 }

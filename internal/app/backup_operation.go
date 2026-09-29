@@ -23,23 +23,28 @@ import (
 )
 
 const maxBackupAdmissionBytes = 8 << 10
+const maxBackupStatusReplyBytes = 64 << 10
 
 type backupOperationRequest struct {
-	Action      string `json:"action"`
-	DatabaseID  string `json:"database_id"`
-	PartitionID string `json:"partition_id"`
-	OperationID string `json:"operation_id,omitempty"`
+	Action        string `json:"action"`
+	DatabaseID    string `json:"database_id"`
+	PartitionID   string `json:"partition_id"`
+	OperationID   string `json:"operation_id,omitempty"`
+	HistoryCursor string `json:"history_cursor,omitempty"`
 }
 
 type backupOperationReply struct {
-	DatabaseID  string `json:"database_id"`
-	PartitionID string `json:"partition_id"`
-	OperationID string `json:"operation_id"`
-	State       string `json:"state"`
-	Ordinal     uint64 `json:"ordinal"`
-	Attempt     uint64 `json:"attempt"`
-	Sequence    uint64 `json:"sequence"`
-	Error       string `json:"error,omitempty"`
+	DatabaseID         string `json:"database_id"`
+	PartitionID        string `json:"partition_id"`
+	OperationID        string `json:"operation_id"`
+	State              string `json:"state"`
+	Ordinal            uint64 `json:"ordinal"`
+	Attempt            uint64 `json:"attempt"`
+	Sequence           uint64 `json:"sequence"`
+	Error              string `json:"error,omitempty"`
+	HistoryCursor      string `json:"history_cursor,omitempty"`
+	PublicationReceipt string `json:"publication_receipt,omitempty"`
+	CompleteRelease    string `json:"complete_release,omitempty"`
 }
 
 type backupOperationRuntime struct {
@@ -56,7 +61,7 @@ type backupOperationRuntime struct {
 func backupOperationSubject(cell string) string { return "ts.orch.v1." + cell + ".backup.operation" }
 
 func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.Runtime,
-	action, databaseID, partitionID, operationID string, output io.Writer,
+	action, databaseID, partitionID, operationID, historyCursor string, output io.Writer,
 ) error {
 	if databaseID == "" || partitionID == "" ||
 		(action != "start" && action != "abort" && action != "status") ||
@@ -87,53 +92,66 @@ func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.
 		return errors.New("regional authority lease is not current")
 	}
 	request := backupOperationRequest{Action: action, DatabaseID: databaseID,
-		PartitionID: partitionID, OperationID: operationID}
-	payload, err := protocol.EncodeJSON(request)
-	if err != nil {
-		return err
-	}
-	requestID := uuid.New().String()
-	now := time.Now().UTC()
-	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
-		Region: cfg.NATS.Cell, Kind: "backup.operation", Actor: cfg.Operator.Actor,
-		OperationID: requestID, Generation: 1, Epoch: snapshot.Epoch,
-	}, now, now.Add(time.Minute), codec.PrivateKey)
-	if err != nil {
-		return err
-	}
-	wire, err := protocol.EncodeJSON(envelope)
-	if err != nil {
-		return err
-	}
+		PartitionID: partitionID, OperationID: operationID, HistoryCursor: historyCursor}
 	requestCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	message, err := runtime.Conn().RequestWithContext(requestCtx, backupOperationSubject(cfg.NATS.Cell), wire)
-	if err != nil {
-		return fmt.Errorf("backup operation admission: %w", err)
+	for {
+		payload, err := protocol.EncodeJSON(request)
+		if err != nil || len(payload) > maxBackupAdmissionBytes {
+			return errors.New("backup request exceeds bound")
+		}
+		requestID := uuid.New().String()
+		now := time.Now().UTC()
+		envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
+			Region: cfg.NATS.Cell, Kind: "backup.operation", Actor: cfg.Operator.Actor,
+			OperationID: requestID, Generation: 1, Epoch: snapshot.Epoch,
+		}, now, now.Add(time.Minute), codec.PrivateKey)
+		if err != nil {
+			return err
+		}
+		wire, err := protocol.EncodeJSON(envelope)
+		if err != nil || len(wire) > maxBackupAdmissionBytes {
+			return errors.New("backup signed request exceeds bound")
+		}
+		message, err := runtime.Conn().RequestWithContext(requestCtx, backupOperationSubject(cfg.NATS.Cell), wire)
+		if err != nil {
+			return fmt.Errorf("backup operation admission: %w", err)
+		}
+		var signed protocol.Envelope
+		responseLimit := maxBackupAdmissionBytes
+		if action == "status" {
+			responseLimit = maxBackupStatusReplyBytes
+		}
+		if err := protocol.DecodeStrict(message.Data, &signed, responseLimit); err != nil {
+			return err
+		}
+		if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{
+			Region: cfg.NATS.Cell, Kind: "backup.operation.reply", Actor: "controller",
+			OperationID: requestID, Generation: 1, Epoch: snapshot.Epoch,
+		}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{
+			MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
+			return err
+		}
+		var reply backupOperationReply
+		if err := protocol.DecodeStrict(signed.Payload, &reply, responseLimit); err != nil {
+			return err
+		}
+		if reply.Error != "" {
+			return errors.New(reply.Error)
+		}
+		if reply.DatabaseID != databaseID || reply.PartitionID != partitionID ||
+			operationID != "" && reply.OperationID != operationID || reply.OperationID == "" {
+			return errors.New("backup operation response differs from request")
+		}
+		deadline, _ := requestCtx.Deadline()
+		if reply.State != "history_incomplete" || time.Until(deadline) < 2*time.Second {
+			return printJSON(output, reply)
+		}
+		if reply.HistoryCursor == "" || len(reply.HistoryCursor) > maxBackupAdmissionBytes {
+			return errors.New("backup history continuation is invalid")
+		}
+		request.HistoryCursor = reply.HistoryCursor
 	}
-	var signed protocol.Envelope
-	if err := protocol.DecodeStrict(message.Data, &signed, maxBackupAdmissionBytes); err != nil {
-		return err
-	}
-	if err := protocol.VerifyEnvelope(signed, protocol.EnvelopeScope{
-		Region: cfg.NATS.Cell, Kind: "backup.operation.reply", Actor: "controller",
-		OperationID: requestID, Generation: 1, Epoch: snapshot.Epoch,
-	}, controllerKey, time.Now().UTC(), protocol.VerifyPolicy{
-		MaxLifetime: time.Minute, ClockSkew: 30 * time.Second}); err != nil {
-		return err
-	}
-	var reply backupOperationReply
-	if err := protocol.DecodeStrict(signed.Payload, &reply, maxBackupAdmissionBytes); err != nil {
-		return err
-	}
-	if reply.Error != "" {
-		return errors.New(reply.Error)
-	}
-	if reply.DatabaseID != databaseID || reply.PartitionID != partitionID ||
-		operationID != "" && reply.OperationID != operationID || reply.OperationID == "" {
-		return errors.New("backup operation response differs from request")
-	}
-	return printJSON(output, reply)
 }
 
 func serveBackupOperation(ctx context.Context, conn *nats.Conn,
@@ -150,9 +168,22 @@ func serveBackupOperation(ctx context.Context, conn *nats.Conn,
 		if err := protocol.DecodeStrict(message.Data, &envelope, maxBackupAdmissionBytes); err != nil {
 			return
 		}
+		var request backupOperationRequest
+		_ = protocol.DecodeStrict(envelope.Payload, &request, maxBackupAdmissionBytes)
 		reply, err := runtime.admit(requestCtx, envelope)
 		if err != nil {
-			reply = backupOperationReply{Error: "backup operation was rejected"}
+			code := "backup operation was rejected"
+			if request.Action == "status" {
+				switch {
+				case errors.Is(err, authority.ErrNotFound):
+					code = "not_found"
+				case err.Error() == "history_cursor_expired":
+					code = "history_cursor_expired"
+				default:
+					code = "history_unavailable"
+				}
+			}
+			reply = backupOperationReply{Error: code}
 		}
 		payload, err := protocol.EncodeJSON(reply)
 		if err != nil {
@@ -167,7 +198,11 @@ func serveBackupOperation(ctx context.Context, conn *nats.Conn,
 			return
 		}
 		wire, err := protocol.EncodeJSON(signed)
-		if err == nil {
+		limit := maxBackupAdmissionBytes
+		if request.Action == "status" {
+			limit = maxBackupStatusReplyBytes
+		}
+		if err == nil && len(wire) <= limit && len(payload) <= limit {
 			_ = message.Respond(wire)
 		}
 	})
@@ -183,7 +218,9 @@ func (runtime backupOperationRuntime) admit(ctx context.Context,
 	canonical, err := protocol.EncodeJSON(request)
 	if err != nil || !bytes.Equal(canonical, envelope.Payload) ||
 		(request.Action != "start" && request.Action != "abort" && request.Action != "status") ||
-		request.DatabaseID == "" || request.PartitionID == "" {
+		request.DatabaseID == "" || request.PartitionID == "" ||
+		request.HistoryCursor != "" && (request.Action != "status" || request.OperationID == "" ||
+			len(request.HistoryCursor) > maxBackupAdmissionBytes) {
 		return backupOperationReply{}, errors.New("backup admission request is invalid")
 	}
 	grant, exists := runtime.policy.grants[envelope.Actor]
@@ -237,16 +274,20 @@ func (runtime backupOperationRuntime) admit(ctx context.Context,
 	if err != nil {
 		return backupOperationReply{}, err
 	}
+	if request.HistoryCursor != "" {
+		if _, err := verifyBackupHistoryCursor(request.HistoryCursor,
+			runtime.responseKey.Public().(ed25519.PublicKey), time.Now().UTC(),
+			envelope.Actor, runtime.cell, request.DatabaseID, request.PartitionID,
+			request.OperationID); err != nil {
+			return backupOperationReply{}, err
+		}
+	}
 	if request.Action == "status" && request.OperationID == "" {
-		return backupReplyFor(record, sequence), nil
+		return runtime.backupStatusReply(ctx, record, sequence)
 	}
 	if request.OperationID != record.OperationID {
-		for _, terminal := range record.Terminal {
-			if request.Action == "status" && terminal.OperationID == request.OperationID {
-				return backupOperationReply{DatabaseID: request.DatabaseID, PartitionID: request.PartitionID,
-					OperationID: terminal.OperationID, State: "failed/aborted", Ordinal: terminal.Ordinal,
-					Attempt: terminal.Attempt, Sequence: sequence}, nil
-			}
+		if request.Action == "status" {
+			return runtime.backupHistoryStatus(ctx, envelope.Actor, request)
 		}
 		return backupOperationReply{}, authority.ErrNotFound
 	}
@@ -257,7 +298,54 @@ func (runtime backupOperationRuntime) admit(ctx context.Context,
 			return backupOperationReply{}, err
 		}
 	}
+	if request.Action == "status" {
+		return runtime.backupStatusReply(ctx, record, sequence)
+	}
 	return backupReplyFor(record, sequence), nil
+}
+
+func (runtime backupOperationRuntime) backupHistoryStatus(ctx context.Context, actor string,
+	request backupOperationRequest,
+) (backupOperationReply, error) {
+	cursor := backupHistoryCursor{Actor: actor, Cell: runtime.cell,
+		Stream: authority.ControlStreamName, DatabaseID: request.DatabaseID,
+		PartitionID: request.PartitionID, OperationID: request.OperationID}
+	if request.HistoryCursor != "" {
+		parsed, err := verifyBackupHistoryCursor(request.HistoryCursor,
+			runtime.responseKey.Public().(ed25519.PublicKey), time.Now().UTC(),
+			actor, runtime.cell, request.DatabaseID, request.PartitionID, request.OperationID)
+		if err != nil {
+			return backupOperationReply{}, err
+		}
+		cursor = parsed
+	}
+	page, err := runtime.control.ReadBackupHistoryPage(ctx, request.DatabaseID,
+		request.PartitionID, request.OperationID, cursor.Watermark, cursor.NextSequence)
+	if err != nil {
+		return backupOperationReply{}, err
+	}
+	if page.LatestMatchSequence != 0 {
+		cursor.LatestMatchSequence = page.LatestMatchSequence
+	}
+	if !page.Exhausted {
+		cursor.Watermark, cursor.NextSequence = page.Watermark, page.NextSequence
+		token, err := signBackupHistoryCursor(cursor, runtime.responseKey)
+		if err != nil {
+			return backupOperationReply{}, err
+		}
+		return backupOperationReply{DatabaseID: request.DatabaseID,
+			PartitionID: request.PartitionID, OperationID: request.OperationID,
+			State: "history_incomplete", HistoryCursor: token}, nil
+	}
+	if cursor.LatestMatchSequence == 0 {
+		return backupOperationReply{}, authority.ErrNotFound
+	}
+	record, err := runtime.control.ReadBackupOperationAtSequence(ctx, request.DatabaseID,
+		request.PartitionID, request.OperationID, cursor.LatestMatchSequence)
+	if err != nil {
+		return backupOperationReply{}, err
+	}
+	return runtime.backupStatusReply(ctx, record, cursor.LatestMatchSequence)
 }
 
 func backupReplyFor(record authority.BackupOperationRecord, sequence uint64) backupOperationReply {
@@ -270,6 +358,24 @@ func backupReplyFor(record authority.BackupOperationRecord, sequence uint64) bac
 	return backupOperationReply{DatabaseID: record.DatabaseID, PartitionID: record.PartitionID,
 		OperationID: record.OperationID, State: state, Ordinal: record.Ordinal,
 		Attempt: record.Attempt, Sequence: sequence}
+}
+
+func backupStatusReplyFor(record authority.BackupOperationRecord, sequence uint64) backupOperationReply {
+	reply := backupReplyFor(record, sequence)
+	if record.State == "releasing" || record.State == "complete" {
+		reply.PublicationReceipt = string(record.PublicationReceipt)
+		reply.CompleteRelease = string(record.CompleteRelease)
+	}
+	return reply
+}
+
+func (runtime backupOperationRuntime) backupStatusReply(ctx context.Context,
+	record authority.BackupOperationRecord, sequence uint64,
+) (backupOperationReply, error) {
+	if err := runtime.producer.VerifyCommittedPublication(ctx, record); err != nil {
+		return backupOperationReply{}, err
+	}
+	return backupStatusReplyFor(record, sequence), nil
 }
 
 func (runtime backupOperationRuntime) currentRoster(ctx context.Context,
@@ -341,8 +447,7 @@ func sameBackupServingRoster(left, right []authority.BackupOperationMember) bool
 	return true
 }
 
-// Run retries only R3-committed Prepare and Abort envelopes. It never signs a
-// Barrier, Completion or Complete Release, so this slice cannot publish.
+// Run reconciles only exact R3-committed proof and release bytes.
 func (runtime backupOperationRuntime) Run(ctx context.Context) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -382,7 +487,7 @@ func (runtime backupOperationRuntime) reconcileAll(ctx context.Context) error {
 				intent.DatabaseID, intent.PartitionID, err))
 			continue
 		}
-		if record.State != "aborted" {
+		if record.State != "aborted" && record.State != "complete" {
 			if err := runtime.reconcileOne(ctx, record, sequence); err != nil {
 				failures = append(failures, fmt.Errorf("reconcile backup operation %s/%s: %w",
 					intent.DatabaseID, intent.PartitionID, err))
@@ -399,7 +504,26 @@ func (runtime backupOperationRuntime) reconcileOne(ctx context.Context,
 	if err := runtime.control.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	if record.State == "held" || time.Now().UnixMilli() >= int64(record.PrepareExpiresAtMS)-5_000 {
+	switch record.State {
+	case "held":
+		current, placementSequence, err := runtime.currentRoster(ctx, record.DatabaseID, record.PartitionID)
+		if err != nil || placementSequence != record.PlacementSequence ||
+			!sameBackupServingRoster(record.Roster, current) {
+			return errors.Join(authority.ErrFenced, err)
+		}
+		record, sequence, err = runtime.producer.CommitBarrier(ctx, epoch, record, sequence, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		return runtime.reconcileBarrier(ctx, epoch, record, sequence)
+	case "barrier":
+		return runtime.reconcileBarrier(ctx, epoch, record, sequence)
+	case "publishing":
+		return runtime.reconcilePublishing(ctx, epoch, record, sequence)
+	case "releasing":
+		return runtime.reconcileComplete(ctx, epoch, record, sequence)
+	}
+	if record.State == "accepted" && time.Now().UnixMilli() >= int64(record.PrepareExpiresAtMS)-5_000 {
 		var err error
 		record, sequence, err = runtime.producer.BeginAbort(ctx, epoch,
 			record.DatabaseID, record.PartitionID, time.Now().UTC())
@@ -423,12 +547,14 @@ func (runtime backupOperationRuntime) reconcileOne(ctx context.Context,
 			result.Command.Kind != "prepare" {
 			continue
 		}
-		if _, err := runtime.producer.VerifyCut(ctx, record, member.MemberID, result.CutEnvelope); err != nil {
+		_, leafDER, err := runtime.producer.VerifyCutWithLeaf(ctx, record, member.MemberID, result.CutEnvelope)
+		if err != nil {
 			_, _, abortErr := runtime.producer.BeginAbort(ctx, epoch,
 				record.DatabaseID, record.PartitionID, time.Now().UTC())
 			return errors.Join(err, abortErr)
 		}
 		record.Roster[index].CutEnvelope = bytes.Clone(result.CutEnvelope)
+		record.Roster[index].CutLeafDER = leafDER
 		allHeld := true
 		for _, current := range record.Roster {
 			if len(current.CutEnvelope) == 0 {
@@ -492,6 +618,160 @@ func (runtime backupOperationRuntime) reconcileAbort(ctx context.Context, epoch 
 		}
 		sequence, err = runtime.control.CommitBackupOperation(ctx, epoch,
 			record.DatabaseID, record.PartitionID, sequence, record)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (runtime backupOperationRuntime) reconcileBarrier(ctx context.Context, epoch uint64,
+	record authority.BackupOperationRecord, sequence uint64,
+) error {
+	for _, target := range record.Roster {
+		if target.BarrierAcknowledged {
+			continue
+		}
+		// A member must fsync every other pinned Cut+DER before it may see
+		// the full-roster Barrier. Each host command is derived from R3.
+		for _, source := range record.Roster {
+			if source.MemberID == target.MemberID {
+				continue
+			}
+			kind := "cut-proof/" + source.MemberID
+			if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+				record.DatabaseID, record.PartitionID, target.MemberID, kind); err != nil {
+				return err
+			}
+			result, found, err := runtime.hosts.ReadManagedBackupResult(ctx, target.Node, target.Role)
+			if err != nil || !found || result.Command.OperationID != record.OperationID ||
+				result.Command.Kind != "cut-proof" || result.Command.ProofMemberID != source.MemberID {
+				return err
+			}
+		}
+		if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, target.MemberID, "barrier"); err != nil {
+			return err
+		}
+		result, found, err := runtime.hosts.ReadManagedBackupResult(ctx, target.Node, target.Role)
+		if err != nil || !found || result.Command.OperationID != record.OperationID ||
+			result.Command.Kind != "barrier" {
+			return err
+		}
+		record, sequence, err = runtime.producer.AcknowledgeBarrier(ctx, epoch, record, sequence,
+			target.MemberID, result.Status.BarrierSHA256)
+		if err != nil {
+			return err
+		}
+	}
+	for _, member := range record.Roster {
+		if !member.BarrierAcknowledged {
+			return nil
+		}
+	}
+	if len(record.CandidateEnvelope) == 0 {
+		for _, owner := range record.Roster {
+			if owner.MemberID != record.OwnerMemberID {
+				continue
+			}
+			if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+				record.DatabaseID, record.PartitionID, owner.MemberID, "barrier"); err != nil {
+				return err
+			}
+			result, found, err := runtime.hosts.ReadManagedBackupResult(ctx, owner.Node, owner.Role)
+			if err != nil || !found || result.Command.OperationID != record.OperationID ||
+				result.Command.Kind != "barrier" || result.Status.CandidateEnvelope == "" {
+				return err
+			}
+			record, sequence, err = runtime.producer.AcceptCandidate(ctx, epoch, record, sequence,
+				[]byte(result.Status.CandidateEnvelope))
+			if err != nil {
+				return err
+			}
+			break
+		}
+	}
+	if len(record.CandidateEnvelope) == 0 {
+		return nil
+	}
+	_, _, err := runtime.producer.CommitCompletion(ctx, epoch, record, sequence, time.Now().UTC())
+	return err
+}
+
+func (runtime backupOperationRuntime) reconcilePublishing(ctx context.Context, epoch uint64,
+	record authority.BackupOperationRecord, sequence uint64,
+) error {
+	for _, owner := range record.Roster {
+		if owner.MemberID != record.OwnerMemberID {
+			continue
+		}
+		if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, owner.MemberID, "publish"); err != nil {
+			return err
+		}
+		result, found, err := runtime.hosts.ReadManagedBackupResult(ctx, owner.Node, owner.Role)
+		if err != nil || !found || result.Command.OperationID != record.OperationID ||
+			result.Command.Kind != "publish" || len(result.ReceiptEnvelope) == 0 {
+			return err
+		}
+		_, _, err = runtime.producer.CommitOwnerReceipt(ctx, epoch, record, sequence,
+			result.ReceiptEnvelope, time.Now().UTC())
+		return err
+	}
+	return errors.New("backup owner is absent from committed roster")
+}
+
+func (runtime backupOperationRuntime) reconcileComplete(ctx context.Context, epoch uint64,
+	record authority.BackupOperationRecord, sequence uint64,
+) error {
+	for _, member := range record.Roster {
+		if member.CompleteAcknowledged {
+			continue
+		}
+		// A member may have fsynced Complete while its R3 acknowledgment was
+		// lost. Read process-bound status before offering a renewed Release:
+		// Rust terminal replay remains bound to the original Release digest.
+		if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, member.MemberID, "complete-status"); err != nil {
+			return err
+		}
+		statusResult, found, err := runtime.hosts.ReadManagedBackupResult(ctx, member.Node, member.Role)
+		if err != nil || !found || statusResult.Command.OperationID != record.OperationID ||
+			statusResult.Command.Kind != "complete-status" {
+			return err
+		}
+		if statusResult.Status.State == "complete" {
+			record, sequence, err = runtime.producer.AcknowledgeComplete(ctx, epoch, record, sequence,
+				member.MemberID, statusResult.Status.HeadGeneration,
+				[]byte(statusResult.Status.PublishedHeadReceipt))
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if statusResult.Status.State != "pending" {
+			return errors.New("backup member Complete status is not pending or complete")
+		}
+		current, nextSequence, ready, err := runtime.producer.EnsureCurrentCompleteRelease(ctx,
+			epoch, record, sequence, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !ready {
+			return nil
+		}
+		record, sequence = current, nextSequence
+		if err := runtime.hosts.RequestManagedBackupOperation(ctx, epoch,
+			record.DatabaseID, record.PartitionID, member.MemberID, "complete"); err != nil {
+			return err
+		}
+		result, found, err := runtime.hosts.ReadManagedBackupResult(ctx, member.Node, member.Role)
+		if err != nil || !found || result.Command.OperationID != record.OperationID ||
+			result.Command.Kind != "complete" || result.Status.State != "complete" {
+			return err
+		}
+		record, sequence, err = runtime.producer.AcknowledgeComplete(ctx, epoch, record, sequence,
+			member.MemberID, result.Status.HeadGeneration, []byte(result.Status.PublishedHeadReceipt))
 		if err != nil {
 			return err
 		}
