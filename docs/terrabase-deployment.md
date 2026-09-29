@@ -32,12 +32,16 @@ the step that would hold.
    in the material bucket. The reviewed statement in
    `deploy/oci-region/preview.py` still names `material/v1/*`.
 3. **Retained-volume device naming.** Placement attaches the data volume
-   only to an instance that reports consistent volume naming, requests PV
-   in-transit encryption, and the host resolves the attachment through a
-   root-owned `/dev/oracleoci/oraclevd*` symlink. The imported R5 image
-   reports both launch options false and ships no OCI naming udev rule, so
-   placement holds at `prepared-attach` with a "consistent volume naming"
-   reconciliation error in `terrabase-status`.
+   paravirtualized with PV in-transit encryption, at the lowest free OCI device
+   path (`/dev/oracleoci/oraclevdb` for the first data volume), and only to an
+   instance that reports consistent volume naming. The image capability schema
+   written by `deploy/oci-region/import-image.py` enables both launch options.
+   Inside the guest, `/etc/udev/rules.d/65-terrascale-oci-device-paths.rules`
+   (from `deploy/udev/`) links each `ORACLE BlockVolume` disk on the
+   virtio-scsi controller to `/dev/oracleoci/oraclevd<x>` by its LUN, as OCI
+   assigns them: `a` is LUN 1 (the boot volume), `b` LUN 2, through `af`, LUN 32.
+   An image without that rule holds every member at `awaiting-healthy` with the
+   device alias missing.
 4. **Workload network.** Hosts use the workload-member NSG named in the
    signed `oci-region.json`. Replication uses port 9443 between the two
    member IPs, and the HTTPS client listener uses port 9465 from the Bastion
@@ -278,7 +282,5 @@ controller and host image rebuilt from a source that contains it.
 | The mount check required one mountinfo entry | Inside the host unit's mount namespace the volume appears once per slave copy of `/srv/ts-managed`; every live mount was rejected. |
 | No operator view of placement stages | Launch, volume and attachment progress was only in controller logs. |
 | Managed update stopped after one canary seat | A release never reached the peer, a second release could not start, and a held candidate had no recovery. |
+| The image had no OCI device-path rule, and the fleet picked `oraclevdaa` | The host never found `/dev/oracleoci/oraclevd*`, so no volume could be formatted or mounted. |
 
-Open items outside this workflow are listed in the prerequisites: material
-IAM (`material/v2/*`), image device naming and in-transit encryption, and the
-NSG ports.

@@ -382,13 +382,16 @@ done
 offline_guestfs_runner=${TS_OFFLINE_GUESTFS_RUNNER:-python3}
 "$offline_guestfs_runner" deploy/image/offline-guestfs.py build "${offline_args[@]}"
 qemu-img check -- "$candidate"
-# One read-only appliance reads every executable and the kernel back from the
-# final QCOW2, so a dropped or reordered write cannot yield a candidate.
+# One read-only appliance reads every executable, the kernel and the volume
+# device-path rule back from the final QCOW2, so a dropped or reordered write
+# cannot yield a candidate.
 kernel_sha256=$(sha256sum -- "$temporary_directory/guest-kernel" | cut -d ' ' -f 1)
+device_paths_sha256=$(sha256sum -- deploy/udev/65-terrascale-oci-device-paths.rules | cut -d ' ' -f 1)
 "$offline_guestfs_runner" deploy/image/offline-guestfs.py verify --image "$candidate" \
 	--expect "/usr/local/bin/terrascale-orchestrator=$binary_sha256" \
 	--expect "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server=$native_verifier_sha256" \
-	--expect "/boot/vmlinuz-$kernel_release=$kernel_sha256"
+	--expect "/boot/vmlinuz-$kernel_release=$kernel_sha256" \
+	--expect "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules=$device_paths_sha256"
 cp -- "$temporary_directory/guest-kernel" "$kernel_output"
 ln -- "$candidate" "$output"
 trap - EXIT

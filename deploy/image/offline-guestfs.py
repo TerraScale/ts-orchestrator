@@ -24,6 +24,9 @@ TIME_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-t
 PROFILE = APP + "/runtime-priority.json"
 HELPER = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
 VOLUME_INIT_STATE = "/var/lib/terrascale-orchestrator-volume-init"
+# Names each paravirtualized OCI block volume /dev/oracleoci/oraclevdX by its
+# LUN, the device path a managed host is pinned to at volume attach time.
+OCI_DEVICE_PATHS = "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules"
 DROPINS = (
     "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
@@ -577,6 +580,7 @@ def build(args: argparse.Namespace) -> None:
             raise RuntimeError("base /srv must be a direct root:root 0755 directory")
         guest.assert_absent("/srv/ts-managed", "managed root")
         guest.assert_absent(VOLUME_INIT_STATE, "managed volume initialization state root")
+        guest.assert_absent(OCI_DEVICE_PATHS, "OCI device path rule")
         orchestrator_uid, orchestrator_gid, account_files = accounts(guest, work, Path(args.sysusers))
 
         directories = (
@@ -585,7 +589,7 @@ def build(args: argparse.Namespace) -> None:
             "/etc/systemd/system/system.slice.d", "/etc/systemd/system/terrascale-orchestrator-host.service.d",
             "/etc/systemd/system/terrascale-orchestrator-controller.service.d",
             str(Path(TIME_DROPIN).parent), "/usr/local/bin", str(Path(HELPER).parent),
-            str(Path(NATIVE).parent),
+            str(Path(NATIVE).parent), "/etc/udev", str(Path(OCI_DEVICE_PATHS).parent),
             "/var/lib/terrascale-orchestrator-bootstrap",
         )
         if guest.kind(APP_LIB) is None:
@@ -616,6 +620,7 @@ def build(args: argparse.Namespace) -> None:
             (Path(args.binary), "/usr/local/bin/terrascale-orchestrator", 0o755),
             (Path(args.native_verifier), NATIVE, 0o755),
             (Path(args.timesyncd_config), TIME_CONFIG, 0o644),
+            (source_root / "deploy/udev" / Path(OCI_DEVICE_PATHS).name, OCI_DEVICE_PATHS, 0o644),
             *((Path(path), f"{BOOTSTRAP}/trust-roots/{index:03d}.pem", 0o444)
               for index, path in enumerate(args.bootstrap_root, 1)),
         ]

@@ -30,6 +30,8 @@ VOLUME_INIT_SOCKET_PATH = "/run/terrascale-orchestrator-volume-init.sock"
 VOLUME_INIT_SOCKET_UNIT = "terrascale-orchestrator-host-volume-init.socket"
 VOLUME_INIT_SERVICE_UNIT = "terrascale-orchestrator-host-volume-init.service"
 VOLUME_INIT_STATE = "/var/lib/terrascale-orchestrator-volume-init"
+OCI_DEVICE_PATHS_GUEST = "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules"
+OCI_DEVICE_PATHS_SOURCE = ROOT / "deploy/udev/65-terrascale-oci-device-paths.rules"
 TIMESYNCD_CONFIG_GUEST = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
@@ -470,6 +472,7 @@ fi
             ("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes()),
             (NATIVE_VERIFIER_GUEST, self.native_verifier.read_bytes()),
             (KERNEL_GUEST, self.kernel),
+            (OCI_DEVICE_PATHS_GUEST, OCI_DEVICE_PATHS_SOURCE.read_bytes()),
         ):
             self.assertIn(f"image readback sha256={hashlib.sha256(contents).hexdigest()} guest_path={guest_path}",
                           result.stdout)
@@ -492,6 +495,7 @@ fi
         installed("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes(), 0o755)
         installed(RUNTIME_PRIORITY_HELPER_GUEST, RUNTIME_PRIORITY_QUALIFIER.read_bytes(), 0o755)
         installed(TIME_WAIT_SYNC_DROPIN, b"[Service]\nTimeoutStartSec=300s\n")
+        installed(OCI_DEVICE_PATHS_GUEST, OCI_DEVICE_PATHS_SOURCE.read_bytes())
         normalized_time = (
             b"[Time]\nNTP=\nNTP=ntp.deployment.example\nFallbackNTP=\n"
             b"PollIntervalMinSec=32\nPollIntervalMaxSec=64\n"
@@ -564,6 +568,18 @@ fi
 
     def test_native_verifier_readback_mismatch_discards_candidate(self) -> None:
         self.assert_readback_mismatch_discards_candidate(NATIVE_VERIFIER_GUEST)
+
+    def test_device_path_rule_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate(OCI_DEVICE_PATHS_GUEST)
+
+    def test_base_image_device_path_rule_fails_closed(self) -> None:
+        conflicting = self.base_image_root / OCI_DEVICE_PATHS_GUEST.lstrip("/")
+        conflicting.parent.mkdir(parents=True, exist_ok=True)
+        conflicting.write_text("# base image rule\n", encoding="ascii")
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"base image has a conflicting OCI device path rule: {OCI_DEVICE_PATHS_GUEST}", result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_kernel_readback_mismatch_discards_candidate(self) -> None:
         self.assert_readback_mismatch_discards_candidate(KERNEL_GUEST)

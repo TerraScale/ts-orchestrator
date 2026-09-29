@@ -1,0 +1,52 @@
+# OCI consistent device paths for paravirtualized block volumes.
+#
+# OCI attaches each paravirtualized volume as one LUN of the instance's
+# virtio-scsi controller, and the device path chosen at attach time names that
+# LUN: /dev/oracleoci/oraclevda is LUN 1 (the boot volume), oraclevdb LUN 2, and
+# so on to oraclevdaf, LUN 32. Oracle's platform images create these links; a
+# custom image needs this rule. Only whole ORACLE BlockVolume disks on a PCI
+# SCSI path are named, so iSCSI attachments never receive a paravirtualized
+# name. Each link is a root-owned relative symlink to the kernel disk node.
+ACTION=="remove", GOTO="terrascale_oci_device_paths_end"
+SUBSYSTEM!="block", GOTO="terrascale_oci_device_paths_end"
+ENV{DEVTYPE}!="disk", GOTO="terrascale_oci_device_paths_end"
+KERNEL!="sd*", GOTO="terrascale_oci_device_paths_end"
+SUBSYSTEMS=="scsi", ATTRS{vendor}=="ORACLE*", ATTRS{model}=="BlockVolume*", GOTO="terrascale_oci_block_volume"
+GOTO="terrascale_oci_device_paths_end"
+
+LABEL="terrascale_oci_block_volume"
+IMPORT{builtin}="path_id"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:1", SYMLINK+="oracleoci/oraclevda"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:2", SYMLINK+="oracleoci/oraclevdb"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:3", SYMLINK+="oracleoci/oraclevdc"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:4", SYMLINK+="oracleoci/oraclevdd"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:5", SYMLINK+="oracleoci/oraclevde"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:6", SYMLINK+="oracleoci/oraclevdf"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:7", SYMLINK+="oracleoci/oraclevdg"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:8", SYMLINK+="oracleoci/oraclevdh"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:9", SYMLINK+="oracleoci/oraclevdi"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:10", SYMLINK+="oracleoci/oraclevdj"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:11", SYMLINK+="oracleoci/oraclevdk"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:12", SYMLINK+="oracleoci/oraclevdl"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:13", SYMLINK+="oracleoci/oraclevdm"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:14", SYMLINK+="oracleoci/oraclevdn"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:15", SYMLINK+="oracleoci/oraclevdo"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:16", SYMLINK+="oracleoci/oraclevdp"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:17", SYMLINK+="oracleoci/oraclevdq"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:18", SYMLINK+="oracleoci/oraclevdr"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:19", SYMLINK+="oracleoci/oraclevds"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:20", SYMLINK+="oracleoci/oraclevdt"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:21", SYMLINK+="oracleoci/oraclevdu"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:22", SYMLINK+="oracleoci/oraclevdv"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:23", SYMLINK+="oracleoci/oraclevdw"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:24", SYMLINK+="oracleoci/oraclevdx"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:25", SYMLINK+="oracleoci/oraclevdy"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:26", SYMLINK+="oracleoci/oraclevdz"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:27", SYMLINK+="oracleoci/oraclevdaa"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:28", SYMLINK+="oracleoci/oraclevdab"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:29", SYMLINK+="oracleoci/oraclevdac"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:30", SYMLINK+="oracleoci/oraclevdad"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:31", SYMLINK+="oracleoci/oraclevdae"
+ENV{ID_PATH}=="pci-*-scsi-0:0:0:32", SYMLINK+="oracleoci/oraclevdaf"
+
+LABEL="terrascale_oci_device_paths_end"
