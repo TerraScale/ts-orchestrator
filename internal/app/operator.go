@@ -54,7 +54,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-deploy|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-deploy|terrabase-update|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "terrabase-walkthrough" {
@@ -74,7 +74,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	intentPath := flags.String("intent", "", "JSON delivery intent")
 	planPath := flags.String("plan", "", "TerraBase deployment plan JSON")
 	statePath := flags.String("state", "", "owner-only TerraBase deployment state directory")
-	wait := flags.Duration("wait", 0, "wait until every member serves or this duration passes")
+	wait := flags.Duration("wait", 0, "status: wait until every member serves; update: bound each seat's outcome wait")
+	qualification := flags.String("qualification", "", "TerraBase release qualification.json")
+	releaseBinary := flags.String("binary", "", "TerraBase release tb-server-linux-arm64")
+	sourceDigest := flags.String("source-digest", "", "TerraBase release prepared-source digest record")
+	compatibilityActor := flags.String("compatibility-actor", "", "trusted compatibility signer actor")
+	compatibilityKey := flags.String("compatibility-key", "", "owner-only compatibility signer key file")
 	databaseID := flags.String("database-id", "", "managed database ID")
 	partitionID := flags.String("partition-id", "", "managed partition ID")
 	registrationPath := flags.String("registration", "", "JSON host registration")
@@ -123,6 +128,14 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("terrabase-deploy requires --plan FILE and --state DIR")
 		}
 		return operatorTerraBaseDeploy(ctx, cfg, runtime, *planPath, *statePath, output)
+	case "terrabase-update":
+		if *statePath == "" || *qualification == "" || *releaseBinary == "" || *sourceDigest == "" ||
+			*compatibilityActor == "" || *compatibilityKey == "" || *wait < 0 {
+			return errors.New("terrabase-update requires --state, --qualification, --binary, --source-digest, --compatibility-actor and --compatibility-key")
+		}
+		return operatorTerraBaseUpdate(ctx, cfg, runtime, *statePath,
+			terrabaseReleaseFiles{Qualification: *qualification, Binary: *releaseBinary, SourceDigest: *sourceDigest},
+			terrabaseCompatibilitySigner{Actor: *compatibilityActor, KeyFile: *compatibilityKey}, *wait, output)
 	case "terrabase-status":
 		if *statePath == "" || *wait < 0 {
 			return errors.New("terrabase-status requires --state DIR and a nonnegative --wait")

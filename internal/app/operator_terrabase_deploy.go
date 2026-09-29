@@ -291,7 +291,8 @@ func openDeployState(path string) (deployState, error) {
 	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return deployState{}, err
 	}
-	for _, directory := range []string{path, filepath.Join(path, deployCustomerDirectory)} {
+	for _, directory := range []string{path, filepath.Join(path, deployCustomerDirectory),
+		filepath.Join(path, deployReleaseDirectory)} {
 		if err := os.Mkdir(directory, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 			return deployState{}, err
 		}

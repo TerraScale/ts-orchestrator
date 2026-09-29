@@ -862,16 +862,7 @@ func managedCanaryServingReport(t *testing.T, controller *Controller, intent Int
 }
 
 func managedUpdateSeatFromState(state MemberState) ManagedUpdateSeat {
-	return ManagedUpdateSeat{
-		SeatID: state.MemberID, Region: state.Region, MemberID: state.CanonicalRosterRow.MemberID,
-		Incarnation: state.CanonicalRosterRow.Incarnation, TLSLeafSHA256: state.CanonicalRosterRow.TLSLeafSHA256,
-		RuntimeManifestDigest: state.RuntimeManifestDigest, HostNode: state.HostNode,
-		HostGeneration: state.HostGeneration, HostAttempt: state.HostAttempt,
-		OCIInstanceID: state.InstanceID, OCIOwner: "owner-a", OCIFleetGeneration: 1,
-		CreateKey: state.CreateKey, VolumeID: state.VolumeID, AttachmentID: state.AttachmentID,
-		AttachmentETag: state.AttachmentETag, AttachmentDevice: state.AttachmentDevice,
-		DesiredGeneration: state.DesiredGeneration, ArtifactDigest: state.EffectiveRuntimeManifest().ArtifactDigest,
-	}
+	return ManagedUpdateSeatFor(state, "owner-a", 1)
 }
 
 func validManagedUpdateIntent(t *testing.T) ManagedUpdateIntent {

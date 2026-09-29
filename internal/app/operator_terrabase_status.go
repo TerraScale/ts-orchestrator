@@ -49,6 +49,7 @@ type placementStatusReport struct {
 	AuthorityEpoch uint64                  `json:"authority_epoch"`
 	Generation     uint64                  `json:"generation,omitzero"`
 	PayloadSHA256  string                  `json:"payload_sha256,omitempty"`
+	Sequence       uint64                  `json:"placement_sequence,omitzero"`
 	Terminal       bool                    `json:"terminal,omitzero"`
 	Serving        bool                    `json:"serving"`
 	Members        []placementMemberStatus `json:"members"`
@@ -71,6 +72,9 @@ type placementMemberStatus struct {
 	UpdatedAt         time.Time              `json:"updated_at,omitzero"`
 	Host              *placementHostStatus   `json:"host,omitempty"`
 	Update            *placementUpdateStatus `json:"update,omitempty"`
+	// UpdatePins are the exact predecessor pins a managed update of this
+	// seat must sign, present once the seat has a host and attached volume.
+	UpdatePins *placement.ManagedUpdateSeat `json:"update_pins,omitempty"`
 }
 
 type placementHostStatus struct {
@@ -89,10 +93,12 @@ type placementHostStatus struct {
 }
 
 type placementUpdateStatus struct {
-	OperationID    string `json:"operation_id"`
-	ArtifactDigest string `json:"artifact_digest"`
-	Phase          string `json:"phase"`
-	Outcome        string `json:"outcome,omitempty"`
+	OperationID            string `json:"operation_id"`
+	ArtifactDigest         string `json:"artifact_digest"`
+	SourceDigest           string `json:"source_digest"`
+	PreviousArtifactDigest string `json:"previous_artifact_digest"`
+	Phase                  string `json:"phase"`
+	Outcome                string `json:"outcome,omitempty"`
 }
 
 type placementHoldRecord struct {
@@ -286,13 +292,20 @@ func requestPlacementStatus(ctx context.Context, cfg Config, runtime *natscell.R
 }
 
 type placementStatusSource struct {
-	cell        string
-	policy      signerPolicy
-	control     authority.Fencer
-	placements  placement.Store
-	hosts       placement.HostView
-	holds       *placementHoldLog
-	responseKey ed25519.PrivateKey
+	cell            string
+	policy          signerPolicy
+	control         placementStatusAuthority
+	placements      placement.Store
+	hosts           placement.HostView
+	holds           *placementHoldLog
+	responseKey     ed25519.PrivateKey
+	owner           string
+	fleetGeneration uint64
+}
+
+type placementStatusAuthority interface {
+	authority.Fencer
+	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
 }
 
 // servePlacementStatus answers signed operator status reads on the leader.
@@ -397,6 +410,11 @@ func (source placementStatusSource) report(ctx context.Context, request placemen
 		for _, row := range intent.CanonicalRoster.Rows {
 			seats = append(seats, row.SeatID)
 		}
+		entry, err := source.control.ReadPlacementIntent(ctx, request.DatabaseID, request.PartitionID)
+		if err != nil {
+			return placementStatusReport{}, err
+		}
+		report.Sequence = entry.Sequence
 	}
 	for _, member := range members {
 		if !slices.Contains(seats, member.State.MemberID) {
@@ -422,7 +440,12 @@ func (source placementStatusSource) report(ctx context.Context, request placemen
 			entry.DesiredGeneration, entry.ArtifactDigest, entry.UpdatedAt = state.DesiredGeneration, manifest.ArtifactDigest, state.UpdatedAt
 			if target := state.ManagedRuntimeTarget; target.OperationID != "" {
 				entry.Update = &placementUpdateStatus{OperationID: target.OperationID, ArtifactDigest: target.ArtifactDigest,
+					SourceDigest: target.SourceDigest, PreviousArtifactDigest: target.PreviousArtifactDigest,
 					Phase: string(target.Phase), Outcome: target.Outcome}
+			}
+			if state.InstanceID != "" && state.AttachmentID != "" && state.DesiredGeneration != 0 {
+				pins := placement.ManagedUpdateSeatFor(state, source.owner, source.fleetGeneration)
+				entry.UpdatePins = &pins
 			}
 			if status, registered := byNode[state.HostNode]; registered && state.HostNode != "" {
 				entry.Host = memberHostStatus(status, state, now)

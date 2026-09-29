@@ -46,32 +46,6 @@ func operatorManagedUpdatePrepare(ctx context.Context, cfg Config, runtime *nats
 	if err := protocol.DecodeStrict(data, &intent, protocol.MaxPayloadBytes); err != nil {
 		return fmt.Errorf("parse managed update intent: %w", err)
 	}
-	if err := intent.Validate(); err != nil {
-		return err
-	}
-	if intent.Cell != cfg.NATS.Cell {
-		return errors.New("managed update intent does not select this regional cell")
-	}
-	policy, err := buildSignerPolicy(cfg)
-	if err != nil {
-		return err
-	}
-	grant, exists := policy.grants[cfg.Operator.Actor]
-	if !exists || !grant.CanPlaceTerraBase || !grant.CanUpdateTerraBaseRuntime ||
-		!slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) {
-		return errors.New("operator lacks current TerraBase managed runtime update scope")
-	}
-	codec, err := policy.withOperator(cfg.Operator)
-	if err != nil {
-		return err
-	}
-	epoch, err := authoritySnapshot(ctx, runtime, cfg.NATS.Cell)
-	if err != nil {
-		return err
-	}
-	if intent.AuthorityEpoch != epoch {
-		return authority.ErrFenced
-	}
 	canonicalIntent, err := protocol.EncodeJSON(intent)
 	if err != nil {
 		return err
@@ -79,17 +53,59 @@ func operatorManagedUpdatePrepare(ctx context.Context, cfg Config, runtime *nats
 	if !bytes.Equal(data, canonicalIntent) {
 		return errors.New("managed update intent is not canonical JSON")
 	}
+	response, err := requestManagedUpdatePrepare(ctx, cfg, runtime, intent)
+	if err != nil {
+		return err
+	}
+	return printJSON(output, response)
+}
+
+// requestManagedUpdatePrepare signs one managed update intent with the
+// operator key and requests its Prepare admission from the regional leader.
+func requestManagedUpdatePrepare(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+	intent placement.ManagedUpdateIntent,
+) (managedUpdatePrepareResponse, error) {
+	if err := intent.Validate(); err != nil {
+		return managedUpdatePrepareResponse{}, err
+	}
+	if intent.Cell != cfg.NATS.Cell {
+		return managedUpdatePrepareResponse{}, errors.New("managed update intent does not select this regional cell")
+	}
+	policy, err := buildSignerPolicy(cfg)
+	if err != nil {
+		return managedUpdatePrepareResponse{}, err
+	}
+	grant, exists := policy.grants[cfg.Operator.Actor]
+	if !exists || !grant.CanPlaceTerraBase || !grant.CanUpdateTerraBaseRuntime ||
+		!slices.Contains(grant.Roles, intent.Role) || !slices.Contains(grant.Environments, intent.Environment) {
+		return managedUpdatePrepareResponse{}, errors.New("operator lacks current TerraBase managed runtime update scope")
+	}
+	codec, err := policy.withOperator(cfg.Operator)
+	if err != nil {
+		return managedUpdatePrepareResponse{}, err
+	}
+	epoch, err := authoritySnapshot(ctx, runtime, cfg.NATS.Cell)
+	if err != nil {
+		return managedUpdatePrepareResponse{}, err
+	}
+	if intent.AuthorityEpoch != epoch {
+		return managedUpdatePrepareResponse{}, authority.ErrFenced
+	}
+	canonicalIntent, err := protocol.EncodeJSON(intent)
+	if err != nil {
+		return managedUpdatePrepareResponse{}, err
+	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(canonicalIntent, protocol.EnvelopeScope{
 		Region: cfg.NATS.Cell, Kind: placement.ManagedUpdateEnvelopeKind, Actor: cfg.Operator.Actor,
 		OperationID: intent.OperationID, Generation: intent.CanaryDesiredGeneration, Epoch: epoch,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
-		return err
+		return managedUpdatePrepareResponse{}, err
 	}
 	wire, err := protocol.EncodeJSON(envelope)
 	if err != nil {
-		return err
+		return managedUpdatePrepareResponse{}, err
 	}
 	for attempt := range 3 {
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -98,22 +114,22 @@ func operatorManagedUpdatePrepare(ctx context.Context, cfg Config, runtime *nats
 		if requestErr == nil {
 			var response managedUpdatePrepareResponse
 			if err := protocol.DecodeStrict(message.Data, &response, 16<<10); err != nil {
-				return fmt.Errorf("decode managed update Prepare reply: %w", err)
+				return managedUpdatePrepareResponse{}, fmt.Errorf("decode managed update Prepare reply: %w", err)
 			}
 			if response.Error != "" {
-				return errors.New(response.Error)
+				return managedUpdatePrepareResponse{}, errors.New(response.Error)
 			}
 			if response.DatabaseID != intent.DatabaseID || response.PartitionID != intent.PartitionID ||
 				response.OperationID != intent.OperationID || response.Phase != string(authority.ManagedUpdatePrepared) || response.Sequence == 0 {
-				return errors.New("controller returned a different managed update Prepare receipt")
+				return managedUpdatePrepareResponse{}, errors.New("controller returned a different managed update Prepare receipt")
 			}
-			return printJSON(output, response)
+			return response, nil
 		}
 		if (!errors.Is(requestErr, nats.ErrTimeout) && !errors.Is(requestErr, context.DeadlineExceeded)) || attempt == 2 {
-			return fmt.Errorf("request managed update Prepare: %w", requestErr)
+			return managedUpdatePrepareResponse{}, fmt.Errorf("request managed update Prepare: %w", requestErr)
 		}
 	}
-	return errors.New("managed update Prepare request exhausted")
+	return managedUpdatePrepareResponse{}, errors.New("managed update Prepare request exhausted")
 }
 
 func serveManagedUpdateAdmission(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy,

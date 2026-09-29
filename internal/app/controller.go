@@ -428,7 +428,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if managed != nil {
 		statusSub, err := servePlacementStatus(runCtx, runtime.Conn(), placementStatusSource{cell: cfg.NATS.Cell,
 			policy: policy, control: control, placements: placementStore, hosts: hostController,
-			holds: placementHolds, responseKey: responseKey})
+			holds: placementHolds, responseKey: responseKey,
+			owner: managed.region.Owner, fleetGeneration: managed.region.Generation})
 		if err != nil {
 			return fmt.Errorf("serve TerraBase placement status: %w", err)
 		}

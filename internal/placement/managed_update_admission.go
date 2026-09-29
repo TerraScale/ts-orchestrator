@@ -274,6 +274,21 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 	return nil
 }
 
+// ManagedUpdateSeatFor returns the signed predecessor pins an update must
+// carry for one durable seat: what the seat runs now and where.
+func ManagedUpdateSeatFor(state MemberState, owner string, fleetGeneration uint64) ManagedUpdateSeat {
+	return ManagedUpdateSeat{
+		SeatID: state.MemberID, Region: state.Region, MemberID: state.CanonicalRosterRow.MemberID,
+		Incarnation: state.CanonicalRosterRow.Incarnation, TLSLeafSHA256: state.CanonicalRosterRow.TLSLeafSHA256,
+		RuntimeManifestDigest: state.RuntimeManifestDigest, HostNode: state.HostNode,
+		HostGeneration: state.HostGeneration, HostAttempt: state.HostAttempt,
+		OCIInstanceID: state.InstanceID, OCIOwner: owner, OCIFleetGeneration: fleetGeneration,
+		CreateKey: state.CreateKey, VolumeID: state.VolumeID, AttachmentID: state.AttachmentID,
+		AttachmentETag: state.AttachmentETag, AttachmentDevice: state.AttachmentDevice,
+		DesiredGeneration: state.DesiredGeneration, ArtifactDigest: state.EffectiveRuntimeManifest().ArtifactDigest,
+	}
+}
+
 // managedUpdateRollsBackHeld reports whether update returns a seat whose
 // candidate was held back to the exact artifact and source it replaced.
 func managedUpdateRollsBackHeld(update ManagedUpdateIntent, state MemberState) bool {

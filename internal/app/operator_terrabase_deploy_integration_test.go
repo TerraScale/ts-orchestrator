@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/nats-io/nats.go"
 )
 
 const (
@@ -50,7 +51,10 @@ type deployTestCellServices struct {
 	operatorFile  string
 	root          string
 	responseKey   ed25519.PublicKey
+	controllerKey ed25519.PrivateKey
 	holds         *placementHoldLog
+	policy        signerPolicy
+	status        *nats.Subscription
 }
 
 func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
@@ -232,10 +236,15 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	controllerPublic, controllerPrivate := testEd25519(t, root, "controller.key")
 	signerPublic := writeDeployTestRecipientKeys(t, root)
+	compatibilityPublic, _ := testEd25519(t, root, "compatibility.key")
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
-		Roles: []string{"terrabase"}, Environments: []string{"canary"}, CanRegisterHosts: true,
-		CanPlaceTerraBase: true, CanPrepareManagedMaterial: true, Repositories: []string{deployTestRepository}}
-	cfg := Config{NATS: natscell.Config{Cell: deployTestCell}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}}
+		Roles: []string{"terrabase"}, Environments: []string{"canary", "production"}, CanRegisterHosts: true,
+		CanPlaceTerraBase: true, CanPrepareManagedMaterial: true, CanUpdateTerraBaseRuntime: true,
+		Repositories: []string{deployTestRepository}}
+	compatibility := TrustedSignerConfig{Actor: "compatibility", PublicKey: base64.StdEncoding.EncodeToString(compatibilityPublic),
+		Roles: []string{"terrabase"}, Environments: []string{"canary", "production"}, CanCertifyTerraBaseCompatibility: true}
+	cfg := Config{NATS: natscell.Config{Cell: deployTestCell},
+		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant, compatibility}}}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +252,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	cell := &deployTestCellServices{control: control, broker: broker, root: root, responseKey: controllerPublic,
 		operatorFile: testJSONFile(t, root, "operator.json", Config{
 			NATS:       natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", Replicas: 1, Lab: true, URL: broker.URL()},
-			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
+			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant, compatibility}},
 			Operator: OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key"),
 				ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic)},
 		})}
@@ -348,8 +357,11 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		t.Fatal(err)
 	}
 	cell.placement, cell.store = controller, store
-	subscribe(servePlacementStatus(ctx, broker.Conn(), placementStatusSource{cell: deployTestCell, policy: policy,
-		control: control, placements: store, hosts: cell.hosts, holds: holds, responseKey: controllerPrivate}))
+	cell.policy, cell.controllerKey = policy, controllerPrivate
+	cell.status, err = servePlacementStatus(ctx, broker.Conn(), placementStatusSource{cell: deployTestCell, policy: policy,
+		control: control, placements: store, hosts: cell.hosts, holds: holds, responseKey: controllerPrivate,
+		owner: region.Owner, fleetGeneration: region.Generation})
+	subscribe(cell.status, err)
 	if err := broker.Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
@@ -388,31 +400,10 @@ func writeDeployTestRecipientKeys(t *testing.T, root string) ed25519.PublicKey {
 // and a plan matching the live GRU member layout.
 func writeDeployTestPlan(t *testing.T, root string, clientPort uint16) (string, string) {
 	t.Helper()
-	binary := bytes.Repeat([]byte("tb-server-linux-arm64 test bytes "), 64)
-	binaryPath := filepath.Join(root, "tb-server-linux-arm64")
-	if err := os.WriteFile(binaryPath, binary, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	binarySum := sha256.Sum256(binary)
-	commit := strings.Repeat("d", 40)
-	qualification, err := json.Marshal(map[string]any{"schema": terrabaseQualificationSchema, "source_revision": commit,
-		"artifacts": []map[string]any{{"name": terrabaseServerArtifact, "bytes": len(binary),
-			"sha256": hex.EncodeToString(binarySum[:]), "target": terrabaseServerTarget}},
-		"verification": map[string]any{"conclusion": "success", "run_id": 11696, "workflow": "fast.yml"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	qualificationPath := filepath.Join(root, "qualification.json")
-	if err := os.WriteFile(qualificationPath, qualification, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	qualificationSum := sha256.Sum256(qualification)
-	sourcePath := testJSONFile(t, root, "source-digest.json", map[string]any{"schema": terrabaseSourceDigestSchema,
-		"repository": deployTestRepository, "source_revision": commit, "source_digest_sha256": strings.Repeat("e", 64),
-		"qualification_sha256": hex.EncodeToString(qualificationSum[:]), "server_linux_arm64_sha256": hex.EncodeToString(binarySum[:])})
+	release := writeDeployTestRelease(t, root, "1")
 	plan := testJSONFile(t, root, "plan.json", terrabaseDeployPlan{Version: 1,
 		PlacementDatabaseID: "preview", PartitionID: "p1", Role: "terrabase", Environment: "canary",
-		Release: terrabaseReleaseFiles{Qualification: qualificationPath, Binary: binaryPath, SourceDigest: sourcePath},
+		Release: release,
 		HostProfile: placement.ManagedHostProfile{
 			Compute:            placement.ComputeTuple{Shape: "VM.Standard.A1.Flex", WholeOCPUs: 1, MemoryInGBs: 6},
 			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 4 << 30,
@@ -431,6 +422,41 @@ func writeDeployTestPlan(t *testing.T, root string, clientPort uint16) (string, 
 			GrantValidityHours: 72},
 	})
 	return plan, filepath.Join(root, "deployment-state")
+}
+
+// writeDeployTestRelease writes one retained TerraBase CI release whose
+// server bytes and source revision are derived from version.
+func writeDeployTestRelease(t *testing.T, root, version string) terrabaseReleaseFiles {
+	t.Helper()
+	directory := filepath.Join(root, "release-"+version)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binary := bytes.Repeat([]byte("tb-server-linux-arm64 release "+version+" "), 64)
+	binaryPath := filepath.Join(directory, "tb-server-linux-arm64")
+	if err := os.WriteFile(binaryPath, binary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binarySum := sha256.Sum256(binary)
+	commitSum := sha256.Sum256([]byte("commit " + version))
+	commit := hex.EncodeToString(commitSum[:20])
+	qualification, err := json.Marshal(map[string]any{"schema": terrabaseQualificationSchema, "source_revision": commit,
+		"artifacts": []map[string]any{{"name": terrabaseServerArtifact, "bytes": len(binary),
+			"sha256": hex.EncodeToString(binarySum[:]), "target": terrabaseServerTarget}},
+		"verification": map[string]any{"conclusion": "success", "run_id": 11696, "workflow": "fast.yml"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationPath := filepath.Join(directory, "qualification.json")
+	if err := os.WriteFile(qualificationPath, qualification, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	qualificationSum := sha256.Sum256(qualification)
+	sourceSum := sha256.Sum256([]byte("source " + version))
+	sourcePath := testJSONFile(t, directory, "source-digest.json", map[string]any{"schema": terrabaseSourceDigestSchema,
+		"repository": deployTestRepository, "source_revision": commit, "source_digest_sha256": hex.EncodeToString(sourceSum[:]),
+		"qualification_sha256": hex.EncodeToString(qualificationSum[:]), "server_linux_arm64_sha256": hex.EncodeToString(binarySum[:])})
+	return terrabaseReleaseFiles{Qualification: qualificationPath, Binary: binaryPath, SourceDigest: sourcePath}
 }
 
 func runDeployTestOperatorErr(ctx context.Context, cell *deployTestCellServices, operation string, args ...string) ([]byte, error) {
