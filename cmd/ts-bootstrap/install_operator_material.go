@@ -31,7 +31,7 @@ func installOperatorMaterialAt(args []string, now time.Time) error {
 	materialDirectory := flags.String("material-directory", "", "complete owner-only offline material source")
 	configPath := flags.String("operator-config", "", "reviewed canonical operator config")
 	configSHA := flags.String("operator-config-sha256", "", "reviewed operator config SHA-256")
-	signingKeyPath := flags.String("operator-signing-key", "", "reviewed owner-only operator Ed25519 key")
+	signingKeyPath := flags.String("operator-signing-key", "", "reviewed owner-only operator Ed25519 key PEM")
 	signingKeySHA := flags.String("operator-signing-key-sha256", "", "reviewed operator key SHA-256")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -82,13 +82,16 @@ func installOperatorMaterialAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
+	clear(keyWire)
 	grantPublic, err := base64.StdEncoding.Strict().DecodeString(cfg.Controller.TrustedSigners[0].PublicKey)
 	if err != nil || !bytes.Equal(key.Public().(ed25519.PublicKey), grantPublic) {
 		clear(key)
 		return errors.New("reviewed operator signing key differs from signed grant")
 	}
+	// The operator CLI reads the base64 Ed25519 key form every runtime key uses.
+	runtimeKey := []byte(base64.StdEncoding.EncodeToString(key) + "\n")
 	clear(key)
-	sources := map[string][]byte{"operator-signing.key": keyWire, "operator.json": configWire}
+	sources := map[string][]byte{"operator-signing.key": runtimeKey, "operator.json": configWire}
 	for _, name := range []string{"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem", "ca.pem", "ticket.pub"} {
 		var file *bootstrapmaterial.File
 		for index := range record.Files {

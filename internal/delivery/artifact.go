@@ -40,6 +40,9 @@ func admissionKey(digest, cell, role, environment string) string {
 
 const admissionCASAttempts = 8
 
+// artifactUploadTimeout bounds one artifact upload, including every chunk ack.
+const artifactUploadTimeout = 15 * time.Minute
+
 func ArtifactClaimSubject(cell string) string {
 	return "ts.orch.v1." + cell + ".delivery.artifact.admit"
 }
@@ -91,7 +94,11 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
 			return ArtifactRecord{}, nil, err
 		}
-		if _, err := s.artifacts.Put(ctx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{ctx, snapshot}); err != nil {
+		// Without a deadline every chunk ack gets only the JetStream default
+		// timeout, which a slow operator link such as a bastion forward misses.
+		uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+		defer cancel()
+		if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
 			if isArtifactStoreFullError(err) {
 				return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
 			}
