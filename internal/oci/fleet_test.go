@@ -842,6 +842,7 @@ func TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome(t *testin
 	config, provider, journal, fleet, host, volume := newAttachTestState(t)
 	available := true
 	provider.devices[host.ID] = []CloudDevice{
+		{Name: "/dev/oracleoci/oraclevdaa", IsAvailable: &available},
 		{Name: "/dev/oracleoci/oraclevdc", IsAvailable: &available},
 		{Name: "/dev/oracleoci/oraclevdb", IsAvailable: &available},
 	}

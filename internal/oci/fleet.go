@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -1039,7 +1040,12 @@ func (f *fleet) selectRetainedVolumeDevice(ctx context.Context, instanceID strin
 	if len(available) == 0 {
 		return "", errors.New("OCI instance has no available retained-volume device")
 	}
-	slices.Sort(available)
+	// OCI device paths name virtio-scsi LUNs in order a, b, ..., z, aa, ...,
+	// af; the shortest name first selects the lowest free LUN (oraclevdb for
+	// the first data volume), not oraclevdaa.
+	slices.SortFunc(available, func(left, right string) int {
+		return cmp.Or(cmp.Compare(len(left), len(right)), strings.Compare(left, right))
+	})
 	return available[0], nil
 }
 
