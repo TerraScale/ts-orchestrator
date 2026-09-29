@@ -26,7 +26,8 @@ done
 }
 substituters=()
 if [[ -n ${TS_IMAGE_TOOL_CACHE:-} ]]; then
-	substituters=(--extra-substituters "$TS_IMAGE_TOOL_CACHE?trusted=1")
+	# Ahead of cache.nixos.org, so the whole closure comes from local disk.
+	substituters=(--extra-substituters "$TS_IMAGE_TOOL_CACHE?trusted=1&priority=10")
 fi
 started=$SECONDS
 nix build --no-link "${substituters[@]}" "${installables[@]}"
