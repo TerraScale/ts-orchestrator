@@ -5,29 +5,41 @@ cd "$repository_root"
 
 usage() {
 	cat >&2 <<'USAGE'
-usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE --qualification FILE \
-  --delegation FILE --root-key PEM --environment canary|production \
+usage: build-offline.sh --base QCOW2 --kernel-release RELEASE \
+  --binary FILE --qualification FILE --source-revision SHA \
   --native-verifier-binary FILE --native-verifier-sha256 LOWERCASE_HEX \
   --release-tool FILE --bootstrap-root PEM... --timesyncd-config FILE \
   --runtime-priority-profile-id TOKEN --runtime-priority-system-reserve-bytes BYTES \
   --host-memory-min-bytes BYTES --host-memory-low-bytes BYTES \
   --controller-memory-min-bytes BYTES --controller-memory-low-bytes BYTES \
   --system-slice-memory-min-bytes BYTES --system-slice-memory-low-bytes BYTES \
-  --out QCOW2
+  --out QCOW2 --kernel-out FILE
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
-It makes no OCI calls and installs no private keys or runtime secrets. The
-release root key verifies the binary; repeatable bootstrap root keys are
-installed as the only public trust roots. The image is deployment-neutral:
-each controller and host receives its deployment identity, signed anchor and
-host enrollment bundle in OCI launch metadata and verifies them against these
-roots. The explicit
+It makes no OCI calls and installs no private keys or runtime secrets.
+`ts-release binary-candidate` checks the orchestrator binary against its CI
+qualification manifest and exact source revision: static ARM64 ELF, Go
+toolchain, clean embedded VCS revision, size and SHA-256. The binary's signed
+release receipt is checked when the image is promoted (`image-candidate`,
+`sign-image`), not here, so every qualified CI candidate can be imaged
+without waiting for a signer.
+
+Repeatable bootstrap root keys are installed as the only public trust roots.
+The image is deployment-neutral: it carries no deployment identity, signed
+anchor or host enrollment bundle. Each controller and host receives those in
+OCI launch metadata and verifies them against these roots. The explicit
 timesyncd configuration supplies deployment NTP endpoints; no endpoint is
 selected or installed by default.
+
+The base image must contain exactly one /boot/vmlinuz-RELEASE AArch64 kernel
+with its /lib/modules/RELEASE directory. The builder writes that kernel to
+--kernel-out; image receipts sign it together with the QCOW2.
+
 The native verifier is the exact qualified TerraBase ARM64 tb-server artifact.
 Its SHA-256 must match the independently supplied artifact digest; the image
 installs it at the fixed managed-material verifier path. This digest is
 separate from the orchestrator binary receipt's BinarySHA256.
+
 Every image can serve as a controller or a managed host. It reserves workload
 UID/GID 2000:2000, uses separate install and state roots under
 /var/lib/terrascale-orchestrator-host, and provisions /srv/ts-managed as
@@ -45,14 +57,12 @@ USAGE
 }
 
 base=
+kernel_release=
 binary=
+qualification=
+source_revision=
 native_verifier_binary=
 native_verifier_sha256=
-receipt=
-qualification=
-delegation=
-root_key=
-environment=
 release_tool=
 bootstrap_roots=()
 timesyncd_config=
@@ -69,17 +79,16 @@ bootstrap_root_max_bytes=16384
 bootstrap_roots_max_total_bytes=65536
 timesyncd_config_max_bytes=16384
 output=
+kernel_output=
 while (($#)); do
 	case "$1" in
 		--base) base=${2:?}; shift 2 ;;
+		--kernel-release) kernel_release=${2:?}; shift 2 ;;
 		--binary) binary=${2:?}; shift 2 ;;
+		--qualification) qualification=${2:?}; shift 2 ;;
+		--source-revision) source_revision=${2:?}; shift 2 ;;
 		--native-verifier-binary) native_verifier_binary=${2:?}; shift 2 ;;
 		--native-verifier-sha256) native_verifier_sha256=${2:?}; shift 2 ;;
-		--receipt) receipt=${2:?}; shift 2 ;;
-		--qualification) qualification=${2:?}; shift 2 ;;
-		--delegation) delegation=${2:?}; shift 2 ;;
-		--root-key) root_key=${2:?}; shift 2 ;;
-		--environment) environment=${2:?}; shift 2 ;;
 		--release-tool) release_tool=${2:?}; shift 2 ;;
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
@@ -92,14 +101,15 @@ while (($#)); do
 		--system-slice-memory-min-bytes) system_slice_memory_min_bytes=${2:?}; shift 2 ;;
 		--system-slice-memory-low-bytes) system_slice_memory_low_bytes=${2:?}; shift 2 ;;
 		--out) output=${2:?}; shift 2 ;;
+		--kernel-out) kernel_output=${2:?}; shift 2 ;;
 		*) usage; exit 2 ;;
 	esac
 done
 
-if [[ -z "$base" || -z "$binary" || -z "$native_verifier_binary" || -z "$native_verifier_sha256" ||
-	-z "$receipt" || -z "$qualification" || -z "$delegation" || -z "$root_key" ||
-	-z "$environment" || -z "$release_tool" ||
-	${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ||
+if [[ -z "$base" || -z "$kernel_release" || -z "$binary" || -z "$qualification" ||
+	-z "$source_revision" || -z "$native_verifier_binary" || -z "$native_verifier_sha256" ||
+	-z "$release_tool" || ${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" ||
+	-z "$output" || -z "$kernel_output" ||
 	-z "$runtime_priority_profile_id" || -z "$runtime_priority_system_reserve_bytes" ||
 	-z "$host_memory_min_bytes" || -z "$host_memory_low_bytes" ||
 	-z "$controller_memory_min_bytes" || -z "$controller_memory_low_bytes" ||
@@ -111,15 +121,19 @@ if ((${#bootstrap_roots[@]} > bootstrap_root_limit)); then
 	echo "bootstrap root set must contain at most $bootstrap_root_limit files" >&2
 	exit 2
 fi
-if [[ "$environment" != canary && "$environment" != production ]]; then
-	echo "environment must be canary or production" >&2
+if [[ ! $source_revision =~ ^[0-9a-f]{40}$ ]]; then
+	echo "source revision must be a full lowercase Git SHA-1" >&2
+	exit 2
+fi
+if [[ ! $kernel_release =~ ^[0-9][A-Za-z0-9._+-]{0,127}$ ]]; then
+	echo "kernel release must be a plain Linux release string" >&2
 	exit 2
 fi
 if [[ ! $native_verifier_sha256 =~ ^[0-9a-f]{64}$ ]]; then
 	echo "native verifier SHA-256 must be 64 lowercase hex characters" >&2
 	exit 2
 fi
-for command in cat cp ln mktemp python3 qemu-img realpath virt-cat; do
+for command in cat cp ln mktemp python3 qemu-img realpath sha256sum; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
 if [[ -n ${TS_OFFLINE_GUESTFS_RUNNER:-} ]]; then
@@ -137,10 +151,7 @@ base=$(realpath -e -- "$base")
 binary=$(realpath -e -- "$binary")
 native_verifier_binary=$(realpath -e -- "$native_verifier_binary")
 [[ -f "$native_verifier_binary" ]] || { echo "native verifier must be a regular file" >&2; exit 1; }
-receipt=$(realpath -e -- "$receipt")
 qualification=$(realpath -e -- "$qualification")
-delegation=$(realpath -e -- "$delegation")
-root_key=$(realpath -e -- "$root_key")
 timesyncd_config=$(realpath -e -- "$timesyncd_config")
 release_tool=$(realpath -e -- "$release_tool")
 [[ -f "$timesyncd_config" ]] || { echo "timesyncd config must be a regular file" >&2; exit 1; }
@@ -156,6 +167,11 @@ output_parent=$(realpath -e -- "$(dirname -- "$output")")
 output="$output_parent/$(basename -- "$output")"
 if [[ -e "$output" || -L "$output" || "$output" == "$base" ]]; then
 	echo "output must be a new path distinct from the base image" >&2
+	exit 1
+fi
+kernel_output="$(realpath -e -- "$(dirname -- "$kernel_output")")/$(basename -- "$kernel_output")"
+if [[ -e "$kernel_output" || -L "$kernel_output" || "$kernel_output" == "$output" ]]; then
+	echo "kernel output must be a new path distinct from the image output" >&2
 	exit 1
 fi
 
@@ -332,9 +348,11 @@ print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
 PY
 )
 printf 'timesyncd image config sha256=%s\n' "$timesyncd_config_image_sha256"
-"$release_tool" verify-binary \
-	--receipt "$receipt" --delegation "$delegation" --root-key "$root_key" \
-	--binary "$binary" --qualification "$qualification" --environment "$environment"
+"$release_tool" binary-candidate \
+	--binary "$binary" --source-revision "$source_revision" --qualification "$qualification" \
+	--out "$temporary_directory/binary-candidate.json"
+binary_sha256=$(sha256sum -- "$binary" | cut -d ' ' -f 1)
+printf 'qualified orchestrator binary sha256=%s source=%s\n' "$binary_sha256" "$source_revision"
 qemu-img check -- "$base"
 qemu-img info --output=json -- "$base" | python3 -c '
 import json, sys
@@ -346,9 +364,10 @@ if image.get("format") != "qcow2" or image.get("backing-filename"):
 candidate="$temporary_directory/image.qcow2"
 cp --reflink=auto --sparse=always -- "$base" "$candidate"
 
-native_verifier_guest_path=/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server
 offline_args=(
 	--image "$candidate"
+	--kernel-release "$kernel_release"
+	--kernel-out "$temporary_directory/guest-kernel"
 	--work "$temporary_directory"
 	--sysusers deploy/image/terrascale-orchestrator.sysusers
 	--profile "$runtime_priority_profile"
@@ -361,22 +380,17 @@ for bootstrap_root in "${bootstrap_roots[@]}"; do
 	offline_args+=(--bootstrap-root "$bootstrap_root")
 done
 offline_guestfs_runner=${TS_OFFLINE_GUESTFS_RUNNER:-python3}
-"$offline_guestfs_runner" deploy/image/offline-guestfs.py "${offline_args[@]}"
+"$offline_guestfs_runner" deploy/image/offline-guestfs.py build "${offline_args[@]}"
 qemu-img check -- "$candidate"
-installed_verifier_sha256=$(virt-cat -a "$candidate" "$native_verifier_guest_path" | python3 -c '
-import hashlib
-import sys
-digest = hashlib.sha256()
-for chunk in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
-	digest.update(chunk)
-print(digest.hexdigest())
-')
-if [[ "$installed_verifier_sha256" != "$native_verifier_sha256" ]]; then
-	echo "installed native verifier bytes do not match the supplied SHA-256" >&2
-	exit 1
-fi
-printf 'native verifier image sha256=%s guest_path=%s\n' "$installed_verifier_sha256" "$native_verifier_guest_path"
+# One read-only appliance reads every executable and the kernel back from the
+# final QCOW2, so a dropped or reordered write cannot yield a candidate.
+kernel_sha256=$(sha256sum -- "$temporary_directory/guest-kernel" | cut -d ' ' -f 1)
+"$offline_guestfs_runner" deploy/image/offline-guestfs.py verify --image "$candidate" \
+	--expect "/usr/local/bin/terrascale-orchestrator=$binary_sha256" \
+	--expect "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server=$native_verifier_sha256" \
+	--expect "/boot/vmlinuz-$kernel_release=$kernel_sha256"
+cp -- "$temporary_directory/guest-kernel" "$kernel_output"
 ln -- "$candidate" "$output"
 trap - EXIT
 rm -rf -- "$temporary_directory"
-printf 'offline QCOW2 candidate created at %s\n' "$output"
+printf 'offline QCOW2 candidate created at %s kernel=%s sha256=%s\n' "$output" "$kernel_output" "$kernel_sha256"

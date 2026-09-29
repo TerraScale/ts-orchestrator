@@ -2,6 +2,7 @@
 """Complete a TerraScale image with filesystem-only libguestfs operations."""
 
 import argparse
+import gzip
 import hashlib
 import os
 from pathlib import Path
@@ -63,14 +64,15 @@ def run(*args: str, env: dict[str, str] | None = None) -> str:
 
 
 class Guest:
-    def __init__(self, image: str):
+    def __init__(self, image: str, *, read_only: bool = False):
         # --listen keeps one appliance alive. Neither inspection nor mutation runs guest code.
         # The persistent guestfish child can inherit stderr. A captured stderr pipe
         # would keep subprocess.run waiting for EOF after the launcher exits.
         self.errors = tempfile.TemporaryFile(mode="w+b")
+        mode = ("--ro",) if read_only else ()
         try:
             result = subprocess.run(
-                ("guestfish", "--listen", "--format=qcow2", "-a", image, "-i"),
+                ("guestfish", "--listen", *mode, "--format=qcow2", "-a", image, "-i"),
                 stdout=subprocess.PIPE, stderr=self.errors, text=True, check=False,
             )
             if result.returncode:
@@ -83,6 +85,10 @@ class Guest:
                 raise RuntimeError(f"guestfish did not return a remote PID: {output}; stderr: {self.error_tail()}")
             self.pid = int(match.group(1))
             self.env = dict(os.environ, GUESTFISH_PID=match.group(1))
+            # This session is the image's only writer and never removes or
+            # replaces a directory, so a path once seen as a direct directory
+            # stays one. Caching it avoids re-probing every parent per upload.
+            self.directories: set[str] = set()
         except BaseException:
             self.errors.close()
             raise
@@ -119,6 +125,8 @@ class Guest:
             self.errors.close()
 
     def kind(self, path: str) -> str | None:
+        if path in self.directories:
+            return "dir"
         # A failed lstatns can terminate a guestfish remote listener. Probe
         # absence with commands that return booleans, including dangling links.
         exists = self.call("exists", path)
@@ -135,6 +143,7 @@ class Guest:
         if stat.S_ISLNK(mode):
             return "symlink"
         if stat.S_ISDIR(mode):
+            self.directories.add(path)
             return "dir"
         if stat.S_ISREG(mode):
             return "file"
@@ -232,6 +241,34 @@ def require_direct_parents(guest: Guest, path: str) -> None:
                 f"(uid={meta['st_uid']} gid={meta['st_gid']} mode=0{stat.S_IMODE(meta['st_mode']):o})"
             )
     guest.assert_absent(path, "managed-material verifier directory")
+
+
+def audit_kernel(guest: Guest, release: str, work: Path, output: Path) -> None:
+    """Extract the base image's only boot kernel and prove it is an AArch64 Image."""
+    kernels = [name for name in guest.list("/boot") if name.startswith("vmlinuz-")]
+    if kernels != [f"vmlinuz-{release}"] or guest.kind(f"/boot/vmlinuz-{release}") != "file":
+        raise RuntimeError(
+            f"base image must contain exactly one regular /boot/vmlinuz-{release} (found {sorted(kernels)})"
+        )
+    if guest.kind(f"/lib/modules/{release}") != "dir":
+        raise RuntimeError(f"selected guest kernel has no /lib/modules/{release} directory")
+    kernel = work / "guest-kernel-base"
+    guest.read(f"/boot/vmlinuz-{release}", kernel)
+    size = kernel.stat().st_size
+    if not 0 < size <= 128 << 20:
+        raise RuntimeError("base guest kernel must be between 1 byte and 128 MiB")
+    with kernel.open("rb") as source:
+        compressed = source.read(2) == b"\x1f\x8b"
+        source.seek(0)
+        if compressed:
+            with gzip.open(source) as decompressed:
+                header = decompressed.read(64)
+        else:
+            header = source.read(64)
+    if len(header) != 64 or header[56:60] != b"ARM\x64":
+        raise RuntimeError("base guest kernel is not an AArch64 Linux boot Image")
+    shutil.copyfile(kernel, output)
+    print(f"base guest kernel release={release} bytes={size} sha256={file_sha256(output).hex()}")
 
 
 def file_sha256(path: Path) -> bytes:
@@ -511,6 +548,7 @@ def build(args: argparse.Namespace) -> None:
     guest = Guest(args.image)
     try:
         # All checks precede writes, so a base collision cannot leave a plausible candidate.
+        audit_kernel(guest, args.kernel_release, work, Path(args.kernel_out))
         require_direct_parents(guest, str(Path(NATIVE).parent))
         audit_systemd_version(guest, work)
         audit_time_config(guest, work)
@@ -601,17 +639,46 @@ def build(args: argparse.Namespace) -> None:
         guest.close(ignore_remote_error=sys.exc_info()[0] is not None)
 
 
+def verify(args: argparse.Namespace) -> None:
+    """Read each expected file back from the finished image in one read-only appliance."""
+    expected = []
+    for item in args.expect:
+        path, separator, digest = item.rpartition("=")
+        if not separator or not path.startswith("/") or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise RuntimeError(f"invalid --expect GUEST_PATH=SHA256: {item}")
+        expected.append((path, digest))
+    guest = Guest(args.image, read_only=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="ts-image-verify-") as directory:
+            for index, (path, digest) in enumerate(expected):
+                if guest.kind(path) != "file":
+                    raise RuntimeError(f"finished image lacks regular file: {path}")
+                readback = Path(directory) / str(index)
+                guest.read(path, readback)
+                observed = file_sha256(readback).hex()
+                if observed != digest:
+                    raise RuntimeError(f"finished image bytes differ from the expected SHA-256: {path}")
+                print(f"image readback sha256={observed} guest_path={path}")
+    finally:
+        guest.close(ignore_remote_error=sys.exc_info()[0] is not None)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    build_parser = commands.add_parser("build")
     for option in (
-        "image", "work", "sysusers", "profile", "priority-root", "binary", "native-verifier",
-        "timesyncd-config",
+        "image", "kernel-release", "kernel-out", "work", "sysusers", "profile", "priority-root",
+        "binary", "native-verifier", "timesyncd-config",
     ):
-        parser.add_argument("--" + option, required=True)
-    parser.add_argument("--bootstrap-root", action="append", required=True)
+        build_parser.add_argument("--" + option, required=True)
+    build_parser.add_argument("--bootstrap-root", action="append", required=True)
+    verify_parser = commands.add_parser("verify")
+    verify_parser.add_argument("--image", required=True)
+    verify_parser.add_argument("--expect", action="append", required=True)
     args = parser.parse_args()
     try:
-        build(args)
+        {"build": build, "verify": verify}[args.command](args)
     except RuntimeError as error:
         raise SystemExit(str(error)) from error
 

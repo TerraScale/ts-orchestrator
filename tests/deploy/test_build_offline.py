@@ -1,7 +1,6 @@
-import base64
-import binascii
-import json
+import gzip
 import hashlib
+import json
 import importlib.util
 import os
 import re
@@ -36,7 +35,21 @@ TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/te
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
 RUNTIME_PRIORITY_HELPER_GUEST = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
 NATIVE_VERIFIER_GUEST = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
-HOST_ENROLLMENT_GUEST = "/etc/terrascale-orchestrator/host-enrollment-public.json"
+KERNEL_RELEASE = "6.8.0-142-generic"
+KERNEL_GUEST = f"/boot/vmlinuz-{KERNEL_RELEASE}"
+SOURCE_REVISION = "9f52ca3f861a3eec125eefb6e5025c806fbd0913"
+# Deployment material travels in OCI launch metadata and must never be baked.
+DEPLOYMENT_MATERIAL_GUEST_PATHS = (
+    f"{BOOTSTRAP_DIRECTORY}/anchor.json",
+    f"{BOOTSTRAP_DIRECTORY}/identity.json",
+    f"{BOOTSTRAP_DIRECTORY}/host-enrollment-public.json",
+    "/etc/terrascale-orchestrator/host-enrollment-public.json",
+)
+REMOVED_DEPLOYMENT_FLAGS = (
+    "--bootstrap-tool", "--bootstrap-anchor", "--bootstrap-identity",
+    "--host-enrollment-public", "--host-enrollment-public-sha256",
+    "--receipt", "--delegation", "--root-key", "--environment",
+)
 RUNTIME_PRIORITY_DROPINS = (
     "/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
@@ -77,17 +90,9 @@ class BuildOfflineTests(unittest.TestCase):
             self.inputs / "tb-server-linux-arm64", bytes(native_header) + b"mock native verifier"
         )
         self.native_verifier_sha256 = hashlib.sha256(self.native_verifier.read_bytes()).hexdigest()
-        self.receipt = self.write_file(self.inputs / "release receipt.json", b"mock receipt")
         self.qualification = self.write_file(self.inputs / "qualification.json", b"mock qualification")
-        self.delegation = self.write_file(self.inputs / "release delegation.json", b"mock delegation")
-        self.release_root = self.write_file(self.inputs / "release root.pem", b"release public key")
         self.bootstrap_root_a = self.write_file(self.inputs / "bootstrap root a.pem", b"bootstrap public key a")
         self.bootstrap_root_b = self.write_file(self.inputs / "bootstrap root b.pem", b"bootstrap public key b")
-        self.anchor = self.write_file(self.inputs / "signed anchor v2.json", b"mock signed anchor v2")
-        self.identity = self.write_file(
-            self.inputs / "bootstrap identity.json",
-            b'{"schemaVersion":1,"deploymentId":"deployment-a","environment":"canary","cell":"GRU"}',
-        )
         self.timesyncd_config = self.write_file(
             self.inputs / "timesyncd config.conf",
             b"[Time]\nNTP=ntp.deployment.example\n",
@@ -98,27 +103,7 @@ class BuildOfflineTests(unittest.TestCase):
         self.addCleanup(self.base_image_temporary_directory.cleanup)
         self.base_image_root = Path(self.base_image_temporary_directory.name)
         self.events = self.root / "events.log"
-        self.bootstrap_arguments = self.root / "bootstrap-arguments.bin"
         self.release_arguments = self.root / "release-arguments.bin"
-        account_raw = bytes([0]) + bytes(range(32))
-        account_raw += binascii.crc_hqx(account_raw, 0).to_bytes(2, "little")
-        # The builder checks PEM framing; the guest verifies X.509 CA semantics.
-        bundle = {
-            "schema_version": 1, "cell": "gru", "region": "GRU", "environment": "canary",
-            "controller_endpoints": [f"10.251.0.{number}:8443" for number in (11, 12, 13)],
-            "nats_urls": [f"tls://10.251.0.{number}:4222" for number in (11, 12, 13)],
-            "ca_pem": "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n",
-            "controller_response_public_key": base64.b64encode(bytes(range(32))).decode(),
-            "cell_account_nkey": base64.b32encode(account_raw).decode(),
-            "workload_uid": 2000, "workload_gid": 2000,
-            "install_root": "/var/lib/terrascale-orchestrator-host/install",
-            "state_root": "/var/lib/terrascale-orchestrator-host/state",
-            "managed_runtime_root": MANAGED_DIRECTORY,
-        }
-        self.host_bundle = self.write_file(
-            self.inputs / "host enrollment public.json", json.dumps(bundle, separators=(",", ":")).encode()
-        )
-        self.host_bundle_sha256 = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
         self.priority_inputs = {
             "--runtime-priority-profile-id": RUNTIME_PRIORITY_PROFILE_ID,
             "--runtime-priority-system-reserve-bytes": str(RUNTIME_PRIORITY_SYSTEM_RESERVE_BYTES),
@@ -130,6 +115,10 @@ class BuildOfflineTests(unittest.TestCase):
             "--system-slice-memory-low-bytes": str(256 << 20),
         }
         self.output = self.root / "candidate image.qcow2"
+        self.kernel_output = self.root / "guest kernel"
+        kernel_header = bytearray(64)
+        kernel_header[56:60] = b"ARM\x64"
+        self.kernel = bytes(kernel_header) + b"mock arm64 kernel"
 
         write_executable(
             self.shims / "qemu-img",
@@ -147,9 +136,12 @@ esac
         )
         for directory in (
             "/etc/systemd/system", "/usr/lib/systemd/system", "/usr/local/lib/terrascale-orchestrator",
-            "/etc/sysusers.d", "/usr/local/bin", "/var/lib", "/srv",
+            "/etc/sysusers.d", "/usr/local/bin", "/var/lib", "/srv", "/boot",
+            f"/lib/modules/{KERNEL_RELEASE}",
         ):
             (self.base_image_root / directory.lstrip("/")).mkdir(parents=True, exist_ok=True)
+        (self.base_image_root / KERNEL_GUEST.lstrip("/")).write_bytes(self.kernel)
+        (self.base_image_root / "boot/vmlinuz").symlink_to(f"vmlinuz-{KERNEL_RELEASE}")
         (self.base_image_root / "srv").chmod(0o755)
         (self.base_image_root / "var/lib/dpkg").mkdir(parents=True)
         (self.base_image_root / "var/lib/dpkg/status").write_text(
@@ -186,11 +178,15 @@ from pathlib import Path
 root = Path(os.environ["BASE_IMAGE_ROOT_PATH"])
 metadata_path = Path(os.environ["FS_METADATA_PATH"])
 arguments = sys.argv[1:]
+session_marker = Path(os.environ["GUESTFISH_SESSION_PATH"])
 if "--listen" in arguments:
+    read_only = "--ro" in arguments
     with open(os.environ["EVENTS_PATH"], "a", encoding="utf-8") as stream:
-        stream.write("guestfish-listen\n")
+        stream.write("guestfish-listen-ro\n" if read_only else "guestfish-listen\n")
+    session_marker.write_text("ro" if read_only else "rw")
     print("GUESTFISH_PID=1; export GUESTFISH_PID")
     raise SystemExit(0)
+read_only = session_marker.read_text() == "ro"
 assert arguments[0] == "--remote", arguments
 command, *args = arguments[1:]
 path = lambda guest: root / guest.lstrip("/")
@@ -224,7 +220,10 @@ elif command == "ls":
 elif command == "readlink":
     print(os.readlink(path(args[0])))
 elif command == "download":
-    shutil.copyfile(path(args[0]), args[1])
+    if read_only and args[0] == os.environ.get("GUESTFISH_CORRUPT_READBACK"):
+        Path(args[1]).write_bytes(b"corrupt guest bytes")
+    else:
+        shutil.copyfile(path(args[0]), args[1])
 elif command == "copy-out":
     target = path(args[0])
     shutil.copytree(target, Path(args[1]) / target.name, symlinks=True)
@@ -242,6 +241,9 @@ elif command == "ln-s":
     path(args[1]).symlink_to(args[0])
 elif command != "exit":
     raise SystemExit(f"unsupported fake guestfish command: {command}")
+if read_only and command not in ("is-symlink", "is-dir", "is-file", "exists", "lstatns", "ls",
+                                 "readlink", "download", "exit"):
+    raise SystemExit(f"read-only session attempted a write: {command}")
 metadata_path.write_text(json.dumps(metadata))
 """,
         )
@@ -313,63 +315,23 @@ else:
     raise SystemExit("unexpected systemctl operation")
 """,
         )
-        write_executable(
-            self.shims / "virt-cat",
-            """#!/usr/bin/env bash
-set -euo pipefail
-[[ $# == 3 && $1 == -a ]]
-case "$3" in
-  "$VIRT_NATIVE_VERIFIER_GUEST_PATH")
-    if [[ ${VIRT_CORRUPT_NATIVE:-0} == 1 ]]; then
-      printf 'corrupt guest bytes'
-    else
-      cat "$BASE_IMAGE_ROOT_PATH/$3"
-    fi
-    ;;
-  "$VIRT_HOST_ENROLLMENT_GUEST_PATH") cat "$BASE_IMAGE_ROOT_PATH/$3" ;;
-  *) exit 2 ;;
-esac
-""",
-        )
         self.release_tool = self.root / "release tool"
         write_executable(
             self.release_tool,
             """#!/usr/bin/env bash
 set -euo pipefail
+printf 'release-binary-candidate\\n' >> "$EVENTS_PATH"
 printf '%s\\0' "$@" > "$RELEASE_ARGUMENTS_PATH"
-""",
-        )
-        self.bootstrap_tool = self.root / "bootstrap tool"
-        write_executable(
-            self.bootstrap_tool,
-            """#!/usr/bin/env bash
-set -euo pipefail
-printf 'bootstrap-verify\\n' >> "$EVENTS_PATH"
-printf '%s\\0' "$@" > "$BOOTSTRAP_ARGUMENTS_PATH"
-if [[ "${BOOTSTRAP_VERIFY_FAIL:-0}" == 1 ]]; then
-  echo 'mock anchor verification rejected' >&2
+if [[ "${RELEASE_CANDIDATE_FAIL:-0}" == 1 ]]; then
+  echo 'mock binary does not match its qualification' >&2
   exit 1
 fi
-printf '{}\\n'
 """,
         )
 
     def write_file(self, path: Path, data: bytes) -> Path:
         path.write_bytes(data)
         return path
-
-    def set_sfo_host_bundle(self) -> dict:
-        self.identity.write_bytes(json.dumps({
-            "schemaVersion": 1, "deploymentId": "deployment-sfo",
-            "environment": "canary", "cell": "SFO",
-        }, separators=(",", ":")).encode())
-        bundle = json.loads(self.host_bundle.read_bytes())
-        bundle["cell"] = "sfo"
-        bundle["region"] = "SFO"
-        bundle["controller_endpoints"] = [f"10.52.8.{number}:8443" for number in (101, 102, 103)]
-        bundle["nats_urls"] = [f"tls://10.52.8.{number}:4222" for number in (101, 102, 103)]
-        self.host_bundle.write_bytes(json.dumps(bundle, separators=(",", ":")).encode())
-        return bundle
 
     def assert_baked_loader_accepts_roots(self, filenames: list[str]) -> None:
         source = BAKED_LOADER.read_text(encoding="utf-8")
@@ -392,7 +354,6 @@ printf '{}\\n'
         builder_source = BUILDER.read_text(encoding="utf-8")
         helper_source = OFFLINE_HELPER.read_text(encoding="utf-8")
         loader_source = BAKED_LOADER.read_text(encoding="utf-8")
-        anchor_source = (ROOT / "internal/bootstrap/anchor.go").read_text(encoding="utf-8")
         baked_directory = re.search(r'BakedDirectory\s*=\s*"([^"]+)"', loader_source)
         builder_directory = re.search(r'^BOOTSTRAP = "([^"]+)"$', helper_source, re.MULTILINE)
         self.assertIsNotNone(baked_directory, "could not find baked loader directory")
@@ -414,10 +375,6 @@ printf '{}\\n'
         self.assertEqual(
             bash_limit("bootstrap_roots_max_total_bytes"), go_limit(loader_source, "MaxRootsTotal")
         )
-        self.assertEqual(bash_limit("bootstrap_identity_max_bytes"), go_limit(loader_source, "maxIdentity"))
-        self.assertEqual(
-            bash_limit("bootstrap_anchor_max_bytes"), go_limit(anchor_source, "MaxBootstrapAnchorBytes")
-        )
 
     def builder_environment(self, **overrides: str) -> dict[str, str]:
         environment = os.environ.copy()
@@ -425,10 +382,8 @@ printf '{}\\n'
             {
                 "PATH": f"{self.shims}{os.pathsep}{Path(sys.executable).parent}:/run/current-system/sw/bin:/usr/bin:/bin",
                 "EVENTS_PATH": str(self.events),
-                "BOOTSTRAP_ARGUMENTS_PATH": str(self.bootstrap_arguments),
                 "RELEASE_ARGUMENTS_PATH": str(self.release_arguments),
-                "VIRT_NATIVE_VERIFIER_GUEST_PATH": NATIVE_VERIFIER_GUEST,
-                "VIRT_HOST_ENROLLMENT_GUEST_PATH": HOST_ENROLLMENT_GUEST,
+                "GUESTFISH_SESSION_PATH": str(self.root / "guestfish-session"),
                 "BASE_IMAGE_ROOT_PATH": str(self.base_image_root),
                 "FS_METADATA_PATH": str(self.fs_metadata),
                 "GUESTFISH_DEAD_MARKER_PATH": str(self.root / "guestfish-dead"),
@@ -437,67 +392,44 @@ printf '{}\\n'
         environment.update(overrides)
         return environment
 
-    def run_builder(self, *, host_enrollment_public: Path | None = None,
-                    host_enrollment_public_sha256: str | None = None,
-                    native_verifier_binary: Path | None = None,
-                    native_verifier_sha256: str | None = None,
+    def run_builder(self, *extra_arguments: str, native_verifier_binary: Path | None = None,
+                    native_verifier_sha256: str | None = None, replace: dict[str, str] | None = None,
                     **environment_overrides: str) -> subprocess.CompletedProcess[str]:
         return self.run_builder_with_roots(
-            [self.bootstrap_root_a, self.bootstrap_root_b],
-            host_enrollment_public=host_enrollment_public,
-            host_enrollment_public_sha256=host_enrollment_public_sha256,
+            [self.bootstrap_root_a, self.bootstrap_root_b], *extra_arguments,
             native_verifier_binary=native_verifier_binary,
             native_verifier_sha256=native_verifier_sha256,
+            replace=replace,
             **environment_overrides
         )
 
     def run_builder_with_roots(
-        self, bootstrap_roots: list[Path], *, host_enrollment_public: Path | None = None,
-        host_enrollment_public_sha256: str | None = None,
+        self, bootstrap_roots: list[Path], *extra_arguments: str,
         native_verifier_binary: Path | None = None,
         native_verifier_sha256: str | None = None,
+        replace: dict[str, str] | None = None,
         **environment_overrides: str
     ) -> subprocess.CompletedProcess[str]:
-        arguments = [
-            str(BUILDER),
-            "--base",
-            str(self.base),
-            "--binary",
-            str(self.binary),
-            "--native-verifier-binary",
-            str(native_verifier_binary or self.native_verifier),
-            "--native-verifier-sha256",
-            native_verifier_sha256 or self.native_verifier_sha256,
-            "--receipt",
-            str(self.receipt),
-            "--qualification",
-            str(self.qualification),
-            "--delegation",
-            str(self.delegation),
-            "--root-key",
-            str(self.release_root),
-            "--environment",
-            "canary",
-            "--release-tool",
-            str(self.release_tool),
-            "--bootstrap-tool",
-            str(self.bootstrap_tool),
-            "--bootstrap-anchor",
-            str(self.anchor),
-            "--bootstrap-identity",
-            str(self.identity),
-            "--timesyncd-config",
-            str(self.timesyncd_config),
-        ]
-        for flag, value in self.priority_inputs.items():
+        options = {
+            "--base": str(self.base),
+            "--kernel-release": KERNEL_RELEASE,
+            "--binary": str(self.binary),
+            "--qualification": str(self.qualification),
+            "--source-revision": SOURCE_REVISION,
+            "--native-verifier-binary": str(native_verifier_binary or self.native_verifier),
+            "--native-verifier-sha256": native_verifier_sha256 or self.native_verifier_sha256,
+            "--release-tool": str(self.release_tool),
+            "--timesyncd-config": str(self.timesyncd_config),
+            **self.priority_inputs,
+            **(replace or {}),
+        }
+        arguments = [str(BUILDER)]
+        for flag, value in options.items():
             arguments.extend((flag, value))
         for bootstrap_root in bootstrap_roots:
             arguments.extend(("--bootstrap-root", str(bootstrap_root)))
-        if host_enrollment_public is not None:
-            arguments.extend(("--host-enrollment-public", str(host_enrollment_public)))
-        if host_enrollment_public_sha256 is not None:
-            arguments.extend(("--host-enrollment-public-sha256", host_enrollment_public_sha256))
-        arguments.extend(("--out", str(self.output)))
+        arguments.extend(extra_arguments)
+        arguments.extend(("--out", str(self.output), "--kernel-out", str(self.kernel_output)))
         return subprocess.run(
             arguments,
             cwd=ROOT,
@@ -507,23 +439,40 @@ printf '{}\\n'
             text=True,
         )
 
+    def assert_no_image_effects(self) -> None:
+        events = self.events.read_text(encoding="utf-8") if self.events.exists() else ""
+        self.assertNotIn("guestfish-listen", events)
+        self.assertFalse(self.output.exists())
+        self.assertFalse(self.kernel_output.exists())
+
     def test_verified_public_inputs_and_directories_are_installed_offline(self) -> None:
         result = self.run_builder()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.output.read_bytes(), self.base.read_bytes())
+        self.assertEqual(self.kernel_output.read_bytes(), self.kernel)
+        kernel_sha256 = hashlib.sha256(self.kernel).hexdigest()
+        self.assertIn(f"base guest kernel release={KERNEL_RELEASE} bytes={len(self.kernel)} sha256={kernel_sha256}",
+                      result.stdout)
         events = self.events.read_text(encoding="utf-8").splitlines()
-        self.assertLess(events.index("bootstrap-verify"), events.index("guestfish-listen"))
-        self.assertEqual(events.count("qemu-check"), 2)
+        # The binary is qualified before the appliance starts, and one read-only
+        # appliance reads the finished image back after the writable one.
+        self.assertEqual(events, ["release-binary-candidate", "qemu-check", "qemu-info", "guestfish-listen",
+                                  "qemu-check", "guestfish-listen-ro"])
 
-        bootstrap_arguments = self.bootstrap_arguments.read_bytes().split(b"\0")[:-1]
-        self.assertEqual([part.decode() for part in bootstrap_arguments], [
-            "verify-anchor", "--anchor", str(self.anchor), "--identity", str(self.identity),
-            "--root-key", str(self.bootstrap_root_a), "--root-key", str(self.bootstrap_root_b),
-        ])
         release_arguments = [part.decode() for part in self.release_arguments.read_bytes().split(b"\0")[:-1]]
-        self.assertEqual(release_arguments[release_arguments.index("--root-key") + 1], str(self.release_root))
+        self.assertEqual(release_arguments[0], "binary-candidate")
+        self.assertEqual(release_arguments[release_arguments.index("--source-revision") + 1], SOURCE_REVISION)
         self.assertEqual(release_arguments[release_arguments.index("--qualification") + 1], str(self.qualification))
+        self.assertEqual(Path(release_arguments[release_arguments.index("--binary") + 1]).name,
+                         "terrascale-orchestrator")
         self.assertNotIn(str(self.bootstrap_root_a), release_arguments)
+        for guest_path, contents in (
+            ("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes()),
+            (NATIVE_VERIFIER_GUEST, self.native_verifier.read_bytes()),
+            (KERNEL_GUEST, self.kernel),
+        ):
+            self.assertIn(f"image readback sha256={hashlib.sha256(contents).hexdigest()} guest_path={guest_path}",
+                          result.stdout)
 
         root = self.base_image_root
         metadata = json.loads(self.fs_metadata.read_text())
@@ -536,13 +485,10 @@ printf '{}\\n'
             self.assertEqual(tuple(metadata[path]), owner, path)
             self.assertEqual(file.stat().st_nlink, 1, path)
 
-        installed(f"{BOOTSTRAP_DIRECTORY}/anchor.json", self.anchor.read_bytes(), 0o444)
-        installed(f"{BOOTSTRAP_DIRECTORY}/identity.json", self.identity.read_bytes(), 0o444)
         for index, source in enumerate((self.bootstrap_root_a, self.bootstrap_root_b), 1):
             installed(f"{BOOTSTRAP_DIRECTORY}/trust-roots/{index:03d}.pem", source.read_bytes(), 0o444)
         self.assert_baked_loader_accepts_roots(["001.pem", "002.pem"])
         installed(NATIVE_VERIFIER_GUEST, self.native_verifier.read_bytes(), 0o755)
-        self.assertIn(f"native verifier image sha256={self.native_verifier_sha256}", result.stdout)
         installed("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes(), 0o755)
         installed(RUNTIME_PRIORITY_HELPER_GUEST, RUNTIME_PRIORITY_QUALIFIER.read_bytes(), 0o755)
         installed(TIME_WAIT_SYNC_DROPIN, b"[Service]\nTimeoutStartSec=300s\n")
@@ -585,16 +531,14 @@ printf '{}\\n'
             self.assertTrue(link.is_symlink(), unit)
         self.assertFalse((root / "etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-bootstrap.service").exists())
         self.assertNotIn("--run-command", BUILDER.read_text())
-        for private_input in (self.receipt, self.release_root, self.delegation):
-            self.assertFalse((root / private_input.name).exists())
+        self.assertFalse((root / self.qualification.name).exists())
 
     def test_native_verifier_rejects_wrong_digest_and_architecture_before_image_copy(self) -> None:
         wrong_digest = "0" * 64
         result = self.run_builder(native_verifier_sha256=wrong_digest)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("native verifier bytes do not match", result.stderr)
-        self.assertNotIn("guestfish-listen", self.events.read_text())
-        self.assertFalse(self.output.exists())
+        self.assert_no_image_effects()
 
         native_bytes = bytearray(self.native_verifier.read_bytes())
         struct.pack_into("<H", native_bytes, 18, 62)
@@ -604,14 +548,118 @@ printf '{}\\n'
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ELF64 little-endian AArch64", result.stderr)
-        self.assertNotIn("guestfish-listen", self.events.read_text())
-        self.assertFalse(self.output.exists())
+        self.assert_no_image_effects()
 
-    def test_native_verifier_guest_readback_mismatch_discards_candidate(self) -> None:
-        result = self.run_builder(VIRT_CORRUPT_NATIVE="1")
+    def assert_readback_mismatch_discards_candidate(self, guest_path: str) -> None:
+        result = self.run_builder(GUESTFISH_CORRUPT_READBACK=guest_path)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("installed native verifier bytes do not match", result.stderr)
+        self.assertIn(f"finished image bytes differ from the expected SHA-256: {guest_path}", result.stderr)
+        self.assertIn("guestfish-listen-ro", self.events.read_text(encoding="utf-8"))
         self.assertFalse(self.output.exists())
+        self.assertFalse(self.kernel_output.exists())
+        self.assertEqual(list(self.root.glob(".ts-orchestrator-image.*")), [])
+
+    def test_orchestrator_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate("/usr/local/bin/terrascale-orchestrator")
+
+    def test_native_verifier_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate(NATIVE_VERIFIER_GUEST)
+
+    def test_kernel_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate(KERNEL_GUEST)
+
+    def test_deployment_material_is_never_baked(self) -> None:
+        # Launch metadata carries the deployment identity, signed anchor and
+        # host enrollment bundle; the guest verifies them against these roots.
+        result = self.run_builder()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        root = self.base_image_root
+        for guest_path in DEPLOYMENT_MATERIAL_GUEST_PATHS:
+            self.assertFalse((root / guest_path.lstrip("/")).exists(), guest_path)
+        bootstrap = root / BOOTSTRAP_DIRECTORY.lstrip("/")
+        self.assertEqual(sorted(path.name for path in bootstrap.iterdir()), ["trust-roots"])
+        self.assertEqual(sorted(path.name for path in (bootstrap / "trust-roots").iterdir()), ["001.pem", "002.pem"])
+
+    def test_deployment_material_flags_are_rejected_before_image_effects(self) -> None:
+        material = self.write_file(self.inputs / "deployment material.json", b"{}")
+        for flag in REMOVED_DEPLOYMENT_FLAGS:
+            with self.subTest(flag=flag):
+                result = self.run_builder(flag, str(material))
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("usage: build-offline.sh", result.stderr)
+                self.assertFalse(self.events.exists())
+                self.assert_no_image_effects()
+
+    def test_base_image_with_deployment_material_fails_closed(self) -> None:
+        for guest_path in DEPLOYMENT_MATERIAL_GUEST_PATHS:
+            with self.subTest(path=guest_path):
+                existing = self.base_image_root / guest_path.lstrip("/")
+                existing.parent.mkdir(parents=True, exist_ok=True)
+                existing.write_text("{}\n", encoding="utf-8")
+                result = self.run_builder()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertRegex(
+                    result.stderr,
+                    "base image has a conflicting (bootstrap artifact|host enrollment public bundle): "
+                    + re.escape(guest_path),
+                )
+                self.assertFalse(self.output.exists())
+                existing.unlink()
+
+    def test_rejected_binary_qualification_prevents_guest_copy(self) -> None:
+        result = self.run_builder(RELEASE_CANDIDATE_FAIL="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mock binary does not match its qualification", result.stderr)
+        self.assertEqual(self.events.read_text(encoding="utf-8").splitlines(), ["release-binary-candidate"])
+        self.assert_no_image_effects()
+        self.assertEqual(list(self.root.glob(".ts-orchestrator-image.*")), [])
+
+    def test_source_revision_and_kernel_release_are_validated_before_image_effects(self) -> None:
+        for flag, value in (
+            ("--source-revision", "HEAD"),
+            ("--source-revision", SOURCE_REVISION.upper()),
+            ("--kernel-release", "../vmlinuz"),
+        ):
+            with self.subTest(flag=flag, value=value):
+                result = self.run_builder(replace={flag: value})
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(self.events.exists())
+                self.assert_no_image_effects()
+
+    def test_base_kernel_must_be_one_arm64_image_with_modules(self) -> None:
+        boot = self.base_image_root / "boot"
+        kernel = boot / f"vmlinuz-{KERNEL_RELEASE}"
+        modules = self.base_image_root / f"lib/modules/{KERNEL_RELEASE}"
+        extra = boot / "vmlinuz-6.8.0-1-generic"
+
+        installed_binary = self.base_image_root / "usr/local/bin/terrascale-orchestrator"
+
+        def assert_rejected(expected: str, **replace: str) -> None:
+            result = self.run_builder(replace=replace)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(expected, result.stderr)
+            self.assertFalse(self.output.exists())
+            self.assertFalse(self.kernel_output.exists())
+            # The audit precedes every write to the base image.
+            self.assertFalse(installed_binary.exists())
+
+        extra.write_bytes(self.kernel)
+        assert_rejected(f"exactly one regular /boot/vmlinuz-{KERNEL_RELEASE}")
+        extra.unlink()
+        assert_rejected("exactly one regular /boot/vmlinuz-6.8.0-999-generic",
+                        **{"--kernel-release": "6.8.0-999-generic"})
+
+        modules.rmdir()
+        assert_rejected(f"has no /lib/modules/{KERNEL_RELEASE} directory")
+        modules.mkdir()
+
+        kernel.write_bytes(bytes(64) + b"x86 kernel")
+        assert_rejected("base guest kernel is not an AArch64 Linux boot Image")
+
+        kernel.write_bytes(gzip.compress(self.kernel))
+        result = self.run_builder()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kernel_output.read_bytes(), gzip.compress(self.kernel))
 
     def test_missing_application_lib_parent_is_created_from_pristine_base(self) -> None:
         parent = self.base_image_root / "usr/local/lib/terrascale-orchestrator"
@@ -845,17 +893,13 @@ printf '{}\\n'
         self.assertIsNone(revision)
         self.assertEqual(unit_directory, Path("/etc/systemd/system"))
 
-    def test_host_bundle_provisions_fixed_managed_root_and_setup_units(self) -> None:
+    def test_every_image_provisions_fixed_managed_root_and_setup_units(self) -> None:
         host_unit = (ROOT / "deploy/systemd/terrascale-orchestrator-host.service").read_text()
         self.assertIn("ProtectSystem=strict\n", host_unit)
         self.assertIn(f"ReadWritePaths=-{MANAGED_DIRECTORY}\n", host_unit)
-        result = self.run_builder(host_enrollment_public=self.host_bundle,
-                                  host_enrollment_public_sha256=self.host_bundle_sha256)
+        result = self.run_builder()
         self.assertEqual(result.returncode, 0, result.stderr)
         root = self.base_image_root
-        self.assertEqual((root / HOST_ENROLLMENT_GUEST.lstrip("/")).read_bytes(), self.host_bundle.read_bytes())
-        self.assertEqual(stat.S_IMODE((root / HOST_ENROLLMENT_GUEST.lstrip("/")).stat().st_mode), 0o444)
-        self.assertIn(f"host enrollment image sha256={self.host_bundle_sha256}", result.stdout)
         managed = root / MANAGED_DIRECTORY.lstrip("/")
         self.assertTrue(managed.is_dir() and not managed.is_symlink())
         self.assertEqual(stat.S_IMODE(managed.stat().st_mode), 0o750)
@@ -922,18 +966,7 @@ printf '{}\\n'
         }
         self.assertFalse(filesystem_namespace_directives.intersection(service))
 
-    def test_non_host_image_does_not_require_volume_initialization_tools(self) -> None:
-        status_path = self.base_image_root / "var/lib/dpkg/status"
-        status_path.write_text(
-            "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\n",
-            encoding="utf-8",
-        )
-        for guest_path in ("/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"):
-            (self.base_image_root / guest_path.lstrip("/")).unlink()
-        result = self.run_builder()
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_host_volume_tool_audit_fails_closed_for_missing_package_or_executable(self) -> None:
+    def test_every_image_requires_pinned_volume_initialization_tools(self) -> None:
         status_path = self.base_image_root / "var/lib/dpkg/status"
         original_status = status_path.read_text(encoding="utf-8")
         cases = (
@@ -948,8 +981,7 @@ printf '{}\\n'
                 tool = self.base_image_root / missing_tool.lstrip("/") if missing_tool else None
                 if tool:
                     tool.unlink()
-                result = self.run_builder(host_enrollment_public=self.host_bundle,
-                                          host_enrollment_public_sha256=self.host_bundle_sha256)
+                result = self.run_builder()
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(expected, result.stderr)
                 self.assertFalse(self.output.exists())
@@ -957,58 +989,6 @@ printf '{}\\n'
                     tool.write_bytes(b"pinned base image volume tool fixture")
                     tool.chmod(0o755)
                 status_path.write_text(original_status, encoding="utf-8")
-
-    def test_sfo_host_bundle_matches_baked_identity_and_is_installed(self) -> None:
-        self.set_sfo_host_bundle()
-        digest = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
-        result = self.run_builder(host_enrollment_public=self.host_bundle,
-                                  host_enrollment_public_sha256=digest)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        installed = self.base_image_root / HOST_ENROLLMENT_GUEST.lstrip("/")
-        self.assertEqual(installed.read_bytes(), self.host_bundle.read_bytes())
-        self.assertEqual(stat.S_IMODE(installed.stat().st_mode), 0o444)
-        self.assertIn(f"host enrollment image sha256={digest}", result.stdout)
-
-    def test_sfo_host_bundle_mismatches_fail_before_image_effects(self) -> None:
-        bundle = self.set_sfo_host_bundle()
-        cases = (
-            ("cell region mapping", {"region": "FRA"}, None, "cell and region differ"),
-            ("baked identity cell", {}, "FRA", "region differs from bootstrap identity"),
-            ("release environment", {"environment": "production"}, None,
-             "environment differs from release environment"),
-            ("reviewed digest", {}, None, "differs from its reviewed SHA-256"),
-        )
-        original_identity = self.identity.read_bytes()
-        for name, changes, identity_cell, expected_error in cases:
-            with self.subTest(name=name):
-                candidate = {**bundle, **changes}
-                self.host_bundle.write_bytes(json.dumps(candidate, separators=(",", ":")).encode())
-                identity = json.loads(original_identity)
-                if identity_cell is not None:
-                    identity["cell"] = identity_cell
-                self.identity.write_bytes(json.dumps(identity, separators=(",", ":")).encode())
-                digest = hashlib.sha256(self.host_bundle.read_bytes()).hexdigest()
-                if name == "reviewed digest":
-                    digest = "0" * 64
-                result = self.run_builder(host_enrollment_public=self.host_bundle,
-                                          host_enrollment_public_sha256=digest)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(expected_error, result.stderr)
-                self.assertFalse(self.events.exists())
-                self.assertFalse(self.output.exists())
-
-    def test_host_bundle_requires_paired_digest_before_image_effects(self) -> None:
-        for inputs in (
-            {"host_enrollment_public": self.host_bundle},
-            {"host_enrollment_public_sha256": self.host_bundle_sha256},
-            {"host_enrollment_public": self.host_bundle,
-             "host_enrollment_public_sha256": "0" * 64},
-        ):
-            with self.subTest(inputs=inputs):
-                result = self.run_builder(**inputs)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(self.events.exists())
-                self.assertFalse(self.output.exists())
 
     def test_shipped_host_sandbox_allows_only_its_writable_managed_path(self) -> None:
         if os.geteuid() == 0 or any(shutil.which(command) is None for command in
@@ -1195,44 +1175,7 @@ printf '{}\\n'
                 self.assertEqual(directives["AmbientCapabilities"], "")
                 self.assertNotIn("CAP_SYS_TIME", directives["CapabilityBoundingSet"].split())
 
-    def test_rejected_anchor_prevents_guest_copy_and_output_creation(self) -> None:
-        result = self.run_builder(BOOTSTRAP_VERIFY_FAIL="1")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.output.exists())
-        self.assertEqual(self.events.read_text(encoding="utf-8").splitlines(), ["bootstrap-verify"])
-        self.assertEqual(list(self.root.glob(".ts-orchestrator-image.*")), [])
-
-    def test_bootstrap_environment_must_match_release_environment_before_verification(self) -> None:
-        self.identity.write_bytes(
-            b'{"schemaVersion":1,"deploymentId":"deployment-a","environment":"production","cell":"GRU"}'
-        )
-        result = self.run_builder()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("bootstrap identity environment must match", result.stderr)
-        self.assertFalse(self.bootstrap_arguments.exists())
-        self.assertFalse(self.events.exists())
-        self.assertFalse(self.output.exists())
-
-    def test_bootstrap_identity_must_match_baked_schema_and_canonical_field_order(self) -> None:
-        self.identity.write_bytes(
-            b'{"deploymentId":"deployment-a","environment":"canary","cell":"GRU"}'
-        )
-        result = self.run_builder()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("schemaVersion, deploymentId, environment, and cell", result.stderr)
-        self.assertFalse(self.bootstrap_arguments.exists())
-        self.assertFalse(self.events.exists())
-
-        self.identity.write_bytes(
-            b'{"deploymentId":"deployment-a","schemaVersion":1,"environment":"canary","cell":"GRU"}'
-        )
-        result = self.run_builder()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("canonical schema-version-1 JSON", result.stderr)
-        self.assertFalse(self.bootstrap_arguments.exists())
-        self.assertFalse(self.events.exists())
-
-    def test_baked_input_sizes_and_root_set_bounds_are_enforced_before_verification(self) -> None:
+    def test_root_set_bounds_are_enforced_before_verification(self) -> None:
         loader_source = BAKED_LOADER.read_text(encoding="utf-8")
         max_roots_match = re.search(r"MaxRootFiles\s*=\s*(\d+)", loader_source)
         self.assertIsNotNone(max_roots_match)
@@ -1247,32 +1190,16 @@ printf '{}\\n'
         ]
 
         cases = (
-            ("too many roots", too_many_roots, None, None),
-            ("per-root byte limit", [too_large_root], None, None),
-            ("total root byte limit", too_many_root_bytes, None, None),
-            ("identity byte limit", [self.bootstrap_root_a], b"x" * (4 * 1024 + 1), None),
-            ("anchor byte limit", [self.bootstrap_root_a], None, b"x" * (64 * 1024 + 1)),
+            ("too many roots", too_many_roots),
+            ("per-root byte limit", [too_large_root]),
+            ("total root byte limit", too_many_root_bytes),
         )
-        for label, roots, identity_bytes, anchor_bytes in cases:
+        for label, roots in cases:
             with self.subTest(label=label):
-                self.events.unlink(missing_ok=True)
-                self.output.unlink(missing_ok=True)
-                self.bootstrap_arguments.unlink(missing_ok=True)
-                self.identity.write_bytes(
-                    identity_bytes
-                    if identity_bytes is not None
-                    else b'{"schemaVersion":1,"deploymentId":"deployment-a","environment":"canary","cell":"GRU"}'
-                )
-                self.anchor.write_bytes(
-                    anchor_bytes if anchor_bytes is not None else b"mock signed anchor v2"
-                )
-
                 result = self.run_builder_with_roots(roots)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertFalse(self.events.exists(), result.stderr)
-                self.assertFalse(self.bootstrap_arguments.exists())
-                self.assertFalse(self.events.exists())
-                self.assertFalse(self.output.exists())
+                self.assert_no_image_effects()
 
     def test_sysusers_account_matches_controller_service_user_and_group(self) -> None:
         sysusers_lines = [

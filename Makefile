@@ -11,9 +11,9 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify format-check firecracker-contract-test test vet race-test build build-linux release-linux run host check clean
+.PHONY: verify format-check python-test test vet race-test build build-linux release-linux run host check clean
 
-verify: format-check firecracker-contract-test vet race-test
+verify: format-check python-test vet race-test
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -22,10 +22,12 @@ format-check:
 		exit 1; \
 	fi
 
-firecracker-contract-test:
-	python3 -m unittest discover -s tests/firecracker -p test_qualify.py -v
-	python3 -m unittest discover -s tests/firecracker/memberstatus -p test_qualify.py -v
-	python3 -m unittest discover -s tests/firecracker/managedmember -p test_qualify.py -v
+PYTHON_SUITES := tests/deploy deploy/oci-region tests/ci tests/runtime_priority \
+	tests/firecracker:test_qualify.py tests/firecracker/memberstatus:test_qualify.py \
+	tests/firecracker/managedmember:test_qualify.py
+
+python-test:
+	python3 scripts/ci/run-python-tests.py $(PYTHON_SUITES)
 
 test:
 	$(GO) test ./...

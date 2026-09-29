@@ -338,12 +338,10 @@ mkdir -p dist/image
 test ! -e dist/image/terrascale-gru-arm64.qcow2
 deploy/image/build-offline.sh \
 	--base "$inputs/base-image.qcow2" \
+	--kernel-release "$kernel_release" \
 	--binary "$go_release/terrascale-orchestrator-linux-arm64" \
-	--receipt "$go_release/canary-linux-arm64.receipt.json" \
 	--qualification "$qualification" \
-	--delegation "$go_release/canary-release-delegation.json" \
-	--root-key "$go_release/canary-release-root.pub" \
-	--environment canary \
+	--source-revision "$SOURCE_SHA" \
 	--native-verifier-binary "$terrabase/tb-server-linux-arm64" \
 	--native-verifier-sha256 "$(jq -r .terrabase.binary_sha256 "$manifest")" \
 	--release-tool "$work/tools/ts-release" \
@@ -357,13 +355,8 @@ deploy/image/build-offline.sh \
 	--controller-memory-low-bytes "$(jq -r .priority.controller_memory_low_bytes "$manifest")" \
 	--system-slice-memory-min-bytes "$(jq -r .priority.system_slice_memory_min_bytes "$manifest")" \
 	--system-slice-memory-low-bytes "$(jq -r .priority.system_slice_memory_low_bytes "$manifest")" \
-	--out dist/image/terrascale-gru-arm64.qcow2
-embedded_kernel_hash=$(virt-cat -a dist/image/terrascale-gru-arm64.qcow2 "$kernel_guest_path" | sha256sum | awk '{print $1}')
-[[ $embedded_kernel_hash == "$kernel_hash" ]] || {
-	echo 'final image guest kernel differs from signed base extraction' >&2
-	exit 1
-}
-cp -- "$work/kernel/guest-kernel" dist/image/guest-kernel
+	--out dist/image/terrascale-gru-arm64.qcow2 \
+	--kernel-out dist/image/guest-kernel
 chmod 0644 dist/image/guest-kernel
 verify_file dist/image/guest-kernel "$kernel_hash" "$kernel_bytes"
 
