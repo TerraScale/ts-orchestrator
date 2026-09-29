@@ -110,7 +110,8 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	child := exec.CommandContext(childCtx, executable, commandName)
 	child.Stdin = bytes.NewReader(wire)
 	child.Stdout = io.Discard
-	child.Stderr = io.Discard
+	// Admission errors carry no secret values; keep them in the unit journal.
+	child.Stderr = os.Stderr
 	child.Env = []string{"PATH=/usr/bin:/bin", "LANG=C"}
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	child.Cancel = func() error {

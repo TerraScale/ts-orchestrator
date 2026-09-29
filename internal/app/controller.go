@@ -114,6 +114,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// A managed TerraBase controller needs no generic delivery profile.
+	if managed == nil && len(cfg.Controller.Workloads) == 0 {
+		return errors.New("controller requires a managed placement config or explicit workload profiles")
+	}
 	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
 		return err
 	}

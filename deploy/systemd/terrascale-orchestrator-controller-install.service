@@ -4,9 +4,14 @@ Wants=network-online.target
 After=network-online.target systemd-time-wait-sync.service
 Requires=systemd-timesyncd.service systemd-time-wait-sync.service
 Before=terrascale-orchestrator-bootstrap.service
+# A late success after a failed first boot must still start admission.
+OnSuccess=terrascale-orchestrator-bootstrap.service
 
 [Service]
 Type=oneshot
+# Units that Require this oneshot must see it active after it succeeds;
+# otherwise each dependent start reruns it and trips the start limit.
+RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
 User=root

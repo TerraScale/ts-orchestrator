@@ -12,6 +12,9 @@ OnSuccess=terrascale-orchestrator-controller.service
 
 [Service]
 Type=oneshot
+# The controller Requires this oneshot and OnSuccess starts the controller:
+# without RemainAfterExit each controller start reruns admission in a loop.
+RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
 User=root

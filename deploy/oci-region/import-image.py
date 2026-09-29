@@ -100,7 +100,8 @@ def ensure_shapes(region: str, image_id: str) -> list[dict]:
             a1.get("memory-constraints") != {"min-in-gbs": A1_MEMORY_GB["min"], "max-in-gbs": A1_MEMORY_GB["max"]}:
         oci(region, "compute", "image-shape-compatibility-entry", "add", "--image-id", image_id,
             "--shape-name", A1_SHAPE, "--ocpu-constraints", json.dumps(A1_OCPUS),
-            "--memory-constraints", json.dumps({"minInGBs": A1_MEMORY_GB["min"], "maxInGBs": A1_MEMORY_GB["max"]}))
+            "--memory-constraints", json.dumps({"minInGBs": A1_MEMORY_GB["min"], "maxInGBs": A1_MEMORY_GB["max"]}),
+            "--force")
     for row in rows:
         if row["shape"] != A1_SHAPE and not row["shape"].endswith(".Generic"):
             oci(region, "compute", "image-shape-compatibility-entry", "remove", "--image-id", image_id,
