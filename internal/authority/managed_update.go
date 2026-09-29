@@ -152,9 +152,18 @@ func (r *Runtime) validateManagedUpdateTransition(
 		if latest.Sequence != expectedSequence {
 			return ErrConflict
 		}
-		// This slice has no peer-promotion or recovery branch. A workload with
-		// any prior update outcome must wait for those separately qualified paths.
-		return ErrInvalidTransition
+		// A rolling release or a held-seat rollback is a new operation after the
+		// previous operation's terminal outcome. Placement verifies each seat's
+		// durable predecessor; an unfinished operation blocks any successor.
+		if latest.Kind != MutationManagedUpdate {
+			return ErrInvalidTransition
+		}
+		switch ManagedUpdatePhase(latest.SubjectKey[strings.LastIndexByte(latest.SubjectKey, '.')+1:]) {
+		case ManagedUpdateCanaryServing, ManagedUpdateHeld:
+			return nil
+		default:
+			return ErrInvalidTransition
+		}
 	}
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {

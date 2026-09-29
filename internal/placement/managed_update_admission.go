@@ -61,7 +61,15 @@ func (controller *Controller) PrepareManagedUpdate(ctx context.Context,
 	if err := controller.verifyManagedUpdateBaseline(ctx, intent, record, epoch); err != nil {
 		return 0, err
 	}
-	return reader.CommitManagedUpdate(ctx, epoch, record, 0, func(verifyCtx context.Context) error {
+	// A new operation follows the partition's latest terminal outcome; the
+	// authority rejects it while an earlier operation is still prepared.
+	var previous uint64
+	if latest, err := reader.ReadManagedUpdate(ctx, record.DatabaseID, record.PartitionID); err == nil {
+		previous = latest.Sequence
+	} else if !errors.Is(err, authority.ErrNotFound) {
+		return 0, err
+	}
+	return reader.CommitManagedUpdate(ctx, epoch, record, previous, func(verifyCtx context.Context) error {
 		return controller.verifyManagedUpdateBaselineAtAuthorityCommit(verifyCtx, intent, record, epoch)
 	})
 }
@@ -149,16 +157,6 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		candidate.ManifestDigest != update.CandidateManifestDigest || candidate.SourceDigest != update.CandidateSourceDigest {
 		return errors.New("managed update candidate bytes, manifest, or source admission changed")
 	}
-	oldArtifact := ""
-	for _, manifest := range intent.RuntimeManifests {
-		if manifest.Region == controller.config.Region {
-			oldArtifact = manifest.ArtifactDigest
-			break
-		}
-	}
-	if oldArtifact != update.OldArtifactDigest {
-		return errors.New("managed update old artifact differs from immutable placement")
-	}
 	seats, err := controller.localSeats(intent)
 	if err != nil {
 		return err
@@ -174,8 +172,8 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 	for _, member := range members {
 		state := member.State
 		if member.Revision == 0 || state.Validate() != nil || state.DatabaseID != update.DatabaseID ||
-			state.PartitionID != update.PartitionID || state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) {
-			return errors.New("managed update found invalid or already updated placement seat state")
+			state.PartitionID != update.PartitionID || state.ManagedRuntimeTarget.Phase == ManagedUpdateSeatPrepared {
+			return errors.New("managed update found invalid seat state or an unfinished update")
 		}
 		if _, exists := memberByID[state.MemberID]; exists {
 			return errors.New("managed update found duplicate placement member state")
@@ -220,11 +218,17 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		}
 		state := versioned.State
 		provided, exists := seatPins[seat.MemberID]
-		if !exists || !managedUpdateSeatMatches(provided, state) || state.Stage != StageServing ||
+		canary := seat.MemberID == update.CanarySeatID
+		rollback := canary && managedUpdateRollsBackHeld(update, state)
+		effective := state.EffectiveRuntimeManifest().ArtifactDigest
+		if !exists || !managedUpdateSeatMatches(provided, state) ||
+			state.Stage != StageServing && !rollback ||
+			state.ManagedRuntimeTarget.Phase == ManagedUpdateSeatHeld && !rollback ||
 			state.SchemaVersion != placementSchemaVersion && state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
 			provided.OCIOwner != controller.config.ManagedOwner ||
 			provided.OCIFleetGeneration != controller.config.FleetGeneration ||
-			state.EffectiveRuntimeManifest().ArtifactDigest != update.OldArtifactDigest ||
+			canary && effective != update.OldArtifactDigest ||
+			effective != update.OldArtifactDigest && effective != update.CandidateArtifactDigest ||
 			state.DesiredGeneration != provided.DesiredGeneration {
 			return fmt.Errorf("managed update seat %s no longer matches its signed serving predecessor", seat.MemberID)
 		}
@@ -250,7 +254,7 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		}
 		status, admitted := controller.admittedHost(intent, state, instance, statusByNode)
 		if !admitted || status.Registration.Generation != state.HostGeneration ||
-			!controller.hasServingReport(intent, state, instance, status) {
+			!rollback && !controller.hasServingReport(intent, state, instance, status) {
 			return fmt.Errorf("managed update seat %s lacks a fresh current-session serving proof", seat.MemberID)
 		}
 		want, err := controller.memberDesired(epoch, intent, state, seat)
@@ -259,7 +263,7 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		}
 		current, exists := desiredByNode[state.HostNode]
 		if !exists || !sameManagedDesired(current, want) || current.Generation != state.DesiredGeneration ||
-			current.Digest != update.OldArtifactDigest {
+			current.Digest != effective {
 			return fmt.Errorf("managed update seat %s desired state differs from its exact predecessor", seat.MemberID)
 		}
 		seenSeats[seat.MemberID] = struct{}{}
@@ -268,6 +272,18 @@ func (controller *Controller) verifyManagedUpdateBaselineChecked(ctx context.Con
 		return errors.New("managed update signed seat set does not match the two continuing members")
 	}
 	return nil
+}
+
+// managedUpdateRollsBackHeld reports whether update returns a seat whose
+// candidate was held back to the exact artifact and source it replaced.
+func managedUpdateRollsBackHeld(update ManagedUpdateIntent, state MemberState) bool {
+	target := state.ManagedRuntimeTarget
+	predecessor := state.PredecessorState().RuntimeManifest
+	return target.Phase == ManagedUpdateSeatHeld && update.CanarySeatID == state.MemberID &&
+		update.OldArtifactDigest == target.ArtifactDigest &&
+		update.CandidateArtifactDigest == predecessor.ArtifactDigest &&
+		update.CandidateSourceDigest == predecessor.SourceDigest &&
+		(state.Stage == StagePreparedDesired || state.Stage == StageAwaitingHealthy)
 }
 
 func managedUpdateSeatMatches(seat ManagedUpdateSeat, state MemberState) bool {
@@ -280,7 +296,7 @@ func managedUpdateSeatMatches(seat ManagedUpdateSeat, state MemberState) bool {
 		seat.VolumeID == state.VolumeID && seat.AttachmentID == state.AttachmentID &&
 		seat.AttachmentETag == state.AttachmentETag && seat.AttachmentDevice == state.AttachmentDevice &&
 		seat.DesiredGeneration == state.DesiredGeneration &&
-		seat.ArtifactDigest == state.RuntimeManifest.ArtifactDigest
+		seat.ArtifactDigest == state.EffectiveRuntimeManifest().ArtifactDigest
 }
 
 func managedUpdateDurabilityMatches(profile ManagedUpdateDurabilityProfile, state MemberState) error {

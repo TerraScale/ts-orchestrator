@@ -26,6 +26,12 @@ func TestManagedUpdateIntentValidatesSignedCompatibilityAndExactPredecessors(t *
 	if err := intent.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
+	promoted := intent
+	promoted.Seats = slices.Clone(intent.Seats)
+	promoted.Seats[1].ArtifactDigest = intent.CandidateArtifactDigest
+	if err := promoted.Validate(); err != nil {
+		t.Fatalf("a peer that already serves the candidate was rejected: %v", err)
+	}
 	if _, err := intent.Digest(); err != nil {
 		t.Fatalf("Digest() error = %v", err)
 	}
@@ -110,9 +116,15 @@ func TestManagedUpdateIntentRejectsUnqualifiedOrMismatchedCompatibility(t *testi
 			},
 		},
 		{
-			name: "changed old artifact",
+			name: "peer on a third artifact",
 			mutate: func(intent *ManagedUpdateIntent) {
-				intent.Seats[1].ArtifactDigest = strings.Repeat("f", 64)
+				intent.Seats[1].ArtifactDigest = strings.Repeat("9", 64)
+			},
+		},
+		{
+			name: "canary already on the candidate",
+			mutate: func(intent *ManagedUpdateIntent) {
+				intent.Seats[0].ArtifactDigest = intent.CandidateArtifactDigest
 			},
 		},
 	}
@@ -858,7 +870,7 @@ func managedUpdateSeatFromState(state MemberState) ManagedUpdateSeat {
 		OCIInstanceID: state.InstanceID, OCIOwner: "owner-a", OCIFleetGeneration: 1,
 		CreateKey: state.CreateKey, VolumeID: state.VolumeID, AttachmentID: state.AttachmentID,
 		AttachmentETag: state.AttachmentETag, AttachmentDevice: state.AttachmentDevice,
-		DesiredGeneration: state.DesiredGeneration, ArtifactDigest: state.RuntimeManifest.ArtifactDigest,
+		DesiredGeneration: state.DesiredGeneration, ArtifactDigest: state.EffectiveRuntimeManifest().ArtifactDigest,
 	}
 }
 

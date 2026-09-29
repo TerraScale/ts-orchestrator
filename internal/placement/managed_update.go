@@ -21,9 +21,13 @@ const (
 	ManagedCompatibilityEnvelopeKind  = "terrabase.managed-update.compatibility"
 )
 
-// ManagedUpdateIntent is the operator-signed Prepare request for one managed
-// runtime canary. It describes the immutable placement and both continuing
-// seats; it does not authorize a peer update or a placement replacement.
+// ManagedUpdateIntent is the operator-signed Prepare request that moves one
+// seat of a two-member placement from its current artifact to a candidate.
+// A rolling release is one operation per seat: the canary first, then the
+// peer once the canary serves, whose own operation then sees the canary seat
+// already on the candidate. Rolling a held seat back to the artifact it
+// replaced is the same request with that artifact as the candidate. It never
+// changes the immutable placement or its material.
 type ManagedUpdateIntent struct {
 	SchemaVersion           int                            `json:"schema_version"`
 	Cell                    string                         `json:"cell"`
@@ -48,8 +52,9 @@ type ManagedUpdateIntent struct {
 }
 
 // ManagedUpdateSeat pins the observed predecessor for one continuing member.
-// The immutable RuntimeManifestDigest prevents an update from rewriting boot,
-// material, filesystem, replication, or other initial placement inputs.
+// ArtifactDigest is the artifact the seat currently runs. The immutable
+// RuntimeManifestDigest prevents an update from rewriting boot, material,
+// filesystem, replication, or other initial placement inputs.
 type ManagedUpdateSeat struct {
 	SeatID                string     `json:"seat_id"`
 	Region                oci.Region `json:"region"`
@@ -201,8 +206,9 @@ func (intent ManagedUpdateIntent) Validate() error {
 		return errors.New("signed managed compatibility evidence does not affirm the exact update and durability profile")
 	}
 	for _, seat := range intent.Seats {
-		if seat.ArtifactDigest != intent.OldArtifactDigest {
-			return errors.New("managed update requires both continuing seats on the same prior artifact")
+		if seat.SeatID == intent.CanarySeatID && seat.ArtifactDigest != intent.OldArtifactDigest ||
+			seat.ArtifactDigest != intent.OldArtifactDigest && seat.ArtifactDigest != intent.CandidateArtifactDigest {
+			return errors.New("managed update canary must run the prior artifact and its peer the prior or candidate artifact")
 		}
 	}
 	return nil

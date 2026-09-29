@@ -322,6 +322,47 @@ func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T)
 	}
 }
 
+func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-successor", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	first := validManagedUpdateRecord()
+	prepared, err := runtime.CommitManagedUpdate(ctx, epoch, first, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	successor := first
+	successor.OperationID, successor.CanarySeatID = "update-b", "permanent-a"
+	successor.SignedRequest = []byte("peer promotion request")
+	successor.SignedRequestSHA256 = digestString(successor.SignedRequest)
+	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("successor while the first operation is prepared = %v, want invalid transition", err)
+	}
+	held := first
+	held.Phase, held.Outcome = ManagedUpdateHeld, "candidate-proof-timeout"
+	terminal, err := runtime.CommitManagedUpdate(ctx, epoch, held, prepared, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrConflict) {
+		t.Fatalf("successor after a stale latest sequence = %v, want conflict", err)
+	}
+	next, err := runtime.CommitManagedUpdate(ctx, epoch, successor, terminal, nil)
+	if err != nil || next <= terminal {
+		t.Fatalf("successor after the held outcome: sequence=%d err=%v", next, err)
+	}
+	latest, err := runtime.ReadManagedUpdate(ctx, first.DatabaseID, first.PartitionID)
+	if err != nil || latest.OperationID != successor.OperationID || latest.Sequence != next {
+		t.Fatalf("latest operation = %+v, %v", latest, err)
+	}
+}
+
 func validManagedUpdateRecord() ManagedUpdateRecord {
 	request := []byte("exact canonical signed managed update request")
 	return ManagedUpdateRecord{

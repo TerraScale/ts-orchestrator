@@ -789,7 +789,10 @@ const (
 // ManagedRuntimeTarget is the durable canary target layered over the
 // immutable placement RuntimeManifest. It never changes OCI boot or material
 // pins and is only effective while a matching signed authority operation is
-// retained.
+// retained. A later managed update of the same seat replaces it; the
+// replaced target's artifact and source become the Previous pins.
+// PreviousSourceDigest is empty when the predecessor is the placement's own
+// runtime manifest.
 type ManagedRuntimeTarget struct {
 	OperationID               string                 `json:"operation_id"`
 	AuthoritySequence         uint64                 `json:"authority_sequence"`
@@ -800,6 +803,7 @@ type ManagedRuntimeTarget struct {
 	CanarySeatID              string                 `json:"canary_seat_id"`
 	PreviousDesiredGeneration uint64                 `json:"previous_desired_generation"`
 	PreviousArtifactDigest    string                 `json:"previous_artifact_digest"`
+	PreviousSourceDigest      string                 `json:"previous_source_digest,omitempty"`
 	DesiredGeneration         uint64                 `json:"desired_generation"`
 	ArtifactDigest            string                 `json:"artifact_digest"`
 	ManifestDigest            string                 `json:"manifest_digest"`
@@ -815,6 +819,24 @@ func (state MemberState) EffectiveRuntimeManifest() RuntimeManifest {
 		manifest.SourceDigest = state.ManagedRuntimeTarget.SourceDigest
 	}
 	return manifest
+}
+
+// PredecessorState is the seat as its current managed target found it: the
+// replaced desired generation running the replaced artifact and source. It is
+// a comparison value for desired and signed seat pins, never a durable record.
+func (state MemberState) PredecessorState() MemberState {
+	target := state.ManagedRuntimeTarget
+	if target.OperationID == "" {
+		return state
+	}
+	predecessor := state
+	predecessor.ManagedRuntimeTarget = ManagedRuntimeTarget{}
+	predecessor.DesiredGeneration = target.PreviousDesiredGeneration
+	predecessor.RuntimeManifest.ArtifactDigest = target.PreviousArtifactDigest
+	if target.PreviousSourceDigest != "" {
+		predecessor.RuntimeManifest.SourceDigest = target.PreviousSourceDigest
+	}
+	return predecessor
 }
 
 func (state MemberState) Validate() error {
@@ -923,7 +945,8 @@ func (target ManagedRuntimeTarget) Validate(state MemberState) error {
 		target.DesiredGeneration != target.PreviousDesiredGeneration+1 ||
 		target.DesiredGeneration != state.DesiredGeneration ||
 		!validLowerSHA256Digest(target.PreviousArtifactDigest) ||
-		target.PreviousArtifactDigest != state.RuntimeManifest.ArtifactDigest ||
+		target.PreviousSourceDigest == "" && target.PreviousArtifactDigest != state.RuntimeManifest.ArtifactDigest ||
+		target.PreviousSourceDigest != "" && !validLowerSHA256Digest(target.PreviousSourceDigest) ||
 		!validLowerSHA256Digest(target.ArtifactDigest) || target.ArtifactDigest == target.PreviousArtifactDigest ||
 		!validLowerSHA256Digest(target.ManifestDigest) || !validLowerSHA256Digest(target.SourceDigest) ||
 		target.Phase != ManagedUpdateSeatPrepared && target.Phase != ManagedUpdateSeatCanaryServing &&

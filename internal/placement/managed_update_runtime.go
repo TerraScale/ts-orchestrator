@@ -70,14 +70,23 @@ func (controller *Controller) managedUpdatePrepareIsCurrent(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	if latest.OperationID != preparedEntry.OperationID || latest.Kind != authority.MutationManagedUpdate {
+	if latest.Kind != authority.MutationManagedUpdate {
 		return false, nil
 	}
-	if latest.Sequence != preparedEntry.Sequence {
-		terminal, err := decodeManagedUpdatePhaseRecord(latest, record, authority.ManagedUpdateCanaryServing)
-		if err != nil || terminal.Phase != authority.ManagedUpdateCanaryServing ||
-			state.ManagedRuntimeTarget.Phase != ManagedUpdateSeatPrepared &&
-				state.ManagedRuntimeTarget.Phase != ManagedUpdateSeatCanaryServing {
+	if latest.OperationID != preparedEntry.OperationID || latest.Sequence != preparedEntry.Sequence {
+		// The operation is no longer the latest prepared request, so it stays
+		// current only through its own retained canary-serving outcome. Once a
+		// later operation follows, the seat must already record that outcome.
+		served := false
+		for _, entry := range entries {
+			if managedUpdatePhaseFromSubject(entry.SubjectKey) != authority.ManagedUpdateCanaryServing {
+				continue
+			}
+			terminal, err := decodeManagedUpdatePhaseRecord(entry, record, authority.ManagedUpdateCanaryServing)
+			served = err == nil && terminal.Phase == authority.ManagedUpdateCanaryServing
+		}
+		if !served || target.Phase != ManagedUpdateSeatPrepared && target.Phase != ManagedUpdateSeatCanaryServing ||
+			latest.OperationID != preparedEntry.OperationID && target.Phase != ManagedUpdateSeatCanaryServing {
 			return false, nil
 		}
 	}
@@ -143,23 +152,30 @@ func (controller *Controller) reconcileManagedUpdate(ctx context.Context, epoch 
 		return false, nil
 	}
 	state := canary.State
-	if state.ManagedRuntimeTarget.OperationID != "" {
-		if state.ManagedRuntimeTarget.OperationID != record.OperationID ||
-			state.ManagedRuntimeTarget.AuthoritySequence != latest.Sequence ||
-			state.ManagedRuntimeTarget.RequestSHA256 != record.SignedRequestSHA256 ||
-			state.ManagedRuntimeTarget.ArtifactDigest != record.CandidateArtifactDigest {
+	current := state.ManagedRuntimeTarget
+	if current.OperationID == record.OperationID {
+		if current.AuthoritySequence != latest.Sequence || current.RequestSHA256 != record.SignedRequestSHA256 ||
+			current.ArtifactDigest != record.CandidateArtifactDigest {
 			controller.hold(fmt.Sprintf("member %s has a different durable managed canary target", state.MemberID))
 		}
+		return false, nil
+	}
+	if current.Phase == ManagedUpdateSeatPrepared {
+		controller.hold(fmt.Sprintf("member %s has an unfinished managed canary target", state.MemberID))
 		return false, nil
 	}
 	if err := controller.verifyManagedUpdateBaseline(ctx, update, record, epoch); err != nil {
 		controller.hold(fmt.Sprintf("managed update %s baseline changed before its canary write: %v", record.OperationID, err))
 		return false, nil
 	}
-	if state.Stage != StageServing || state.DesiredGeneration == 0 ||
+	if state.Stage != StageServing && !managedUpdateRollsBackHeld(update, state) || state.DesiredGeneration == 0 ||
 		state.DesiredGeneration == ^uint64(0) || record.CanaryDesiredGeneration != state.DesiredGeneration+1 {
 		controller.hold(fmt.Sprintf("member %s is not at the exact signed canary predecessor", state.MemberID))
 		return false, nil
+	}
+	previousSource := ""
+	if current.OperationID != "" {
+		previousSource = current.SourceDigest
 	}
 	state.SchemaVersion = managedUpdateMemberStateSchemaVersion
 	state.ManagedRuntimeTarget = ManagedRuntimeTarget{
@@ -167,7 +183,8 @@ func (controller *Controller) reconcileManagedUpdate(ctx context.Context, epoch 
 		RequestSHA256: record.SignedRequestSHA256, PreparedAt: controller.currentTime().UTC(),
 		PlacementGeneration:    record.PlacementGeneration,
 		PlacementPayloadDigest: record.PlacementPayloadDigest, CanarySeatID: record.CanarySeatID,
-		PreviousDesiredGeneration: state.DesiredGeneration, PreviousArtifactDigest: state.RuntimeManifest.ArtifactDigest,
+		PreviousDesiredGeneration: state.DesiredGeneration,
+		PreviousArtifactDigest:    state.EffectiveRuntimeManifest().ArtifactDigest, PreviousSourceDigest: previousSource,
 		DesiredGeneration: record.CanaryDesiredGeneration, ArtifactDigest: record.CandidateArtifactDigest,
 		ManifestDigest: record.CandidateManifestDigest, SourceDigest: record.CandidateSourceDigest,
 		Phase: ManagedUpdateSeatPrepared,
@@ -320,10 +337,7 @@ func managedUpdateSeatTargetMatches(update ManagedUpdateIntent, preparedSequence
 	if update.Seats[seatIndex].DesiredGeneration != target.PreviousDesiredGeneration {
 		return false
 	}
-	predecessor := state
-	predecessor.ManagedRuntimeTarget = ManagedRuntimeTarget{}
-	predecessor.DesiredGeneration = target.PreviousDesiredGeneration
-	return managedUpdateSeatMatches(update.Seats[seatIndex], predecessor)
+	return managedUpdateSeatMatches(update.Seats[seatIndex], state.PredecessorState())
 }
 
 func decodeManagedUpdatePhaseRecord(entry authority.LogEntry, prepared authority.ManagedUpdateRecord,
@@ -560,6 +574,7 @@ func (controller *Controller) verifyManagedCanaryServingChecked(ctx context.Cont
 		desiredByNode[desired.Node] = desired
 	}
 	stateBySeat := make(map[string]MemberState, len(members))
+	pinBySeat := make(map[string]ManagedUpdateSeat, len(update.Seats))
 	for _, seat := range update.Seats {
 		versioned, exists := memberByID[seat.SeatID]
 		if !exists {
@@ -567,17 +582,14 @@ func (controller *Controller) verifyManagedCanaryServingChecked(ctx context.Cont
 		}
 		state := versioned.State
 		if seat.SeatID == update.CanarySeatID {
-			baseline := state
-			baseline.ManagedRuntimeTarget = ManagedRuntimeTarget{}
-			baseline.DesiredGeneration = state.ManagedRuntimeTarget.PreviousDesiredGeneration
-			if !managedUpdateSeatMatches(seat, baseline) || state.ManagedRuntimeTarget.Phase != ManagedUpdateSeatPrepared {
+			if !managedUpdateSeatMatches(seat, state.PredecessorState()) ||
+				state.ManagedRuntimeTarget.Phase != ManagedUpdateSeatPrepared {
 				return errors.New("canary member identity differs from its exact signed predecessor")
 			}
-		} else if !managedUpdateSeatMatches(seat, state) || state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) ||
-			state.Stage != StageServing || state.EffectiveRuntimeManifest().ArtifactDigest != update.OldArtifactDigest {
+		} else if !managedUpdatePeerUnchanged(seat, state, update) {
 			return errors.New("peer member changed from its exact serving predecessor during canary")
 		}
-		stateBySeat[seat.SeatID] = state
+		stateBySeat[seat.SeatID], pinBySeat[seat.SeatID] = state, seat
 	}
 	for _, seat := range seats {
 		state, exists := stateBySeat[seat.MemberID]
@@ -612,8 +624,8 @@ func (controller *Controller) verifyManagedCanaryServingChecked(ctx context.Cont
 				artifact.ManifestDigest != update.CandidateManifestDigest || artifact.SourceDigest != update.CandidateSourceDigest {
 				return errors.New("managed canary serving report does not match admitted candidate bytes")
 			}
-		} else if state.RuntimeManifest.ArtifactDigest != update.OldArtifactDigest {
-			return errors.New("managed canary peer no longer runs the prior artifact")
+		} else if !managedUpdatePeerUnchanged(pinBySeat[seat.MemberID], state, update) {
+			return errors.New("managed canary peer no longer runs its signed artifact")
 		}
 		want, err := controller.memberDesired(epoch, currentIntent, state, seat)
 		if err != nil {
@@ -634,6 +646,16 @@ func (controller *Controller) verifyManagedCanaryServingChecked(ctx context.Cont
 		return errors.New("managed canary serving proof expired before the final authority commit")
 	}
 	return nil
+}
+
+// managedUpdatePeerUnchanged requires the non-canary seat to still serve the
+// exact signed predecessor: no unfinished or held target of its own, and the
+// prior or already promoted candidate artifact.
+func managedUpdatePeerUnchanged(seat ManagedUpdateSeat, state MemberState, update ManagedUpdateIntent) bool {
+	effective := state.EffectiveRuntimeManifest().ArtifactDigest
+	return managedUpdateSeatMatches(seat, state) && state.Stage == StageServing &&
+		(state.ManagedRuntimeTarget.OperationID == "" || state.ManagedRuntimeTarget.Phase == ManagedUpdateSeatCanaryServing) &&
+		(effective == update.OldArtifactDigest || effective == update.CandidateArtifactDigest)
 }
 
 func hasCurrentFailedCanaryReport(status host.HostStatus, state MemberState, environment, role string) bool {
@@ -893,10 +915,7 @@ func (controller *Controller) VerifyManagedDesired(
 	if !currentUpdate {
 		return errors.New("managed canary authorization is unavailable")
 	}
-	previousState := state
-	previousState.ManagedRuntimeTarget = ManagedRuntimeTarget{}
-	previousState.DesiredGeneration = target.PreviousDesiredGeneration
-	previous, err := controller.memberDesired(controller.fencer.Current().Epoch, intent, previousState, seat)
+	previous, err := controller.memberDesired(controller.fencer.Current().Epoch, intent, state.PredecessorState(), seat)
 	if err != nil {
 		return err
 	}

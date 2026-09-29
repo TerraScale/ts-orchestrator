@@ -1300,10 +1300,7 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		}
 		target := state.ManagedRuntimeTarget
 		if target.OperationID != "" {
-			previousState := state
-			previousState.ManagedRuntimeTarget = ManagedRuntimeTarget{}
-			previousState.DesiredGeneration = target.PreviousDesiredGeneration
-			previous, err := controller.memberDesired(epoch, intent, previousState, seat)
+			previous, err := controller.memberDesired(epoch, intent, state.PredecessorState(), seat)
 			if err != nil {
 				return false, err
 			}
