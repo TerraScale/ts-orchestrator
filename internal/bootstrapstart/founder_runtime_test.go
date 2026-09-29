@@ -593,7 +593,7 @@ func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Cont
 
 func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrAdmission
 	}
@@ -602,11 +602,17 @@ func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, ancho
 
 func (reader *founderAdmissionLedger) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrAdmission
 	}
 	return reader, nil
+}
+
+func (reader *founderAdmissionLedger) PublishAcceptedInstall(ctx context.Context, scope bootstrap.BootstrapScope,
+	marker []byte,
+) error {
+	return reader.ledger.PublishAcceptedInstall(ctx, scope, marker)
 }
 
 func (reader *founderAdmissionLedger) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {

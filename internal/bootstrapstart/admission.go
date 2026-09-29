@@ -57,9 +57,16 @@ type SlotReader interface {
 	ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error)
 }
 
+// AdmissionLedger reads the signed slot and makes the accepted install's
+// public marker available to the offline root that signs install continuity.
+type AdmissionLedger interface {
+	SlotReader
+	PublishAcceptedInstall(context.Context, bootstrap.BootstrapScope, []byte) error
+}
+
 type LedgerOpener interface {
-	OpenCurrentLedger(context.Context, bootstrap.VerifiedBootstrapAnchor, trust.Keyring) (SlotReader, error)
-	OpenHistoricalLedger(context.Context, bootstrap.HistoricalBootstrapAnchor, trust.Keyring) (SlotReader, error)
+	OpenCurrentLedger(context.Context, bootstrap.VerifiedBootstrapAnchor, trust.Keyring) (AdmissionLedger, error)
+	OpenHistoricalLedger(context.Context, bootstrap.HistoricalBootstrapAnchor, trust.Keyring) (AdmissionLedger, error)
 }
 
 type BinaryChecker interface {
@@ -230,17 +237,18 @@ func sameOCIDSet(left, right []string) bool {
 
 func (gate Gate) currentSlot(ctx context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	scope bootstrap.BootstrapScope,
-) (bootstrap.SlotState, error) {
+) (bootstrap.SlotState, AdmissionLedger, error) {
 	ledger, err := gate.Ledgers.OpenCurrentLedger(ctx, anchor, gate.Roots)
 	if err != nil {
-		return bootstrap.SlotState{}, fmt.Errorf("open signed slot ledger: %w", err)
+		return bootstrap.SlotState{}, nil, fmt.Errorf("open signed slot ledger: %w", err)
 	}
-	return readSlot(ctx, ledger, scope)
+	state, err := readSlot(ctx, ledger, scope)
+	return state, ledger, err
 }
 
 func (gate Gate) historicalSlot(ctx context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	scope bootstrap.BootstrapScope,
-) (bootstrap.SlotState, SlotReader, error) {
+) (bootstrap.SlotState, AdmissionLedger, error) {
 	ledger, err := gate.Ledgers.OpenHistoricalLedger(ctx, anchor, gate.Roots)
 	if err != nil {
 		return bootstrap.SlotState{}, nil, fmt.Errorf("open historical signed slot ledger: %w", err)
@@ -249,24 +257,16 @@ func (gate Gate) historicalSlot(ctx context.Context, anchor bootstrap.Historical
 	return state, ledger, err
 }
 
-// acceptedInstallPublisher makes an accepted install's public marker
-// available to the offline root that signs install continuity.
-type acceptedInstallPublisher interface {
-	PublishAcceptedInstall(context.Context, bootstrap.BootstrapScope, []byte) error
-}
-
-func publishAcceptedInstall(ctx context.Context, ledger SlotReader, scope bootstrap.BootstrapScope,
+// publishAcceptedInstall publishes the exact accepted-install marker, which
+// managed peers need the root to countersign before they can restart.
+func publishAcceptedInstall(ctx context.Context, ledger AdmissionLedger, scope bootstrap.BootstrapScope,
 	marker AcceptedInstall,
 ) error {
-	publisher, ok := ledger.(acceptedInstallPublisher)
-	if !ok {
-		return nil
-	}
 	wire, err := protocol.EncodeJSON(marker)
 	if err != nil {
 		return err
 	}
-	if err := publisher.PublishAcceptedInstall(ctx, scope, wire); err != nil {
+	if err := ledger.PublishAcceptedInstall(ctx, scope, wire); err != nil {
 		return fmt.Errorf("%w: publish accepted-install marker: %v", ErrAdmission, err)
 	}
 	return nil
@@ -432,7 +432,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
-	state, err := gate.currentSlot(ctx, anchor, scope)
+	state, ledger, err := gate.currentSlot(ctx, anchor, scope)
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
@@ -550,6 +550,9 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	marker.AcceptedAt = finalAt
 	if err := gate.Markers.WriteNew(marker); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("persist accepted-install marker: %w", err)
+	}
+	if err := publishAcceptedInstall(ctx, ledger, scope, marker); err != nil {
+		return AcceptedInstall{}, err
 	}
 	return marker, nil
 }

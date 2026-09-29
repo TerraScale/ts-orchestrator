@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -28,21 +30,27 @@ func (source fixedDescriptor) FetchInstanceID(context.Context) (string, error) {
 	return source.instance, nil
 }
 
-type fixedSlotReader struct{ state bootstrap.SlotState }
-
-func (reader fixedSlotReader) ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
-	return reader.state, nil
-}
-
 type countingLedgerOpener struct {
 	state                      bootstrap.SlotState
 	currentCalls, historyCalls int
 	onCurrent                  func(int)
+	published                  [][]byte
+}
+
+func (opener *countingLedgerOpener) ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+	return opener.state, nil
+}
+
+func (opener *countingLedgerOpener) PublishAcceptedInstall(_ context.Context, _ bootstrap.BootstrapScope,
+	marker []byte,
+) error {
+	opener.published = append(opener.published, marker)
+	return nil
 }
 
 func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrLedgerGrant
 	}
@@ -50,7 +58,7 @@ func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor 
 	if opener.onCurrent != nil {
 		opener.onCurrent(opener.currentCalls)
 	}
-	return fixedSlotReader{opener.state}, nil
+	return opener, nil
 }
 
 func TestManagedPeerInitialAdmissionWaitsForPositiveHEAD(t *testing.T) {
@@ -104,12 +112,12 @@ func TestManagedPeerPendingClassifierPreservesMalformedPositiveResult(t *testing
 
 func (opener *countingLedgerOpener) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrLedgerGrant
 	}
 	opener.historyCalls++
-	return fixedSlotReader{opener.state}, nil
+	return opener, nil
 }
 
 type fixedBinaryChecker struct{}
@@ -449,6 +457,10 @@ func TestGateInitialAndRestartThroughFakeAdapters(t *testing.T) {
 		t.Fatalf("initial gate did not reach exact adapters: marker=%+v ledger=%+v material=%+v credentials=%+v",
 			marker, fixture.ledger, fixture.material, fixture.credentials)
 	}
+	wire, err := protocol.EncodeJSON(marker)
+	if err != nil || len(fixture.ledger.published) != 1 || !bytes.Equal(fixture.ledger.published[0], wire) {
+		t.Fatalf("initial admission did not publish its exact marker: %d published, %v", len(fixture.ledger.published), err)
+	}
 	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("accepted marker did not fence second install: %v", err)
 	}
@@ -457,6 +469,9 @@ func TestGateInitialAndRestartThroughFakeAdapters(t *testing.T) {
 		fixture.material.restartCalls != 1 || fixture.credentials.calls != 2 {
 		t.Fatalf("restart gate = %+v, %v; ledger=%+v material=%+v credentials=%+v",
 			restarted, err, fixture.ledger, fixture.material, fixture.credentials)
+	}
+	if len(fixture.ledger.published) != 2 || !bytes.Equal(fixture.ledger.published[1], wire) {
+		t.Fatal("restart admission did not republish its exact marker")
 	}
 	fixture.ledger.state.Head.Generation++
 	if _, err := fixture.gate.AdmitRestart(t.Context()); !errors.Is(err, ErrAdmission) {
