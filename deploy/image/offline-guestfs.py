@@ -384,7 +384,7 @@ def parse_accounts(data: str, kind: str) -> list[tuple[str, int]]:
     return result
 
 
-def install_links(guest: Guest, work: Path, source_root: Path, host: bool) -> None:
+def install_links(guest: Guest, work: Path, source_root: Path) -> None:
     stage = work / "systemd-root"
     (stage / "etc/systemd").mkdir(parents=True)
     (stage / "usr/lib/systemd").mkdir(parents=True)
@@ -394,11 +394,11 @@ def install_links(guest: Guest, work: Path, source_root: Path, host: bool) -> No
     etc_units = stage / "etc/systemd/system"
     for name in (
         "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
-        *(HOST_UNIT_FILES if host else ()),
+        *HOST_UNIT_FILES,
     ):
         shutil.copyfile(source_root / "deploy/systemd" / name, etc_units / name)
-    names = (*UNITS, *(HOST_UNITS if host else ()))
-    files = (*names, *(tuple(name for name in HOST_UNIT_FILES if name not in names) if host else ()))
+    names = (*UNITS, *HOST_UNITS)
+    files = (*names, *(name for name in HOST_UNIT_FILES if name not in names))
     for name in files:
         for directory in ("/run/systemd/system", "/usr/local/lib/systemd/system"):
             guest.assert_absent(f"{directory}/{name}", "systemd unit override")
@@ -514,13 +514,13 @@ def build(args: argparse.Namespace) -> None:
         require_direct_parents(guest, str(Path(NATIVE).parent))
         audit_systemd_version(guest, work)
         audit_time_config(guest, work)
-        if args.host_enrollment_public:
-            audit_host_volume_tools(guest, work)
+        audit_host_volume_tools(guest, work)
         for path in (PROFILE, HELPER, *DROPINS):
             guest.assert_absent(path, "runtime-priority profile artifact")
+        # Deployment material arrives in launch metadata; the image carries only trust roots.
         guest.assert_absent(APP + "/host-enrollment-public.json", "host enrollment public bundle")
         for path in (
-            BOOTSTRAP + "/anchor.json", BOOTSTRAP + "/identity.json",
+            BOOTSTRAP + "/anchor.json", BOOTSTRAP + "/identity.json", BOOTSTRAP + "/host-enrollment-public.json",
             *(f"{BOOTSTRAP}/trust-roots/{index:03d}.pem" for index in range(1, len(args.bootstrap_root) + 1)),
         ):
             guest.assert_absent(path, "bootstrap artifact")
@@ -532,14 +532,13 @@ def build(args: argparse.Namespace) -> None:
             "/var/lib/terrascale-orchestrator-controller",
         ):
             guest.assert_absent(path, "orchestrator state root")
-        if args.host_enrollment_public:
-            if guest.kind("/srv") != "dir":
-                raise RuntimeError("base /srv must be a direct root:root 0755 directory")
-            meta = guest.metadata("/srv")
-            if (meta["st_uid"], meta["st_gid"], stat.S_IMODE(meta["st_mode"])) != (0, 0, 0o755):
-                raise RuntimeError("base /srv must be a direct root:root 0755 directory")
-            guest.assert_absent("/srv/ts-managed", "managed root")
-            guest.assert_absent(VOLUME_INIT_STATE, "managed volume initialization state root")
+        if guest.kind("/srv") != "dir":
+            raise RuntimeError("base /srv must be a direct root:root 0755 directory")
+        meta = guest.metadata("/srv")
+        if (meta["st_uid"], meta["st_gid"], stat.S_IMODE(meta["st_mode"])) != (0, 0, 0o755):
+            raise RuntimeError("base /srv must be a direct root:root 0755 directory")
+        guest.assert_absent("/srv/ts-managed", "managed root")
+        guest.assert_absent(VOLUME_INIT_STATE, "managed volume initialization state root")
         orchestrator_uid, orchestrator_gid, account_files = accounts(guest, work, Path(args.sysusers))
 
         directories = (
@@ -562,9 +561,8 @@ def build(args: argparse.Namespace) -> None:
             guest.directory(directory)
         guest.directory("/var/lib/terrascale-orchestrator-secrets", orchestrator_uid, orchestrator_gid, 0o700)
         guest.directory("/var/lib/terrascale-orchestrator-controller", orchestrator_uid, orchestrator_gid, 0o700)
-        if args.host_enrollment_public:
-            guest.directory("/srv/ts-managed", 0, 2000, 0o750)
-            guest.directory(VOLUME_INIT_STATE, 0, 0, 0o700)
+        guest.directory("/srv/ts-managed", 0, 2000, 0o750)
+        guest.directory(VOLUME_INIT_STATE, 0, 0, 0o700)
 
         uploads = [
             (Path(args.sysusers), "/etc/sysusers.d/terrascale-orchestrator.conf", 0o644),
@@ -572,7 +570,7 @@ def build(args: argparse.Namespace) -> None:
               for name in (
                   "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service",
                   "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
-                  *(HOST_UNIT_FILES if args.host_enrollment_public else ()),
+                  *HOST_UNIT_FILES,
               )),
             (Path(args.profile), PROFILE, 0o644),
             *((Path(args.priority_root) / path.lstrip("/"), path, 0o644) for path in DROPINS),
@@ -580,13 +578,9 @@ def build(args: argparse.Namespace) -> None:
             (Path(args.binary), "/usr/local/bin/terrascale-orchestrator", 0o755),
             (Path(args.native_verifier), NATIVE, 0o755),
             (Path(args.timesyncd_config), TIME_CONFIG, 0o644),
-            (Path(args.bootstrap_anchor), BOOTSTRAP + "/anchor.json", 0o444),
-            (Path(args.bootstrap_identity), BOOTSTRAP + "/identity.json", 0o444),
             *((Path(path), f"{BOOTSTRAP}/trust-roots/{index:03d}.pem", 0o444)
               for index, path in enumerate(args.bootstrap_root, 1)),
         ]
-        if args.host_enrollment_public:
-            uploads.append((Path(args.host_enrollment_public), APP + "/host-enrollment-public.json", 0o444))
         timeout = work / "terrascale-timeout.conf"
         timeout.write_text("[Service]\nTimeoutStartSec=300s\n", encoding="ascii")
         uploads.append((timeout, TIME_DROPIN, 0o644))
@@ -598,11 +592,10 @@ def build(args: argparse.Namespace) -> None:
             guest.call("chmod", f"0{mode:o}", destination)
             guest.assert_file(destination, 0, 0, mode)
             guest.assert_bytes(destination, source)
-        install_links(guest, work, source_root, bool(args.host_enrollment_public))
-        if args.host_enrollment_public:
-            meta = guest.metadata("/srv/ts-managed")
-            if (meta["st_uid"], meta["st_gid"], stat.S_IMODE(meta["st_mode"])) != (0, 2000, 0o750):
-                raise RuntimeError("installed managed root has unexpected metadata")
+        install_links(guest, work, source_root)
+        meta = guest.metadata("/srv/ts-managed")
+        if (meta["st_uid"], meta["st_gid"], stat.S_IMODE(meta["st_mode"])) != (0, 2000, 0o750):
+            raise RuntimeError("installed managed root has unexpected metadata")
         guest.assert_file(NATIVE, 0, 0, 0o755)
     finally:
         guest.close(ignore_remote_error=sys.exc_info()[0] is not None)
@@ -612,11 +605,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     for option in (
         "image", "work", "sysusers", "profile", "priority-root", "binary", "native-verifier",
-        "timesyncd-config", "bootstrap-anchor", "bootstrap-identity",
+        "timesyncd-config",
     ):
         parser.add_argument("--" + option, required=True)
     parser.add_argument("--bootstrap-root", action="append", required=True)
-    parser.add_argument("--host-enrollment-public")
     args = parser.parse_args()
     try:
         build(args)

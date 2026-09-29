@@ -8,30 +8,30 @@ usage() {
 usage: build-offline.sh --base QCOW2 --binary FILE --receipt FILE --qualification FILE \
   --delegation FILE --root-key PEM --environment canary|production \
   --native-verifier-binary FILE --native-verifier-sha256 LOWERCASE_HEX \
-  --release-tool FILE --bootstrap-tool FILE --bootstrap-anchor FILE \
-  --bootstrap-identity FILE --bootstrap-root PEM... --timesyncd-config FILE \
+  --release-tool FILE --bootstrap-root PEM... --timesyncd-config FILE \
   --runtime-priority-profile-id TOKEN --runtime-priority-system-reserve-bytes BYTES \
   --host-memory-min-bytes BYTES --host-memory-low-bytes BYTES \
   --controller-memory-min-bytes BYTES --controller-memory-low-bytes BYTES \
   --system-slice-memory-min-bytes BYTES --system-slice-memory-low-bytes BYTES \
-  [--host-enrollment-public FILE --host-enrollment-public-sha256 LOWERCASE_HEX] \
   --out QCOW2
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
 It makes no OCI calls and installs no private keys or runtime secrets. The
-release root key verifies the binary; repeatable bootstrap root keys verify
-the baked anchor and are installed as public trust roots. The explicit
+release root key verifies the binary; repeatable bootstrap root keys are
+installed as the only public trust roots. The image is deployment-neutral:
+each controller and host receives its deployment identity, signed anchor and
+host enrollment bundle in OCI launch metadata and verifies them against these
+roots. The explicit
 timesyncd configuration supplies deployment NTP endpoints; no endpoint is
 selected or installed by default.
 The native verifier is the exact qualified TerraBase ARM64 tb-server artifact.
 Its SHA-256 must match the independently supplied artifact digest; the image
 installs it at the fixed managed-material verifier path. This digest is
 separate from the orchestrator binary receipt's BinarySHA256.
-The optional host enrollment bundle is public, reviewed by its exact SHA-256,
-and installed only in managed-host images with its setup service and timer.
-Host images reserve workload UID/GID 2000:2000, use separate install and state
-roots under /var/lib/terrascale-orchestrator-host, and provision /srv/ts-managed
-as root:2000 0750 for persistent member volumes.
+Every image can serve as a controller or a managed host. It reserves workload
+UID/GID 2000:2000, uses separate install and state roots under
+/var/lib/terrascale-orchestrator-host, and provisions /srv/ts-managed as
+root:2000 0750 for persistent member volumes.
 
 The runtime-priority memory-floor arguments have no defaults. Prefer values
 measured with the selected image and service configuration; if measurements
@@ -54,13 +54,8 @@ delegation=
 root_key=
 environment=
 release_tool=
-bootstrap_tool=
-bootstrap_anchor=
-bootstrap_identity=
 bootstrap_roots=()
 timesyncd_config=
-host_enrollment_public=
-host_enrollment_public_sha256=
 runtime_priority_profile_id=
 runtime_priority_system_reserve_bytes=
 host_memory_min_bytes=
@@ -72,8 +67,6 @@ system_slice_memory_low_bytes=
 bootstrap_root_limit=16
 bootstrap_root_max_bytes=16384
 bootstrap_roots_max_total_bytes=65536
-bootstrap_identity_max_bytes=4096
-bootstrap_anchor_max_bytes=65536
 timesyncd_config_max_bytes=16384
 output=
 while (($#)); do
@@ -88,13 +81,8 @@ while (($#)); do
 		--root-key) root_key=${2:?}; shift 2 ;;
 		--environment) environment=${2:?}; shift 2 ;;
 		--release-tool) release_tool=${2:?}; shift 2 ;;
-		--bootstrap-tool) bootstrap_tool=${2:?}; shift 2 ;;
-		--bootstrap-anchor) bootstrap_anchor=${2:?}; shift 2 ;;
-		--bootstrap-identity) bootstrap_identity=${2:?}; shift 2 ;;
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
-		--host-enrollment-public) host_enrollment_public=${2:?}; shift 2 ;;
-		--host-enrollment-public-sha256) host_enrollment_public_sha256=${2:?}; shift 2 ;;
 		--runtime-priority-profile-id) runtime_priority_profile_id=${2:?}; shift 2 ;;
 		--runtime-priority-system-reserve-bytes) runtime_priority_system_reserve_bytes=${2:?}; shift 2 ;;
 		--host-memory-min-bytes) host_memory_min_bytes=${2:?}; shift 2 ;;
@@ -110,8 +98,8 @@ done
 
 if [[ -z "$base" || -z "$binary" || -z "$native_verifier_binary" || -z "$native_verifier_sha256" ||
 	-z "$receipt" || -z "$qualification" || -z "$delegation" || -z "$root_key" ||
-	-z "$environment" || -z "$release_tool" || -z "$bootstrap_tool" || -z "$bootstrap_anchor" ||
-	-z "$bootstrap_identity" || ${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ||
+	-z "$environment" || -z "$release_tool" ||
+	${#bootstrap_roots[@]} -eq 0 || -z "$timesyncd_config" || -z "$output" ||
 	-z "$runtime_priority_profile_id" || -z "$runtime_priority_system_reserve_bytes" ||
 	-z "$host_memory_min_bytes" || -z "$host_memory_low_bytes" ||
 	-z "$controller_memory_min_bytes" || -z "$controller_memory_low_bytes" ||
@@ -131,11 +119,6 @@ if [[ ! $native_verifier_sha256 =~ ^[0-9a-f]{64}$ ]]; then
 	echo "native verifier SHA-256 must be 64 lowercase hex characters" >&2
 	exit 2
 fi
-if [[ -n "$host_enrollment_public" && ! $host_enrollment_public_sha256 =~ ^[0-9a-f]{64}$ ]] ||
-	[[ -z "$host_enrollment_public" && -n "$host_enrollment_public_sha256" ]]; then
-	echo "host enrollment public bundle requires a paired file and lowercase SHA-256" >&2
-	exit 2
-fi
 for command in cat cp ln mktemp python3 qemu-img realpath virt-cat; do
 	command -v "$command" >/dev/null || { echo "missing required command: $command" >&2; exit 1; }
 done
@@ -150,7 +133,6 @@ else
 	done
 fi
 [[ -x "$release_tool" ]] || { echo "release tool must be executable" >&2; exit 1; }
-[[ -x "$bootstrap_tool" ]] || { echo "bootstrap tool must be executable" >&2; exit 1; }
 base=$(realpath -e -- "$base")
 binary=$(realpath -e -- "$binary")
 native_verifier_binary=$(realpath -e -- "$native_verifier_binary")
@@ -159,17 +141,8 @@ receipt=$(realpath -e -- "$receipt")
 qualification=$(realpath -e -- "$qualification")
 delegation=$(realpath -e -- "$delegation")
 root_key=$(realpath -e -- "$root_key")
-bootstrap_tool=$(realpath -e -- "$bootstrap_tool")
-bootstrap_anchor=$(realpath -e -- "$bootstrap_anchor")
-bootstrap_identity=$(realpath -e -- "$bootstrap_identity")
 timesyncd_config=$(realpath -e -- "$timesyncd_config")
 release_tool=$(realpath -e -- "$release_tool")
-if [[ -n "$host_enrollment_public" ]]; then
-	host_enrollment_public=$(realpath -e -- "$host_enrollment_public")
-	[[ -f "$host_enrollment_public" ]] || { echo "host enrollment public bundle must be a regular file" >&2; exit 1; }
-fi
-[[ -f "$bootstrap_anchor" ]] || { echo "bootstrap anchor must be a regular file" >&2; exit 1; }
-[[ -f "$bootstrap_identity" ]] || { echo "bootstrap identity must be a regular file" >&2; exit 1; }
 [[ -f "$timesyncd_config" ]] || { echo "timesyncd config must be a regular file" >&2; exit 1; }
 resolved_bootstrap_roots=()
 for bootstrap_root in "${bootstrap_roots[@]}"; do
@@ -190,7 +163,6 @@ temporary_directory=$(mktemp -d "$output_parent/.ts-orchestrator-image.XXXXXX")
 cleanup() { rm -rf -- "$temporary_directory"; }
 trap cleanup EXIT
 timesyncd_config_image="$temporary_directory/timesyncd.conf"
-host_enrollment_public_image="$temporary_directory/host-enrollment-public.json"
 runtime_priority_root="$temporary_directory/runtime-priority"
 runtime_priority_profile="$temporary_directory/runtime-priority.json"
 python3 tests/runtime_priority/qualify.py render-drop-ins \
@@ -227,68 +199,13 @@ with profile_path.open("xb") as output:
 print(f"{profile_path} sha256={hashlib.sha256(encoded).hexdigest()}")
 PY
 
-bootstrap_identity_cell=$(python3 - \
-	"$bootstrap_anchor" "$bootstrap_identity" "$environment" \
-	"$bootstrap_anchor_max_bytes" "$bootstrap_identity_max_bytes" \
-	"$bootstrap_root_max_bytes" "$bootstrap_roots_max_total_bytes" \
-	"${bootstrap_roots[@]}" <<'PY'
-import json
-import re
+python3 - "$bootstrap_root_max_bytes" "$bootstrap_roots_max_total_bytes" "${bootstrap_roots[@]}" <<'PY'
 import sys
 from pathlib import Path
 
-(
-    anchor_path,
-    identity_path,
-    release_environment,
-    anchor_max_bytes,
-    identity_max_bytes,
-    root_max_bytes,
-    roots_total_max_bytes,
-    *root_paths,
-) = sys.argv[1:]
-anchor_max_bytes = int(anchor_max_bytes)
-identity_max_bytes = int(identity_max_bytes)
+root_max_bytes, roots_total_max_bytes, *root_paths = sys.argv[1:]
 root_max_bytes = int(root_max_bytes)
 roots_total_max_bytes = int(roots_total_max_bytes)
-anchor_bytes = Path(anchor_path).stat().st_size
-if anchor_bytes <= 0 or anchor_bytes > anchor_max_bytes:
-	raise SystemExit(f"bootstrap anchor must be between 1 byte and {anchor_max_bytes} bytes")
-
-identity_size = Path(identity_path).stat().st_size
-if identity_size <= 0 or identity_size > identity_max_bytes:
-	raise SystemExit(f"bootstrap identity must be between 1 byte and {identity_max_bytes} bytes")
-identity_wire = Path(identity_path).read_bytes()
-try:
-	identity = json.loads(identity_wire)
-except (UnicodeDecodeError, json.JSONDecodeError) as error:
-	raise SystemExit(f"bootstrap identity must be valid canonical JSON: {error}")
-if not isinstance(identity, dict) or set(identity) != {
-	"schemaVersion", "deploymentId", "environment", "cell"
-}:
-	raise SystemExit("bootstrap identity must contain schemaVersion, deploymentId, environment, and cell")
-if type(identity["schemaVersion"]) is not int or identity["schemaVersion"] != 1:
-	raise SystemExit("bootstrap identity schemaVersion must be 1")
-if not isinstance(identity["deploymentId"], str) or not re.fullmatch(
-	r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", identity["deploymentId"]
-):
-	raise SystemExit("bootstrap identity deploymentId is invalid")
-if identity["environment"] not in ("canary", "production"):
-	raise SystemExit("bootstrap identity environment must be canary or production")
-if identity["environment"] != release_environment:
-	raise SystemExit("bootstrap identity environment must match the release environment")
-if identity["cell"] not in ("GRU", "SFO", "FRA"):
-	raise SystemExit("bootstrap identity cell must be GRU, SFO, or FRA")
-canonical_identity = {
-	"schemaVersion": identity["schemaVersion"],
-	"deploymentId": identity["deploymentId"],
-	"environment": identity["environment"],
-	"cell": identity["cell"],
-}
-canonical_wire = json.dumps(canonical_identity, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-if identity_wire != canonical_wire:
-	raise SystemExit("bootstrap identity must use canonical schema-version-1 JSON")
-
 total_root_bytes = 0
 for root_path in root_paths:
 	root_bytes = Path(root_path).stat().st_size
@@ -297,32 +214,7 @@ for root_path in root_paths:
 	total_root_bytes += root_bytes
 if total_root_bytes > roots_total_max_bytes:
 	raise SystemExit(f"bootstrap roots must total no more than {roots_total_max_bytes} bytes")
-print(identity["cell"])
 PY
-)
-
-if [[ -n "$host_enrollment_public" ]]; then
-	cp -- "$host_enrollment_public" "$host_enrollment_public_image"
-	python3 deploy/image/validate-host-enrollment-public.py \
-		"$host_enrollment_public_image" "$host_enrollment_public_sha256" \
-		"$environment" "$bootstrap_identity_cell"
-	python3 - "$host_enrollment_public_image" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-bundle = json.loads(Path(sys.argv[1]).read_bytes())
-fixed = {
-	"workload_uid": 2000,
-	"workload_gid": 2000,
-	"install_root": "/var/lib/terrascale-orchestrator-host/install",
-	"state_root": "/var/lib/terrascale-orchestrator-host/state",
-	"managed_runtime_root": "/srv/ts-managed",
-}
-if any(type(bundle[key]) is not type(value) or bundle[key] != value for key, value in fixed.items()):
-	raise SystemExit("host enrollment bundle differs from the fixed image workload identity or paths")
-PY
-fi
 
 python3 - "$timesyncd_config" "$timesyncd_config_max_bytes" "$timesyncd_config_image" <<'PY'
 import re
@@ -398,12 +290,6 @@ normalized += "PollIntervalMinSec=32\nPollIntervalMaxSec=64\n"
 normalized_path.write_bytes(normalized.encode("utf-8"))
 PY
 
-bootstrap_verify_args=(verify-anchor --anchor "$bootstrap_anchor" --identity "$bootstrap_identity")
-for bootstrap_root in "${bootstrap_roots[@]}"; do
-	bootstrap_verify_args+=(--root-key "$bootstrap_root")
-done
-"$bootstrap_tool" "${bootstrap_verify_args[@]}" >/dev/null
-
 cp -- "$native_verifier_binary" "$temporary_directory/terrabase-server"
 native_verifier_binary="$temporary_directory/terrabase-server"
 python3 - "$native_verifier_binary" "$native_verifier_sha256" <<'PY'
@@ -470,15 +356,10 @@ offline_args=(
 	--binary "$binary"
 	--native-verifier "$native_verifier_binary"
 	--timesyncd-config "$timesyncd_config_image"
-	--bootstrap-anchor "$bootstrap_anchor"
-	--bootstrap-identity "$bootstrap_identity"
 )
 for bootstrap_root in "${bootstrap_roots[@]}"; do
 	offline_args+=(--bootstrap-root "$bootstrap_root")
 done
-if [[ -n "$host_enrollment_public" ]]; then
-	offline_args+=(--host-enrollment-public "$host_enrollment_public_image")
-fi
 offline_guestfs_runner=${TS_OFFLINE_GUESTFS_RUNNER:-python3}
 "$offline_guestfs_runner" deploy/image/offline-guestfs.py "${offline_args[@]}"
 qemu-img check -- "$candidate"
@@ -495,22 +376,6 @@ if [[ "$installed_verifier_sha256" != "$native_verifier_sha256" ]]; then
 	exit 1
 fi
 printf 'native verifier image sha256=%s guest_path=%s\n' "$installed_verifier_sha256" "$native_verifier_guest_path"
-if [[ -n "$host_enrollment_public" ]]; then
-	installed_host_enrollment_sha256=$(virt-cat -a "$candidate" /etc/terrascale-orchestrator/host-enrollment-public.json | python3 -c '
-import hashlib
-import sys
-digest = hashlib.sha256()
-for chunk in iter(lambda: sys.stdin.buffer.read(1 << 20), b""):
-	digest.update(chunk)
-print(digest.hexdigest())
-')
-	if [[ "$installed_host_enrollment_sha256" != "$host_enrollment_public_sha256" ]]; then
-		echo "installed host enrollment bundle differs from the reviewed SHA-256" >&2
-		exit 1
-	fi
-	printf 'host enrollment image sha256=%s guest_path=%s\n' \
-		"$installed_host_enrollment_sha256" /etc/terrascale-orchestrator/host-enrollment-public.json
-fi
 ln -- "$candidate" "$output"
 trap - EXIT
 rm -rf -- "$temporary_directory"

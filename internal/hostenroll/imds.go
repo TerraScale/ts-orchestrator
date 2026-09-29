@@ -15,8 +15,13 @@ import (
 const (
 	imdsInstanceURL   = "http://169.254.169.254/opc/v2/instance/id"
 	imdsDescriptorURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.MetadataKey
+	imdsEnrollmentURL = "http://169.254.169.254/opc/v2/instance/metadata/" + hostboot.EnrollmentMetadataKey
 	maxIMDSIDBytes    = 255
 )
+
+// ErrNotManagedHost reports an instance launched without a managed host
+// descriptor, such as a controller sharing the qualified image.
+var ErrNotManagedHost = errors.New("instance has no managed host descriptor")
 
 type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
@@ -56,6 +61,9 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 		return InstanceMetadata{}, errors.New("OCI IMDSv2 instance ID is invalid")
 	}
 	encoded, err := readIMDS(ctx, client, imdsDescriptorURL, hostboot.MaxDescriptorBytes)
+	if errors.Is(err, errIMDSKeyAbsent) {
+		return InstanceMetadata{}, ErrNotManagedHost
+	}
 	if err != nil {
 		return InstanceMetadata{}, fmt.Errorf("read OCI IMDSv2 host descriptor: %w", err)
 	}
@@ -65,6 +73,21 @@ func ReadInstanceMetadata(ctx context.Context, client HTTPDoer) (InstanceMetadat
 	}
 	return InstanceMetadata{InstanceID: instanceID, Descriptor: descriptor, Wire: encoded}, nil
 }
+
+// ReadEnrollmentMetadata reads the exact public enrollment bundle delivered
+// by the controller that launched this host.
+func ReadEnrollmentMetadata(ctx context.Context, client HTTPDoer) ([]byte, error) {
+	if client == nil {
+		return nil, errors.New("IMDS client is required")
+	}
+	wire, err := readIMDS(ctx, client, imdsEnrollmentURL, MaxPublicBundleBytes)
+	if err != nil {
+		return nil, fmt.Errorf("read OCI IMDSv2 host enrollment bundle: %w", err)
+	}
+	return wire, nil
+}
+
+var errIMDSKeyAbsent = errors.New("OCI IMDSv2 metadata key is absent")
 
 func readIMDS(ctx context.Context, client HTTPDoer, endpoint string, maximum int64) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -80,6 +103,9 @@ func readIMDS(ctx context.Context, client HTTPDoer, endpoint string, maximum int
 		return nil, errors.New("OCI IMDSv2 response is missing")
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, errIMDSKeyAbsent
+	}
 	if response.StatusCode != http.StatusOK || response.ContentLength > maximum {
 		return nil, errors.New("OCI IMDSv2 response is invalid or too large")
 	}

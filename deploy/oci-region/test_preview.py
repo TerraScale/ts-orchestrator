@@ -1,5 +1,6 @@
 import datetime as dt
 import importlib.util
+import base64
 import json
 import pathlib
 import subprocess
@@ -459,30 +460,63 @@ class PreviewAdmissionTests(unittest.TestCase):
             changed = preview.load_plan(path)
             self.assertNotEqual(preview.create_identity(changed, path, summary), identity)
 
-    def test_seed_user_data_rejects_wrong_scope_and_transport_overflow(self):
+    def test_seed_launch_carries_launch_material_and_rejects_drift(self):
         with tempfile.TemporaryDirectory() as directory:
-            manifest_path = pathlib.Path(directory) / "manifest.json"
+            root = pathlib.Path(directory)
             envelope = {"schemaVersion": 1, "keyId": "root", "signature": "signed",
                         "scope": {"domain": "terrascale.bootstrap.manifest", "role": "controller",
                                   "slot": "controller-a", "cell": "GRU"},
                         "payload": {"schemaVersion": 2, "slot": "controller-a",
                                     "seedSlot": "controller-a", "cell": "GRU"}}
-            manifest_path.write_text(json.dumps(envelope))
-            wire = preview.seed_user_data(manifest_path, None, "GRU")
-            self.assertTrue(wire.startswith(b"#cloud-config\n"))
-            self.assertIn(b"allow_public_ssh_keys", wire)
-            self.assertNotIn(b"ssh_authorized_keys", wire)
-            self.assertIn(b"/etc/terrascale-orchestrator/controller-seed-manifest.json", wire)
+            paths = {name: root / f"{name}.json" for name in ("manifest", "identity", "anchor", "enrollment")}
+            paths["manifest"].write_text(json.dumps(envelope))
+            paths["identity"].write_text('{"schemaVersion":1,"deploymentId":"ts-preview-gru-r6",'
+                                         '"environment":"canary","cell":"GRU"}')
+            paths["anchor"].write_text('{"schemaVersion":1,"payload":{}}')
+            paths["enrollment"].write_text('{"schema_version":1}')
+            reviewed = {"availability_domain": "AD-1", "fault_domain": "FAULT-DOMAIN-1",
+                        "compartment_id": "ocid1.compartment.oc1..control", "shape": "VM.Standard.A1.Flex",
+                        "ocpus": 1, "memory_gb": 6, "image_id": "ocid1.image.oc1..image", "boot_gb": 50,
+                        "boot_vpus_per_gb": 10, "subnet_id": "ocid1.subnet.oc1..subnet",
+                        "network_security_group_ids": ["ocid1.networksecuritygroup.oc1..a"],
+                        "assign_public_ip": False, "create_identity": "seed-a-r6",
+                        "manifest_sha256": preview.sha256(paths["manifest"]),
+                        "anchor_sha256": preview.sha256(paths["anchor"])}
+            reviewed_path = root / "reviewed.json"
+            reviewed_path.write_text(json.dumps(reviewed))
+            launch = preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                         paths["anchor"], paths["enrollment"], None)
+            metadata = launch["metadata"]
+            self.assertEqual(metadata["terrascale-bootstrap"], '{"schemaVersion":1,"slot":"controller-a"}')
+            self.assertEqual(metadata["terrascale-controller-manifest-v1"], paths["manifest"].read_text())
+            self.assertEqual(metadata["terrascale-bootstrap-anchor-v1"], paths["anchor"].read_text())
+            self.assertEqual(metadata["terrascale-bootstrap-identity-v1"], paths["identity"].read_text())
+            self.assertEqual(metadata["terrascale-host-enrollment-v1"], '{"schema_version":1}')
+            user_data = base64.b64decode(metadata["user_data"])
+            self.assertTrue(user_data.startswith(b"#cloud-config\n"))
+            self.assertNotIn(b"ssh_authorized_keys", user_data)
+            self.assertEqual(launch["freeformTags"], {"BootstrapCreateKey": "seed-a-r6"})
+            self.assertEqual(launch["displayName"], "ts-preview-gru-r6-controller-a")
+            self.assertEqual(launch["privateIp"], "10.251.0.11")
+
+            paths["anchor"].write_text('{"schemaVersion":1,"payload":{"other":1}}')
+            with self.assertRaisesRegex(ValueError, "differs from the reviewed seed plan"):
+                preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                    paths["anchor"], paths["enrollment"], None)
+            paths["anchor"].write_text('{"schemaVersion":1,"payload":{}}')
             envelope["scope"]["cell"] = "FRA"
-            manifest_path.write_text(json.dumps(envelope))
+            paths["manifest"].write_text(json.dumps(envelope))
             with self.assertRaisesRegex(ValueError, "not a controller-a seed envelope"):
-                preview.seed_user_data(manifest_path, None, "GRU")
+                preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                    paths["anchor"], paths["enrollment"], None)
             envelope["scope"]["cell"] = "GRU"
-            envelope["signature"] = "s" * 1200
-            manifest_path.write_text(json.dumps(envelope))
-            with mock.patch.object(preview, "MAX_USER_DATA_BYTES", 1000):
-                with self.assertRaisesRegex(ValueError, "exceeds the OCI metadata transport limit"):
-                    preview.seed_user_data(manifest_path, None, "GRU")
+            paths["manifest"].write_text(json.dumps(envelope))
+            paths["anchor"].write_text(json.dumps({"schemaVersion": 1, "signature": "s" * 32000}))
+            reviewed["anchor_sha256"] = preview.sha256(paths["anchor"])
+            reviewed_path.write_text(json.dumps(reviewed))
+            with self.assertRaisesRegex(ValueError, "exceeds the OCI instance metadata limit"):
+                preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                    paths["anchor"], paths["enrollment"], None)
 
     def test_five_host_budget_includes_existing_resources_and_reserves(self):
         cost = preview.estimate(self.plan, self.inventory)

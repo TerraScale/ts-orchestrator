@@ -90,13 +90,16 @@ type founderVolumeAPI interface {
 // FounderOCI is an offline-testable SDK seam. It makes no authority decision:
 // every individual OCI request obtains a fresh peer from its caller's reader.
 type FounderOCI struct {
-	region  oci.Region
-	compute founderComputeAPI
-	network founderNetworkAPI
-	volume  founderVolumeAPI
+	region   oci.Region
+	material LaunchMaterial
+	compute  founderComputeAPI
+	network  founderNetworkAPI
+	volume   founderVolumeAPI
 }
 
-func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider) (*FounderOCI, error) {
+// NewFounderOCI binds the founder's OCI clients to one region. Each peer it
+// launches receives the same launch material this controller was admitted with.
+func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider, material LaunchMaterial) (*FounderOCI, error) {
 	ociRegion, err := region.OCIRegion()
 	if err != nil || provider == nil {
 		return nil, ErrFounderOCI
@@ -129,7 +132,7 @@ func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider) (*F
 	if volume.HTTPClient, err = bootstrap.NewInstancePrincipalSDKHTTPClient(); err != nil {
 		return nil, err
 	}
-	return &FounderOCI{region: region, compute: &compute, network: &network, volume: &volume}, nil
+	return &FounderOCI{region: region, material: material, compute: &compute, network: &network, volume: &volume}, nil
 }
 
 func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh) (context.Context, context.CancelFunc, error) {
@@ -217,7 +220,7 @@ func (adapter *FounderOCI) Launch(ctx context.Context, attempt FounderOCIAttempt
 		return "", err
 	}
 	defer cancel()
-	request, err := founderLaunchSDKRequest(attempt.request)
+	request, err := founderLaunchSDKRequest(attempt.request, adapter.material)
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +244,7 @@ func founderLaunchCandidateMatches(instance core.Instance, row bootstrap.Founder
 		value(instance.CompartmentId) == row.CompartmentOCID && imageValid
 }
 
-func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest) (core.LaunchInstanceRequest, error) {
+func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, material LaunchMaterial) (core.LaunchInstanceRequest, error) {
 	row := request.Row
 	manifestHash := sha256.Sum256(request.ManifestWire)
 	manifestEnvelope, manifestErr := trust.DecodeEnvelope(request.ManifestWire)
@@ -258,23 +261,24 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest) (core.L
 		hex.EncodeToString(manifestHash[:]) != request.ManifestSHA256 || manifestErr != nil ||
 		manifest.Slot != request.Slot || manifest.DeploymentID != request.DeploymentID ||
 		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
-		manifest.ImageOCID != row.ImageOCID {
+		manifest.ImageOCID != row.ImageOCID ||
+		len(material.Identity) == 0 || len(material.Anchor) == 0 || len(material.HostEnrollment) == 0 {
 		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
 	descriptor, err := protocol.EncodeJSON(Descriptor{SchemaVersion: 1, Slot: request.Slot})
 	if err != nil {
 		return core.LaunchInstanceRequest{}, err
 	}
+	metadata := material.ControllerMetadata()
+	metadata["terrascale-bootstrap"] = string(descriptor)
+	metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
 	return core.LaunchInstanceRequest{
 		OpcRetryToken: new(request.RetryToken), RequestMetadata: noFounderSDKRetry(),
 		LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: new(row.AvailabilityDomain), CompartmentId: new(row.CompartmentOCID),
 			FaultDomain: new(row.FaultDomain), Shape: new(row.Shape),
 			DisplayName: new(request.Slot),
-			Metadata: map[string]string{
-				"terrascale-bootstrap":              string(descriptor),
-				"terrascale-controller-manifest-v1": string(request.ManifestWire),
-			},
+			Metadata:    metadata,
 			ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 				Ocpus: new(float32(row.WholeOCPUs)), MemoryInGBs: new(float32(row.MemoryInGB)),
 			},

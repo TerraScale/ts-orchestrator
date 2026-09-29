@@ -95,74 +95,94 @@ func (store bakedStore) load() (BakedInputs, error) {
 		return BakedInputs{}, fmt.Errorf("open baked bootstrap directory: %w", err)
 	}
 	defer unix.Close(dir)
-	identityWire, err := store.readFile(dir, "identity.json", maxIdentity)
+	identityWire, err := store.readFile(dir, identityFilename, maxIdentity)
 	if err != nil {
 		return BakedInputs{}, fmt.Errorf("read baked identity: %w", err)
 	}
-	var identity BakedIdentity
-	if err := protocol.DecodeStrict(identityWire, &identity, maxIdentity); err != nil ||
-		identity.SchemaVersion != 1 || !identityNameRE.MatchString(identity.DeploymentID) ||
-		identity.Environment != "production" && identity.Environment != "canary" {
-		return BakedInputs{}, ErrBakedInputs
+	identity, err := parseBakedIdentity(identityWire)
+	if err != nil {
+		return BakedInputs{}, err
 	}
-	if _, err := identity.Cell.OCIRegion(); err != nil {
-		return BakedInputs{}, ErrBakedInputs
-	}
-	canonical, err := protocol.EncodeJSON(identity)
-	if err != nil || !bytes.Equal(identityWire, canonical) {
-		return BakedInputs{}, ErrBakedInputs
-	}
-	anchorWire, err := store.readFile(dir, "anchor.json", bootstrap.MaxBootstrapAnchorBytes)
+	anchorWire, err := store.readFile(dir, anchorFilename, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return BakedInputs{}, fmt.Errorf("read baked anchor: %w", err)
 	}
 	if _, err := trust.DecodeEnvelope(anchorWire); err != nil {
 		return BakedInputs{}, fmt.Errorf("decode baked anchor: %w", err)
 	}
+	roots, err := store.loadRoots()
+	if err != nil {
+		return BakedInputs{}, err
+	}
+	return BakedInputs{Identity: identity, Roots: roots, AnchorWire: anchorWire}, nil
+}
+
+// parseBakedIdentity accepts only the canonical encoding, so the installed
+// bytes and every digest over them stay unambiguous.
+func parseBakedIdentity(wire []byte) (BakedIdentity, error) {
+	var identity BakedIdentity
+	if err := protocol.DecodeStrict(wire, &identity, maxIdentity); err != nil ||
+		identity.SchemaVersion != 1 || !identityNameRE.MatchString(identity.DeploymentID) ||
+		identity.Environment != "production" && identity.Environment != "canary" {
+		return BakedIdentity{}, ErrBakedInputs
+	}
+	if _, err := identity.Cell.OCIRegion(); err != nil {
+		return BakedIdentity{}, ErrBakedInputs
+	}
+	canonical, err := protocol.EncodeJSON(identity)
+	if err != nil || !bytes.Equal(wire, canonical) {
+		return BakedIdentity{}, ErrBakedInputs
+	}
+	return identity, nil
+}
+
+// loadRoots reads the image's trust roots, the only bootstrap authority the
+// image itself carries.
+func (store bakedStore) loadRoots() (trust.Keyring, error) {
 	rootsDir, err := store.openDirectory(filepath.Join(store.directory, "trust-roots"))
 	if err != nil {
-		return BakedInputs{}, fmt.Errorf("open baked trust roots: %w", err)
+		return nil, fmt.Errorf("open baked trust roots: %w", err)
 	}
 	file := os.NewFile(uintptr(rootsDir), "trust-roots")
 	defer file.Close()
 	names, err := file.Readdirnames(-1)
 	if err != nil {
-		return BakedInputs{}, fmt.Errorf("read baked root entries: %w", err)
+		return nil, fmt.Errorf("read baked root entries: %w", err)
 	}
 	if len(names) == 0 || len(names) > MaxRootFiles {
-		return BakedInputs{}, ErrBakedInputs
+		return nil, ErrBakedInputs
 	}
 	sort.Strings(names)
 	keys := make([]ed25519.PublicKey, 0, len(names))
 	total := 0
 	for _, name := range names {
 		if !rootFilenameRE.MatchString(name) || name == "000.pem" {
-			return BakedInputs{}, ErrBakedInputs
+			return nil, ErrBakedInputs
 		}
 		wire, err := store.readFile(rootsDir, name, MaxRootBytes)
 		if err != nil {
-			return BakedInputs{}, fmt.Errorf("read baked root %s: %w", name, err)
+			return nil, fmt.Errorf("read baked root %s: %w", name, err)
 		}
 		total += len(wire)
 		if total > MaxRootsTotal {
-			return BakedInputs{}, ErrBakedInputs
+			return nil, ErrBakedInputs
 		}
 		block, rest := pem.Decode(wire)
 		if block == nil || block.Type != "PUBLIC KEY" || len(block.Headers) != 0 || len(bytes.TrimSpace(rest)) != 0 {
-			return BakedInputs{}, ErrBakedInputs
+			return nil, ErrBakedInputs
 		}
 		publicKey, err := x509.ParsePKIXPublicKey(block.Bytes)
 		key, ok := publicKey.(ed25519.PublicKey)
 		if err != nil || !ok || len(key) != ed25519.PublicKeySize {
-			return BakedInputs{}, ErrBakedInputs
+			return nil, ErrBakedInputs
 		}
 		keys = append(keys, key)
 	}
 	roots, err := trust.ParseKeyring(keys...)
 	if err != nil {
-		return BakedInputs{}, fmt.Errorf("assemble unambiguous root key IDs: %w", err)
+		return nil, fmt.Errorf("assemble unambiguous root key IDs: %w", err)
 	}
-	return BakedInputs{Identity: identity, Roots: roots, AnchorWire: anchorWire}, nil
+	return roots, nil
 }
 
 func (store bakedStore) openDirectory(path string) (int, error) {

@@ -12,6 +12,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"io"
 	"net"
 	"net/netip"
@@ -63,6 +64,51 @@ func ParsePublicBundle(wire []byte) (PublicBundle, error) {
 	return bundle, nil
 }
 
+// InstallPublicBundle installs the bundle delivered in launch metadata at
+// path unless it is already present, then reads it back through the same
+// root-ownership checks as an installed bundle.
+func InstallPublicBundle(path string, wire []byte) (PublicBundle, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return PublicBundle{}, errors.New("public bundle path must be clean and absolute")
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return ReadPublicBundle(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return PublicBundle{}, err
+	}
+	bundle, err := ParsePublicBundle(wire)
+	if err != nil {
+		return PublicBundle{}, err
+	}
+	if err := bundle.MatchesImageLayout(); err != nil {
+		return PublicBundle{}, err
+	}
+	temporary := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".tmp")
+	_ = os.Remove(temporary)
+	file, err := os.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o400)
+	if err != nil {
+		return PublicBundle{}, err
+	}
+	_, err = file.Write(wire)
+	if err == nil {
+		err = file.Chmod(0o444)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = unix.Renameat2(unix.AT_FDCWD, temporary, unix.AT_FDCWD, path, unix.RENAME_NOREPLACE)
+	}
+	if err != nil {
+		_ = os.Remove(temporary)
+		return PublicBundle{}, fmt.Errorf("install host enrollment public bundle: %w", err)
+	}
+	return ReadPublicBundle(path)
+}
+
 func ReadPublicBundle(path string) (PublicBundle, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return PublicBundle{}, errors.New("public bundle path must be clean and absolute")
@@ -89,6 +135,27 @@ func ReadPublicBundle(path string) (PublicBundle, error) {
 		return PublicBundle{}, err
 	}
 	return ParsePublicBundle(wire)
+}
+
+// Image workload layout provisioned by every qualified image. A bundle
+// delivered at launch must describe exactly this layout.
+const (
+	ImageWorkloadUID        = 2000
+	ImageWorkloadGID        = 2000
+	ImageInstallRoot        = "/var/lib/terrascale-orchestrator-host/install"
+	ImageStateRoot          = "/var/lib/terrascale-orchestrator-host/state"
+	ImageManagedRuntimeRoot = "/srv/ts-managed"
+)
+
+// MatchesImageLayout rejects a bundle whose workload identity or roots differ
+// from what the image provisions.
+func (bundle PublicBundle) MatchesImageLayout() error {
+	if bundle.WorkloadUID != ImageWorkloadUID || bundle.WorkloadGID != ImageWorkloadGID ||
+		bundle.InstallRoot != ImageInstallRoot || bundle.StateRoot != ImageStateRoot ||
+		bundle.ManagedRuntimeRoot != ImageManagedRuntimeRoot {
+		return errors.New("host enrollment bundle differs from the image workload identity or roots")
+	}
+	return nil
 }
 
 func (bundle PublicBundle) Validate() error {

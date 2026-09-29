@@ -344,26 +344,32 @@ and the intended network boundary.
    receipt. Do not substitute another value after preflight. The first-seed
    signing, observation, and fresh completion commands bind to this file and
    digest. Renewed inventory or admission requires a new preflight.
-7. Generate user-data from the same signed controller-A manifest:
+7. Render the complete controller-A launch input from the reviewed seed plan:
 
    ```sh
-   python3 deploy/oci-region/preview.py seed-user-data \
+   python3 deploy/oci-region/preview.py seed-launch \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
+     --reviewed-plan /ABSOLUTE/PATH/reviewed-seed-plan.json \
      --manifest /ABSOLUTE/PATH/controller-a.manifest.json \
+     --identity /ABSOLUTE/PATH/identity.json \
+     --anchor /ABSOLUTE/PATH/anchor.signed.json \
+     --host-enrollment /ABSOLUTE/PATH/host-enrollment-public.json \
      --owner-ssh-public-key /ABSOLUTE/PATH/owner-ed25519.pub \
-     --out /ABSOLUTE/PATH/controller-a-user-data.yaml
+     --out /ABSOLUTE/PATH/controller-a-launch.json
    ```
 
-   `--owner-ssh-public-key` is optional and accepts one Ed25519 public key.
-   The helper writes the user-data file with mode `0600`; it includes the signed
-   manifest envelope, not private controller keys or Vault secret contents.
-   Before controller A starts, the boot command installs that exact manifest
-   at
-   `/etc/terrascale-orchestrator/controller-seed-manifest.json` as a regular
-   root-owned `0644` file. The installed controller units are ordered after
-   cloud-init's network stage, online networking, and time synchronization.
-   Do not add a blocking installer start to cloud-init `bootcmd`, which runs
-   before `network-online.target`.
+   The image carries only trust roots. Every deployment-specific input travels
+   in OCI instance metadata: the slot descriptor, the signed manifest, the
+   deployment identity, the signed anchor and the host enrollment bundle. The
+   controller installer verifies the anchor against the image roots before it
+   installs any of them, write-once, beside those roots; the founder and the
+   placement fleet forward the same material to controllers B/C and to
+   managed hosts. One qualified image therefore serves every deployment and
+   bootstrap attempt. The helper refuses a manifest or anchor that differs
+   from the reviewed seed plan and metadata above OCI's 32,000-byte limit.
+   `--owner-ssh-public-key` is optional; the minimal cloud-init user-data only
+   authorizes that key and prints the SSH host key to the serial console.
+
 8. Before creating controller A, sign and publish its exact seed reservation.
    Use the create identity from the reviewed seed plan without changing it:
 
@@ -391,53 +397,13 @@ and the intended network boundary.
    ```
 
    Do not launch controller A until the exact signed reservation is published.
-9. Start only controller A using one OCI CLI launch-input JSON file. The file
-   is input to `oci compute instance launch --from-json`, not a raw request
-   body copied from an SDK example. Check the installed command input with
-   `oci compute instance launch --generate-full-command-json-input`. Put the
-   default VNIC's `subnetId`, `privateIp`, `nsgIds`, and `assignPublicIp` at
-   the top level; `--subnet-id` is required, and nested SDK `createVnicDetails`
-   values are not a substitute for these CLI fields. Keep every value bound
-   to the reviewed seed profile and current signed inventory:
+9. Start only controller A with the rendered launch input. Import the image
+   with `deploy/oci-region/import-image.py` first: it applies the UEFI
+   firmware, paravirtualized-device and A1-only shape contract that an ARM
+   instance needs to boot. An imported image without that capability schema
+   launches with BIOS firmware and never boots.
 
-   ```json
-   {
-     "availabilityDomain": "<REVIEWED_AVAILABILITY_DOMAIN>",
-     "faultDomain": "<REVIEWED_FAULT_DOMAIN>",
-     "compartmentId": "<REVIEWED_COMPARTMENT_OCID>",
-     "displayName": "controller-a",
-     "shape": "VM.Standard.A1.Flex",
-     "shapeConfig": {"ocpus": 1, "memoryInGBs": 6},
-     "sourceDetails": {
-       "sourceType": "image",
-       "imageId": "<SIGNED_IMAGE_OCID>",
-       "bootVolumeSizeInGBs": 50,
-       "bootVolumeVpusPerGB": 10
-     },
-     "subnetId": "<REVIEWED_SUBNET_OCID>",
-     "privateIp": "<RESERVED_CONTROLLER_A_PRIVATE_IP>",
-     "nsgIds": ["<SIGNED_NSG_1_OCID>", "<SIGNED_NSG_2_OCID>"],
-     "assignPublicIp": false,
-     "userDataFile": "/ABSOLUTE/PATH/controller-a-user-data.yaml",
-     "metadata": {
-       "terrascale-bootstrap": "{\"schemaVersion\":1,\"slot\":\"controller-a\"}"
-     },
-     "freeformTags": {
-       "BootstrapCreateKey": "<EXACT_PREFLIGHT_CREATE_IDENTITY>"
-     }
-   }
-   ```
-
-   Use the shape and boot-volume values from the signed profile if they differ
-   from this validated A1 example. The `terrascale-bootstrap` metadata value
-   is the exact v1 descriptor for the first slot in the signed anchor; it is
-   an untrusted slot locator, not an authority or a replacement for signed
-   manifest and OCI identity checks. `userDataFile` supplies cloud-init data;
-   it does not populate this metadata key. Do not synthesize
-   `terrascale_hostboot_v1` for this controller-only seed; managed-host
-   descriptors must come from the signed placement path.
-
-   If the seed metadata key is missing after launch, do not submit a partial
+   If a metadata key is missing after launch, do not submit a partial
    metadata map as though OCI will merge it. `UpdateInstance` replaces the
    metadata map: start from an authenticated current instance readback, retain
    the exact existing `user_data`, and use the current ETag with `If-Match`.
@@ -454,7 +420,7 @@ and the intended network boundary.
      --config-file /ABSOLUTE/PATH/oci-config \
      --profile DEFAULT \
      --region <REVIEWED_REGION> \
-     --from-json file:///ABSOLUTE/PATH/controller-a-launch-cli.json
+     --from-json file:///ABSOLUTE/PATH/controller-a-launch.json
    ```
 
    Record the exact OCI instance OCID returned by the CLI. OCI accepting the

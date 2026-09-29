@@ -103,22 +103,9 @@ func newFleet(
 	}, nil
 }
 
-// NewInstancePrincipalFleet builds official OCI Compute and Block Volume SDK
-// clients using instance-principal authentication for one validated region.
-func NewInstancePrincipalFleet(
-	config RegionConfig,
-	intent RegionIntent,
-	journal Journal,
-	fencer authority.Fencer,
-	drainRequester DrainRequester,
-	writerStop WriterStopVerifier,
-) (Fleet, error) {
-	return NewInstancePrincipalFleetWithImageVerifier(config, intent, journal, fencer, drainRequester, writerStop, nil)
-}
-
-// NewInstancePrincipalFleetWithImageVerifier preserves instance-principal
-// construction while allowing an approved image qualification source to be
-// injected when one is available.
+// NewInstancePrincipalFleetWithImageVerifier builds official OCI Compute and
+// Block Volume SDK clients using instance-principal authentication for one
+// validated region. hostMetadata is added to every managed host launch.
 func NewInstancePrincipalFleetWithImageVerifier(
 	config RegionConfig,
 	intent RegionIntent,
@@ -127,11 +114,12 @@ func NewInstancePrincipalFleetWithImageVerifier(
 	drainRequester DrainRequester,
 	writerStop WriterStopVerifier,
 	imageVerifier ImageQualificationVerifier,
+	hostMetadata map[string]string,
 ) (Fleet, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
-	provider, err := newSDKProvider(config)
+	provider, err := newSDKProvider(config, hostMetadata)
 	if err != nil {
 		return nil, err
 	}

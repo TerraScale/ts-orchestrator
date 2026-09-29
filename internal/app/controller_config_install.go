@@ -19,8 +19,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const controllerSeedManifestFilename = "controller-seed-manifest.json"
-
 func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if len(args) != 0 || os.Geteuid() != 0 {
 		return errors.New("install-controller-config requires root and accepts no arguments")
@@ -34,11 +32,15 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("controller install NTP clock health: %w", err)
 	}
+	imds := bootstrapstart.NewIMDSClient()
+	now := time.Now().Round(0).UTC()
+	if err := bootstrapstart.InstallLaunchMaterial(ctx, imds, now); err != nil {
+		return fmt.Errorf("install launch bootstrap material: %w", err)
+	}
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
 		return err
 	}
-	now := time.Now().Round(0).UTC()
 	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
 	if err != nil {
 		return err
@@ -52,29 +54,12 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	imds := bootstrapstart.NewIMDSClient()
-	descriptor, err := imds.FetchDescriptor(ctx)
-	if err != nil {
+	if _, err := imds.FetchDescriptor(ctx); err != nil {
 		return err
 	}
-	wire, metadataErr := imds.FetchControllerManifest(ctx)
-	if metadataErr != nil {
-		if len(anchor.Anchor().ControllerSlots) == 0 || descriptor.Slot != anchor.Anchor().ControllerSlots[0] {
-			return fmt.Errorf("managed peer has no signed manifest metadata: %w", metadataErr)
-		}
-		wire, err = readInstalledControllerFile(controllerConfigDirectory,
-			controllerSeedManifestFilename, 0, 0, 0o644, bootstrapstart.MaxControllerManifestMetadataBytes)
-		if err != nil {
-			return fmt.Errorf("read reviewed seed manifest: %w", err)
-		}
-		envelope, err := trust.DecodeEnvelope(wire)
-		if err != nil {
-			return err
-		}
-		seedManifest, err := bootstrap.ManifestPayload(envelope.Payload)
-		if err != nil || seedManifest.SeedSlot != descriptor.Slot {
-			return errors.New("reviewed seed manifest does not authorize the first controller")
-		}
+	wire, err := imds.FetchControllerManifest(ctx)
+	if err != nil {
+		return fmt.Errorf("read signed controller manifest metadata: %w", err)
 	}
 	manifest, observed, err := bootstrapstart.VerifyControllerConfigInstall(ctx, baked, wire, imds, observer, now)
 	if err != nil {

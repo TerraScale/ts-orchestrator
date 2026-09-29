@@ -17,13 +17,14 @@ import (
 const maxProviderItems = 512
 
 type sdkProvider struct {
-	config  RegionConfig
-	compute core.ComputeClient
-	storage core.BlockstorageClient
-	network core.VirtualNetworkClient
+	config       RegionConfig
+	hostMetadata map[string]string
+	compute      core.ComputeClient
+	storage      core.BlockstorageClient
+	network      core.VirtualNetworkClient
 }
 
-func newSDKProvider(config RegionConfig) (*sdkProvider, error) {
+func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkProvider, error) {
 	ociRegion, err := config.Region.OCIRegion()
 	if err != nil {
 		return nil, err
@@ -49,7 +50,8 @@ func newSDKProvider(config RegionConfig) (*sdkProvider, error) {
 	compute.Host = strings.TrimSuffix(config.Endpoint, "/")
 	storage.Host = strings.TrimSuffix(config.Endpoint, "/")
 	network.Host = strings.TrimSuffix(config.Endpoint, "/")
-	return &sdkProvider{config: config, compute: compute, storage: storage, network: network}, nil
+	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
+		compute: compute, storage: storage, network: network}, nil
 }
 
 func (provider *sdkProvider) ListInstances(ctx context.Context, compartmentID string) ([]CloudInstance, error) {
@@ -176,14 +178,18 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 }
 
 func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchRequest) (CloudInstance, error) {
-	return launchInstance(ctx, provider.compute, provider.config, request)
+	return launchInstance(ctx, provider.compute, provider.config, request, provider.hostMetadata)
 }
 
 type launchInstanceClient interface {
 	LaunchInstance(context.Context, core.LaunchInstanceRequest) (core.LaunchInstanceResponse, error)
 }
 
-func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest) (CloudInstance, error) {
+// launchInstance adds the fleet's launch material to the reserved host keys.
+// The material may not replace a key the fleet itself binds and observes.
+func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest,
+	hostMetadata map[string]string,
+) (CloudInstance, error) {
 	if compute == nil || request.RetryToken == "" || !validManagedPrivateIP(request.PrivateIP) || request.Shape != config.Shape ||
 		request.BootVolumeGB != config.BootVolumeGB || request.BootVolumeVPUsPerGB != config.BootVolumeVPUsPerGB ||
 		request.BootVolumeGB < 50 || request.BootVolumeVPUsPerGB != 10 ||
@@ -200,6 +206,16 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		descriptor.IntentGeneration != request.PlacementGeneration {
 		return CloudInstance{}, ErrHostBootBindingMismatch
 	}
+	metadata := maps.Clone(hostMetadata)
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	for key, value := range map[string]string{"terrascale_host_node": request.Node, hostboot.MetadataKey: request.BootDescriptor} {
+		if _, reserved := metadata[key]; reserved {
+			return CloudInstance{}, ErrHostBootBindingMismatch
+		}
+		metadata[key] = value
+	}
 	networkSecurityGroupIDs := append([]string(nil), config.NetworkSecurityGroupIDs...)
 	freeformTags := placementProfileTags(request.FreeformTags, request.PlacementProfileDigest, request.PlacementGeneration)
 	details := core.LaunchInstanceDetails{
@@ -208,11 +224,8 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		FaultDomain:        new(request.FaultDomain),
 		DisplayName:        new(config.Owner + "-" + request.Node),
 		FreeformTags:       freeformTags,
-		Metadata: map[string]string{
-			"terrascale_host_node": request.Node,
-			hostboot.MetadataKey:   request.BootDescriptor,
-		},
-		Shape: new(request.Shape),
+		Metadata:           metadata,
+		Shape:              new(request.Shape),
 		ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 			Ocpus:       new(float32(request.WholeOCPUs)),
 			MemoryInGBs: new(float32(request.MemoryInGBs)),

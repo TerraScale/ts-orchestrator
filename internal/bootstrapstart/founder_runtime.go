@@ -83,7 +83,11 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	adapter, err := NewFounderOCI(config.Cell, provider)
+	material, err := LoadLaunchMaterial()
+	if err != nil {
+		return err
+	}
+	adapter, err := NewFounderOCI(config.Cell, provider, material)
 	if err != nil {
 		return err
 	}

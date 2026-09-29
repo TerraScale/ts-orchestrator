@@ -46,7 +46,7 @@ type pendingHostEnrollment struct {
 func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("host-setup", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	publicPath := flags.String("public-config", "", "image-pinned public enrollment bundle")
+	publicPath := flags.String("public-config", "", "public enrollment bundle, installed from launch metadata when absent")
 	outputRoot := flags.String("output-root", "", "root-owned host configuration directory")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -54,11 +54,20 @@ func runHostSetup(ctx context.Context, args []string, output io.Writer) error {
 	if flags.NArg() != 0 || *publicPath == "" || *outputRoot == "" {
 		return errors.New("usage: host-setup --public-config FILE --output-root DIRECTORY")
 	}
-	bundle, err := hostenroll.ReadPublicBundle(*publicPath)
+	imds := hostenroll.NewIMDSClient()
+	metadata, err := hostenroll.ReadInstanceMetadata(ctx, imds)
+	if errors.Is(err, hostenroll.ErrNotManagedHost) {
+		_, _ = fmt.Fprintln(output, "instance is not a managed host; nothing to enroll")
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
+	bundleWire, err := hostenroll.ReadEnrollmentMetadata(ctx, imds)
+	if err != nil {
+		return err
+	}
+	bundle, err := hostenroll.InstallPublicBundle(*publicPath, bundleWire)
 	if err != nil {
 		return err
 	}

@@ -2,7 +2,6 @@
 Description=Enroll this TerraScale managed host
 Wants=network-online.target systemd-time-wait-sync.service
 After=network-online.target systemd-time-wait-sync.service
-ConditionPathExists=/etc/terrascale-orchestrator/host-enrollment-public.json
 Before=terrascale-orchestrator-host.service
 
 [Service]

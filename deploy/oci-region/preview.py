@@ -20,7 +20,6 @@ import os
 import pathlib
 import re
 import stat
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -44,7 +43,8 @@ MAX_PRIVATE_PEER_INTENT_BYTES = 64 * 1024
 MAX_IMPORT_RECEIPT_BYTES = 64 * 1024
 MAX_IMPORT_PROJECTION_BYTES = 64 * 1024
 MAX_SEED_MANIFEST_BYTES = 30 * 1024
-MAX_USER_DATA_BYTES = 32766
+MAX_INSTANCE_METADATA_BYTES = 32000
+MAX_LAUNCH_MATERIAL_BYTES = 64 << 10
 MAX_SSH_PUBLIC_KEY_BYTES = 16 * 1024
 OCID = re.compile(r"ocid1\.([a-z]+)\.oc1\.([a-z0-9-]*)\.([a-z0-9]+(?:\.[a-z0-9]+)*)\Z")
 SAFE_IDENTITY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]{0,127}\Z")
@@ -1206,37 +1206,78 @@ def validate_ssh_ed25519_public_key(path: pathlib.Path) -> str:
     return " ".join(parts)
 
 
-def seed_user_data(manifest_path: pathlib.Path, owner_key_path: pathlib.Path | None,
-                   expected_cell: str) -> bytes:
-    manifest_wire = validate_seed_manifest(manifest_path, expected_cell)
-    try:
-        manifest_text = manifest_wire.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise ValueError("signed seed manifest is not UTF-8 JSON") from error
-    bootcmd = (
-        "set -eu; umask 077; install -d -o root -g root -m 0755 /etc/terrascale-orchestrator; "
-        f"printf '%s' {shlex.quote(manifest_text)} > /run/terrascale-controller-seed-manifest; "
-        "install -o root -g root -m 0644 /run/terrascale-controller-seed-manifest "
-        "/etc/terrascale-orchestrator/controller-seed-manifest.json; "
-        "rm -f /run/terrascale-controller-seed-manifest"
-    )
+def seed_user_data(owner_key_path: pathlib.Path | None) -> bytes:
     console_key = (
         "set -eu; IFS=' ' read -r key_type key_data key_comment < /etc/ssh/ssh_host_ed25519_key.pub; "
         "test \"$key_type\" = ssh-ed25519; test -n \"$key_data\"; "
-        "printf '\\nTERASCALE_SEED_A_HOST_KEY_BEGIN\\n%s %s\\nTERASCALE_SEED_A_HOST_KEY_END\\n' "
+        "printf '\\nTERRASCALE_SEED_A_HOST_KEY_BEGIN\\n%s %s\\nTERRASCALE_SEED_A_HOST_KEY_END\\n' "
         "\"$key_type\" \"$key_data\" > /dev/console"
     )
-    config: dict[str, object] = {
-        "bootcmd": [bootcmd],
-        "allow_public_ssh_keys": False,
-        "runcmd": [console_key],
-    }
+    config: dict[str, object] = {"allow_public_ssh_keys": False, "runcmd": [console_key]}
     if owner_key_path is not None:
         config["ssh_authorized_keys"] = [validate_ssh_ed25519_public_key(owner_key_path)]
-    wire = ("#cloud-config\n" + json.dumps(config, separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
-    if len(wire) > MAX_USER_DATA_BYTES:
-        fail("generated seed user-data exceeds the OCI metadata transport limit")
-    return wire
+    return ("#cloud-config\n" + json.dumps(config, separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
+
+
+def read_launch_material(path: pathlib.Path, label: str) -> str:
+    wire = read_regular_bytes(path, MAX_LAUNCH_MATERIAL_BYTES, label)
+    try:
+        text_value = wire.decode("utf-8")
+        json.loads(text_value)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{label} must be UTF-8 JSON") from error
+    return text_value
+
+
+def seed_launch(plan: dict, reviewed_path: pathlib.Path, manifest_path: pathlib.Path, identity_path: pathlib.Path,
+                anchor_path: pathlib.Path, host_enrollment_path: pathlib.Path,
+                owner_key_path: pathlib.Path | None) -> dict:
+    """Render the complete OCI CLI launch input for controller A.
+
+    The image carries only trust roots; the signed manifest, deployment
+    identity, signed anchor and host enrollment bundle travel in metadata.
+    """
+    reviewed = read_json(reviewed_path, MAX_SEED_MANIFEST_BYTES, "reviewed seed plan")
+    manifest_wire = validate_seed_manifest(manifest_path, plan["cell"])
+    anchor = read_launch_material(anchor_path, "signed bootstrap anchor")
+    if (hashlib.sha256(manifest_wire).hexdigest() != reviewed.get("manifest_sha256") or
+            hashlib.sha256(anchor.encode("utf-8")).hexdigest() != reviewed.get("anchor_sha256")):
+        fail("seed launch manifest or anchor differs from the reviewed seed plan")
+    identity = read_launch_material(identity_path, "bootstrap identity")
+    deployment_id = json.loads(identity).get("deploymentId")
+    if not isinstance(deployment_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", deployment_id):
+        fail("bootstrap identity has an invalid deployment ID")
+    host_a = next((host for host in plan["hosts"] if host["slot"] == "controller-a"), None)
+    if host_a is None:
+        fail("plan has no controller-a host")
+    user_data = seed_user_data(owner_key_path)
+    metadata = {
+        "terrascale-bootstrap": json.dumps({"schemaVersion": 1, "slot": "controller-a"}, separators=(",", ":")),
+        "terrascale-controller-manifest-v1": manifest_wire.decode("utf-8"),
+        "terrascale-bootstrap-identity-v1": identity,
+        "terrascale-bootstrap-anchor-v1": anchor,
+        "terrascale-host-enrollment-v1": read_launch_material(host_enrollment_path, "host enrollment bundle"),
+        "user_data": base64.b64encode(user_data).decode("ascii"),
+    }
+    if sum(len(key) + len(value.encode("utf-8")) for key, value in metadata.items()) > MAX_INSTANCE_METADATA_BYTES:
+        fail("controller-a launch metadata exceeds the OCI instance metadata limit")
+    return {
+        "availabilityDomain": reviewed["availability_domain"],
+        "faultDomain": reviewed["fault_domain"],
+        "compartmentId": reviewed["compartment_id"],
+        "displayName": f"{deployment_id}-controller-a",
+        "shape": reviewed["shape"],
+        "shapeConfig": {"ocpus": reviewed["ocpus"], "memoryInGBs": reviewed["memory_gb"]},
+        "sourceDetails": {"sourceType": "image", "imageId": reviewed["image_id"],
+                          "bootVolumeSizeInGBs": reviewed["boot_gb"],
+                          "bootVolumeVpusPerGB": reviewed["boot_vpus_per_gb"]},
+        "subnetId": reviewed["subnet_id"],
+        "privateIp": host_a["private_ip"],
+        "nsgIds": reviewed["network_security_group_ids"],
+        "assignPublicIp": reviewed["assign_public_ip"],
+        "metadata": metadata,
+        "freeformTags": {"BootstrapCreateKey": reviewed["create_identity"]},
+    }
 
 
 def write_output_bytes(path: pathlib.Path, wire: bytes, mode: int = 0o600) -> None:
@@ -2223,7 +2264,7 @@ def inspect_private_peer(intent_path: pathlib.Path, left_plan_path: pathlib.Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("inventory", "admit", "estimate", "seed-preflight", "seed-user-data",
+    parser.add_argument("command", choices=("inventory", "admit", "estimate", "seed-preflight", "seed-launch",
                                             "inspect-foundation", "inspect-private-peer", "import-inventory",
                                             "import-admit", "import-reconcile"))
     parser.add_argument("--plan", type=pathlib.Path, default=PLAN)
@@ -2252,6 +2293,8 @@ def main() -> None:
     parser.add_argument("--base-image-file", type=pathlib.Path)
     parser.add_argument("--kernel-file", type=pathlib.Path)
     parser.add_argument("--owner-ssh-public-key", type=pathlib.Path)
+    parser.add_argument("--reviewed-plan", type=pathlib.Path)
+    parser.add_argument("--host-enrollment", type=pathlib.Path)
     parser.add_argument("--projection", type=pathlib.Path)
     parser.add_argument("--phase", choices=("pre-stage", "pre-import"))
     parser.add_argument("--staged-versions", type=pathlib.Path)
@@ -2262,13 +2305,16 @@ def main() -> None:
     parser.add_argument("--previous-imported-images", type=pathlib.Path)
     parser.add_argument("--previous-staged-versions", type=pathlib.Path)
     args = parser.parse_args()
-    if args.command == "seed-user-data":
-        if args.manifest is None or args.out is None:
-            fail("seed user-data requires --manifest and --out")
+    if args.command == "seed-launch":
+        required = ("reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "out")
+        if any(getattr(args, key) is None for key in required):
+            fail("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment and --out")
         plan = load_plan(args.plan)
-        wire = seed_user_data(args.manifest, args.owner_ssh_public_key, plan["cell"])
+        launch = seed_launch(plan, args.reviewed_plan, args.manifest, args.identity, args.anchor,
+                             args.host_enrollment, args.owner_ssh_public_key)
+        wire = (json.dumps(launch, indent=2, sort_keys=True) + "\n").encode("utf-8")
         write_output_bytes(args.out, wire)
-        print(f"wrote seed user-data bytes={len(wire)} sha256={hashlib.sha256(wire).hexdigest()}")
+        print(f"wrote controller-a launch input bytes={len(wire)} sha256={hashlib.sha256(wire).hexdigest()}")
         return
     if args.command == "inspect-private-peer":
         required = ("pair_intent", "left_plan", "left_inventory", "left_admission",

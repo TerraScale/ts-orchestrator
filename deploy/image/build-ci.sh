@@ -163,8 +163,7 @@ validate_image_input_manifest() {
     system_slice_memory_min_bytes:536870912, system_slice_memory_low_bytes:1073741824
   } and
   (.assets | keys) == [
-    "base-image.qcow2", "bootstrap-anchor.json", "bootstrap-identity.json",
-    "bootstrap-root-001.pem", "host-enrollment-public.json", "timesyncd-gru.conf",
+    "base-image.qcow2", "bootstrap-root-001.pem", "timesyncd-gru.conf",
     "ubuntu-SHA256SUMS", "ubuntu-SHA256SUMS.gpg", "ubuntu-cloud-image-keyring.gpg"
   ] and
   .assets["bootstrap-root-001.pem"].sha256 == "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc" and
@@ -184,8 +183,7 @@ run_image_stage manifest-size "$manifest" check_manifest_size
 run_image_stage manifest-sha256 "$manifest" check_manifest_hash
 run_image_stage manifest-admission "$manifest" validate_image_input_manifest
 
-for asset in base-image.qcow2 bootstrap-anchor.json bootstrap-identity.json \
-	bootstrap-root-001.pem timesyncd-gru.conf host-enrollment-public.json \
+for asset in base-image.qcow2 bootstrap-root-001.pem timesyncd-gru.conf \
 	ubuntu-cloud-image-keyring.gpg ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg; do
 	run_image_stage "asset-download:$asset" "$inputs/$asset" fj_read release asset download \
 		-r TerraScale/ts-orchestrator "$IMAGE_INPUT_TAG" "$asset" -o "$inputs/$asset"
@@ -325,12 +323,9 @@ jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" '
 
 mkdir -m 0700 "$work/tools"
 go build -trimpath -buildvcs=true -o "$work/tools/ts-release" ./cmd/ts-release
-go build -trimpath -buildvcs=true -o "$work/tools/ts-bootstrap" ./cmd/ts-bootstrap
-for tool in ts-release ts-bootstrap; do
-	build_info=$(go version -m "$work/tools/$tool")
-	grep -Fq "vcs.revision=${SOURCE_SHA}" <<< "$build_info"
-	grep -Fq 'vcs.modified=false' <<< "$build_info"
-done
+build_info=$(go version -m "$work/tools/ts-release")
+grep -Fq "vcs.revision=${SOURCE_SHA}" <<< "$build_info"
+grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 "$work/tools/ts-release" verify-binary \
 	--receipt "$go_release/canary-linux-arm64.receipt.json" \
@@ -351,13 +346,9 @@ deploy/image/build-offline.sh \
 	--environment canary \
 	--native-verifier-binary "$terrabase/tb-server-linux-arm64" \
 	--native-verifier-sha256 "$(jq -r .terrabase.binary_sha256 "$manifest")" \
-	--release-tool "$work/tools/ts-release" --bootstrap-tool "$work/tools/ts-bootstrap" \
-	--bootstrap-anchor "$inputs/bootstrap-anchor.json" \
-	--bootstrap-identity "$inputs/bootstrap-identity.json" \
+	--release-tool "$work/tools/ts-release" \
 	--bootstrap-root "$inputs/bootstrap-root-001.pem" \
 	--timesyncd-config "$inputs/timesyncd-gru.conf" \
-	--host-enrollment-public "$inputs/host-enrollment-public.json" \
-	--host-enrollment-public-sha256 "$(jq -r '.assets["host-enrollment-public.json"].sha256' "$manifest")" \
 	--runtime-priority-profile-id "$(jq -r .priority.profile_id "$manifest")" \
 	--runtime-priority-system-reserve-bytes "$(jq -r .priority.system_reserve_bytes "$manifest")" \
 	--host-memory-min-bytes "$(jq -r .priority.host_memory_min_bytes "$manifest")" \
@@ -398,7 +389,6 @@ if [[ -n ${GITHUB_RUN_ATTEMPT:-} ]]; then
 fi
 output_tag="image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${run_attempt}"
 release_tool_hash=$(sha256sum "$work/tools/ts-release" | awk '{print $1}')
-bootstrap_tool_hash=$(sha256sum "$work/tools/ts-bootstrap" | awk '{print $1}')
 qemu_img_version=$(qemu-img --version | head -n 1)
 guestfish_version=$(guestfish --version)
 virt_cat_version=$(virt-cat --version)
@@ -409,7 +399,6 @@ jq -cnS --slurpfile inputs "$manifest" \
 	--arg go_tag "$go_tag" --arg terrabase_tag "$terrabase_tag" --arg output_tag "$output_tag" \
 	--arg job_status "$job_status" \
 	--arg go_version "$(go env GOVERSION)" --arg release_tool_hash "$release_tool_hash" \
-	--arg bootstrap_tool_hash "$bootstrap_tool_hash" \
 	--arg qemu_img_version "$qemu_img_version" --arg guestfish_version "$guestfish_version" \
 	--arg virt_cat_version "$virt_cat_version" --arg gpgv_version "$gpgv_version" \
 	--arg kernel_release "$kernel_release" --arg kernel_guest_path "$kernel_guest_path" \
@@ -425,7 +414,7 @@ jq -cnS --slurpfile inputs "$manifest" \
     input_release_tag:$input_tag,input_manifest_sha256:$input_hash,inputs:$inputs[0],
     go_release_tag:$go_tag,terrabase_release_tag:$terrabase_tag,image_release_tag:$output_tag,
     toolchain:{go_version:$go_version,ts_release_sha256:$release_tool_hash,
-      ts_bootstrap_sha256:$bootstrap_tool_hash,qemu_img_version:$qemu_img_version,
+      qemu_img_version:$qemu_img_version,
       guestfish_version:$guestfish_version,virt_cat_version:$virt_cat_version,
       gpgv_version:$gpgv_version,
       nixpkgs_revision:"e554fab72f81915600f3f449b786fd9af40439a5",

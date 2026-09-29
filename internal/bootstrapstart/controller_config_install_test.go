@@ -2,9 +2,11 @@ package bootstrapstart
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -78,9 +80,19 @@ func TestFounderLaunchMetadataReachesControllerConfigInstall(t *testing.T) {
 			PrivateIP: observed.PrimaryPrivateIP, WholeOCPUs: 1, MemoryInGB: 6,
 			BootVolumeGB: 50, BootVolumeTier: bootstrap.FounderBootVolumeTierBalanced},
 	}
-	sdk, err := founderLaunchSDKRequest(request)
+	material := LaunchMaterial{Identity: []byte(`{"identity":1}`), Anchor: gate.AnchorWire,
+		HostEnrollment: []byte(`{"bundle":1}`)}
+	sdk, err := founderLaunchSDKRequest(request, material)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if sdk.Metadata[AnchorMetadataKey] != string(gate.AnchorWire) ||
+		sdk.Metadata[IdentityMetadataKey] != string(material.Identity) ||
+		sdk.Metadata[hostboot.EnrollmentMetadataKey] != string(material.HostEnrollment) {
+		t.Fatal("OCI launch did not carry the controller launch material")
+	}
+	if _, err := founderLaunchSDKRequest(request, LaunchMaterial{}); !errors.Is(err, ErrFounderOCI) {
+		t.Fatalf("founder launched a peer without launch material: %v", err)
 	}
 	metadataWire := []byte(sdk.Metadata["terrascale-controller-manifest-v1"])
 	if !bytes.Equal(metadataWire, wire) {

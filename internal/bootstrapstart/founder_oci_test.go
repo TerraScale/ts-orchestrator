@@ -48,7 +48,7 @@ func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testin
 	request := founderOCIRequestFixture(t)
 	attempt := FounderOCIAttempt{request: request, deadline: time.Now().UTC().Add(time.Hour),
 		observationOnly: true, candidateID: founderTestInstanceID, valid: true}
-	adapter := &FounderOCI{region: oci.RegionGRU}
+	adapter := &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial}
 	if _, err := adapter.Launch(t.Context(), attempt, nil); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("observation-only attempt reached launch path: %v", err)
 	}
@@ -57,6 +57,9 @@ func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testin
 		t.Fatalf("observation-only attempt changed exact candidate: %v", err)
 	}
 }
+
+var testLaunchMaterial = LaunchMaterial{Identity: []byte(`{"identity":1}`), Anchor: []byte(`{"anchor":1}`),
+	HostEnrollment: []byte(`{"bundle":1}`)}
 
 type lostResponseCompute struct {
 	requests []core.LaunchInstanceRequest
@@ -75,7 +78,7 @@ func (fake *lostResponseCompute) LaunchInstance(_ context.Context, request core.
 
 func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T) {
 	request := founderOCIRequestFixture(t)
-	sdk, err := founderLaunchSDKRequest(request)
+	sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +116,7 @@ func TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt(t *testin
 	request := founderOCIRequestFixture(t)
 	fake := new(lostResponseCompute)
 	for range 2 {
-		sdk, err := founderLaunchSDKRequest(request)
+		sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,12 +134,12 @@ func TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt(t *testin
 	}
 	bad := request
 	bad.Row.BootVolumeTier = "higher-performance"
-	if _, err := founderLaunchSDKRequest(bad); !errors.Is(err, ErrFounderOCI) {
+	if _, err := founderLaunchSDKRequest(bad, testLaunchMaterial); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("unsupported boot tier = %v", err)
 	}
 	bad = request
 	bad.Row.WholeOCPUs = 1<<24 + 1
-	if _, err := founderLaunchSDKRequest(bad); !errors.Is(err, ErrFounderOCI) {
+	if _, err := founderLaunchSDKRequest(bad, testLaunchMaterial); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("inexact float32 OCPU count = %v", err)
 	}
 }
@@ -153,7 +156,7 @@ func TestFounderOCIBootVolumeLaunchSizeBounds(t *testing.T) {
 	} {
 		request := founderOCIRequestFixture(t)
 		request.Row.BootVolumeGB = test.gigabytes
-		sdk, err := founderLaunchSDKRequest(request)
+		sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 		if test.valid {
 			if err != nil {
 				t.Fatalf("boot volume %d GB was rejected: %v", test.gigabytes, err)

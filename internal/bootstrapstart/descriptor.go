@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -20,6 +23,9 @@ const (
 	imdsBaseURL                        = "http://169.254.169.254/opc/v2/instance/"
 	descriptorEndpoint                 = imdsBaseURL + "metadata/terrascale-bootstrap"
 	controllerManifestEndpoint         = imdsBaseURL + "metadata/terrascale-controller-manifest-v1"
+	identityMetadataEndpoint           = imdsBaseURL + "metadata/" + IdentityMetadataKey
+	anchorMetadataEndpoint             = imdsBaseURL + "metadata/" + AnchorMetadataKey
+	hostEnrollmentMetadataEndpoint     = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
 	identityEndpoint                   = imdsBaseURL + "id"
 	maxDescriptorBytes                 = 4096
 	MaxControllerManifestMetadataBytes = 30 << 10
@@ -100,9 +106,29 @@ func (imds IMDSClient) FetchControllerManifest(ctx context.Context) ([]byte, err
 	return imds.fetch(ctx, controllerManifestEndpoint, MaxControllerManifestMetadataBytes)
 }
 
+// FetchLaunchMaterial reads the deployment identity, signed anchor and host
+// enrollment bundle delivered in launch metadata. The caller verifies the
+// anchor against the image's trust roots before installing any of them.
+func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial, error) {
+	identity, err := imds.fetch(ctx, identityMetadataEndpoint, maxIdentity)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch identity metadata: %w", err)
+	}
+	anchor, err := imds.fetch(ctx, anchorMetadataEndpoint, bootstrap.MaxBootstrapAnchorBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch anchor metadata: %w", err)
+	}
+	enrollment, err := imds.fetch(ctx, hostEnrollmentMetadataEndpoint, hostenroll.MaxPublicBundleBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch host enrollment metadata: %w", err)
+	}
+	return LaunchMaterial{Identity: identity, Anchor: anchor, HostEnrollment: enrollment}, nil
+}
+
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
 	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
-		endpoint != controllerManifestEndpoint {
+		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
+		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint {
 		return nil, ErrInvalidDescriptor
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

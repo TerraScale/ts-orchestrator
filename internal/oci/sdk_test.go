@@ -79,9 +79,19 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 		},
 		Etag: new("sdk-etag"),
 	}}
-	cloud, err := launchInstance(t.Context(), compute, config, request)
+	enrollment := `{"schema_version":1}`
+	cloud, err := launchInstance(t.Context(), compute, config, request,
+		map[string]string{hostboot.EnrollmentMetadataKey: enrollment})
 	if err != nil {
 		t.Fatalf("launchInstance: %v", err)
+	}
+	if got := compute.request.LaunchInstanceDetails.Metadata; got[hostboot.EnrollmentMetadataKey] != enrollment ||
+		got[hostboot.MetadataKey] != string(wire) || got["terrascale_host_node"] != request.Node {
+		t.Fatalf("host launch metadata lost its enrollment bundle or boot binding: %v", got)
+	}
+	if _, err := launchInstance(t.Context(), compute, config, request,
+		map[string]string{hostboot.MetadataKey: "{}"}); !errors.Is(err, ErrHostBootBindingMismatch) {
+		t.Fatalf("launch material replaced the fleet-bound boot descriptor: %v", err)
 	}
 	if compute.calls != 1 || compute.request == nil {
 		t.Fatalf("OCI SDK client did not receive a launch request: calls=%d request=%+v", compute.calls, compute.request)
@@ -129,7 +139,7 @@ func TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK(t *testing.T) 
 		PlacementGeneration:    9,
 	}
 	compute := &fakeLaunchSDKClient{}
-	if _, err := launchInstance(t.Context(), compute, config, request); !errors.Is(err, ErrPlacementProfileMismatch) {
+	if _, err := launchInstance(t.Context(), compute, config, request, nil); !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("non-exact float32 sizing was not rejected: %v", err)
 	}
 	if compute.calls != 0 {

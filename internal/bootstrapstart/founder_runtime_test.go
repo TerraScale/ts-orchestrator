@@ -212,7 +212,7 @@ func newFounderRuntimeFixtureWithSetup(t *testing.T, setup func(*founderSignerFi
 	}
 	caller := &founderCaller{reader: fixture.reader(t), roots: fixture.baked.Roots,
 		accepted: fixture.accepted, signers: fixture.store,
-		adapter: &FounderOCI{region: oci.RegionGRU, compute: fake, network: fake, volume: fake},
+		adapter: &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial, compute: fake, network: fake, volume: fake},
 		openLedger: func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
 			return ledger, nil
 		}}
