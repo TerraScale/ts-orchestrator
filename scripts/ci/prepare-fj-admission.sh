@@ -24,10 +24,6 @@ done
     echo 'fj admission patch digest differs from the pinned digest' >&2
     exit 1
 }
-[[ $(nix flake metadata --json "$nixpkgs_flake" | jq -r .locked.narHash) == "$nixpkgs_nar_hash" ]] || {
-    echo 'fj admission build toolchain differs from the pinned nixpkgs source' >&2
-    exit 1
-}
 
 [[ ! -L "$output_dir" ]] || { echo 'fj admission output directory is a symlink' >&2; exit 1; }
 install -d -m 0700 "$output_dir"
@@ -70,6 +66,11 @@ if [[ -n $cache_dir && $cache_dir = /* && ! -L $cache_dir ]]; then
     fi
 fi
 
+# Only a build touches nixpkgs; a verified cache hit never downloads it.
+[[ $(nix flake metadata --json "$nixpkgs_flake" | jq -r .locked.narHash) == "$nixpkgs_nar_hash" ]] || {
+    echo 'fj admission build toolchain differs from the pinned nixpkgs source' >&2
+    exit 1
+}
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/fj-admission.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 fj repo clone -H https://codeberg.org forgejo-contrib/forgejo-cli "$work/source"

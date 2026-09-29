@@ -1,8 +1,13 @@
 name: TerraScale Orchestrator Go checks
 
+# Documentation and evidence never change a build: they neither run the
+# checks nor produce a candidate. Keep paths-ignore identical to image.yml.
 on:
   push:
     branches: [develop, main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 concurrency:

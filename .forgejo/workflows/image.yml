@@ -1,100 +1,87 @@
 name: Qualified GRU ARM64 image
 
+# Every main push that runs ci.yml also builds its host image. The image job
+# starts alongside ci.yml, prepares the pinned tools and inputs, waits for
+# that revision's ci.yml run, and builds from its retained binary. Keep
+# paths-ignore identical to ci.yml (tests/ci/test_workflows.py checks it).
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
     inputs:
-      candidate_run_id:
-        description: Successful ci.yml API run ID for this exact source revision
-        required: true
-        type: string
-      candidate_run_number:
-        description: Forgejo run number for the same ci.yml run
-        required: true
-        type: string
-      image_input_tag:
-        description: Forgejo prerelease tag retaining the pinned public image inputs
-        required: true
-        type: string
-      image_input_manifest_sha256:
-        description: SHA-256 of image-inputs.json on that prerelease
-        required: true
-        type: string
-      image_input_manifest_bytes:
-        description: Byte count of image-inputs.json on that prerelease
-        required: true
+      source_revision:
+        description: Full main commit SHA to image (default: the dispatched commit)
+        required: false
         type: string
 
+# A newer main push supersedes an image still waiting or building; a
+# dispatched rebuild of a named revision is never cancelled.
 concurrency:
-  group: ts-orchestrator-image-${{ forgejo.sha }}
-  cancel-in-progress: false
+  group: ts-orchestrator-image-${{ forgejo.event_name == 'push' && 'main' || inputs.source_revision || forgejo.sha }}
+  cancel-in-progress: ${{ forgejo.event_name == 'push' }}
 
 jobs:
   image:
     if: ${{ forgejo.ref == 'refs/heads/main' }}
     name: build/qualified-gru-arm64-image
     runs-on: terrascale-builder
-    timeout-minutes: 240
+    timeout-minutes: 60
     env:
-      SOURCE_SHA: ${{ forgejo.sha }}
-      SOURCE_REF: ${{ forgejo.ref }}
-      CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
-      CANDIDATE_RUN_NUMBER: ${{ inputs.candidate_run_number }}
-      IMAGE_INPUT_TAG: ${{ inputs.image_input_tag }}
-      IMAGE_INPUT_MANIFEST_SHA256: ${{ inputs.image_input_manifest_sha256 }}
-      IMAGE_INPUT_MANIFEST_BYTES: ${{ inputs.image_input_manifest_bytes }}
+      SOURCE_SHA: ${{ inputs.source_revision || forgejo.sha }}
     steps:
-      - name: Check out the exact qualified source revision
+      - name: Check out the named source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.sha }}
+          ref: ${{ inputs.source_revision || forgejo.sha }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Verify immutable source and image toolchain
+      - name: Verify the source revision and Go toolchain
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "${SOURCE_SHA:?event SHA is required}"
-          test "${SOURCE_REF:?event ref is required}" = refs/heads/main
+          [[ ${SOURCE_SHA} =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           test "$(go env GOVERSION)" = go1.27.1
-          for tool in fj jq nix readelf sha256sum; do
-            command -v "${tool}" >/dev/null
-          done
-          printf 'source=%s tree=%s go=%s\n' \
-            "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')" "$(go env GOVERSION)"
+          printf 'source=%s tree=%s kvm=%s\n' "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')" \
+            "$([[ -w /dev/kvm ]] && echo available || echo unavailable)"
 
       - name: Prepare pinned Forgejo admission client
         shell: bash
         run: |
           set -euo pipefail
-          export TS_FJ_ADMISSION_CACHE_DIR="${TS_FJ_ADMISSION_CACHE_DIR-/cache/ts-orchestrator/fj-admission}"
+          export TS_FJ_ADMISSION_CACHE_DIR=/cache/ts-orchestrator/fj-admission
           bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
           printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
 
-      - name: Preflight authenticated image-input attachment
+      - name: Configure Forgejo read and write access
         shell: bash
         env:
           FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+          FORGEJO_WRITE_TOKEN: ${{ github.token }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
-        run: bash scripts/ci/preflight-image-input-attachment.sh
+        run: bash scripts/ci/configure-fj-profiles.sh "${RUNNER_TEMP}/forgejo"
 
-      - name: Verify, build, and retain exact image candidate
+      - name: Build the image from the qualified candidate
         shell: bash
         env:
-          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
-          FORGEJO_TOKEN: ${{ github.token }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
+          TS_IMAGE_TOOL_CACHE: file:///cache/nix
         run: |
           set -euo pipefail
-          tool_flake=github:NixOS/nixpkgs/e554fab72f81915600f3f449b786fd9af40439a5
-          test "$(nix flake metadata --json "${tool_flake}" | jq -r .locked.narHash)" = \
-            'sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM='
-          nix shell \
-            "${tool_flake}#qemu" \
-            "${tool_flake}#guestfs-tools" \
-            "${tool_flake}#libguestfs-with-appliance" \
-            "${tool_flake}#systemd" \
-            "${tool_flake}#gnupg" \
-            --command bash deploy/image/build-ci.sh
+          XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/read" \
+          FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
+            bash deploy/image/tools.sh \
+            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 2700
+
+      - name: Retain the image release
+        shell: bash
+        run: |
+          set -euo pipefail
+          XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/write" FJ_READ_PROFILE="${RUNNER_TEMP}/forgejo/read" \
+            bash deploy/image/publish-image.sh dist/image

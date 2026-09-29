@@ -11,7 +11,7 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify format-check python-test test vet race-test build build-linux release-linux run host check clean
+.PHONY: verify format-check python-test test vet race-test build build-linux release-linux image run host check clean
 
 verify: format-check python-test vet race-test
 
@@ -48,6 +48,12 @@ release-linux:
 	mkdir -p dist
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -o dist/terrascale-orchestrator-linux-amd64 $(APP)
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -o dist/terrascale-orchestrator-linux-arm64 $(APP)
+
+# Build the host image for a CI-qualified main revision on this machine:
+# make image SOURCE=<full sha> [IMAGE_OUT=<directory>]
+image:
+	@test -n "$(SOURCE)" || { echo 'usage: make image SOURCE=<full sha> [IMAGE_OUT=<directory>]' >&2; exit 2; }
+	bash scripts/ci/build-image-local.sh $(SOURCE) $(IMAGE_OUT)
 
 run:
 	$(GO) run $(APP) run --config $(CONFIG)
