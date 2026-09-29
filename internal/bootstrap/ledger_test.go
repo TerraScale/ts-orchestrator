@@ -145,7 +145,7 @@ func TestConcurrentInitialReservationAndManifestConflict(t *testing.T) {
 		t.Fatalf("decode initial HEAD fixture: %v", err)
 	}
 	resignedHead := fixture.signInterval(t, scope, domainBootstrapHead, storedHead,
-		fixture.now.Add(time.Second), fixture.now.Add(time.Hour))
+		fixture.now, fixture.now.Add(time.Hour))
 	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, resignedHead); !errors.Is(err, ErrSlotHeadConflict) {
 		t.Fatalf("different signed bytes with the same HEAD payload returned %v, want exact-byte conflict", err)
 	}

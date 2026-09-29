@@ -1232,7 +1232,8 @@ func TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult(t *te
 		t.Fatal(err)
 	}
 	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
-	fake.now = fixture.now.Add(2 * time.Second)
+	fixture.now = fixture.now.Add(2 * time.Second)
+	fake.now = fixture.now
 	objects.now = fake.now
 	if err := caller.completePeer(t.Context(), slot, observed); err != nil {
 		t.Fatalf("stale exact observation did not reobserve: %v", err)
@@ -1282,7 +1283,8 @@ func TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance(t *testing.T) {
 	advanced := false
 	fake.afterBoot = func() {
 		if !advanced {
-			objects.now = fixture.now.Add(12 * time.Second)
+			fixture.now = fixture.now.Add(12 * time.Second)
+			objects.now = fixture.now
 			fake.now = objects.now
 			advanced = true
 		}

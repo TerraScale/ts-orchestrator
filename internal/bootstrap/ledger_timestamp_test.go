@@ -27,11 +27,21 @@ func TestWaitForLedgerRecordStorageBoundary(t *testing.T) {
 		ExpiresAt: firstStorageAt.Add(2 * time.Second),
 	}
 
-	if err := waitForLedgerRecordStorageBoundary(t.Context(), envelope); err != nil {
+	if err := waitForLedgerRecordStorageBoundary(t.Context(), envelope, time.Now); err != nil {
 		t.Fatalf("wait for signed storage boundary: %v", err)
 	}
 	if got := time.Now().UTC().Truncate(time.Second); got.Before(firstStorageAt) {
 		t.Fatalf("returned before the signed whole-second boundary: got %s, want at least %s", got, firstStorageAt)
+	}
+}
+
+func TestWaitForLedgerRecordStorageBoundaryRejectsFrozenClock(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second)
+	issuedAt := base.Add(time.Second + 100*time.Millisecond)
+	envelope := trust.Envelope{IssuedAt: issuedAt, ExpiresAt: base.Add(4 * time.Second)}
+	clock := base.Add(1900 * time.Millisecond)
+	if err := waitForLedgerRecordStorageBoundary(t.Context(), envelope, func() time.Time { return clock }); !errors.Is(err, ErrRecordAuthorization) {
+		t.Fatalf("wait with a frozen clock = %v, want ErrRecordAuthorization", err)
 	}
 }
 
@@ -74,6 +84,23 @@ func TestPutObjectAfterTimestampBoundaryDoesNotAttemptPreflightFailures(t *testi
 		}
 		if got := client.putCalls.Load(); got != 0 {
 			t.Fatalf("cancelled PUT calls = %d, want 0", got)
+		}
+	})
+
+	t.Run("cancelled while waiting for signed boundary", func(t *testing.T) {
+		client := newFakeObjectStorageClient()
+		ledger := &Ledger{client: client}
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+		defer cancel()
+		issuedAt := time.Now().UTC().Add(time.Minute)
+		_, err, attempted := ledger.putObjectAfterTimestampBoundary(ctx, objectStoragePutRequestForTest(), trust.Envelope{
+			IssuedAt: issuedAt, ExpiresAt: issuedAt.Add(time.Minute),
+		})
+		if !errors.Is(err, context.DeadlineExceeded) || attempted {
+			t.Fatalf("cancelled boundary wait PUT = (%v, %t), want deadline before an attempted PUT", err, attempted)
+		}
+		if got := client.putCalls.Load(); got != 0 {
+			t.Fatalf("cancelled boundary wait PUT calls = %d, want 0", got)
 		}
 	})
 

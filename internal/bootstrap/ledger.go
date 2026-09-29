@@ -290,7 +290,7 @@ func (ledger *Ledger) putObjectAfterTimestampBoundary(
 	request objectstorage.PutObjectRequest,
 	envelope trust.Envelope,
 ) (objectstorage.PutObjectResponse, error, bool) {
-	if err := waitForLedgerRecordStorageBoundary(ctx, envelope); err != nil {
+	if err := waitForLedgerRecordStorageBoundary(ctx, envelope, ledger.now); err != nil {
 		return objectstorage.PutObjectResponse{}, err, false
 	}
 	if err := ledger.validateCurrentAuthority(); err != nil {
@@ -306,7 +306,7 @@ func (ledger *Ledger) putObjectAfterTimestampBoundary(
 	return response, err, true
 }
 
-func waitForLedgerRecordStorageBoundary(ctx context.Context, envelope trust.Envelope) error {
+func waitForLedgerRecordStorageBoundary(ctx context.Context, envelope trust.Envelope, now func() time.Time) error {
 	storageAt, err := firstLedgerRecordStorageBucket(envelope)
 	if err != nil {
 		return err
@@ -318,10 +318,11 @@ func waitForLedgerRecordStorageBoundary(ctx context.Context, envelope trust.Enve
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !time.Now().UTC().Truncate(time.Second).Before(storageAt) {
+		current := now().UTC()
+		if !current.Truncate(time.Second).Before(storageAt) {
 			return nil
 		}
-		wait := time.Until(storageAt)
+		wait := storageAt.Sub(current)
 		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
@@ -333,6 +334,12 @@ func waitForLedgerRecordStorageBoundary(ctx context.Context, envelope trust.Enve
 			}
 			return ctx.Err()
 		case <-timer.C:
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !now().After(current) {
+				return fmt.Errorf("%w: storage boundary clock did not advance", ErrRecordAuthorization)
+			}
 		}
 	}
 }
