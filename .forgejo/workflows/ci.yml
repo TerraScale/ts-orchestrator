@@ -42,47 +42,9 @@ jobs:
           printf 'source=%s tree=%s go=%s\n' \
             "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
 
-      - name: Verify Go and Python contract tests
+      - name: Check, test and build static binaries in parallel
         shell: bash
-        run: make verify GO=go GOFMT=gofmt
-
-      - name: Build and verify static source-matched binaries
-        shell: bash
-        run: |
-          set -euo pipefail
-          make release-linux GO=go GOFMT=gofmt
-
-          for pair in \
-            "linux-amd64:Advanced Micro Devices X86-64" \
-            "linux-arm64:AArch64"; do
-            asset="${pair%%:*}"
-            expected_machine="${pair#*:}"
-            executable="dist/terrascale-orchestrator-${asset}"
-            test -s "${executable}"
-
-            machine="$(readelf -h "${executable}" | awk -F: '/Machine:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2}')"
-            test "${machine}" = "${expected_machine}"
-            if readelf -l "${executable}" | grep -Fq 'INTERP'; then
-              echo "${executable} contains a dynamic interpreter" >&2
-              exit 1
-            fi
-            if readelf -d "${executable}" 2>/dev/null | grep -Eq 'NEEDED'; then
-              echo "${executable} has dynamic library dependencies" >&2
-              exit 1
-            fi
-
-            build_info="$(go version -m "${executable}")"
-            grep -Fq "vcs.revision=${SOURCE_SHA}" <<<"${build_info}"
-            grep -Fq 'vcs.modified=false' <<<"${build_info}"
-            printf 'verified %s machine=%s bytes=%s sha256=%s source=%s\n' \
-              "${executable}" "${machine}" "$(stat -c '%s' "${executable}")" \
-              "$(sha256sum "${executable}" | awk '{print $1}')" "${SOURCE_SHA}"
-          done
-
-          (cd dist && sha256sum \
-            terrascale-orchestrator-linux-amd64 \
-            terrascale-orchestrator-linux-arm64) > dist/SHA256SUMS
-          cat dist/SHA256SUMS
+        run: make ci-verify GO=go GOFMT=gofmt
 
       - name: Prepare pinned Forgejo admission client
         shell: bash
