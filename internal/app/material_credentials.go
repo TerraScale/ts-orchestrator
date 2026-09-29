@@ -21,10 +21,6 @@ import (
 const maxCredentialRequestBytes = 16 << 10
 const maxCredentialReplyBytes = 512 << 10
 
-func materialCredentialsSubject(cell string) string {
-	return "ts.orch.v1." + cell + ".material.credentials"
-}
-
 type materialCredentialsReply struct {
 	Credential managedmaterial.CredentialReply `json:"credential"`
 	Status     string                          `json:"status"`
@@ -71,7 +67,7 @@ func operatorMaterialCredentials(ctx context.Context, cfg Config, runtime *natsc
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
-		Region: cfg.NATS.Cell, Kind: "material.credentials", Actor: cfg.Operator.Actor,
+		Region: cfg.NATS.Cell, Kind: managedKindCredentials, Actor: cfg.Operator.Actor,
 		OperationID: request.OperationID, Generation: request.ExpectedGeneration + 1,
 		Epoch: snapshot.Epoch,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
@@ -84,7 +80,7 @@ func operatorMaterialCredentials(ctx context.Context, cfg Config, runtime *natsc
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	message, err := runtime.Conn().RequestWithContext(requestCtx, materialCredentialsSubject(cfg.NATS.Cell), wire)
+	message, err := runtime.Conn().RequestWithContext(requestCtx, managedAdmissionSubject(cfg.NATS.Cell), wire)
 	if err != nil {
 		return fmt.Errorf("request client credential change: %w", err)
 	}
@@ -108,10 +104,8 @@ func operatorMaterialCredentials(ctx context.Context, cfg Config, runtime *natsc
 func serveMaterialCredentials(ctx context.Context, conn *nats.Conn, cell string,
 	policy signerPolicy, service managedmaterial.CredentialService,
 ) (*nats.Subscription, error) {
-	return conn.Subscribe(materialCredentialsSubject(cell), func(message *nats.Msg) {
-		if message.Reply == "" || len(message.Data) == 0 ||
-			len(message.Data) > maxCredentialRequestBytes+4096 ||
-			!service.Preparation.Fencer.Current().CanMutate() {
+	return serveManagedAdmissionKind(ctx, conn, cell, managedKindCredentials, func(ctx context.Context, message *nats.Msg) {
+		if len(message.Data) > maxCredentialRequestBytes+4096 || !service.Preparation.Fencer.Current().CanMutate() {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -148,7 +142,7 @@ func verifyAndApplyMaterialCredentials(ctx context.Context, wire []byte, cell st
 		return materialCredentialsReply{}, errors.New("client credential request signer is invalid")
 	}
 	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{
-		Region: cell, Kind: "material.credentials", Actor: trusted.Actor,
+		Region: cell, Kind: managedKindCredentials, Actor: trusted.Actor,
 		OperationID: request.OperationID, Generation: request.ExpectedGeneration + 1,
 		Epoch: envelope.Epoch,
 	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{

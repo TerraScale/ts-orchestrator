@@ -90,7 +90,7 @@ func newLeaf(ca *x509.Certificate, caKey ed25519.PrivateKey, caPEM []byte, name 
 }
 
 func signedAuthority(signingKey ed25519.PrivateKey, members [2]memberCertificate) ([]byte, string, string, error) {
-	catalog, err := managedmaterial.EmptyInitialCatalog(collectionID)
+	catalog, err := managedmaterial.InitialCatalog(collectionID, nil)
 	if err != nil {
 		return nil, "", "", err
 	}

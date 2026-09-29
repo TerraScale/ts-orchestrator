@@ -682,6 +682,15 @@ func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, 
 	return seats, nil
 }
 
+// RegionSeatIDs returns one region's fixed seat IDs in placement order: the
+// permanent seat (first configured fault domain), then the elastic seat.
+func RegionSeatIDs(region oci.Region) ([2]string, error) {
+	if !knownRegion(region) {
+		return [2]string{}, fmt.Errorf("%w: unsupported region %q", ErrInvalidIntent, region)
+	}
+	return [2]string{permanentMember(region), elasticMember(region)}, nil
+}
+
 func permanentMember(region oci.Region) string {
 	switch region {
 	case oci.RegionGRU:

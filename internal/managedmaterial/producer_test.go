@@ -35,11 +35,11 @@ func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.Private
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := EmptyInitialCatalog("30000000-0000-0000-0000-000000000001")
+	firstCatalog, err := InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCatalog, err := EmptyInitialCatalog("30000000-0000-0000-0000-000000000002")
+	secondCatalog, err := InitialCatalog("30000000-0000-0000-0000-000000000002", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,11 +542,11 @@ func TestExportSQLProcessPacket(t *testing.T) {
 	defer os.RemoveAll(staging)
 
 	spec, _, recipient := initialFixture(t)
-	activeCatalog, err := EmptyInitialCatalog("21212121-2121-2121-2121-212121212121")
+	activeCatalog, err := InitialCatalog("21212121-2121-2121-2121-212121212121", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	inactiveCatalog, err := EmptyInitialCatalog("22222222-2222-2222-2222-222222222222")
+	inactiveCatalog, err := InitialCatalog("22222222-2222-2222-2222-222222222222", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,7 +727,7 @@ func TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts(t *testing.T) {
 	})
 	t.Run("table ID reuses catalog identity", func(t *testing.T) {
 		spec, signer, _ := initialSQLFixture(t)
-		catalog, err := EmptyInitialCatalog(spec.SQLTables[0].TableID)
+		catalog, err := InitialCatalog(spec.SQLTables[0].TableID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

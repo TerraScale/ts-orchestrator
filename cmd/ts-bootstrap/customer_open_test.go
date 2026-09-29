@@ -44,7 +44,7 @@ func customerOpenFixture(t *testing.T) (string, string, string, string, managedm
 	if err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := managedmaterial.EmptyInitialCatalog("30000000-0000-0000-0000-000000000001")
+	catalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

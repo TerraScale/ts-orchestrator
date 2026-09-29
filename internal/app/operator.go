@@ -54,9 +54,14 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-deploy|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
+	if operation == "terrabase-walkthrough" {
+		// The customer walkthrough uses only the deployment state and the
+		// members' HTTPS listeners, never the controller or NATS.
+		return runTerraBaseWalkthrough(ctx, args[1:], output)
+	}
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "JSON role configuration")
@@ -67,6 +72,9 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	role := flags.String("role", "", "artifact role")
 	environment := flags.String("environment", "", "artifact environment")
 	intentPath := flags.String("intent", "", "JSON delivery intent")
+	planPath := flags.String("plan", "", "TerraBase deployment plan JSON")
+	statePath := flags.String("state", "", "owner-only TerraBase deployment state directory")
+	wait := flags.Duration("wait", 0, "wait until every member serves or this duration passes")
 	databaseID := flags.String("database-id", "", "managed database ID")
 	partitionID := flags.String("partition-id", "", "managed partition ID")
 	registrationPath := flags.String("registration", "", "JSON host registration")
@@ -110,6 +118,16 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	switch operation {
+	case "terrabase-deploy":
+		if *planPath == "" || *statePath == "" {
+			return errors.New("terrabase-deploy requires --plan FILE and --state DIR")
+		}
+		return operatorTerraBaseDeploy(ctx, cfg, runtime, *planPath, *statePath, output)
+	case "terrabase-status":
+		if *statePath == "" || *wait < 0 {
+			return errors.New("terrabase-status requires --state DIR and a nonnegative --wait")
+		}
+		return operatorTerraBaseStatus(ctx, cfg, runtime, *statePath, *wait, output)
 	case "hosts":
 		return operatorHosts(ctx, cfg, runtime, output)
 	case "host-register":
@@ -146,11 +164,6 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorBackupOperation(ctx, cfg, runtime, "abort", *databaseID, *partitionID, *operationID, "", output)
 	case "backup-status":
 		return operatorBackupOperation(ctx, cfg, runtime, "status", *databaseID, *partitionID, *operationID, *historyCursor, output)
-	case "material-prepare":
-		if *intentPath == "" {
-			return errors.New("material-prepare requires --intent FILE")
-		}
-		return operatorMaterialPrepare(ctx, cfg, runtime, *intentPath, output)
 	case "material-credentials":
 		if *intentPath == "" {
 			return errors.New("material-credentials requires --intent FILE")
@@ -209,26 +222,37 @@ func operatorService(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 }
 
 func operatorArtifactPush(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, claim delivery.ArtifactClaimRequest, output io.Writer) error {
+	record, err := pushArtifact(ctx, cfg, runtime, path, claim)
+	if err != nil {
+		return err
+	}
+	return printJSON(output, record)
+}
+
+// pushArtifact stores the exact file bytes in the regional artifact store and
+// requests their signed admission. Both effects are idempotent for one digest
+// and claim, so reruns re-confirm an already admitted artifact.
+func pushArtifact(ctx context.Context, cfg Config, runtime *natscell.Runtime, path string, claim delivery.ArtifactClaimRequest) (delivery.ArtifactRecord, error) {
 	service, activeRuntime, err := bindArtifactPushClient(ctx, cfg, runtime)
 	if activeRuntime != nil && activeRuntime != runtime {
 		defer activeRuntime.Close()
 	}
 	if err != nil {
-		return err
+		return delivery.ArtifactRecord{}, err
 	}
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return delivery.ArtifactRecord{}, err
 	}
 	defer file.Close()
 	record, signedClaim, err := service.PrepareArtifact(ctx, file, claim)
 	if err != nil {
-		return err
+		return delivery.ArtifactRecord{}, err
 	}
 	if err := requestArtifactAdmission(ctx, activeRuntime.Conn(), cfg.NATS.Cell, record, signedClaim); err != nil {
-		return err
+		return delivery.ArtifactRecord{}, err
 	}
-	return printJSON(output, record)
+	return record, nil
 }
 
 // Reuse the exact signed claim during the 30-second recovery window. A replay

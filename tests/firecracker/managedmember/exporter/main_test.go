@@ -63,7 +63,7 @@ func TestAuthoritySeedRequiresProtectedFileAndIndependentPin(t *testing.T) {
 }
 
 func TestEmptyCatalogSchemaDigest(t *testing.T) {
-	catalog, err := managedmaterial.EmptyInitialCatalog(collectionID)
+	catalog, err := managedmaterial.InitialCatalog(collectionID, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

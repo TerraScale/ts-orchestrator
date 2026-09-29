@@ -123,11 +123,11 @@ func TestSignedOperatorPreparationCommitsExactMaterialAndReturnsCiphertext(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstCatalog, err := managedmaterial.EmptyInitialCatalog("30000000-0000-0000-0000-000000000001")
+	firstCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000001", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	secondCatalog, err := managedmaterial.EmptyInitialCatalog("30000000-0000-0000-0000-000000000002")
+	secondCatalog, err := managedmaterial.InitialCatalog("30000000-0000-0000-0000-000000000002", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

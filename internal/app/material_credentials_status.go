@@ -44,10 +44,6 @@ type materialCredentialStatusReply struct {
 	Members           [2]materialCredentialMemberStatus `json:"members"`
 }
 
-func materialCredentialsStatusSubject(cell string) string {
-	return "ts.orch.v1." + cell + ".material.credentials.status"
-}
-
 func operatorMaterialCredentialsStatus(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	path string, output io.Writer,
 ) error {
@@ -87,7 +83,7 @@ func operatorMaterialCredentialsStatus(ctx context.Context, cfg Config, runtime 
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
-		Region: cfg.NATS.Cell, Kind: "material.credentials.status", Actor: cfg.Operator.Actor,
+		Region: cfg.NATS.Cell, Kind: managedKindCredentialStatus, Actor: cfg.Operator.Actor,
 		OperationID: request.OperationID, Generation: request.Generation, Epoch: snapshot,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
@@ -100,7 +96,7 @@ func operatorMaterialCredentialsStatus(ctx context.Context, cfg Config, runtime 
 	requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	message, err := runtime.Conn().RequestWithContext(requestCtx,
-		materialCredentialsStatusSubject(cfg.NATS.Cell), wire)
+		managedAdmissionSubject(cfg.NATS.Cell), wire)
 	if err != nil {
 		return fmt.Errorf("request client credential status: %w", err)
 	}
@@ -147,9 +143,8 @@ func authoritySnapshot(ctx context.Context, runtime *natscell.Runtime, cell stri
 func serveMaterialCredentialStatus(ctx context.Context, conn *nats.Conn, cell string,
 	policy signerPolicy, service managedmaterial.CredentialService, hosts *host.Controller,
 ) (*nats.Subscription, error) {
-	return conn.Subscribe(materialCredentialsStatusSubject(cell), func(message *nats.Msg) {
-		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxCredentialRequestBytes+4096 ||
-			!service.Preparation.Fencer.Current().CanMutate() {
+	return serveManagedAdmissionKind(ctx, conn, cell, managedKindCredentialStatus, func(ctx context.Context, message *nats.Msg) {
+		if len(message.Data) > maxCredentialRequestBytes+4096 || !service.Preparation.Fencer.Current().CanMutate() {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -197,7 +192,7 @@ func readMaterialCredentialStatus(ctx context.Context, wire []byte, cell string,
 		return materialCredentialStatusReply{}, request, 0, errors.New("client credential status is not authorized")
 	}
 	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{
-		Region: cell, Kind: "material.credentials.status", Actor: trusted.Actor,
+		Region: cell, Kind: managedKindCredentialStatus, Actor: trusted.Actor,
 		OperationID: request.OperationID, Generation: request.Generation, Epoch: envelope.Epoch,
 	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{
 		MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second,

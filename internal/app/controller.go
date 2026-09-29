@@ -351,10 +351,17 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				Preparation: *materialService, Store: control},
 			policy: policy, responseKey: responseKey}
 	}
+	placementHolds := new(placementHoldLog)
 	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
-			func(err error) { log.Printf("TerraBase placement reconciliation: %v", err) },
-			func(reason string) { log.Printf("TerraBase placement held: %s", reason) }),
+			func(err error) {
+				log.Printf("TerraBase placement reconciliation: %v", err)
+				placementHolds.record("reconciliation error: " + err.Error())
+			},
+			func(reason string) {
+				log.Printf("TerraBase placement held: %s", reason)
+				placementHolds.record(reason)
+			}),
 			placementStore, control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
@@ -419,6 +426,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer placementSub.Unsubscribe()
 	if managed != nil {
+		statusSub, err := servePlacementStatus(runCtx, runtime.Conn(), placementStatusSource{cell: cfg.NATS.Cell,
+			policy: policy, control: control, placements: placementStore, hosts: hostController,
+			holds: placementHolds, responseKey: responseKey})
+		if err != nil {
+			return fmt.Errorf("serve TerraBase placement status: %w", err)
+		}
+		defer statusSub.Unsubscribe()
 		managedUpdateSub, err := serveManagedUpdateAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell,
 			policy, control, managedController, service)
 		if err != nil {

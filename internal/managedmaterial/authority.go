@@ -59,21 +59,55 @@ type SignedAuthority struct {
 	MemberLeafPins  [2]string
 }
 
-// EmptyInitialCatalog produces a generation-one schema with no fields or relationships.
-func EmptyInitialCatalog(collectionID string) (AuthorityCatalog, error) {
+// CatalogUTF8Field is one optional, non-nullable top-level UTF-8 document
+// field in a generation-one TBSCH001 schema.
+type CatalogUTF8Field struct {
+	ID   uint32
+	Name string
+}
+
+// TerraBase TBSCH001 field type and flag codes (tb-format document schema).
+const (
+	schemaFieldTypeUTF8 = 4
+	maxCatalogFields    = 256
+)
+
+// InitialCatalog produces a generation-one TBCAT001 envelope around a
+// TBSCH001 schema with the given optional UTF-8 fields and no relationships.
+func InitialCatalog(collectionID string, fields []CatalogUTF8Field) (AuthorityCatalog, error) {
 	collection, err := canonicalUUID(collectionID)
 	if err != nil {
 		return AuthorityCatalog{}, err
 	}
-	schema := make([]byte, 0, 18)
+	if len(fields) > maxCatalogFields {
+		return AuthorityCatalog{}, errors.New("initial catalog has too many fields")
+	}
+	schema := make([]byte, 0, 64)
 	schema = append(schema, "TBSCH001"...)
-	schema = binary.LittleEndian.AppendUint32(schema, 18)
-	schema = binary.LittleEndian.AppendUint16(schema, 0)
+	schema = binary.LittleEndian.AppendUint32(schema, 0)
+	schema = binary.LittleEndian.AppendUint16(schema, uint16(len(fields)))
+	seen := make(map[uint32]struct{}, len(fields))
+	names := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		_, repeatedID := seen[field.ID]
+		_, repeatedName := names[field.Name]
+		if field.ID == 0 || repeatedID || repeatedName || !validCatalogFieldName(field.Name) {
+			return AuthorityCatalog{}, errors.New("initial catalog field is invalid or repeated")
+		}
+		seen[field.ID], names[field.Name] = struct{}{}, struct{}{}
+		schema = binary.LittleEndian.AppendUint32(schema, field.ID)
+		schema = binary.LittleEndian.AppendUint32(schema, 0)
+		schema = append(schema, schemaFieldTypeUTF8, 0, 0)
+		schema = binary.LittleEndian.AppendUint16(schema, uint16(len(field.Name)))
+		schema = append(schema, field.Name...)
+	}
+	binary.LittleEndian.PutUint32(schema[8:12], uint32(len(schema)+4))
 	schema = binary.LittleEndian.AppendUint32(schema, crc32.Checksum(schema, authorityCRC))
 	digest := sha256.Sum256(schema)
-	catalog := make([]byte, 0, 102)
+	size := 84 + len(schema)
+	catalog := make([]byte, 0, size)
 	catalog = append(catalog, "TBCAT001"...)
-	catalog = binary.LittleEndian.AppendUint32(catalog, 102)
+	catalog = binary.LittleEndian.AppendUint32(catalog, uint32(size))
 	catalog = append(catalog, collection[:]...)
 	catalog = binary.LittleEndian.AppendUint64(catalog, 1)
 	catalog = binary.LittleEndian.AppendUint64(catalog, 0)
@@ -83,6 +117,18 @@ func EmptyInitialCatalog(collectionID string) (AuthorityCatalog, error) {
 	catalog = binary.LittleEndian.AppendUint32(catalog, crc32.Checksum(catalog, authorityCRC))
 	return AuthorityCatalog{CollectionID: collectionID, SchemaGeneration: 1,
 		SchemaDigest: hex.EncodeToString(digest[:]), Bytes: catalog}, nil
+}
+
+func validCatalogFieldName(name string) bool {
+	if len(name) == 0 || len(name) > 64 || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for index := range len(name) {
+		if !lowerAlphaNumeric(name[index]) && name[index] != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // SignInitialAuthorityV2 encodes the fixed TBCAU002 grammar consumed by the

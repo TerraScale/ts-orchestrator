@@ -2,16 +2,12 @@ package main
 
 import (
 	"bytes"
-	"crypto/ecdh"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -96,7 +92,7 @@ func openRotatedCustomerMaterialAt(args []string) error {
 	if err != nil || !bytes.Equal(retainedSpecWire, expectedSpecWire) {
 		return errors.New("retained initial material spec differs from signed receipt")
 	}
-	recipient, err := readOwnerRecipientKey(*recipientPath)
+	recipient, err := managedmaterial.ReadRecipientKey(*recipientPath)
 	if err != nil {
 		return err
 	}
@@ -155,7 +151,7 @@ func openCustomerMaterialAt(args []string) error {
 		controllerKey, *cell, spec.PartitionID, spec); err != nil {
 		return fmt.Errorf("verify signed material preparation reply: %w", err)
 	}
-	recipient, err := readOwnerRecipientKey(*recipientPath)
+	recipient, err := managedmaterial.ReadRecipientKey(*recipientPath)
 	if err != nil {
 		return err
 	}
@@ -169,41 +165,6 @@ func openCustomerMaterialAt(args []string) error {
 	}
 	defer clear(output)
 	return writeNewCustomerMaterial(*outputPath, output)
-}
-
-func readOwnerRecipientKey(path string) (*ecdh.PrivateKey, error) {
-	file, err := openRegular(path)
-	if err != nil {
-		return nil, fmt.Errorf("open recipient key: %w", err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil || info.Size() <= 0 || info.Size() > maxKeyFileBytes ||
-		info.Mode().Perm()&0o077 != 0 {
-		return nil, errors.New("recipient key must be a bounded owner-only regular file")
-	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
-		return nil, errors.New("recipient key must be owned by this process user")
-	}
-	wire, err := io.ReadAll(io.LimitReader(file, maxKeyFileBytes+1))
-	if err != nil || len(wire) == 0 || len(wire) > maxKeyFileBytes {
-		return nil, errors.New("recipient key cannot be read within its size limit")
-	}
-	defer clear(wire)
-	block, rest := pem.Decode(wire)
-	if block == nil || block.Type != "PRIVATE KEY" || len(block.Headers) != 0 ||
-		len(bytes.TrimSpace(rest)) != 0 {
-		return nil, errors.New("recipient key must be X25519 PKCS#8 PEM")
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, errors.New("recipient key must be X25519 PKCS#8 PEM")
-	}
-	private, ok := parsed.(*ecdh.PrivateKey)
-	if !ok || private.Curve() != ecdh.X25519() {
-		return nil, errors.New("recipient key must be X25519 PKCS#8 PEM")
-	}
-	return private, nil
 }
 
 // A complete, synced 0600 temporary file becomes visible at the output path

@@ -23,8 +23,6 @@ import (
 const maxPlacementIntentBytes = 16 << 10
 const maxPlacementWireBytes = maxPlacementIntentBytes + 4096
 
-func placementApplySubject(cell string) string { return "ts.orch.v1." + cell + ".placement.apply" }
-
 func placementOperationID(intent placement.Intent) string {
 	return intent.OperationID()
 }
@@ -45,69 +43,77 @@ func operatorPlacementApply(ctx context.Context, cfg Config, runtime *natscell.R
 	if err := json.Unmarshal(data, &intent, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("parse placement intent: %w", err)
 	}
-	if err := intent.ValidateForAdmission(); err != nil {
+	response, err := applyPlacement(ctx, cfg, runtime, intent)
+	if err != nil {
 		return err
 	}
+	return printJSON(output, response)
+}
+
+// applyPlacement signs one schema-5 intent for the current authority epoch and
+// requests its admission. Admission is idempotent for identical bytes, so a
+// timed-out request is retried with the same signed envelope.
+func applyPlacement(ctx context.Context, cfg Config, runtime *natscell.Runtime, intent placement.Intent) (placementApplyResponse, error) {
+	if err := intent.ValidateForAdmission(); err != nil {
+		return placementApplyResponse{}, err
+	}
 	if !intentSelectsCell(intent, cfg.NATS.Cell) {
-		return errors.New("placement intent does not select this regional cell")
+		return placementApplyResponse{}, errors.New("placement intent does not select this regional cell")
 	}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
-		return err
+		return placementApplyResponse{}, err
 	}
 	grant, exists := policy.grants[cfg.Operator.Actor]
 	if !exists || !grant.CanPlaceTerraBase {
-		return errors.New("operator is not authorized to apply TerraBase placement")
+		return placementApplyResponse{}, errors.New("operator is not authorized to apply TerraBase placement")
 	}
 	codec, err := policy.withOperator(cfg.Operator)
 	if err != nil {
-		return err
+		return placementApplyResponse{}, err
 	}
-	snapshot, err := authority.Observe(ctx, runtime.JetStream(), cfg.NATS.Cell)
+	epoch, err := authoritySnapshot(ctx, runtime, cfg.NATS.Cell)
 	if err != nil {
-		return err
-	}
-	if !snapshot.Ready || snapshot.Reason != "observed" || snapshot.Epoch == 0 || !time.Now().Before(snapshot.ExpiresAt) {
-		return errors.New("regional authority lease is not current")
+		return placementApplyResponse{}, err
 	}
 	payload, err := protocol.EncodeJSON(intent)
 	if err != nil {
-		return err
+		return placementApplyResponse{}, err
 	}
 	now := time.Now().UTC()
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{
-		Region: cfg.NATS.Cell, Kind: "placement.intent", Actor: cfg.Operator.Actor,
-		OperationID: placementOperationID(intent), Generation: intent.Generation, Epoch: snapshot.Epoch,
+		Region: cfg.NATS.Cell, Kind: managedKindPlacement, Actor: cfg.Operator.Actor,
+		OperationID: placementOperationID(intent), Generation: intent.Generation, Epoch: epoch,
 	}, now, now.Add(time.Minute), codec.PrivateKey)
 	if err != nil {
-		return err
+		return placementApplyResponse{}, err
 	}
 	wire, err := protocol.EncodeJSON(envelope)
 	if err != nil {
-		return err
+		return placementApplyResponse{}, err
 	}
 	for attempt := range 3 {
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		message, requestErr := runtime.Conn().RequestWithContext(requestCtx, placementApplySubject(cfg.NATS.Cell), wire)
+		message, requestErr := runtime.Conn().RequestWithContext(requestCtx, managedAdmissionSubject(cfg.NATS.Cell), wire)
 		cancel()
 		if requestErr == nil {
 			var response placementApplyResponse
 			if err := json.Unmarshal(message.Data, &response, json.RejectUnknownMembers(true)); err != nil {
-				return fmt.Errorf("decode placement reply: %w", err)
+				return placementApplyResponse{}, fmt.Errorf("decode placement reply: %w", err)
 			}
 			if response.Error != "" {
-				return errors.New(response.Error)
+				return placementApplyResponse{}, errors.New(response.Error)
 			}
 			if response.DatabaseID != intent.DatabaseID || response.PartitionID != intent.PartitionID || response.Generation != intent.Generation || response.Sequence == 0 {
-				return errors.New("controller returned a different placement receipt")
+				return placementApplyResponse{}, errors.New("controller returned a different placement receipt")
 			}
-			return printJSON(output, response)
+			return response, nil
 		}
 		if (!errors.Is(requestErr, nats.ErrTimeout) && !errors.Is(requestErr, context.DeadlineExceeded)) || attempt == 2 {
-			return fmt.Errorf("request placement admission: %w", requestErr)
+			return placementApplyResponse{}, fmt.Errorf("request placement admission: %w", requestErr)
 		}
 	}
-	return errors.New("placement admission request exhausted")
+	return placementApplyResponse{}, errors.New("placement admission request exhausted")
 }
 
 type placementApplyResponse struct {
@@ -129,8 +135,8 @@ type placementAdmissionControl interface {
 type placementMaterialAdmission func(context.Context, placement.Intent) error
 
 func servePlacementAdmission(ctx context.Context, conn *nats.Conn, cell string, policy signerPolicy, control *authority.Runtime, material ...placementMaterialAdmission) (*nats.Subscription, error) {
-	return conn.Subscribe(placementApplySubject(cell), func(message *nats.Msg) {
-		if message.Reply == "" || len(message.Data) == 0 || len(message.Data) > maxPlacementWireBytes || !control.Current().CanMutate() {
+	return serveManagedAdmissionKind(ctx, conn, cell, managedKindPlacement, func(ctx context.Context, message *nats.Msg) {
+		if len(message.Data) > maxPlacementWireBytes || !control.Current().CanMutate() {
 			return
 		}
 		requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -173,7 +179,7 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		return placementApplyResponse{}, errors.New("placement signing key is untrusted")
 	}
 	if err := protocol.VerifyEnvelope(envelope, protocol.EnvelopeScope{
-		Region: cell, Kind: "placement.intent", Actor: trusted.Actor,
+		Region: cell, Kind: managedKindPlacement, Actor: trusted.Actor,
 		OperationID: placementOperationID(intent), Generation: intent.Generation, Epoch: envelope.Epoch,
 	}, trusted.PublicKey, time.Now().UTC(), protocol.VerifyPolicy{MaxLifetime: 5 * time.Minute, ClockSkew: 30 * time.Second}); err != nil {
 		return placementApplyResponse{}, err
