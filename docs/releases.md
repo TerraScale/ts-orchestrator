@@ -192,7 +192,8 @@ and must not be represented as authenticated approval.
 
 Every successful `ci.yml` run on `main` ends by dispatching `image.yml` for
 its exact revision (`scripts/ci/dispatch-image.sh`; documentation-only
-commits run neither). An operator can dispatch `image.yml` with
+commits run neither). These automatic builds queue; one that a newer
+qualified revision has overtaken skips itself. An operator can dispatch `image.yml` with
 `source_revision` for any other CI-qualified `main` revision; no run IDs,
 tags or digests are copied by hand. The image job
 (`deploy/image/build-image.sh`, the same script `make image SOURCE=<sha>`

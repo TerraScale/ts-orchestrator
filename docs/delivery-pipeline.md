@@ -56,8 +56,11 @@ for the revision, verifies the manifest, run detail and log marker, and
 builds a deployment-neutral image with `build-offline.sh` (trust roots only;
 identity, anchor and enrollment arrive in launch metadata). The release
 `image-<sha>-run-<id>-attempt-<n>` holds the QCOW2, guest kernel,
-`SHA256SUMS` and `image-qualification.json`. `make image SOURCE=<sha>` runs
-the same build on a developer machine from the same retained release.
+`SHA256SUMS` and `image-qualification.json`. Automatic builds queue rather
+than cancel each other, so a running build always finishes; a queued build
+skips itself once a newer main revision has passed `ci.yml`
+(`scripts/ci/image-superseded.sh`). `make image SOURCE=<sha>` runs the same
+build on a developer machine from the same retained release.
 
 ### 4. Promotion (`deploy/image/promote-image.py`)
 
