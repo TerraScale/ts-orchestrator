@@ -123,12 +123,13 @@ promoted with `--image-dir`.
 
 | Stage | Before | After |
 | --- | --- | --- |
-| Orchestrator `ci.yml` | 7m56s warm (run 705), 13–17 min cold | 4m15s and 4m32s (runs 717, 719) |
-| CI → image handoff | 5 values copied into a manual dispatch | none: run 720 started when run 719 ended |
-| Image job | 27–40 min (runs 698, 702) | 8m39s (run 720) |
-| Image tool setup | about 16 min (fj build, then nixpkgs tools with libguestfs built from source) | fj cache hit 4 s; tools 2m8s from `/cache/nix` (10m31s once, to fill the cache) |
+| Orchestrator `ci.yml` | 7m56s warm (run 705), 13–17 min cold | 1m55s–4m32s (runs 717, 719, 725, 727, 729) |
+| CI → image handoff | 5 values copied into a manual dispatch | none: `ci.yml` dispatches `image.yml` as it ends |
+| Image job | 27–40 min (runs 698, 702) | 6m22s (run 728), 8m30s with a cold base cache (run 726) |
+| Image tool setup | about 16 min (fj build, then nixpkgs tools with libguestfs built from source) | 31 s from pinned store paths in `/cache/nix` (10m31s once, to fill the cache) |
 | Appliance launches per image | 7 under TCG, about 70 s each | 2 |
-| Push → retained image | 45–60 min with hand-copied inputs | about 13 min (commit 6b47734f) |
+| Push → retained image | 45–60 min with hand-copied inputs | about 8½ min, plus any wait for the previous image build |
+| TerraBase `main` → published release | about 17 min, published bytes rebuilt (run 1018) | 7m14s, the tested bytes (run 1020) |
 | Local image build (KVM) | not available | 1m48s (`make image`) |
 | Promotion dry run | about 25 hand-run commands | 1m11s, one command |
 
