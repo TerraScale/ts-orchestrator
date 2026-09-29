@@ -68,7 +68,7 @@ func verifyManagedMountPair(left, right managedMount) error {
 }
 
 // ManagedMountPath is the deterministic host-owned mount target for a signed
-// member attempt. The operator provisions this path below the configured root.
+// member attempt. The agent creates its parent member directory before use.
 func ManagedMountPath(root string, member ManagedMemberBinding) (string, error) {
 	paths, err := runtimePaths(root, ManagedMemberLaunch{Member: member})
 	if err != nil {

@@ -2,6 +2,19 @@
 
 Status: **A and C source snapshots are frozen and accepted; B has matching Go/Rust source support but remains unqualified as an integrated managed launch**. A freezes the reviewed schema-5 placement and bounded member-status source set. C freezes the three-file mounted-volume claim/layout source set. The current Go source also has a managed-volume initialization path, but it has no live OCI guest/device qualification. B's Go caller supplies the pinned managed-material arguments accepted by TerraBase; startup and reload use the same pinned manifest. Existing source tests do not establish a Go-to-TerraBase managed launch on a mounted OCI guest, serving, or drain policy. These observations do not authorize production launch.
 
+## Deployment workflow
+
+The operator deploys, observes and exercises a managed partition with
+`operator terrabase-deploy`, `terrabase-status` and `terrabase-walkthrough`;
+see [TerraBase deployment into a running cell](terrabase-deployment.md). The
+command derives every runtime-manifest pin below from the controller-signed
+preparation receipt. The host agent creates each attempt's root-owned member,
+material (0750) and control (0730) directories below the image-provisioned
+runtime root before material delivery. The mount check pins the mount the
+kernel reports as visible at the member's target, because the host unit's
+own mount namespace lists a propagated volume mount once per slave copy of
+the runtime root; a mount of the device anywhere else is still rejected.
+
 ## Current boundary
 
 The operator's explicit whole-workload teardown path for the current
