@@ -245,7 +245,11 @@ func (ledger *Ledger) createOrReadNamed(ctx context.Context, scope BootstrapScop
 	if err := ledger.validateCurrentAuthority(); err != nil {
 		return StoredRecord{}, err
 	}
-	response, putErr := ledger.client.PutObject(ctx, objectstorage.PutObjectRequest{
+	envelope, err := trust.DecodeEnvelope(body)
+	if err != nil {
+		return StoredRecord{}, fmt.Errorf("%w: decode bootstrap record envelope before write: %v", ErrInvalidRecord, err)
+	}
+	request := objectstorage.PutObjectRequest{
 		NamespaceName:        new(ledger.config.Namespace),
 		BucketName:           new(ledger.config.Bucket),
 		ObjectName:           new(objectName),
@@ -256,8 +260,9 @@ func (ledger *Ledger) createOrReadNamed(ctx context.Context, scope BootstrapScop
 		OpcSseKmsKeyId:       new(ledger.config.KMSKeyID),
 		OpcChecksumAlgorithm: objectstorage.PutObjectOpcChecksumAlgorithmSha256,
 		OpcContentSha256:     &digestHeader,
-	})
-	if putErr != nil && !shouldReadAfterPutError(putErr) {
+	}
+	response, putErr, putAttempted := ledger.putObjectAfterTimestampBoundary(ctx, request, envelope)
+	if putErr != nil && (!putAttempted || !shouldReadAfterPutError(putErr)) {
 		return StoredRecord{}, fmt.Errorf("create immutable bootstrap %s: %w", kind, putErr)
 	}
 	stored, readErr := ledger.readObject(ctx, ledger.config.Bucket, objectName)
@@ -278,6 +283,84 @@ func (ledger *Ledger) createOrReadNamed(ctx context.Context, scope BootstrapScop
 	}
 	stored.Created = putErr == nil
 	return stored, nil
+}
+
+func (ledger *Ledger) putObjectAfterTimestampBoundary(
+	ctx context.Context,
+	request objectstorage.PutObjectRequest,
+	envelope trust.Envelope,
+) (objectstorage.PutObjectResponse, error, bool) {
+	if err := waitForLedgerRecordStorageBoundary(ctx, envelope); err != nil {
+		return objectstorage.PutObjectResponse{}, err, false
+	}
+	if err := ledger.validateCurrentAuthority(); err != nil {
+		return objectstorage.PutObjectResponse{}, err, false
+	}
+	if err := ctx.Err(); err != nil {
+		return objectstorage.PutObjectResponse{}, err, false
+	}
+	if err := validateLedgerRecordStorageBucket(envelope, ledger.now()); err != nil {
+		return objectstorage.PutObjectResponse{}, err, false
+	}
+	response, err := ledger.client.PutObject(ctx, request)
+	return response, err, true
+}
+
+func waitForLedgerRecordStorageBoundary(ctx context.Context, envelope trust.Envelope) error {
+	storageAt, err := firstLedgerRecordStorageBucket(envelope)
+	if err != nil {
+		return err
+	}
+	if !storedBeforeExpiry(storageAt, envelope.ExpiresAt) {
+		return fmt.Errorf("%w: no whole-second Object Storage timestamp fits before signature expiry", ErrRecordAuthorization)
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !time.Now().UTC().Truncate(time.Second).Before(storageAt) {
+			return nil
+		}
+		wait := time.Until(storageAt)
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func firstLedgerRecordStorageBucket(envelope trust.Envelope) (time.Time, error) {
+	if envelope.IssuedAt.IsZero() || envelope.ExpiresAt.IsZero() || !envelope.ExpiresAt.After(envelope.IssuedAt) {
+		return time.Time{}, fmt.Errorf("%w: bootstrap record has no valid signed storage interval", ErrInvalidRecord)
+	}
+	storageAt := envelope.IssuedAt.UTC().Truncate(time.Second)
+	if storageAt.Before(envelope.IssuedAt) {
+		storageAt = storageAt.Add(time.Second)
+	}
+	return storageAt, nil
+}
+
+func validateLedgerRecordStorageBucket(envelope trust.Envelope, now time.Time) error {
+	firstStorageAt, err := firstLedgerRecordStorageBucket(envelope)
+	if err != nil {
+		return err
+	}
+	storageAt := now.UTC().Truncate(time.Second)
+	if storageAt.Before(firstStorageAt) {
+		return fmt.Errorf("%w: current Object Storage timestamp precedes the signed issue boundary", ErrRecordAuthorization)
+	}
+	if !storedBeforeExpiry(storageAt, envelope.ExpiresAt) {
+		return fmt.Errorf("%w: current Object Storage timestamp does not fit before signature expiry", ErrRecordAuthorization)
+	}
+	return nil
 }
 
 func (ledger *Ledger) createOrReadContent(ctx context.Context, scope BootstrapScope, attempt uint64,

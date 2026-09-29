@@ -2403,8 +2403,8 @@ func (ledger *Ledger) writeHead(ctx context.Context, scope BootstrapScope, ifMat
 	if err := ctx.Err(); err != nil {
 		return SlotHead{}, StoredRecord{}, err
 	}
-	response, putErr := ledger.client.PutObject(ctx, request)
-	if putErr != nil && !shouldReadAfterPutError(putErr) {
+	response, putErr, putAttempted := ledger.putObjectAfterTimestampBoundary(ctx, request, headEnvelope)
+	if putErr != nil && (!putAttempted || !shouldReadAfterPutError(putErr)) {
 		return SlotHead{}, StoredRecord{}, fmt.Errorf("update bootstrap slot HEAD: %w", putErr)
 	}
 	stored, readErr := ledger.readObject(ctx, ledger.config.HeadBucket, objectName)

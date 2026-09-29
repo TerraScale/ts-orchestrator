@@ -1258,7 +1258,7 @@ def write_output_bytes(path: pathlib.Path, wire: bytes, mode: int = 0o600) -> No
 
 
 def verify_seed_preflight(plan: dict, inventory_path: pathlib.Path, admission_path: pathlib.Path,
-                          manifest_summary: dict, image_receipt_path: pathlib.Path,
+                          anchor_summary: dict, manifest_summary: dict, image_receipt_path: pathlib.Path,
                           image_verification: str, plan_path: pathlib.Path | None = None) -> dict:
     """Check exact seed launch facts; this command never creates OCI resources."""
     inventory = read_json(inventory_path, MAX_INVENTORY_BYTES, "manual region inventory")
@@ -1312,8 +1312,9 @@ def verify_seed_preflight(plan: dict, inventory_path: pathlib.Path, admission_pa
     check_live_compartments(plan, live_ids)
     check_live_vault(plan, live_ids)
     check_live_network(plan, live_ids)
-    check_live_buckets(plan, live_ids)
-    check_live_iam(plan, live_ids)
+    namespace = check_live_buckets(plan, live_ids)
+    storage_prefix = verified_anchor_storage_prefix(plan, live_ids, anchor_summary, manifest_summary, namespace)
+    check_live_iam(plan, live_ids, storage_prefix)
     seed = next(host for host in plan["hosts"] if host["slot"] == "controller-a")
     profile = manifest_summary.get("profile")
     if (manifest_summary.get("schemaVersion") != 2 or manifest_summary.get("cell") != plan["cell"] or
@@ -1368,6 +1369,11 @@ def checked_tool(*command: str) -> str:
 def seed_preflight(args: argparse.Namespace, plan: dict, plan_path: pathlib.Path) -> dict:
     if not args.bootstrap_root:
         fail("seed preflight requires at least one bootstrap trust root")
+    required_plan_bootstrap_prefix(plan)
+    anchor_summary = json.loads(checked_tool(
+        str(args.bootstrap_tool), "verify-anchor", "--anchor", str(args.anchor),
+        "--identity", str(args.identity),
+        *(argument for root in args.bootstrap_root for argument in ("--root-key", str(root)))))
     manifest_summary = json.loads(checked_tool(
         str(args.bootstrap_tool), "verify-manifest", "--anchor", str(args.anchor),
         "--manifest", str(args.manifest), "--identity", str(args.identity),
@@ -1379,7 +1385,7 @@ def seed_preflight(args: argparse.Namespace, plan: dict, plan_path: pathlib.Path
         "--image-file", str(args.image_file), "--base-image-file", str(args.base_image_file),
         "--kernel-file", str(args.kernel_file), "--region", plan["cell"],
         "--environment", manifest_summary["environment"])
-    reviewed = verify_seed_preflight(plan, args.inventory, args.admission, manifest_summary,
+    reviewed = verify_seed_preflight(plan, args.inventory, args.admission, anchor_summary, manifest_summary,
                                      args.image_receipt, image_verification, plan_path)
     reviewed["create_identity"] = create_identity(plan, plan_path, manifest_summary)
     return reviewed
@@ -1537,19 +1543,61 @@ def check_live_network(plan: dict, ids: dict) -> None:
             fail("live service gateway services differ from the exact plan")
 
 
-def controller_storage_statements(plan: dict, ids: dict) -> list[str]:
+def canonical_bootstrap_prefix(value: object) -> str:
+    if not isinstance(value, str) or len(value) > 128:
+        fail("bootstrap storage prefix is not canonical")
+    if value and (value.startswith("/") or value.endswith("/") or "//" in value or
+                  any(segment in {".", ".."} or
+                      not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", segment)
+                      for segment in value.split("/"))):
+        fail("bootstrap storage prefix is not canonical")
+    return value
+
+
+def required_plan_bootstrap_prefix(plan: dict) -> str:
+    if "bootstrap_object_prefix" not in plan:
+        fail("manual plan lacks an explicit bootstrap storage prefix")
+    return canonical_bootstrap_prefix(plan["bootstrap_object_prefix"])
+
+
+def verified_anchor_storage_prefix(plan: dict, ids: dict, anchor: dict, manifest: dict,
+                                   live_namespace: str) -> str:
+    domain = anchor.get("storageDomain") if isinstance(anchor, dict) else None
+    if not isinstance(domain, dict) or "prefix" not in domain:
+        fail("verified bootstrap anchor lacks its storage domain")
+    signed_prefix = canonical_bootstrap_prefix(domain["prefix"])
+    if (anchor.get("schemaVersion") != 3 or anchor.get("anchorSha256") != manifest.get("anchorSha256") or
+            anchor.get("cell") != plan["cell"] or anchor.get("ociRegion") != plan["region"] or
+            signed_prefix != required_plan_bootstrap_prefix(plan) or
+            domain.get("namespace") != live_namespace or
+            domain.get("ledgerBucket") != plan["foundation_buckets"]["ledger"] or
+            domain.get("headBucket") != plan["foundation_buckets"]["head"] or
+            domain.get("ledgerKmsKeyOcid") != ids["key"] or
+            domain.get("headKmsKeyOcid") != ids["key"]):
+        fail("verified bootstrap anchor storage domain differs from the reviewed plan")
+    return signed_prefix
+
+
+def controller_storage_statements(plan: dict, ids: dict, storage_prefix: str) -> list[str]:
     identity = plan["identity"]
     dynamic_group = identity["controller_dynamic_group_name"]
     control_name = plan["preview_compartment_names"]["control"]
     buckets = plan["foundation_buckets"]
-    prefix = plan.get("bootstrap_object_prefix", "bootstrap/v1/*")
+    prefix = canonical_bootstrap_prefix(storage_prefix)
+    statements = []
+    for role, permissions in (("ledger", ("OBJECT_READ", "OBJECT_CREATE")),
+                              ("head", ("OBJECT_READ", "OBJECT_CREATE", "OBJECT_OVERWRITE"))):
+        for version in ("v1", "v2"):
+            object_name = f"bootstrap/{version}/*"
+            if prefix:
+                object_name = f"{prefix}/{object_name}"
+            permitted = ", ".join(f"request.permission='{permission}'" for permission in permissions)
+            statements.append(
+                f"Allow dynamic-group {dynamic_group} to manage objects in compartment {control_name} where all "
+                f"{{target.bucket.name='{buckets[role]}', target.object.name='{object_name}', any "
+                f"{{{permitted}}}}}")
     return [
-        f"Allow dynamic-group {dynamic_group} to manage objects in compartment {control_name} where all "
-        f"{{target.bucket.name='{buckets['ledger']}', target.object.name='{prefix}', any "
-        "{request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
-        f"Allow dynamic-group {dynamic_group} to manage objects in compartment {control_name} where all "
-        f"{{target.bucket.name='{buckets['head']}', target.object.name='{prefix}', any "
-        "{request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}",
+        *statements,
         f"Allow dynamic-group {dynamic_group} to manage objects in compartment {control_name} where all "
         f"{{target.bucket.name='{buckets['material']}', target.object.name='material/v1/*', any "
         "{request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
@@ -1558,7 +1606,7 @@ def controller_storage_statements(plan: dict, ids: dict) -> list[str]:
     ]
 
 
-def required_controller_statements(plan: dict, ids: dict) -> list[str]:
+def required_controller_statements(plan: dict, ids: dict, storage_prefix: str) -> list[str]:
     identity = plan["identity"]
     dynamic_group = identity["controller_dynamic_group_name"]
     control = plan["preview_compartment_names"]["control"]
@@ -1572,11 +1620,11 @@ def required_controller_statements(plan: dict, ids: dict) -> list[str]:
         f"Allow dynamic-group {dynamic_group} to manage volume-family in compartment {control}",
         f"Allow dynamic-group {dynamic_group} to manage volume-family in compartment {workload}",
         f"Allow dynamic-group {dynamic_group} to read secret-bundles in compartment {control}",
-        *controller_storage_statements(plan, ids),
+        *controller_storage_statements(plan, ids, storage_prefix),
     ]
 
 
-def check_live_iam(plan: dict, ids: dict) -> None:
+def check_live_iam(plan: dict, ids: dict, storage_prefix: str) -> None:
     identity = plan["identity"]
     rule = f"ALL {{instance.compartment.id = '{ids['control_compartment']}'}}"
     group = require_live_id(oci("iam", "dynamic-group", "get", "--dynamic-group-id",
@@ -1588,7 +1636,7 @@ def check_live_iam(plan: dict, ids: dict) -> None:
         fail("live controller dynamic group does not exactly isolate controller instances")
     policy = require_live_id(oci("iam", "policy", "get", "--policy-id", ids["controller_policy"]),
                              ids["controller_policy"], "controller IAM policy")
-    expected_statements = required_controller_statements(plan, ids)
+    expected_statements = required_controller_statements(plan, ids, storage_prefix)
     if (policy.get("lifecycle-state") != "ACTIVE" or
             policy.get("name") != identity["controller_policy_name"] or
             policy.get("compartment-id") != plan["parent_compartment_id"] or
@@ -1654,7 +1702,7 @@ def check_live_vault(plan: dict, ids: dict) -> None:
         fail("live KMS key state or cryptographic shape differs from the plan")
 
 
-def check_live_buckets(plan: dict, ids: dict) -> None:
+def check_live_buckets(plan: dict, ids: dict) -> str:
     namespace = oci("os", "ns", "get", region=plan["region"])
     names = plan["foundation_buckets"]
     properties = {
@@ -1686,6 +1734,7 @@ def check_live_buckets(plan: dict, ids: dict) -> None:
                 raise ValueError(f"live {role} bucket retention duration is invalid") from error
             if duration.get("time-unit") != "DAYS" or duration_days != Decimal(plan["bucket_retention_days"]):
                 fail(f"live {role} bucket retention differs from the exact plan")
+    return namespace
 
 
 def verify_current_admission(plan: dict, inventory: dict, inventory_path: pathlib.Path,
@@ -1714,6 +1763,7 @@ def verify_current_admission(plan: dict, inventory: dict, inventory_path: pathli
 
 def inspect_foundation(plan: dict, plan_path: pathlib.Path, inventory_path: pathlib.Path,
                        admission_path: pathlib.Path) -> dict:
+    storage_prefix = required_plan_bootstrap_prefix(plan)
     inventory = read_json(inventory_path, MAX_INVENTORY_BYTES, "manual region inventory")
     verify_inventory(plan, inventory, plan_path=plan_path)
     cost, admission, admitted_at = verify_current_admission(plan, inventory, inventory_path, admission_path, plan_path)
@@ -1724,7 +1774,7 @@ def inspect_foundation(plan: dict, plan_path: pathlib.Path, inventory_path: path
     check_live_vault(plan, ids)
     check_live_network(plan, ids)
     check_live_buckets(plan, ids)
-    check_live_iam(plan, ids)
+    check_live_iam(plan, ids, storage_prefix)
     inspected_at = dt.datetime.now(UTC)
     expires_at = dt.datetime.fromisoformat(admission["expires_at"])
     if inspected_at < admitted_at:

@@ -226,8 +226,13 @@ and the intended network boundary.
    review passes. Record the exact compartment, network, routing, security,
    Vault/KMS, IAM, and bootstrap-storage identities. Do not rely on an old
    Terraform plan or receipt as proof of current live state.
-2. Update the reviewed plan with the exact created resource IDs and capture a
-   fresh inventory and cost admission. Inspect that live foundation before
+2. Update the reviewed plan with the exact created resource IDs and an
+   explicit `bootstrap_object_prefix` before capturing a fresh inventory and
+   cost admission. Choose the canonical prefix intended for the signed
+   bootstrap storage domain; an empty string is valid if the domain is
+   deliberately unprefixed. The foundation inspection provisionally checks
+   the controller IAM object grants against this plan prefix because the
+   signed anchor does not exist yet. Inspect that live foundation before
    proceeding:
 
    ```sh
@@ -249,8 +254,10 @@ and the intended network boundary.
 
    The inspector performs live reads for the plan-bound compartments, Vault
    and KMS key, network and rules, buckets and retention, controller dynamic
-   group and policy, and the selected workload-host dynamic group and
-   `LiveS3Credential` secret policy. It writes a readback bound to the plan and
+   group and policy, including ledger and HEAD grants for both `bootstrap/v1/*`
+   and `bootstrap/v2/*` beneath the plan prefix. It also checks the selected
+   workload-host dynamic group and `LiveS3Credential` secret policy. It writes
+   a readback bound to the plan and
    inventory hashes, with the tenancy, cell, region, compartment, Vault, and key
    identities and inspection time. It does not create resources, prove there
    are no other inherited or separately attached IAM grants, or authorize a
@@ -301,9 +308,13 @@ and the intended network boundary.
    command output.
 6. Run the read-only seed preflight against the current plan, inventory,
    admission, signed anchor and controller-A manifest, and signed image receipt.
-   It verifies the manifest and image through the supplied Go tools, repeats
-   live foundation/IAM reads, checks the exact controller-A profile, and writes
-   the reviewed launch record. It does not create an OCI instance:
+   It verifies the anchor, manifest, and image through the supplied Go tools
+   and repeats live foundation reads. The verified anchor's namespace must
+   match live Object Storage; its prefix, ledger and HEAD buckets, KMS keys,
+   cell, region, and digest must agree with the plan and verified manifest.
+   It then rechecks live IAM using the signed prefix, checks the exact
+   controller-A profile, and writes the reviewed launch record. It does not
+   create an OCI instance:
 
    ```sh
    python3 deploy/oci-region/preview.py seed-preflight \

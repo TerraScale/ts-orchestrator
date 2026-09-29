@@ -9,6 +9,7 @@ import unittest
 from copy import deepcopy
 from decimal import Decimal
 from email.utils import format_datetime
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -54,6 +55,7 @@ class PreviewAdmissionTests(unittest.TestCase):
 
     def setUp(self):
         self.plan = preview.load_plan()
+        self.plan["bootstrap_object_prefix"] = "fixture-deployment"
         existing = self.plan["existing_forgejo"]
         shared = self.plan["shared_compartment_id"]
         self.inventory = {
@@ -88,6 +90,7 @@ class PreviewAdmissionTests(unittest.TestCase):
 
     def bound_plan_and_inventory(self, directory):
         plan_value = json.loads(preview.PLAN.read_text())
+        plan_value["bootstrap_object_prefix"] = "fixture-deployment"
         ids = plan_value["resource_ids"]
         ids.update({
             "control_compartment": "ocid1.compartment.oc1..control",
@@ -220,7 +223,8 @@ class PreviewAdmissionTests(unittest.TestCase):
                     "matching-rule": host_rule},
                 ids["controller_policy"]: {"id": ids["controller_policy"], "name":
                     plan["identity"]["controller_policy_name"], "compartment-id": plan["parent_compartment_id"],
-                    "lifecycle-state": "ACTIVE", "statements": preview.required_controller_statements(plan, ids)},
+                    "lifecycle-state": "ACTIVE", "statements": preview.required_controller_statements(
+                        plan, ids, preview.required_plan_bootstrap_prefix(plan))},
                 ids["objectstorage_key_policy"]: {"id": ids["objectstorage_key_policy"], "name":
                     plan["identity"]["objectstorage_key_policy_name"], "compartment-id": control,
                     "lifecycle-state": "ACTIVE", "statements": [key_statement]},
@@ -241,12 +245,84 @@ class PreviewAdmissionTests(unittest.TestCase):
                 self.fail(f"unexpected OCI command: {args}")
 
             with mock.patch.object(preview, "oci", side_effect=fake_oci):
-                preview.check_live_iam(plan, ids)
+                preview.check_live_iam(plan, ids, preview.required_plan_bootstrap_prefix(plan))
             resources[ids["host_policy"]]["statements"] = [host_statement.replace(
                 secret_scope["secret_id"], "ocid1.secret.oc1.sa-saopaulo-1.other")]
             with mock.patch.object(preview, "oci", side_effect=fake_oci):
                 with self.assertRaisesRegex(ValueError, "selected secret and compartment"):
-                    preview.check_live_iam(plan, ids)
+                    preview.check_live_iam(plan, ids, preview.required_plan_bootstrap_prefix(plan))
+
+    def test_controller_storage_grants_only_signed_scope_versions_and_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan, _, _, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
+            plan["bootstrap_object_prefix"] = "tenant-a/deployment-29"
+            ids = plan["resource_ids"]
+            group = plan["identity"]["controller_dynamic_group_name"]
+            control = plan["preview_compartment_names"]["control"]
+            ledger = plan["foundation_buckets"]["ledger"]
+            head = plan["foundation_buckets"]["head"]
+            common = f"Allow dynamic-group {group} to manage objects in compartment {control} where all "
+            actual = preview.controller_storage_statements(plan, ids, preview.required_plan_bootstrap_prefix(plan))
+            self.assertEqual(actual[:4], [
+                common + f"{{target.bucket.name='{ledger}', target.object.name='tenant-a/deployment-29/bootstrap/v1/*', "
+                "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
+                common + f"{{target.bucket.name='{ledger}', target.object.name='tenant-a/deployment-29/bootstrap/v2/*', "
+                "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
+                common + f"{{target.bucket.name='{head}', target.object.name='tenant-a/deployment-29/bootstrap/v1/*', "
+                "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', "
+                "request.permission='OBJECT_OVERWRITE'}}",
+                common + f"{{target.bucket.name='{head}', target.object.name='tenant-a/deployment-29/bootstrap/v2/*', "
+                "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', "
+                "request.permission='OBJECT_OVERWRITE'}}",
+            ])
+            self.assertEqual(len(actual), 6)
+            self.assertIn("target.object.name='material/v1/*'", actual[4])
+            self.assertIn(f"target.key.id='{ids['key']}'", actual[5])
+            self.assertFalse(any("OBJECT_LIST" in row or "OBJECT_INSPECT" in row for row in actual))
+
+            plan["bootstrap_object_prefix"] = ""
+            unprefixed = preview.controller_storage_statements(
+                plan, ids, preview.required_plan_bootstrap_prefix(plan))
+            self.assertIn("target.object.name='bootstrap/v1/*'", unprefixed[0])
+            self.assertIn("target.object.name='bootstrap/v2/*'", unprefixed[1])
+
+            missing = deepcopy(plan)
+            del missing["bootstrap_object_prefix"]
+            with self.assertRaisesRegex(ValueError, "explicit bootstrap storage prefix"):
+                preview.inspect_foundation(missing, pathlib.Path(directory) / "plan.json",
+                                           pathlib.Path(directory) / "inventory.json",
+                                           pathlib.Path(directory) / "admission.json")
+            for invalid in (None, "/tenant", "tenant/", "tenant//deployment", "tenant/../deployment",
+                            "tenant/*", "a" * 129):
+                with self.subTest(invalid=invalid):
+                    plan["bootstrap_object_prefix"] = invalid
+                    with self.assertRaisesRegex(ValueError, "not canonical"):
+                        preview.required_plan_bootstrap_prefix(plan)
+
+    def test_seed_preflight_uses_verified_anchor_command(self):
+        args = SimpleNamespace(bootstrap_root=[pathlib.Path("/root.pub")],
+                               bootstrap_tool=pathlib.Path("/ts-bootstrap"),
+                               anchor=pathlib.Path("/anchor.json"), identity=pathlib.Path("/identity.json"),
+                               manifest=pathlib.Path("/manifest.json"), image_ocid="ocid1.image.oc1.test",
+                               release_tool=pathlib.Path("/ts-release"), image_receipt=pathlib.Path("/receipt.json"),
+                               release_delegation=pathlib.Path("/delegation.json"),
+                               release_root=pathlib.Path("/release-root.pub"),
+                               image_file=pathlib.Path("/image.qcow2"),
+                               base_image_file=pathlib.Path("/base.qcow2"), kernel_file=pathlib.Path("/kernel"),
+                               inventory=pathlib.Path("/inventory.json"), admission=pathlib.Path("/admission.json"))
+        anchor = {"schemaVersion": 3, "anchorSha256": "a" * 64,
+                  "storageDomain": {"prefix": "fixture-deployment"}}
+        manifest = {"anchorSha256": "a" * 64, "environment": "canary"}
+        with mock.patch.object(preview, "checked_tool", side_effect=(json.dumps(anchor), json.dumps(manifest),
+                                                                      "verified image")) as checked, \
+             mock.patch.object(preview, "verify_seed_preflight", return_value={}) as verify, \
+             mock.patch.object(preview, "create_identity", return_value="create-key"):
+            result = preview.seed_preflight(args, self.plan, preview.PLAN)
+        self.assertEqual(result["create_identity"], "create-key")
+        self.assertEqual(checked.call_args_list[0].args[:2], ("/ts-bootstrap", "verify-anchor"))
+        self.assertIn("--root-key", checked.call_args_list[0].args)
+        self.assertEqual(checked.call_args_list[1].args[:2], ("/ts-bootstrap", "verify-manifest"))
+        self.assertEqual(verify.call_args.args[3:5], (anchor, manifest))
 
     def test_live_network_rules_and_route_are_exact(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -651,12 +727,26 @@ class PreviewAdmissionTests(unittest.TestCase):
                                    "faultDomain": "FAULT-DOMAIN-1", "subnetOcid": ids["subnet"],
                                    "networkSecurityGroupOcids": [ids["network_security_group"]],
                                    "shape": "VM.Standard.A1.Flex"}}
+            anchor_summary = {
+                "schemaVersion": 3, "anchorSha256": summary["anchorSha256"],
+                "cell": self.plan["cell"], "ociRegion": self.plan["region"],
+                "storageDomain": {
+                    "prefix": self.plan["bootstrap_object_prefix"],
+                    "namespace": "fixture-namespace",
+                    "ledgerBucket": self.plan["foundation_buckets"]["ledger"],
+                    "headBucket": self.plan["foundation_buckets"]["head"],
+                    "ledgerKmsKeyOcid": ids["key"], "headKmsKeyOcid": ids["key"],
+                },
+            }
             verified = f"verified OCI image={image_ocid} region=GRU revision=abc arch=arm64 sha256=abc"
             with mock.patch.multiple(preview, check_live_compartments=mock.DEFAULT,
                                      check_live_vault=mock.DEFAULT, check_live_network=mock.DEFAULT,
-                                     check_live_buckets=mock.DEFAULT, check_live_iam=mock.DEFAULT):
-                result = preview.verify_seed_preflight(self.plan, inventory_path, admission_path, summary,
-                                                       receipt_path, verified)
+                                     check_live_buckets=mock.DEFAULT, check_live_iam=mock.DEFAULT) as live:
+                live["check_live_buckets"].return_value = "fixture-namespace"
+                result = preview.verify_seed_preflight(self.plan, inventory_path, admission_path,
+                                                       anchor_summary, summary, receipt_path, verified)
+                live["check_live_iam"].assert_called_once_with(
+                    self.plan, ids, self.plan["bootstrap_object_prefix"])
             self.assertEqual(result["compartment_id"], ids["control_compartment"])
             self.assertFalse(result["assign_public_ip"])
             self.assertEqual(result["admission_admitted_at"], admission["admitted_at"])
@@ -664,19 +754,45 @@ class PreviewAdmissionTests(unittest.TestCase):
             result["create_identity"] = preview.create_identity(self.plan, preview.PLAN, summary)
             seed_wire = preview.canonical_manual_seed_plan(result)
             self.assertEqual(json.loads(seed_wire)["create_identity"], result["create_identity"])
+            signed_mismatches = (
+                ("storageDomain", "prefix", "other-deployment"),
+                ("storageDomain", "namespace", "other-namespace"),
+                ("storageDomain", "ledgerBucket", "other-ledger"),
+                ("storageDomain", "headBucket", "other-head"),
+                ("storageDomain", "ledgerKmsKeyOcid", "ocid1.key.gru.other"),
+                ("storageDomain", "headKmsKeyOcid", "ocid1.key.gru.other"),
+                (None, "ociRegion", "us-ashburn-1"),
+                (None, "cell", "IAD"),
+                (None, "anchorSha256", "c" * 64),
+                (None, "schemaVersion", 2),
+            )
+            for section, field, value in signed_mismatches:
+                with self.subTest(section=section, field=field):
+                    mismatched_anchor = deepcopy(anchor_summary)
+                    target = mismatched_anchor if section is None else mismatched_anchor[section]
+                    target[field] = value
+                    with mock.patch.multiple(preview, check_live_compartments=mock.DEFAULT,
+                                             check_live_vault=mock.DEFAULT, check_live_network=mock.DEFAULT,
+                                             check_live_buckets=mock.DEFAULT, check_live_iam=mock.DEFAULT) as live:
+                        live["check_live_buckets"].return_value = "fixture-namespace"
+                        with self.assertRaisesRegex(ValueError, "anchor storage domain differs"):
+                            preview.verify_seed_preflight(self.plan, inventory_path, admission_path,
+                                                          mismatched_anchor, summary, receipt_path, verified)
+                        live["check_live_iam"].assert_not_called()
             summary["profile"]["compartmentOcid"] = ids["workload_compartment"]
             with self.assertRaisesRegex(ValueError, "recorded controller-a profile"):
                 with mock.patch.multiple(preview, check_live_compartments=mock.DEFAULT,
                                          check_live_vault=mock.DEFAULT, check_live_network=mock.DEFAULT,
-                                         check_live_buckets=mock.DEFAULT, check_live_iam=mock.DEFAULT):
-                    preview.verify_seed_preflight(self.plan, inventory_path, admission_path, summary,
-                                                  receipt_path, verified)
+                                         check_live_buckets=mock.DEFAULT, check_live_iam=mock.DEFAULT) as live:
+                    live["check_live_buckets"].return_value = "fixture-namespace"
+                    preview.verify_seed_preflight(self.plan, inventory_path, admission_path,
+                                                  anchor_summary, summary, receipt_path, verified)
             summary["profile"]["compartmentOcid"] = ids["control_compartment"]
             admission["expires_at"] = (now - dt.timedelta(seconds=1)).isoformat()
             admission_path.write_text(json.dumps(admission))
             with self.assertRaisesRegex(ValueError, "stale"):
-                preview.verify_seed_preflight(self.plan, inventory_path, admission_path, summary,
-                                              receipt_path, verified)
+                preview.verify_seed_preflight(self.plan, inventory_path, admission_path,
+                                              anchor_summary, summary, receipt_path, verified)
 
 
     def import_case(self):
