@@ -128,8 +128,10 @@ func TestBootstrapUnitPinsMaterialInstallCapabilities(t *testing.T) {
 	if directives["CapabilityBoundingSet"] != want {
 		t.Fatalf("bootstrap CapabilityBoundingSet = %q, want %q", directives["CapabilityBoundingSet"], want)
 	}
-	if directives["NoNewPrivileges"] != "yes" {
-		t.Fatalf("bootstrap NoNewPrivileges = %q, want yes", directives["NoNewPrivileges"])
+	// Initial admission execs its service-account credential child after a
+	// setuid, which no_new_privs blocked on live OCI first boot.
+	if directives["NoNewPrivileges"] != "no" {
+		t.Fatalf("bootstrap NoNewPrivileges = %q, want no", directives["NoNewPrivileges"])
 	}
 }
 

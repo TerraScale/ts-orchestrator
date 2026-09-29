@@ -1171,7 +1171,9 @@ fi
                 )
                 self.assertNotIn("ProtectClock", directives)
                 self.assertNotIn("SystemCallFilter", directives)
-                self.assertEqual(directives["NoNewPrivileges"], "yes")
+                # Initial admission's service-account child needs setuid without no_new_privs.
+                expected_nnp = "no" if name == "terrascale-orchestrator-bootstrap.service" else "yes"
+                self.assertEqual(directives["NoNewPrivileges"], expected_nnp)
                 self.assertEqual(directives["AmbientCapabilities"], "")
                 self.assertNotIn("CAP_SYS_TIME", directives["CapabilityBoundingSet"].split())
 
