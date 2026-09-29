@@ -91,11 +91,14 @@ roll out through the managed update path and signed desired state.
 
 | Stage | Before | After |
 | --- | --- | --- |
-| Orchestrator `ci.yml` | 7m56s warm (run 705), 13–17 min cold | 4m15s (run 717) |
-| CI → image handoff | 5 values copied into a dispatch | 0; image job starts when CI ends (run 718 started 3 s after run 717) |
-| Image tool setup | about 16 min (fj build + nixpkgs tools, run 702) | fj cache hit 4 s; tools from `/cache/nix` after the first build |
-| Image appliance launches | 7 under TCG, about 70 s each | 2 |
-| Local image build (KVM) | not available | 1m37s end to end |
+| Orchestrator `ci.yml` | 7m56s warm (run 705), 13–17 min cold | 4m15s and 4m32s (runs 717, 719) |
+| CI → image handoff | 5 values copied into a manual dispatch | none: run 720 started when run 719 ended |
+| Image job | 27–40 min (runs 698, 702) | 8m39s (run 720) |
+| Image tool setup | about 16 min (fj build, then nixpkgs tools with libguestfs built from source) | fj cache hit 4 s; tools 2m8s from `/cache/nix` (10m31s once, to fill the cache) |
+| Appliance launches per image | 7 under TCG, about 70 s each | 2 |
+| Push → retained image | 45–60 min with hand-copied inputs | about 13 min (commit 6b47734f) |
+| Local image build (KVM) | not available | 1m48s (`make image`) |
+| Promotion dry run | about 25 hand-run commands | 1m11s, one command |
 
 ## Open decisions
 
