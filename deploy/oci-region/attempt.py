@@ -286,12 +286,10 @@ class Attempt:
             priority = image_config["priority"]
             subprocess.run([
                 "bash", str(self.path("source", "deploy/image/build-offline.sh")),
-                "--base", image_config["base_qcow2"],
+                "--base", image_config["base_qcow2"], "--kernel-release", image_config["kernel_release"],
                 "--binary", str(release / "terrascale-orchestrator-linux-arm64"),
-                "--receipt", str(release / "binary-receipt.signed.json"),
                 "--qualification", str(release / "qualification.json"),
-                "--delegation", str(release / "binary-delegation.signed.json"),
-                "--root-key", str(self.trust["root_public"]), "--environment", "canary",
+                "--source-revision", self.config["orchestrator"]["source_revision"],
                 "--native-verifier-binary", image_config["native_verifier"],
                 "--native-verifier-sha256", image_config["native_verifier_sha256"],
                 "--release-tool", str(self.release_tool), "--bootstrap-root", str(self.trust["root_public"]),
@@ -304,7 +302,8 @@ class Attempt:
                 "--controller-memory-low-bytes", str(priority["controller_memory_low_bytes"]),
                 "--system-slice-memory-min-bytes", str(priority["system_slice_memory_min_bytes"]),
                 "--system-slice-memory-low-bytes", str(priority["system_slice_memory_low_bytes"]),
-                "--out", str(qcow2)], cwd=self.path("source"), env=self.env, check=True)
+                "--out", str(qcow2), "--kernel-out", str(self.kernel)], cwd=self.path("source"), env=self.env,
+                check=True)
         digest = sha256(qcow2)
         imported = self.path("image", "import.json")
         if not imported.exists():
@@ -329,7 +328,7 @@ class Attempt:
                   "--binary", release / "terrascale-orchestrator-linux-arm64",
                   "--qualification", release / "qualification.json", "--delegation", delegation,
                   "--root-key", self.trust["root_public"], "--environment", "canary", "--image-file", qcow2,
-                  "--base-image-file", image_config["base_qcow2"], "--kernel-file", image_config["kernel"]]
+                  "--base-image-file", image_config["base_qcow2"], "--kernel-file", self.kernel]
         if not candidate.exists():
             self.run(self.release_tool, "image-candidate", *common,
                      "--base-image-ocid", image_config["base_image_ocid"], "--base-image-region", "GRU",
@@ -340,8 +339,12 @@ class Attempt:
                      "--signing-key", self.trust["release_leaf_private"], "--out", receipt)
         self.run(self.release_tool, "verify-image", "--receipt", receipt, "--delegation", delegation,
                  "--root-key", self.trust["root_public"], "--image-file", qcow2,
-                 "--base-image-file", image_config["base_qcow2"], "--kernel-file", image_config["kernel"],
+                 "--base-image-file", image_config["base_qcow2"], "--kernel-file", self.kernel,
                  "--region", "GRU", "--environment", "canary")
+
+    @property
+    def kernel(self) -> pathlib.Path:
+        return self.path("image", "guest-kernel")
 
     @property
     def image_receipt(self) -> pathlib.Path:
@@ -511,7 +514,7 @@ class Attempt:
                  "--release-delegation", self.path("image", "image-delegation.signed.json"),
                  "--release-root", self.trust["root_public"],
                  "--image-file", self.path("image", "terrascale-arm64.qcow2"),
-                 "--base-image-file", image_config["base_qcow2"], "--kernel-file", image_config["kernel"],
+                 "--base-image-file", image_config["base_qcow2"], "--kernel-file", self.kernel,
                  "--out", reviewed)
         launch_input = launch / "controller-a-launch.json"
         launch_input.unlink(missing_ok=True)

@@ -277,7 +277,7 @@ class PreviewAdmissionTests(unittest.TestCase):
                 "request.permission='OBJECT_OVERWRITE'}}",
             ])
             self.assertEqual(len(actual), 6)
-            self.assertIn("target.object.name='material/v1/*'", actual[4])
+            self.assertIn("target.object.name='material/v2/*'", actual[4])
             self.assertIn(f"target.key.id='{ids['key']}'", actual[5])
             self.assertFalse(any("OBJECT_LIST" in row or "OBJECT_INSPECT" in row for row in actual))
 

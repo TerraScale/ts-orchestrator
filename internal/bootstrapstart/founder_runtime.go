@@ -205,6 +205,7 @@ type founderCaller struct {
 	accepted   AcceptedInstall
 	signers    FounderSignerStore
 	adapter    *FounderOCI
+	now        func() time.Time
 	openLedger func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error)
 }
 
@@ -244,6 +245,9 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 	}
 	scope := bootstrap.BootstrapScope{DeploymentID: caller.accepted.DeploymentID, Cell: caller.accepted.Cell, Slot: slot}
 	recovery, err := ledger.ReadForManagedPeerRecovery(ctx, scope)
+	if errors.Is(err, bootstrap.ErrRecordMissing) {
+		return founderSnapshot{selected: selected, ledger: ledger}, errFounderPeerUnreserved
+	}
 	if err != nil {
 		return founderSnapshot{}, err
 	}
@@ -297,6 +301,12 @@ func (caller founderCaller) completionRefresh(slot string) bootstrap.ManagedPeer
 
 func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 	snapshot, err := caller.fresh(ctx, slot)
+	if errors.Is(err, errFounderPeerUnreserved) {
+		if err := caller.reservePeer(ctx, snapshot, slot); err != nil {
+			return fmt.Errorf("reserve planned peer slot: %w", err)
+		}
+		snapshot, err = caller.fresh(ctx, slot)
+	}
 	if err != nil {
 		return err
 	}
@@ -351,6 +361,50 @@ func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 		return ErrFounderRuntime
 	}
 	return caller.completePeer(ctx, slot, observation)
+}
+
+// errFounderPeerUnreserved marks a planned peer slot with no ledger records.
+var errFounderPeerUnreserved = errors.New("founder peer slot is not reserved")
+
+// reservePeer writes the signed attempt-one intent and initial HEAD for a
+// planned peer that has no ledger records yet; only then can the founder
+// launch it. The intent pins the exact selected plan row, so recovery and
+// every later launch retry verify against the same reservation.
+func (caller founderCaller) reservePeer(ctx context.Context, snapshot founderSnapshot, slot string) error {
+	clock := caller.now
+	if clock == nil {
+		clock = time.Now
+	}
+	now := clock().UTC().Truncate(time.Second)
+	selected := snapshot.selected
+	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	if err != nil {
+		return err
+	}
+	defer keys.Close()
+	intent, err := selected.Plan.InitialManagedPeerIntent(slot, now)
+	if err != nil {
+		return err
+	}
+	expiresAt := earliestFounderTime(selected.Plan.Plan().LaunchDeadline, selected.SelectionExpiresAt,
+		selected.Anchor.ExpiresAt())
+	if !expiresAt.After(now) {
+		return bootstrap.ErrFounderPlanExpired
+	}
+	intentWire, err := keys.signLedgerRecord(intent, "bootstrap-intent", intent.DeploymentID, intent.Cell,
+		intent.Environment, intent.Role, slot, now, expiresAt)
+	if err != nil {
+		return err
+	}
+	headWire, err := keys.signHead(bootstrap.SlotHead{SchemaVersion: 2, DeploymentID: intent.DeploymentID,
+		Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: slot,
+		Attempt: intent.Attempt, Generation: intent.Generation, IntentDigest: digest(intentWire)}, now, expiresAt)
+	if err != nil {
+		return err
+	}
+	scope := bootstrap.BootstrapScope{DeploymentID: caller.accepted.DeploymentID, Cell: caller.accepted.Cell, Slot: slot}
+	_, err = snapshot.ledger.ReserveSlot(ctx, scope, intentWire, headWire)
+	return err
 }
 
 func (caller founderCaller) retryLaunch(ctx context.Context, attempt FounderOCIAttempt, slot string) (string, error) {

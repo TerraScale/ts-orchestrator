@@ -1640,7 +1640,7 @@ def controller_storage_statements(plan: dict, ids: dict, storage_prefix: str) ->
     return [
         *statements,
         f"Allow dynamic-group {dynamic_group} to manage objects in compartment {control_name} where all "
-        f"{{target.bucket.name='{buckets['material']}', target.object.name='material/v1/*', any "
+        f"{{target.bucket.name='{buckets['material']}', target.object.name='material/v2/*', any "
         "{request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
         f"Allow dynamic-group {dynamic_group} to use keys in compartment {control_name} where all "
         f"{{target.key.id='{ids['key']}', any {{request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}}}",

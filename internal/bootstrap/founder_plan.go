@@ -671,6 +671,50 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 	}, nil
 }
 
+// InitialManagedPeerIntent returns the attempt-one managed intent that
+// reserves one planned peer slot. It pins exactly the plan row, manifest,
+// release receipt, launch profile and anchor-pinned region intent that
+// AuthorizePeerRecovery requires. The create key and OCI retry token derive
+// from the plan digest, so every launch retry reuses the same OCI token.
+func (verified VerifiedFounderPlan) InitialManagedPeerIntent(slot string, createdAt time.Time) (Intent, error) {
+	if !verified.verified || !validFounderNow(createdAt) {
+		return Intent{}, ErrFounderPeerAuthorization
+	}
+	index := slices.IndexFunc(verified.plan.Peers, func(row FounderPeerRow) bool { return row.Slot == slot })
+	if index < 0 {
+		return Intent{}, fmt.Errorf("%w: slot %q is not a planned peer", ErrFounderPeerAuthorization, slot)
+	}
+	row := verified.plan.Peers[index]
+	rowDigest, err := FounderPeerRowDigest(row)
+	if err != nil {
+		return Intent{}, fmt.Errorf("%w: hash peer row: %v", ErrFounderPeerAuthorization, err)
+	}
+	manifest, ok := verified.manifests[slot]
+	if !ok || manifest.Digest() != row.ManifestSHA256 {
+		return Intent{}, fmt.Errorf("%w: peer manifest differs from its founder row", ErrFounderPeerAuthorization)
+	}
+	profileDigest, err := launchProfileDigest(LaunchProfile{
+		Slot: row.Slot, CompartmentOCID: row.CompartmentOCID, AvailabilityDomain: row.AvailabilityDomain,
+		FaultDomain: row.FaultDomain, SubnetOCID: row.SubnetOCID,
+		NetworkSecurityGroupOCIDs: row.NetworkSecurityGroupOCIDs, Shape: row.Shape,
+	})
+	if err != nil {
+		return Intent{}, err
+	}
+	anchor := verified.anchor.Anchor()
+	token := "founder-" + slot + "-" + verified.digest[:24]
+	return Intent{SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: verified.plan.DeploymentID,
+		Cell: string(verified.plan.Cell), Environment: verified.plan.Environment, Role: roleController, Slot: slot,
+		Attempt: 1, Generation: 1, ManifestDigest: row.ManifestSHA256,
+		ReleaseReceiptDigest: manifest.Manifest().ReleaseReceiptSHA256, ImageOCID: row.ImageOCID,
+		RegionIntentGeneration: anchor.InitialRegionIntentGeneration, RegionIntentDigest: anchor.InitialRegionIntentSHA256,
+		LaunchRequestDigest: profileDigest, FounderPlanSHA256: verified.digest, PeerRowDigest: rowDigest,
+		CreateKey: token, RetryToken: token, CreatedAt: createdAt, OCIRegion: anchor.OCIRegion,
+		CompartmentOCID: row.CompartmentOCID, AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain,
+		SubnetOCID: row.SubnetOCID, NetworkSecurityGroupIDs: slices.Clone(row.NetworkSecurityGroupOCIDs),
+		Shape: row.Shape, Node: slot}, nil
+}
+
 // AuthorizePeerRecovery binds a freshly read ledger recovery state to this
 // exact currently verified founder plan and its immutable intent pins. The
 // returned capability is phase-limited: only clean and manifest-only phases
