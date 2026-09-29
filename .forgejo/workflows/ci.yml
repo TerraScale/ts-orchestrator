@@ -87,6 +87,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export TS_FJ_ADMISSION_CACHE_DIR="${TS_FJ_ADMISSION_CACHE_DIR-/cache/ts-orchestrator/fj-admission}"
           bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
           printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
 
