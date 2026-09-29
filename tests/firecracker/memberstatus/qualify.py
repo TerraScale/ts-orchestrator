@@ -500,8 +500,9 @@ def _live_process_group_members(process_group: int) -> list[int]:
         try:
             with open(f"/proc/{entry.name}/stat", "rb") as stream:
                 raw = stream.read(8192).decode(errors="replace")
-        except FileNotFoundError:
-            # A process can exit between enumerating /proc and reading stat.
+        except (FileNotFoundError, ProcessLookupError):
+            # A process can exit between enumerating /proc and opening stat
+            # (ENOENT) or between opening and reading it (ESRCH).
             continue
         except OSError as error:
             raise QualificationError(
