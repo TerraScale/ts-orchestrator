@@ -10,7 +10,8 @@
 # processes; any failure fails the run after all of them finish.
 set -euo pipefail
 
-GO=${GO:-go}
+# GO may be a command with arguments, such as "mise exec -- go".
+read -r -a go <<< "${GO:-go}"
 shards=${TS_RACE_SHARDS:-6}
 sharded_packages=(./internal/app ./internal/bootstrapstart)
 # Tests that alone take over a minute under -race.
@@ -29,14 +30,14 @@ start() {
 	names+=("$name")
 }
 
-module=$($GO list -m)
-$GO list ./... > "$logs/packages"
+module=$("${go[@]}" list -m)
+"${go[@]}" list ./... > "$logs/packages"
 mapfile -t other_packages < <(grep -v -x -F -e "$module/internal/app" -e "$module/internal/bootstrapstart" \
 	"$logs/packages")
-start packages $GO test -race "${other_packages[@]}"
+start packages "${go[@]}" test -race "${other_packages[@]}"
 
 for package in "${sharded_packages[@]}"; do
-	$GO test -race -list '.*' "$package" > "$logs/list"
+	"${go[@]}" test -race -list '.*' "$package" > "$logs/list"
 	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/list" | sort)
 	((${#tests[@]} > 0)) || { echo "no tests listed in $package" >&2; exit 1; }
 	buckets=()
@@ -57,7 +58,7 @@ for package in "${sharded_packages[@]}"; do
 	for bucket in "${buckets[@]}"; do
 		[[ -n $bucket ]] || continue
 		covered=$((covered + $(tr '|' '\n' <<< "$bucket" | wc -l)))
-		start "${package##*/}-$shard" $GO test -race -run "^(${bucket})\$" "$package"
+		start "${package##*/}-$shard" "${go[@]}" test -race -run "^(${bucket})\$" "$package"
 		shard=$((shard + 1))
 	done
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }

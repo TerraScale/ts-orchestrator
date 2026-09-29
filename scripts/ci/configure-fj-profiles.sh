@@ -15,7 +15,7 @@ command -v fj >/dev/null || { echo 'fj is required' >&2; exit 1; }
 
 umask 077
 [[ ! -e $directory ]] || { echo "profile directory already exists: $directory" >&2; exit 1; }
-mkdir -p -m 0700 "$directory/read" "$directory/write"
+mkdir -m 0700 "$directory" "$directory/read" "$directory/write"
 printf '%s\n' "$FORGEJO_READ_TOKEN" > "$directory/read-token"
 for profile in read write; do
 	token_variable="FORGEJO_${profile^^}_TOKEN"
