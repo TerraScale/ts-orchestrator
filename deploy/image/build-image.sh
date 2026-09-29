@@ -120,6 +120,10 @@ done
 	exit 1
 }
 fj actions run-detail "$terrabase_run_number" -r TerraScale/TerraBase > "$work/terrabase/run-detail.json"
+[[ $(jq -r .status "$work/terrabase/run-detail.json") == success ]] || {
+	echo "TerraBase run $terrabase_run_number has not succeeded" >&2
+	exit 1
+}
 cp -- "$inputs" "$work/terrabase/inputs-check.json"
 python3 deploy/image/image-inputs.py --file "$work/terrabase/inputs-check.json" pin-terrabase \
 	--qualification "$work/terrabase/qualification.json" --run-detail "$work/terrabase/run-detail.json" >/dev/null

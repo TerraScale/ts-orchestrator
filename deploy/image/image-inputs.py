@@ -6,6 +6,7 @@ check           verify the manifest schema, its canonical formatting and the
 pin-terrabase   replace the TerraBase pin with a published, Fast-qualified
                 release, given its qualification.json and `fj actions
                 run-detail` readback. Only the "terrabase" block changes.
+                (scripts/ci/pin-terrabase.sh downloads, pins and pushes.)
 """
 
 from __future__ import annotations
@@ -118,10 +119,12 @@ def terrabase_pin(qualification_path: Path, run_detail_path: Path) -> dict:
                  if artifact.get("name") == TERRABASE_ARTIFACT and artifact.get("target") == "aarch64-unknown-linux-musl"]
     require(len(artifacts) == 1, f"TerraBase qualification must list one {TERRABASE_ARTIFACT}")
     detail = json.loads(run_detail_path.read_text(encoding="utf-8"))
+    # TerraBase's publish job pins its own release while the run is still
+    # finishing; the image build requires the finished run to have succeeded.
     require(detail.get("run_id") == verification.get("run_id")
             and detail.get("run_number") == verification.get("run_number")
             and detail.get("head_sha") == qualification.get("source_revision")
-            and detail.get("workflow") == "fast.yml" and detail.get("status") == "success",
+            and detail.get("workflow") == "fast.yml" and detail.get("status") in ("success", "running"),
             "TerraBase run detail differs from its qualification or did not succeed")
     require(sum(1 for job in detail.get("jobs", []) if job.get("name") == "fast" and job.get("status") == "success"
                 and job.get("run_id") == detail["run_id"]) == 1, "TerraBase Fast job did not succeed")
