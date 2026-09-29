@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       source_revision:
-        description: Full main commit SHA to image (default: the dispatched commit)
+        description: "Full main commit SHA to image (default: the dispatched commit)"
         required: false
         type: string
 
