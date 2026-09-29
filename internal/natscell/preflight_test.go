@@ -65,6 +65,7 @@ func productionPreflightFixture(t *testing.T) (Config, nkeys.KeyPair, nkeys.KeyP
 		inboxPrefix("gru", controllerID) + ".>", "ts.broker.gru.ticket.>",
 		"ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",
 		"ts.orch.v1.gru.managed-update.prepare",
+		"ts.orch.v1.gru.backup.operation",
 		"ts.orch.v1.gru.terminal.>",
 	}
 	controller.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
@@ -154,6 +155,24 @@ func TestControllerCredentialsRequireScopedTerminalSubscription(t *testing.T) {
 			t.Fatal("controller credentials without managed update subscription accepted")
 		}
 	})
+	t.Run("missing backup operation subscription", func(t *testing.T) {
+		controller.Sub.Allow = slices.DeleteFunc(slices.Clone(original), func(subject string) bool {
+			return subject == "ts.orch.v1.gru.backup.operation"
+		})
+		writeControllerPreflightCredentials(t, filepath.Dir(cfg.CredentialsFile), controller, cellKey, controllerUser)
+		if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, "gru", "broker-a"); err == nil {
+			t.Fatal("controller credentials without backup operation subscription accepted")
+		}
+	})
+	for _, extra := range []string{"ts.orch.v1.sfo.backup.operation", "ts.orch.v1.gru.backup.>"} {
+		t.Run("extra "+extra, func(t *testing.T) {
+			controller.Sub.Allow = append(slices.Clone(original), extra)
+			writeControllerPreflightCredentials(t, filepath.Dir(cfg.CredentialsFile), controller, cellKey, controllerUser)
+			if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, "gru", "broker-a"); err == nil {
+				t.Fatalf("controller credentials accepted extra backup operation subscription %q", extra)
+			}
+		})
+	}
 }
 
 func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {
@@ -172,7 +191,7 @@ func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {
 	claim.IssuerAccount = cellID
 	claim.Sub.Allow = jwt.StringList{inboxPrefix("gru", operatorID) + ".>"}
 	claim.Pub.Allow = jwt.StringList{
-		"ts.orch.v1.gru.broker.claim.apply", "$JS.API.INFO",
+		"ts.orch.v1.gru.broker.claim.apply", "ts.orch.v1.gru.backup.operation", "$JS.API.INFO",
 		"$JS.API.STREAM.INFO.TS_CONTROL_LOG", "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
 		"ts.orch.v1.gru.terminal.plan", "ts.orch.v1.gru.terminal.apply", "ts.orch.v1.gru.terminal.status",
 	}
@@ -181,7 +200,7 @@ func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {
 	if err := ValidateBrokerOperatorCredentials(path, "gru"); err != nil {
 		t.Fatalf("current operator grants rejected: %v", err)
 	}
-	for _, missing := range []string{"terminal.plan", "terminal.apply", "terminal.status"} {
+	for _, missing := range []string{"backup.operation", "terminal.plan", "terminal.apply", "terminal.status"} {
 		t.Run(missing, func(t *testing.T) {
 			allowed := make(jwt.StringList, 0, len(claim.Pub.Allow))
 			for _, subject := range claim.Pub.Allow {
@@ -192,11 +211,11 @@ func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {
 			testJWTUserCredentialsWithKey(t, root, "operator.creds", cellKey, cellID,
 				operatorUser, allowed, claim.Sub.Allow)
 			if err := ValidateBrokerOperatorCredentials(path, "gru"); err == nil {
-				t.Fatal("operator credentials without exact terminal publish accepted")
+				t.Fatal("operator credentials without exact backup or terminal publish accepted")
 			}
 		})
 	}
-	for _, unscoped := range []string{"ts.orch.v1.gru.terminal.>", "ts.orch.v1.gru.>", "ts.orch.v1.gru.terminal.delete"} {
+	for _, unscoped := range []string{"ts.orch.v1.gru.backup.>", "ts.orch.v1.sfo.backup.operation", "ts.orch.v1.gru.terminal.>", "ts.orch.v1.gru.>", "ts.orch.v1.gru.terminal.delete"} {
 		t.Run(unscoped, func(t *testing.T) {
 			allowed := append(slices.Clone(claim.Pub.Allow), unscoped)
 			testJWTUserCredentialsWithKey(t, root, "operator.creds", cellKey, cellID,

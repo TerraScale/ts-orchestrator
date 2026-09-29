@@ -159,6 +159,7 @@ func TestGeneratedFixtureHasPrivateFilesAndScopedClaims(t *testing.T) {
 			"ts.orch.v1.lab.inbox." + public + ".>", "ts.orch.v1.lab.agent.*.observation.*",
 			"ts.orch.v1.lab.delivery.artifact.admit", "ts.orch.v1.lab.host.register",
 			"ts.orch.v1.lab.placement.apply", "ts.orch.v1.lab.broker.claim.apply",
+			"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.backup.operation",
 			"ts.broker.lab.ticket.>", "ts.broker.lab.fence." + broker,
 			"ts.orch.v1.lab.terminal.>",
 		}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -284,11 +285,14 @@ func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
 	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.managed-update.prepare") {
 		t.Fatal("controller cannot subscribe to managed update requests")
 	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.backup.operation") {
+		t.Fatal("controller cannot subscribe to backup operation requests")
+	}
 	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, subject := range []string{"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
+	for _, subject := range []string{"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.backup.operation", "ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
 		if !slices.Contains(operator.Publish.Allow, subject) {
 			t.Fatalf("operator cannot publish %s", subject)
 		}
@@ -408,6 +412,25 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 	}
 	if _, err := requests.NextMsg(time.Second); err != nil {
 		t.Fatalf("operator artifact claim publish: %v", err)
+	}
+	backupRequests, err := controller.Conn().Subscribe("ts.orch.v1.lab.backup.operation", func(message *nats.Msg) {
+		_ = message.Respond([]byte("accepted"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backupRequests.Unsubscribe() })
+	if err := controller.Conn().FlushTimeout(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	backupReply, err := operator.Conn().RequestWithContext(ctx, "ts.orch.v1.lab.backup.operation", []byte("signed"))
+	if err != nil {
+		t.Fatalf("operator backup operation request: %v", err)
+	}
+	if string(backupReply.Data) != "accepted" ||
+		!strings.HasPrefix(backupReply.Subject, inboxPrefix("lab", operatorPublic)+".") {
+		t.Fatalf("backup operation response did not use the operator's private inbox: subject=%s body=%q",
+			backupReply.Subject, backupReply.Data)
 	}
 }
 

@@ -36,6 +36,33 @@ func (verify managedRegistrationVerifierFunc) VerifyManagedRegistration(ctx cont
 	return verify(ctx, registration)
 }
 
+func fixtureManagedDesiredVerifier(_ context.Context, desired Desired, registration Registration,
+	current Desired, currentExists bool,
+) error {
+	if desired.ManagedMember == nil || desired.Withdrawn {
+		return nil
+	}
+	placement := registration.ManagedPlacement
+	if registration.ManagedOCI == nil || registration.ManagedMember == nil || placement == nil ||
+		desired.Cell != registration.Cell || desired.Node != registration.Node ||
+		desired.Environment != registration.Environment || desired.AuthorityEpoch == 0 ||
+		placement.DatabaseID == "" || placement.PartitionID == "" || placement.SeatID == "" ||
+		placement.IntentGeneration == 0 || !lowerHex(placement.IntentPayloadDigest, 64) ||
+		!lowerHex(placement.CanonicalRosterDigest, 64) || !lowerHex(placement.ManagedHostProfileDigest, 64) {
+		return errors.New("test durable desired verifier requires current placement identity")
+	}
+	launch := desired.ManagedMember
+	if launch.OCI != *registration.ManagedOCI || launch.Member != *registration.ManagedMember {
+		return errors.New("test durable desired verifier rejected a retargeted host")
+	}
+	if currentExists && current.ManagedMember != nil &&
+		(current.ManagedMember.OCI != launch.OCI || current.ManagedMember.Member != launch.Member ||
+			desired.Generation <= current.Generation) {
+		return errors.New("test durable desired verifier rejected a stale placement target")
+	}
+	return nil
+}
+
 type oneRegistrationConflict struct {
 	authority.HostMutationStore
 	conflict atomic.Bool
@@ -259,7 +286,18 @@ func testControllerWithVerifier(t *testing.T, verifier ManagedRegistrationVerifi
 		t.Fatal(err)
 	}
 	mutations := &memoryMutations{entries: make(map[string]authority.LogEntry), js: js}
-	c, err := NewController(t.Context(), ControllerConfig{Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey, StateReplicas: 1, HostMutations: mutations, ManagedRegistrationVerifier: verifier, ManagedEffectGate: func(context.Context, uint64, authority.WorkloadScope) (func(), error) { return func() {}, nil }, AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil }})
+	c, err := NewController(t.Context(), ControllerConfig{
+		Cell: "gru", Conn: conn, JS: js, ControlLog: log, Artifacts: store, ResponseKey: controllerKey,
+		StateReplicas: 1, HostMutations: verifiedMemoryMutations{memoryMutations: mutations},
+		ManagedRegistrationVerifier: verifier, ManagedDesiredVerifier: fixtureManagedDesiredVerifier,
+		ManagedEffectGate: func(_ context.Context, epoch uint64, scope authority.WorkloadScope) (func(), error) {
+			if epoch == 0 || scope.DatabaseID == "" || scope.PartitionID == "" {
+				return nil, errors.New("test terminal effect gate requires a scoped placement")
+			}
+			return func() {}, nil
+		},
+		AuthorityEpoch: func() uint64 { return 1 }, AuthorityGuard: func(context.Context, uint64) error { return nil },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

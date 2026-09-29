@@ -150,11 +150,11 @@ validate_image_input_manifest() {
     "qualification_sha256", "receipt_sha256", "root_key_sha256", "run_id", "run_number"] and
   .go_candidate.root_key_sha256 == "bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc" and
   .terrabase == {
-    source_revision:"3dfd967e31d522064d650fc8770b150394bc3ccc",
-    source_tree:"f010394aa2e26a2b034e1e790a73e77fb370452e",
-    run_id:11549, run_number:993,
-    qualification_sha256:"4dbde629f37f877701db415c9eb2f84fe3735770642490aaf1be39f64bec16a9",
-    binary_sha256:"af33b6e868cec577bb550e288e9cfb7ba8f30108a7f76a53ff6f88722db7cb2f"
+    source_revision:"d2017ca9668a650ec490dff3f79bd51b75bb6466",
+    source_tree:"5b7842441b140d7501032d4128462aef85c37830",
+    run_id:11696, run_number:1012,
+    qualification_sha256:"69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9",
+    binary_sha256:"33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c"
   } and
   .priority == {
     profile_id:"gru-a1-1ocpu-6gib-v1", system_reserve_bytes:1073741824,
@@ -296,7 +296,7 @@ jq -e --arg source "$SOURCE_SHA" --argjson run_id "$CANDIDATE_RUN_ID" \
     .name == "verify/go + artifact/linux-amd64-arm64" and .status == "success")] | length) == 1
 ' "$work/go-run-detail.json" >/dev/null
 
-terrabase_tag=ci-3dfd967e31d522064d650fc8770b150394bc3ccc-run-11549
+terrabase_tag=ci-d2017ca9668a650ec490dff3f79bd51b75bb6466-run-11696
 fj_read release asset download -r TerraScale/TerraBase "$terrabase_tag" qualification.json \
 	-o "$terrabase/qualification.json"
 fj_read release asset download -r TerraScale/TerraBase "$terrabase_tag" \
@@ -311,16 +311,16 @@ jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" \
   .schema == "terrascale.terrabase.qualification.v2" and
   .repository == "TerraScale/TerraBase" and .source_revision == $source and
   .source_tree == $tree and .verification.workflow == "fast.yml" and
-  .verification.job == "fast" and .verification.run_id == 11549 and
-  .verification.run_number == 993 and .verification.conclusion == "success" and
+  .verification.job == "fast" and .verification.run_id == 11696 and
+  .verification.run_number == 1012 and .verification.conclusion == "success" and
   ([.artifacts[] | select(.name == "tb-server-linux-arm64" and
     .target == "aarch64-unknown-linux-musl" and .sha256 == $binary)] | length) == 1
 ' "$terrabase/qualification.json" >/dev/null
-fj_read actions run-detail 993 -r TerraScale/TerraBase > "$work/terrabase-run-detail.json"
+fj_read actions run-detail 1012 -r TerraScale/TerraBase > "$work/terrabase-run-detail.json"
 jq -e --arg source "$(jq -r .terrabase.source_revision "$manifest")" '
-  .run_id == 11549 and .run_number == 993 and .head_sha == $source and
+  .run_id == 11696 and .run_number == 1012 and .head_sha == $source and
   .workflow == "fast.yml" and .status == "success" and
-  ([.jobs[] | select(.run_id == 11549 and .name == "fast" and .status == "success")] | length) == 1
+  ([.jobs[] | select(.run_id == 11696 and .name == "fast" and .status == "success")] | length) == 1
 ' "$work/terrabase-run-detail.json" >/dev/null
 
 mkdir -m 0700 "$work/tools"

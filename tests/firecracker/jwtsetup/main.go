@@ -364,6 +364,8 @@ func controllerGrants(cell, broker, public string) ([]string, []string) {
 		inboxPrefix(cell, public) + ".>",
 		root + ".agent.*.observation.*", root + ".delivery.artifact.admit",
 		root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply",
+		root + ".managed-update.prepare",
+		root + ".backup.operation",
 		"ts.broker." + cell + ".ticket.>", "ts.broker." + cell + ".fence." + broker,
 		root + ".terminal.>",
 	}

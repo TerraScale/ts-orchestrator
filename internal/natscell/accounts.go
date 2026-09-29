@@ -154,7 +154,7 @@ func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
 	root := "ts.orch.v1." + cell
 	return jwt.StringList{
 		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".managed-update.prepare", root + ".material.prepare", root + ".broker.claim.apply",
+		root + ".placement.apply", root + ".managed-update.prepare", root + ".material.prepare", root + ".backup.operation", root + ".broker.claim.apply",
 		root + ".terminal.plan", root + ".terminal.apply", root + ".terminal.status",
 		"$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 		"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
@@ -210,6 +210,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 		root + ".host.register":           true,
 		root + ".placement.apply":         true,
 		root + ".managed-update.prepare":  true,
+		root + ".backup.operation":        true,
 		root + ".terminal.>":              true,
 	}
 	for _, grant := range claim.Sub.Allow {
@@ -220,6 +221,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	if !slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
 		!slices.Contains(claim.Sub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
 		!slices.Contains(claim.Sub.Allow, root+".managed-update.prepare") ||
+		!slices.Contains(claim.Sub.Allow, root+".backup.operation") ||
 		!slices.Contains(claim.Sub.Allow, root+".terminal.>") ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
 		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
@@ -229,9 +231,10 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	return nil
 }
 
-// ValidateBrokerOperatorCredentials requires exact claim-apply and terminal publishes,
-// JetStream INFO and control-stream INFO/MSG.GET read grants, and the caller's
-// private inbox. These are the production issuer grants needed by the CLI's
+// ValidateBrokerOperatorCredentials requires exact publishes for claim apply,
+// backup operations and terminal requests, JetStream INFO and control-stream
+// INFO/MSG.GET read grants, and the caller's private inbox. These are the
+// production issuer grants needed by the CLI's
 // readiness and authority observation before publishing its signed request.
 func ValidateBrokerOperatorCredentials(path, cell string) error {
 	if !cellName.MatchString(cell) {
@@ -248,6 +251,7 @@ func ValidateBrokerOperatorCredentials(path, cell string) error {
 		}
 	}
 	if !slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
+		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".backup.operation") ||
 		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.plan") ||
 		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.apply") ||
 		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.status") ||

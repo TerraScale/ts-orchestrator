@@ -110,7 +110,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		}
 		controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerPub + ".>",
 			"ts.broker.gru.ticket.>", "ts.broker.gru.fence." + id, "ts.orch.v1.gru.broker.claim.apply",
-			"ts.orch.v1.gru.managed-update.prepare", "ts.orch.v1.gru.terminal.>"}
+			"ts.orch.v1.gru.managed-update.prepare", "ts.orch.v1.gru.backup.operation", "ts.orch.v1.gru.terminal.>"}
 		controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		controllerCreds = testBrokerJWTUserWithClaim(t, root, fmt.Sprintf("controller-%d.creds", index), cellKey, controllerClaim)
 		systemPub, systemCreds := testBrokerJWTUser(t, root, fmt.Sprintf("system-%d.creds", index), sysKey, sysID,

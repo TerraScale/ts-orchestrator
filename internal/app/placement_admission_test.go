@@ -423,6 +423,18 @@ func (control *placementAdmissionTestControl) ReadTerminalIntent(_ context.Conte
 	return entry, nil
 }
 
+func (*placementAdmissionTestControl) ReadManagedUpdate(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
+}
+
+func (*placementAdmissionTestControl) ReadManagedUpdateOperation(context.Context, string, string, string) ([]authority.LogEntry, error) {
+	return nil, authority.ErrNotFound
+}
+
+func (*placementAdmissionTestControl) ListManagedUpdates(context.Context, string, string) ([]authority.LogEntry, error) {
+	return []authority.LogEntry{}, nil
+}
+
 func (control *placementAdmissionTestControl) ConfirmActivePlacementIntent(ctx context.Context, epoch uint64,
 	databaseID, partitionID string, payload []byte,
 ) (uint64, error) {
@@ -480,3 +492,4 @@ func (control *placementAdmissionTestControl) ListPlacementIntents(context.Conte
 
 var _ placementAdmissionControl = (*placementAdmissionTestControl)(nil)
 var _ authority.PlacementIntentStore = (*placementAdmissionTestControl)(nil)
+var _ authority.ManagedUpdateReader = (*placementAdmissionTestControl)(nil)

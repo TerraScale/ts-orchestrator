@@ -452,6 +452,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 			"ts.orch.v1." + cfg.Cell + ".broker.claim.apply", "ts.orch.v1." + cfg.Cell + ".agent.*.observation.*",
 			"ts.orch.v1." + cfg.Cell + ".delivery.artifact.admit", "ts.orch.v1." + cfg.Cell + ".host.register", "ts.orch.v1." + cfg.Cell + ".placement.apply",
 			"ts.orch.v1." + cfg.Cell + ".managed-update.prepare",
+			"ts.orch.v1." + cfg.Cell + ".backup.operation",
 			"ts.orch.v1." + cfg.Cell + ".terminal.>"}
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)

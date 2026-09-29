@@ -1104,6 +1104,18 @@ func (placementTestFencer) Current() authority.Snapshot {
 
 func (placementTestFencer) Guard(context.Context, uint64) error { return nil }
 
+func (placementTestFencer) ReadManagedUpdate(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
+}
+
+func (placementTestFencer) ReadManagedUpdateOperation(context.Context, string, string, string) ([]authority.LogEntry, error) {
+	return nil, authority.ErrNotFound
+}
+
+func (placementTestFencer) ListManagedUpdates(context.Context, string, string) ([]authority.LogEntry, error) {
+	return []authority.LogEntry{}, nil
+}
+
 func (placementTestFencer) BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error) {
 	return func() {}, nil
 }

@@ -234,6 +234,20 @@ func (f placementSizingFencer) Guard(ctx context.Context, epoch uint64) error {
 	return nil
 }
 
+func (f placementSizingFencer) ReadManagedUpdate(ctx context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	return f.control.ReadManagedUpdate(ctx, databaseID, partitionID)
+}
+
+func (f placementSizingFencer) ReadManagedUpdateOperation(
+	ctx context.Context, databaseID, partitionID, operationID string,
+) ([]authority.LogEntry, error) {
+	return f.control.ReadManagedUpdateOperation(ctx, databaseID, partitionID, operationID)
+}
+
+func (f placementSizingFencer) ListManagedUpdates(ctx context.Context, databaseID, partitionID string) ([]authority.LogEntry, error) {
+	return f.control.ListManagedUpdates(ctx, databaseID, partitionID)
+}
+
 func (f placementSizingFencer) BeginActiveWorkloadEffect(ctx context.Context, epoch uint64,
 	scope authority.WorkloadScope,
 ) (func(), error) {

@@ -632,7 +632,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if rendered != nil {
 		// The rendered fixture uses fresh 48-hour credentials, outside the renewal
 		// window. The original GRU/SFO fixtures continue through renewal, replay,
-		// outage, supersession, and revoke coverage below.
+		// outage, OCI-retirement, and revoke coverage below.
 		cancel()
 		if err := <-hostRunDone; !errors.Is(err, context.Canceled) {
 			t.Fatalf("host controller shutdown: %v", err)
@@ -701,22 +701,23 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err != nil || bytes.Equal(refreshedGrant.RenewalRequest, unclaimedWire) || len(refreshedGrant.RenewalResponse) == 0 {
 		t.Fatalf("stale unclaimed request was not durably refreshed: grant=%+v err=%v", refreshedGrant, err)
 	}
-	superseding := intent
-	superseding.Generation++
-	second := apply("placement-8.json", superseding)
-	if second.Sequence <= first.Sequence {
-		t.Fatalf("signed supersession did not advance authority sequence: first=%+v second=%+v", first, second)
+	retiredInstance := provider.instance
+	provider.instance = oci.CloudInstance{}
+	currentInstances, err := fleet.Observe(ctx)
+	if err != nil || len(currentInstances) != 0 {
+		t.Fatalf("retired OCI instance remained in the verified fleet: instances=%+v err=%v", currentInstances, err)
 	}
-	if err := register("replayed-registration.json", registration); err == nil {
-		t.Fatal("previously valid signed registration replayed after placement supersession")
+	if err := register("retired-registration.json", registration); err == nil {
+		t.Fatal("registration for a retired OCI instance was accepted")
 	}
 	if err := controller.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
 	after, err := store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, row.SeatID)
 	if err != nil || after.Revision != member.Revision || after.State.Stage != placement.StagePreparedVolume || provider.volumeCalls != 0 {
-		t.Fatalf("stale enrolled host caused a retained-volume effect: before=%+v after=%+v volumes=%d err=%v", member, after, provider.volumeCalls, err)
+		t.Fatalf("retired host advanced placement or created a retained volume: before=%+v after=%+v volumes=%d err=%v", member, after, provider.volumeCalls, err)
 	}
+	provider.instance = retiredInstance
 	hostRevokePayload, err := protocol.EncodeJSON(hostEnrollmentRevoke{SchemaVersion: 1, InstanceID: observed[0].ID})
 	if err != nil {
 		t.Fatal(err)
@@ -750,7 +751,6 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err != nil || beforeRevoke.Disabled {
 		t.Fatalf("wrong-instance revoke changed exact grant: grant=%+v err=%v", beforeRevoke, err)
 	}
-	retiredInstance := provider.instance
 	foreign := observed[0]
 	foreign.ID = "ocid1.instance.oc1..foreign-replacement"
 	managedEnrollment.fleet = managedEnrollmentObservedFleet{Fleet: fleet, instances: []oci.Instance{foreign}}
