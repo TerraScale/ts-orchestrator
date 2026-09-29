@@ -79,6 +79,35 @@ travels in the root-signed manifest and each instance verifies it before its
 controller starts. TerraBase binary updates do not need a new image: they
 roll out through the managed update path and signed desired state.
 
+## Operator commands
+
+```sh
+# Build the image for a CI-qualified main revision on this machine.
+make image SOURCE=<full sha> [IMAGE_OUT=/tmp/ts-image-<sha>]
+
+# Every read-only promotion gate, no OCI writes and no signing.
+deploy/image/promote-image.py --image-release image-<sha>-run-<id>-attempt-<n> \
+  --out /tmp/promote-<sha> --delegation delegation.json --root-key root.pub --dry-run
+
+# Import (idempotent); stops and prints the sign-delegation command for the OCID.
+deploy/image/promote-image.py --image-release ... --out /tmp/promote-<sha>-import \
+  --delegation delegation.json --root-key root.pub \
+  --compartment-id <ocid> --namespace <ns> --bucket <bucket>
+
+# Same command again with the image-scoped delegation and the leaf key signs it.
+deploy/image/promote-image.py ... --out /tmp/promote-<sha>-sign \
+  --image-delegation image-delegation.json --signing-key leaf.pem
+
+# Pin a TerraBase release by hand (pinned fj on PATH).
+scripts/ci/pin-terrabase.sh ci-<terrabase sha>-run-<run id>
+```
+
+To rebuild a named revision in CI, run the "Qualified GRU ARM64 image"
+workflow on `main` from the Forgejo Actions page with `source_revision` set;
+it needs no other input. `--sign-binary --signing-key leaf.pem` also signs the
+binary receipt when the candidate's CI release has none. Local builds are
+promoted with `--image-dir`.
+
 ## What is automated
 
 | Step | Trigger | Manual input |
