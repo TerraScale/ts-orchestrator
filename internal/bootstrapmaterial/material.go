@@ -343,6 +343,10 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	cellClaim := jwt.NewAccountClaims(cellID)
 	cellClaim.IssuedAt, cellClaim.Expires = now.Unix(), expires.Unix()
+	// Operator mode enables JetStream only for accounts whose JWT carries
+	// JetStream limits. The server-wide store limit still bounds the cell.
+	cellClaim.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: jwt.NoLimit, DiskStorage: jwt.NoLimit,
+		Streams: jwt.NoLimit, Consumer: jwt.NoLimit}
 	hostScope := expectedHostScope(cfg.Cell, hostIssuerID)
 	cellClaim.SigningKeys.AddScopedSigner(hostScope)
 	cellJWT, err := cellClaim.Encode(op)

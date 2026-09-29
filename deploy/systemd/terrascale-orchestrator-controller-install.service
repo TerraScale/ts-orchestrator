@@ -17,6 +17,8 @@ RestartSec=10s
 User=root
 Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator install-controller-config
+# Nodes without SSH report admission failures through the serial console.
+StandardError=journal+console
 TimeoutStartSec=120s
 UMask=0077
 NoNewPrivileges=yes

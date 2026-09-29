@@ -276,9 +276,11 @@ class PreviewAdmissionTests(unittest.TestCase):
                 "any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', "
                 "request.permission='OBJECT_OVERWRITE'}}",
             ])
-            self.assertEqual(len(actual), 6)
+            self.assertEqual(len(actual), 7)
             self.assertIn("target.object.name='material/v2/*'", actual[4])
             self.assertIn(f"target.key.id='{ids['key']}'", actual[5])
+            self.assertEqual(actual[6], f"Allow dynamic-group {group} to use key-delegate in compartment {control} "
+                                        f"where target.key.id='{ids['key']}'")
             self.assertFalse(any("OBJECT_LIST" in row or "OBJECT_INSPECT" in row for row in actual))
 
             plan["bootstrap_object_prefix"] = ""

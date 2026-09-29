@@ -12,6 +12,9 @@ Phases, in order:
   sign      controller A/B/C manifests, founder plan/selection, published
   launch    fresh admission, seed preflight, reservation and controller A
   complete  observe controller A, then sign and publish its seed completion
+  continuity  sign install continuity for A/B/C from the markers they publish
+            and publish the next read-only founder selection
+  up        every phase above, in order
   status    read-only view of the attempt's cloud and ledger state
 
 Every phase writes into the attempt workdir, refuses to overwrite an output
@@ -37,6 +40,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 PREVIEW = HERE / "preview.py"
 IMPORT_IMAGE = HERE / "import-image.py"
 SLOTS = ("controller-a", "controller-b", "controller-c")
+PHASES = ("material", "release", "image", "sign", "launch", "complete", "continuity")
 REGION = "sa-saopaulo-1"
 
 
@@ -574,6 +578,72 @@ class Attempt:
                  "--reservation", launch / "seed-reservation.json", "--completion", completion, *reviewed_args,
                  *oci_args)
 
+    def phase_continuity(self) -> None:
+        """Sign install continuity for every controller and publish the next selector.
+
+        Managed peers restart only through a root-signed continuity for their
+        exact accepted install, which each controller publishes beside its
+        slot HEAD during admission.
+        """
+        continuity = self.path("continuity")
+        continuity.mkdir(mode=0o700, exist_ok=True)
+        plan = json.loads(self.plan.read_text())
+        anchor = self.path("anchor.signed.json")
+        for slot in SLOTS:
+            marker = continuity / f"{slot}.marker.json"
+            key = hashlib.sha256(f"GRU\0controller\0{slot}".encode()).hexdigest()
+            name = f"{self.prefix}/bootstrap/v1/{self.deployment}/{key}/accepted-install.json"
+            deadline = time.monotonic() + 20 * 60
+            while not marker.exists():
+                result = subprocess.run(["oci", "--region", REGION, "os", "object", "get", "--namespace-name",
+                                         self.config["namespace"], "--bucket-name", plan["foundation_buckets"]["head"],
+                                         "--name", name, "--file", str(marker)],
+                                        env=self.env, capture_output=True, check=False)
+                if result.returncode == 0 and marker.stat().st_size > 0:
+                    break
+                marker.unlink(missing_ok=True)
+                if time.monotonic() > deadline:
+                    raise SystemExit(f"{slot} did not publish its accepted-install marker")
+                time.sleep(20)
+        record = continuity / "generation"
+        generation = int(record.read_text()) + 1 if record.exists() else 2
+        work = continuity / f"g{generation}"
+        work.mkdir(mode=0o700, exist_ok=True)
+        proofs = []
+        for slot in SLOTS:
+            candidate, proof = work / f"{slot}.candidate.json", work / f"{slot}.signed.json"
+            if not proof.exists():
+                candidate.unlink(missing_ok=True)
+                self.run(self.bootstrap_tool, "render-founder-continuity", "--marker", continuity / f"{slot}.marker.json",
+                         "--anchor", anchor, "--material-directory", self.path("material"),
+                         "--selector-generation", generation, "--out", candidate)
+                self.run(self.bootstrap_tool, "sign-founder-continuity", "--candidate", candidate,
+                         "--marker", continuity / f"{slot}.marker.json", "--anchor", anchor,
+                         "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
+                         "--out", proof, "--valid-for", f"{self.config['validity_days'] * 24}h")
+            proofs += ["--proof", proof]
+        selection = work / "selection.signed.json"
+        if not selection.exists():
+            candidate = work / "selection.candidate.json"
+            candidate.write_text(json.dumps({
+                "schemaVersion": 2, "deploymentId": self.deployment, "cell": "GRU", "environment": "canary",
+                "generation": generation,
+                "continuities": [{"slot": slot, "sha256": sha256(work / f"{slot}.signed.json")} for slot in SLOTS],
+            }, separators=(",", ":")))
+            self.run(self.bootstrap_tool, "sign-founder-selection", "--candidate", candidate,
+                     "--identity", self.path("identity.json"), "--root-key", self.trust["root_public"],
+                     "--signing-key", self.trust["root_private"], "--out", selection,
+                     "--valid-for", f"{self.config['validity_days'] * 24}h", *proofs)
+        self.run(self.bootstrap_tool, "publish-founder-selection", "--selection", selection,
+                 "--identity", self.path("identity.json"), "--anchor", anchor, "--root-key", self.trust["root_public"],
+                 "--oci-config", pathlib.Path.home() / ".oci/config", "--oci-profile", "DEFAULT", *proofs)
+        record.write_text(str(generation))
+
+    def phase_up(self) -> None:
+        for phase in PHASES:
+            print(f"== {phase}", flush=True)
+            getattr(self, "phase_" + phase)()
+
     def list_objects(self, bucket: str, prefix: str) -> list[str]:
         listing = self.oci("os", "object", "list", "--namespace-name", self.config["namespace"],
                            "--bucket-name", bucket, "--prefix", prefix, "--all")
@@ -615,7 +685,7 @@ def utc(moment: datetime) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=pathlib.Path, required=True)
-    parser.add_argument("phase", choices=("material", "release", "image", "sign", "launch", "complete", "status"))
+    parser.add_argument("phase", choices=(*PHASES, "up", "status"))
     args = parser.parse_args()
     attempt = Attempt(args.config)
     getattr(attempt, "phase_" + args.phase)()

@@ -43,7 +43,7 @@ func run(args []string) error {
 
 func runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
@@ -74,6 +74,8 @@ func runAt(args []string, now time.Time) error {
 		return runProvisionControllerMaterial(args[1:])
 	case "sign-peer-receipt-delegation":
 		return signPeerReceiptDelegationAt(args[1:], now)
+	case "render-founder-continuity":
+		return renderFounderContinuityAt(args[1:])
 	case "sign-founder-continuity":
 		return signFounderContinuityAt(args[1:], now)
 	case "sign-founder-plan":
@@ -97,7 +99,7 @@ func runAt(args []string, now time.Time) error {
 	case "publish-founder-selection":
 		return publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 }
 

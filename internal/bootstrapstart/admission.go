@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -239,12 +240,36 @@ func (gate Gate) currentSlot(ctx context.Context, anchor bootstrap.VerifiedBoots
 
 func (gate Gate) historicalSlot(ctx context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	scope bootstrap.BootstrapScope,
-) (bootstrap.SlotState, error) {
+) (bootstrap.SlotState, SlotReader, error) {
 	ledger, err := gate.Ledgers.OpenHistoricalLedger(ctx, anchor, gate.Roots)
 	if err != nil {
-		return bootstrap.SlotState{}, fmt.Errorf("open historical signed slot ledger: %w", err)
+		return bootstrap.SlotState{}, nil, fmt.Errorf("open historical signed slot ledger: %w", err)
 	}
-	return readSlot(ctx, ledger, scope)
+	state, err := readSlot(ctx, ledger, scope)
+	return state, ledger, err
+}
+
+// acceptedInstallPublisher makes an accepted install's public marker
+// available to the offline root that signs install continuity.
+type acceptedInstallPublisher interface {
+	PublishAcceptedInstall(context.Context, bootstrap.BootstrapScope, []byte) error
+}
+
+func publishAcceptedInstall(ctx context.Context, ledger SlotReader, scope bootstrap.BootstrapScope,
+	marker AcceptedInstall,
+) error {
+	publisher, ok := ledger.(acceptedInstallPublisher)
+	if !ok {
+		return nil
+	}
+	wire, err := protocol.EncodeJSON(marker)
+	if err != nil {
+		return err
+	}
+	if err := publisher.PublishAcceptedInstall(ctx, scope, wire); err != nil {
+		return fmt.Errorf("%w: publish accepted-install marker: %v", ErrAdmission, err)
+	}
+	return nil
 }
 
 func readSlot(ctx context.Context, ledger SlotReader, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
@@ -561,7 +586,7 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		scope.Slot != marker.Slot || instanceID != marker.InstanceOCID {
 		return AcceptedInstall{}, fmt.Errorf("%w: local locator differs from accepted install", ErrAdmission)
 	}
-	state, err := gate.historicalSlot(ctx, anchor, scope)
+	state, ledger, err := gate.historicalSlot(ctx, anchor, scope)
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
@@ -572,6 +597,11 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		state.Intent.ImageOCID != marker.ImageOCID ||
 		state.Intent.ReleaseReceiptDigest != marker.ImageReceiptSHA256 {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted install differs from signed current slot", ErrAdmission)
+	}
+	// Peers restart only through a root-signed continuity for this exact
+	// marker, so publish it before any continuity check.
+	if err := publishAcceptedInstall(ctx, ledger, scope, marker); err != nil {
+		return AcceptedInstall{}, err
 	}
 	observed, err := gate.observe(ctx, instanceID, state, anchor.Anchor())
 	if err != nil {

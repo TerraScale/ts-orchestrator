@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
+	"path/filepath"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -20,6 +22,97 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
+
+// renderFounderContinuityAt derives the canonical continuity candidate for one
+// installed controller from its accepted marker, the genesis anchor and the
+// generated material the marker pins. The credential cutoff uses the same
+// computation the controller performs on its installed files.
+func renderFounderContinuityAt(args []string) error {
+	flags := flag.NewFlagSet("render-founder-continuity", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	markerPath := flags.String("marker", "", "canonical accepted-install marker JSON")
+	anchorPath := flags.String("anchor", "", "historical root-signed genesis anchor")
+	materialDirectory := flags.String("material-directory", "", "generated controller material the marker pins")
+	generation := flags.Uint64("selector-generation", 0, "read-only selector generation the proof joins")
+	outputPath := flags.String("out", "", "new canonical continuity candidate JSON")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if *markerPath == "" || *anchorPath == "" || *materialDirectory == "" || *generation < 2 ||
+		*outputPath == "" || flags.NArg() != 0 {
+		return errors.New("render-founder-continuity requires --marker, --anchor, --material-directory, --selector-generation >= 2, and --out")
+	}
+	markerWire, err := readBoundedRegular(*markerPath, 16<<10)
+	if err != nil {
+		return err
+	}
+	var marker bootstrapstart.AcceptedInstall
+	if err := protocol.DecodeStrict(markerWire, &marker, 16<<10); err != nil {
+		return err
+	}
+	if canonical, err := protocol.EncodeJSON(marker); err != nil || !bytes.Equal(markerWire, canonical) {
+		return errors.New("accepted marker must be canonical JSON")
+	}
+	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	if err != nil {
+		return err
+	}
+	anchorEnvelope, err := trust.DecodeEnvelope(anchorWire)
+	if err != nil {
+		return err
+	}
+	var anchor bootstrap.BootstrapAnchor
+	if err := protocol.DecodeStrict(anchorEnvelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
+		return err
+	}
+	anchorDigest := sha256.Sum256(anchorWire)
+	if hex.EncodeToString(anchorDigest[:]) != marker.AnchorSHA256 || anchor.DeploymentID != marker.DeploymentID ||
+		string(anchor.Cell) != marker.Cell {
+		return errors.New("accepted marker belongs to another genesis anchor")
+	}
+	read := func(name string) ([]byte, error) {
+		want := marker.MaterialSHA256[name]
+		data, err := os.ReadFile(filepath.Join(*materialDirectory, name))
+		if err != nil {
+			return nil, err
+		}
+		got := sha256.Sum256(data)
+		if want == "" || hex.EncodeToString(got[:]) != want {
+			return nil, fmt.Errorf("material file %s differs from the accepted marker", name)
+		}
+		return data, nil
+	}
+	validUntil, err := bootstrapstart.CredentialValidUntil(read, bootstrapstart.SlotCredentialFiles(marker.Slot))
+	if err != nil {
+		return err
+	}
+	credentialDigest, err := bootstrap.InstallContinuityCredentialDigest(marker.MaterialSHA256)
+	if err != nil {
+		return err
+	}
+	markerDigest := sha256.Sum256(markerWire)
+	candidate := bootstrap.InstallContinuity{SchemaVersion: 1, DeploymentID: marker.DeploymentID,
+		Environment: anchor.Environment, ClusterID: anchor.ClusterID, Cell: anchor.Cell, OCIRegion: anchor.OCIRegion,
+		Slot: marker.Slot, GenesisAnchorSHA256: marker.AnchorSHA256,
+		AcceptedMarkerSHA256: hex.EncodeToString(markerDigest[:]), ManifestSHA256: marker.ManifestSHA256,
+		ResultSHA256: marker.ResultSHA256, ReceiptSHA256: marker.ReceiptSHA256,
+		ImageReceiptSHA256: marker.ImageReceiptSHA256, ImageOCID: marker.ImageOCID,
+		InstanceOCID: marker.InstanceOCID, PrimaryVNICOCID: marker.PrimaryVNICOCID,
+		PrimaryPrivateIP: marker.PrimaryPrivateIP, LedgerAttempt: marker.HeadAttempt,
+		LedgerGeneration: marker.HeadGeneration, AcceptedAt: marker.AcceptedAt, BinarySHA256: marker.BinarySHA256,
+		MaterialSHA256: marker.MaterialSHA256, CredentialSHA256: credentialDigest,
+		CredentialValidUntil: validUntil, SelectorGeneration: *generation}
+	encoded, err := protocol.EncodeJSON(candidate)
+	if err != nil {
+		return err
+	}
+	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("rendered founder continuity slot=%s generation=%d credential-valid-until=%s\n",
+		candidate.Slot, candidate.SelectorGeneration, validUntil.Format(time.RFC3339))
+	return nil
+}
 
 func signFounderContinuityAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-founder-continuity", flag.ContinueOnError)

@@ -87,6 +87,26 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 	}
 }
 
+// Controllers use JetStream through the cell account; in operator mode the
+// account JWT alone decides whether JetStream is enabled.
+func TestGeneratedCellAccountEnablesJetStream(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "material")
+	if _, err := Generate(directory, testConfig(), time.Now().UTC().Truncate(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(filepath.Join(directory, "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := jwt.DecodeAccountClaims(string(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claim.Limits.IsJSEnabled() {
+		t.Fatalf("generated cell account disables JetStream: %+v", claim.Limits.JetStreamLimits)
+	}
+}
+
 func TestGeneratedTerminalCredentialGrants(t *testing.T) {
 	directory := filepath.Join(t.TempDir(), "material")
 	_, err := Generate(directory, testConfig(), time.Now().UTC().Truncate(time.Second))

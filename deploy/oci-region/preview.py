@@ -1644,6 +1644,9 @@ def controller_storage_statements(plan: dict, ids: dict, storage_prefix: str) ->
         "{request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'}}",
         f"Allow dynamic-group {dynamic_group} to use keys in compartment {control_name} where all "
         f"{{target.key.id='{ids['key']}', any {{request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}}}",
+        # Writing an object with an explicit SSE-KMS key needs key-delegate use.
+        f"Allow dynamic-group {dynamic_group} to use key-delegate in compartment {control_name} "
+        f"where target.key.id='{ids['key']}'",
     ]
 
 
