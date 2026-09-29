@@ -810,19 +810,21 @@ func (controller *Controller) VerifyManagedDesired(
 		intent.PayloadDigest() != registration.ManagedPlacement.IntentPayloadDigest {
 		return errors.New("managed desired placement differs from its current authority record")
 	}
-	memberID := desired.ManagedMember.Member.Scope.MemberID
-	versioned, err := controller.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, memberID)
+	// Member states are keyed by placement seat; the TerraBase member UUID is
+	// the signed roster identity bound to that seat.
+	seatID := registration.ManagedPlacement.SeatID
+	versioned, err := controller.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, seatID)
 	if err != nil {
 		return err
 	}
 	state := versioned.State
 	if versioned.Revision == 0 || state.Validate() != nil ||
 		state.DatabaseID != intent.DatabaseID || state.PartitionID != intent.PartitionID ||
-		state.MemberID != memberID || state.Region != oci.Region(desired.ManagedMember.OCI.Region) ||
+		state.MemberID != seatID || state.CanonicalRosterRow.MemberID != desired.ManagedMember.Member.Scope.MemberID ||
+		state.Region != oci.Region(desired.ManagedMember.OCI.Region) ||
 		state.HostNode != desired.Node || state.HostGeneration != registration.Generation ||
 		state.IntentGeneration != intent.Generation || state.IntentPayloadDigest != intent.PayloadDigest() ||
 		state.HostAttempt != registration.ManagedMember.HostAttempt ||
-		registration.ManagedPlacement.SeatID != state.MemberID ||
 		registration.ManagedPlacement.CanonicalRosterDigest != state.CanonicalRosterDigest ||
 		registration.ManagedPlacement.ManagedHostProfileDigest != state.ManagedHostProfileDigest ||
 		registration.ManagedOCI.InstanceID != state.InstanceID || registration.ManagedOCI.CreateKey != state.CreateKey ||
@@ -939,12 +941,14 @@ func (controller *Controller) VerifyManagedRuntimeTarget(ctx context.Context, de
 		intent.DatabaseID != placementBinding.DatabaseID || intent.PartitionID != placementBinding.PartitionID {
 		return false, errors.New("managed runtime placement differs from its exact authority record")
 	}
-	stateVersion, err := controller.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID,
-		desired.ManagedMember.Member.Scope.MemberID)
+	stateVersion, err := controller.store.ReadMember(ctx, intent.DatabaseID, intent.PartitionID, placementBinding.SeatID)
 	if err != nil {
 		return false, err
 	}
 	state := stateVersion.State
+	if state.CanonicalRosterRow.MemberID != desired.ManagedMember.Member.Scope.MemberID {
+		return false, errors.New("managed runtime target member differs from its durable placement seat")
+	}
 	target := state.ManagedRuntimeTarget
 	if target.OperationID == "" {
 		return false, nil
