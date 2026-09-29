@@ -80,6 +80,19 @@ func TestControllerPublicationGateRequiresFreshManualReadbackAndBudget(t *testin
 		gate.Target.KMSKeyOCID != readback.KeyID || !gate.Deadline.Equal(readback.InspectedAt.Add(15*time.Minute)) {
 		t.Fatalf("fresh manual foundation and cost admission rejected: gate=%+v err=%v", gate, err)
 	}
+	admission.Estimate.Limit, admission.Estimate.Total, admission.Estimate.Headroom = "200", "200", "0"
+	if _, err := check(); err != nil {
+		t.Fatalf("exact combined monthly cost ceiling rejected: %v", err)
+	}
+	admission.Estimate.Limit, admission.Estimate.Total, admission.Estimate.Headroom = "200.01", "200", "0.01"
+	if _, err := check(); err == nil {
+		t.Fatal("cost admission limit above the combined ceiling accepted")
+	}
+	admission.Estimate.Limit, admission.Estimate.Total, admission.Estimate.Headroom = "200", "200.01", "-0.01"
+	if _, err := check(); err == nil {
+		t.Fatal("cost admission total above the combined ceiling accepted")
+	}
+	admission.Estimate.Limit, admission.Estimate.Total, admission.Estimate.Headroom = "100", "89.55", "10.45"
 	for _, test := range []struct{ cell, region string }{
 		{"sfo", "us-sanjose-1"}, {"fra", "eu-frankfurt-1"},
 	} {
@@ -141,7 +154,7 @@ func TestControllerPublicationGateRequiresFreshManualReadbackAndBudget(t *testin
 		t.Fatal("expired cost admission accepted")
 	}
 	admission.ExpiresAt = now.Add(14 * time.Minute)
-	admission.Estimate.Total = "100.01"
+	admission.Estimate.Total = "200.01"
 	admission.Estimate.Headroom = "-0.01"
 	if _, err := check(); err == nil {
 		t.Fatal("over-budget cost admission accepted")

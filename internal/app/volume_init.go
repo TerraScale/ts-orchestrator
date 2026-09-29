@@ -14,7 +14,7 @@ import (
 // placement seat. Enrollment also reads this seat, but must run before the
 // volume is created, so its registration check cannot require these pins.
 func verifyCurrentVolumeInitSeat(ctx context.Context, members placement.MemberPinReader,
-	desired host.Desired, registration host.Registration,
+	desired host.Desired, registration host.Registration, runtimeTargets ...managedRuntimeTargetVerifier,
 ) error {
 	if members == nil || desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
 		registration.ManagedPlacement == nil || registration.ManagedOCI == nil || registration.ManagedMember == nil {
@@ -27,7 +27,7 @@ func verifyCurrentVolumeInitSeat(ctx context.Context, members placement.MemberPi
 	}
 	state := versioned.State
 	launch := *desired.ManagedMember
-	manifest, runtime := state.RuntimeManifest, launch.Runtime
+	manifest, effectiveManifest, runtime := state.RuntimeManifest, state.EffectiveRuntimeManifest(), launch.Runtime
 	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, launch.Member)
 	if err != nil {
 		return fmt.Errorf("derive current volume mount path: %w", err)
@@ -48,7 +48,7 @@ func verifyCurrentVolumeInitSeat(ctx context.Context, members placement.MemberPi
 		state.AttachmentETag != launch.AttachmentETag ||
 		state.AttachmentDevice != launch.Runtime.DevicePath ||
 		state.DesiredGeneration != desired.Generation ||
-		manifest.ArtifactDigest != desired.Digest || manifest.SourceDigest != launch.SourceDigest ||
+		effectiveManifest.ArtifactDigest != desired.Digest || effectiveManifest.SourceDigest != launch.SourceDigest ||
 		manifest.FileSystemUUID != runtime.FileSystemUUID || manifest.FileSystemType != runtime.FileSystemType ||
 		mountPath != runtime.MountPath ||
 		manifest.TrustedKeySHA256 != runtime.TrustedKeySHA256 ||
@@ -75,6 +75,17 @@ func verifyCurrentVolumeInitSeat(ctx context.Context, members placement.MemberPi
 		state.ManagedHostProfile.CgroupMemoryMaxBytes != launch.CgroupMemoryMaxBytes ||
 		state.ManagedHostProfile.SystemReserveBytes != launch.SystemReserveBytes {
 		return errors.New("managed volume desired differs from current placement seat")
+	}
+	if state.ManagedRuntimeTarget.OperationID != "" {
+		if len(runtimeTargets) != 1 || runtimeTargets[0] == nil {
+			return errors.New("managed volume canary lacks its current signed update verifier")
+		}
+		valid, err := runtimeTargets[0](ctx, desired, registration)
+		if err != nil || !valid {
+			return errors.New("managed volume canary is not authorized by its current signed update")
+		}
+	} else if desired.Digest != manifest.ArtifactDigest || launch.SourceDigest != manifest.SourceDigest {
+		return errors.New("managed volume desired differs from immutable placement runtime")
 	}
 	return nil
 }

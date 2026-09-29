@@ -682,8 +682,9 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		}
 		hasPending = false
 	}
+	backupObserved := false
 	defer func() {
-		if resultErr != nil && !errors.Is(resultErr, errSessionContention) {
+		if resultErr != nil && !backupObserved && !errors.Is(resultErr, errSessionContention) {
 			_ = a.publishReport(ctx, a.reportFor(d, "failed", resultErr))
 		}
 	}()
@@ -701,6 +702,28 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	if d.ManagedMember != nil {
 		if d.ManagedMember.Runtime != nil && a.cfg.ManagedRuntimeRoot != "" {
+			backup, err := a.fetchManagedBackupCommand(ctx, role)
+			if err != nil {
+				return err
+			}
+			if backup.Pending {
+				current, err := a.runner.Observe(ctx, role)
+				if err != nil {
+					return err
+				}
+				if !current.Running {
+					err := a.reconcileManaged(ctx, d, target, true)
+					backupObserved = err == nil
+					return err
+				}
+				var operationErr error
+				if backup.Command != nil {
+					operationErr = a.reconcileManagedBackup(ctx, d, *target.Registration, *backup.Command)
+				}
+				reportErr := a.reportManagedBackupProcess(ctx, d, nil)
+				backupObserved = reportErr == nil
+				return errors.Join(operationErr, reportErr)
+			}
 			command, err := a.fetchManagedDrainCommand(ctx, role)
 			if err != nil {
 				return err
@@ -709,7 +732,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 				return a.reconcileManagedDrain(ctx, d, *target.Registration, *command)
 			}
 		}
-		return a.reconcileManaged(ctx, d, target)
+		return a.reconcileManaged(ctx, d, target, false)
 	}
 	if err := a.revokeManagedNativeRoot(role); err != nil {
 		return err

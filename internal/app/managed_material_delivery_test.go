@@ -10,7 +10,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
-func TestDesiredMaterialMatchesReceiptPinsSQLBundleDigest(t *testing.T) {
+func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {
 	const (
 		configuration = "1111111111111111111111111111111111111111111111111111111111111111"
 		certificate   = "2222222222222222222222222222222222222222222222222222222222222222"
@@ -24,6 +24,11 @@ func TestDesiredMaterialMatchesReceiptPinsSQLBundleDigest(t *testing.T) {
 		ClientCARootsSHA256: strings.Repeat("3", 64), ClientManagedMaterialManifestSHA256: strings.Repeat("5", 64),
 		SQLSchemaBundleSHA256: sqlBundle, LiveS3ConfigSHA256: strings.Repeat("6", 64),
 		LiveS3TargetSHA256: strings.Repeat("7", 64), ReplicationListenAddress: "10.0.0.11:7000",
+		BackupManifestSHA256: strings.Repeat("a", 64), BackupS3ConfigSHA256: strings.Repeat("b", 64),
+		BackupS3TargetSHA256: strings.Repeat("c", 64), BackupS3CredentialSHA256: strings.Repeat("d", 64),
+		BackupDataKeySHA256: strings.Repeat("e", 64), BackupOwner: true,
+		BackupS3Credential:      oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backup", VersionNumber: 4},
+		BackupDataKey:           oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backupkey", VersionNumber: 5},
 		ReplicationPeerMemberID: "40000000-0000-0000-0000-000000000002",
 		ReplicationPeerAddress:  "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("8", 64),
 	}
@@ -57,6 +62,13 @@ func TestDesiredMaterialMatchesReceiptPinsSQLBundleDigest(t *testing.T) {
 			ClientManagedMaterialManifestSHA256: manifest.ClientManagedMaterialManifestSHA256,
 			SQLSchemaBundleSHA256:               manifest.SQLSchemaBundleSHA256,
 			LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256, LiveS3TargetSHA256: manifest.LiveS3TargetSHA256,
+			BackupManifestSHA256:     manifest.BackupManifestSHA256,
+			BackupS3ConfigSHA256:     manifest.BackupS3ConfigSHA256,
+			BackupS3TargetSHA256:     manifest.BackupS3TargetSHA256,
+			BackupS3CredentialSHA256: manifest.BackupS3CredentialSHA256,
+			BackupDataKeySHA256:      manifest.BackupDataKeySHA256,
+			BackupOwner:              manifest.BackupOwner, BackupS3Credential: manifest.BackupS3Credential,
+			BackupDataKey:             manifest.BackupDataKey,
 			ReplicationListenAddress:  manifest.ReplicationListenAddress,
 			ReplicationPeerMemberID:   manifest.ReplicationPeerMemberID,
 			ReplicationPeerAddress:    manifest.ReplicationPeerAddress,
@@ -64,11 +76,16 @@ func TestDesiredMaterialMatchesReceiptPinsSQLBundleDigest(t *testing.T) {
 		},
 	}
 	desired := host.Desired{Digest: manifest.ArtifactDigest, ManagedMember: launch}
-	if !desiredMaterialMatchesReceipt(desired, intent, receipt, 0) {
+	if !desiredMaterialMatchesReceipt(desired, intent, receipt, 0, false) {
 		t.Fatal("host desired with the receipt-pinned SQL bundle was rejected")
 	}
 	launch.Runtime.SQLSchemaBundleSHA256 = strings.Repeat("9", 64)
-	if desiredMaterialMatchesReceipt(desired, intent, receipt, 0) {
+	if desiredMaterialMatchesReceipt(desired, intent, receipt, 0, false) {
 		t.Fatal("host desired with a substituted SQL bundle pin was admitted")
+	}
+	launch.Runtime.SQLSchemaBundleSHA256 = manifest.SQLSchemaBundleSHA256
+	launch.Runtime.BackupS3Credential.VersionNumber++
+	if desiredMaterialMatchesReceipt(desired, intent, receipt, 0, false) {
+		t.Fatal("host desired with a substituted backup credential version was admitted")
 	}
 }

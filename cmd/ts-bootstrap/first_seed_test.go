@@ -270,7 +270,11 @@ func TestReviewedManualSeedPlanBindsSignedLaunchAndCreateIdentity(t *testing.T) 
 		t.Fatalf("exact seed identity could not be retried after admission expiry: %v", err)
 	}
 	plan = fixture.reviewedSeedPlan("seed-create-1")
-	plan.MonthlyEstimateUSD = "100.01"
+	plan.MonthlyEstimateUSD = "200"
+	if err := check(plan, "seed-create-1"); err != nil {
+		t.Fatalf("exact monthly cost ceiling rejected: %v", err)
+	}
+	plan.MonthlyEstimateUSD = "200.01"
 	if err := check(plan, "seed-create-1"); err == nil {
 		t.Fatal("over-budget launch accepted")
 	}

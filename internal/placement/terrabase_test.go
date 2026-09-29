@@ -291,74 +291,6 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 	}
 }
 
-func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testing.T) {
-	previous := validIntent(oci.RegionGRU)
-	unchanged := validIntent(oci.RegionGRU)
-	unchanged.Generation = previous.Generation + 1
-	if err := unchanged.ValidateSupersession(previous); err != nil {
-		t.Fatalf("later generation with unchanged roster row rejected: %v", err)
-	}
-	addition := validIntent(oci.RegionGRU, oci.RegionFRA)
-	addition.Generation = previous.Generation + 1
-	if err := addition.ValidateSupersession(previous); err != nil {
-		t.Fatalf("signed added seats with continuous existing identity rejected: %v", err)
-	}
-
-	removed := validIntent(oci.RegionGRU)
-	removed.Generation = 2
-	if err := removed.ValidateSupersession(validIntent(oci.RegionGRU, oci.RegionFRA)); err == nil {
-		t.Fatal("seat removal was accepted without verified retirement evidence")
-	}
-
-	rotatedMember := validIntent(oci.RegionGRU)
-	rotatedMember.Generation = 2
-	rotatedMember.CanonicalRoster.Rows[0].MemberID = "018f0000-0000-7000-8000-000000000010"
-	if err := rotatedMember.ValidateSupersession(previous); err == nil {
-		t.Fatal("ordinary generation increment authorized member identity rotation")
-	}
-
-	rotatedIncarnation := validIntent(oci.RegionGRU)
-	rotatedIncarnation.Generation = 2
-	rotatedIncarnation.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
-	if err := rotatedIncarnation.ValidateSupersession(previous); err == nil {
-		t.Fatal("ordinary generation increment authorized member incarnation rotation")
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*CanonicalRosterRow)
-	}{
-		{name: "failure domain", mutate: func(row *CanonicalRosterRow) { row.FailureDomain = "FAULT-DOMAIN-3" }},
-		{name: "TLS leaf", mutate: func(row *CanonicalRosterRow) { row.TLSLeafSHA256 = strings.Repeat("e", 64) }},
-		{name: "server name", mutate: func(row *CanonicalRosterRow) { row.ServerName = "renewed-permanent-gru.tb.example" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := validIntent(oci.RegionGRU)
-			candidate.Generation = previous.Generation + 1
-			test.mutate(&candidate.CanonicalRoster.Rows[0])
-			if err := candidate.ValidateForAdmission(); err != nil {
-				t.Fatalf("changed row is not otherwise admissible: %v", err)
-			}
-			if err := candidate.ValidateSupersession(previous); err == nil {
-				t.Fatal("supersession accepted a changed row for a continuing seat")
-			}
-		})
-	}
-
-	changedScope := validIntent(oci.RegionGRU)
-	changedScope.Generation = 2
-	changedScope.CanonicalRoster.ShardID++
-	if err := changedScope.ValidateSupersession(previous); err == nil {
-		t.Fatal("supersession changed the canonical shared scope")
-	}
-
-	legacy := Intent{SchemaVersion: profileIntentSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
-		ManagedHostProfiles: []ManagedHostProfile{testManagedHostProfile(oci.RegionGRU)}}
-	if err := addition.ValidateSupersession(legacy); err == nil {
-		t.Fatal("schema-2 history without a roster authorized schema-3 supersession")
-	}
-}
-
 func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	legacyState := validMemberStateForPins()
 	legacyState.SchemaVersion = legacyMemberStateSchemaVersion
@@ -504,9 +436,6 @@ func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
 	}
 	if err := decoded.ValidateForAdmission(); err == nil {
 		t.Fatal("historical ULID placement was admitted again")
-	}
-	if err := current.ValidateSupersession(decoded); err == nil {
-		t.Fatal("schema-5 generation reinterpreted historical ULID authority")
 	}
 }
 

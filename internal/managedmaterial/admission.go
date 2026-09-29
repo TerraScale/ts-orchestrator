@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
@@ -22,6 +23,9 @@ func initialHostFileNames(spec InitialSpec) []string {
 	names := slices.Clone(initialHostFiles[:])
 	if len(spec.SQLTables) > 0 {
 		names = append(names, sqlSchemaBundleFileName)
+	}
+	if spec.Backup != nil {
+		names = append(names, backupManifestName, backupConfigName)
 	}
 	return names
 }
@@ -87,6 +91,7 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 			manifest.SQLSchemaBundleSHA256 != pins.Files[sqlSchemaBundleFileName] ||
 			manifest.LiveS3TargetSHA256 != liveTargetDigest ||
 			manifest.LiveS3Credential != spec.LiveS3.Credential ||
+			!backupRuntimeMatchesSpec(manifest, spec, pins, seat) ||
 			manifest.ReplicationServerCASHA256 != pins.Files["server-ca.pem"] ||
 			manifest.ReplicationListenAddress != net.JoinHostPort(seat.ReplicationIP, strconv.Itoa(int(seat.ReplicationPort))) {
 			return ErrMaterialConflict
@@ -118,4 +123,31 @@ func VerifyIntentAgainstReceipt(intent placement.Intent, receipt PreparationRece
 		return errors.New("managed placement repeats one prepared seat")
 	}
 	return nil
+}
+
+func backupRuntimeMatchesSpec(manifest placement.RuntimeManifest, spec InitialSpec,
+	pins MemberPins, seat InitialMember,
+) bool {
+	if spec.Backup == nil {
+		return manifest.BackupManifestSHA256 == "" && manifest.BackupS3ConfigSHA256 == "" &&
+			manifest.BackupS3TargetSHA256 == "" && manifest.BackupS3CredentialSHA256 == "" &&
+			manifest.BackupDataKeySHA256 == "" && !manifest.BackupOwner &&
+			manifest.BackupS3Credential == (oci.SecretVersionReference{}) &&
+			manifest.BackupDataKey == (oci.SecretVersionReference{})
+	}
+	targetDigest, err := spec.Backup.Target.Digest()
+	if err != nil || manifest.BackupManifestSHA256 != pins.Files[backupManifestName] ||
+		manifest.BackupS3ConfigSHA256 != pins.Files[backupConfigName] ||
+		manifest.BackupS3TargetSHA256 != targetDigest ||
+		manifest.BackupS3CredentialSHA256 != spec.Backup.Target.CredentialSHA256 ||
+		manifest.BackupDataKeySHA256 != spec.Backup.DataKeySHA256 ||
+		manifest.BackupOwner != (seat.MemberID == spec.Backup.OwnerMemberID) {
+		return false
+	}
+	if manifest.BackupOwner {
+		return manifest.BackupS3Credential == spec.Backup.Target.Credential &&
+			manifest.BackupDataKey == spec.Backup.DataKey
+	}
+	return manifest.BackupS3Credential == (oci.SecretVersionReference{}) &&
+		manifest.BackupDataKey == (oci.SecretVersionReference{})
 }

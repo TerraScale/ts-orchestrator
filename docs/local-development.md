@@ -3,7 +3,7 @@
 This repository contains the current Go `ts-orchestrator` executable. The
 [workspace GOAL](../../GOAL.md) prioritizes end-to-end API behavior and an
 early, low-cost ARM64 preview of ts-orchestrator with TerraBase. It authorizes
-that preview under a combined recurring-cost cap of **US$100/month for
+that preview under a combined recurring-cost cap of **US$200/month for
 qualification testing and preview**; these local commands do not deploy or
 qualify it. Current preview evidence and open gates are linked in the
 [OCI preview record](evidence/oci-preview-20260926.json) and

@@ -385,7 +385,7 @@ class PrivatePeerInspectionTests(unittest.TestCase):
         self.assertEqual(receipt["source_evidence"]["SFO"]["inventory_sha256"],
                          preview.sha256(self.inventory_paths["SFO"]))
         self.assertEqual(receipt["budget_admission"]["status"], "blocked")
-        self.assertIn("cannot prove the combined USD 100 monthly ceiling",
+        self.assertIn("cannot prove the combined USD 200 monthly ceiling",
                       receipt["budget_admission"]["reason"])
         self.assertNotIn("combined_estimate", receipt)
         self.assertNotIn("headroom", receipt)

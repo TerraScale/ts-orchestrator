@@ -54,6 +54,10 @@ func buildSignerPolicy(cfg Config) (signerPolicy, error) {
 				seen[value] = struct{}{}
 			}
 		}
+		if (grant.CanUpdateTerraBaseRuntime || grant.CanCertifyTerraBaseCompatibility) &&
+			(!slices.Contains(grant.Roles, "terrabase") || !slices.Contains(grant.Environments, "production")) {
+			return signerPolicy{}, fmt.Errorf("trusted signer %s needs terrabase and production grants for managed runtime updates", grant.Actor)
+		}
 		for _, repository := range grant.Repositories {
 			if !strings.HasPrefix(repository, "https://") {
 				return signerPolicy{}, fmt.Errorf("trusted signer %s has a non-HTTPS repository grant", grant.Actor)

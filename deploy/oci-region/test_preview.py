@@ -417,6 +417,31 @@ class PreviewAdmissionTests(unittest.TestCase):
         self.assertEqual(cost["assumptions"]["object_staging_reserve_gb"], "10")
         self.assertLess(float(cost["total"]), 100)
 
+    def test_monthly_ceiling_accepts_200_and_rejects_more(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan = json.loads(preview.PLAN.read_text())
+            path = pathlib.Path(directory) / "plan.json"
+            self.assertEqual(plan["budget"]["monthly_limit"], 200)
+            for limit in ("100", "200"):
+                with self.subTest(limit=limit):
+                    plan["budget"]["monthly_limit"] = limit
+                    path.write_text(json.dumps(plan))
+                    self.assertEqual(preview.load_plan(path)["budget"]["monthly_limit"], limit)
+            plan["budget"]["monthly_limit"] = "200.01"
+            path.write_text(json.dumps(plan))
+            with self.assertRaisesRegex(ValueError, "no more than \\$200"):
+                preview.load_plan(path)
+
+        baseline = preview.estimate(self.plan, self.inventory)
+        self.plan["budget"]["misc_reserve_usd"] = (
+            Decimal(self.plan["budget"]["misc_reserve_usd"]) + Decimal("200") - Decimal(baseline["total"]))
+        admitted = preview.estimate(self.plan, self.inventory)
+        self.assertEqual(admitted["total"], "200.00")
+        self.assertEqual(admitted["headroom"], "0.00")
+        self.plan["budget"]["misc_reserve_usd"] += Decimal("0.01")
+        with self.assertRaisesRegex(ValueError, "exceeds the monthly ceiling"):
+            preview.estimate(self.plan, self.inventory)
+
     def test_object_growth_and_staging_reserves_are_separate_and_bounded(self):
         expected_gb = Decimal(58) + Decimal(10) + Decimal(10)
         expected = ((expected_gb - Decimal(10)) * Decimal("0.0255")).quantize(Decimal("0.0001"))
@@ -506,7 +531,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             preview.estimate(self.plan, self.inventory)
 
     def test_object_growth_can_exceed_budget(self):
-        self.inventory["buckets"][0]["bytes"] = 550 * 1024**3
+        self.inventory["buckets"][0]["bytes"] = 6000 * 1024**3
         with self.assertRaisesRegex(ValueError, "exceeds the monthly ceiling"):
             preview.estimate(self.plan, self.inventory)
 
@@ -1000,7 +1025,7 @@ class PreviewAdmissionTests(unittest.TestCase):
 
     def test_import_overbound_size_and_stale_inventory_deny(self):
         directory, projection, entries = self.import_case()
-        entries[0]["image"]["max_billable_size_in_gbs"] = 500
+        entries[0]["image"]["max_billable_size_in_gbs"] = 6000
         projection.write_text(json.dumps({"schema_version": 1, "imports": entries}))
         with self.assertRaisesRegex(ValueError, "exceeds the monthly ceiling"):
             preview.import_estimate(self.plan, self.inventory, projection, "pre-stage")

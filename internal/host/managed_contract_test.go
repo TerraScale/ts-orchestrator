@@ -31,7 +31,7 @@ func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
 			return errors.New("memory check reached")
 		},
 	}
-	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration}, false)
 	if err == nil || !strings.Contains(err.Error(), "differs from image priority profile") || checkedMemory {
 		t.Fatalf("managed launch did not reject changed signed reserve before memory check: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
 	}
 	registration.SystemReserveBytes = 1 << 30
 	desired.ManagedMember.SystemReserveBytes = 1 << 30
-	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration}, false)
 	if err == nil || !checkedMemory {
 		t.Fatalf("matching baked reserve did not reach the next launch check: %v", err)
 	}

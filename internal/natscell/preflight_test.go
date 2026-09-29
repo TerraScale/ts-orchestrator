@@ -64,6 +64,7 @@ func productionPreflightFixture(t *testing.T) (Config, nkeys.KeyPair, nkeys.KeyP
 	controller.Sub.Allow = jwt.StringList{
 		inboxPrefix("gru", controllerID) + ".>", "ts.broker.gru.ticket.>",
 		"ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",
+		"ts.orch.v1.gru.managed-update.prepare",
 		"ts.orch.v1.gru.terminal.>",
 	}
 	controller.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
@@ -130,7 +131,7 @@ func TestControllerCredentialsRequireScopedTerminalSubscription(t *testing.T) {
 		name  string
 		grant string
 	}{
-		{name: "missing"},
+		{name: "missing terminal"},
 		{name: "broad wildcard", grant: "ts.orch.v1.gru.>"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -144,6 +145,15 @@ func TestControllerCredentialsRequireScopedTerminalSubscription(t *testing.T) {
 			}
 		})
 	}
+	t.Run("missing managed update subscription", func(t *testing.T) {
+		controller.Sub.Allow = slices.DeleteFunc(slices.Clone(original), func(subject string) bool {
+			return subject == "ts.orch.v1.gru.managed-update.prepare"
+		})
+		writeControllerPreflightCredentials(t, filepath.Dir(cfg.CredentialsFile), controller, cellKey, controllerUser)
+		if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, "gru", "broker-a"); err == nil {
+			t.Fatal("controller credentials without managed update subscription accepted")
+		}
+	})
 }
 
 func TestOperatorCredentialsRequireExactTerminalPublishes(t *testing.T) {

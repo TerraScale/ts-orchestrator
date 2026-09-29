@@ -19,9 +19,12 @@ type currentPlacementReader interface {
 	ReadPlacementIntent(context.Context, string, string) (authority.LogEntry, error)
 }
 
+type managedRuntimeTargetVerifier func(context.Context, host.Desired, host.Registration) (bool, error)
+
 func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 	placements currentPlacementReader,
-	credentials ...managedmaterial.CredentialService,
+	credentials managedmaterial.CredentialService,
+	runtimeTarget managedRuntimeTargetVerifier,
 ) host.ManagedMaterialProvider {
 	return func(ctx context.Context, desired host.Desired, registration host.Registration) (map[string][]byte, error) {
 		if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
@@ -61,7 +64,20 @@ func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 				break
 			}
 		}
-		if index < 0 || !desiredMaterialMatchesReceipt(desired, intent, receipt, index) {
+		if index < 0 {
+			return nil, managedmaterial.ErrMaterialConflict
+		}
+		updatedRuntime := false
+		if !desiredMatchesInitialRuntime(desired, intent, placementBinding.SeatID) {
+			if runtimeTarget == nil {
+				return nil, managedmaterial.ErrMaterialConflict
+			}
+			updatedRuntime, err = runtimeTarget(ctx, desired, registration)
+			if err != nil || !updatedRuntime {
+				return nil, managedmaterial.ErrMaterialConflict
+			}
+		}
+		if !desiredMaterialMatchesReceipt(desired, intent, receipt, index, updatedRuntime) {
 			return nil, managedmaterial.ErrMaterialConflict
 		}
 		files := make(map[string][]byte, len(bundle.Members[index].Files))
@@ -73,23 +89,34 @@ func admittedManagedMaterialProvider(service managedmaterial.PreparationService,
 			}
 			files[name] = bytes.Clone(file.Contents)
 		}
-		if len(credentials) == 1 {
-			state, _, err := credentials[0].Current(ctx, intent.DatabaseID, intent.PartitionID)
-			if err != nil {
-				return nil, err
-			}
-			wire, err := protocol.EncodeJSON(state)
-			if err != nil {
-				return nil, err
-			}
-			files["client-credentials-current.json"] = wire
+		state, _, err := credentials.Current(ctx, intent.DatabaseID, intent.PartitionID)
+		if err != nil {
+			return nil, err
 		}
+		wire, err := protocol.EncodeJSON(state)
+		if err != nil {
+			return nil, err
+		}
+		files["client-credentials-current.json"] = wire
 		return files, nil
 	}
 }
 
+func desiredMatchesInitialRuntime(desired host.Desired, intent placement.Intent, seatID string) bool {
+	launch := desired.ManagedMember
+	if launch == nil {
+		return false
+	}
+	for _, manifest := range intent.RuntimeManifests {
+		if manifest.SeatID == seatID && slices.Contains(intent.ActiveRegions, manifest.Region) {
+			return desired.Digest == manifest.ArtifactDigest && launch.SourceDigest == manifest.SourceDigest
+		}
+	}
+	return false
+}
+
 func desiredMaterialMatchesReceipt(desired host.Desired, intent placement.Intent,
-	receipt managedmaterial.PreparationReceipt, memberIndex int,
+	receipt managedmaterial.PreparationReceipt, memberIndex int, updatedRuntime bool,
 ) bool {
 	launch := desired.ManagedMember
 	if launch == nil || launch.Runtime == nil || memberIndex < 0 || memberIndex >= len(receipt.Spec.Members) {
@@ -104,7 +131,7 @@ func desiredMaterialMatchesReceipt(desired host.Desired, intent placement.Intent
 			break
 		}
 	}
-	if !found || desired.Digest != manifest.ArtifactDigest || launch.SourceDigest != manifest.SourceDigest ||
+	if !found || !updatedRuntime && (desired.Digest != manifest.ArtifactDigest || launch.SourceDigest != manifest.SourceDigest) ||
 		launch.Authority.Epoch != intent.CanonicalRoster.Authority.Epoch ||
 		launch.Authority.ConfigurationID != receipt.AuthorityConfigurationID ||
 		launch.Authority.CertificateSHA256 != receipt.AuthoritySHA256 ||
@@ -127,6 +154,14 @@ func desiredMaterialMatchesReceipt(desired host.Desired, intent placement.Intent
 		runtime.LiveS3ConfigSHA256 == manifest.LiveS3ConfigSHA256 &&
 		runtime.LiveS3TargetSHA256 == manifest.LiveS3TargetSHA256 &&
 		runtime.LiveS3Credential == manifest.LiveS3Credential &&
+		runtime.BackupManifestSHA256 == manifest.BackupManifestSHA256 &&
+		runtime.BackupS3ConfigSHA256 == manifest.BackupS3ConfigSHA256 &&
+		runtime.BackupS3TargetSHA256 == manifest.BackupS3TargetSHA256 &&
+		runtime.BackupS3CredentialSHA256 == manifest.BackupS3CredentialSHA256 &&
+		runtime.BackupDataKeySHA256 == manifest.BackupDataKeySHA256 &&
+		runtime.BackupOwner == manifest.BackupOwner &&
+		runtime.BackupS3Credential == manifest.BackupS3Credential &&
+		runtime.BackupDataKey == manifest.BackupDataKey &&
 		runtime.ReplicationListenAddress == manifest.ReplicationListenAddress &&
 		runtime.ReplicationPeerMemberID == manifest.ReplicationPeerMemberID &&
 		runtime.ReplicationPeerAddress == manifest.ReplicationPeerAddress &&

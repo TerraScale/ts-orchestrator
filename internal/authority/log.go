@@ -162,6 +162,26 @@ func (r *Runtime) CommitHostMutation(
 	return r.commitMutation(ctx, expectedEpoch, kind, subjectKey, operationID, expectedSubjectSequence, payload)
 }
 
+func (r *Runtime) CommitHostMutationVerified(
+	ctx context.Context,
+	expectedEpoch uint64,
+	kind HostMutationKind,
+	subjectKey string,
+	operationID string,
+	expectedSubjectSequence uint64,
+	payload []byte,
+	verify func(context.Context) error,
+) (uint64, error) {
+	if err := validateHostMutation(kind, subjectKey, operationID, payload); err != nil {
+		return 0, err
+	}
+	if verify == nil {
+		return 0, errors.New("verified host mutation requires a verifier")
+	}
+	return r.commitMutationVerified(ctx, expectedEpoch, kind, subjectKey, operationID,
+		expectedSubjectSequence, payload, verify)
+}
+
 func (r *Runtime) commitMutation(
 	ctx context.Context,
 	expectedEpoch uint64,
@@ -360,7 +380,10 @@ func (r *Runtime) CommitPlacementIntent(
 	if err := r.requireNoTerminalIntent(ctx, databaseID, partitionID); err != nil {
 		return 0, err
 	}
-	return r.commitMutation(ctx, expectedEpoch, MutationPlacementIntent, subjectKey, operationID, expectedSequence, payload)
+	return r.commitMutationVerified(ctx, expectedEpoch, MutationPlacementIntent,
+		subjectKey, operationID, expectedSequence, payload, func(check context.Context) error {
+			return r.requireNoActiveBackup(check, databaseID, partitionID)
+		})
 }
 
 // ConfirmActivePlacementIntent linearizes an identical admission with the
@@ -565,8 +588,16 @@ func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope 
 	if err := r.Guard(ctx, epoch); err != nil {
 		return 0, err
 	}
+	if err := r.requireNoActiveBackup(ctx, scope.DatabaseID, scope.PartitionID); err != nil {
+		return 0, err
+	}
 	return r.commitMutationVerified(ctx, epoch, MutationTerminalIntent, subjectKey, operationID,
-		0, payload, verifySettled)
+		0, payload, func(check context.Context) error {
+			if err := r.requireNoActiveBackup(check, scope.DatabaseID, scope.PartitionID); err != nil {
+				return err
+			}
+			return verifySettled(check)
+		})
 }
 
 func decodeTerminalIntent(payload []byte) (TerminalIntent, error) {
@@ -906,6 +937,10 @@ func (r *Reader) CommitHostMutation(context.Context, uint64, HostMutationKind, s
 	return 0, ErrNotLeader
 }
 
+func (r *Reader) CommitHostMutationVerified(context.Context, uint64, HostMutationKind, string, string, uint64, []byte, func(context.Context) error) (uint64, error) {
+	return 0, ErrNotLeader
+}
+
 func (r *Reader) ReadHostMutation(ctx context.Context, kind HostMutationKind, subjectKey string) (LogEntry, error) {
 	if r == nil || r.stream == nil {
 		return LogEntry{}, ErrNotFound
@@ -998,6 +1033,44 @@ func (r *Reader) ListPlacementIntents(ctx context.Context) ([]LogEntry, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return listPlacementIntents(ctx, r.stream, r.scope)
+}
+
+func (r *Reader) ReadManagedUpdate(ctx context.Context, databaseID, partitionID string) (LogEntry, error) {
+	if r == nil || r.stream == nil {
+		return LogEntry{}, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entries, err := listManagedUpdateEntries(ctx, r.stream, r.scope, databaseID, partitionID)
+	if err != nil {
+		return LogEntry{}, err
+	}
+	if len(entries) == 0 {
+		return LogEntry{}, ErrNotFound
+	}
+	return entries[len(entries)-1], nil
+}
+
+func (r *Reader) ReadManagedUpdateOperation(
+	ctx context.Context,
+	databaseID, partitionID, operationID string,
+) ([]LogEntry, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return readManagedUpdateOperation(ctx, r.stream, r.scope,
+		databaseID, partitionID, operationID)
+}
+
+func (r *Reader) ListManagedUpdates(ctx context.Context, databaseID, partitionID string) ([]LogEntry, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return listManagedUpdateEntries(ctx, r.stream, r.scope, databaseID, partitionID)
 }
 
 func listPlacementIntents(ctx context.Context, stream jetstream.Stream, scope string) ([]LogEntry, error) {
@@ -1132,6 +1205,10 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationEnrollmentEffect:
 		want = 3
+	case MutationManagedUpdate:
+		want = 4
+	case MutationBackupOperation:
+		want = 2
 	default:
 		return errors.New("host mutation kind is not allowed")
 	}
@@ -1161,6 +1238,12 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationEnrollmentEffect {
 		return fmt.Sprintf("%s.%s.placement.enrollment.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationManagedUpdate {
+		return fmt.Sprintf("%s.%s.placement.managed-update.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationBackupOperation {
+		return fmt.Sprintf("%s.%s.placement.backup.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	return fmt.Sprintf("%s.%s.host.%s.%s", controlSubjectRoot, scope, kind, subjectKey)
 }

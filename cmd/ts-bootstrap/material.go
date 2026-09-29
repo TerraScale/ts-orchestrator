@@ -228,7 +228,7 @@ func validatePublicationGate(readbackWire, inventoryWire, admissionWire []byte, 
 		return publicationGate{}, bad
 	}
 	limit, ok := new(big.Rat).SetString(admission.Estimate.Limit)
-	if !ok || limit.Sign() <= 0 || limit.Cmp(big.NewRat(100, 1)) > 0 || total.Cmp(limit) > 0 {
+	if !ok || limit.Sign() <= 0 || limit.Cmp(big.NewRat(combinedMonthlyCostCeilingUSD, 1)) > 0 || total.Cmp(limit) > 0 {
 		return publicationGate{}, bad
 	}
 	headroom, ok := new(big.Rat).SetString(admission.Estimate.Headroom)

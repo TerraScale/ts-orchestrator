@@ -239,7 +239,7 @@
     "volume_vpus_per_gb": 10,
     "budget": {
         "currency": "USD",
-        "monthly_limit": 100,
+        "monthly_limit": 200,
         "month_hours": 720,
         "replacement_overlap_hours_max": 72,
         "replacement_hosts_max": 1,

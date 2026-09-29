@@ -47,18 +47,21 @@ type WorkloadProfile struct {
 }
 
 type TrustedSignerConfig struct {
-	Actor                     string   `json:"actor"`
-	PublicKey                 string   `json:"public_key"`
-	Roles                     []string `json:"roles"`
-	Environments              []string `json:"environments"`
-	CanRegisterHosts          bool     `json:"can_register_hosts,omitzero"`
-	CanPlaceTerraBase         bool     `json:"can_place_terrabase,omitzero"`
-	CanTeardownTerraBase      bool     `json:"can_teardown_terrabase,omitzero"`
-	CanPrepareManagedMaterial bool     `json:"can_prepare_managed_material,omitzero"`
-	CanManageClientKeys       bool     `json:"can_manage_client_keys,omitzero"`
-	ClientKeyScopes           []string `json:"client_key_scopes,omitempty"`
-	CanRotateBrokerAccount    bool     `json:"can_rotate_broker_account,omitzero"`
-	Repositories              []string `json:"repositories,omitempty"`
+	Actor                            string   `json:"actor"`
+	PublicKey                        string   `json:"public_key"`
+	Roles                            []string `json:"roles"`
+	Environments                     []string `json:"environments"`
+	CanRegisterHosts                 bool     `json:"can_register_hosts,omitzero"`
+	CanPlaceTerraBase                bool     `json:"can_place_terrabase,omitzero"`
+	CanUpdateTerraBaseRuntime        bool     `json:"can_update_terrabase_runtime,omitzero"`
+	CanCertifyTerraBaseCompatibility bool     `json:"can_certify_terrabase_compatibility,omitzero"`
+	CanTeardownTerraBase             bool     `json:"can_teardown_terrabase,omitzero"`
+	CanPrepareManagedMaterial        bool     `json:"can_prepare_managed_material,omitzero"`
+	CanOperateBackup                 bool     `json:"can_operate_backup,omitzero"`
+	CanManageClientKeys              bool     `json:"can_manage_client_keys,omitzero"`
+	ClientKeyScopes                  []string `json:"client_key_scopes,omitempty"`
+	CanRotateBrokerAccount           bool     `json:"can_rotate_broker_account,omitzero"`
+	Repositories                     []string `json:"repositories,omitempty"`
 }
 
 type OperatorConfig struct {

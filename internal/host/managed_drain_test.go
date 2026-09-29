@@ -176,7 +176,7 @@ func TestAbsentManagedDrainCommandHasExplicitReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	wire, err := json.Marshal(result)
-	if err != nil || string(wire) != "{}" {
+	if err != nil || string(wire) != `{"command":null}` {
 		t.Fatalf("empty command reply = %q, %v", wire, err)
 	}
 }

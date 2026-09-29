@@ -10,7 +10,7 @@ here.
 
 ## GRU preview cost cutoff
 
-The shared goal caps qualification and preview together at US$100/month. The
+The shared goal caps qualification and preview together at US$200/month. The
 current GRU cost plan allows one replacement host and its extra storage to
 overlap for at most 72 hours. For this preview, record each paid workload
 resource's OCI `time-created` and its `time-created + 72 hours` cutoff in a new

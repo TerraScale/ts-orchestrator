@@ -3,6 +3,8 @@ package authority
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -243,6 +245,109 @@ func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("fenced prior effect remained pending: %+v, %v", pending, err)
 	}
+}
+
+func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	first, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-a", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstClosed := false
+	t.Cleanup(func() {
+		if !firstClosed {
+			_ = first.Close()
+		}
+	})
+	firstEpoch := first.Current().Epoch
+	record := validManagedUpdateRecord()
+	preparedSequence, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil)
+	if err != nil || preparedSequence == 0 {
+		t.Fatalf("commit signed Prepare: sequence=%d error=%v", preparedSequence, err)
+	}
+	replayed, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil)
+	if err != nil || replayed != preparedSequence {
+		t.Fatalf("same Prepare retry changed its receipt: sequence=%d error=%v", replayed, err)
+	}
+
+	changed := record
+	changed.SignedRequest = []byte("different signed request")
+	changed.SignedRequestSHA256 = digestString(changed.SignedRequest)
+	if _, err := first.CommitManagedUpdate(ctx, firstEpoch, changed, 0, nil); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("changed-body retry = %v, want operation conflict", err)
+	}
+
+	serving := record
+	serving.Phase = ManagedUpdateCanaryServing
+	serving.Outcome = "fresh-serving-proof"
+	servingSequence, err := first.CommitManagedUpdate(ctx, firstEpoch, serving, preparedSequence, nil)
+	if err != nil || servingSequence <= preparedSequence {
+		t.Fatalf("commit canary result: sequence=%d error=%v", servingSequence, err)
+	}
+	if _, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil); err != nil {
+		t.Fatalf("historical Prepare receipt was not idempotent after phase advance: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	firstClosed = true
+
+	second, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-b", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if second.Current().Epoch <= firstEpoch {
+		t.Fatalf("leader epoch did not advance: first=%d second=%d", firstEpoch, second.Current().Epoch)
+	}
+	history, err := second.ReadManagedUpdateOperation(ctx, record.DatabaseID, record.PartitionID, record.OperationID)
+	if err != nil || len(history) != 2 || history[0].Sequence != preparedSequence ||
+		history[0].Epoch != firstEpoch || history[1].Sequence != servingSequence ||
+		history[1].Epoch != firstEpoch || !bytes.Equal(history[0].Payload, mustManagedUpdatePayload(t, record)) {
+		t.Fatalf("exact operation history was not retained after epoch change: %+v, %v", history, err)
+	}
+	read, err := second.ReadManagedUpdate(ctx, record.DatabaseID, record.PartitionID)
+	if err != nil || read.Sequence != servingSequence || read.OperationID != record.OperationID {
+		t.Fatalf("latest update result differs from immutable history: %+v, %v", read, err)
+	}
+	reader, err := OpenReader(ctx, js, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnlyHistory, err := reader.ReadManagedUpdateOperation(ctx, record.DatabaseID, record.PartitionID, record.OperationID)
+	if err != nil || len(readOnlyHistory) != len(history) || readOnlyHistory[0].Sequence != preparedSequence {
+		t.Fatalf("read-only exact history differs: %+v, %v", readOnlyHistory, err)
+	}
+}
+
+func validManagedUpdateRecord() ManagedUpdateRecord {
+	request := []byte("exact canonical signed managed update request")
+	return ManagedUpdateRecord{
+		SchemaVersion: 1, Cell: "gru", DatabaseID: "db-managed", PartitionID: "partition-a",
+		OperationID: "update-a", Phase: ManagedUpdatePrepared, SignedRequest: request,
+		SignedRequestSHA256: digestString(request), PlacementGeneration: 1,
+		PlacementPayloadDigest: strings.Repeat("a", 64), PlacementSequence: 1,
+		CanarySeatID: "elastic-gru", CanaryDesiredGeneration: 2,
+		OldArtifactDigest: strings.Repeat("b", 64), CandidateArtifactDigest: strings.Repeat("c", 64),
+		CandidateManifestDigest: strings.Repeat("d", 64), CandidateSourceDigest: strings.Repeat("e", 64),
+		DurabilityProfileSHA256: strings.Repeat("f", 64),
+	}
+}
+
+func digestString(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func mustManagedUpdatePayload(t *testing.T, record ManagedUpdateRecord) []byte {
+	t.Helper()
+	payload, err := json.Marshal(record, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
 }
 
 func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing.T) {

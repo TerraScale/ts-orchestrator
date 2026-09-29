@@ -42,8 +42,9 @@ type DesiredWriter interface {
 // AdmittedArtifact is the current content and asserted source identity of an
 // artifact that passed durable delivery admission and byte verification.
 type AdmittedArtifact struct {
-	Digest       string
-	SourceDigest string
+	Digest         string
+	ManifestDigest string
+	SourceDigest   string
 }
 
 type ArtifactResolver func(context.Context, string, string, string) (AdmittedArtifact, error)
@@ -71,6 +72,14 @@ type Controller struct {
 	hosts           HostView
 	desired         DesiredWriter
 	resolveArtifact ArtifactResolver
+	now             func() time.Time
+}
+
+func (controller *Controller) currentTime() time.Time {
+	if controller.now != nil {
+		return controller.now()
+	}
+	return time.Now()
 }
 
 // StartController validates one region-bound reconciler. Run owns the periodic
@@ -290,7 +299,8 @@ func (controller *Controller) Tick(ctx context.Context) error {
 			if state.Region != seat.Region || state.Kind != seat.Kind || state.FailureDomain != seat.FailureDomain {
 				return fmt.Errorf("%w: admitted placement seat conflicts with durable member identity", ErrStoreCorrupt)
 			}
-			if state.SchemaVersion != placementSchemaVersion ||
+			if state.SchemaVersion != placementSchemaVersion &&
+				state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
 				state.CanonicalRosterRow != rowsBySeat[seat.MemberID] ||
 				state.RuntimeManifest != manifestsBySeat[seat.MemberID] ||
 				state.RuntimeManifestDigest != manifestDigestsBySeat[seat.MemberID] ||
@@ -311,6 +321,13 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		}
 		if held {
 			continue
+		}
+		managedUpdateActed, err := controller.reconcileManagedUpdate(ctx, epoch, intent, seats, memberByID)
+		if err != nil {
+			return err
+		}
+		if managedUpdateActed {
+			return nil
 		}
 		for _, seat := range seats {
 			versioned, exists := memberByID[seat.MemberID]
@@ -344,6 +361,11 @@ func (controller *Controller) advanceMember(
 	statuses map[string]host.HostStatus,
 ) (bool, error) {
 	state := versioned.State
+	if state.ManagedRuntimeTarget.Phase == ManagedUpdateSeatHeld {
+		controller.hold(fmt.Sprintf("managed update %s is durably held: %s",
+			state.ManagedRuntimeTarget.OperationID, state.ManagedRuntimeTarget.Outcome))
+		return false, nil
+	}
 	switch state.Stage {
 	case StagePreparedHost:
 		if !controller.runtimeArtifactReady(ctx, state, seat) {
@@ -548,6 +570,9 @@ func (controller *Controller) advanceMember(
 		controller.hold(fmt.Sprintf("member %s retained volume attachment is not positively observed; desired state remains withheld", seat.MemberID))
 		return false, nil
 	case StagePreparedDesired:
+		if acted, err := controller.holdTimedOutManagedCanary(ctx, epoch, intent, versioned); acted || err != nil {
+			return acted, err
+		}
 		if !controller.preparedPinsMatch(intent, state, seat) {
 			controller.hold(fmt.Sprintf("member %s prepared desired pins changed; launch is held", seat.MemberID))
 			return false, nil
@@ -616,17 +641,69 @@ func (controller *Controller) advanceMember(
 		_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 		return true, err
 	case StageAwaitingHealthy:
+		if acted, err := controller.holdTimedOutManagedCanary(ctx, epoch, intent, versioned); acted || err != nil {
+			return acted, err
+		}
 		if instance, exists := instances[state.InstanceID]; exists {
 			if err := controller.validateObservedInstance(instance, state, seat); err != nil {
 				return false, err
 			}
 			if status, admitted := controller.admittedHost(intent, state, instance, statuses); admitted &&
-				status.Registration.Generation == state.HostGeneration &&
-				controller.hasServingReport(intent, state, instance, status) {
-				state.Stage = StageServing
-				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "serving")
-				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
-				return true, err
+				status.Registration.Generation == state.HostGeneration {
+				if state.ManagedRuntimeTarget.OperationID != "" {
+					current, err := controller.managedUpdatePrepareIsCurrent(ctx, state)
+					if err != nil {
+						return false, err
+					}
+					if !current {
+						controller.hold(fmt.Sprintf("member %s managed canary authority is no longer current", seat.MemberID))
+						return false, nil
+					}
+				}
+				if controller.hasServingReport(intent, state, instance, status) {
+					if state.ManagedRuntimeTarget.OperationID != "" {
+						target := state.ManagedRuntimeTarget
+						target.Phase = ManagedUpdateSeatCanaryServing
+						target.Outcome = string(authority.ManagedUpdateCanaryServing)
+						_, err := controller.commitManagedUpdateOutcome(ctx, epoch, state,
+							authority.ManagedUpdateCanaryServing, target.Outcome,
+							func(verifyCtx context.Context, update ManagedUpdateIntent,
+								prepared authority.ManagedUpdateRecord,
+							) error {
+								return controller.verifyManagedCanaryServingAtAuthorityCommit(verifyCtx, epoch, update, prepared, versioned)
+							})
+						if err != nil {
+							return false, err
+						}
+						state.ManagedRuntimeTarget = target
+					}
+					state.Stage = StageServing
+					state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "serving")
+					_, err := controller.persist(ctx, epoch, versioned.Revision, state)
+					return true, err
+				}
+				if state.ManagedRuntimeTarget.OperationID != "" && hasCurrentFailedCanaryReport(status, state,
+					controller.config.Environment, controller.config.MemberRole) {
+					outcome := "candidate-reported-failure"
+					target := state.ManagedRuntimeTarget
+					target.Phase, target.Outcome = ManagedUpdateSeatHeld, outcome
+					_, err := controller.commitManagedUpdateOutcome(ctx, epoch, state,
+						authority.ManagedUpdateHeld, outcome,
+						func(verifyCtx context.Context, update ManagedUpdateIntent,
+							prepared authority.ManagedUpdateRecord,
+						) error {
+							return controller.verifyManagedCanaryFailureAtAuthorityCommit(verifyCtx, epoch, update, versioned,
+								controller.config.Environment, controller.config.MemberRole)
+						})
+					if err != nil {
+						return false, err
+					}
+					state.ManagedRuntimeTarget = target
+					state.OperationID = digestToken("u", state.DatabaseID, state.PartitionID,
+						state.ManagedRuntimeTarget.OperationID, state.MemberID, "held")
+					_, err = controller.persist(ctx, epoch, versioned.Revision, state)
+					return true, err
+				}
 			}
 		}
 		controller.hold(fmt.Sprintf("member %s awaits a current mounted process and independent TerraBase serving proof", seat.MemberID))
@@ -641,6 +718,10 @@ func (controller *Controller) advanceMember(
 				controller.hasServingReport(intent, state, instance, status) {
 				return false, nil
 			}
+		}
+		if state.ManagedRuntimeTarget.OperationID != "" {
+			controller.hold(fmt.Sprintf("managed canary member %s lost its current candidate serving proof; it remains held without peer promotion", seat.MemberID))
+			return false, nil
 		}
 		state.Stage = StageAwaitingRuntimeContract
 		state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
@@ -680,7 +761,7 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 
 func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, manifest RuntimeManifest, manifestDigest string, attempt uint64) MemberState {
 	return MemberState{
-		SchemaVersion: placementSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+		SchemaVersion: managedUpdateMemberStateSchemaVersion, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		MemberID: seat.MemberID, Region: seat.Region, FailureDomain: seat.FailureDomain, Kind: seat.Kind,
 		Stage: StagePreparedHost, CreateKey: hostCreateKey(intent, seat, attempt), HostAttempt: attempt,
 		CanonicalRosterRow: row, CanonicalRosterDigest: rosterDigest, AuthorityReference: intent.CanonicalRoster.Authority,
@@ -805,6 +886,7 @@ func (controller *Controller) admittedHost(intent Intent, state MemberState, ins
 }
 
 func (controller *Controller) hasServingReport(intent Intent, state MemberState, instance oci.Instance, status host.HostStatus) bool {
+	manifest := state.EffectiveRuntimeManifest()
 	attachment, attached := observedAttachment(instance, state)
 	if !attached || !validObservedAttachment(attachment) ||
 		attachment.Device != state.AttachmentDevice || attachment.ETag != state.AttachmentETag {
@@ -812,7 +894,7 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 	}
 	var survivor memberstatus.Survivor
 	for _, row := range intent.CanonicalRoster.Rows {
-		if row.MemberID == state.RuntimeManifest.ReplicationPeerMemberID && row.MemberID != state.CanonicalRosterRow.MemberID {
+		if row.MemberID == manifest.ReplicationPeerMemberID && row.MemberID != state.CanonicalRosterRow.MemberID {
 			survivor = memberstatus.Survivor{MemberID: row.MemberID, Incarnation: row.Incarnation}
 			break
 		}
@@ -820,7 +902,7 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 	if survivor.MemberID == "" {
 		return false
 	}
-	mountPath, err := host.ManagedMountPath(state.RuntimeManifest.ManagedRuntimeRoot, controller.memberBinding(intent, state))
+	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, controller.memberBinding(intent, state))
 	if err != nil {
 		return false
 	}
@@ -829,7 +911,7 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 		managed := report.Managed
 		if report.Cell != controller.config.Cell || report.Node != status.Registration.Node ||
 			report.Environment != controller.config.Environment || report.Role != controller.config.MemberRole ||
-			report.Generation != state.DesiredGeneration || report.Digest != state.RuntimeManifest.ArtifactDigest ||
+			report.Generation != state.DesiredGeneration || report.Digest != manifest.ArtifactDigest ||
 			report.State != "running" || report.ObservedAt.IsZero() || report.ObservedAt.After(now.Add(2*time.Second)) ||
 			now.Sub(report.ObservedAt) >= 30*time.Second || managed == nil || managed.ServingProof == nil ||
 			managed.Member != controller.memberBinding(intent, state) ||
@@ -841,8 +923,8 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 			Region: string(state.Region), InstanceID: state.InstanceID, Owner: controller.config.ManagedOwner,
 			FleetGeneration: controller.config.FleetGeneration, CreateKey: state.CreateKey,
 		}) || managed.VolumeID != state.VolumeID || managed.AttachmentID != state.AttachmentID ||
-			managed.AttachmentETag != attachment.ETag || managed.FileSystemUUID != state.RuntimeManifest.FileSystemUUID ||
-			managed.FileSystemType != state.RuntimeManifest.FileSystemType || managed.MountDevice != attachment.Device ||
+			managed.AttachmentETag != attachment.ETag || managed.FileSystemUUID != manifest.FileSystemUUID ||
+			managed.FileSystemType != manifest.FileSystemType || managed.MountDevice != attachment.Device ||
 			managed.MountPath != mountPath || managed.MountID == 0 || managed.ProcessPID < 2 ||
 			managed.ProcessStart == "" || !strings.HasPrefix(managed.ProcessCgroup, "/") ||
 			!managed.StorageRecovered || !managed.ListenerReady {
@@ -1025,13 +1107,17 @@ func (controller *Controller) memberBinding(intent Intent, state MemberState) ho
 }
 
 func (controller *Controller) admittedRuntimeArtifact(ctx context.Context, state MemberState) (AdmittedArtifact, error) {
-	manifest := state.RuntimeManifest
+	manifest := state.EffectiveRuntimeManifest()
 	artifact, err := controller.resolveArtifact(ctx, manifest.ArtifactDigest, controller.config.MemberRole, controller.config.Environment)
 	if err != nil {
 		return AdmittedArtifact{}, err
 	}
 	if artifact.Digest != manifest.ArtifactDigest || artifact.SourceDigest != manifest.SourceDigest {
 		return AdmittedArtifact{}, errors.New("admitted runtime artifact differs from signed source and byte pins")
+	}
+	if target := state.ManagedRuntimeTarget; target.OperationID != "" &&
+		artifact.ManifestDigest != target.ManifestDigest {
+		return AdmittedArtifact{}, errors.New("admitted managed update manifest differs from its durable target")
 	}
 	return artifact, nil
 }
@@ -1045,7 +1131,7 @@ func (controller *Controller) runtimeArtifactReady(ctx context.Context, state Me
 }
 
 func (controller *Controller) memberDesired(epoch uint64, intent Intent, state MemberState, seat Seat) (host.Desired, error) {
-	manifest := state.RuntimeManifest
+	manifest := state.EffectiveRuntimeManifest()
 	binding := controller.memberBinding(intent, state)
 	mountPath, err := host.ManagedMountPath(manifest.ManagedRuntimeRoot, binding)
 	if err != nil {
@@ -1084,6 +1170,14 @@ func (controller *Controller) memberDesired(epoch uint64, intent Intent, state M
 				LiveS3ConfigSHA256:                  manifest.LiveS3ConfigSHA256,
 				LiveS3TargetSHA256:                  manifest.LiveS3TargetSHA256,
 				LiveS3Credential:                    manifest.LiveS3Credential,
+				BackupManifestSHA256:                manifest.BackupManifestSHA256,
+				BackupS3ConfigSHA256:                manifest.BackupS3ConfigSHA256,
+				BackupS3TargetSHA256:                manifest.BackupS3TargetSHA256,
+				BackupS3CredentialSHA256:            manifest.BackupS3CredentialSHA256,
+				BackupDataKeySHA256:                 manifest.BackupDataKeySHA256,
+				BackupOwner:                         manifest.BackupOwner,
+				BackupS3Credential:                  manifest.BackupS3Credential,
+				BackupDataKey:                       manifest.BackupDataKey,
 				ReplicationListenAddress:            manifest.ReplicationListenAddress,
 				ReplicationPeerMemberID:             manifest.ReplicationPeerMemberID,
 				ReplicationPeerAddress:              manifest.ReplicationPeerAddress,
@@ -1103,6 +1197,16 @@ func (controller *Controller) preparedPinsMatch(intent Intent, state MemberState
 }
 
 func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uint64, intent Intent, seat Seat, state MemberState) (bool, error) {
+	if state.ManagedRuntimeTarget.OperationID != "" {
+		current, err := controller.managedUpdatePrepareIsCurrent(ctx, state)
+		if err != nil {
+			return false, err
+		}
+		if !current {
+			controller.hold(fmt.Sprintf("member %s managed update authorization is no longer prepared", seat.MemberID))
+			return false, nil
+		}
+	}
 	if _, err := controller.admittedRuntimeArtifact(ctx, state); err != nil {
 		controller.hold(fmt.Sprintf("member %s runtime artifact admission changed: %v", seat.MemberID, err))
 		return false, nil
@@ -1180,6 +1284,7 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		return false, err
 	}
 	seenDesired := false
+	previousDesired := false
 	for _, existing := range currentDesired {
 		if existing.Node != state.HostNode || existing.Role != controller.config.MemberRole {
 			continue
@@ -1190,10 +1295,32 @@ func (controller *Controller) freshPreparedInputs(ctx context.Context, epoch uin
 		}
 		seenDesired = true
 		want.AuthorityEpoch, existing.AuthorityEpoch = 0, 0
-		if !reflect.DeepEqual(existing, want) {
+		if reflect.DeepEqual(existing, want) {
+			continue
+		}
+		target := state.ManagedRuntimeTarget
+		if target.OperationID != "" {
+			previousState := state
+			previousState.ManagedRuntimeTarget = ManagedRuntimeTarget{}
+			previousState.DesiredGeneration = target.PreviousDesiredGeneration
+			previous, err := controller.memberDesired(epoch, intent, previousState, seat)
+			if err != nil {
+				return false, err
+			}
+			previous.AuthorityEpoch = 0
+			if reflect.DeepEqual(existing, previous) {
+				previousDesired = true
+				continue
+			}
+		}
+		if !previousDesired {
 			controller.hold(fmt.Sprintf("member %s host desired target differs from prepared pins", seat.MemberID))
 			return false, nil
 		}
+	}
+	if state.ManagedRuntimeTarget.OperationID != "" && !seenDesired {
+		controller.hold(fmt.Sprintf("member %s managed canary lost its recorded predecessor desired", seat.MemberID))
+		return false, nil
 	}
 	return true, nil
 }

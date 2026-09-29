@@ -114,6 +114,7 @@ func (g *gatedDesiredRead) ReadHostMutation(ctx context.Context, kind authority.
 func (m *memoryMutations) key(kind authority.HostMutationKind, subject string) string {
 	return string(kind) + "." + subject
 }
+
 func (m *memoryMutations) ReadHostMutation(_ context.Context, kind authority.HostMutationKind, subject string) (authority.LogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -123,6 +124,13 @@ func (m *memoryMutations) ReadHostMutation(_ context.Context, kind authority.Hos
 	}
 	return entry, nil
 }
+
+func (*memoryMutations) ReadBackupOperation(context.Context, string, string) (
+	authority.BackupOperationRecord, uint64, error,
+) {
+	return authority.BackupOperationRecord{}, 0, authority.ErrNotFound
+}
+
 func (m *memoryMutations) CommitHostMutation(ctx context.Context, epoch uint64, kind authority.HostMutationKind, subject, operation string, expected uint64, payload []byte) (uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1713,6 +1721,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 		Cell: "gru", Conn: conn, JS: js, Artifacts: store, ResponseKey: controllerKey,
 		StateReplicas: 1, HostMutations: authorityRuntime,
 		ManagedRegistrationVerifier: managedRegistrationVerifierFunc(func(context.Context, Registration) error { return nil }),
+		ManagedDesiredVerifier:      func(context.Context, Desired, Registration, Desired, bool) error { return nil },
 		AuthorityEpoch:              func() uint64 { return authorityRuntime.Current().Epoch },
 		AuthorityGuard:              authorityRuntime.Guard,
 	})
@@ -1827,6 +1836,16 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 			Authority:    MemberAuthority{Epoch: authorityRuntime.Current().Epoch, ConfigurationID: strings.Repeat("c", 64), CertificateSHA256: strings.Repeat("d", 64), TLSLeafSHA256: strings.Repeat("e", 64)},
 			SourceDigest: strings.Repeat("f", 64), VolumeID: "ocid1.volume.retained", AttachmentID: "ocid1.volumeattachment.host-a",
 			ProcessMemoryBytes: 4 << 30, MemoryHeadroomBytes: 1 << 30, CgroupMemoryMaxBytes: 6 << 30, SystemReserveBytes: 1 << 30}}
+	c.managedDesiredVerifier = func(context.Context, Desired, Registration, Desired, bool) error {
+		return errors.New("managed canary desired is not authorized")
+	}
+	if _, err := c.ApplyDesired(t.Context(), desired); err == nil {
+		t.Fatal("forged managed desired passed its final durable authorization verifier")
+	}
+	if desiredRows, err := c.ListDesired(t.Context(), "terrabase"); err != nil || len(desiredRows) != 0 {
+		t.Fatalf("rejected managed desired changed durable state: rows=%+v err=%v", desiredRows, err)
+	}
+	c.managedDesiredVerifier = func(context.Context, Desired, Registration, Desired, bool) error { return nil }
 	receipt, err := c.ApplyDesired(t.Context(), desired)
 	if err != nil || receipt.Revision == 0 {
 		t.Fatalf("commit desired: receipt=%+v err=%v", receipt, err)

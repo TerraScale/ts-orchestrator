@@ -21,21 +21,22 @@ import (
 const (
 	// IntentSchemaVersion is the only schema accepted for new managed
 	// placement admissions. Older schemas remain readable for historical hold.
-	IntentSchemaVersion            = 5
-	legacyIntentSchemaVersion      = 1
-	profileIntentSchemaVersion     = 2
-	rosterIntentSchemaVersion      = 3
-	ulidRuntimeIntentSchemaVersion = 4
-	legacyMemberStateSchemaVersion = 1
-	rosterMemberStateSchemaVersion = 2
-	ulidMemberStateSchemaVersion   = 3
-	placementSchemaVersion         = 4
-	maxDatabaseIDLength            = 63
-	maxPartitionIDLength           = 63
-	maxIntentPayloadBytes          = 16 << 10
-	managedMemoryPageBytes         = uint64(4096)
-	managedMemoryGiB               = uint64(1 << 30)
-	maxManagedMemoryByteValue      = uint64(1<<63 - 1)
+	IntentSchemaVersion                   = 5
+	legacyIntentSchemaVersion             = 1
+	profileIntentSchemaVersion            = 2
+	rosterIntentSchemaVersion             = 3
+	ulidRuntimeIntentSchemaVersion        = 4
+	legacyMemberStateSchemaVersion        = 1
+	rosterMemberStateSchemaVersion        = 2
+	ulidMemberStateSchemaVersion          = 3
+	placementSchemaVersion                = 4
+	managedUpdateMemberStateSchemaVersion = 5
+	maxDatabaseIDLength                   = 63
+	maxPartitionIDLength                  = 63
+	maxIntentPayloadBytes                 = 16 << 10
+	managedMemoryPageBytes                = uint64(4096)
+	managedMemoryGiB                      = uint64(1 << 30)
+	maxManagedMemoryByteValue             = uint64(1<<63 - 1)
 )
 
 var (
@@ -110,6 +111,14 @@ type RuntimeManifest struct {
 	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
 	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
 	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	BackupManifestSHA256                string                     `json:"backup_manifest_sha256,omitempty"`
+	BackupS3ConfigSHA256                string                     `json:"backup_s3_config_sha256,omitempty"`
+	BackupS3TargetSHA256                string                     `json:"backup_s3_target_sha256,omitempty"`
+	BackupS3CredentialSHA256            string                     `json:"backup_s3_credential_sha256,omitempty"`
+	BackupDataKeySHA256                 string                     `json:"backup_data_key_sha256,omitempty"`
+	BackupOwner                         bool                       `json:"backup_owner,omitzero"`
+	BackupS3Credential                  oci.SecretVersionReference `json:"backup_s3_credential,omitzero"`
+	BackupDataKey                       oci.SecretVersionReference `json:"backup_data_key,omitzero"`
 	ReplicationListenAddress            string                     `json:"replication_listen_address"`
 	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
 	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
@@ -146,6 +155,27 @@ func (manifest RuntimeManifest) validateWithIdentity(validMemberID func(string) 
 	if requireManagedClient && (!validLowerSHA256Digest(manifest.LiveS3ConfigSHA256) ||
 		!validLowerSHA256Digest(manifest.LiveS3TargetSHA256) || manifest.LiveS3Credential.Validate() != nil) {
 		return fmt.Errorf("%w: managed ObjectDurable target or credential pin is incomplete", ErrInvalidIntent)
+	}
+	if manifest.BackupManifestSHA256 != "" {
+		if !requireManagedClient || !validLowerSHA256Digest(manifest.BackupManifestSHA256) ||
+			!validLowerSHA256Digest(manifest.BackupS3ConfigSHA256) ||
+			!validLowerSHA256Digest(manifest.BackupS3TargetSHA256) ||
+			!validLowerSHA256Digest(manifest.BackupS3CredentialSHA256) ||
+			!validLowerSHA256Digest(manifest.BackupDataKeySHA256) ||
+			manifest.BackupS3TargetSHA256 == manifest.LiveS3TargetSHA256 ||
+			manifest.BackupOwner && (manifest.BackupS3Credential.Validate() != nil ||
+				manifest.BackupDataKey.Validate() != nil ||
+				manifest.BackupS3Credential.SecretOCID == manifest.LiveS3Credential.SecretOCID ||
+				manifest.BackupS3Credential.SecretOCID == manifest.BackupDataKey.SecretOCID) ||
+			!manifest.BackupOwner && (manifest.BackupS3Credential != (oci.SecretVersionReference{}) ||
+				manifest.BackupDataKey != (oci.SecretVersionReference{})) {
+			return fmt.Errorf("%w: managed backup material pins are incomplete", ErrInvalidIntent)
+		}
+	} else if manifest.BackupS3ConfigSHA256 != "" || manifest.BackupS3TargetSHA256 != "" ||
+		manifest.BackupS3CredentialSHA256 != "" || manifest.BackupDataKeySHA256 != "" ||
+		manifest.BackupOwner || manifest.BackupS3Credential != (oci.SecretVersionReference{}) ||
+		manifest.BackupDataKey != (oci.SecretVersionReference{}) {
+		return fmt.Errorf("%w: partial managed backup material pins", ErrInvalidIntent)
 	}
 	if manifest.SQLSchemaBundleSHA256 != "" && !validLowerSHA256Digest(manifest.SQLSchemaBundleSHA256) {
 		return fmt.Errorf("%w: invalid SQL schema bundle pin", ErrInvalidIntent)
@@ -420,46 +450,6 @@ func (intent Intent) RosterRowForSeat(seat Seat) (CanonicalRosterRow, error) {
 		return row, nil
 	}
 	return CanonicalRosterRow{}, fmt.Errorf("%w: no canonical roster row for region %s seat %s", ErrInvalidIntent, seat.Region, seat.MemberID)
-}
-
-// ValidateSupersession preserves each continuing roster row across signed
-// generations. Removal remains rejected until admission has explicit retirement
-// evidence, and legacy intents cannot establish a roster baseline.
-func (intent Intent) ValidateSupersession(previous Intent) error {
-	if err := intent.ValidateForAdmission(); err != nil {
-		return err
-	}
-	if err := previous.Validate(); err != nil {
-		return err
-	}
-	if previous.SchemaVersion != IntentSchemaVersion || previous.DatabaseID != intent.DatabaseID ||
-		previous.PartitionID != intent.PartitionID || intent.Generation <= previous.Generation {
-		return fmt.Errorf("%w: supersession requires a later schema-5 generation with the same business identity", ErrInvalidIntent)
-	}
-	oldScope, newScope := previous.CanonicalRoster, intent.CanonicalRoster
-	if oldScope.ClusterID != newScope.ClusterID || oldScope.TenantID != newScope.TenantID ||
-		oldScope.DatabaseID != newScope.DatabaseID || oldScope.ShardID != newScope.ShardID ||
-		oldScope.Authority != newScope.Authority {
-		return fmt.Errorf("%w: supersession changes canonical roster shared scope", ErrInvalidIntent)
-	}
-	newRows := make(map[string]CanonicalRosterRow, len(newScope.Rows))
-	for _, row := range newScope.Rows {
-		newRows[rosterSeatKey(row.Region, row.SeatID)] = row
-	}
-	for _, oldRow := range oldScope.Rows {
-		newRow, exists := newRows[rosterSeatKey(oldRow.Region, oldRow.SeatID)]
-		if !exists {
-			return fmt.Errorf("%w: supersession removes seat %s/%s without retirement evidence", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
-		}
-		if newRow != oldRow {
-			return fmt.Errorf("%w: supersession changes canonical roster row for continuing seat %s/%s", ErrInvalidIntent, oldRow.Region, oldRow.SeatID)
-		}
-	}
-	return nil
-}
-
-func rosterSeatKey(region oci.Region, seatID string) string {
-	return string(region) + "\x00" + seatID
 }
 
 func seatIDForKind(region oci.Region, kind MemberKind) string {
@@ -745,37 +735,77 @@ const (
 // MemberState is the durable per-member lifecycle record. Store revisions are
 // kept outside this value so its content remains stable across CAS retries.
 type MemberState struct {
-	SchemaVersion            int                `json:"schema_version"`
-	DatabaseID               string             `json:"database_id"`
-	PartitionID              string             `json:"partition_id"`
-	MemberID                 string             `json:"member_id"`
-	Region                   oci.Region         `json:"region"`
-	FailureDomain            string             `json:"failure_domain"`
-	Kind                     MemberKind         `json:"kind"`
-	Stage                    MemberStage        `json:"stage"`
-	CreateKey                string             `json:"create_key"`
-	HostNode                 string             `json:"host_node,omitempty"`
-	InstanceID               string             `json:"instance_id,omitempty"`
-	InstanceETag             string             `json:"instance_etag,omitempty"`
-	VolumeID                 string             `json:"volume_id,omitempty"`
-	AttachmentID             string             `json:"attachment_id,omitempty"`
-	AttachmentDevice         string             `json:"attachment_device,omitempty"`
-	AttachmentETag           string             `json:"attachment_etag,omitempty"`
-	HostAttempt              uint64             `json:"host_attempt"`
-	WriterEpoch              uint64             `json:"writer_epoch,omitzero"`
-	IntentGeneration         uint64             `json:"intent_generation"`
-	IntentPayloadDigest      string             `json:"intent_payload_digest,omitempty"`
-	ManagedHostProfile       ManagedHostProfile `json:"managed_host_profile,omitzero"`
-	ManagedHostProfileDigest string             `json:"managed_host_profile_digest,omitempty"`
-	CanonicalRosterRow       CanonicalRosterRow `json:"canonical_roster_row,omitzero"`
-	CanonicalRosterDigest    string             `json:"canonical_roster_digest,omitempty"`
-	AuthorityReference       AuthorityReference `json:"authority_reference,omitzero"`
-	RuntimeManifest          RuntimeManifest    `json:"runtime_manifest,omitzero"`
-	RuntimeManifestDigest    string             `json:"runtime_manifest_digest,omitempty"`
-	DesiredGeneration        uint64             `json:"desired_generation"`
-	HostGeneration           uint64             `json:"host_generation"`
-	OperationID              string             `json:"operation_id"`
-	UpdatedAt                time.Time          `json:"updated_at"`
+	SchemaVersion            int                  `json:"schema_version"`
+	DatabaseID               string               `json:"database_id"`
+	PartitionID              string               `json:"partition_id"`
+	MemberID                 string               `json:"member_id"`
+	Region                   oci.Region           `json:"region"`
+	FailureDomain            string               `json:"failure_domain"`
+	Kind                     MemberKind           `json:"kind"`
+	Stage                    MemberStage          `json:"stage"`
+	CreateKey                string               `json:"create_key"`
+	HostNode                 string               `json:"host_node,omitempty"`
+	InstanceID               string               `json:"instance_id,omitempty"`
+	InstanceETag             string               `json:"instance_etag,omitempty"`
+	VolumeID                 string               `json:"volume_id,omitempty"`
+	AttachmentID             string               `json:"attachment_id,omitempty"`
+	AttachmentDevice         string               `json:"attachment_device,omitempty"`
+	AttachmentETag           string               `json:"attachment_etag,omitempty"`
+	HostAttempt              uint64               `json:"host_attempt"`
+	WriterEpoch              uint64               `json:"writer_epoch,omitzero"`
+	IntentGeneration         uint64               `json:"intent_generation"`
+	IntentPayloadDigest      string               `json:"intent_payload_digest,omitempty"`
+	ManagedHostProfile       ManagedHostProfile   `json:"managed_host_profile,omitzero"`
+	ManagedHostProfileDigest string               `json:"managed_host_profile_digest,omitempty"`
+	CanonicalRosterRow       CanonicalRosterRow   `json:"canonical_roster_row,omitzero"`
+	CanonicalRosterDigest    string               `json:"canonical_roster_digest,omitempty"`
+	AuthorityReference       AuthorityReference   `json:"authority_reference,omitzero"`
+	RuntimeManifest          RuntimeManifest      `json:"runtime_manifest,omitzero"`
+	RuntimeManifestDigest    string               `json:"runtime_manifest_digest,omitempty"`
+	ManagedRuntimeTarget     ManagedRuntimeTarget `json:"managed_runtime_target,omitzero"`
+	DesiredGeneration        uint64               `json:"desired_generation"`
+	HostGeneration           uint64               `json:"host_generation"`
+	OperationID              string               `json:"operation_id"`
+	UpdatedAt                time.Time            `json:"updated_at"`
+}
+
+type ManagedUpdateSeatPhase string
+
+const (
+	ManagedUpdateSeatPrepared      ManagedUpdateSeatPhase = "prepared"
+	ManagedUpdateSeatCanaryServing ManagedUpdateSeatPhase = "canary-serving"
+	ManagedUpdateSeatHeld          ManagedUpdateSeatPhase = "held"
+)
+
+// ManagedRuntimeTarget is the durable canary target layered over the
+// immutable placement RuntimeManifest. It never changes OCI boot or material
+// pins and is only effective while a matching signed authority operation is
+// retained.
+type ManagedRuntimeTarget struct {
+	OperationID               string                 `json:"operation_id"`
+	AuthoritySequence         uint64                 `json:"authority_sequence"`
+	RequestSHA256             string                 `json:"request_sha256"`
+	PreparedAt                time.Time              `json:"prepared_at"`
+	PlacementGeneration       uint64                 `json:"placement_generation"`
+	PlacementPayloadDigest    string                 `json:"placement_payload_digest"`
+	CanarySeatID              string                 `json:"canary_seat_id"`
+	PreviousDesiredGeneration uint64                 `json:"previous_desired_generation"`
+	PreviousArtifactDigest    string                 `json:"previous_artifact_digest"`
+	DesiredGeneration         uint64                 `json:"desired_generation"`
+	ArtifactDigest            string                 `json:"artifact_digest"`
+	ManifestDigest            string                 `json:"manifest_digest"`
+	SourceDigest              string                 `json:"source_digest"`
+	Phase                     ManagedUpdateSeatPhase `json:"phase"`
+	Outcome                   string                 `json:"outcome,omitempty"`
+}
+
+func (state MemberState) EffectiveRuntimeManifest() RuntimeManifest {
+	manifest := state.RuntimeManifest
+	if state.ManagedRuntimeTarget.OperationID != "" {
+		manifest.ArtifactDigest = state.ManagedRuntimeTarget.ArtifactDigest
+		manifest.SourceDigest = state.ManagedRuntimeTarget.SourceDigest
+	}
+	return manifest
 }
 
 func (state MemberState) Validate() error {
@@ -784,7 +814,8 @@ func (state MemberState) Validate() error {
 		validStateFailureDomain = validFailureDomain(state.FailureDomain)
 	}
 	if state.SchemaVersion != legacyMemberStateSchemaVersion && state.SchemaVersion != rosterMemberStateSchemaVersion &&
-		state.SchemaVersion != ulidMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion ||
+		state.SchemaVersion != ulidMemberStateSchemaVersion && state.SchemaVersion != placementSchemaVersion &&
+		state.SchemaVersion != managedUpdateMemberStateSchemaVersion ||
 		!validBoundedToken(state.DatabaseID, maxDatabaseIDLength) ||
 		!validBoundedToken(state.PartitionID, maxPartitionIDLength) || !validToken(state.MemberID) ||
 		!knownRegion(state.Region) || !validStateFailureDomain ||
@@ -810,13 +841,14 @@ func (state MemberState) Validate() error {
 	if state.SchemaVersion == legacyMemberStateSchemaVersion {
 		if state.CanonicalRosterRow != (CanonicalRosterRow{}) || state.CanonicalRosterDigest != "" ||
 			state.AuthorityReference != (AuthorityReference{}) || state.RuntimeManifest != (RuntimeManifest{}) ||
-			state.RuntimeManifestDigest != "" || state.AttachmentDevice != "" || state.AttachmentETag != "" {
+			state.RuntimeManifestDigest != "" || state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) ||
+			state.AttachmentDevice != "" || state.AttachmentETag != "" {
 			return errors.New("invalid legacy TerraBase member state roster pin")
 		}
 		return nil
 	}
 	validMemberID := canonicalLegacyMemberID
-	if state.SchemaVersion == placementSchemaVersion {
+	if state.SchemaVersion == placementSchemaVersion || state.SchemaVersion == managedUpdateMemberStateSchemaVersion {
 		validMemberID = canonicalTerraBaseUUID
 	}
 	if !validLowerSHA256Digest(state.IntentPayloadDigest) ||
@@ -838,6 +870,7 @@ func (state MemberState) Validate() error {
 	}
 	if state.SchemaVersion == rosterMemberStateSchemaVersion {
 		if state.RuntimeManifest != (RuntimeManifest{}) || state.RuntimeManifestDigest != "" ||
+			state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) ||
 			state.AttachmentDevice != "" || state.AttachmentETag != "" {
 			return errors.New("historical member state cannot carry runtime pins")
 		}
@@ -847,14 +880,54 @@ func (state MemberState) Validate() error {
 		!validLowerSHA256Digest(state.RuntimeManifestDigest) {
 		return errors.New("invalid TerraBase member runtime manifest pin")
 	}
-	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID, state.SchemaVersion == placementSchemaVersion)
+	digest, err := state.RuntimeManifest.digestWithIdentity(validMemberID,
+		state.SchemaVersion == placementSchemaVersion || state.SchemaVersion == managedUpdateMemberStateSchemaVersion)
 	if err != nil || digest != state.RuntimeManifestDigest {
 		return errors.New("invalid TerraBase member runtime manifest digest")
+	}
+	if state.SchemaVersion == placementSchemaVersion && state.ManagedRuntimeTarget != (ManagedRuntimeTarget{}) {
+		return errors.New("historical member state cannot carry a managed runtime target")
+	}
+	if state.SchemaVersion == managedUpdateMemberStateSchemaVersion && state.ManagedRuntimeTarget.OperationID != "" {
+		if err := state.ManagedRuntimeTarget.Validate(state); err != nil {
+			return err
+		}
 	}
 	if state.Stage == StagePreparedDesired || state.Stage == StageAwaitingHealthy {
 		if state.AttachmentDevice == "" || state.AttachmentETag == "" || state.DesiredGeneration == 0 {
 			return errors.New("prepared desired lacks observed attachment or generation pin")
 		}
+	}
+	return nil
+}
+
+func (target ManagedRuntimeTarget) Validate(state MemberState) error {
+	if !validToken(target.OperationID) || target.AuthoritySequence == 0 ||
+		!validLowerSHA256Digest(target.RequestSHA256) ||
+		target.PreparedAt.IsZero() || target.PreparedAt.Location() != time.UTC ||
+		target.PreparedAt.After(state.UpdatedAt) ||
+		target.PlacementGeneration == 0 || target.PlacementGeneration != state.IntentGeneration ||
+		!validLowerSHA256Digest(target.PlacementPayloadDigest) ||
+		target.PlacementPayloadDigest != state.IntentPayloadDigest ||
+		target.CanarySeatID != state.MemberID ||
+		target.PreviousDesiredGeneration == 0 || target.PreviousDesiredGeneration == ^uint64(0) ||
+		target.DesiredGeneration != target.PreviousDesiredGeneration+1 ||
+		target.DesiredGeneration != state.DesiredGeneration ||
+		!validLowerSHA256Digest(target.PreviousArtifactDigest) ||
+		target.PreviousArtifactDigest != state.RuntimeManifest.ArtifactDigest ||
+		!validLowerSHA256Digest(target.ArtifactDigest) || target.ArtifactDigest == target.PreviousArtifactDigest ||
+		!validLowerSHA256Digest(target.ManifestDigest) || !validLowerSHA256Digest(target.SourceDigest) ||
+		target.Phase != ManagedUpdateSeatPrepared && target.Phase != ManagedUpdateSeatCanaryServing &&
+			target.Phase != ManagedUpdateSeatHeld {
+		return errors.New("invalid managed canary runtime target")
+	}
+	if target.Phase == ManagedUpdateSeatPrepared {
+		if target.Outcome != "" {
+			return errors.New("prepared managed runtime target cannot carry an outcome")
+		}
+	} else if target.Outcome == "" || len(target.Outcome) > 256 ||
+		strings.ContainsAny(target.Outcome, "\r\n\x00") {
+		return errors.New("terminal managed runtime target requires a bounded outcome")
 	}
 	return nil
 }

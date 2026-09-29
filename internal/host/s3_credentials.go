@@ -25,6 +25,13 @@ type ManagedS3CredentialResolver interface {
 	Resolve(context.Context, oci.SecretVersionReference) (ManagedS3Credentials, error)
 }
 
+// ManagedBackupDataKeyResolver returns only the exact retained 32-byte key
+// version. Callers clear the returned bytes after installing the protected
+// host file. Its Vault reference is pinned by signed desired state.
+type ManagedBackupDataKeyResolver interface {
+	ResolveBackupDataKey(context.Context, oci.SecretVersionReference) ([]byte, error)
+}
+
 type managedS3BundleClient interface {
 	GetSecretBundle(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error)
 }
@@ -93,6 +100,40 @@ func (resolver *OCIS3CredentialResolver) Resolve(ctx context.Context, reference 
 		return ManagedS3Credentials{}, errors.New("managed S3 Vault payload is invalid")
 	}
 	return ManagedS3Credentials{AccessKeyID: payload.AccessKeyID, SecretAccessKey: payload.SecretAccessKey}, nil
+}
+
+func (resolver *OCIS3CredentialResolver) ResolveBackupDataKey(ctx context.Context,
+	reference oci.SecretVersionReference,
+) ([]byte, error) {
+	if resolver == nil || resolver.client == nil || ctx == nil || reference.Validate() != nil {
+		return nil, errors.New("managed backup data-key reference is invalid")
+	}
+	response, err := resolver.client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{
+		SecretId: new(reference.SecretOCID), VersionNumber: new(reference.VersionNumber),
+	})
+	if err != nil {
+		return nil, errors.New("managed backup exact Vault read failed")
+	}
+	bundle := response.SecretBundle
+	if bundle.SecretId == nil || *bundle.SecretId != reference.SecretOCID ||
+		bundle.VersionNumber == nil || *bundle.VersionNumber != reference.VersionNumber {
+		return nil, errors.New("managed backup Vault version differs from signed reference")
+	}
+	content, ok := bundle.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
+	if !ok {
+		if pointer, pointerOK := bundle.SecretBundleContent.(*secrets.Base64SecretBundleContentDetails); pointerOK && pointer != nil {
+			content, ok = *pointer, true
+		}
+	}
+	if !ok || content.Content == nil || len(*content.Content) != base64.StdEncoding.EncodedLen(32) {
+		return nil, errors.New("managed backup Vault key content is invalid")
+	}
+	key, err := base64.StdEncoding.Strict().DecodeString(*content.Content)
+	if err != nil || len(key) != 32 || base64.StdEncoding.EncodeToString(key) != *content.Content {
+		clear(key)
+		return nil, errors.New("managed backup Vault key encoding is invalid")
+	}
+	return key, nil
 }
 
 func validS3Credential(value string) bool {

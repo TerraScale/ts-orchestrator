@@ -42,7 +42,7 @@ type managedDrainQuery struct {
 }
 
 type managedDrainReply struct {
-	Command *ManagedDrainCommand `json:"command,omitempty"`
+	Command *ManagedDrainCommand `json:"command"`
 }
 
 func managedDrainKey(cell, node, role string) string {

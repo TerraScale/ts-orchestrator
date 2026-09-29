@@ -281,11 +281,14 @@ func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
 	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
 		t.Fatal("controller cannot subscribe to terminal requests")
 	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.managed-update.prepare") {
+		t.Fatal("controller cannot subscribe to managed update requests")
+	}
 	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, subject := range []string{"ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
+	for _, subject := range []string{"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
 		if !slices.Contains(operator.Publish.Allow, subject) {
 			t.Fatalf("operator cannot publish %s", subject)
 		}

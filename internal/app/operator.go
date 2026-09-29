@@ -54,7 +54,7 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|material-credentials|material-credentials-status|placement-apply|placement-list|terminal-plan|terminal-apply|terminal-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <hosts|host-register|host-enrollment-revoke|material-prepare|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
@@ -71,7 +71,7 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	partitionID := flags.String("partition-id", "", "managed partition ID")
 	registrationPath := flags.String("registration", "", "JSON host registration")
 	instanceID := flags.String("instance-id", "", "managed OCI host instance ID")
-	operationID := flags.String("operation-id", "", "delivery operation ID")
+	operationID := flags.String("operation-id", "", "operation ID (required for backup-abort; optional for current backup-status)")
 	fingerprint := flags.String("fingerprint", "", "expected intent SHA-256 fingerprint")
 	expectedSequence := flags.String("expected-sequence", "", "expected durable broker claim sequence")
 	var forwards operatorForwardFlags
@@ -123,6 +123,11 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 			return errors.New("placement-apply requires --intent FILE")
 		}
 		return operatorPlacementApply(ctx, cfg, runtime, *intentPath, output)
+	case "managed-update-prepare":
+		if *intentPath == "" {
+			return errors.New("managed-update-prepare requires --intent FILE")
+		}
+		return operatorManagedUpdatePrepare(ctx, cfg, runtime, *intentPath, output)
 	case "placement-list":
 		return operatorPlacementList(ctx, cfg, runtime, output)
 	case "terminal-plan":
@@ -134,6 +139,12 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 		return operatorTerminalApply(ctx, cfg, runtime, *intentPath, output)
 	case "terminal-status":
 		return operatorTerminalStatus(ctx, cfg, runtime, *databaseID, *partitionID, output)
+	case "backup-start":
+		return operatorBackupOperation(ctx, cfg, runtime, "start", *databaseID, *partitionID, "", output)
+	case "backup-abort":
+		return operatorBackupOperation(ctx, cfg, runtime, "abort", *databaseID, *partitionID, *operationID, output)
+	case "backup-status":
+		return operatorBackupOperation(ctx, cfg, runtime, "status", *databaseID, *partitionID, *operationID, output)
 	case "material-prepare":
 		if *intentPath == "" {
 			return errors.New("material-prepare requires --intent FILE")

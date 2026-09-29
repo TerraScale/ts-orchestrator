@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,5 +65,38 @@ func TestManagedS3ResolverPinsVersionAndSanitizesFailure(t *testing.T) {
 	client.err = errors.New("provider response leaked customer-secret")
 	if _, err := resolver.Resolve(t.Context(), reference); err == nil || strings.Contains(err.Error(), "customer-secret") {
 		t.Fatalf("provider error disclosed credentials: %v", err)
+	}
+}
+
+func TestManagedBackupDataKeyResolverPinsRawKeyVersion(t *testing.T) {
+	reference := oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.backupkey", VersionNumber: 9}
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	client := &fakeS3BundleClient{secretID: reference.SecretOCID, version: reference.VersionNumber,
+		content: base64.StdEncoding.EncodeToString(key)}
+	resolver := &OCIS3CredentialResolver{client: client}
+	got, err := resolver.ResolveBackupDataKey(t.Context(), reference)
+	if err != nil || !slices.Equal(got, key) {
+		t.Fatalf("exact backup key version was not returned: %v", err)
+	}
+	clear(got)
+	if len(client.requests) != 1 || client.requests[0].VersionNumber == nil ||
+		*client.requests[0].VersionNumber != reference.VersionNumber {
+		t.Fatal("backup key read was not version pinned")
+	}
+	client.version++
+	if _, err := resolver.ResolveBackupDataKey(t.Context(), reference); err == nil {
+		t.Fatal("wrong Vault key version accepted")
+	}
+	client.version = reference.VersionNumber
+	client.content = base64.StdEncoding.EncodeToString(key[:31])
+	if _, err := resolver.ResolveBackupDataKey(t.Context(), reference); err == nil {
+		t.Fatal("short backup key accepted")
+	}
+	client.err = errors.New("provider leaked secret key")
+	if _, err := resolver.ResolveBackupDataKey(t.Context(), reference); err == nil || strings.Contains(err.Error(), "secret key") {
+		t.Fatalf("provider error leaked backup key: %v", err)
 	}
 }

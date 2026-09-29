@@ -70,7 +70,7 @@ func readReviewedSeedPlan(path, expectedSHA, createIdentity string, inputs seedI
 		reviewed.AdmissionExpiresAt.Sub(reviewed.AdmissionAdmittedAt) > 20*time.Minute ||
 		requireCurrent && (reviewed.AdmissionAdmittedAt.After(now) || !now.Before(reviewed.AdmissionExpiresAt)) ||
 		!amountOK || amount.Sign() < 0 ||
-		amount.Cmp(big.NewRat(100, 1)) > 0 {
+		amount.Cmp(big.NewRat(combinedMonthlyCostCeilingUSD, 1)) > 0 {
 		return reviewedSeedPlan{}, fmt.Errorf("%w: reviewed manual seed plan differs from signed authority or current budget", ErrSeedCLI)
 	}
 	return reviewed, nil

@@ -15,20 +15,24 @@ import (
 )
 
 func admittedInitialFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, false, false)
+	return admittedInitialFixtureOptions(t, false, false, false)
 }
 
 func admittedInitialFixtureWithNativeRoot(t *testing.T, nativeRoot bool) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, nativeRoot, false)
+	return admittedInitialFixtureOptions(t, nativeRoot, false, false)
 }
 
 func admittedInitialSQLFixture(t *testing.T) (placement.Intent, PreparationReceipt) {
-	return admittedInitialFixtureOptions(t, false, true)
+	return admittedInitialFixtureOptions(t, false, true, false)
 }
 
-func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled bool) (placement.Intent, PreparationReceipt) {
+func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled, backupEnabled bool) (placement.Intent, PreparationReceipt) {
 	t.Helper()
 	service, spec, _, _ := preparationFixture(t)
+	if backupEnabled {
+		backupSpec, _ := backupInitialFixture(t)
+		spec.Backup = backupSpec.Backup
+	}
 	if nativeRoot {
 		spec.LiveS3 = nativeTestTarget(t)
 	}
@@ -103,8 +107,56 @@ func admittedInitialFixtureOptions(t *testing.T, nativeRoot, sqlEnabled bool) (p
 			ReplicationPeerAddress:              net.JoinHostPort(peer.ReplicationIP, strconv.Itoa(int(peer.ReplicationPort))),
 			ReplicationServerCASHA256:           pins.Files["server-ca.pem"],
 		})
+		if spec.Backup != nil {
+			manifest := &intent.RuntimeManifests[len(intent.RuntimeManifests)-1]
+			backupDigest, err := spec.Backup.Target.Digest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.BackupManifestSHA256 = pins.Files[backupManifestName]
+			manifest.BackupS3ConfigSHA256 = pins.Files[backupConfigName]
+			manifest.BackupS3TargetSHA256 = backupDigest
+			manifest.BackupS3CredentialSHA256 = spec.Backup.Target.CredentialSHA256
+			manifest.BackupDataKeySHA256 = spec.Backup.DataKeySHA256
+			manifest.BackupOwner = member.MemberID == spec.Backup.OwnerMemberID
+			if manifest.BackupOwner {
+				manifest.BackupS3Credential = spec.Backup.Target.Credential
+				manifest.BackupDataKey = spec.Backup.DataKey
+			}
+		}
 	}
 	return intent, receipt
+}
+
+func TestVerifyIntentAgainstReceiptPinsOwnerOnlyBackupMaterial(t *testing.T) {
+	intent, receipt := admittedInitialFixtureOptions(t, false, true, true)
+	if err := VerifyIntentAgainstReceipt(intent, receipt); err != nil {
+		t.Fatalf("prepared SQL and backup material was not admitted: %v", err)
+	}
+	if !intent.RuntimeManifests[0].BackupOwner || intent.RuntimeManifests[1].BackupOwner ||
+		intent.RuntimeManifests[1].BackupS3Credential != (oci.SecretVersionReference{}) ||
+		intent.RuntimeManifests[1].BackupDataKey != (oci.SecretVersionReference{}) {
+		t.Fatal("backup owner credentials were not isolated from peer desired")
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*placement.RuntimeManifest)
+	}{
+		{"manifest", func(m *placement.RuntimeManifest) { m.BackupManifestSHA256 = strings.Repeat("f", 64) }},
+		{"target", func(m *placement.RuntimeManifest) { m.BackupS3TargetSHA256 = strings.Repeat("f", 64) }},
+		{"credential", func(m *placement.RuntimeManifest) { m.BackupS3Credential.VersionNumber++ }},
+		{"key", func(m *placement.RuntimeManifest) { m.BackupDataKeySHA256 = strings.Repeat("f", 64) }},
+		{"wrong owner", func(m *placement.RuntimeManifest) { m.BackupOwner = false }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changed := intent
+			changed.RuntimeManifests = append([]placement.RuntimeManifest(nil), intent.RuntimeManifests...)
+			test.change(&changed.RuntimeManifests[0])
+			if err := VerifyIntentAgainstReceipt(changed, receipt); err == nil {
+				t.Fatal("substituted backup placement pin was admitted")
+			}
+		})
+	}
 }
 
 func TestVerifyIntentAgainstReceiptBindsNativeOCIRoot(t *testing.T) {

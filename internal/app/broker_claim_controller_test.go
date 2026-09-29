@@ -83,6 +83,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerNKey + ".>",
 		"ts.broker.gru.ticket.>", "ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",
 		"ts.orch.v1.gru.agent.*.observation.*", "ts.orch.v1.gru.delivery.artifact.admit", "ts.orch.v1.gru.host.register", "ts.orch.v1.gru.placement.apply",
+		"ts.orch.v1.gru.managed-update.prepare",
 		"ts.orch.v1.gru.terminal.>"}
 	controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 	controllerCreds = testBrokerJWTUserWithClaim(t, root, "controller.creds", cellKey, controllerClaim)

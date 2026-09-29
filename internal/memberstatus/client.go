@@ -175,7 +175,16 @@ func sameInode(a, b syscall.Stat_t) bool {
 }
 
 func (c *Client) exchange(ctx context.Context, method, path string, requestBody []byte) (int, []byte, ProcessObservation, error) {
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	return c.exchangeBounded(ctx, method, path, requestBody, maxEvidenceBytes, 3*time.Second)
+}
+
+func (c *Client) exchangeBounded(ctx context.Context, method, path string, requestBody []byte,
+	maxResponse int64, timeout time.Duration,
+) (int, []byte, ProcessObservation, error) {
+	if maxResponse <= 0 || maxResponse > 64<<10 || len(requestBody) > 64<<10 {
+		return 0, nil, ProcessObservation{}, errors.New("member control request or response bound is invalid")
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	before, err := c.observe(ctx)
 	if err != nil {
@@ -231,11 +240,11 @@ func (c *Client) exchange(ctx context.Context, method, path string, requestBody 
 	}
 	defer response.Body.Close()
 	if response.Header.Get("Content-Type") != "application/json" || response.ContentLength < 0 ||
-		response.ContentLength > maxEvidenceBytes || len(response.TransferEncoding) != 0 {
+		response.ContentLength > maxResponse || len(response.TransferEncoding) != 0 {
 		return 0, nil, ProcessObservation{}, errors.New("invalid member control HTTP response")
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxEvidenceBytes+1))
-	if err != nil || len(body) != int(response.ContentLength) || len(body) > maxEvidenceBytes {
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxResponse+1))
+	if err != nil || len(body) != int(response.ContentLength) || int64(len(body)) > maxResponse {
 		return 0, nil, ProcessObservation{}, errors.New("invalid member control response length")
 	}
 	if peerPID.Load() != int64(before.PID) {

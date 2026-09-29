@@ -89,6 +89,8 @@ const (
 	MutationClientCredentials HostMutationKind = "client-credentials"
 	MutationTerminalIntent    HostMutationKind = "terminal-intent"
 	MutationEnrollmentEffect  HostMutationKind = "enrollment-effect"
+	MutationManagedUpdate     HostMutationKind = "managed-update"
+	MutationBackupOperation   HostMutationKind = "backup-operation"
 )
 
 // WorkloadScope identifies one admitted database partition. The terminal gate
@@ -203,6 +205,13 @@ type HostMutationStore interface {
 	ReadHostMutation(context.Context, HostMutationKind, string) (LogEntry, error)
 }
 
+// VerifiedHostMutationStore runs a managed desired verifier inside the final
+// global-sequence CAS retry, so update authorization cannot become stale
+// between the verifier and the durable host desired record.
+type VerifiedHostMutationStore interface {
+	CommitHostMutationVerified(context.Context, uint64, HostMutationKind, string, string, uint64, []byte, func(context.Context) error) (uint64, error)
+}
+
 // PlacementIntentStore shares the ordered authority stream for admitted
 // placement records so a new lease epoch cannot race an older placement write.
 type PlacementIntentStore interface {
@@ -241,4 +250,54 @@ type MaterialReceiptStore interface {
 type ClientCredentialStore interface {
 	CommitClientCredentials(context.Context, uint64, string, string, string, uint64, []byte) (uint64, error)
 	ReadClientCredentials(context.Context, string, string) (LogEntry, error)
+}
+
+// ManagedUpdatePhase is one immutable step in a signed managed runtime update.
+type ManagedUpdatePhase string
+
+const (
+	ManagedUpdatePrepared      ManagedUpdatePhase = "prepared"
+	ManagedUpdateCanaryServing ManagedUpdatePhase = "canary-serving"
+	ManagedUpdateHeld          ManagedUpdatePhase = "held"
+)
+
+// ManagedUpdateRecord binds durable phase receipts to one exact signed Prepare
+// request. SignedRequest contains the original canonical request bytes and is
+// copied unchanged into every later phase receipt.
+type ManagedUpdateRecord struct {
+	SchemaVersion           int                `json:"schema_version"`
+	Cell                    string             `json:"cell"`
+	DatabaseID              string             `json:"database_id"`
+	PartitionID             string             `json:"partition_id"`
+	OperationID             string             `json:"operation_id"`
+	Phase                   ManagedUpdatePhase `json:"phase"`
+	SignedRequest           []byte             `json:"signed_request"`
+	SignedRequestSHA256     string             `json:"signed_request_sha256"`
+	PlacementGeneration     uint64             `json:"placement_generation"`
+	PlacementPayloadDigest  string             `json:"placement_payload_digest"`
+	PlacementSequence       uint64             `json:"placement_sequence"`
+	CanarySeatID            string             `json:"canary_seat_id"`
+	CanaryDesiredGeneration uint64             `json:"canary_desired_generation"`
+	OldArtifactDigest       string             `json:"old_artifact_digest"`
+	CandidateArtifactDigest string             `json:"candidate_artifact_digest"`
+	CandidateManifestDigest string             `json:"candidate_manifest_digest"`
+	CandidateSourceDigest   string             `json:"candidate_source_digest"`
+	DurabilityProfileSHA256 string             `json:"durability_profile_sha256"`
+	Outcome                 string             `json:"outcome,omitempty"`
+}
+
+// ManagedUpdateReader returns immutable signed Prepare and canary phase
+// receipts from the retained R3 operation history.
+type ManagedUpdateReader interface {
+	ReadManagedUpdate(context.Context, string, string) (LogEntry, error)
+	ReadManagedUpdateOperation(context.Context, string, string, string) ([]LogEntry, error)
+	ListManagedUpdates(context.Context, string, string) ([]LogEntry, error)
+}
+
+// ManagedUpdateStore records the immutable signed Prepare request and each
+// terminal canary result. Operation reads return every exact phase entry so
+// callers can reconcile across authority epochs.
+type ManagedUpdateStore interface {
+	ManagedUpdateReader
+	CommitManagedUpdate(context.Context, uint64, ManagedUpdateRecord, uint64, func(context.Context) error) (uint64, error)
 }

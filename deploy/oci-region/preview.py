@@ -36,6 +36,7 @@ FREE_A1_OCPU_HOURS = Decimal(1500)
 FREE_A1_MEMORY_GB_HOURS = Decimal(9000)
 FREE_BLOCK_GB = Decimal(200)
 FREE_OBJECT_GB = Decimal(10)
+MAX_MONTHLY_COST_USD = Decimal(200)
 MAX_PLAN_BYTES = 64 * 1024
 MAX_INVENTORY_BYTES = 4 * 1024 * 1024
 MAX_ADMISSION_BYTES = 64 * 1024
@@ -230,8 +231,8 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
             not SAFE_IDENTITY.fullmatch(create_identity)):
         fail("manual seed-A create identity is invalid")
     budget = plan.get("budget", {})
-    if budget.get("currency") != "USD" or not Decimal(0) < decimal(budget.get("monthly_limit")) <= Decimal(100):
-        fail("manual monthly budget must be positive USD and no more than $100")
+    if budget.get("currency") != "USD" or not Decimal(0) < decimal(budget.get("monthly_limit")) <= MAX_MONTHLY_COST_USD:
+        fail("manual monthly budget must be positive USD and no more than $200")
     if budget.get("replacement_hosts_max") != 1 or decimal(budget.get("replacement_overlap_hours_max")) > 72:
         fail("replacement allowance exceeds the bounded plan")
     if (decimal(budget.get("snapshot_gb_max")) > 350 or
@@ -1716,8 +1717,8 @@ def inspect_foundation(plan: dict, plan_path: pathlib.Path, inventory_path: path
     inventory = read_json(inventory_path, MAX_INVENTORY_BYTES, "manual region inventory")
     verify_inventory(plan, inventory, plan_path=plan_path)
     cost, admission, admitted_at = verify_current_admission(plan, inventory, inventory_path, admission_path, plan_path)
-    if Decimal(cost["total"]) > Decimal("100"):
-        fail("live foundation inspection exceeds the USD 100 monthly ceiling")
+    if Decimal(cost["total"]) > MAX_MONTHLY_COST_USD:
+        fail("live foundation inspection exceeds the USD 200 monthly ceiling")
     ids = required_resource_ids(plan)
     check_live_compartments(plan, ids)
     check_live_vault(plan, ids)
@@ -2164,7 +2165,7 @@ def inspect_private_peer(intent_path: pathlib.Path, left_plan_path: pathlib.Path
                 for cell in cells},
             "budget_admission": {"status": "blocked",
                                  "reason": "Per-region estimates independently count shared baselines and "
-                                           "apply free allowances; they cannot prove the combined USD 100 "
+                                           "apply free allowances; they cannot prove the combined USD 200 "
                                            "monthly ceiling."},
             "dataplane_reachability": "not_tested", "application_mtls_required": True,
             "application_mtls_verified": False, "native_replication_ready": False}

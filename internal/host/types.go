@@ -142,6 +142,14 @@ type ManagedRuntimePins struct {
 	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
 	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
 	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	BackupManifestSHA256                string                     `json:"backup_manifest_sha256,omitempty"`
+	BackupS3ConfigSHA256                string                     `json:"backup_s3_config_sha256,omitempty"`
+	BackupS3TargetSHA256                string                     `json:"backup_s3_target_sha256,omitempty"`
+	BackupS3CredentialSHA256            string                     `json:"backup_s3_credential_sha256,omitempty"`
+	BackupDataKeySHA256                 string                     `json:"backup_data_key_sha256,omitempty"`
+	BackupOwner                         bool                       `json:"backup_owner,omitzero"`
+	BackupS3Credential                  oci.SecretVersionReference `json:"backup_s3_credential,omitzero"`
+	BackupDataKey                       oci.SecretVersionReference `json:"backup_data_key,omitzero"`
 	ReplicationListenAddress            string                     `json:"replication_listen_address"`
 	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
 	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
@@ -213,6 +221,7 @@ type AgentConfig struct {
 	StateRoot               string
 	ManagedRuntimeRoot      string
 	ManagedS3Credentials    ManagedS3CredentialResolver
+	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64
 	WorkloadIdentity        WorkloadIdentity
 	PollInterval            time.Duration
@@ -233,6 +242,7 @@ type ControllerConfig struct {
 	AuthorityGuard              func(context.Context, uint64) error
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ManagedDesiredVerifier      ManagedDesiredVerifier
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
@@ -258,6 +268,10 @@ type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[s
 type ManagedRegistrationVerifier interface {
 	VerifyManagedRegistration(context.Context, Registration) error
 }
+
+// ManagedDesiredVerifier admits only a managed desired whose initial launch or
+// signed canary update is current in durable placement and authority state.
+type ManagedDesiredVerifier func(context.Context, Desired, Registration, Desired, bool) error
 
 type ReaderConfig struct {
 	Cell          string
@@ -536,6 +550,22 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
 		!lowerHex(pins.ReplicationServerCASHA256, 64) {
 		return errors.New("managed runtime outbound peer pins are incomplete")
+	}
+	if pins.BackupManifestSHA256 != "" {
+		if !lowerHex(pins.BackupManifestSHA256, 64) || !lowerHex(pins.BackupS3ConfigSHA256, 64) ||
+			!lowerHex(pins.BackupS3TargetSHA256, 64) || !lowerHex(pins.BackupS3CredentialSHA256, 64) ||
+			!lowerHex(pins.BackupDataKeySHA256, 64) || pins.BackupS3TargetSHA256 == pins.LiveS3TargetSHA256 ||
+			pins.BackupOwner && (pins.BackupS3Credential.Validate() != nil || pins.BackupDataKey.Validate() != nil ||
+				pins.BackupS3Credential.SecretOCID == pins.LiveS3Credential.SecretOCID ||
+				pins.BackupS3Credential.SecretOCID == pins.BackupDataKey.SecretOCID) ||
+			!pins.BackupOwner && (pins.BackupS3Credential != (oci.SecretVersionReference{}) ||
+				pins.BackupDataKey != (oci.SecretVersionReference{})) {
+			return errors.New("managed backup runtime pins are incomplete")
+		}
+	} else if pins.BackupS3ConfigSHA256 != "" || pins.BackupS3TargetSHA256 != "" ||
+		pins.BackupS3CredentialSHA256 != "" || pins.BackupDataKeySHA256 != "" || pins.BackupOwner ||
+		pins.BackupS3Credential != (oci.SecretVersionReference{}) || pins.BackupDataKey != (oci.SecretVersionReference{}) {
+		return errors.New("partial managed backup runtime pins")
 	}
 	return nil
 }

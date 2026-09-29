@@ -106,9 +106,11 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 4. Prepare an itemized estimate for all required compute, boot and data
    storage, networking, object storage, and retained resources. Include
    quantities and durations, verify free allowances, and keep the combined
-   qualification and preview estimate within the combined **US$100/month**
-   ceiling. This ceiling is not a hard spending control and does not replace
-   the current GRU authorization or the runbook's remaining gates.
+   qualification and preview estimate within the combined **US$200/month**
+   ceiling. Use a qualified plan and CLI revision whose configured limit and
+   validator match this authority; never bypass admission or edit its receipt.
+   This ceiling is not a hard spending control and does not replace the current
+   GRU authorization or the runbook's remaining gates.
 5. Review the foundation and security configuration against the signed cell
    plan. The controller dynamic group must match only instances in the
    controller compartment, for example:
@@ -174,7 +176,7 @@ provision another region, or gate the current GRU launch.
 The receipt reports each regional estimate separately and sets
 `budget_admission.status` to `blocked`: the per-region estimates repeat shared
 resource baselines and apply free allowances independently, so they cannot
-prove the combined USD 100 monthly ceiling. The receipt is configuration
+prove the combined USD 200 monthly ceiling. The receipt is configuration
 readback only. It does not test private endpoint reachability, verify
 application mTLS, or establish signed runtime peer consumption or native
 replication readiness. Complete those checks through separately authorized
@@ -288,7 +290,7 @@ and the intended network boundary.
 
    The readback must be authenticated and no more than 15 minutes old. The
    supplied readback, inventory, admission, and plan digests must match the
-   exact files; the admission must be current and within the US$100/month
+   exact files; the admission must be current and within the US$200/month
    ceiling. The OCI profile's tenancy and region must match the readback. The
    output path must be new and outside the owner-only source directory. Record
    the public reference output and SHA-256 of it and the associated PEM files.

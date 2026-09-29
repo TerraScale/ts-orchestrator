@@ -138,7 +138,7 @@ func TestPlacementAdmissionRejectsSignedLegacyAndNoncanonicalPayload(t *testing.
 	})
 }
 
-func TestPlacementAdmissionEnforcesRosterContinuityOnSupersession(t *testing.T) {
+func TestPlacementAdmissionCreatesPlacementOnlyOnce(t *testing.T) {
 	policy, privateKey := newPlacementAdmissionPolicy(t)
 	for _, test := range []struct {
 		name   string
@@ -171,16 +171,16 @@ func TestPlacementAdmissionEnforcesRosterContinuityOnSupersession(t *testing.T) 
 			candidate.Generation = previous.Generation + 1
 			_, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control)
 			if err == nil {
-				t.Fatal("discontinuous placement supersession was committed")
+				t.Fatal("placement replacement was committed after initial admission")
 			}
 			entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
 			if entry.Sequence != 1 {
-				t.Fatalf("rejected supersession changed committed sequence to %d", entry.Sequence)
+				t.Fatalf("rejected replacement changed committed sequence to %d", entry.Sequence)
 			}
 		})
 	}
 
-	t.Run("signed addition preserves existing seat identities", func(t *testing.T) {
+	t.Run("added seats require a separate lifecycle operation", func(t *testing.T) {
 		control := newPlacementAdmissionControl()
 		previous := testManagedPlacementIntentForRegions(oci.RegionGRU)
 		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
@@ -188,14 +188,41 @@ func TestPlacementAdmissionEnforcesRosterContinuityOnSupersession(t *testing.T) 
 		}
 		candidate := testManagedPlacementIntentForRegions(oci.RegionGRU, oci.RegionFRA)
 		candidate.Generation = previous.Generation + 1
-		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
-			t.Fatalf("commit signed added seats: %v", err)
+		if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err == nil {
+			t.Fatal("placement admission accepted a replacement that adds seats")
 		}
 		entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
-		if entry.Sequence != 2 {
-			t.Fatalf("signed addition sequence = %d, want 2", entry.Sequence)
+		if entry.Sequence != 1 {
+			t.Fatalf("rejected seat addition changed committed sequence to %d", entry.Sequence)
 		}
 	})
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*placement.Intent)
+	}{
+		{name: "lower generation", mutate: func(intent *placement.Intent) { intent.Generation-- }},
+		{name: "changed same-generation payload", mutate: func(intent *placement.Intent) {
+			intent.RuntimeManifests[0].SourceDigest = strings.Repeat("f", 64)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			control := newPlacementAdmissionControl()
+			previous := testManagedPlacementIntent()
+			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, previous, privateKey, protocol.EncodeJSON), "gru", policy, control); err != nil {
+				t.Fatalf("seed original placement: %v", err)
+			}
+			candidate := previous
+			test.mutate(&candidate)
+			if _, err := verifyAndApplyPlacement(t.Context(), signedPlacementEnvelope(t, candidate, privateKey, protocol.EncodeJSON), "gru", policy, control); err == nil {
+				t.Fatal("placement admission accepted a lower generation or changed signed payload")
+			}
+			entry := control.entries[previous.DatabaseID+"."+previous.PartitionID]
+			if entry.Sequence != 1 {
+				t.Fatalf("rejected placement changed committed sequence to %d", entry.Sequence)
+			}
+		})
+	}
 }
 
 func newPlacementAdmissionPolicy(t *testing.T) (signerPolicy, ed25519.PrivateKey) {

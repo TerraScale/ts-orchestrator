@@ -490,6 +490,18 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 	if err != nil {
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client HTTPS material: %w", err)
 	}
+	if _, err := readManagedBackupMaterial(paths.material, *launch, contents["trusted-public-key"],
+		contents["signed-v2-s3-config.json"], identity, 0, false); err != nil {
+		return Workload{}, managedMount{}, "", fmt.Errorf("managed backup material: %w", err)
+	}
+	if err := prepareManagedBackupFiles(ctx, cfg, *launch, paths.material); err != nil {
+		return Workload{}, managedMount{}, "", err
+	}
+	backupArgs, err := readManagedBackupMaterial(paths.material, *launch, contents["trusted-public-key"],
+		contents["signed-v2-s3-config.json"], identity, 0, true)
+	if err != nil {
+		return Workload{}, managedMount{}, "", fmt.Errorf("managed backup material: %w", err)
+	}
 	_, credentialState, err := readManagedCredentialState(filepath.Join(paths.material, managedCredentialFileName), identity)
 	if err != nil {
 		return Workload{}, managedMount{}, "", fmt.Errorf("managed client credential state: %w", err)
@@ -533,6 +545,7 @@ func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, exec
 			"--replication-server-ca-roots", filepath.Join(paths.material, "server-ca.pem"))
 	}
 	args = append(args, clientArgs...)
+	args = append(args, backupArgs...)
 	var childEnv map[string]string
 	if executable != "" {
 		if cfg.ManagedS3Credentials == nil {
@@ -599,7 +612,9 @@ func readManagedStatus(ctx context.Context, runner Runner, d Desired, socket str
 	}
 }
 
-func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredReply) (resultErr error) {
+func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredReply,
+	backupPending bool,
+) (resultErr error) {
 	defer func() {
 		if resultErr != nil {
 			resultErr = errors.Join(resultErr, a.stopManagedNativeRoot(d.Role))
@@ -681,6 +696,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 			if err := a.reloadManagedCredentials(ctx, d, socket, credentialGeneration); err != nil {
 				return errors.Join(err, a.runner.Stop(ctx, d.Role))
 			}
+		}
+		if backupPending {
+			return a.waitManagedBackupProcess(ctx, d, mount)
 		}
 		return a.reportManagedStatus(ctx, d, mount, socket)
 	}
@@ -793,7 +811,11 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := verifyManagedMountPair(currentMount, mount); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
-	if err := a.reportManagedStatus(ctx, d, mount, socket); err != nil {
+	if backupPending {
+		if err := a.waitManagedBackupProcess(ctx, d, mount); err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
+	} else if err := a.reportManagedStatus(ctx, d, mount, socket); err != nil {
 		return errors.Join(err, a.runner.Stop(ctx, d.Role))
 	}
 	pending := a.pending[d.Role]

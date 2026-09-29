@@ -113,7 +113,7 @@ func TestGeneratedTerminalCredentialGrants(t *testing.T) {
 	if err := natscell.ValidateBrokerOperatorCredentials(filepath.Join(directory, "operator.creds"), "gru"); err != nil {
 		t.Fatalf("generated operator JWT rejected: %v", err)
 	}
-	for _, subject := range []string{"ts.orch.v1.gru.terminal.plan", "ts.orch.v1.gru.terminal.apply", "ts.orch.v1.gru.terminal.status"} {
+	for _, subject := range []string{"ts.orch.v1.gru.managed-update.prepare", "ts.orch.v1.gru.terminal.plan", "ts.orch.v1.gru.terminal.apply", "ts.orch.v1.gru.terminal.status"} {
 		if !slices.Contains(operator.Pub.Allow, subject) {
 			t.Fatalf("generated operator JWT lacks %s", subject)
 		}
@@ -126,7 +126,8 @@ func TestGeneratedTerminalCredentialGrants(t *testing.T) {
 		if err := natscell.ValidateBrokerControllerCredentials(filepath.Join(directory, slot.Name+".creds"), "gru", slot.Name); err != nil {
 			t.Fatalf("generated %s JWT rejected: %v", slot.Name, err)
 		}
-		if !slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.terminal.>") ||
+		if !slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.managed-update.prepare") ||
+			!slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.terminal.>") ||
 			slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.>") {
 			t.Fatalf("generated %s JWT has invalid terminal subscription", slot.Name)
 		}

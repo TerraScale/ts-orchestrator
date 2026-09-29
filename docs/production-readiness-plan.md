@@ -30,7 +30,7 @@ for the first milestone; regional Raft remains a separate proposal. The goal
 authorizes OCI inspection and task-owned preview resources for both services
 on low-cost ARM64, preferring `VM.Standard.A1.Flex` where capacity and cost
 permit and starting in GRU when feasible. Combined recurring costs for
-qualification testing and preview are capped at **US$100/month**, including
+qualification testing and preview are capped at **US$200/month**, including
 every required compute, storage, networking, object-storage, and retained
 resource. Record the itemized estimate and resource inventory before creating
 resources.
@@ -306,7 +306,7 @@ those ranges are entirely unused by the rest of the tenancy. The A1 priced
 subtotal therefore remains $65.345; $10.625 is only the compute-free scenario,
 not a promised price. These historical subtotals are not an all-in preview
 estimate and do not establish that an A1 deployment fits the current
-$100/month combined testing-and-preview cap. Recalculate with the current
+$200/month combined testing-and-preview cap. Recalculate with the current
 tenancy inventory and all required charges.
 
 For the E4 canary, four VMs cost 4 × (1 × $0.025 + 6 × $0.0015) = $0.136 per
@@ -326,7 +326,7 @@ recorded and a prior draft's **$50 first-billing-period example was unapproved
 and illustrative only**: under the two-hour compute scenario, $0.272 plus a
 full month of five volumes at that assumed tier leaves $39.103 before every
 other itemized charge. That arithmetic is not an all-in estimate for the
-current authorized $100/month combined testing-and-preview recurring-cost cap,
+current authorized $200/month combined testing-and-preview recurring-cost cap,
 and a safety hold can extend
 billable compute beyond the planned duration.
 Image/Object Storage, network/transfer, logs, Vault and continued retention
@@ -652,7 +652,7 @@ are tracked separately in the [shared-goal acceptance ledger](evidence/shared-go
 | Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; the earlier 8/8 native security run covered nested-supervisor death and child cleanup, but full systemd main-process death and writable-cgroup guest qualification remain OPEN. The earlier one-guest Unix-socket attempt exited status 1 without a captured application result; the later delegated attempt captured a verified journal but failed during native Apply with a Go netpoll fatal error before role and Unix-socket verification. The cause is under runtime investigation. Root-to-service credential handoff has source but its real privileged subprocess and restart caller still require review and qualification. The delegated supervisor leaf reached guest startup, but native workload verification failed. R7 failed before VM boot, so JWT/NTP host evidence still needs a rerun. |
 | TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; at `d5fc307`, placement held at `awaiting-runtime-contract` after OCI attachment. Later commits (`ccfe2566` host bridge, `c0a4d639` placement) publish signed TerraBase desired state, verify a pinned exclusive mount and volume claim on the host, launch the member and report local process/mount status, then hold at `awaiting-healthy`; this path is not qualified here. Guest block-device discovery and safe format/adoption remain absent. The bounded receiver-only member-status surface has no serving proof. Later mutable producer source includes an outbound sender and `AppliedAck`, but current-source real-peer acceptance, independently observed applied frontiers and a durable serving/drain receipt remain open. |
 | Healing, autoscale, and retirement — `internal/placement/**`, followed by OCI drain integration | Choose and approve capacity signals, replica floor, min/max, hysteresis, anti-affinity, budget ceiling, and scale-in policy. Implement durable drain, graceful database shutdown, fresh writer-stop proof, retained-volume detach and re-observation, and only then termination. Exercise interrupted and ambiguous lifecycle operations without data loss or duplicate members. | OPEN; the TerraBase producer has no durable drain or writer-fence receipt, and the real OCI controller has no member-serving/drain/writer-stop verifier wired. Fixed seats do not establish autoscaling or safe scale-in. |
-| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before production approval. Qualification testing and preview share the authorized US$100/month recurring cap above. | OPEN; no production restore procedure or production qualification exists. |
+| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before production approval. Qualification testing and preview share the authorized US$200/month recurring cap above. | OPEN; no production restore procedure or production qualification exists. |
 
 ## Production-readiness follow-on
 
@@ -677,7 +677,7 @@ not imply production readiness.
 - Select and verify the OCI tenancy, base operating-system image and kernel,
   architecture support, image-builder identity, regional image OCIDs, IAM
   policies, network rules, and quotas. Record an itemized preview estimate
-  within the authorized US$100/month combined testing-and-preview recurring-cost cap before resource
+  within the authorized US$200/month combined testing-and-preview recurring-cost cap before resource
   creation; production cost approval remains separate.
 - Provision the offline release signer, publish its trust anchor into the
   image, and decide signer rotation and revocation behavior. A missing signer

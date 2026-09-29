@@ -59,6 +59,7 @@ type InitialSpec struct {
 	PartitionID         string                `json:"partition_id"`
 	Scope               AuthorityScope        `json:"scope"`
 	LiveS3              LiveS3Target          `json:"live_s3"`
+	Backup              *InitialBackupSpec    `json:"backup,omitempty"`
 	Catalogs            []InitialCatalogInput `json:"catalogs"`
 	SQLTables           []InitialSQLTable     `json:"sql_tables,omitempty"`
 	Members             [2]InitialMember      `json:"members"`
@@ -176,6 +177,10 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 	if err != nil {
 		return InitialBundle{}, err
 	}
+	backupManifest, backupConfig, err := generateBackupMaterial(spec, authority, authorityKey)
+	if err != nil {
+		return InitialBundle{}, err
+	}
 	var sqlSchemaBundle []byte
 	if len(spec.SQLTables) > 0 {
 		sqlSchemaBundle, err = encodeSQLSchemaBundle(spec.Scope, authority.ConfigurationID, spec.SQLTables, authorityKey)
@@ -202,6 +207,10 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 		files := members[index].Files
 		files["authority.tbca"] = makeFile(authority.Certificate)
 		files["trusted-public-key"] = makeFile(authority.TrustedKey)
+		if spec.Backup != nil {
+			files[backupManifestName] = backupManifest
+			files[backupConfigName] = backupConfig
+		}
 		if len(sqlSchemaBundle) > 0 {
 			files[sqlSchemaBundleFileName] = makeFile(sqlSchemaBundle)
 		}
@@ -338,6 +347,11 @@ func makeFile(data []byte) File {
 func validateInitialSpec(spec InitialSpec, signer ed25519.PublicKey, now time.Time) error {
 	if err := spec.LiveS3.Validate(); err != nil {
 		return err
+	}
+	if spec.Backup != nil {
+		if err := spec.Backup.Validate(spec.LiveS3, spec.Members, now); err != nil {
+			return err
+		}
 	}
 	if len(signer) != ed25519.PublicKeySize || len(spec.Recipient.PublicKey) != 32 ||
 		len(spec.Recipient.Signature) != ed25519.SignatureSize || now.IsZero() ||

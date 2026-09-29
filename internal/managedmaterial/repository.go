@@ -421,6 +421,13 @@ func validateStoredBundle(bundle InitialBundle) error {
 		if hasSQL {
 			wantFileCount++
 		}
+		_, hasBackup := member.Files[backupManifestName]
+		if hasBackup {
+			wantFileCount += 2
+			if _, hasConfig := member.Files[backupConfigName]; !hasConfig {
+				return ErrMaterialConflict
+			}
+		}
 		if _, err := canonicalUUID(member.MemberID); err != nil || len(member.Files) != wantFileCount {
 			return ErrMaterialConflict
 		}
@@ -443,7 +450,8 @@ func validateStoredBundle(bundle InitialBundle) error {
 			}
 		}
 		for name := range member.Files {
-			if !slices.Contains(initialHostFiles[:], name) && name != sqlSchemaBundleFileName {
+			if !slices.Contains(initialHostFiles[:], name) && name != sqlSchemaBundleFileName &&
+				name != backupManifestName && name != backupConfigName {
 				return ErrMaterialConflict
 			}
 		}
@@ -455,7 +463,8 @@ func validateBundleForSpec(spec InitialSpec, bundle InitialBundle) error {
 	if err := validateStoredBundle(bundle); err != nil {
 		return err
 	}
-	if validateSQLTables(spec.SQLTables, spec.Catalogs) != nil {
+	if validateSQLTables(spec.SQLTables, spec.Catalogs) != nil ||
+		verifyStoredBackupMaterial(spec, bundle) != nil {
 		return ErrMaterialConflict
 	}
 	catalogs, err := initialCatalogs(spec.Catalogs)

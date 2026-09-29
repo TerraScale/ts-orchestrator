@@ -33,6 +33,7 @@ var managedHostFileNames = [...]string{
 	"server-ca.pem", "client-ca.pem", "client-chain.pem", "client-private-key.pem",
 	"client-api-keys.json", "client-config.json", "client-managed-manifest.json",
 	"signed-v2-s3-config.json", sqlSchemaBundleName,
+	backupManifestFileName, backupS3ConfigFileName,
 }
 
 const managedCredentialFileName = "client-credentials-current.json"
@@ -143,15 +144,29 @@ func managedHostFileLimit(name string) int {
 	if name == sqlSchemaBundleName {
 		return managedSQLSchemaBundleMaxBytes
 	}
+	if name == backupManifestFileName || name == backupS3ConfigFileName {
+		return 16 << 10
+	}
+	if name == backupCredentialFileName {
+		return 4 << 10
+	}
+	if name == backupDataKeyFileName {
+		return 32
+	}
 	return maxManagedHostFileBytes
 }
 
 func managedHostFileEnabled(desired Desired, name string) bool {
-	if name != sqlSchemaBundleName {
+	switch name {
+	case sqlSchemaBundleName:
+		return desired.ManagedMember != nil && desired.ManagedMember.Runtime != nil &&
+			desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 != ""
+	case backupManifestFileName, backupS3ConfigFileName:
+		return desired.ManagedMember != nil && desired.ManagedMember.Runtime != nil &&
+			desired.ManagedMember.Runtime.BackupManifestSHA256 != ""
+	default:
 		return slices.Contains(managedHostFileNames[:], name)
 	}
-	return desired.ManagedMember != nil && desired.ManagedMember.Runtime != nil &&
-		desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 != ""
 }
 
 func managedHostFilesFor(desired Desired) []string {
@@ -251,6 +266,10 @@ func expectedHostMaterialDigest(desired Desired, name string) string {
 		return launch.Runtime.LiveS3ConfigSHA256
 	case sqlSchemaBundleName:
 		return launch.Runtime.SQLSchemaBundleSHA256
+	case backupManifestFileName:
+		return launch.Runtime.BackupManifestSHA256
+	case backupS3ConfigFileName:
+		return launch.Runtime.BackupS3ConfigSHA256
 	default:
 		return ""
 	}
@@ -320,7 +339,9 @@ func (a *Agent) downloadManagedFile(ctx context.Context, desired Desired, regist
 }
 
 func installManagedFile(directory, name string, contents []byte, digest string, identity WorkloadIdentity) error {
-	if !slices.Contains(managedHostFileNames[:], name) || len(contents) == 0 ||
+	allowed := slices.Contains(managedHostFileNames[:], name) ||
+		name == backupCredentialFileName || name == backupDataKeyFileName
+	if !allowed || len(contents) == 0 ||
 		len(contents) > managedHostFileLimit(name) {
 		return errors.New("invalid managed material installation")
 	}

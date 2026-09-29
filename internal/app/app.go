@@ -125,11 +125,15 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	var bakedSystemReserveBytes uint64
 	var managedS3Credentials host.ManagedS3CredentialResolver
+	var managedBackupDataKeys host.ManagedBackupDataKeyResolver
 	if cfg.Host.ManagedRuntimeRoot != "" {
-		managedS3Credentials, err = host.NewOCIS3CredentialResolver(oci.Region(strings.ToUpper(cfg.NATS.Cell)))
+		resolver, resolverErr := host.NewOCIS3CredentialResolver(oci.Region(strings.ToUpper(cfg.NATS.Cell)))
+		err = resolverErr
 		if err != nil {
 			return fmt.Errorf("host managed S3 credentials: %w", err)
 		}
+		managedS3Credentials = resolver
+		managedBackupDataKeys = resolver
 		bakedSystemReserveBytes, err = readBakedRuntimePriorityProfile()
 		if err != nil {
 			return fmt.Errorf("host image runtime priority profile: %w", err)
@@ -156,6 +160,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
 		ManagedS3Credentials:    managedS3Credentials,
+		ManagedBackupDataKeys:   managedBackupDataKeys,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,

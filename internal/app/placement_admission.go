@@ -205,31 +205,24 @@ func verifyAndApplyPlacement(ctx context.Context, wire []byte, cell string, poli
 		} else if !errors.Is(err, authority.ErrNotFound) {
 			return placementApplyResponse{}, err
 		}
-		var expected uint64
 		current, err := control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
 		if err == nil {
 			old, err := placement.DecodeCommittedIntent(current.Payload)
 			if err != nil || old.DatabaseID != intent.DatabaseID || old.PartitionID != intent.PartitionID {
 				return placementApplyResponse{}, errors.New("durable placement intent is corrupt")
 			}
-			if old.Generation > intent.Generation || old.Generation == intent.Generation && !bytes.Equal(current.Payload, payload) {
+			if old.Generation != intent.Generation || !bytes.Equal(current.Payload, payload) {
 				return placementApplyResponse{}, authority.ErrConflict
 			}
-			if old.Generation == intent.Generation {
-				sequence, err := control.ConfirmActivePlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, payload)
-				if err != nil {
-					return placementApplyResponse{}, err
-				}
-				return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: sequence}, nil
-			}
-			if err := intent.ValidateSupersession(old); err != nil {
+			sequence, err := control.ConfirmActivePlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, payload)
+			if err != nil {
 				return placementApplyResponse{}, err
 			}
-			expected = current.Sequence
+			return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: sequence}, nil
 		} else if !errors.Is(err, authority.ErrNotFound) {
 			return placementApplyResponse{}, err
 		}
-		sequence, err := control.CommitPlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, placementOperationID(intent), expected, payload)
+		sequence, err := control.CommitPlacementIntent(ctx, envelope.Epoch, intent.DatabaseID, intent.PartitionID, placementOperationID(intent), 0, payload)
 		if err == nil {
 			return placementApplyResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, Generation: intent.Generation, Sequence: sequence}, nil
 		}

@@ -154,7 +154,7 @@ func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
 	root := "ts.orch.v1." + cell
 	return jwt.StringList{
 		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".material.prepare", root + ".broker.claim.apply",
+		root + ".placement.apply", root + ".managed-update.prepare", root + ".material.prepare", root + ".broker.claim.apply",
 		root + ".terminal.plan", root + ".terminal.apply", root + ".terminal.status",
 		"$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 		"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
@@ -209,6 +209,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 		root + ".delivery.artifact.admit": true,
 		root + ".host.register":           true,
 		root + ".placement.apply":         true,
+		root + ".managed-update.prepare":  true,
 		root + ".terminal.>":              true,
 	}
 	for _, grant := range claim.Sub.Allow {
@@ -218,6 +219,7 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	}
 	if !slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
 		!slices.Contains(claim.Sub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
+		!slices.Contains(claim.Sub.Allow, root+".managed-update.prepare") ||
 		!slices.Contains(claim.Sub.Allow, root+".terminal.>") ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
 		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
