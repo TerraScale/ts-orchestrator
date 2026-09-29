@@ -83,6 +83,7 @@ jobs:
         env:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
           TS_IMAGE_TOOL_CACHE: file:///cache/nix
+          TS_IMAGE_BASE_CACHE: /cache/ts-orchestrator/image-base
         run: |
           set -euo pipefail
           XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/read" \

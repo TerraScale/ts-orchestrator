@@ -49,10 +49,10 @@ test "$(go env GOVERSION)" = go1.27.1
 for tool in curl fj jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers python3; do
 	command -v "$tool" >/dev/null || { echo "missing image build tool: $tool" >&2; exit 1; }
 done
-fj actions run-detail --help >/dev/null 2>&1 && fj actions logs --help >/dev/null 2>&1 || {
+if ! fj actions run-detail --help >/dev/null 2>&1 || ! fj actions logs --help >/dev/null 2>&1; then
 	echo 'fj lacks the pinned actions run-detail/logs extension' >&2
 	exit 1
-}
+fi
 
 mkdir -p -- "$output"
 output=$(realpath -e -- "$output")
@@ -82,11 +82,24 @@ printf 'Authorization: token %s\n' "$(<"$FORGEJO_READ_TOKEN_FILE")" > "$work/api
 
 # Base image: retained once as a release, pinned by digest, and proven to be
 # the Ubuntu image signed by the pinned key.
+# TS_IMAGE_BASE_CACHE (CI: /cache/ts-orchestrator/image-base) keeps copies
+# named by digest; a copy is used only if it still matches its pin.
 base_tag=$(input_json .base.release_tag)
 for asset in base-image.qcow2 ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg ubuntu-cloud-image-keyring.gpg; do
+	asset_sha256=$(input_json ".base.assets[\"$asset\"].sha256")
+	asset_bytes=$(input_json ".base.assets[\"$asset\"].bytes")
+	cached=${TS_IMAGE_BASE_CACHE:+$TS_IMAGE_BASE_CACHE/$asset_sha256}
+	if [[ -n $cached && -f $cached ]] && cp --reflink=auto -- "$cached" "$work/base/$asset" &&
+		verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes" 2>/dev/null; then
+		continue
+	fi
 	fj release asset download -r "$repository" "$base_tag" "$asset" -o "$work/base/$asset" >/dev/null
-	verify_file "$work/base/$asset" "$(input_json ".base.assets[\"$asset\"].sha256")" \
-		"$(input_json ".base.assets[\"$asset\"].bytes")"
+	verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes"
+	if [[ -n $cached ]] && mkdir -p -- "$TS_IMAGE_BASE_CACHE" 2>/dev/null; then
+		if ! { cp --reflink=auto -- "$work/base/$asset" "$cached.$$" && mv -f -- "$cached.$$" "$cached"; }; then
+			rm -f -- "$cached.$$"
+		fi
+	fi
 done
 gpgv --status-fd 1 --keyring "$work/base/ubuntu-cloud-image-keyring.gpg" \
 	"$work/base/ubuntu-SHA256SUMS.gpg" "$work/base/ubuntu-SHA256SUMS" > "$work/gpgv-status" 2>/dev/null || {
