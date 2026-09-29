@@ -179,90 +179,91 @@ the current delegation and receipt and re-inspects the exact binary bytes and
 build metadata. These checks do not replace the independent review of the live
 main ref and pinned key identities.
 
-Publish only the three public inputs consumed by the image workflow to the
-same CI tag: `canary-release-root.pub`, `canary-release-delegation.json`, and
-`canary-linux-arm64.receipt.json`. Use `fj release asset create`, upload the
-root and delegation first, read each asset back with `fj release asset
-download` and compare its bytes, then upload the signed binary receipt last
-and read it back as well:
-
-```sh
-set -euo pipefail
-umask 077
-mkdir -m 0700 "$WORK/readback"
-fj release asset create "$TAG" "$WORK/canary-release-root.pub" \
-  canary-release-root.pub -r TerraScale/ts-orchestrator
-fj release asset download "$TAG" canary-release-root.pub \
-  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-release-root.pub"
-cmp -- "$WORK/canary-release-root.pub" "$WORK/readback/canary-release-root.pub"
-fj release asset create "$TAG" "$WORK/canary-release-delegation.json" \
-  canary-release-delegation.json -r TerraScale/ts-orchestrator
-fj release asset download "$TAG" canary-release-delegation.json \
-  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-release-delegation.json"
-cmp -- "$WORK/canary-release-delegation.json" \
-  "$WORK/readback/canary-release-delegation.json"
-fj release asset create "$TAG" "$WORK/canary-linux-arm64.receipt.json" \
-  canary-linux-arm64.receipt.json -r TerraScale/ts-orchestrator
-fj release asset download "$TAG" canary-linux-arm64.receipt.json \
-  -r TerraScale/ts-orchestrator -o "$WORK/readback/canary-linux-arm64.receipt.json"
-cmp -- "$WORK/canary-linux-arm64.receipt.json" \
-  "$WORK/readback/canary-linux-arm64.receipt.json"
-```
-
-The image workflow checks those names and digests against its pinned input
-manifest before verifying the binary or building the image. Any optional JSON
-copy of the review record is audit-only, is not one of the image's admission
-inputs, and must not be represented as authenticated approval.
+The signed receipt, delegation and root key may be published on the same CI
+tag (`canary-linux-arm64.receipt.json`, `canary-release-delegation.json`,
+`canary-release-root.pub`) with `fj release asset create`, reading each back
+with `fj release asset download` and `cmp`; `deploy/image/promote-image.py`
+uses a receipt found there. It can also sign the binary itself
+(`--sign-binary --signing-key`), after the same `binary-candidate` and
+Forgejo run checks. Any optional JSON copy of the review record is audit-only
+and must not be represented as authenticated approval.
 
 ### Image CI provenance
 
-`image.yml` builds the image under the attempt-specific tag
-`image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${run_attempt}`. Before
-publishing, `build-ci.sh` uses the pinned `fj actions run-detail` extension to
-bind the tag to the exact source SHA, image workflow, run ID and number, and
-the active `build/qualified-gru-arm64-image` job ID and attempt. The retained
-`image-qualification.json` records the source revision and tree, those run and
-job identities, the job status observed at publication, the required final
-run and job statuses (`success`), and the image and kernel digests. It also
-records the pinned input-manifest digest and build tool versions.
+Every successful `ci.yml` run on `main` ends by dispatching `image.yml` for
+its exact revision (`scripts/ci/dispatch-image.sh`; documentation-only
+commits run neither). An operator can dispatch `image.yml` with
+`source_revision` for any other CI-qualified `main` revision; no run IDs,
+tags or digests are copied by hand. The image job
+(`deploy/image/build-image.sh`, the same script `make image SOURCE=<sha>`
+runs locally) finds its candidate by source revision:
 
-The image workflow uploads and reads back `terrascale-gru-arm64.qcow2`,
-`guest-kernel`, and `SHA256SUMS` before uploading and reading back
-`image-qualification.json` last. It then writes one
-`TS_IMAGE_QUALIFICATION_V1` log marker with the source SHA, run ID and number,
-job ID, attempt, image SHA-256, kernel SHA-256, provenance SHA-256, and tag.
-The manifest and marker are produced before the job finishes; the observed
-status may be `running` or `in_progress`, so they do not prove the workflow
-ultimately passed.
+- it looks up the successful `ci.yml` run on `main` for that revision through
+  the Actions API, downloads `qualification.json` and the arm64 binary from
+  `ci-${SOURCE_SHA}-run-${RUN_ID}`, and requires the manifest's source, tree,
+  module digests, run identity and binary digest to match, the pinned `fj
+  actions run-detail` readback to show the successful job, and the job log to
+  carry the exact `TS_RELEASE_QUALIFICATION_V1` marker for the manifest bytes;
+- every other input is data in `deploy/image/image-inputs.json`: the base
+  QCOW2 and Ubuntu checksum files retained once on the
+  `image-base-noble-arm64-20260926` release (pinned by size and SHA-256, the
+  checksum signature verified against the pinned signer, the QCOW2 against
+  the signed checksum), the base OCID and kernel release, the trust root and
+  timesyncd config checked in under `deploy/image/inputs`, the priority
+  profile, and the TerraBase artifact pin. `deploy/image/image-inputs.py`
+  validates the file; its `pin-terrabase` command rewrites only the TerraBase
+  pin from a published, Fast-qualified release, and the build re-derives that
+  pin from the release to prove it.
 
-After `image.yml` finishes, and before importing its image into OCI, use `fj`
-to read back the completed image run and that attempt's job log. Require
-the run and `build/qualified-gru-arm64-image` job to match the manifest's full
-source SHA, `image.yml` workflow, run ID and number, job ID, and attempt, and
-require both final statuses to be `success`. Match the exact marker in that
-attempt's log to those identities, the manifest file digest, its output tag,
-and the image and kernel digests. Then bind the imported image OCID and region
-through the existing `image-candidate` and `sign-image` inputs.
+The build checks the binary with `ts-release binary-candidate` (static ARM64
+ELF, Go toolchain, clean embedded revision, size and digest against the
+qualification). The signed binary receipt is not an image input any more: it
+is verified when the image is promoted. The tools (qemu, libguestfs with its
+appliance, guestfs-tools, systemd, gnupg) come from one pinned nixpkgs
+revision through `deploy/image/tools.sh`, which keeps their closure in the
+runner's `/cache/nix` binary cache.
 
-Before importing, use `fj release asset download` on that exact
-`image_release_tag` to retrieve the QCOW2, `guest-kernel`, `SHA256SUMS`, and
-`image-qualification.json`. Check the QCOW2 and kernel sizes and SHA-256 values
-against the completed manifest. Check the downloaded qualification file's
-SHA-256 against the marker's `provenance_sha256`, and check the `SHA256SUMS`
-entries for the QCOW2, kernel, and qualification file against their downloaded
-bytes. Import that verified QCOW2; use the downloaded kernel for
-`image-candidate` and signing inputs, and retain the qualification and checksum
-files as operator provenance evidence. The build job's publish-time asset
-readback occurs before final job success and does not replace this
-post-success operator readback.
+The job retains the image under
+`image-${SOURCE_SHA}-run-${GITHUB_RUN_ID}-attempt-${run_attempt}`
+(`deploy/image/publish-image.sh`). The retained `image-qualification.json`
+(schema v2) records the source revision and tree, the image run, job ID and
+attempt, the inline input manifest and its digest, the orchestrator
+candidate's release, run and digests, the TerraBase release, the tool
+versions, and the image and kernel digests. The QCOW2, `guest-kernel` and
+`SHA256SUMS` are uploaded and read back first and the manifest last; the job
+then logs one `TS_IMAGE_QUALIFICATION_V1` marker with the source SHA, run ID
+and number, job ID, attempt, image, kernel and manifest digests, and tag. The
+marker is written before the job finishes, so it does not prove the run
+passed.
 
-`sign-image` does not currently consume `image-qualification.json` or verify
-the image workflow run and marker. Its `--qualification` input is the original
-`ci.yml` binary qualification manifest; it verifies that binary run and its
-qualification marker, then checks the signed binary, candidate QCOW2, base
-image, and kernel files. The completed image-run readback and marker match are
-therefore separate operator evidence and must not be described as enforced by
-`ts-release`.
+### Image promotion
+
+`deploy/image/promote-image.py` turns a retained image release (or a local
+`make image` directory) into a signed OCI image in one command and writes
+one `promotion-receipt.json`. It stops at the first failed gate:
+
+1. it downloads the four image assets, checks `SHA256SUMS`, and for a CI
+   image requires the completed `image.yml` run and job attempt to have
+   succeeded and the job log to carry the exact marker for these bytes;
+2. it downloads the candidate binary, `qualification.json` and the pinned
+   base QCOW2 and checks them against the image manifest;
+3. it builds `ts-release` from the image's clean source revision and runs
+   `verify-binary` on the signed binary receipt;
+4. it imports the QCOW2 with `deploy/oci-region/import-image.py` (UEFI and
+   paravirtualized capability schema, A1-only shapes; idempotent);
+5. it runs `image-candidate` for the imported OCID, `sign-image` (which again
+   checks the `ci.yml` run and qualification marker through the pinned `fj`
+   and compares the binary extracted from the QCOW2 with `virt-cat`), and
+   `verify-image`.
+
+`--dry-run` runs every read-only gate and builds the image candidate against
+a placeholder OCID without importing or signing. The command re-executes
+itself under `deploy/image/tools.sh` for `virt-cat`, and requires the pinned
+`fj` with `actions run-detail` and `actions logs` (`--fj`, `TS_FJ`, or the
+admission build under `~/.local/share/terrascale-controller-bootstrap-20260927`);
+the receipt records both tools' digests. `sign-image` does not itself
+consume `image-qualification.json`; the image-run and marker checks are the
+promotion command's and are recorded in its receipt.
 
 `internal/release` owns the v2 binary and image receipt wire types, scope rules,
 and current and historical verification. Each receipt requires the SHA-256 of
@@ -298,27 +299,24 @@ controller service starts. The host service still starts independently from
 its role config and does not run this image admission path; host startup
 admission remains open.
 
-`deploy/image/build-offline.sh` verifies the signed binary, requires a
-standalone QCOW2 base, and completes the candidate through filesystem-only
-guestfish operations. It audits the guest's Noble systemd 255 unit metadata,
-stages account creation with host `systemd-sysusers --root`, and stages unit
-enablement with host `systemctl --root`; the resulting files and symlinks are
-written and read back offline. A scoped container runner can be supplied as
+`deploy/image/build-offline.sh` qualifies the binary with `ts-release
+binary-candidate`, requires a standalone QCOW2 base, and completes the
+candidate through filesystem-only guestfish operations in one appliance
+session. Before any write it audits the base kernel (exactly one
+`/boot/vmlinuz-RELEASE` AArch64 Image with its `/lib/modules/RELEASE`
+directory, extracted to `--kernel-out`) and the guest's Noble systemd 255
+unit metadata. It stages account creation with host `systemd-sysusers
+--root` and unit enablement with host `systemctl --root`; the resulting files
+and symlinks are written and read back offline, and a second, read-only
+appliance reads the orchestrator binary, native verifier and kernel back from
+the finished QCOW2. A scoped container runner can be supplied as
 `TS_OFFLINE_GUESTFS_RUNNER` when guestfish is unavailable on the build host.
-Supply a build-time `ts-bootstrap` executable,
-the signed v2 anchor, its strict canonical schema-version-1 identity JSON with
-`schemaVersion`, `deploymentId`, `environment`, and `cell`, and one or more
-public bootstrap root PEMs. The exact identity bytes passed to the verifier
-are installed in the image. The builder keeps `--root-key` for release-binary
-verification and passes only the repeatable `--bootstrap-root` inputs to
-`ts-bootstrap verify-anchor --anchor ... --identity ... --root-key ...`. It
-requires current anchor, identity, grant, and intent verification to succeed
-before it creates a candidate or copies files into the guest; the identity's
-schema version and environment must match the runtime contract and release
-environment. The anchor is bounded to 64 KiB, the identity to 4 KiB, and the
-root set to 1 through 16 files, each bounded to 16 KiB and 64 KiB total. The
-verifier executable is used only on the build host and is not installed in
-the image.
+The image is deployment-neutral: the only deployment-related inputs are one
+or more public bootstrap root PEMs (1 through 16 files, each bounded to 16
+KiB and 64 KiB total). The deployment identity, signed anchor and host
+enrollment bundle arrive in OCI launch metadata and are verified against
+these roots on the instance; the builder rejects flags for them and fails if
+the base image already contains any of them.
 
 The same image build now requires the exact qualified ARM64 TerraBase
 `tb-server-linux-arm64` artifact as `--native-verifier-binary` and its
@@ -339,17 +337,15 @@ ARM64 guest still must prove the installed TerraBase command
 managed-material path is qualified; offline ELF and digest checks alone do
 not prove that command is present or functional.
 
-The candidate contains the signed anchor at
-`/etc/terrascale-orchestrator/bootstrap/anchor.json`, the public identity at
-`/etc/terrascale-orchestrator/bootstrap/identity.json`, and the verified root
-set as sequential `trust-roots/NNN.pem` files starting at `001.pem`, matching
-the runtime loader's accepted names. Those files are root-owned and mode
-`0444`; their directories are root-owned and mode `0755`. The image also
-has the root-owned `0755` bootstrap marker directory and the empty
-`terrascale-orchestrator`-owned `0700` secret-material directory. The runtime
-bootstrap unit creates its `0700` `/run` staging directory for each start.
-The signed anchor, identity, and trust roots are public inputs; no private
-signing keys, release tools, or runtime secret bytes are copied into the guest.
+The candidate contains the verified root set as sequential
+`/etc/terrascale-orchestrator/bootstrap/trust-roots/NNN.pem` files starting at
+`001.pem`, matching the runtime loader's accepted names. Those files are
+root-owned and mode `0444`; their directories are root-owned and mode `0755`.
+The image also has the root-owned `0755` bootstrap marker directory and the
+empty `terrascale-orchestrator`-owned `0700` secret-material directory. The
+runtime bootstrap unit creates its `0700` `/run` staging directory for each
+start. No private signing keys, release tools, deployment material, or
+runtime secret bytes are copied into the guest.
 
 The builder also requires an explicit `--timesyncd-config` file with a
 nonempty `[Time] NTP=` list. It bounds the input to 16 KiB and interprets
@@ -407,7 +403,7 @@ receipt can only be made after a custom image has been imported and its OCI
 image OCID is known. This workflow has not been run because the pinned base
 image, signer, and image-import authorization are not yet approved.
 
-For a host-enrollment image, the offline builder also checks that the base guest
+Every image can run the managed host, so the offline builder also checks that the base guest
 already contains `e2fsprogs` `1.47.0-2.4~exp1ubuntu4.1` and `util-linux`
 `2.39.3-9ubuntu6.6`, and that `/usr/sbin/mkfs.ext4`, `/usr/sbin/blkid`, `/usr/sbin/wipefs`, and
 `/usr/bin/mount` resolve to executable guest files. It follows tool symlinks
@@ -431,11 +427,11 @@ and only `CAP_CHOWN`, `CAP_KILL`, `CAP_SETGID`, `CAP_SETUID`, `CAP_SETPCAP`, and
 child of `/var/lib/terrascale-orchestrator-host`, while `host.install_root` is
 a separate child for tenant-group executable files. The unit's only extra
 writable path is the canonical managed runtime root `/srv/ts-managed`, used
-when `host.managed_runtime_root` selects it. A host image is built with a
-SHA-pinned public enrollment bundle; the builder fixes workload UID/GID to
-`2000:2000` and provisions `/srv/ts-managed` as `root:2000` mode `0750`.
-The bundle fixes `host.install_root` and `host.state_root` to separate children
-under `/var/lib/terrascale-orchestrator-host`.
+when `host.managed_runtime_root` selects it. Every image fixes workload
+UID/GID to `2000:2000` and provisions `/srv/ts-managed` as `root:2000` mode
+`0750`. The public enrollment bundle, delivered in launch metadata, fixes
+`host.install_root` and `host.state_root` to separate children under
+`/var/lib/terrascale-orchestrator-host`.
 The strict systemd guest security run
 passed all eight tests with no skips, including cross-UID child death after
 the host supervisor receives `SIGKILL`; a later four-VM caller run against the

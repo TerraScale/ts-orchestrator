@@ -1,27 +1,26 @@
 name: Qualified GRU ARM64 image
 
-# Every main push that runs ci.yml also builds its host image. The image job
-# starts alongside ci.yml, prepares the pinned tools and inputs, waits for
-# that revision's ci.yml run, and builds from its retained binary. Keep
-# paths-ignore identical to ci.yml (tests/ci/test_workflows.py checks it).
+# ci.yml dispatches this workflow as its last step on main, once the
+# revision's binaries and qualification manifest are retained (trigger
+# "ci"). A newer automatic build supersedes an older one still running. An
+# operator can dispatch it for any CI-qualified main revision; those runs are
+# never cancelled.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - 'docs/**'
-      - '**/*.md'
   workflow_dispatch:
     inputs:
       source_revision:
-        description: "Full main commit SHA to image (default: the dispatched commit)"
+        description: Full SHA of a main revision with a successful ci.yml run
+        required: true
+        type: string
+      trigger:
+        description: "ci for the automatic build, manual otherwise"
         required: false
+        default: manual
         type: string
 
-# A newer main push supersedes an image still waiting or building; a
-# dispatched rebuild of a named revision is never cancelled.
 concurrency:
-  group: ts-orchestrator-image-${{ forgejo.event_name == 'push' && 'main' || inputs.source_revision || forgejo.sha }}
-  cancel-in-progress: ${{ forgejo.event_name == 'push' }}
+  group: ts-orchestrator-image-${{ inputs.trigger == 'ci' && 'ci' || inputs.source_revision }}
+  cancel-in-progress: ${{ inputs.trigger == 'ci' }}
 
 jobs:
   image:
@@ -30,13 +29,13 @@ jobs:
     runs-on: terrascale-builder
     timeout-minutes: 60
     env:
-      SOURCE_SHA: ${{ inputs.source_revision || forgejo.sha }}
+      SOURCE_SHA: ${{ inputs.source_revision }}
     steps:
       - name: Check out the named source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
-          ref: ${{ inputs.source_revision || forgejo.sha }}
+          ref: ${{ inputs.source_revision }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -77,7 +76,7 @@ jobs:
           XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/read" \
           FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
             bash deploy/image/tools.sh \
-            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 2700
+            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 1800
 
       - name: Retain the image release
         shell: bash

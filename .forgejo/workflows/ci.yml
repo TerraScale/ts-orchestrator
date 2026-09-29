@@ -1,7 +1,7 @@
 name: TerraScale Orchestrator Go checks
 
 # Documentation and evidence never change a build: they neither run the
-# checks nor produce a candidate. Keep paths-ignore identical to image.yml.
+# checks nor produce a candidate or an image.
 on:
   push:
     branches: [develop, main]
@@ -99,3 +99,15 @@ jobs:
           FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/publish-qualification.sh
+
+      # Last, so the image job finds the retained release at once. The run's
+      # own result never depends on it: a failed dispatch is visible here and
+      # is repaired by dispatching image.yml for this revision by hand.
+      - name: Start the image build for this revision
+        if: ${{ forgejo.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/dispatch-image.sh

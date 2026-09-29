@@ -28,10 +28,18 @@ def job_names(workflow: Path) -> list[str]:
 
 
 class WorkflowContractTests(unittest.TestCase):
-    def test_docs_only_changes_skip_both_ci_and_image(self) -> None:
-        ci, image = paths_ignore(WORKFLOWS / "ci.yml"), paths_ignore(WORKFLOWS / "image.yml")
-        self.assertEqual(ci, ["docs/**", "**/*.md"])
-        self.assertEqual(image, ci)
+    def test_docs_only_changes_skip_ci_and_ci_alone_starts_images(self) -> None:
+        self.assertEqual(paths_ignore(WORKFLOWS / "ci.yml"), ["docs/**", "**/*.md"])
+        image = (WORKFLOWS / "image.yml").read_text(encoding="utf-8")
+        self.assertNotIn("  push:", image)
+        ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+        steps = re.findall(r"^      - name: (.+)$", ci, re.MULTILINE)
+        self.assertEqual(steps[-1], "Start the image build for this revision")
+        self.assertIn("run: bash scripts/ci/dispatch-image.sh", ci.rsplit("- name:", 1)[1])
+        self.assertIn("continue-on-error: true", ci.rsplit("- name:", 1)[1])
+        dispatch = (ROOT / "scripts/ci/dispatch-image.sh").read_text(encoding="utf-8")
+        self.assertIn('trigger:"ci"', dispatch)
+        self.assertIn("inputs.trigger == 'ci'", image)
 
     def test_ci_stays_one_job_named_as_release_admission_expects(self) -> None:
         # ts-release admission requires exactly one job in the qualifying ci.yml run.
@@ -50,7 +58,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("--wait-for-ci", workflow)
         inputs = re.findall(r"^      ([a-z_]+):$", workflow.split("workflow_dispatch:", 1)[1].split("concurrency:")[0],
                             re.MULTILINE)
-        self.assertEqual(inputs, ["source_revision"])
+        self.assertEqual(inputs, ["source_revision", "trigger"])
 
     def test_checked_in_image_inputs_are_valid(self) -> None:
         result = subprocess.run([sys.executable, str(ROOT / "deploy/image/image-inputs.py"), "check"],
