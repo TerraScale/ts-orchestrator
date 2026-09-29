@@ -11,6 +11,7 @@ The commands are subcommands of the orchestrator binary:
 | --- | --- |
 | `operator terrabase-deploy --plan FILE --state DIR` | Verifies the release, pushes and admits the artifact, generates identities once, signs the recipient grant, prepares material, opens the customer envelope, renders the schema-5 placement from the signed receipt, and applies it. |
 | `operator terrabase-status --state DIR [--wait 30m]` | Prints the controller-signed durable stage of each member, its OCI host, volume and attachment, desired generation, host session, latest host report, and recent placement holds. With `--wait` it reprints only when a member moves and exits 0 once both members serve. |
+| `operator terrabase-update --state DIR --qualification F --binary F --source-digest F --compatibility-actor A --compatibility-key F [--wait 20m]` | Rolls a newer TerraBase release across the pair one seat at a time; see [Continuous delivery](#continuous-delivery). |
 | `operator terrabase-walkthrough --state DIR [--forward IP:PORT=127.0.0.1:PORT]...` | Customer scenario over HTTPS: rejected missing, invalid and wrong-tenant credentials, then create, exact retry, cross-member read, update and delete of one disposable document. It uses no controller or NATS access. |
 
 `terrabase-deploy` and `terrabase-status` take the usual `--config
@@ -180,6 +181,67 @@ controller's recent reasons for not advancing, including reconciliation
 errors. The report is signed by the controller response key pinned in the
 operator config.
 
+## Continuous delivery
+
+A published TerraBase release reaches both members through signed managed
+updates, one seat at a time:
+
+1. `terrabase-update` verifies the release files exactly as deploy does and
+   pushes and admits the artifact.
+2. For the first seat in placement order that does not run the release, it
+   signs a Prepare that pins both seats as the controller reports them, with
+   a compatibility statement signed by a separate compatibility signer.
+3. The controller writes the candidate desired for that seat only. The seat
+   must return a fresh serving proof for the candidate within 15 minutes;
+   otherwise, or when the host reports the candidate failed, the controller
+   holds it. The peer keeps serving the prior artifact either way.
+4. After the canary serves, the command updates the peer the same way, then
+   reports `rollout complete`.
+5. A held seat is rolled back to the artifact its candidate replaced, and the
+   command fails with the held outcome. No held candidate is ever promoted
+   to the peer.
+
+The controller keeps every step durable: a later release replaces a served
+target and records the artifact and source it replaced, a successor
+operation is admitted only after the previous operation's outcome, and a
+completed seat stays current for material delivery and volume checks after
+later operations. Rerunning the command resumes from that state; a
+completed rollout does nothing. A binary rollback is only safe while the
+persistent format stays readable by the older release; the compatibility
+statement is the assertion that it does.
+
+### Running it on every release
+
+The command runs where the operator config and a Bastion forward already
+exist. The simplest trigger is a timer on that operator host that, for each
+new successful TerraBase `main` release, downloads `qualification.json`,
+`tb-server-linux-arm64` and the release's prepared-source digest record with
+`fj release asset download`, opens a Bastion forward to one controller, and
+runs `terrabase-update`. A Forgejo job cannot do this without holding the
+operator's NATS credentials, two signing keys and OCI Bastion credentials in
+repository secrets, and the controllers have no route to Forgejo.
+
+This needs three decisions:
+
+- **Update and compatibility signers.** The current GRU operator grant has
+  neither `can_update_terrabase_runtime` nor a compatibility signer, so
+  managed updates are refused. A new signed controller config must add an
+  automation actor with `can_update_terrabase_runtime` and
+  `can_place_terrabase`, and a separate actor with
+  `can_certify_terrabase_compatibility`. Both grants must list the
+  `terrabase` role and the `canary` and `production` environments, and the
+  update actor the TerraBase repository. Their private keys live on the
+  operator host, owner-only.
+- **What the compatibility signature asserts.** Today it would assert that
+  every release on `main` keeps mixed-version replication, client data and
+  persistent formats compatible with the release it replaces. Either accept
+  that as TerraBase policy, or have TerraBase CI publish a compatibility
+  result per release that the timer checks before signing.
+- **Source digest in the release.** TerraBase CI publishes no
+  prepared-source digest record. Its release job should publish
+  `source-digest.json` (schema `terrascale.terrabase.source-digest-candidate.v1`)
+  next to `qualification.json`, so the timer needs no TerraBase checkout.
+
 ## Offline qualification
 
 `internal/app/operator_terrabase_deploy_integration_test.go` runs the real
@@ -195,6 +257,14 @@ instance without consistent volume naming is held before attachment with the
 reason in status. It does not run the host's mount, native runner or
 `tb-server`; the Firecracker harness and the live hosts cover those.
 
+`internal/placement/managed_update_rolling_test.go` drives the controller's
+managed updates against the real authority log: release 2 on the canary
+seat, then the peer, release 3 chained on the canary, held at its proof
+deadline with the peer serving, promotion refused, and the seat rolled back.
+`internal/app/operator_terrabase_update_test.go` runs `terrabase-update`
+against the real cell's artifact admission and admission checks, including
+resume and rollback of a failing release.
+
 ## Defects fixed for the first deployment
 
 These were found by the offline chain and source review. Each needs the
@@ -207,6 +277,7 @@ controller and host image rebuilt from a source that contains it.
 | Hosts never created the per-attempt member, material and control directories | Material delivery failed on a fresh host; only test harnesses pre-created them. |
 | The mount check required one mountinfo entry | Inside the host unit's mount namespace the volume appears once per slave copy of `/srv/ts-managed`; every live mount was rejected. |
 | No operator view of placement stages | Launch, volume and attachment progress was only in controller logs. |
+| Managed update stopped after one canary seat | A release never reached the peer, a second release could not start, and a held candidate had no recovery. |
 
 Open items outside this workflow are listed in the prerequisites: material
 IAM (`material/v2/*`), image device naming and in-transit encryption, and the
