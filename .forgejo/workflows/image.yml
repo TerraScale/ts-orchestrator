@@ -2,9 +2,10 @@ name: Qualified GRU ARM64 image
 
 # ci.yml dispatches this workflow as its last step on main, once the
 # revision's binaries and qualification manifest are retained (trigger
-# "ci"). A newer automatic build supersedes an older one still running. An
-# operator can dispatch it for any CI-qualified main revision; those runs are
-# never cancelled.
+# "ci"). Automatic builds queue rather than cancel each other, so a build in
+# progress always finishes, and a queued build that a newer qualified
+# revision has overtaken skips itself. An operator can dispatch any
+# CI-qualified main revision; those runs are always built.
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +21,7 @@ on:
 
 concurrency:
   group: ts-orchestrator-image-${{ inputs.trigger == 'ci' && 'ci' || inputs.source_revision }}
-  cancel-in-progress: ${{ inputs.trigger == 'ci' }}
+  cancel-in-progress: false
 
 jobs:
   image:
@@ -66,7 +67,18 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/configure-fj-profiles.sh "${RUNNER_TEMP}/forgejo"
 
+      - name: Skip an automatic build a newer revision has overtaken
+        id: superseded
+        if: ${{ inputs.trigger == 'ci' }}
+        shell: bash
+        env:
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: |
+          FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
+            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}"
+
       - name: Build the image from the qualified candidate
+        if: ${{ steps.superseded.outputs.superseded != 'true' }}
         shell: bash
         env:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
@@ -79,6 +91,7 @@ jobs:
             bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 1800
 
       - name: Retain the image release
+        if: ${{ steps.superseded.outputs.superseded != 'true' }}
         shell: bash
         run: |
           set -euo pipefail

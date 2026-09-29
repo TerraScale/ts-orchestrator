@@ -40,6 +40,9 @@ class WorkflowContractTests(unittest.TestCase):
         dispatch = (ROOT / "scripts/ci/dispatch-image.sh").read_text(encoding="utf-8")
         self.assertIn('trigger:"ci"', dispatch)
         self.assertIn("inputs.trigger == 'ci'", image)
+        # Automatic builds queue; a running image build is never cancelled.
+        self.assertIn("  cancel-in-progress: false\n", image)
+        self.assertIn("bash scripts/ci/image-superseded.sh", image)
 
     def test_ci_stays_one_job_named_as_release_admission_expects(self) -> None:
         # ts-release admission requires exactly one job in the qualifying ci.yml run.
