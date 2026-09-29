@@ -14,10 +14,16 @@ the first failure:
      binary receipt (verify-binary);
   4. import the QCOW2 into OCI (deploy/oci-region/import-image.py: UEFI and
      paravirtualized capability schema, A1-only shapes; idempotent);
-  5. create the image candidate for the imported OCID, sign it with the
-     delegated leaf key (sign-image, which re-checks the ci.yml run through
-     the pinned fj) and verify the signed receipt (verify-image);
+  5. create the image candidate for the imported OCID; with
+     --image-delegation (the root-signed delegation extended to that OCID),
+     sign it with the delegated leaf key (sign-image, which re-checks the
+     ci.yml run through the pinned fj) and verify it (verify-image);
   6. write promotion-receipt.json with every digest, identity and tool used.
+
+The root owner can only extend a delegation to an image once its OCID
+exists, so a first run without --image-delegation stops after the import
+and prints the sign-delegation command for that OCID. Rerun with the new
+delegation: every gate runs again and the import finds the same image.
 
 --dry-run performs every read-only gate, builds the image candidate against a
 placeholder OCID, and skips the OCI import and signing. Run it under
@@ -291,20 +297,33 @@ class Promotion:
         step("image candidate created")
         if self.args.dry_run:
             self.receipt["image_receipt"] = {"skipped": "dry run"}
-        else:
-            signed = self.out / "image-receipt.json"
-            self.run(tool, "sign-image", "--candidate", candidate, "--binary-receipt", files["binary_receipt"],
-                     "--binary", files["binary"], "--qualification", files["qualification"], "--image-file", image,
-                     "--base-image-file", files["base"], "--kernel-file", kernel, "--signing-key",
-                     self.args.signing_key, *trust, "--out", signed)
-            verified = self.run(tool, "verify-image", "--receipt", signed, "--delegation", self.args.delegation,
-                                "--root-key", self.args.root_key, "--image-file", image, "--base-image-file",
-                                files["base"], "--kernel-file", kernel, "--region", region,
-                                "--environment", self.args.environment, capture=True).strip()
-            self.receipt["image_receipt"] = {"path": str(signed), "sha256": sha256(signed),
-                                             "image_ocid": image_ocid, "verify_image": verified}
-            step(verified)
-        self.finish("promotion complete" if not self.args.dry_run else "dry run passed every read-only gate")
+            self.finish("dry run passed every read-only gate")
+            return
+        if not self.args.image_delegation:
+            self.receipt["image_receipt"] = {"awaiting": "root-signed image delegation", "image_ocid": image_ocid}
+            print("promote-image: the root owner extends the delegation to this image with:\n"
+                  f"  ts-release sign-delegation --previous-delegation {self.args.delegation} "
+                  f"--image-cell {region} --image-ocid {image_ocid} --source-revision {manifest['source_revision']} "
+                  "--arch arm64 --environment canary --subject-public-key LEAF.pub "
+                  f"--root-key {self.args.root_key} --signing-key ROOT.key --issued-at ... --expires-at ... "
+                  "--out image-delegation.json\n"
+                  "then rerun this command with --image-delegation image-delegation.json", flush=True)
+            self.finish(f"imported {image_ocid}; awaiting the root-signed image delegation")
+            return
+        image_trust = ("--delegation", self.args.image_delegation, "--root-key", self.args.root_key)
+        self.receipt["trust"]["image_delegation_sha256"] = sha256(self.args.image_delegation)
+        signed = self.out / "image-receipt.json"
+        self.run(tool, "sign-image", "--candidate", candidate, "--binary-receipt", files["binary_receipt"],
+                 "--binary", files["binary"], "--qualification", files["qualification"], "--image-file", image,
+                 "--base-image-file", files["base"], "--kernel-file", kernel, "--signing-key",
+                 self.args.signing_key, *image_trust, "--environment", self.args.environment, "--out", signed)
+        verified = self.run(tool, "verify-image", "--receipt", signed, *image_trust, "--image-file", image,
+                            "--base-image-file", files["base"], "--kernel-file", kernel, "--region", region,
+                            "--environment", self.args.environment, capture=True).strip()
+        self.receipt["image_receipt"] = {"path": str(signed), "sha256": sha256(signed),
+                                         "image_ocid": image_ocid, "verify_image": verified}
+        step(verified)
+        self.finish("promotion complete")
 
     def finish(self, outcome: str) -> None:
         self.receipt["outcome"] = outcome
@@ -326,10 +345,13 @@ def parse_arguments() -> argparse.Namespace:
     source.add_argument("--image-dir", type=Path, help="local build directory from make image")
     parser.add_argument("--out", type=Path, required=True, help="new directory for downloads and the receipt")
     parser.add_argument("--environment", default="canary", choices=("canary", "production"))
-    parser.add_argument("--delegation", type=Path, required=True, help="root-signed release delegation")
+    parser.add_argument("--delegation", type=Path, required=True,
+                        help="root-signed release delegation for the binary's source revision")
+    parser.add_argument("--image-delegation", type=Path,
+                        help="the delegation extended to the imported image OCID (signs the image)")
     parser.add_argument("--root-key", type=Path, required=True, help="release root public key PEM")
     parser.add_argument("--binary-receipt", type=Path, help="signed binary receipt (default: from the CI release)")
-    parser.add_argument("--signing-key", type=Path, help="delegated leaf private key PEM (not needed for --dry-run)")
+    parser.add_argument("--signing-key", type=Path, help="delegated leaf private key PEM (to sign)")
     parser.add_argument("--sign-binary", action="store_true",
                         help="sign the binary with --signing-key when its CI release has no receipt")
     parser.add_argument("--compartment-id", help="OCI compartment for the imported image")
@@ -341,12 +363,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="run every read-only gate; skip import and signing")
     args = parser.parse_args()
     if not args.dry_run:
-        missing = [flag for flag, value in (("--signing-key", args.signing_key), ("--compartment-id", args.compartment_id),
+        missing = [flag for flag, value in (("--compartment-id", args.compartment_id),
                                             ("--namespace", args.namespace), ("--bucket", args.bucket)) if not value]
         if missing:
-            parser.error(f"a real promotion needs {', '.join(missing)} (or use --dry-run)")
-    if args.sign_binary and not args.signing_key:
-        parser.error("--sign-binary needs --signing-key")
+            parser.error(f"an OCI import needs {', '.join(missing)} (or use --dry-run)")
+    if (args.sign_binary or args.image_delegation) and not args.signing_key:
+        parser.error("--sign-binary and --image-delegation need --signing-key")
+    if args.dry_run and args.image_delegation:
+        parser.error("--dry-run never signs the image; drop --image-delegation")
     if args.out.exists():
         parser.error(f"--out must be a new directory: {args.out}")
     return args

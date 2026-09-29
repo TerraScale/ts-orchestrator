@@ -124,7 +124,7 @@ class PromoteImageTests(unittest.TestCase):
         executable(self.bin / "virt-cat", "#!/bin/sh\necho 'virt-cat 1.52.3'\n")
         self.trust = self.root / "trust"
         self.trust.mkdir()
-        for name in ("delegation.json", "root.pub", "leaf.pem"):
+        for name in ("delegation.json", "image-delegation.json", "root.pub", "leaf.pem"):
             (self.trust / name).write_text(f"fake {name}\n")
 
         self.base = b"base qcow2 bytes"
@@ -199,9 +199,12 @@ class PromoteImageTests(unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
 
+    def import_arguments(self) -> tuple[str, ...]:
+        return ("--compartment-id", "ocid1.compartment.oc1..c", "--namespace", "ns", "--bucket", "images")
+
     def real_arguments(self) -> tuple[str, ...]:
-        return ("--signing-key", str(self.trust / "leaf.pem"), "--compartment-id", "ocid1.compartment.oc1..c",
-                "--namespace", "ns", "--bucket", "images")
+        return (*self.import_arguments(), "--signing-key", str(self.trust / "leaf.pem"),
+                "--image-delegation", str(self.trust / "image-delegation.json"))
 
     def release_calls(self) -> list[list[str]]:
         log = self.fixture / "release-calls.log"
@@ -225,6 +228,10 @@ class PromoteImageTests(unittest.TestCase):
         self.assertEqual(candidate[candidate.index("--kernel-release") + 1], "6.8.0-142-generic")
         sign = self.release_calls()[2]
         self.assertEqual(sign[sign.index("--signing-key") + 1], str(self.trust / "leaf.pem"))
+        for call in self.release_calls()[2:]:
+            self.assertEqual(call[call.index("--delegation") + 1], str(self.trust / "image-delegation.json"))
+        for call in self.release_calls()[:2]:
+            self.assertEqual(call[call.index("--delegation") + 1], str(self.trust / "delegation.json"))
         self.assertTrue(any(" image import from-object " in call for call in self.oci_calls()))
         receipt = self.receipt()
         self.assertFalse(receipt["dry_run"])
@@ -235,6 +242,24 @@ class PromoteImageTests(unittest.TestCase):
         self.assertEqual(receipt["image_receipt"]["image_ocid"], IMPORTED_OCID)
         self.assertEqual(receipt["tools"]["fj"]["sha256"], digest(self.fj.read_bytes()))
         self.assertEqual(receipt["outcome"], "promotion complete")
+
+    def test_first_run_imports_and_waits_for_the_image_delegation(self) -> None:
+        result = self.promote(*self.import_arguments())
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call[0] for call in self.release_calls()], ["verify-binary", "image-candidate"])
+        self.assertIn(f"--image-ocid {IMPORTED_OCID}", result.stdout)
+        receipt = self.receipt()
+        self.assertEqual(receipt["image_receipt"],
+                         {"awaiting": "root-signed image delegation", "image_ocid": IMPORTED_OCID})
+        self.assertEqual(receipt["outcome"], f"imported {IMPORTED_OCID}; awaiting the root-signed image delegation")
+
+        shutil.rmtree(self.out)
+        (self.fixture / "release-calls.log").unlink()
+        result = self.promote(*self.real_arguments())
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual([call[0] for call in self.release_calls()],
+                         ["verify-binary", "image-candidate", "sign-image", "verify-image"])
+        self.assertEqual(self.receipt()["outcome"], "promotion complete")
 
     def test_dry_run_passes_read_only_gates_without_import_or_signing(self) -> None:
         result = self.promote("--dry-run")
@@ -299,6 +324,8 @@ class PromoteImageTests(unittest.TestCase):
         (self.fixture / "release-calls.log").unlink()
         result = self.promote(*self.real_arguments(), "--sign-binary")
         self.assertEqual(result.returncode, 0, result.stderr)
+        sign_binary = self.release_calls()[1]
+        self.assertEqual(sign_binary[sign_binary.index("--delegation") + 1], str(self.trust / "delegation.json"))
         self.assertEqual([call[0] for call in self.release_calls()],
                          ["binary-candidate", "sign-binary", "verify-binary", "image-candidate", "sign-image",
                           "verify-image"])
@@ -317,7 +344,10 @@ class PromoteImageTests(unittest.TestCase):
     def test_real_promotion_requires_signing_and_oci_targets(self) -> None:
         result = self.promote()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("--signing-key, --compartment-id, --namespace, --bucket", result.stderr)
+        self.assertIn("an OCI import needs --compartment-id, --namespace, --bucket", result.stderr)
+        result = self.promote(*self.import_arguments(), "--image-delegation", str(self.trust / "image-delegation.json"))
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("need --signing-key", result.stderr)
 
     def test_unpinned_fj_is_rejected(self) -> None:
         executable(self.fj, "#!/bin/sh\nexit 1\n")

@@ -251,10 +251,19 @@ one `promotion-receipt.json`. It stops at the first failed gate:
    `verify-binary` on the signed binary receipt;
 4. it imports the QCOW2 with `deploy/oci-region/import-image.py` (UEFI and
    paravirtualized capability schema, A1-only shapes; idempotent);
-5. it runs `image-candidate` for the imported OCID, `sign-image` (which again
-   checks the `ci.yml` run and qualification marker through the pinned `fj`
-   and compares the binary extracted from the QCOW2 with `virt-cat`), and
-   `verify-image`.
+5. it runs `image-candidate` for the imported OCID, then, given the
+   root-signed delegation extended to that OCID (`--image-delegation`),
+   `sign-image` (which again checks the `ci.yml` run and qualification marker
+   through the pinned `fj` and compares the binary extracted from the QCOW2
+   with `virt-cat`) and `verify-image`.
+
+The root owner can extend a delegation to an image only once its OCID exists
+(`ts-release sign-delegation --previous-delegation ... --image-cell GRU
+--image-ocid ...`). A first run without `--image-delegation` therefore stops
+after the import and prints that command for the imported OCID; the rerun
+with the extended delegation repeats every gate, finds the same image, and
+signs it. `--sign-binary` signs the binary receipt with the leaf key when the
+candidate's CI release has none.
 
 `--dry-run` runs every read-only gate and builds the image candidate against
 a placeholder OCID without importing or signing. The command re-executes
