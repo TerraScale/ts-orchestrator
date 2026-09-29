@@ -211,16 +211,46 @@ func encryptMaterialChunk(req request, query materialQuery, chunk []byte, total 
 		Nonce: nonce, Ciphertext: aead.Seal(nil, nonce, chunk, aad)}, nil
 }
 
+// ensureManagedMemberLayout creates the per-attempt member, material and
+// control directories below the image-provisioned runtime root: root-owned,
+// workload group, modes 0750/0750/0730. A fresh OCI host has none of them.
+// An existing entry must already be exact; nothing is repaired or replaced.
+func ensureManagedMemberLayout(root string, launch ManagedMemberLaunch, identity WorkloadIdentity) (managedRuntimePaths, error) {
+	paths, err := runtimePaths(root, launch)
+	if err != nil {
+		return managedRuntimePaths{}, err
+	}
+	if err := verifyManagedDirectory(root, identity, 0750); err != nil {
+		return managedRuntimePaths{}, err
+	}
+	for _, entry := range []struct {
+		path string
+		mode os.FileMode
+	}{{paths.memberDir, 0750}, {paths.material, 0750}, {filepath.Dir(paths.socket), 0730}} {
+		if err := os.Mkdir(entry.path, 0700); err == nil {
+			if err := os.Chown(entry.path, 0, int(identity.GID)); err != nil {
+				return managedRuntimePaths{}, err
+			}
+			if err := os.Chmod(entry.path, entry.mode); err != nil {
+				return managedRuntimePaths{}, err
+			}
+		} else if !errors.Is(err, os.ErrExist) {
+			return managedRuntimePaths{}, err
+		}
+		if err := verifyManagedDirectory(entry.path, identity, entry.mode); err != nil {
+			return managedRuntimePaths{}, err
+		}
+	}
+	return paths, nil
+}
+
 func (a *Agent) fetchManagedMaterial(ctx context.Context, desired Desired, registration Registration) error {
 	if desired.ManagedMember == nil || registration.ManagedMember == nil ||
 		desired.ManagedMember.Member != *registration.ManagedMember || a.cfg.ManagedRuntimeRoot == "" {
 		return errors.New("managed material delivery lacks exact host binding")
 	}
-	paths, err := runtimePaths(a.cfg.ManagedRuntimeRoot, *desired.ManagedMember)
+	paths, err := ensureManagedMemberLayout(a.cfg.ManagedRuntimeRoot, *desired.ManagedMember, a.cfg.WorkloadIdentity)
 	if err != nil {
-		return err
-	}
-	if err := verifyManagedDirectory(paths.material, a.cfg.WorkloadIdentity, 0750); err != nil {
 		return err
 	}
 	fingerprint, err := desiredFingerprint(desired)

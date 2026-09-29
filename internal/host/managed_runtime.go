@@ -371,22 +371,37 @@ func validManagedMountRoot(stat *syscall.Stat_t, mode os.FileMode, identity Work
 		mode.IsDir() && mode.Perm() == 0750
 }
 
+// findExclusiveMount returns the ID of the mount visible at target and
+// requires every mount of the retained device to be that rw mount of its root
+// at target. A service with its own mount namespace (the host unit's
+// ProtectSystem and ReadWritePaths bind) receives the initializer's mount by
+// propagation once per slave copy of the runtime root, so shadowed copies at
+// the same target are expected; a mount anywhere else is not.
 func findExclusiveMount(mountInfoPath, target string, rdev uint64, fsType string) (uint64, error) {
+	var statx unix.Statx_t
+	if err := unix.Statx(unix.AT_FDCWD, target, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_MNT_ID, &statx); err != nil {
+		return 0, fmt.Errorf("inspect managed mount: %w", err)
+	}
+	if statx.Mask&unix.STATX_MNT_ID == 0 || statx.Mnt_id == 0 {
+		return 0, errors.New("kernel did not report the managed mount ID")
+	}
+	return exclusiveMountEntry(mountInfoPath, target, rdev, fsType, statx.Mnt_id)
+}
+
+func exclusiveMountEntry(mountInfoPath, target string, rdev uint64, fsType string, visible uint64) (uint64, error) {
 	file, err := os.Open(mountInfoPath)
 	if err != nil {
 		return 0, err
 	}
 	defer file.Close()
 	device := fmt.Sprintf("%d:%d", unix.Major(rdev), unix.Minor(rdev))
-	var id uint64
-	count := 0
+	found := false
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) < 10 || fields[2] != device {
 			continue
 		}
-		count++
 		separator := -1
 		for index := 6; index < len(fields); index++ {
 			if fields[index] == "-" {
@@ -402,15 +417,15 @@ func findExclusiveMount(mountInfoPath, target string, rdev uint64, fsType string
 		if err != nil {
 			return 0, err
 		}
-		id = parsed
+		found = found || parsed == visible
 	}
 	if err := scanner.Err(); err != nil {
 		return 0, err
 	}
-	if count != 1 || id == 0 {
-		return 0, errors.New("retained filesystem is not mounted exactly once")
+	if !found || visible == 0 {
+		return 0, errors.New("retained filesystem is not the mount visible at its target")
 	}
-	return id, nil
+	return visible, nil
 }
 
 func prepareManagedRuntime(ctx context.Context, cfg AgentConfig, d Desired, executable, fingerprint string) (Workload, managedMount, string, error) {

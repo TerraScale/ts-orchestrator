@@ -90,7 +90,7 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 	}
 }
 
-func TestExclusiveMountRejectsDuplicateAndWrongSource(t *testing.T) {
+func TestExclusiveMountRequiresVisibleMountAtTargetOnly(t *testing.T) {
 	device := unix.Mkdev(8, 1)
 	path := filepath.Join(t.TempDir(), "mountinfo")
 	target := "/var/lib/terrascale/member/volume"
@@ -104,18 +104,29 @@ func TestExclusiveMountRejectsDuplicateAndWrongSource(t *testing.T) {
 		}
 	}
 	write(entry(23, target, "ext4"))
-	if id, err := findExclusiveMount(path, target, device, "ext4"); err != nil || id != 23 {
+	if id, err := exclusiveMountEntry(path, target, device, "ext4", 23); err != nil || id != 23 {
 		t.Fatalf("exact mount = %d, %v", id, err)
 	}
-	for _, test := range []struct{ name, content string }{
-		{"duplicate mount", entry(23, target, "ext4") + entry(24, "/other", "ext4")},
-		{"wrong target", entry(23, "/other", "ext4")},
-		{"wrong filesystem", entry(23, target, "xfs")},
-		{"no mount", entry(23, target, "ext4")[:0]},
+	// A ProtectSystem service namespace sees one propagated copy per slave
+	// mount of the runtime root; only the visible one is pinned.
+	write(entry(23, target, "ext4") + entry(31, target, "ext4"))
+	if id, err := exclusiveMountEntry(path, target, device, "ext4", 31); err != nil || id != 31 {
+		t.Fatalf("shadowed propagated mount = %d, %v", id, err)
+	}
+	for _, test := range []struct {
+		name    string
+		content string
+		visible uint64
+	}{
+		{"second mount elsewhere", entry(23, target, "ext4") + entry(24, "/other", "ext4"), 23},
+		{"wrong target", entry(23, "/other", "ext4"), 23},
+		{"wrong filesystem", entry(23, target, "xfs"), 23},
+		{"no mount", "", 23},
+		{"visible mount is another device", entry(23, target, "ext4"), 40},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			write(test.content)
-			if _, err := findExclusiveMount(path, target, device, "ext4"); err == nil {
+			if _, err := exclusiveMountEntry(path, target, device, "ext4", test.visible); err == nil {
 				t.Fatal("unsafe mount accepted")
 			}
 		})
