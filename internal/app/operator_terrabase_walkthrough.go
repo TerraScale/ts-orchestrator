@@ -26,7 +26,7 @@ import (
 
 const (
 	walkthroughReplicationWait = 90 * time.Second
-	maxWalkthroughResponse     = 64 << 10
+	maxWalkthroughResponse     = 8 << 20
 )
 
 // walkthroughForwards maps a member's signed HTTPS address to the local end

@@ -62,8 +62,8 @@ type SignedAuthority struct {
 // CatalogUTF8Field is one optional, non-nullable top-level UTF-8 document
 // field in a generation-one TBSCH001 schema.
 type CatalogUTF8Field struct {
-	ID   uint32
-	Name string
+	ID   uint32 `json:"id"`
+	Name string `json:"name"`
 }
 
 // TerraBase TBSCH001 field type and flag codes (tb-format document schema).
