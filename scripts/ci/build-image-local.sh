@@ -23,10 +23,10 @@ output=${2:-/tmp/ts-image-$source_sha}
 repository_root=$(cd -- "$(dirname -- "$(realpath -- "$0")")/../.." && pwd)
 fj_binary=${TS_FJ:-$HOME/.local/share/terrascale-controller-bootstrap-20260927/fj-admission-pinned-7f44ff1a/bin/fj}
 [[ -x $fj_binary ]] || { echo "pinned fj not found: $fj_binary (set TS_FJ)" >&2; exit 1; }
-"$fj_binary" actions run-detail --help >/dev/null && "$fj_binary" actions logs --help >/dev/null || {
+if ! "$fj_binary" actions run-detail --help >/dev/null || ! "$fj_binary" actions logs --help >/dev/null; then
 	echo "$fj_binary lacks the actions run-detail/logs extension" >&2
 	exit 1
-}
+fi
 
 umask 077
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/ts-image-local.XXXXXXXX")

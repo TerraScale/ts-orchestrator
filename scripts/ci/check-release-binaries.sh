@@ -26,11 +26,10 @@ for pair in "linux-amd64:Advanced Micro Devices X86-64" "linux-arm64:AArch64"; d
 		exit 1
 	fi
 	build_info=$($GO version -m "$executable")
-	grep -Fq "vcs.revision=${source_sha}" <<< "$build_info" &&
-		grep -Fq 'vcs.modified=false' <<< "$build_info" || {
+	if ! grep -Fq "vcs.revision=${source_sha}" <<< "$build_info" || ! grep -Fq 'vcs.modified=false' <<< "$build_info"; then
 		echo "$executable does not embed the clean source revision $source_sha" >&2
 		exit 1
-	}
+	fi
 	printf 'verified %s machine=%s bytes=%s sha256=%s source=%s\n' \
 		"$executable" "$machine" "$(stat -c '%s' "$executable")" \
 		"$(sha256sum "$executable" | awk '{print $1}')" "$source_sha"
