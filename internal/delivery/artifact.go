@@ -82,10 +82,6 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 	if err != nil {
 		return ArtifactRecord{}, nil, err
 	}
-	envelope, err := s.config.ArtifactSigner.SignArtifact(ctx, r)
-	if err != nil {
-		return ArtifactRecord{}, nil, fmt.Errorf("sign artifact claim: %w", err)
-	}
 	exists, err := s.artifactExistsForUpload(ctx, r.Digest)
 	if err != nil {
 		return ArtifactRecord{}, nil, err
@@ -107,6 +103,12 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 	}
 	if err := s.verifyArtifact(ctx, r); err != nil {
 		return ArtifactRecord{}, nil, err
+	}
+	// Sign only after the bytes are stored: the claim's short validity must
+	// cover its admission, not an upload over a slow operator link.
+	envelope, err := s.config.ArtifactSigner.SignArtifact(ctx, r)
+	if err != nil {
+		return ArtifactRecord{}, nil, fmt.Errorf("sign artifact claim: %w", err)
 	}
 	return r, envelope, nil
 }

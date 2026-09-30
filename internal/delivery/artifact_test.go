@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -233,6 +234,31 @@ func TestPrepareArtifactRetriesOnlyTemporaryObjectVisibilityMisses(t *testing.T)
 				t.Fatalf("verified object does not match the admitted digest: %v", err)
 			}
 		})
+	}
+}
+
+// storedBeforeSigning signs a claim only once its artifact bytes are stored.
+type storedBeforeSigning struct {
+	testCodec
+	service *Service
+	signed  bool
+}
+
+func (signer *storedBeforeSigning) SignArtifact(ctx context.Context, record ArtifactRecord) ([]byte, error) {
+	if _, err := signer.service.artifacts.GetInfo(ctx, artifactKey(record.Digest)); err != nil {
+		return nil, fmt.Errorf("claim signed before its artifact was stored: %w", err)
+	}
+	signer.signed = true
+	return signer.testCodec.SignArtifact(ctx, record)
+}
+
+// The claim's short validity must cover admission, not the upload.
+func TestPrepareArtifactSignsTheClaimAfterStoringTheBytes(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	signer := &storedBeforeSigning{service: service}
+	service.config.ArtifactSigner = signer
+	if _, _, err := service.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact stored before its claim")), artifactTestRequest()); err != nil || !signer.signed {
+		t.Fatalf("PrepareArtifact() = %v, signed=%t", err, signer.signed)
 	}
 }
 
