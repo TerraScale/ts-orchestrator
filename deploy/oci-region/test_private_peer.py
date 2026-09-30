@@ -54,8 +54,9 @@ class PrivatePeerInspectionTests(unittest.TestCase):
 
     def make_plan(self, cell, region, vcn_cidr, subnet_cidr):
         plan = json.loads(preview.PLAN.read_text())
-        # Another cell has no Forgejo-hosted operator gateway or GRU seat rules.
+        # Another cell has no Forgejo-hosted operator gateway, public API, or GRU seat rules.
         plan["operator_gateway"] = None
+        plan["public_api"] = None
         plan["network_security"]["nsg_rules"] = [
             rule for rule in plan["network_security"]["nsg_rules"] if rule["source"] != "10.250.10.155/32"]
         plan["network_security"]["seed_ssh_nsg_rules"] = []

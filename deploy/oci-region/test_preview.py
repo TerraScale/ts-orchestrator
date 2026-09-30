@@ -110,6 +110,11 @@ class PreviewAdmissionTests(unittest.TestCase):
             "route_table": "ocid1.routetable.oc1.sa-saopaulo-1.testroute",
             "service_gateway": "ocid1.servicegateway.oc1.sa-saopaulo-1.testgateway",
             "local_peering_gateway": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.testcellpeering",
+            "internet_gateway": "ocid1.internetgateway.oc1.sa-saopaulo-1.testpublicgateway",
+            "public_subnet": "ocid1.subnet.oc1.sa-saopaulo-1.testpublicsubnet",
+            "public_route_table": "ocid1.routetable.oc1.sa-saopaulo-1.testpublicroute",
+            "public_security_list": "ocid1.securitylist.oc1.sa-saopaulo-1.testpublicsecuritylist",
+            "network_load_balancer": "ocid1.networkloadbalancer.oc1.sa-saopaulo-1.testpublicbalancer",
             "controller_dynamic_group": "ocid1.dynamicgroup.oc1..testcontroller",
             "controller_policy": "ocid1.policy.oc1..testcontroller",
             "objectstorage_key_policy": "ocid1.policy.oc1..testobjectstorage",
@@ -135,6 +140,10 @@ class PreviewAdmissionTests(unittest.TestCase):
             {"kind": "local-peering-gateway", "id": plan["operator_gateway"]["local_peering_gateway_id"],
              "lifecycle-state": "AVAILABLE", "compartment-id": plan["shared_compartment_id"],
              "vcn-id": plan["existing_forgejo"]["vcn_id"]},
+            {"kind": "internet-gateway", "id": ids["internet_gateway"], "lifecycle-state": "AVAILABLE",
+             "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]},
+            {"kind": "network-load-balancer", "id": ids["network_load_balancer"], "lifecycle-state": "ACTIVE",
+             "compartment-id": ids["network_compartment"], "subnet-id": ids["public_subnet"]},
         ]
         for role, name in plan["foundation_buckets"].items():
             inventory["buckets"].append({
@@ -195,11 +204,14 @@ class PreviewAdmissionTests(unittest.TestCase):
         network_security = self.plan["network_security"]
         pinned = lambda key: {(rule["tcp_min"], rule["source"]) for rule in network_security[key]}
         gateway = "10.250.10.155/32"
-        self.assertEqual(pinned("nsg_rules"), {(4222, "10.251.0.0/24"), (4222, gateway),
-                                               (6222, "10.251.0.0/24"), (8443, "10.251.0.0/24")})
+        self.assertEqual(pinned("nsg_rules"), {(4222, "10.251.0.0/25"), (4222, gateway),
+                                               (6222, "10.251.0.0/25"), (8443, "10.251.0.0/25")})
         self.assertEqual(pinned("seed_ssh_nsg_rules"), {(22, "10.251.0.18/32"), (22, gateway)})
         self.assertEqual(pinned("workload_nsg_rules"), {(9443, "10.251.0.21/32"), (9443, "10.251.0.22/32"),
-                                                        (9465, "10.251.0.18/32"), (9465, gateway)})
+                                                        (9465, "10.251.0.18/32"), (9465, gateway),
+                                                        (9465, "10.251.0.128/26")})
+        self.assertEqual(self.plan["public_api"], {"subnet_cidr": "10.251.0.128/26", "listener_port": 443,
+                                                   "client_port": 9465})
         self.assertEqual(network_security["security_list_ingress_rules"], [])
         self.assertEqual(self.plan["operator_gateway"], {"private_ip": "10.250.10.155", "vcn_cidr": "10.250.0.0/16",
                                                          "local_peering_gateway_id": None})
@@ -222,6 +234,43 @@ class PreviewAdmissionTests(unittest.TestCase):
                 ("missing declaration", lambda plan: plan.pop("operator_gateway"), "operator gateway")):
             with self.subTest(case=name):
                 self.assert_plan_rejected(change, message)
+
+    def test_public_api_subnet_inside_cell_outside_private_subnet(self):
+        def public(**fields):
+            return lambda plan: plan["public_api"].update(fields)
+
+        def ids_without_public_api(plan):
+            plan["public_api"] = None
+            plan["resource_ids"]["network_load_balancer"] = "ocid1.networkloadbalancer.oc1.sa-saopaulo-1.x"
+
+        for name, change, message in (
+                ("overlaps private subnet", public(subnet_cidr="10.251.0.64/26"), "outside the private subnet"),
+                ("outside the VCN", public(subnet_cidr="10.9.0.0/26"), "inside the cell VCN"),
+                ("host bits", public(subnet_cidr="10.251.0.130/26"), "inside the cell VCN"),
+                ("boolean port", public(client_port=True), "exactly its subnet CIDR"),
+                ("port zero", public(listener_port=0), "exactly its subnet CIDR"),
+                ("extra field", public(public_ip="150.230.93.187"), "exactly its subnet CIDR"),
+                ("missing declaration", lambda plan: plan.pop("public_api"), "public TerraBase API or null"),
+                ("resources without API", ids_without_public_api, "require a declared public API")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, message)
+
+    def test_public_subnet_reaches_members_only_on_client_port(self):
+        def rule(port, source):
+            return {"direction": "INGRESS", "protocol": "6", "source": source, "source_type": "CIDR_BLOCK",
+                    "destination": None, "destination_type": None, "tcp_min": port, "tcp_max": port,
+                    "udp_min": None, "udp_max": None, "stateless": False}
+
+        def add(key, value):
+            return lambda plan: plan["network_security"][key].append(value)
+
+        for name, change in (
+                ("controller NATS from the whole VCN", add("nsg_rules", rule(4222, "10.251.0.0/24"))),
+                ("controller enrollment from public subnet", add("nsg_rules", rule(8443, "10.251.0.128/26"))),
+                ("member replication from public subnet", add("workload_nsg_rules", rule(9443, "10.251.0.128/26"))),
+                ("SSH from part of public subnet", add("seed_ssh_nsg_rules", rule(22, "10.251.0.160/27")))):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, "public API subnet beyond the member client port")
 
     def test_rule_sources_limited_to_cell_or_gateway(self):
         def rule(port, source, **fields):
@@ -302,7 +351,7 @@ class PreviewAdmissionTests(unittest.TestCase):
 
         self.assert_plan_rejected(without_service_gateway, "route resources without a service gateway")
 
-    def test_inventory_rejects_unplanned_internet_drg_and_peering_gateways(self):
+    def test_inventory_admits_only_recorded_gateways_and_balancer(self):
         with tempfile.TemporaryDirectory() as directory:
             plan, plan_path, inventory, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
             preview.verify_inventory(plan, inventory, plan_path=plan_path)
@@ -329,8 +378,18 @@ class PreviewAdmissionTests(unittest.TestCase):
                      "internet gateway inventory"),
                     ("Forgejo gateway in another VCN", moved("internet-gateway", forgejo_igw, **{"vcn-id": "x"}),
                      "internet gateway inventory"),
-                    ("any DRG", extra({"kind": "drg", "id": "ocid1.drg.x", "compartment-id": ids["network_compartment"],
-                                       "lifecycle-state": "PROVISIONING"}), "unplanned DRG"),
+                    ("missing public API gateway", without("internet-gateway", ids["internet_gateway"]),
+                     "internet gateway inventory"),
+                    ("second balancer", extra({"kind": "network-load-balancer", "id": "ocid1.networkloadbalancer.x",
+                                               "compartment-id": ids["network_compartment"],
+                                               "subnet-id": ids["subnet"], "lifecycle-state": "ACTIVE"}),
+                     "network load balancer inventory"),
+                    ("balancer in the private subnet", moved("network-load-balancer", ids["network_load_balancer"],
+                                                             **{"subnet-id": ids["subnet"]}),
+                     "network load balancer inventory"),
+                    ("classic load balancer", extra({"kind": "load-balancer", "id": "ocid1.loadbalancer.x",
+                                                     "compartment-id": ids["network_compartment"],
+                                                     "lifecycle-state": "ACTIVE"}), "unpriced gateway"),
                     ("unrecorded peering", extra({"kind": "local-peering-gateway", "id": "ocid1.localpeeringgateway.x",
                                                   "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
                                                   "lifecycle-state": "AVAILABLE"}), "local peering gateway"),
@@ -343,9 +402,10 @@ class PreviewAdmissionTests(unittest.TestCase):
                     changed = dict(inventory, resources=change(deepcopy(inventory["resources"])))
                     with self.assertRaisesRegex(ValueError, message):
                         preview.verify_inventory(plan, changed, plan_path=plan_path)
-            terminated = dict(inventory, resources=[
-                *inventory["resources"], {"kind": "drg", "id": "ocid1.drg.x", "lifecycle-state": "TERMINATED"}])
-            preview.verify_inventory(plan, terminated, plan_path=plan_path)
+            deleted = dict(inventory, resources=[*inventory["resources"], {
+                "kind": "network-load-balancer", "id": "ocid1.networkloadbalancer.x", "lifecycle-state": "DELETED",
+                "compartment-id": ids["network_compartment"], "subnet-id": ids["public_subnet"]}])
+            preview.verify_inventory(plan, deleted, plan_path=plan_path)
 
     def test_collect_inventory_lists_gateway_kinds(self):
         region = self.plan["region"]
@@ -368,9 +428,11 @@ class PreviewAdmissionTests(unittest.TestCase):
 
         with mock.patch.object(preview, "oci", side_effect=fake_oci):
             inventory = preview.collect_inventory(self.plan)
-        for kind in ("internet-gateway", "local-peering-gateway", "drg"):
+        for command_prefix in (("network", "internet-gateway", "list"), ("network", "local-peering-gateway", "list"),
+                               ("nlb", "network-load-balancer", "list")):
+            kind = command_prefix[1]
             listed = [command[command.index("--compartment-id") + 1] for command in commands
-                      if command[:3] == ("network", kind, "list") and "--all" in command]
+                      if command[:3] == command_prefix and "--all" in command]
             self.assertEqual(sorted(listed), sorted(compartments), kind)
         self.assertIn({"kind": "internet-gateway", "region": region, **forgejo_igw}, inventory["resources"])
 
@@ -550,6 +612,7 @@ class PreviewAdmissionTests(unittest.TestCase):
     def live_network_oci(self, plan, ids, drift, rule_commands):
         network_security = plan["network_security"]
         gateway = plan["operator_gateway"]
+        public = plan["public_api"]
         existing = plan["existing_forgejo"]
         rule_roles = {ids["network_security_group"]: "nsg_rules",
                       ids["seed_ssh_network_security_group"]: "seed_ssh_nsg_rules",
@@ -574,6 +637,12 @@ class PreviewAdmissionTests(unittest.TestCase):
             if command == ("network", "vcn", "get"):
                 return {"id": ids["vcn"], "lifecycle-state": "AVAILABLE",
                         "compartment-id": ids["network_compartment"], "cidr-block": plan["network_cidr"]}
+            if command == ("network", "subnet", "get") and args[args.index("--subnet-id") + 1] == ids["public_subnet"]:
+                return drift.get("public_subnet", lambda value: value)({
+                    "id": ids["public_subnet"], "lifecycle-state": "AVAILABLE",
+                    "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
+                    "cidr-block": public["subnet_cidr"], "prohibit-public-ip-on-vnic": False,
+                    "route-table-id": ids["public_route_table"], "security-list-ids": [ids["public_security_list"]]})
             if command == ("network", "subnet", "get"):
                 return {"id": ids["subnet"], "lifecycle-state": "AVAILABLE",
                         "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"],
@@ -589,6 +658,40 @@ class PreviewAdmissionTests(unittest.TestCase):
                 rule_commands.append(args)
                 role = rule_roles[args[args.index("--nsg-id") + 1]]
                 return drift.get(role, lambda rules: rules)(self.live_rules(network_security[role]))
+            if command == ("network", "internet-gateway", "get"):
+                return drift.get("internet_gateway", lambda value: value)({
+                    "id": ids["internet_gateway"], "lifecycle-state": "AVAILABLE", "is-enabled": True,
+                    "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"], "route-table-id": None})
+            if (command == ("network", "security-list", "get") and
+                    args[args.index("--security-list-id") + 1] == ids["public_security_list"]):
+                return {"id": ids["public_security_list"], "compartment-id": ids["network_compartment"],
+                        "vcn-id": ids["vcn"],
+                        "ingress-security-rules": drift.get("public_ingress", lambda value: value)([{
+                            "protocol": "6", "source": "0.0.0.0/0", "source-type": "CIDR_BLOCK",
+                            "is-stateless": False, "tcp-options": {"destination-port-range": {
+                                "min": public["listener_port"], "max": public["listener_port"]}}}]),
+                        "egress-security-rules": [{
+                            "protocol": "6", "destination": plan["subnet_cidr"], "destination-type": "CIDR_BLOCK",
+                            "is-stateless": False, "tcp-options": {"destination-port-range": {
+                                "min": public["client_port"], "max": public["client_port"]}}}]}
+            if (command == ("network", "route-table", "get") and
+                    args[args.index("--rt-id") + 1] == ids["public_route_table"]):
+                return {"id": ids["public_route_table"], "compartment-id": ids["network_compartment"],
+                        "vcn-id": ids["vcn"], "route-rules": drift.get("public_routes", lambda value: value)([{
+                            "destination": "0.0.0.0/0", "destination-type": "CIDR_BLOCK",
+                            "network-entity-id": ids["internet_gateway"]}])}
+            if command == ("nlb", "network-load-balancer", "get"):
+                members = [host["private_ip"] for host in plan["hosts"] if host["slot"].startswith("member-")]
+                return drift.get("balancer", lambda value: value)({
+                    "id": ids["network_load_balancer"], "lifecycle-state": "ACTIVE",
+                    "compartment-id": ids["network_compartment"], "subnet-id": ids["public_subnet"],
+                    "is-private": False, "is-preserve-source-destination": False, "network-security-group-ids": [],
+                    "listeners": {"https": {"name": "https", "protocol": "TCP", "port": public["listener_port"],
+                                            "default-backend-set-name": "terrabase-https"}},
+                    "backend-sets": {"terrabase-https": {"name": "terrabase-https", "is-preserve-source": False,
+                                                         "backends": [{"ip-address": address,
+                                                                       "port": public["client_port"]}
+                                                                      for address in members]}}})
             if command == ("network", "security-list", "get"):
                 return {"id": ids["security_list"], "compartment-id": ids["network_compartment"],
                         "vcn-id": ids["vcn"],
@@ -644,6 +747,12 @@ class PreviewAdmissionTests(unittest.TestCase):
                     return vnics
                 return change
 
+            def backend(key, value):
+                def change(balancer):
+                    balancer["backend-sets"]["terrabase-https"]["backends"][0][key] = value
+                    return balancer
+                return change
+
             def peering_to_service_gateway(routes):
                 for route in routes:
                     route["network-entity-id"] = ids["service_gateway"]
@@ -664,7 +773,26 @@ class PreviewAdmissionTests(unittest.TestCase):
                     ("peering route retargeted", {"routes": peering_to_service_gateway}, "route table rules differ"),
                     ("gateway address", {"vnics": vnic_field("private-ip", "10.250.10.156")}, "gateway VNIC"),
                     ("source check skipped", {"vnics": vnic_field("skip-source-dest-check", True)}, "gateway VNIC"),
-                    ("secondary VNIC", {"vnics": lambda vnics: vnics * 2}, "gateway VNIC")):
+                    ("secondary VNIC", {"vnics": lambda vnics: vnics * 2}, "gateway VNIC"),
+                    ("public gateway disabled", {"internet_gateway": set_field("is-enabled", False)},
+                     "public API internet gateway"),
+                    ("public subnet sealed", {"public_subnet": set_field("prohibit-public-ip-on-vnic", True)},
+                     "public API subnet"),
+                    ("public default route retargeted", {"public_routes": lambda routes: [
+                        dict(routes[0], **{"network-entity-id": ids["service_gateway"]})]}, "public API route table"),
+                    ("public SSH opened", {"public_ingress": lambda rules: rules + [dict(
+                        rules[0], **{"tcp-options": {"destination-port-range": {"min": 22, "max": 22}}})]},
+                     "public API security-list ingress"),
+                    ("source preserved", {"balancer": set_field("is-preserve-source-destination", True)},
+                     "network load balancer"),
+                    ("private balancer", {"balancer": set_field("is-private", True)}, "network load balancer"),
+                    ("controller backend", {"balancer": backend("ip-address", "10.251.0.11")},
+                     "network load balancer"),
+                    ("replication backend", {"balancer": backend("port", 9443)}, "network load balancer"),
+                    ("second listener", {"balancer": lambda balancer: dict(balancer, listeners={
+                        **balancer["listeners"], "ssh": {"name": "ssh", "protocol": "TCP", "port": 22,
+                                                         "default-backend-set-name": "terrabase-https"}})},
+                     "network load balancer")):
                 with self.subTest(drift=name):
                     fake = self.live_network_oci(plan, ids, drift, [])
                     with mock.patch.object(preview, "oci", side_effect=fake):
@@ -1008,6 +1136,10 @@ class PreviewAdmissionTests(unittest.TestCase):
                     "key": "ocid1.key.gru", "route_table": "ocid1.routetable.gru",
                     "service_gateway": "ocid1.servicegateway.gru",
                     "local_peering_gateway": "ocid1.localpeeringgateway.gru",
+                    "internet_gateway": "ocid1.internetgateway.gru", "public_subnet": "ocid1.subnet.grupublic",
+                    "public_route_table": "ocid1.routetable.grupublic",
+                    "public_security_list": "ocid1.securitylist.grupublic",
+                    "network_load_balancer": "ocid1.networkloadbalancer.gru",
                     "controller_dynamic_group": "ocid1.dynamicgroup.oc1..controller",
                     "controller_policy": "ocid1.policy.oc1..controller",
                     "objectstorage_key_policy": "ocid1.policy.oc1..objectstorage",
@@ -1027,6 +1159,10 @@ class PreviewAdmissionTests(unittest.TestCase):
             {"kind": "local-peering-gateway", "id": "ocid1.localpeeringgateway.forgejo",
              "lifecycle-state": "AVAILABLE", "compartment-id": self.plan["shared_compartment_id"],
              "vcn-id": self.plan["existing_forgejo"]["vcn_id"]},
+            {"kind": "internet-gateway", "id": ids["internet_gateway"], "lifecycle-state": "AVAILABLE",
+             "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]},
+            {"kind": "network-load-balancer", "id": ids["network_load_balancer"], "lifecycle-state": "ACTIVE",
+             "compartment-id": ids["network_compartment"], "subnet-id": ids["public_subnet"]},
         ]
         for kind, key in (("vcn", "vcn"), ("subnet", "subnet"),
                           ("network-security-group", "network_security_group")):

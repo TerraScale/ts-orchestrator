@@ -177,19 +177,22 @@ routing peer masquerades, so every operator packet reaches the cell from
 | Member workload (`workload_network_security_group`) | TCP 9465, the TerraBase client API |
 
 The gateway never reaches 8443: host enrollment accepts only the enrolling
-instance's own private IP. The cell keeps no internet gateway, NAT gateway, or
-public IP, and its egress rules do not change; replies use the stateful ingress
-rules. The OCI Bastion and `operator --nats-forward` remain the break-glass
+instance's own private IP. The private subnet keeps no internet route, NAT
+gateway, or public IP, and its egress rules do not change; replies use the
+stateful ingress rules. The cell's only internet gateway serves the
+[public TerraBase API](#public-terrabase-api) subnet. The OCI Bastion and `operator --nats-forward` remain the break-glass
 path. LPGs have no separate charge, and the NetBird server adds no OCI resource
 to the cost admission.
 
 `preview.py` enforces this boundary. In the plan, `operator_gateway` must be a
 private address inside its own VCN that does not overlap the cell. Every NSG
 and security-list ingress source must be inside the cell or exactly the gateway
-`/32` on the ports above. Egress may reach only the cell, NTP, and Oracle
-services, and the route table must hold only the service-gateway route and the
-`10.250.10.155/32` peering route. Inventory admits only Forgejo's internet
-gateway and the recorded LPG pair, and fails on any DRG. `inspect-foundation`
+`/32` on the ports above, and a source that overlaps the public API subnet must
+be exactly that subnet on the member client port. Egress may reach only the
+cell, NTP, and Oracle services, and the private route table must hold only the
+service-gateway route and the `10.250.10.155/32` peering route. Inventory
+admits only Forgejo's internet gateway, the recorded public API gateway and
+network load balancer, and the recorded LPG pair. `inspect-foundation`
 reads back both LPGs (`PEERED`, each other's peer, no LPG route table, exact
 advertised CIDRs), the member workload NSG, and the gateway VNIC (one primary
 VNIC at `10.250.10.155` with source/destination checks enabled).
@@ -202,8 +205,8 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
 `FORGEJO_VCN`, and `FORGEJO_RT` from the Forgejo resource manifest.
 
 1. Take a read-only snapshot. Save both route tables with their ETags and all
-   three cell NSGs, and confirm that no LPG or DRG exists and that the only
-   internet gateway is Forgejo's:
+   three cell NSGs, and confirm that no LPG exists and that the only internet
+   gateways are Forgejo's and the public API's:
 
    ```sh
    oci network route-table get --rt-id "$CELL_RT" > cell-rt-before.json
@@ -214,7 +217,6 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
    for compartment in "$NETWORK_COMPARTMENT" "$FORGEJO_COMPARTMENT"; do
      oci network local-peering-gateway list --compartment-id "$compartment" --all
      oci network internet-gateway list --compartment-id "$compartment" --all
-     oci network drg list --compartment-id "$compartment" --all
    done
    ```
 
@@ -237,19 +239,24 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
 
    Both LPGs must read back `peering-status` `PEERED`, with the other VCN's CIDR
    as `peer-advertised-cidr`.
-3. Add the gateway NSG rules while no route reaches them yet, and remove the
-   unused 7422 and 8080 controller rules:
+3. Add the gateway NSG rules while no route reaches them yet. Narrow the
+   controller rules from the whole VCN to the private subnet, so the public API
+   subnet never reaches NATS or enrollment. Add the `/25` rules first, then
+   remove every `/24` controller rule, including the unused 7422 and 8080:
 
    ```sh
-   gateway_rule() {
-     printf '[{"direction":"INGRESS","protocol":"6","source":"10.250.10.155/32","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$1"
+   tcp_rule() {
+     printf '[{"direction":"INGRESS","protocol":"6","source":"%s","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$2" "$2"
    }
-   oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(gateway_rule 4222)"
-   oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(gateway_rule 22)"
-   oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(gateway_rule 9465)"
-   UNUSED_RULE_IDS=$(oci network nsg rules list --nsg-id "$CONTROL_NSG" --all \
-     --query 'data[?"tcp-options"."destination-port-range".min==`7422` || "tcp-options"."destination-port-range".min==`8080`].id')
-   oci network nsg rules remove --nsg-id "$CONTROL_NSG" --security-rule-ids "$UNUSED_RULE_IDS"
+   oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 4222)"
+   oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 22)"
+   oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 9465)"
+   for port in 4222 6222 8443; do
+     oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 "$port")"
+   done
+   WIDE_RULE_IDS=$(oci network nsg rules list --nsg-id "$CONTROL_NSG" --all \
+     --query "data[?source=='10.251.0.0/24'].id")
+   oci network nsg rules remove --nsg-id "$CONTROL_NSG" --security-rule-ids "$WIDE_RULE_IDS"
    ```
 4. Add the routes. `route-table update` replaces the whole rule list, so derive
    each list from the saved table, review the diff, and guard the write with
@@ -269,7 +276,7 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
      "{\"destination\":\"10.250.10.155/32\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$CELL_LPG\"}" \
      > cell-rt-rules.json
    route_rules forgejo-rt-before.json \
-     "{\"destination\":\"10.251.0.0/24\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$FORGEJO_LPG\"}" \
+     "{\"destination\":\"10.251.0.0/25\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$FORGEJO_LPG\"}" \
      > forgejo-rt-rules.json
    diff cell-rt-restore.json cell-rt-rules.json
    diff forgejo-rt-restore.json forgejo-rt-rules.json
@@ -313,7 +320,35 @@ Remove access in reverse order, so that no route outlives its target:
    gateway rules and the peering route. Then rerun `inventory`, `admit`, and
    `inspect-foundation`.
 
-The 7422 and 8080 rules are not restored; nothing listens on those ports.
+The controller rules stay narrowed to the private subnet, and the 7422 and 8080
+rules are not restored; nothing listens on those ports.
+
+## Public TerraBase API
+
+`deploy/oci-region/public-api.py` exposes the members' TerraBase HTTPS API
+through a public Network Load Balancer. It creates an internet gateway, the
+public subnet `10.251.0.128/26` with its own route table and security list, a
+TCP passthrough NLB on 443 to each member's client port, and the one
+workload-NSG rule that admits the client port from the public subnet. Members
+keep private addresses, and TerraBase terminates TLS and authenticates every
+request.
+
+The plan declares this as `public_api` (`subnet_cidr`, `listener_port`,
+`client_port`). After `public-api.py` runs, record `internet_gateway`,
+`public_subnet`, `public_route_table`, `public_security_list`, and
+`network_load_balancer` in the reviewed plan copy. `load_plan` requires the
+public subnet to be inside the VCN and outside the private subnet, and admits
+it only as the member client-port source. `inspect-foundation` reads back:
+
+- the gateway: enabled, in the cell VCN, with no route table of its own;
+- the public subnet: public IPs allowed, with its own route table and security
+  list;
+- the route table: exactly `0.0.0.0/0` to the gateway;
+- the security list: exactly TCP 443 in from anywhere and the client port out
+  to the private subnet;
+- the NLB: public, TCP only, with one listener on 443, no NSGs, and
+  source/destination preservation off, whose backends are only the planned
+  members on the client port.
 
 ## Inter-region private networking (future authorization only)
 

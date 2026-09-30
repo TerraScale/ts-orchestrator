@@ -24,6 +24,11 @@
         "vcn_cidr": "10.250.0.0/16",
         "local_peering_gateway_id": null
     },
+    "public_api": {
+        "subnet_cidr": "10.251.0.128/26",
+        "listener_port": 443,
+        "client_port": 9465
+    },
     "preview_compartment_names": {
         "control": "terrascale-control",
         "network": "terrascale-network",
@@ -41,7 +46,7 @@
             {
                 "direction": "INGRESS",
                 "protocol": "6",
-                "source": "10.251.0.0/24",
+                "source": "10.251.0.0/25",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -67,7 +72,7 @@
             {
                 "direction": "INGRESS",
                 "protocol": "6",
-                "source": "10.251.0.0/24",
+                "source": "10.251.0.0/25",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -80,7 +85,7 @@
             {
                 "direction": "INGRESS",
                 "protocol": "6",
-                "source": "10.251.0.0/24",
+                "source": "10.251.0.0/25",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -163,6 +168,19 @@
                 "direction": "INGRESS",
                 "protocol": "6",
                 "source": "10.250.10.155/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 9465,
+                "tcp_max": 9465,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.251.0.128/26",
                 "source_type": "CIDR_BLOCK",
                 "destination": null,
                 "destination_type": null,
@@ -356,6 +374,11 @@
         "route_table": null,
         "service_gateway": null,
         "local_peering_gateway": null,
+        "internet_gateway": null,
+        "public_subnet": null,
+        "public_route_table": null,
+        "public_security_list": null,
+        "network_load_balancer": null,
         "controller_dynamic_group": null,
         "controller_policy": null,
         "objectstorage_key_policy": null,

@@ -30,7 +30,8 @@ ROOT = pathlib.Path(__file__).resolve().parent
 PLAN = ROOT / "plan.json"
 UTC = dt.timezone.utc
 ACTIVE_COMPARTMENT_STATES = {"ACTIVE", "CREATING"}
-ACTIVE_RESOURCE_STATES = {"CREATING", "PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED", "AVAILABLE", "FAULTY", "UPDATING", "TERMINATING"}
+ACTIVE_RESOURCE_STATES = {"CREATING", "PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED", "AVAILABLE",
+                          "ACTIVE", "FAULTY", "UPDATING", "TERMINATING", "DELETING"}
 FREE_A1_OCPU_HOURS = Decimal(1500)
 FREE_A1_MEMORY_GB_HOURS = Decimal(9000)
 FREE_BLOCK_GB = Decimal(200)
@@ -57,6 +58,10 @@ GATEWAY_PORTS = {"nsg_rules": 4222, "seed_ssh_nsg_rules": 22, "workload_nsg_rule
 INGRESS_RULE_LISTS = ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules")
 ROUTE_TARGET_IDS = {"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 NTP_DESTINATION = "169.254.169.254/32"
+PUBLIC_API_FIELDS = {"subnet_cidr", "listener_port", "client_port"}
+PUBLIC_API_IDS = {"internet_gateway": "internetgateway", "public_subnet": "subnet",
+                  "public_route_table": "routetable", "public_security_list": "securitylist",
+                  "network_load_balancer": "networkloadbalancer"}
 
 
 def fail(message: str) -> None:
@@ -183,9 +188,25 @@ def validate_operator_gateway(plan: dict, network: ipaddress.IPv4Network) -> dic
     return gateway
 
 
+def validate_public_api(plan: dict, network: ipaddress.IPv4Network, subnet: ipaddress.IPv4Network) -> dict | None:
+    if "public_api" not in plan:
+        fail("manual plan must declare its public TerraBase API or null")
+    public = plan["public_api"]
+    if public is None:
+        return None
+    if (not isinstance(public, dict) or set(public) != PUBLIC_API_FIELDS or
+            any(type(public[key]) is not int or not 1 <= public[key] <= 65535
+                for key in ("listener_port", "client_port"))):
+        fail("manual public API must declare exactly its subnet CIDR, listener port, and client port")
+    if not cidr_within(public["subnet_cidr"], network) or ipaddress.IPv4Network(public["subnet_cidr"]).overlaps(subnet):
+        fail("manual public API subnet must be inside the cell VCN and outside the private subnet")
+    return public
+
+
 def validate_private_rule_boundary(network_security: dict, network: ipaddress.IPv4Network,
-                                   gateway: dict | None) -> None:
+                                   gateway: dict | None, public: dict | None) -> None:
     gateway_source = f"{gateway['private_ip']}/32" if gateway else None
+    public_subnet = ipaddress.IPv4Network(public["subnet_cidr"]) if public else None
     for key in INGRESS_RULE_LISTS:
         for rule in network_security[key]:
             if (rule["direction"] != "INGRESS" or rule["source_type"] != "CIDR_BLOCK" or rule["stateless"] or
@@ -197,6 +218,12 @@ def validate_private_rule_boundary(network_security: dict, network: ipaddress.IP
                     fail(f"manual plan {key} admits the operator gateway outside its single allowed port")
             elif not cidr_within(rule["source"], network):
                 fail(f"manual plan {key} admits a source outside the private cell")
+            elif public_subnet is not None and ipaddress.IPv4Network(rule["source"]).overlaps(public_subnet):
+                # Only the public load balancer's subnet may reach members, and only on the client port.
+                if (key != "workload_nsg_rules" or rule["source"] != public["subnet_cidr"] or
+                        rule["protocol"] != "6" or rule["tcp_min"] != public["client_port"] or
+                        rule["tcp_max"] != public["client_port"]):
+                    fail(f"manual plan {key} admits the public API subnet beyond the member client port")
     for rule in network_security["security_list_egress_rules"]:
         if (rule["direction"] != "EGRESS" or rule["stateless"] or
                 rule["source"] is not None or rule["source_type"] is not None):
@@ -261,7 +288,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
     id_keys = {"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn",
                "subnet", "network_security_group", "seed_ssh_network_security_group",
                "workload_network_security_group", "security_list", "route_table", "service_gateway",
-               "local_peering_gateway", "controller_dynamic_group", "controller_policy",
+               "local_peering_gateway", *PUBLIC_API_IDS, "controller_dynamic_group", "controller_policy",
                "objectstorage_key_policy", "host_dynamic_group", "host_policy",
                "instances", "boot_volumes", "data_volumes"}
     if not isinstance(ids, dict) or set(ids) != id_keys:
@@ -272,7 +299,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
                       ("seed_ssh_network_security_group", "networksecuritygroup"),
                       ("workload_network_security_group", "networksecuritygroup"), ("security_list", "securitylist"),
                       ("route_table", "routetable"), ("service_gateway", "servicegateway"),
-                      ("local_peering_gateway", "localpeeringgateway"),
+                      ("local_peering_gateway", "localpeeringgateway"), *PUBLIC_API_IDS.items(),
                       ("controller_dynamic_group", "dynamicgroup"), ("controller_policy", "policy"),
                       ("objectstorage_key_policy", "policy"), ("host_dynamic_group", "dynamicgroup"),
                       ("host_policy", "policy")):
@@ -282,7 +309,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
                                                                      "seed_ssh_network_security_group",
                                                                      "workload_network_security_group",
                                                                      "security_list", "route_table", "service_gateway",
-                                                                     "local_peering_gateway"} else None)
+                                                                     "local_peering_gateway", *PUBLIC_API_IDS} else None)
     expected_slots = set(slots)
     for key, allowed in (("instances", expected_slots), ("boot_volumes", expected_slots),
                          ("data_volumes", {host["slot"] for host in members})):
@@ -322,6 +349,9 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
     gateway = validate_operator_gateway(plan, network)
     if ids["local_peering_gateway"] is not None and gateway is None:
         fail("manual cell peering gateway requires a declared operator gateway")
+    public = validate_public_api(plan, network, subnet)
+    if public is None and any(ids[key] is not None for key in PUBLIC_API_IDS):
+        fail("manual public API resources require a declared public API")
     network_security = plan.get("network_security")
     if not isinstance(network_security, dict) or set(network_security) != {
             "nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules",
@@ -329,7 +359,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         fail("manual plan must declare exact network and security state")
     for key in (*INGRESS_RULE_LISTS, "security_list_egress_rules"):
         validate_rule_specs(network_security[key], key)
-    validate_private_rule_boundary(network_security, network, gateway)
+    validate_private_rule_boundary(network_security, network, gateway, public)
     if (not isinstance(network_security["route_rules"], list) or any(
             not isinstance(rule, dict) or set(rule) != {"destination", "destination_type", "network_entity_id"}
             or any(not isinstance(rule[key], str) or not rule[key] for key in rule)
@@ -402,7 +432,7 @@ def slim(resource: dict, kind: str, region: str) -> dict:
     fields = ("id", "display-name", "name", "compartment-id", "lifecycle-state", "availability-domain",
               "fault-domain", "shape", "shape-config", "size-in-gbs", "vpus-per-gb", "freeform-tags",
               "cidr-block", "is-public", "prohibit-public-ip-on-vnic", "prohibit-internet-ingress",
-              "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id")
+              "ip-address", "unique-size-in-gbs", "scope", "time-created", "vcn-id", "subnet-id")
     return {"kind": kind, "region": region, **{key: resource[key] for key in fields if key in resource}}
 
 
@@ -505,7 +535,6 @@ def collect_inventory(plan: dict) -> dict:
                 ("service-gateway", ("network", "service-gateway", "list")),
                 ("internet-gateway", ("network", "internet-gateway", "list")),
                 ("local-peering-gateway", ("network", "local-peering-gateway", "list")),
-                ("drg", ("network", "drg", "list")),
                 ("nat-gateway", ("network", "nat-gateway", "list")),
                 ("load-balancer", ("lb", "load-balancer", "list")),
                 ("network-load-balancer", ("nlb", "network-load-balancer", "list")),
@@ -691,19 +720,26 @@ def verify_inventory(plan: dict, inventory: dict, max_age_minutes: int = 15,
     backup_gb = sum(decimal(row.get("unique-size-in-gbs") or row.get("size-in-gbs") or 0) for row in backups)
     if backup_gb > decimal(plan["budget"]["snapshot_gb_max"]):
         fail("retained volume backups exceed the 350 GB reserve")
-    if any(active(inventory["resources"], kind) for kind in ("nat-gateway", "load-balancer", "network-load-balancer")):
+    if any(active(inventory["resources"], kind) for kind in ("nat-gateway", "load-balancer")):
         fail("unpriced gateway or load balancer is present")
     verify_gateway_inventory(plan, inventory["resources"], preview_ids)
 
 
 def verify_gateway_inventory(plan: dict, resources: list[dict], preview_ids: dict) -> None:
     existing = plan["existing_forgejo"]
+    ids = plan["resource_ids"]
     placement = lambda row: (row.get("id"), row.get("compartment-id"), row.get("vcn-id"))
-    if ([placement(row) for row in active(resources, "internet-gateway")] !=
-            [(existing["internet_gateway_id"], plan["shared_compartment_id"], existing["vcn_id"])]):
-        fail("internet gateway inventory differs from the Forgejo baseline")
-    if active(resources, "drg"):
-        fail("inventory contains an unplanned DRG")
+    internet_gateways = {(existing["internet_gateway_id"], plan["shared_compartment_id"], existing["vcn_id"])}
+    balancers = set()
+    if plan["public_api"] is not None and ids["internet_gateway"] is not None:
+        internet_gateways.add((ids["internet_gateway"], preview_ids["network"], ids["vcn"]))
+    if plan["public_api"] is not None and ids["network_load_balancer"] is not None:
+        balancers.add((ids["network_load_balancer"], preview_ids["network"], ids["public_subnet"]))
+    if {placement(row) for row in active(resources, "internet-gateway")} != internet_gateways:
+        fail("internet gateway inventory differs from the Forgejo and public API baseline")
+    if {(row.get("id"), row.get("compartment-id"), row.get("subnet-id"))
+            for row in active(resources, "network-load-balancer")} != balancers:
+        fail("network load balancer inventory differs from the recorded public API balancer")
     expected = set()
     gateway = plan["operator_gateway"]
     if gateway is not None and gateway["local_peering_gateway_id"] is not None:
@@ -1588,6 +1624,8 @@ def require_planned_route_ids(plan: dict, ids: dict) -> None:
     gateway = plan["operator_gateway"]
     if gateway is not None and (not ids.get("local_peering_gateway") or not gateway["local_peering_gateway_id"]):
         fail("foundation inspection requires the exact cell and operator gateway local peering gateway IDs")
+    if plan["public_api"] is not None and not all(ids.get(key) for key in PUBLIC_API_IDS):
+        fail("foundation inspection requires every public API resource ID")
 
 
 def required_resource_ids(plan: dict) -> dict:
@@ -1704,6 +1742,69 @@ def check_live_network(plan: dict, ids: dict) -> None:
                 service_ids != [expected["service_gateway_service_id"]]):
             fail("live service gateway services differ from the exact plan")
     check_live_operator_gateway(plan, ids)
+    check_live_public_api(plan, ids)
+
+
+def check_live_public_api(plan: dict, ids: dict) -> None:
+    public = plan["public_api"]
+    if public is None:
+        return
+    region = plan["region"]
+    network, vcn = ids["network_compartment"], ids["vcn"]
+    gateway = require_live_id(oci("network", "internet-gateway", "get", "--ig-id", ids["internet_gateway"],
+                                  region=region), ids["internet_gateway"], "public API internet gateway")
+    if (gateway.get("lifecycle-state") != "AVAILABLE" or gateway.get("is-enabled") is not True or
+            gateway.get("compartment-id") != network or gateway.get("vcn-id") != vcn or
+            gateway.get("route-table-id") is not None):
+        fail("live public API internet gateway differs from the exact plan")
+    subnet = require_live_id(oci("network", "subnet", "get", "--subnet-id", ids["public_subnet"], region=region),
+                             ids["public_subnet"], "public API subnet")
+    if (subnet.get("lifecycle-state") != "AVAILABLE" or subnet.get("compartment-id") != network or
+            subnet.get("vcn-id") != vcn or subnet.get("cidr-block") != public["subnet_cidr"] or
+            subnet.get("prohibit-public-ip-on-vnic") is not False or
+            subnet.get("route-table-id") != ids["public_route_table"] or
+            subnet.get("security-list-ids") != [ids["public_security_list"]]):
+        fail("live public API subnet differs from the exact plan")
+    routes = require_live_id(oci("network", "route-table", "get", "--rt-id", ids["public_route_table"], region=region),
+                             ids["public_route_table"], "public API route table")
+    if (routes.get("compartment-id") != network or routes.get("vcn-id") != vcn or
+            [(row.get("destination"), row.get("destination-type"), row.get("network-entity-id"))
+             for row in rows(routes.get("route-rules"))] != [("0.0.0.0/0", "CIDR_BLOCK", ids["internet_gateway"])]):
+        fail("live public API route table differs from the exact plan")
+    security = require_live_id(oci("network", "security-list", "get", "--security-list-id",
+                                   ids["public_security_list"], region=region),
+                               ids["public_security_list"], "public API security list")
+    if security.get("compartment-id") != network or security.get("vcn-id") != vcn:
+        fail("live public API security list is attached to an unexpected compartment or VCN")
+    tcp = lambda port, **fields: {"protocol": "6", "source": None, "source_type": None, "destination": None,
+                                  "destination_type": None, "tcp_min": port, "tcp_max": port,
+                                  "udp_min": None, "udp_max": None, "stateless": False, **fields}
+    compare_security_rules(security.get("ingress-security-rules"), [tcp(
+        public["listener_port"], direction="INGRESS", source="0.0.0.0/0", source_type="CIDR_BLOCK")],
+        "public API security-list ingress", "INGRESS")
+    compare_security_rules(security.get("egress-security-rules"), [tcp(
+        public["client_port"], direction="EGRESS", destination=plan["subnet_cidr"], destination_type="CIDR_BLOCK")],
+        "public API security-list egress", "EGRESS")
+    balancer = require_live_id(oci("nlb", "network-load-balancer", "get", "--network-load-balancer-id",
+                                   ids["network_load_balancer"], region=region),
+                               ids["network_load_balancer"], "public API network load balancer")
+    listeners = list((balancer.get("listeners") or {}).values())
+    backend_sets = balancer.get("backend-sets") or {}
+    members = {host["private_ip"] for host in plan["hosts"] if host["slot"].startswith("member-")}
+    backends = [(row.get("ip-address"), row.get("port"))
+                for backend_set in backend_sets.values() for row in backend_set.get("backends") or []]
+    # TCP passthrough only: TerraBase terminates TLS, and members see the balancer's
+    # private address, which the workload NSG admits from the public subnet.
+    if (balancer.get("lifecycle-state") != "ACTIVE" or balancer.get("compartment-id") != network or
+            balancer.get("subnet-id") != ids["public_subnet"] or balancer.get("is-private") is not False or
+            balancer.get("is-preserve-source-destination") is not False or
+            balancer.get("network-security-group-ids") or len(listeners) != 1 or len(backend_sets) != 1 or
+            listeners[0].get("protocol") != "TCP" or listeners[0].get("port") != public["listener_port"] or
+            listeners[0].get("default-backend-set-name") not in backend_sets or
+            any(backend_set.get("is-preserve-source") is not False for backend_set in backend_sets.values()) or
+            not backends or len(set(backends)) != len(backends) or
+            any(address not in members or port != public["client_port"] for address, port in backends)):
+        fail("live public API network load balancer differs from the exact plan")
 
 
 def check_live_operator_gateway(plan: dict, ids: dict) -> None:
