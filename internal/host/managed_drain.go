@@ -132,7 +132,7 @@ func (c *Controller) RequestManagedDrain(ctx context.Context, command ManagedDra
 	report, _, found, err := c.reportSnapshot(ctx, reportKey(c.cell, command.Node, command.Role))
 	if err != nil || !found || report.SessionID != session.SessionID || report.Epoch != session.Epoch ||
 		report.Generation != desired.Generation || report.Digest != desired.Digest ||
-		report.State != "running" || time.Since(report.ObservedAt) >= 30*time.Second ||
+		report.State != "running" || time.Since(report.ObservedAt) >= ReportMaxAge ||
 		report.ObservedAt.After(time.Now().Add(maxClockSkew)) ||
 		validateManagedReportForDesired(report, desired) != nil || report.Managed.ServingProof == nil ||
 		report.Managed.ProcessPID != command.ExpectedProcess.PID ||

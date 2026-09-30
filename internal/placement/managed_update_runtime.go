@@ -669,7 +669,7 @@ func hasCurrentFailedCanaryReport(status host.HostStatus, state MemberState, env
 			report.Generation == state.DesiredGeneration &&
 			report.Digest == state.ManagedRuntimeTarget.ArtifactDigest &&
 			report.State == "failed" && report.Error != "" && !report.ObservedAt.IsZero() &&
-			!report.ObservedAt.After(now.Add(2*time.Second)) && now.Sub(report.ObservedAt) < 30*time.Second {
+			!report.ObservedAt.After(now.Add(2*time.Second)) && now.Sub(report.ObservedAt) < host.ReportMaxAge {
 			return true
 		}
 	}

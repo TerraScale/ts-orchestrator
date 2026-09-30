@@ -421,7 +421,7 @@ func TestManagedCanaryHeldSeatCannotAdvanceFromLateProof(t *testing.T) {
 	for _, test := range []struct {
 		age   time.Duration
 		valid bool
-	}{{45 * time.Second, true}, {servingReportMaxAge + 5*time.Second, false}} {
+	}{{45 * time.Second, true}, {host.ReportMaxAge + 5*time.Second, false}} {
 		aged := status
 		aged.Reports = slices.Clone(status.Reports)
 		for index := range aged.Reports {

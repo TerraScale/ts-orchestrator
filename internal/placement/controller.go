@@ -891,12 +891,6 @@ func (controller *Controller) admittedHost(intent Intent, state MemberState, ins
 	return status, true
 }
 
-// servingReportMaxAge is how old the latest serving report may be. Hosts
-// report once per reconcile, which takes up to about half a minute on a
-// single-OCPU host; liveness is still bounded by the host session that
-// admittedHost requires, and the proof is bound to the exact process.
-const servingReportMaxAge = 90 * time.Second
-
 func (controller *Controller) hasServingReport(intent Intent, state MemberState, instance oci.Instance, status host.HostStatus) bool {
 	manifest := state.EffectiveRuntimeManifest()
 	attachment, attached := observedAttachment(instance, state)
@@ -925,7 +919,7 @@ func (controller *Controller) hasServingReport(intent Intent, state MemberState,
 			report.Environment != controller.config.Environment || report.Role != controller.config.MemberRole ||
 			report.Generation != state.DesiredGeneration || report.Digest != manifest.ArtifactDigest ||
 			report.State != "running" || report.ObservedAt.IsZero() || report.ObservedAt.After(now.Add(2*time.Second)) ||
-			now.Sub(report.ObservedAt) >= servingReportMaxAge || managed == nil || managed.ServingProof == nil ||
+			now.Sub(report.ObservedAt) >= host.ReportMaxAge || managed == nil || managed.ServingProof == nil ||
 			managed.Member != controller.memberBinding(intent, state) ||
 			managed.Authority != (host.MemberAuthority{
 				Epoch: state.AuthorityReference.Epoch, ConfigurationID: state.AuthorityReference.ConfigurationID,

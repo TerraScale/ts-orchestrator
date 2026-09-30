@@ -32,6 +32,12 @@ const (
 	artifactChunkBytes = 256 << 10
 )
 
+// ReportMaxAge is how old a host's latest report may be and still count as
+// current. Hosts report once per reconcile, which takes up to about half a
+// minute on a single-OCPU host; liveness is still bounded by the host session,
+// and every managed proof is bound to the exact reported process.
+const ReportMaxAge = 90 * time.Second
+
 var tokenPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var managedFaultDomainPattern = regexp.MustCompile(`^FAULT-DOMAIN-[1-3]$`)

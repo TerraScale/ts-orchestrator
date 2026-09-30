@@ -1074,6 +1074,30 @@ func TestListHostsAcceptsSameBindingSessionChurn(t *testing.T) {
 	}
 }
 
+// A single-OCPU host reports once per reconcile, so a report older than one
+// poll interval is still current until ReportMaxAge.
+func TestListHostsKeepsSlowReconcileReportsUntilReportMaxAge(t *testing.T) {
+	for _, test := range []struct {
+		age  time.Duration
+		kept bool
+	}{{45 * time.Second, true}, {ReportMaxAge + 5*time.Second, false}} {
+		c, _, _, report := reportedTestHost(t)
+		key := reportKey(c.cell, report.Node, report.Role)
+		_, revision, _, err := c.reportSnapshot(t.Context(), key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		report.ObservedAt = time.Now().UTC().Add(-test.age)
+		if _, err := c.cas(t.Context(), key, report, revision); err != nil {
+			t.Fatal(err)
+		}
+		hosts, err := c.ListHosts(t.Context())
+		if err != nil || len(hosts) != 1 || (len(hosts[0].Reports) == 1) != test.kept {
+			t.Fatalf("report aged %s: hosts=%+v err=%v, want kept=%t", test.age, hosts, err, test.kept)
+		}
+	}
+}
+
 func TestListHostsAcceptsNewerSameStateHeartbeat(t *testing.T) {
 	c, hostKey, s, report := reportedTestHost(t)
 	gate := &gatedDesiredRead{HostMutationStore: c.mutations, started: make(chan struct{}), release: make(chan struct{})}

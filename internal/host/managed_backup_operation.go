@@ -210,7 +210,7 @@ func (c *Controller) RequestManagedBackupOperation(ctx context.Context, epoch ui
 	report, _, found, err := c.reportSnapshot(ctx, reportKey(c.cell, rosterMember.Node, rosterMember.Role))
 	if err != nil || !found || report.SessionID != session.SessionID ||
 		report.Generation != desired.Generation || report.Digest != desired.Digest ||
-		report.State != "running" || time.Since(report.ObservedAt) >= 30*time.Second ||
+		report.State != "running" || time.Since(report.ObservedAt) >= ReportMaxAge ||
 		report.ObservedAt.After(time.Now().Add(maxClockSkew)) ||
 		validateManagedReportForDesired(report, desired) != nil ||
 		report.Managed == nil || report.Managed.ProcessPID < 2 ||

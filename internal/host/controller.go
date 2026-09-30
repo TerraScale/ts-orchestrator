@@ -495,7 +495,7 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 					return nil, err
 				}
 				if !ok || report.Cell != c.cell || report.Node != r.Node || report.Environment != r.Environment || report.Role != role ||
-					report.SessionID != s.SessionID || report.Epoch != s.Epoch || time.Since(report.ObservedAt) >= 30*time.Second || report.ObservedAt.After(time.Now().Add(maxClockSkew)) {
+					report.SessionID != s.SessionID || report.Epoch != s.Epoch || time.Since(report.ObservedAt) >= ReportMaxAge || report.ObservedAt.After(time.Now().Add(maxClockSkew)) {
 					continue
 				}
 				desired, desiredRevision, ok, err := c.readDesired(ctx, r.Node, role)
@@ -514,7 +514,7 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 				if err != nil || !ok || check.ObservedAt.Before(report.ObservedAt) || !sameReportMeaning(check, report) ||
 					check.SessionID != s.SessionID || check.Epoch != s.Epoch || check.Generation != desired.Generation || check.Digest != desired.Digest ||
 					validateManagedReportForDesired(check, desired) != nil ||
-					time.Since(check.ObservedAt) >= 30*time.Second || check.ObservedAt.After(time.Now().Add(maxClockSkew)) || desired.Withdrawn && check.State == "running" {
+					time.Since(check.ObservedAt) >= ReportMaxAge || check.ObservedAt.After(time.Now().Add(maxClockSkew)) || desired.Withdrawn && check.State == "running" {
 					return nil, errors.New("report changed during host status read")
 				}
 				status.Reports = append(status.Reports, check)
