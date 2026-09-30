@@ -1,10 +1,13 @@
 package managedmaterial
 
 import (
+	"crypto"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
@@ -144,7 +147,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 	var members [2]MemberBundle
 	for index, seat := range spec.Members {
 		replicationDER, replicationPEM, replicationPrivate, leafErr := generateLeaf(
-			replicationCA, replicationKey, seat.ServerName, nil, now,
+			replicationCA, replicationKey, leafKeyEd25519, seat.ServerName, nil, now,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 		if leafErr != nil {
 			return InitialBundle{}, leafErr
@@ -153,7 +156,7 @@ func GenerateInitial(spec InitialSpec, trustedRecipientSigner ed25519.PublicKey,
 			return InitialBundle{}, ErrMaterialConflict
 		}
 		_, httpsPEM, httpsPrivate, leafErr := generateLeaf(
-			httpsCA, httpsKey, seat.ServerName, net.ParseIP(seat.ClientIP), now,
+			httpsCA, httpsKey, leafKeyP256, seat.ServerName, net.ParseIP(seat.ClientIP), now,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth})
 		if leafErr != nil {
 			return InitialBundle{}, leafErr
@@ -301,12 +304,34 @@ func generateCA(name string, now time.Time) (certificateAuthority, []byte, error
 		private, nil
 }
 
-func generateLeaf(ca certificateAuthority, caPrivate []byte, name string, ip net.IP, now time.Time,
+// leafKey selects a leaf's key type. Member replication stays Ed25519; the
+// client HTTPS leaf is ECDSA P-256 because Cloudflare's origin client and
+// browsers do not accept Ed25519 server certificates.
+type leafKey int
+
+const (
+	leafKeyEd25519 leafKey = iota
+	leafKeyP256
+)
+
+func generateLeaf(ca certificateAuthority, caPrivate []byte, kind leafKey, name string, ip net.IP, now time.Time,
 	usages []x509.ExtKeyUsage,
 ) ([]byte, []byte, []byte, error) {
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, nil, err
+	var public crypto.PublicKey
+	var private crypto.Signer
+	switch kind {
+	case leafKeyP256:
+		key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		public, private = &key.PublicKey, key
+	default:
+		edPublic, edPrivate, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		public, private = edPublic, edPrivate
 	}
 	serial, err := randomSerial()
 	if err != nil {

@@ -3,7 +3,9 @@ package managedmaterial
 import (
 	"bytes"
 	"crypto/ecdh"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -299,6 +301,35 @@ func verifyMemberTLS(t *testing.T, spec InitialMember, member MemberBundle) {
 	if _, err := httpsLeaf.Verify(x509.VerifyOptions{Roots: httpsRoots, DNSName: spec.ClientIP,
 		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("HTTPS leaf is not bound to its private IP: %v", err)
+	}
+}
+
+func TestGenerateInitialIssuesECDSAClientHTTPSLeaves(t *testing.T) {
+	spec, signer, _ := initialFixture(t)
+	bundle, err := GenerateInitial(spec, signer, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range bundle.Members {
+		pair, err := tls.X509KeyPair(member.Files["client-chain.pem"].Contents, member.Files["client-private-key.pem"].Contents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf, err := x509.ParseCertificate(pair.Certificate[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		public, ok := leaf.PublicKey.(*ecdsa.PublicKey)
+		if !ok || public.Curve != elliptic.P256() {
+			t.Fatalf("member %s client HTTPS leaf key is %T, want ECDSA P-256", member.MemberID, leaf.PublicKey)
+		}
+		replication, err := tls.X509KeyPair(member.Files["server.crt"].Contents, member.Files["server.key"].Contents)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := replication.PrivateKey.(ed25519.PrivateKey); !ok {
+			t.Fatalf("member %s replication key is %T, want Ed25519", member.MemberID, replication.PrivateKey)
+		}
 	}
 }
 

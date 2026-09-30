@@ -35,7 +35,7 @@ func successorFixture(t *testing.T, service PreparationService, spec InitialSpec
 	request := SuccessorRequest{Epoch: spec.Scope.Epoch + 1}
 	for index := range request.Members {
 		name := []string{"c.replication.example", "d.replication.example"}[index]
-		leaf, _, _, err := generateLeaf(ca, current.Retained.ReplicationCA, name, nil, now,
+		leaf, _, _, err := generateLeaf(ca, current.Retained.ReplicationCA, leafKeyEd25519, name, nil, now,
 			[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth})
 		if err != nil {
 			t.Fatal(err)
