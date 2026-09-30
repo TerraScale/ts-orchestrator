@@ -1,0 +1,138 @@
+package netbird
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oracle/oci-go-sdk/v65/secrets"
+)
+
+type fakeBundleClient func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error)
+
+func (client fakeBundleClient) GetSecretBundle(ctx context.Context, request secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+	return client(ctx, request)
+}
+
+func setupKeyBundle(id, key string) secrets.GetSecretBundleResponse {
+	encoded := base64.StdEncoding.EncodeToString([]byte(key))
+	return secrets.GetSecretBundleResponse{SecretBundle: secrets.SecretBundle{
+		SecretId: new(id), VersionNumber: new(int64(7)),
+		SecretBundleContent: secrets.Base64SecretBundleContentDetails{Content: new(encoded)},
+	}}
+}
+
+func TestVaultReadsCurrentSecretWithNoRetriesAndBoundedContext(t *testing.T) {
+	id := testConfig().SetupKeySecretID
+	client := fakeBundleClient(func(ctx context.Context, request secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+		if request.SecretId == nil || *request.SecretId != id || request.Stage != secrets.GetSecretBundleStageCurrent ||
+			request.VersionNumber != nil || request.SecretVersionName != nil || request.RequestMetadata.RetryPolicy == nil {
+			t.Fatalf("wrong secret request: %+v", request)
+		}
+		if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > 15*time.Second {
+			t.Fatal("Vault request is not bounded")
+		}
+		return setupKeyBundle(id, "\n"+testSetupKey+"\n"), nil
+	})
+	key, err := readCurrentSetupKey(t.Context(), id, client)
+	if err != nil || string(key) != testSetupKey {
+		t.Fatalf("unexpected key bytes or error: length=%d error=%v", len(key), err)
+	}
+}
+
+func TestVaultRejectsMismatchedMalformedAndOversizedSecretsWithoutLeaking(t *testing.T) {
+	id := testConfig().SetupKeySecretID
+	for _, scenario := range []string{"error", "wrong-id", "missing-version", "oversized", "malformed-key", "malformed-base64", "missing-content"} {
+		t.Run(scenario, func(t *testing.T) {
+			client := fakeBundleClient(func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+				response := setupKeyBundle(id, testSetupKey)
+				switch scenario {
+				case "error":
+					return secrets.GetSecretBundleResponse{}, errors.New("OCI returned sensitive body: " + testSetupKey)
+				case "wrong-id":
+					response.SecretId = new("ocid1.vaultsecret.oc1.sa-saopaulo-1.another")
+				case "missing-version":
+					response.VersionNumber = nil
+				case "oversized":
+					response = setupKeyBundle(id, strings.Repeat("x", 129))
+				case "malformed-key":
+					response = setupKeyBundle(id, testSetupKey+" injected")
+				case "malformed-base64":
+					response.SecretBundleContent = secrets.Base64SecretBundleContentDetails{Content: new("not base64")}
+				case "missing-content":
+					response.SecretBundleContent = nil
+				}
+				return response, nil
+			})
+			key, err := readCurrentSetupKey(t.Context(), id, client)
+			if err == nil || key != nil || strings.Contains(err.Error(), testSetupKey) {
+				t.Fatalf("untrusted secret response accepted or exposed: bytes=%d error=%v", len(key), err)
+			}
+		})
+	}
+}
+
+func TestInstancePrincipalDispatcherClonesNoProxyTransportAndRejectsRedirects(t *testing.T) {
+	sourceTransport := &http.Transport{Proxy: func(*http.Request) (*url.URL, error) {
+		return url.Parse("http://proxy.invalid")
+	}}
+	source := &http.Client{Transport: sourceTransport}
+	dispatcher, err := boundedInstancePrincipalDispatcher(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, ok := dispatcher.(*http.Client)
+	if !ok || client == source || client.Timeout <= 0 || client.Timeout > 15*time.Second {
+		t.Fatal("instance-principal dispatcher was not cloned and bounded")
+	}
+	limited, ok := client.Transport.(responseLimitTransport)
+	if !ok || limited.limit != 1<<20 {
+		t.Fatal("metadata response size is not bounded")
+	}
+	transport, ok := limited.transport.(*http.Transport)
+	if !ok || transport == sourceTransport || transport.Proxy != nil || sourceTransport.Proxy == nil {
+		t.Fatal("transport was not cloned with only the clone's proxy disabled")
+	}
+	if client.CheckRedirect == nil || client.CheckRedirect(&http.Request{}, nil) == nil {
+		t.Fatal("OCI redirects were allowed")
+	}
+}
+
+type fakeTransport func(*http.Request) (*http.Response, error)
+
+func (transport fakeTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	return transport(request)
+}
+
+func TestOCIResponseBodyIsBounded(t *testing.T) {
+	transport := responseLimitTransport{limit: 100, transport: fakeTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{Body: io.NopCloser(strings.NewReader(strings.Repeat("x", 1000)))}, nil
+	})}
+	response, err := transport.RoundTrip(&http.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || len(body) != 100 {
+		t.Fatalf("unbounded response length=%d error=%v", len(body), err)
+	}
+}
+
+func TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess(t *testing.T) {
+	for _, name := range []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI_SDK_AUTH_CLIENT_REGION_URL", "OCI_DEFAULT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "forbidden")
+			_, err := readOCISetupKey(t.Context(), testConfig())
+			if err == nil || !strings.Contains(err.Error(), "does not permit") {
+				t.Fatalf("OCI override was not rejected before network access: %v", err)
+			}
+		})
+	}
+}

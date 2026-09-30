@@ -1,0 +1,6 @@
+{
+  "management_url": "https://netbird.terrascale.tech",
+  "management_ip": "10.250.10.155",
+  "region": "sa-saopaulo-1",
+  "setup_key_secret_id": "REQUIRED_SECRET_OCID"
+}

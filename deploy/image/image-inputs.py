@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 import sys
@@ -31,6 +32,9 @@ PRIORITY_FIELDS = (
 )
 TERRABASE_FIELDS = ("source_revision", "source_tree", "run_id", "run_number", "qualification_sha256", "binary_sha256")
 TERRABASE_ARTIFACT = "tb-server-linux-arm64"
+NETBIRD_SPEC = importlib.util.spec_from_file_location("netbird_client", ROOT / "deploy/netbird/client.py")
+NETBIRD = importlib.util.module_from_spec(NETBIRD_SPEC)
+NETBIRD_SPEC.loader.exec_module(NETBIRD)
 
 
 class InputError(Exception):
@@ -66,7 +70,7 @@ def validate_terrabase(pin: object) -> None:
 
 def validate(manifest: dict, text: str) -> None:
     require(text == canonical(manifest), "image-inputs.json is not canonically formatted (json indent 2)")
-    require(tuple(manifest) == ("schema", "region", "base", "trust_roots", "timesyncd_config", "priority", "terrabase"),
+    require(tuple(manifest) == ("schema", "region", "base", "trust_roots", "timesyncd_config", "priority", "terrabase", "netbird"),
             "image-inputs.json has unexpected or reordered top-level fields")
     require(manifest["schema"] == SCHEMA, f"schema must be {SCHEMA}")
     require(manifest["region"] == "GRU", "region must be GRU")
@@ -85,13 +89,15 @@ def validate(manifest: dict, text: str) -> None:
         require(tuple(asset) == ("bytes", "sha256") and positive_int(asset["bytes"])
                 and bool(SHA256.fullmatch(str(asset["sha256"]))), f"base asset pin is invalid: {name}")
 
-    for entry in (*manifest["trust_roots"], manifest["timesyncd_config"]):
+    NETBIRD.validate_pin(manifest["netbird"])
+    for entry in (*manifest["trust_roots"], manifest["timesyncd_config"], manifest["netbird"]["enrollment_config"]):
         require(tuple(entry) == ("path", "sha256") and bool(SHA256.fullmatch(str(entry["sha256"]))),
                 "checked-in input pins need exactly path and sha256")
         path = (ROOT / entry["path"]).resolve()
         require(path.is_relative_to(ROOT / "deploy/image/inputs") and path.is_file(),
                 f"checked-in input must be a file under deploy/image/inputs: {entry['path']}")
         require(sha256_file(path) == entry["sha256"], f"checked-in input differs from its pin: {entry['path']}")
+    NETBIRD.validate_config(ROOT / manifest["netbird"]["enrollment_config"]["path"])
     require(1 <= len(manifest["trust_roots"]) <= 16, "trust_roots must list 1 to 16 roots")
 
     priority = manifest["priority"]

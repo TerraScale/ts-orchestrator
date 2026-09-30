@@ -46,6 +46,7 @@ fi
 git -C "$repository_root" fetch --quiet origin main
 git -C "$repository_root" worktree add --quiet --detach "$scratch/source" "$source_sha"
 cd "$scratch/source"
-PATH="$scratch/bin:$PATH" TMPDIR="$scratch" nice -n 19 \
+PATH="$scratch/bin:$PATH" TMPDIR="$scratch" \
+	TS_NETBIRD_CLIENT_CACHE="${TS_NETBIRD_CLIENT_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/terrascale/netbird-client}" nice -n 19 \
 	bash deploy/image/tools.sh bash deploy/image/build-image.sh --source "$source_sha" --out "$output"
 echo "local image ready in $output"

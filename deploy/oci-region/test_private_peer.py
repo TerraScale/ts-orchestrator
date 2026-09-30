@@ -56,6 +56,7 @@ class PrivatePeerInspectionTests(unittest.TestCase):
         plan = json.loads(preview.PLAN.read_text())
         # Another cell has no Forgejo-hosted operator gateway, public API, or GRU seat rules.
         plan["operator_gateway"] = None
+        plan["netbird"] = None
         plan["public_api"] = None
         plan["network_security"]["nsg_rules"] = [
             rule for rule in plan["network_security"]["nsg_rules"] if rule["source"] != "10.250.10.155/32"]

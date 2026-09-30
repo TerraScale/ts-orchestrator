@@ -10,7 +10,7 @@
 #
 # Every input is found from data, never copied by hand:
 #   - deploy/image/image-inputs.json pins the base image release, trust
-#     roots, timesyncd config, priority profile, and TerraBase artifact;
+#     roots, timesyncd config, priority profile, TerraBase artifact and NetBird client;
 #   - the orchestrator binary is the retained release of the successful
 #     ci.yml run on main for SOURCE, found through the Actions API. With
 #     --wait-for-ci, a still-running ci.yml run is awaited.
@@ -60,7 +60,7 @@ output=$(realpath -e -- "$output")
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/ts-image.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-mkdir -m 0700 "$work/base" "$work/go" "$work/terrabase" "$work/tools"
+mkdir -m 0700 "$work/base" "$work/go" "$work/terrabase" "$work/tools" "$work/netbird"
 source_tree=$(git rev-parse 'HEAD^{tree}')
 inputs=deploy/image/image-inputs.json
 python3 deploy/image/image-inputs.py check
@@ -207,6 +207,7 @@ build_info=$(go version -m "$work/tools/ts-release")
 grep -Fq "vcs.revision=$source_sha" <<< "$build_info" && grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 kernel_release=$(input_json .base.kernel_release)
+python3 deploy/netbird/client.py fetch --architecture arm64 --out "$work/netbird/netbird"
 roots=()
 while IFS= read -r root; do roots+=(--bootstrap-root "$root"); done < <(input_json '.trust_roots[].path')
 deploy/image/build-offline.sh \
@@ -217,6 +218,9 @@ deploy/image/build-offline.sh \
 	--source-revision "$source_sha" \
 	--native-verifier-binary "$work/terrabase/tb-server-linux-arm64" \
 	--native-verifier-sha256 "$(input_json .terrabase.binary_sha256)" \
+	--netbird-binary "$work/netbird/netbird" \
+	--netbird-sha256 "$(input_json .netbird.archives.arm64.binary_sha256)" \
+	--netbird-config "$(input_json .netbird.enrollment_config.path)" \
 	--release-tool "$work/tools/ts-release" \
 	"${roots[@]}" \
 	--timesyncd-config "$(input_json .timesyncd_config.path)" \

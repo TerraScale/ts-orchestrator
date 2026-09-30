@@ -22,7 +22,15 @@
     "operator_gateway": {
         "private_ip": "10.250.10.155",
         "vcn_cidr": "10.250.0.0/16",
-        "local_peering_gateway_id": null
+        "local_peering_gateway_id": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaaaucpuf5xwevoskfiigcilm4vbradfpqsd55pcc4aetpji5sz7t6q"
+    },
+    "netbird": {
+        "management_url": "https://netbird.terrascale.tech",
+        "management_ip": "10.250.10.155",
+        "secret_compartment_id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
+        "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta",
+        "policy_id": "ocid1.policy.oc1..aaaaaaaaasb7kmxzx65ydfqik6ehucompy6slz7l4gw4co2xzkidcmbway7a",
+        "policy_name": "terrascale-netbird-server-enrollment"
     },
     "public_api": {
         "subnet_cidr": "10.251.0.128/26",
@@ -231,6 +239,32 @@
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "6",
+                "source": null,
+                "source_type": null,
+                "destination": "10.250.10.155/32",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": 443,
+                "tcp_max": 443,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "17",
+                "source": null,
+                "source_type": null,
+                "destination": "10.250.10.155/32",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": null,
+                "tcp_max": null,
+                "udp_min": 3478,
+                "udp_max": 3478,
+                "stateless": false
             }
         ],
         "route_rules": [
@@ -373,7 +407,7 @@
         "security_list": null,
         "route_table": null,
         "service_gateway": null,
-        "local_peering_gateway": null,
+        "local_peering_gateway": "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.aaaaaaaans6aplo5dludjejwdctpdd3zqwwgcqhcj2w4763rwrrvauasninq",
         "internet_gateway": null,
         "public_subnet": null,
         "public_route_table": null,

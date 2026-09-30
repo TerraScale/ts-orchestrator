@@ -69,6 +69,19 @@ class ImageInputsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("checked-in input differs from its pin", result.stderr)
 
+    def test_netbird_config_and_client_sources_are_pinned(self) -> None:
+        manifest = json.loads(self.manifest.read_text())
+        manifest["netbird"]["enrollment_config"]["sha256"] = "0" * 64
+        self.manifest.write_text(json.dumps(manifest, indent=2) + "\n")
+        result = self.tool("check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("checked-in input differs from its pin", result.stderr)
+        manifest["netbird"]["archives"]["arm64"]["url"] = "https://other.example/netbird.tar.gz"
+        self.manifest.write_text(json.dumps(manifest, indent=2) + "\n")
+        result = self.tool("check")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("invalid NetBird arm64 archive source", result.stderr)
+
     def test_pin_rewrites_only_the_terrabase_block(self) -> None:
         before = json.loads(self.manifest.read_text())
         result = self.pin()

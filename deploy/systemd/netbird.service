@@ -1,0 +1,38 @@
+[Unit]
+Description=NetBird private management network
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/netbird service run --config /var/lib/netbird/config.json --log-file console
+Restart=always
+RestartSec=10s
+TimeoutStopSec=30s
+UMask=0077
+StateDirectory=netbird
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+# TUN, WireGuard, firewall/netlink and ICMP probes operate in the host namespace.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_DAC_OVERRIDE
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/netbird /run
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=no
+DevicePolicy=closed
+DeviceAllow=/dev/net/tun rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+LockPersonality=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -54,5 +54,26 @@
     "run_number": 1012,
     "qualification_sha256": "69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9",
     "binary_sha256": "33f316ab64ab9d83127a5921ea6b5a92304e78dfd179d3b5c0935977c7e9f33c"
+  },
+  "netbird": {
+    "version": "0.79.0",
+    "archives": {
+      "arm64": {
+        "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_arm64.tar.gz",
+        "bytes": 14585432,
+        "sha256": "275a98268c84422a66e18c7d771015284b8856400174536beb8b0ce737cdadd3",
+        "binary_sha256": "7a562fb95a43eba5fe17ff08e0047ea39a9ccce1411f25f7a59d4e470f851817"
+      },
+      "amd64": {
+        "url": "https://github.com/netbirdio/netbird/releases/download/v0.79.0/netbird_0.79.0_linux_amd64.tar.gz",
+        "bytes": 15933764,
+        "sha256": "d6f8d26fa21527772f87094557e1196f2a669b1ab4033f650424dce33ba71efd",
+        "binary_sha256": "18db53727a3c76a845b52247c7355effe6a3210d41b4b37b0e48fe477e3bbcf9"
+      }
+    },
+    "enrollment_config": {
+      "path": "deploy/image/inputs/netbird-gru.json",
+      "sha256": "ada244681c8bbebda26a3a8ffbb8972668e3e2a79a0dda351e6af0c0d480dd96"
+    }
   }
 }

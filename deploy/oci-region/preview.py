@@ -55,6 +55,12 @@ FORGEJO_FIELDS = {"instance_id", "boot_volume_id", "data_volume_id", "public_ip_
 GATEWAY_FIELDS = {"private_ip", "vcn_cidr", "local_peering_gateway_id"}
 # The operator gateway reaches exactly one TCP port through each cell NSG.
 GATEWAY_PORTS = {"nsg_rules": 4222, "seed_ssh_nsg_rules": 22, "workload_nsg_rules": 9465}
+# Servers initiate management, signal and WebSocket relay connections over
+# HTTPS; STUN uses the same private gateway address. No internet egress is needed.
+NETBIRD_GATEWAY_PORTS = {("6", 443, 443, None, None), ("17", None, None, 3478, 3478)}
+NETBIRD_FIELDS = {"management_url", "management_ip", "secret_compartment_id", "setup_key_secret_id",
+                  "policy_id", "policy_name"}
+NETBIRD_MANAGEMENT_URL = "https://netbird.terrascale.tech"
 INGRESS_RULE_LISTS = ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules")
 ROUTE_TARGET_IDS = {"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 NTP_DESTINATION = "169.254.169.254/32"
@@ -188,6 +194,29 @@ def validate_operator_gateway(plan: dict, network: ipaddress.IPv4Network) -> dic
     return gateway
 
 
+def validate_netbird(plan: dict, gateway: dict | None) -> None:
+    if "netbird" not in plan:
+        fail("manual plan must declare its NetBird enrollment configuration or null")
+    config = plan["netbird"]
+    if config is None:
+        if gateway is not None:
+            fail("manual operator gateway requires private NetBird enrollment configuration")
+        return
+    if not isinstance(config, dict) or set(config) != NETBIRD_FIELDS:
+        fail("manual NetBird configuration must declare exact nonsecret manager and Vault policy fields")
+    if config["management_url"] != NETBIRD_MANAGEMENT_URL:
+        fail("manual NetBird management URL must be the TerraScale HTTPS DNS origin on port 443")
+    if gateway is None or config["management_ip"] != gateway["private_ip"]:
+        fail("manual NetBird management IP must equal the private operator gateway")
+    if not isinstance(config["policy_name"], str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", config["policy_name"]):
+        fail("manual NetBird policy name is invalid")
+    if config["secret_compartment_id"] is not None or config["setup_key_secret_id"] is not None:
+        require_ocid(config["secret_compartment_id"], "compartment")
+        require_ocid(config["setup_key_secret_id"], "vaultsecret", plan["region"])
+    if config["policy_id"] is not None:
+        require_ocid(config["policy_id"], "policy")
+
+
 def validate_public_api(plan: dict, network: ipaddress.IPv4Network, subnet: ipaddress.IPv4Network) -> dict | None:
     if "public_api" not in plan:
         fail("manual plan must declare its public TerraBase API or null")
@@ -224,6 +253,7 @@ def validate_private_rule_boundary(network_security: dict, network: ipaddress.IP
                         rule["protocol"] != "6" or rule["tcp_min"] != public["client_port"] or
                         rule["tcp_max"] != public["client_port"]):
                     fail(f"manual plan {key} admits the public API subnet beyond the member client port")
+    netbird_ports = set()
     for rule in network_security["security_list_egress_rules"]:
         if (rule["direction"] != "EGRESS" or rule["stateless"] or
                 rule["source"] is not None or rule["source_type"] is not None):
@@ -233,8 +263,15 @@ def validate_private_rule_boundary(network_security: dict, network: ipaddress.IP
         ntp = (rule["destination_type"] == "CIDR_BLOCK" and rule["destination"] == NTP_DESTINATION and
                rule["protocol"] == "17" and rule["udp_min"] == rule["udp_max"] == 123)
         cell = rule["destination_type"] == "CIDR_BLOCK" and cidr_within(rule["destination"], network)
-        if not service and not ntp and not cell:
-            fail("manual plan egress leaves the private cell, Oracle services, and NTP")
+        ports = tuple(rule[key] for key in ("protocol", "tcp_min", "tcp_max", "udp_min", "udp_max"))
+        netbird = (gateway_source is not None and rule["destination_type"] == "CIDR_BLOCK" and
+                   rule["destination"] == gateway_source and ports in NETBIRD_GATEWAY_PORTS)
+        if netbird:
+            netbird_ports.add(ports)
+        if not service and not ntp and not cell and not netbird:
+            fail("manual plan egress leaves the private cell, Oracle services, NTP, and scoped NetBird gateway")
+    if gateway is not None and netbird_ports != NETBIRD_GATEWAY_PORTS:
+        fail("manual plan must allow NetBird HTTPS and STUN to the operator gateway")
 
 
 def source_path(plan: dict) -> pathlib.Path:
@@ -396,6 +433,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
     if any(value is not None for value in host_secret.values()):
         require_ocid(host_secret["compartment_id"], "compartment")
         require_ocid(host_secret["secret_id"], "vaultsecret", plan["region"])
+    validate_netbird(plan, gateway)
     if ids["instances"]["controller-a"] is not None and plan.get("seed_a_create_identity") is None:
         fail("manual controller-a OCID requires its preserved seed-A create identity")
     retention = plan.get("bucket_retention_days")
@@ -1639,7 +1677,15 @@ def required_resource_ids(plan: dict) -> dict:
     if not host_secret.get("compartment_id") or not host_secret.get("secret_id"):
         fail("foundation inspection requires the operator-selected host LiveS3Credential secret OCIDs")
     require_planned_route_ids(plan, ids)
+    require_netbird_ids(plan)
     return ids
+
+
+def require_netbird_ids(plan: dict) -> None:
+    config = plan["netbird"]
+    if config is not None and not all(config[key] for key in
+                                      ("secret_compartment_id", "setup_key_secret_id", "policy_id")):
+        fail("foundation inspection requires the exact NetBird setup-key secret and IAM policy OCIDs")
 
 
 def require_live_id(resource: dict, resource_id: str, label: str) -> dict:
@@ -1832,6 +1878,37 @@ def check_live_operator_gateway(plan: dict, ids: dict) -> None:
     if (len(vnics) != 1 or vnics[0].get("lifecycle-state") != "AVAILABLE" or vnics[0].get("is-primary") is not True or
             vnics[0].get("private-ip") != gateway["private_ip"] or vnics[0].get("skip-source-dest-check") is not False):
         fail("live operator gateway VNIC differs from the exact plan")
+    check_live_netbird_ingress(plan, vnics[0])
+
+
+def check_live_netbird_ingress(plan: dict, vnic: dict) -> None:
+    nsg_ids = vnic.get("nsg-ids")
+    if (not isinstance(nsg_ids, list) or not nsg_ids or not all(isinstance(value, str) for value in nsg_ids) or
+            len(nsg_ids) != len(set(nsg_ids))):
+        fail("live NetBird gateway must have explicit network security groups")
+    allowed = set()
+    for nsg_id in nsg_ids:
+        require_ocid(nsg_id, "networksecuritygroup", plan["region"])
+        nsg = require_live_id(oci("network", "nsg", "get", "--nsg-id", nsg_id,
+                                  region=plan["region"]), nsg_id, "NetBird gateway network security group")
+        if (nsg.get("compartment-id") != plan["shared_compartment_id"] or
+                nsg.get("vcn-id") != plan["existing_forgejo"]["vcn_id"]):
+            fail("live NetBird gateway network security group ownership differs from the plan")
+        for rule in rows(oci("network", "nsg", "rules", "list", "--nsg-id", nsg_id,
+                             "--all", region=plan["region"])):
+            # Forgejo's unrelated public and owner-access rules retain their
+            # own policy. Only these explicit private server rules prove join access.
+            if (not isinstance(rule, dict) or rule.get("direction") != "INGRESS" or
+                    rule.get("source") != plan["subnet_cidr"] or str(rule.get("protocol")) not in {"6", "17"}):
+                continue
+            normalized = normalized_security_rule(rule)
+            if (normalized["direction"] == "INGRESS" and normalized["source"] == plan["subnet_cidr"] and
+                    normalized["source_type"] == "CIDR_BLOCK" and not normalized["stateless"] and
+                    normalized["destination"] is None and normalized["destination_type"] is None):
+                allowed.add(tuple(normalized[key] for key in
+                                  ("protocol", "tcp_min", "tcp_max", "udp_min", "udp_max")))
+    if not NETBIRD_GATEWAY_PORTS.issubset(allowed):
+        fail("live NetBird gateway lacks private-subnet HTTPS or STUN ingress")
 
 
 def canonical_bootstrap_prefix(value: object) -> str:
@@ -1975,6 +2052,32 @@ def check_live_iam(plan: dict, ids: dict, storage_prefix: str) -> None:
     if (secret.get("lifecycle-state") != "ACTIVE" or
             secret.get("compartment-id") != secret_compartment):
         fail("live host LiveS3Credential secret is not active in its selected compartment")
+    check_live_netbird_iam(plan)
+
+
+def required_netbird_statements(plan: dict) -> list[str]:
+    config = plan["netbird"]
+    return [f"Allow dynamic-group {plan['identity'][role]} to read secret-bundles in compartment id "
+            f"{config['secret_compartment_id']} where target.secret.id = '{config['setup_key_secret_id']}'"
+            for role in ("controller_dynamic_group_name", "host_dynamic_group_name")]
+
+
+def check_live_netbird_iam(plan: dict) -> None:
+    config = plan["netbird"]
+    if config is None:
+        return
+    require_netbird_ids(plan)
+    policy = require_live_id(oci("iam", "policy", "get", "--policy-id", config["policy_id"]),
+                             config["policy_id"], "NetBird server enrollment IAM policy")
+    if (policy.get("lifecycle-state") != "ACTIVE" or policy.get("name") != config["policy_name"] or
+            policy.get("compartment-id") != config["secret_compartment_id"] or
+            policy.get("statements") != required_netbird_statements(plan)):
+        fail("live NetBird server enrollment policy differs from exact secret read grants")
+    secret = require_live_id(oci("vault", "secret", "get", "--secret-id", config["setup_key_secret_id"],
+                                 region=plan["region"]), config["setup_key_secret_id"], "NetBird setup-key secret")
+    if (secret.get("lifecycle-state") != "ACTIVE" or
+            secret.get("compartment-id") != config["secret_compartment_id"]):
+        fail("live NetBird setup-key secret is not active in its selected compartment")
 
 
 def check_live_vault(plan: dict, ids: dict) -> None:

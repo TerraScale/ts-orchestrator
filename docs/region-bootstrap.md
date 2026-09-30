@@ -165,10 +165,11 @@ Operators reach the private cell through a NetBird routing peer on the Forgejo
 VM (`ts-forgejo-server`, private IP `10.250.10.155` in `ts-forgejo-vcn`
 `10.250.0.0/16`). The NetBird server and routing peer belong to that VM's owner
 and are documented in HomeLab `ops/ts-forgejo-server/netbird/`. This runbook
-owns only the OCI side: one local peering gateway (LPG) in each VCN, one route
-in each VCN's subnet route table, and the gateway rules in the cell NSGs. The
-routing peer masquerades, so every operator packet reaches the cell from
-`10.250.10.155`.
+owns the OCI peering and automatic server enrollment inputs: one local peering
+gateway (LPG) in each VCN, one route in each VCN's subnet route table, and the
+gateway rules in the cell NSGs. The routing peer masquerades, so every operator
+packet reaches the cell from `10.250.10.155`. Controllers and workload hosts
+also enroll as individual NetBird peers through their image's boot services.
 
 | Cell NSG | Gateway access |
 | --- | --- |
@@ -177,9 +178,11 @@ routing peer masquerades, so every operator packet reaches the cell from
 | Member workload (`workload_network_security_group`) | TCP 9465, the TerraBase client API |
 
 The gateway never reaches 8443: host enrollment accepts only the enrolling
-instance's own private IP. The private subnet keeps no internet route, NAT
-gateway, or public IP, and its egress rules do not change; replies use the
-stateful ingress rules. The cell's only internet gateway serves the
+instance's own private IP. Servers initiate NetBird management, signal and
+WebSocket relay connections to the gateway `/32` on TCP 443, plus STUN on UDP
+3478. These two stateful egress rules and matching Forgejo NSG ingress from
+the private subnet are required. Responses use the stateful rules. The private
+subnet keeps no internet route, NAT gateway, or public IP. The cell's only internet gateway serves the
 [public TerraBase API](#public-terrabase-api) subnet. The OCI Bastion and `operator --nats-forward` remain the break-glass
 path. LPGs have no separate charge, and the NetBird server adds no OCI resource
 to the cost admission.
@@ -189,20 +192,79 @@ private address inside its own VCN that does not overlap the cell. Every NSG
 and security-list ingress source must be inside the cell or exactly the gateway
 `/32` on the ports above, and a source that overlaps the public API subnet must
 be exactly that subnet on the member client port. Egress may reach only the
-cell, NTP, and Oracle services, and the private route table must hold only the
+cell, NTP, Oracle services, and the gateway `/32` on TCP 443 and UDP 3478; both
+NetBird rules must be present. The private route table must hold only the
 service-gateway route and the `10.250.10.155/32` peering route. Inventory
 admits only Forgejo's internet gateway, the recorded public API gateway and
 network load balancer, and the recorded LPG pair. `inspect-foundation`
 reads back both LPGs (`PEERED`, each other's peer, no LPG route table, exact
 advertised CIDRs), the member workload NSG, and the gateway VNIC (one primary
-VNIC at `10.250.10.155` with source/destination checks enabled).
+VNIC at `10.250.10.155` with source/destination checks enabled). It discovers
+the gateway's attached NSGs and requires explicit stateful HTTPS and STUN
+ingress from the planned private subnet, while preserving Forgejo's unrelated
+public and owner-access rules.
+
+### Automatic server enrollment
+
+The qualified image installs the pinned NetBird client, `netbird.service`, and
+`terrascale-netbird-enroll.service` alongside the orchestrator binary. The
+enrollment service runs as root at boot and retries failures. It reads the
+public `/etc/terrascale-orchestrator/netbird.json` configuration, fetches the
+server setup key from OCI Vault through its instance principal, and runs the
+orchestrator's `netbird-enroll` command. Controllers A/B/C and managed hosts use
+the same image; their existing role installation and signed host enrollment
+remain automatic. NetBird enrollment does not depend on a controller becoming
+healthy first.
+
+Set `plan.netbird.management_url` to `https://netbird.terrascale.tech` and
+`management_ip` to the Forgejo private gateway address. The enrollment command
+maintains an `/etc/hosts` entry for that hostname and address, so TLS keeps the
+public certificate name while traffic follows the private LPG route. Public
+DNS resolves the same hostname to Forgejo's public address for operator
+devices. The manager's signal and WebSocket relay endpoints must use that
+same hostname on 443; STUN uses 3478. Existing within-cell egress already
+permits direct peer traffic. Keep the server setup key restricted to the
+NetBird server group and configure explicit operator access policies in the
+manager.
+
+Record `secret_compartment_id`, `setup_key_secret_id`, `policy_id`, and
+`policy_name` in `plan.netbird`; foundation inspection requires every one. The
+checked-in plan records the selected server-enrollment secret and policy.
+Keep the key value in Vault. The image and launch metadata contain only
+the manager address and secret reference. Install a separate IAM policy in the
+selected secret compartment with exactly these two statements, in this order:
+
+```text
+Allow dynamic-group <controller-dynamic-group> to read secret-bundles in compartment id <netbird-secret-compartment-ocid> where target.secret.id = '<netbird-setup-key-secret-ocid>'
+Allow dynamic-group <host-dynamic-group> to read secret-bundles in compartment id <netbird-secret-compartment-ocid> where target.secret.id = '<netbird-setup-key-secret-ocid>'
+```
+
+`inspect-foundation` checks this policy and the active secret's compartment
+without reading secret contents. Preserve the host's separate exact
+`LiveS3Credential` policy. Update the Vault value when rotating the manager's
+server setup key so subsequent server enrollment remains available.
+
+Generate the public image input from the fully populated reviewed plan:
+
+```sh
+jq '{management_url: .netbird.management_url, management_ip: .netbird.management_ip,
+     region, setup_key_secret_id: .netbird.setup_key_secret_id}' "$PLAN" > netbird.json
+```
+
+Pin this file's digest in the image inputs and supply it to the image builder.
+After each new controller or host starts, verify `systemctl is-active
+netbird.service terrascale-netbird-enroll.service` and `netbird status --json`:
+management and signal must be connected to the configured manager. Match its
+peer entry in the manager to the server's instance identity. Reboot one server
+and confirm that its existing peer identity reconnects.
 
 ### Apply
 
 Start from a reviewed plan copy that declares `operator_gateway` with null LPG
 IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
-`SEED_SSH_NSG`, and `WORKLOAD_NSG` from that plan, and `FORGEJO_COMPARTMENT`,
-`FORGEJO_VCN`, and `FORGEJO_RT` from the Forgejo resource manifest.
+`SEED_SSH_NSG`, `WORKLOAD_NSG`, and `CELL_SL` from that plan, and
+`FORGEJO_COMPARTMENT`, `FORGEJO_VCN`, `FORGEJO_RT`, and `FORGEJO_NSG` from the
+Forgejo resource manifest and primary VNIC.
 
 1. Take a read-only snapshot. Save both route tables with their ETags and all
    three cell NSGs, and confirm that no LPG exists and that the only internet
@@ -211,7 +273,8 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
    ```sh
    oci network route-table get --rt-id "$CELL_RT" > cell-rt-before.json
    oci network route-table get --rt-id "$FORGEJO_RT" > forgejo-rt-before.json
-   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG"; do
+   oci network security-list get --security-list-id "$CELL_SL" > cell-sl-before.json
+   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG" "$FORGEJO_NSG"; do
      oci network nsg rules list --nsg-id "$nsg" --all > "nsg-rules-$nsg-before.json"
    done
    for compartment in "$NETWORK_COMPARTMENT" "$FORGEJO_COMPARTMENT"; do
@@ -248,9 +311,14 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
    tcp_rule() {
      printf '[{"direction":"INGRESS","protocol":"6","source":"%s","sourceType":"CIDR_BLOCK","isStateless":false,"tcpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$2" "$2"
    }
+   udp_rule() {
+     printf '[{"direction":"INGRESS","protocol":"17","source":"%s","sourceType":"CIDR_BLOCK","isStateless":false,"udpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$2" "$2"
+   }
    oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 4222)"
    oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 22)"
    oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 9465)"
+   oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 443)"
+   oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(udp_rule 10.251.0.0/25 3478)"
    for port in 4222 6222 8443; do
      oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 "$port")"
    done
@@ -258,6 +326,14 @@ IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
      --query "data[?source=='10.251.0.0/24'].id")
    oci network nsg rules remove --nsg-id "$CONTROL_NSG" --security-rule-ids "$WIDE_RULE_IDS"
    ```
+
+   Prepare the cell security list's complete egress rule list from the saved
+   readback. Add exactly two stateful rules with destination `10.250.10.155/32`:
+   TCP 443 and UDP 3478. Preserve the existing cell, Oracle service, and NTP
+   rules. Review the diff, use the saved security-list ETag with `--if-match`
+   on `oci network security-list update`, and read back the result. The Forgejo
+   host firewall must allow these same private-subnet destinations and retain
+   the public NetBird listener rules.
 4. Add the routes. `route-table update` replaces the whole rule list, so derive
    each list from the saved table, review the diff, and guard the write with
    the saved ETag. The Forgejo table must keep its default route to the

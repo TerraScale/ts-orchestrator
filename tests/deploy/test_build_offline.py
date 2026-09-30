@@ -37,6 +37,8 @@ TIME_WAIT_SYNC_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/te
 RUNTIME_PRIORITY_PROFILE_GUEST = "/etc/terrascale-orchestrator/runtime-priority.json"
 RUNTIME_PRIORITY_HELPER_GUEST = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
 NATIVE_VERIFIER_GUEST = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
+NETBIRD_GUEST = "/usr/local/bin/netbird"
+NETBIRD_CONFIG_GUEST = "/etc/terrascale-orchestrator/netbird.json"
 KERNEL_RELEASE = "6.8.0-142-generic"
 KERNEL_GUEST = f"/boot/vmlinuz-{KERNEL_RELEASE}"
 SOURCE_REVISION = "9f52ca3f861a3eec125eefb6e5025c806fbd0913"
@@ -92,6 +94,12 @@ class BuildOfflineTests(unittest.TestCase):
             self.inputs / "tb-server-linux-arm64", bytes(native_header) + b"mock native verifier"
         )
         self.native_verifier_sha256 = hashlib.sha256(self.native_verifier.read_bytes()).hexdigest()
+        self.netbird = self.write_file(self.inputs / "netbird client", bytes(native_header) + b"mock netbird client")
+        self.netbird_sha256 = hashlib.sha256(self.netbird.read_bytes()).hexdigest()
+        self.netbird_config = self.write_file(self.inputs / "netbird config.json", json.dumps({
+            "management_url": "https://netbird.terrascale.tech", "management_ip": "10.250.10.155",
+            "region": "sa-saopaulo-1", "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test",
+        }).encode())
         self.qualification = self.write_file(self.inputs / "qualification.json", b"mock qualification")
         self.bootstrap_root_a = self.write_file(self.inputs / "bootstrap root a.pem", b"bootstrap public key a")
         self.bootstrap_root_b = self.write_file(self.inputs / "bootstrap root b.pem", b"bootstrap public key b")
@@ -420,6 +428,9 @@ fi
             "--source-revision": SOURCE_REVISION,
             "--native-verifier-binary": str(native_verifier_binary or self.native_verifier),
             "--native-verifier-sha256": native_verifier_sha256 or self.native_verifier_sha256,
+            "--netbird-binary": str(self.netbird),
+            "--netbird-sha256": self.netbird_sha256,
+            "--netbird-config": str(self.netbird_config),
             "--release-tool": str(self.release_tool),
             "--timesyncd-config": str(self.timesyncd_config),
             **self.priority_inputs,
@@ -471,6 +482,8 @@ fi
         for guest_path, contents in (
             ("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes()),
             (NATIVE_VERIFIER_GUEST, self.native_verifier.read_bytes()),
+            (NETBIRD_GUEST, self.netbird.read_bytes()),
+            (NETBIRD_CONFIG_GUEST, self.netbird_config.read_bytes()),
             (KERNEL_GUEST, self.kernel),
             (OCI_DEVICE_PATHS_GUEST, OCI_DEVICE_PATHS_SOURCE.read_bytes()),
         ):
@@ -492,6 +505,10 @@ fi
             installed(f"{BOOTSTRAP_DIRECTORY}/trust-roots/{index:03d}.pem", source.read_bytes(), 0o444)
         self.assert_baked_loader_accepts_roots(["001.pem", "002.pem"])
         installed(NATIVE_VERIFIER_GUEST, self.native_verifier.read_bytes(), 0o755)
+        installed(NETBIRD_GUEST, self.netbird.read_bytes(), 0o755)
+        installed(NETBIRD_CONFIG_GUEST, self.netbird_config.read_bytes())
+        self.assertEqual(stat.S_IMODE((root / "var/lib/netbird").stat().st_mode), 0o700)
+        self.assertEqual(tuple(metadata["/var/lib/netbird"]), (0, 0))
         installed("/usr/local/bin/terrascale-orchestrator", self.binary.read_bytes(), 0o755)
         installed(RUNTIME_PRIORITY_HELPER_GUEST, RUNTIME_PRIORITY_QUALIFIER.read_bytes(), 0o755)
         installed(TIME_WAIT_SYNC_DROPIN, b"[Service]\nTimeoutStartSec=300s\n")
@@ -530,7 +547,8 @@ fi
         for unit in ("systemd-timesyncd.service", "systemd-time-wait-sync.service"):
             link = root / "etc/systemd/system/sysinit.target.wants" / unit
             self.assertTrue(link.is_symlink(), unit)
-        for unit in ("terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"):
+        for unit in ("terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
+                     "netbird.service", "terrascale-netbird-enroll.service"):
             link = root / "etc/systemd/system/multi-user.target.wants" / unit
             self.assertTrue(link.is_symlink(), unit)
         self.assertFalse((root / "etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-bootstrap.service").exists())
@@ -553,6 +571,27 @@ fi
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("ELF64 little-endian AArch64", result.stderr)
         self.assert_no_image_effects()
+
+    def test_netbird_rejects_wrong_digest_before_image_effects(self) -> None:
+        result = self.run_builder(replace={"--netbird-sha256": "0" * 64})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("NetBird binary bytes differ from the pinned SHA-256", result.stderr)
+        self.assert_no_image_effects()
+
+    def test_netbird_config_rejects_embedded_setup_keys(self) -> None:
+        config = json.loads(self.netbird_config.read_text())
+        config["setup_key"] = "secret-value"
+        self.netbird_config.write_text(json.dumps(config))
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unexpected or missing fields", result.stderr)
+        self.assert_no_image_effects()
+
+    def test_netbird_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate(NETBIRD_GUEST)
+
+    def test_netbird_config_readback_mismatch_discards_candidate(self) -> None:
+        self.assert_readback_mismatch_discards_candidate(NETBIRD_CONFIG_GUEST)
 
     def assert_readback_mismatch_discards_candidate(self, guest_path: str) -> None:
         result = self.run_builder(GUESTFISH_CORRUPT_READBACK=guest_path)

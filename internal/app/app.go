@@ -27,7 +27,7 @@ import (
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new> --config FILE")
+		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll> --config FILE")
 	}
 	command := args[0]
 	if command == "bootstrap-credential-check" {
@@ -51,6 +51,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if command == "identity-new" {
 		return newIdentity(args[1:], output)
+	}
+	if command == "netbird-enroll" {
+		return runNetBirdEnroll(ctx, args[1:], output)
 	}
 	if command == "install-controller-config" {
 		return runInstallControllerConfig(ctx, args[1:])

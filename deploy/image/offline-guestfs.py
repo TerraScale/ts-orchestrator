@@ -19,6 +19,9 @@ BOOTSTRAP = "/etc/terrascale-orchestrator/bootstrap"
 APP = "/etc/terrascale-orchestrator"
 APP_LIB = "/usr/local/lib/terrascale-orchestrator"
 NATIVE = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
+NETBIRD = "/usr/local/bin/netbird"
+NETBIRD_CONFIG = APP + "/netbird.json"
+NETBIRD_UNITS = ("netbird.service", "terrascale-netbird-enroll.service")
 TIME_CONFIG = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 TIME_DROPIN = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 PROFILE = APP + "/runtime-priority.json"
@@ -37,6 +40,7 @@ UNITS = (
     "systemd-time-wait-sync.service",
     "terrascale-orchestrator-controller.service",
     "terrascale-orchestrator-host.service",
+    *NETBIRD_UNITS,
 )
 HOST_UNITS = (
     "terrascale-orchestrator-host-setup.service",
@@ -434,6 +438,7 @@ def install_links(guest: Guest, work: Path, source_root: Path) -> None:
     etc_units = stage / "etc/systemd/system"
     for name in (
         "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
+        *NETBIRD_UNITS,
         *HOST_UNIT_FILES,
     ):
         shutil.copyfile(source_root / "deploy/systemd" / name, etc_units / name)
@@ -558,6 +563,8 @@ def build(args: argparse.Namespace) -> None:
         audit_host_volume_tools(guest, work)
         for path in (PROFILE, HELPER, *DROPINS):
             guest.assert_absent(path, "runtime-priority profile artifact")
+        for path in (NETBIRD, NETBIRD_CONFIG, "/var/lib/netbird"):
+            guest.assert_absent(path, "NetBird artifact")
         # Deployment material arrives in launch metadata; the image carries only trust roots.
         guest.assert_absent(APP + "/host-enrollment-public.json", "host enrollment public bundle")
         for path in (
@@ -605,6 +612,7 @@ def build(args: argparse.Namespace) -> None:
         guest.directory("/var/lib/terrascale-orchestrator-controller", orchestrator_uid, orchestrator_gid, 0o700)
         guest.directory("/srv/ts-managed", 0, 2000, 0o750)
         guest.directory(VOLUME_INIT_STATE, 0, 0, 0o700)
+        guest.directory("/var/lib/netbird", 0, 0, 0o700)
 
         uploads = [
             (Path(args.sysusers), "/etc/sysusers.d/terrascale-orchestrator.conf", 0o644),
@@ -612,12 +620,15 @@ def build(args: argparse.Namespace) -> None:
               for name in (
                   "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service",
                   "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service",
+                  *NETBIRD_UNITS,
                   *HOST_UNIT_FILES,
               )),
             (Path(args.profile), PROFILE, 0o644),
             *((Path(args.priority_root) / path.lstrip("/"), path, 0o644) for path in DROPINS),
             (source_root / "tests/runtime_priority/qualify.py", HELPER, 0o755),
             (Path(args.binary), "/usr/local/bin/terrascale-orchestrator", 0o755),
+            (Path(args.netbird_binary), NETBIRD, 0o755),
+            (Path(args.netbird_config), NETBIRD_CONFIG, 0o644),
             (Path(args.native_verifier), NATIVE, 0o755),
             (Path(args.timesyncd_config), TIME_CONFIG, 0o644),
             (source_root / "deploy/udev" / Path(OCI_DEVICE_PATHS).name, OCI_DEVICE_PATHS, 0o644),
@@ -674,7 +685,7 @@ def main() -> None:
     build_parser = commands.add_parser("build")
     for option in (
         "image", "kernel-release", "kernel-out", "work", "sysusers", "profile", "priority-root",
-        "binary", "native-verifier", "timesyncd-config",
+        "binary", "native-verifier", "timesyncd-config", "netbird-binary", "netbird-config",
     ):
         build_parser.add_argument("--" + option, required=True)
     build_parser.add_argument("--bootstrap-root", action="append", required=True)

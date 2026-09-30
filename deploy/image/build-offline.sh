@@ -8,6 +8,7 @@ usage() {
 usage: build-offline.sh --base QCOW2 --kernel-release RELEASE \
   --binary FILE --qualification FILE --source-revision SHA \
   --native-verifier-binary FILE --native-verifier-sha256 LOWERCASE_HEX \
+  [--netbird-binary FILE --netbird-sha256 LOWERCASE_HEX] [--netbird-config FILE] \
   --release-tool FILE --bootstrap-root PEM... --timesyncd-config FILE \
   --runtime-priority-profile-id TOKEN --runtime-priority-system-reserve-bytes BYTES \
   --host-memory-min-bytes BYTES --host-memory-low-bytes BYTES \
@@ -45,6 +46,14 @@ UID/GID 2000:2000, uses separate install and state roots under
 /var/lib/terrascale-orchestrator-host, and provisions /srv/ts-managed as
 root:2000 0750 for persistent member volumes.
 
+Every controller and host includes the checksum-pinned NetBird client and
+enables its daemon and retrying enrollment unit independently of orchestrator
+startup. The default public enrollment config is pinned in image-inputs.json.
+It references an OCI Vault secret; no setup key is baked into the image.
+Without --netbird-binary, the client is fetched from the pinned upstream archive
+with optional TS_NETBIRD_CLIENT_CACHE reuse. A supplied binary requires its
+independently verified --netbird-sha256.
+
 The runtime-priority memory-floor arguments have no defaults. Prefer values
 measured with the selected image and service configuration; if measurements
 are unavailable, label the supplied values as selected allocations rather
@@ -63,6 +72,9 @@ qualification=
 source_revision=
 native_verifier_binary=
 native_verifier_sha256=
+netbird_binary=
+netbird_sha256=
+netbird_config=
 release_tool=
 bootstrap_roots=()
 timesyncd_config=
@@ -89,6 +101,9 @@ while (($#)); do
 		--source-revision) source_revision=${2:?}; shift 2 ;;
 		--native-verifier-binary) native_verifier_binary=${2:?}; shift 2 ;;
 		--native-verifier-sha256) native_verifier_sha256=${2:?}; shift 2 ;;
+		--netbird-binary) netbird_binary=${2:?}; shift 2 ;;
+		--netbird-sha256) netbird_sha256=${2:?}; shift 2 ;;
+		--netbird-config) netbird_config=${2:?}; shift 2 ;;
 		--release-tool) release_tool=${2:?}; shift 2 ;;
 		--bootstrap-root) bootstrap_roots+=("${2:?}"); shift 2 ;;
 		--timesyncd-config) timesyncd_config=${2:?}; shift 2 ;;
@@ -131,6 +146,11 @@ if [[ ! $kernel_release =~ ^[0-9][A-Za-z0-9._+-]{0,127}$ ]]; then
 fi
 if [[ ! $native_verifier_sha256 =~ ^[0-9a-f]{64}$ ]]; then
 	echo "native verifier SHA-256 must be 64 lowercase hex characters" >&2
+	exit 2
+fi
+if [[ -n $netbird_binary || -n $netbird_sha256 ]] &&
+	[[ -z $netbird_binary || ! $netbird_sha256 =~ ^[0-9a-f]{64}$ ]]; then
+	echo 'a supplied NetBird binary needs --netbird-binary and a lowercase --netbird-sha256' >&2
 	exit 2
 fi
 for command in cat cp ln mktemp python3 qemu-img realpath sha256sum; do
@@ -178,6 +198,29 @@ fi
 temporary_directory=$(mktemp -d "$output_parent/.ts-orchestrator-image.XXXXXX")
 cleanup() { rm -rf -- "$temporary_directory"; }
 trap cleanup EXIT
+if [[ -z $netbird_config ]]; then
+	netbird_config=$(python3 -c 'import json; print(json.load(open("deploy/image/image-inputs.json"))["netbird"]["enrollment_config"]["path"])')
+	netbird_config_pin=$(python3 -c 'import json; print(json.load(open("deploy/image/image-inputs.json"))["netbird"]["enrollment_config"]["sha256"])')
+	[[ $(sha256sum -- "$netbird_config" | cut -d ' ' -f 1) == "$netbird_config_pin" ]] || {
+		echo 'default NetBird enrollment config differs from the image inputs pin' >&2
+		exit 1
+	}
+fi
+netbird_config=$(realpath -e -- "$netbird_config")
+python3 deploy/netbird/client.py check-config --config "$netbird_config"
+cp -- "$netbird_config" "$temporary_directory/netbird.json"
+netbird_config="$temporary_directory/netbird.json"
+if [[ -z $netbird_binary ]]; then
+	python3 deploy/netbird/client.py fetch --architecture arm64 --out "$temporary_directory/netbird"
+	netbird_binary="$temporary_directory/netbird"
+	netbird_sha256=$(python3 -c 'import json; print(json.load(open("deploy/image/image-inputs.json"))["netbird"]["archives"]["arm64"]["binary_sha256"])')
+else
+	cp -- "$(realpath -e -- "$netbird_binary")" "$temporary_directory/netbird"
+	netbird_binary="$temporary_directory/netbird"
+fi
+python3 deploy/netbird/client.py verify-binary --architecture arm64 --binary "$netbird_binary" --sha256 "$netbird_sha256"
+chmod 0755 "$netbird_binary"
+netbird_config_sha256=$(sha256sum -- "$netbird_config" | cut -d ' ' -f 1)
 timesyncd_config_image="$temporary_directory/timesyncd.conf"
 runtime_priority_root="$temporary_directory/runtime-priority"
 runtime_priority_profile="$temporary_directory/runtime-priority.json"
@@ -374,6 +417,8 @@ offline_args=(
 	--priority-root "$runtime_priority_root"
 	--binary "$binary"
 	--native-verifier "$native_verifier_binary"
+	--netbird-binary "$netbird_binary"
+	--netbird-config "$netbird_config"
 	--timesyncd-config "$timesyncd_config_image"
 )
 for bootstrap_root in "${bootstrap_roots[@]}"; do
@@ -389,6 +434,8 @@ kernel_sha256=$(sha256sum -- "$temporary_directory/guest-kernel" | cut -d ' ' -f
 device_paths_sha256=$(sha256sum -- deploy/udev/65-terrascale-oci-device-paths.rules | cut -d ' ' -f 1)
 "$offline_guestfs_runner" deploy/image/offline-guestfs.py verify --image "$candidate" \
 	--expect "/usr/local/bin/terrascale-orchestrator=$binary_sha256" \
+	--expect "/usr/local/bin/netbird=$netbird_sha256" \
+	--expect "/etc/terrascale-orchestrator/netbird.json=$netbird_config_sha256" \
 	--expect "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server=$native_verifier_sha256" \
 	--expect "/boot/vmlinuz-$kernel_release=$kernel_sha256" \
 	--expect "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules=$device_paths_sha256"

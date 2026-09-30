@@ -125,6 +125,11 @@ class PreviewAdmissionTests(unittest.TestCase):
             "compartment_id": "ocid1.compartment.oc1..secretstore",
             "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
+        plan_value["netbird"].update({
+            "secret_compartment_id": "ocid1.compartment.oc1..netbirdsecretstore",
+            "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.netbirdsetupkey",
+            "policy_id": "ocid1.policy.oc1..netbirdenrollment",
+        })
         plan_value["operator_gateway"]["local_peering_gateway_id"] = (
             "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.testforgejopeering")
         plan_path = directory / "plan.json"
@@ -351,6 +356,101 @@ class PreviewAdmissionTests(unittest.TestCase):
 
         self.assert_plan_rejected(without_service_gateway, "route resources without a service gateway")
 
+    def test_netbird_egress_is_exact_private_https_and_stun(self):
+        gateway = self.plan["operator_gateway"]["private_ip"] + "/32"
+        egress = self.plan["network_security"]["security_list_egress_rules"]
+        ports = {tuple(rule[key] for key in ("protocol", "tcp_min", "tcp_max", "udp_min", "udp_max"))
+                 for rule in egress if rule["destination"] == gateway}
+        self.assertEqual(ports, {("6", 443, 443, None, None), ("17", None, None, 3478, 3478)})
+
+        def change_gateway_rule(**fields):
+            def change(plan):
+                rule = next(rule for rule in plan["network_security"]["security_list_egress_rules"]
+                            if rule["destination"] == gateway and rule["protocol"] == "6")
+                rule.update(fields)
+            return change
+
+        for name, change, message in (
+                ("missing HTTPS", change_gateway_rule(destination="10.251.0.10/32"), "must allow NetBird HTTPS"),
+                ("whole Forgejo subnet", change_gateway_rule(destination="10.250.10.0/24"), "egress leaves"),
+                ("public manager", change_gateway_rule(destination="163.176.73.79/32"), "egress leaves"),
+                ("SSH on gateway", change_gateway_rule(tcp_min=22, tcp_max=22), "egress leaves"),
+                ("HTTPS port range", change_gateway_rule(tcp_max=444), "egress leaves"),
+                ("all gateway ports", change_gateway_rule(protocol="all", tcp_min=None, tcp_max=None), "egress leaves"),
+                ("stateless HTTPS", change_gateway_rule(stateless=True), "stateful egress")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(change, message)
+
+        def remove_stun(plan):
+            rules = plan["network_security"]["security_list_egress_rules"]
+            rules[:] = [rule for rule in rules if not (rule["destination"] == gateway and rule["protocol"] == "17")]
+
+        self.assert_plan_rejected(remove_stun, "must allow NetBird HTTPS and STUN")
+
+    def test_netbird_plan_contains_only_private_manager_and_secret_references(self):
+        self.assertEqual(self.plan["netbird"]["management_url"], "https://netbird.terrascale.tech")
+        self.assertEqual(self.plan["netbird"]["management_ip"], self.plan["operator_gateway"]["private_ip"])
+        for name, fields, message in (
+                ("HTTP manager", {"management_url": "http://netbird.terrascale.tech"}, "HTTPS DNS origin"),
+                ("foreign manager", {"management_url": "https://another-manager.example"}, "HTTPS DNS origin"),
+                ("manager IP URL", {"management_url": "https://10.250.10.155"}, "HTTPS DNS origin"),
+                ("alternate TLS port", {"management_url": "https://netbird.terrascale.tech:8443"}, "HTTPS DNS origin"),
+                ("manager URL credentials", {"management_url": "https://key@netbird.terrascale.tech"}, "HTTPS DNS origin"),
+                ("public manager IP", {"management_ip": "163.176.73.79"}, "private operator gateway"),
+                ("setup key plaintext", {"setup_key": "do-not-publish-credentials"}, "exact nonsecret"),
+                ("wrong secret kind", {"secret_compartment_id": "ocid1.compartment.oc1..secretstore",
+                                       "setup_key_secret_id": "ocid1.secret.oc1.sa-saopaulo-1.wrong"},
+                 "invalid vaultsecret OCID")):
+            with self.subTest(case=name):
+                self.assert_plan_rejected(lambda plan: plan["netbird"].update(fields), message)
+        self.assert_plan_rejected(lambda plan: plan.pop("netbird"), "declare its NetBird enrollment")
+        self.assert_plan_rejected(lambda plan: plan.update(netbird=None), "requires private NetBird enrollment")
+
+    def test_netbird_foundation_requires_secret_and_policy_and_exact_readback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            plan, _, _, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
+            config = plan["netbird"]
+            resources = {
+                config["policy_id"]: {"id": config["policy_id"], "name": config["policy_name"],
+                    "compartment-id": config["secret_compartment_id"], "lifecycle-state": "ACTIVE",
+                    "statements": preview.required_netbird_statements(plan)},
+                config["setup_key_secret_id"]: {"id": config["setup_key_secret_id"],
+                    "compartment-id": config["secret_compartment_id"], "lifecycle-state": "ACTIVE"},
+            }
+
+            def fake_oci(*args, region=None):
+                key = "--policy-id" if args[:3] == ("iam", "policy", "get") else "--secret-id"
+                return resources[args[args.index(key) + 1]]
+
+            with mock.patch.object(preview, "oci", side_effect=fake_oci) as mocked:
+                preview.check_live_netbird_iam(plan)
+            self.assertEqual({call.args[:3] for call in mocked.call_args_list},
+                             {("iam", "policy", "get"), ("vault", "secret", "get")})
+            self.assertFalse(any("secret-bundle" in call.args for call in mocked.call_args_list))
+            expected = deepcopy(resources)
+            for name, resource_id, fields, message in (
+                    ("extra secret grant", config["policy_id"], {"statements": [
+                        *preview.required_netbird_statements(plan), "Allow dynamic-group anyone to read secret-bundles in tenancy"]},
+                     "exact secret read grants"),
+                    ("missing controller grant", config["policy_id"], {"statements": preview.required_netbird_statements(plan)[1:]},
+                     "exact secret read grants"),
+                    ("wrong compartment", config["policy_id"], {"compartment-id": plan["shared_compartment_id"]},
+                     "exact secret read grants"),
+                    ("inactive setup key", config["setup_key_secret_id"], {"lifecycle-state": "PENDING_DELETION"},
+                     "not active in its selected compartment")):
+                with self.subTest(case=name):
+                    resources = deepcopy(expected)
+                    resources[resource_id].update(fields)
+                    with mock.patch.object(preview, "oci", side_effect=fake_oci):
+                        with self.assertRaisesRegex(ValueError, message):
+                            preview.check_live_netbird_iam(plan)
+            for key in ("secret_compartment_id", "setup_key_secret_id", "policy_id"):
+                with self.subTest(missing=key):
+                    changed = deepcopy(plan)
+                    changed["netbird"][key] = None
+                    with self.assertRaisesRegex(ValueError, "exact NetBird setup-key secret and IAM policy OCIDs"):
+                        preview.required_resource_ids(changed)
+
     def test_inventory_admits_only_recorded_gateways_and_balancer(self):
         with tempfile.TemporaryDirectory() as directory:
             plan, plan_path, inventory, _, _, _ = self.bound_plan_and_inventory(pathlib.Path(directory))
@@ -502,6 +602,11 @@ class PreviewAdmissionTests(unittest.TestCase):
                     "statements": [host_statement]},
                 secret_scope["secret_id"]: {"id": secret_scope["secret_id"], "compartment-id":
                     secret_scope["compartment_id"], "lifecycle-state": "ACTIVE"},
+                plan["netbird"]["policy_id"]: {"id": plan["netbird"]["policy_id"], "name":
+                    plan["netbird"]["policy_name"], "compartment-id": plan["netbird"]["secret_compartment_id"],
+                    "lifecycle-state": "ACTIVE", "statements": preview.required_netbird_statements(plan)},
+                plan["netbird"]["setup_key_secret_id"]: {"id": plan["netbird"]["setup_key_secret_id"],
+                    "compartment-id": plan["netbird"]["secret_compartment_id"], "lifecycle-state": "ACTIVE"},
             }
 
             def fake_oci(*args, region=None):
@@ -614,6 +719,7 @@ class PreviewAdmissionTests(unittest.TestCase):
         gateway = plan["operator_gateway"]
         public = plan["public_api"]
         existing = plan["existing_forgejo"]
+        gateway_nsg_id = f"ocid1.networksecuritygroup.oc1.{plan['region']}.netbirdgateway"
         rule_roles = {ids["network_security_group"]: "nsg_rules",
                       ids["seed_ssh_network_security_group"]: "seed_ssh_nsg_rules",
                       ids["workload_network_security_group"]: "workload_nsg_rules"}
@@ -650,12 +756,28 @@ class PreviewAdmissionTests(unittest.TestCase):
                         "prohibit-internet-ingress": True, "security-list-ids": [ids["security_list"]],
                         "route-table-id": ids["route_table"]}
             if command == ("network", "nsg", "get"):
+                if args[args.index("--nsg-id") + 1] == gateway_nsg_id:
+                    return drift.get("gateway_nsg", lambda value: value)({
+                        "id": gateway_nsg_id, "compartment-id": plan["shared_compartment_id"],
+                        "vcn-id": existing["vcn_id"]})
                 return {"id": args[args.index("--nsg-id") + 1],
                         "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"]}
             if command == ("network", "nsg", "rules"):
                 self.assertIn("--nsg-id", args)
                 self.assertNotIn("--network-security-group-id", args)
                 rule_commands.append(args)
+                if args[args.index("--nsg-id") + 1] == gateway_nsg_id:
+                    self.assertIn("--all", args)
+                    rules = [{"direction": "INGRESS", "protocol": "6", "source": plan["subnet_cidr"],
+                              "source-type": "CIDR_BLOCK", "is-stateless": False,
+                              "tcp-options": {"destination-port-range": {"min": 443, "max": 443}}},
+                             {"direction": "INGRESS", "protocol": "17", "source": plan["subnet_cidr"],
+                              "source-type": "CIDR_BLOCK", "is-stateless": False,
+                              "udp-options": {"destination-port-range": {"min": 3478, "max": 3478}}},
+                             {"direction": "INGRESS", "protocol": "6", "source": "0.0.0.0/0",
+                              "source-type": "CIDR_BLOCK", "is-stateless": False,
+                              "tcp-options": {"destination-port-range": {"min": 443, "max": 443}}}]
+                    return drift.get("gateway_nsg_rules", lambda value: value)(rules)
                 role = rule_roles[args[args.index("--nsg-id") + 1]]
                 return drift.get(role, lambda rules: rules)(self.live_rules(network_security[role]))
             if command == ("network", "internet-gateway", "get"):
@@ -714,7 +836,8 @@ class PreviewAdmissionTests(unittest.TestCase):
                 self.assertEqual(args[args.index("--instance-id") + 1], existing["instance_id"])
                 self.assertIn("--all", args)
                 vnic = {"lifecycle-state": "AVAILABLE", "is-primary": True,
-                        "private-ip": gateway["private_ip"], "skip-source-dest-check": False}
+                        "private-ip": gateway["private_ip"], "skip-source-dest-check": False,
+                        "nsg-ids": [gateway_nsg_id]}
                 return drift.get("vnics", lambda value: value)([vnic])
             self.fail(f"unexpected OCI command: {args}")
 
@@ -729,7 +852,8 @@ class PreviewAdmissionTests(unittest.TestCase):
                 preview.check_live_network(plan, ids)
             self.assertEqual({command[command.index("--nsg-id") + 1] for command in rule_commands},
                              {ids["network_security_group"], ids["seed_ssh_network_security_group"],
-                              ids["workload_network_security_group"]})
+                              ids["workload_network_security_group"],
+                              f"ocid1.networksecuritygroup.oc1.{plan['region']}.netbirdgateway"})
 
             def widen_port(rules):
                 rules[0]["tcp-options"]["destination-port-range"]["max"] += 1
@@ -774,6 +898,20 @@ class PreviewAdmissionTests(unittest.TestCase):
                     ("gateway address", {"vnics": vnic_field("private-ip", "10.250.10.156")}, "gateway VNIC"),
                     ("source check skipped", {"vnics": vnic_field("skip-source-dest-check", True)}, "gateway VNIC"),
                     ("secondary VNIC", {"vnics": lambda vnics: vnics * 2}, "gateway VNIC"),
+                    ("gateway without NSG", {"vnics": vnic_field("nsg-ids", [])}, "explicit network security groups"),
+                    ("gateway NSG ownership", {"gateway_nsg": set_field("vcn-id", ids["vcn"])},
+                     "gateway network security group ownership"),
+                    ("missing gateway STUN", {"gateway_nsg_rules": lambda rules: [rule for rule in rules
+                                                                             if rule["protocol"] != "17"]},
+                     "private-subnet HTTPS or STUN ingress"),
+                    ("public HTTPS only", {"gateway_nsg_rules": lambda rules: rules[1:]},
+                     "private-subnet HTTPS or STUN ingress"),
+                    ("broad gateway private ingress", {"gateway_nsg_rules": lambda rules: [
+                        dict(rule, source=plan["network_cidr"]) for rule in rules]},
+                     "private-subnet HTTPS or STUN ingress"),
+                    ("stateless gateway ingress", {"gateway_nsg_rules": lambda rules: [
+                        dict(rule, **{"is-stateless": True}) for rule in rules]},
+                     "private-subnet HTTPS or STUN ingress"),
                     ("public gateway disabled", {"internet_gateway": set_field("is-enabled", False)},
                      "public API internet gateway"),
                     ("public subnet sealed", {"public_subnet": set_field("prohibit-public-ip-on-vnic", True)},
@@ -1149,6 +1287,11 @@ class PreviewAdmissionTests(unittest.TestCase):
             "compartment_id": "ocid1.compartment.oc1..secretstore",
             "secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         }
+        self.plan["netbird"].update({
+            "secret_compartment_id": "ocid1.compartment.oc1..netbirdsecretstore",
+            "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.netbirdsetupkey",
+            "policy_id": "ocid1.policy.oc1..netbirdenrollment",
+        })
         self.plan["operator_gateway"]["local_peering_gateway_id"] = "ocid1.localpeeringgateway.forgejo"
         self.inventory["preview_compartment_ids"] = {"control": ids["control_compartment"],
                                                       "network": ids["network_compartment"],

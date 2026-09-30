@@ -1,0 +1,41 @@
+[Unit]
+Description=Join the TerraScale NetBird management network
+Wants=network-online.target netbird.service
+After=network-online.target netbird.service
+ConditionPathExists=/etc/terrascale-orchestrator/netbird.json
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/terrascale-orchestrator netbird-enroll --config /etc/terrascale-orchestrator/netbird.json
+Restart=on-failure
+RestartSec=30s
+TimeoutStartSec=180s
+UMask=0077
+UnsetEnvironment=OCI_GO_SDK_DEBUG OCI_METADATA_BASE_URL OCI_SDK_AUTH_CLIENT_REGION_URL OCI_DEFAULT_CERTS_PATH OCI_DEFAULT_CLIENT_CERTS_PATH OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH
+RuntimeDirectory=terrascale-netbird
+RuntimeDirectoryMode=0700
+StateDirectory=netbird
+StateDirectoryMode=0700
+StandardError=journal+console
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_CHOWN
+AmbientCapabilities=
+ProtectSystem=strict
+# The public management endpoint pin updates /etc/hosts by atomic rename.
+ReadWritePaths=/var/lib/netbird /run/terrascale-netbird /etc
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
