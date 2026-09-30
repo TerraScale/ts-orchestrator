@@ -27,6 +27,11 @@ const (
 	retainedVolumeShareable           = false
 	retainedVolumeEncryptionInTransit = true
 
+	// OCI returns a new attachment while it is still ATTACHING and changes its
+	// ETag when it settles.
+	attachmentSettleTimeout = 2 * time.Minute
+	attachmentSettlePoll    = 2 * time.Second
+
 	tagManagedBy              = "terrascale-managed-by"
 	tagOwner                  = "terrascale-owner"
 	tagRegion                 = "terrascale-region"
@@ -101,6 +106,7 @@ func newFleet(
 	return &fleet{
 		config: config, provider: provider, journal: journal, fencer: fencer,
 		drainRequester: drainRequester, writerStop: writerStop, imageVerifier: imageVerifier, now: time.Now,
+		attachmentSettle: attachmentSettleTimeout,
 	}, nil
 }
 
@@ -136,6 +142,8 @@ type fleet struct {
 	writerStop     WriterStopVerifier
 	imageVerifier  ImageQualificationVerifier
 	now            func() time.Time
+	// attachmentSettle bounds the wait for a new attachment to leave ATTACHING.
+	attachmentSettle time.Duration
 }
 
 func (f *fleet) verifyPinnedImage(ctx context.Context) error {
@@ -715,7 +723,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		if attachments[0].InstanceID != request.InstanceID {
 			return Attachment{}, errors.Join(retryWindowErr, ErrRetainedVolumeInUse)
 		}
-		attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+		attachment, err := f.awaitAttached(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
 		if err != nil {
 			return Attachment{}, errors.Join(retryWindowErr, ErrAttachmentRecoveryHold, err)
 		}
@@ -765,14 +773,14 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		return Attachment{}, errors.Join(ErrRetainedVolumeInUse,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
-	attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+	attachment, err := f.awaitAttached(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
 	if err != nil {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, err,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
-	if created.ID != "" && created.ID != attachment.ID ||
-		created.ETag != "" && created.ETag != attachment.ETag ||
-		attachErr == nil && (created.ID == "" || created.ETag == "") {
+	// The response describes the ATTACHING attachment; only its ID must match
+	// the settled one, whose ETag becomes the confirmed ownership fence.
+	if created.ID != "" && created.ID != attachment.ID || attachErr == nil && created.ID == "" {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, errors.New("OCI attachment response and re-observation disagree"),
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
@@ -1047,6 +1055,27 @@ func (f *fleet) selectRetainedVolumeDevice(ctx context.Context, instanceID strin
 		return cmp.Or(cmp.Compare(len(left), len(right)), strings.Compare(left, right))
 	})
 	return available[0], nil
+}
+
+// awaitAttached waits, bounded by attachmentSettle, for an attachment to leave
+// ATTACHING and then re-observes its complete attached scope.
+func (f *fleet) awaitAttached(ctx context.Context, attachmentID, volumeID, instanceID, expectedDevice string) (Attachment, error) {
+	settleCtx, cancel := context.WithTimeout(ctx, f.attachmentSettle)
+	defer cancel()
+	for {
+		cloud, err := f.provider.GetVolumeAttachment(settleCtx, attachmentID)
+		if err != nil {
+			return Attachment{}, err
+		}
+		if cloud.LifecycleState != "ATTACHING" {
+			return f.reobserveAttachment(ctx, attachmentID, volumeID, instanceID, expectedDevice)
+		}
+		select {
+		case <-settleCtx.Done():
+			return Attachment{}, fmt.Errorf("OCI volume attachment %s is still ATTACHING: %w", attachmentID, settleCtx.Err())
+		case <-time.After(attachmentSettlePoll):
+		}
+	}
 }
 
 func (f *fleet) reobserveAttachment(ctx context.Context, attachmentID, volumeID, instanceID, expectedDevice string) (Attachment, error) {

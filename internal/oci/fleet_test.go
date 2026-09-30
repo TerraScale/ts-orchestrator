@@ -1146,19 +1146,48 @@ func TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming(t *testing.T
 	}
 }
 
-func TestRetainedVolumeAttachRejectsIncompleteObservedPolicyAndStaleETag(t *testing.T) {
+func TestRetainedVolumeAttachConfirmsTheSettledAttachment(t *testing.T) {
+	ctx := t.Context()
+	_, provider, journal, fleet, host, volume := newAttachTestState(t)
+	attachment, err := fleet.AttachRetainedVolume(ctx, VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-settles",
+	})
+	if err != nil || attachment.ETag != "a1" || attachment.State != "ATTACHED" || provider.attachCalls != 1 {
+		t.Fatalf("settled attachment = %+v, %v (calls %d)", attachment, err, provider.attachCalls)
+	}
+	operation, found, err := journal.GetOperation(ctx, OperationScope{
+		Action: actionVolumeAttach, Key: "attach-settles", Region: host.Region,
+		Generation: host.Generation, Owner: host.Owner,
+	})
+	if err != nil || !found {
+		t.Fatalf("attach intent missing: %v", err)
+	}
+	if result, found, err := journal.GetResult(ctx, operation); err != nil || !found || result.Unknown || result.ETag != "a1" {
+		t.Fatalf("settled attachment result = %+v, %v", result, err)
+	}
+	observed, err := fleet.Observe(ctx)
+	if err != nil || len(observed) != 1 || len(observed[0].Attachments) != 1 || observed[0].Attachments[0].ID != attachment.ID {
+		t.Fatalf("host with its confirmed attachment was withheld: %+v, %v", observed, err)
+	}
+}
+
+func setAttachmentSettle(f Fleet, timeout time.Duration) {
+	f.(*fleet).attachmentSettle = timeout
+}
+
+func TestRetainedVolumeAttachRejectsIncompleteObservedPolicy(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		mutate func(*CloudAttachment)
 	}{
 		{name: "missing readonly flag", mutate: func(attachment *CloudAttachment) { attachment.IsReadOnly = nil }},
 		{name: "wrong device", mutate: func(attachment *CloudAttachment) { attachment.Device = "/dev/oracleoci/oraclevdc" }},
-		{name: "stale etag", mutate: func(attachment *CloudAttachment) { attachment.ETag = "changed-etag" }},
-		{name: "not attached", mutate: func(attachment *CloudAttachment) { attachment.LifecycleState = "ATTACHING" }},
+		{name: "never settles", mutate: func(attachment *CloudAttachment) { attachment.LifecycleState = "ATTACHING" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := t.Context()
 			_, provider, journal, fleet, host, volume := newAttachTestState(t)
+			setAttachmentSettle(fleet, 50*time.Millisecond)
 			provider.afterAttach = func(provider *fakeProvider, attachmentID string) {
 				attachment := provider.attachments[attachmentID]
 				test.mutate(&attachment)
@@ -2161,6 +2190,10 @@ func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttach
 		InstanceID: request.InstanceID, LifecycleState: "ATTACHED", ETag: "a1", Device: request.Device,
 		IsReadOnly: &readOnly, IsShareable: &shareable, IsPvEncryptionInTransitEnabled: &encryption,
 	}
+	// Like OCI, the response describes the attachment while it is ATTACHING,
+	// under an ETag that changes once it settles.
+	response := attachment
+	response.LifecycleState, response.ETag = "ATTACHING", "a0"
 	p.attachments[attachment.ID] = attachment
 	p.attachRetryTokens[request.IdempotencyKey] = attachment.ID
 	if p.afterAttach != nil {
@@ -2169,7 +2202,7 @@ func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttach
 	}
 	attachErr := p.attachErrorAfterCreate
 	p.attachErrorAfterCreate = nil
-	return attachment, attachErr
+	return response, attachErr
 }
 
 func (p *fakeProvider) DetachVolume(_ context.Context, id, etag string) error {
