@@ -266,6 +266,9 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	lost := make(chan error, 1)
 	go a.maintainSession(work, cancel, lost)
+	if a.cfg.ManagedRuntimeRoot != "" {
+		go a.refreshNativeRootPins(work)
+	}
 	ticker := time.NewTicker(a.cfg.PollInterval)
 	defer ticker.Stop()
 	type roleFailure struct {

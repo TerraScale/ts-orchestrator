@@ -68,6 +68,55 @@ func (a *Agent) refreshNativeRootPin(ctx context.Context, target desiredReply, f
 	return a.pinManagedNativeRootDesired(role, fingerprint)
 }
 
+// extendManagedNativeRootPin advances an existing pin for the same
+// fingerprint to the current session deadline. It never recreates a revoked
+// pin or adopts a changed desired.
+func (a *Agent) extendManagedNativeRootPin(role, fingerprint string) error {
+	_, deadline, err := a.executionLease()
+	if err != nil {
+		return err
+	}
+	a.nativeRootMu.Lock()
+	defer a.nativeRootMu.Unlock()
+	if pin, pinned := a.nativeDesired[role]; pinned && pin.fingerprint == fingerprint && deadline.After(pin.until) {
+		a.nativeDesired[role] = nativeRootDesired{fingerprint: fingerprint, until: deadline}
+	}
+	return nil
+}
+
+// refreshNativeRootPins re-validates every pinned desired once per poll. A
+// pin lasts one session lease, while a reconcile on a single-OCPU host can
+// take as long; a lapsed pin makes the native OCI root reject the member's
+// root publication, which the member must treat as an uncertain commit.
+func (a *Agent) refreshNativeRootPins(ctx context.Context) {
+	ticker := time.NewTicker(a.cfg.PollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		for _, role := range a.cfg.Roles {
+			a.nativeRootMu.Lock()
+			pin, pinned := a.nativeDesired[role]
+			a.nativeRootMu.Unlock()
+			if !pinned {
+				continue
+			}
+			var latest desiredReply
+			if err := a.request(ctx, "desired", struct {
+				Role string `json:"role"`
+			}{role}, &latest); err != nil || a.validateDesiredReply(latest) != nil || latest.Desired == nil {
+				continue
+			}
+			if fingerprint, err := desiredFingerprint(*latest.Desired); err == nil && fingerprint == pin.fingerprint {
+				_ = a.extendManagedNativeRootPin(role, fingerprint)
+			}
+		}
+	}
+}
+
 func (a *Agent) revokeManagedNativeRoot(role string) error {
 	a.nativeRootMu.Lock()
 	delete(a.nativeDesired, role)

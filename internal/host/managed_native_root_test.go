@@ -56,6 +56,41 @@ func TestNativeRootDesiredRequestFailureRevokesSocket(t *testing.T) {
 	}
 }
 
+func TestNativeRootPinExtendsOnlyTheSameValidatedDesired(t *testing.T) {
+	now := time.Now()
+	agent := &Agent{
+		cfg:              AgentConfig{ClockCheck: func() error { return nil }},
+		session:          session{ExpiresAt: now.Add(2 * time.Minute)},
+		sessionSafeUntil: now.Add(20 * time.Second),
+	}
+	if err := agent.pinManagedNativeRootDesired("terrabase", "accepted"); err != nil {
+		t.Fatal(err)
+	}
+	renewed := now.Add(50 * time.Second)
+	agent.sessionSafeUntil = renewed
+	if err := agent.extendManagedNativeRootPin("terrabase", "changed"); err != nil {
+		t.Fatal(err)
+	}
+	if pinned, err := agent.nativeRootDesiredDeadline("terrabase", "accepted"); err != nil || pinned.Equal(renewed) {
+		t.Fatalf("a changed desired extended the pin: %v, %v", pinned, err)
+	}
+	if err := agent.extendManagedNativeRootPin("terrabase", "accepted"); err != nil {
+		t.Fatal(err)
+	}
+	if pinned, err := agent.nativeRootDesiredDeadline("terrabase", "accepted"); err != nil || !pinned.Equal(renewed) {
+		t.Fatalf("the re-validated desired did not extend its pin: %v, %v", pinned, err)
+	}
+	agent.nativeRootMu.Lock()
+	delete(agent.nativeDesired, "terrabase")
+	agent.nativeRootMu.Unlock()
+	if err := agent.extendManagedNativeRootPin("terrabase", "accepted"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agent.nativeRootDesiredDeadline("terrabase", "accepted"); err == nil {
+		t.Fatal("extension recreated a revoked pin")
+	}
+}
+
 func TestNativeRootPinExpiryAndPeerRestrictions(t *testing.T) {
 	now := time.Now()
 	leaseDeadline := now.Add(30 * time.Second)
