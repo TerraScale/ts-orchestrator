@@ -14,6 +14,8 @@ Phases, in order:
   complete  observe controller A, then sign and publish its seed completion
   continuity  sign install continuity for A/B/C from the markers they publish
             and publish the next read-only founder selection
+  operator  render and install this attempt's operator config and credentials,
+            replacing a previous attempt's install (recipient keys are kept)
   up        every phase above, in order
   status    read-only view of the attempt's cloud and ledger state
 
@@ -26,6 +28,7 @@ hand-run steps. Private keys are only read by the signing tools.
 
 import argparse
 import base64
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -40,7 +43,10 @@ HERE = pathlib.Path(__file__).resolve().parent
 PREVIEW = HERE / "preview.py"
 IMPORT_IMAGE = HERE / "import-image.py"
 SLOTS = ("controller-a", "controller-b", "controller-c")
-PHASES = ("material", "release", "image", "sign", "launch", "complete", "continuity")
+PHASES = ("material", "release", "image", "sign", "launch", "complete", "continuity", "operator")
+OPERATOR_DIR = "/var/lib/terrascale-operator"
+OPERATOR_FILES = ("operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem", "ca.pem", "ticket.pub",
+                  "operator-signing.key", "operator.json")
 REGION = "sa-saopaulo-1"
 
 
@@ -111,6 +117,23 @@ class Attempt:
             self.write_new(record, json.dumps({"issued_at": utc(issued), "expires_at": utc(expires)}).encode())
         row = json.loads(record.read_text())
         return row["issued_at"], row["expires_at"]
+
+    @contextlib.contextmanager
+    def root_material(self):
+        """Yield a root-owned tmpfs copy of the material, removed on exit.
+
+        Root-run renderers and installers read only root-owned material.
+        """
+        copy = self.run("mktemp", "-d", "/run/ts-attempt-material.XXXXXX", capture=True, sudo=True).strip()
+        try:
+            self.run("cp", "-a", f"{self.path('material')}/.", copy, sudo=True)
+            self.run("chown", "-R", "root:root", copy, sudo=True)
+            yield copy
+        finally:
+            self.run("rm", "-rf", "--", copy, sudo=True)
+
+    def root_sha256(self, path: str) -> str:
+        return self.run("sha256sum", path, capture=True, sudo=True).split()[0]
 
     def fresh_admission(self, name: str) -> tuple[pathlib.Path, pathlib.Path]:
         inventory, admission = self.path(f"{name}-inventory.json"), self.path(f"{name}-admission.json")
@@ -199,17 +222,9 @@ class Attempt:
 
         enrollment = self.path("host-enrollment-public.json")
         if not enrollment.exists():
-            # The renderer runs as root and reads only root-owned material, so it
-            # reads a root-owned copy on tmpfs that is removed right after.
-            copy = self.run("mktemp", "-d", "/run/ts-attempt-material.XXXXXX", capture=True, sudo=True).strip()
-            try:
-                self.run("cp", "-a", f"{material_dir}/.", copy, sudo=True)
-                self.run("chown", "-R", "root:root", copy, sudo=True)
-                self.run(self.bootstrap_tool, "render-host-enrollment-public", "--material-record", record,
-                         "--material-record-sha256", sha256(record), "--material-directory", copy,
-                         "--out", enrollment, sudo=True)
-            finally:
-                self.run("rm", "-rf", "--", copy, sudo=True)
+            with self.root_material() as copy:
+                self.run(self.bootstrap_tool, "render-host-enrollment-public", *self.pair(record, "--material-record"),
+                         "--material-directory", copy, "--out", enrollment, sudo=True)
             self.run("chown", f"{os.getuid()}:{os.getgid()}", enrollment, sudo=True)
         peer = self.path("peer-receipt-delegation.signed.json")
         if not peer.exists():
@@ -638,6 +653,26 @@ class Attempt:
                  "--identity", self.path("identity.json"), "--anchor", anchor, "--root-key", self.trust["root_public"],
                  "--oci-config", pathlib.Path.home() / ".oci/config", "--oci-profile", "DEFAULT", *proofs)
         record.write_text(str(generation))
+
+    def phase_operator(self) -> None:
+        """Install this attempt's operator config, credentials and signing key for the operator CLI."""
+        record, grant = self.path("controller-material.json"), pathlib.Path(self.config["operator_grant"])
+        key = self.config["operator_signing_key"]
+        rendered = f"/run/ts-attempt-operator-{self.deployment}.json"
+        with self.root_material() as material:
+            self.run("rm", "-f", "--", rendered, sudo=True)
+            try:
+                self.run(self.bootstrap_tool, "render-operator-config", *self.pair(record, "--material-record"),
+                         "--material-directory", material, *self.pair(grant, "--operator-grant"),
+                         "--operator-signing-key", key, "--operator-signing-key-sha256", self.root_sha256(key),
+                         "--out", rendered, sudo=True)
+                self.run("rm", "-f", "--", *(f"{OPERATOR_DIR}/{name}" for name in OPERATOR_FILES), sudo=True)
+                self.run(self.bootstrap_tool, "install-operator-material", *self.pair(record, "--material-record"),
+                         "--material-directory", material, "--operator-config", rendered,
+                         "--operator-config-sha256", self.root_sha256(rendered), "--operator-signing-key", key,
+                         "--operator-signing-key-sha256", self.root_sha256(key), sudo=True)
+            finally:
+                self.run("rm", "-f", "--", rendered, sudo=True)
 
     def phase_up(self) -> None:
         for phase in PHASES:
