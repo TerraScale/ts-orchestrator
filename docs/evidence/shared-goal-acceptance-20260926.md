@@ -21,6 +21,64 @@ the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
 verified acceptance, not effort or source completion.
 
+## GRU preview refresh — 2026-09-30 (R17–R20)
+
+This entry supersedes the R16 open items below.
+
+- **Write reliability.** R16–R18 writes could return `commit_uncertain` and
+  fail-stop the member. Causes and fixes:
+  - The host's native OCI root pin lapsed between reconciles:
+    `a54cba54` refreshes it for the same validated desired state.
+  - TerraBase treated retryable publication holds as fatal: TerraBase PR #156
+    (`3ea833d`, CI #1036) keeps them retryable.
+  - Artifact claims could expire before upload finished: `682a6705` signs a
+    claim only after its bytes are stored.
+  - Cloudflare returned 525 against the Ed25519 serving leaf: `ee92b9bf`
+    switches the leaf to ECDSA P-256.
+- **Serving flaps.** Hosts report about every 35 seconds, but host status
+  discarded reports older than 30 seconds, so placement demoted and re-promoted
+  healthy members. `a646a862` bounds every report-freshness check by one
+  90-second `host.ReportMaxAge`.
+- **R19.** ts-orchestrator `a646a862` (Go CI #796) with TerraBase `3ea833d`
+  (CI #1036).
+  - `attempt.py up` ran without intervention.
+  - `terrabase-deploy` applied on its first attempt, and both seats served
+    about six minutes later.
+  - The walkthrough passed 13/13.
+  - 29 of 30 authenticated writes through `gru.terrascale.tech` committed and
+    read back through `api.terrascale.tech`; one request failed in transport.
+  - Report ages up to 32 seconds no longer demote members.
+- **Scalar reference.** `/docs` stayed on Scalar's loading skeleton in every
+  browser. Scalar's standalone script auto-mounts an empty reference on the id
+  `api-reference`, and the page used that id for its own mount. Fixed in:
+  - TerraBase PR #158: mount on `terrabase-reference`, pin the new CSP hash,
+    and test for the reserved id.
+  - TerraBase PR #159: `withDefaultFonts: false`, so the strict `font-src`
+    policy no longer logs violations.
+  - Release: TerraBase `431991c`, CI #1040.
+- **R20 (current).** ts-orchestrator `a646a862` (Go CI #796) with TerraBase
+  `431991c` (CI #1040), deployment `ts-preview-gru-20260930-r20`.
+  - `up` ran without intervention.
+  - `terrabase-deploy` applied on its first attempt, and both seats served
+    about five minutes later.
+  - The walkthrough passed 13/13.
+  - 20 of 20 writes through `gru.terrascale.tech` committed on their first
+    attempt and read back through `api.terrascale.tech` (p50 1.9 s).
+  - `http://gru.terrascale.tech/` redirects to `/docs`, and the Scalar reference
+    renders completely in Chromium on `gru.terrascale.tech` and
+    `api.terrascale.tech`.
+- **Open.**
+  - The serving proof requires the peer to have applied the local source
+    sequence at report time. Under sustained writes a report can land
+    mid-replication and briefly demote a member; the process is not restarted
+    and desired state is re-applied unchanged.
+  - Cloudflare Web Analytics injects a beacon that the docs CSP blocks.
+    Disable Web Analytics for the zone.
+  - In-place TerraBase rollout (`operator terrabase-update`) still needs the
+    compatibility signer and update-actor decisions. Until then each TerraBase
+    release rebuilds the cell, because the image packages `tb-server` as the
+    native verifier.
+
 ## GRU preview deployment — 2026-09-30 (R16)
 
 This dated entry records the first end-to-end GRU preview deployment. It
