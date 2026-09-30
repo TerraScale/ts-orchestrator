@@ -54,13 +54,16 @@ func (forwards *operatorForwardFlags) Set(value string) error {
 
 func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: operator <terrabase-deploy|terrabase-update|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
+		return errors.New("usage: operator <terrabase-deploy|terrabase-update|terrabase-sync|terrabase-status|terrabase-walkthrough|hosts|host-register|host-enrollment-revoke|material-credentials|material-credentials-status|placement-apply|managed-update-prepare|placement-list|terminal-plan|terminal-apply|terminal-status|backup-start|backup-abort|backup-status|broker-claim-apply|artifact-push|deploy|rollback|status> --config FILE")
 	}
 	operation := args[0]
 	if operation == "terrabase-walkthrough" {
 		// The customer walkthrough uses only the deployment state and the
 		// members' HTTPS listeners, never the controller or NATS.
 		return runTerraBaseWalkthrough(ctx, args[1:], output)
+	}
+	if operation == "terrabase-sync" {
+		return runTerraBaseSync(ctx, args[1:], output)
 	}
 	flags := flag.NewFlagSet("operator "+operation, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
