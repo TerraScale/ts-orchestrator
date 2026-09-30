@@ -7,8 +7,8 @@ ConditionPathExists=/etc/terrascale-orchestrator/host.json
 
 [Service]
 Type=simple
-User=root
-Group=root
+# Runs as root by default: User=root with NoNewPrivileges=yes would make
+# systemd drop CAP_SETUID, which the native workload helper needs.
 SupplementaryGroups=
 ExecStart=/usr/local/bin/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json
 # Protect the host manager without throttling the managed database when idle.

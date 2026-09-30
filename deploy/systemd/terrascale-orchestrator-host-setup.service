@@ -6,10 +6,10 @@ Before=terrascale-orchestrator-host.service
 
 [Service]
 Type=oneshot
-User=root
-Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator host-setup --public-config /etc/terrascale-orchestrator/host-enrollment-public.json --output-root /etc/terrascale-orchestrator
-ExecStartPost=/usr/bin/systemctl --no-block try-restart terrascale-orchestrator-host.service
+# Start the runtime once enrollment succeeds, also when an earlier failed
+# attempt left it stopped by a failed dependency; restart it after a refresh.
+ExecStartPost=/usr/bin/systemctl --no-block restart terrascale-orchestrator-host.service
 Restart=on-failure
 RestartSec=10s
 TimeoutStartSec=90s

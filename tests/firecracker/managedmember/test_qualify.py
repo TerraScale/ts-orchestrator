@@ -37,8 +37,8 @@ class InputContractTests(unittest.TestCase):
             with self.subTest(unit=unit.splitlines()[1]):
                 directives = dict(line.split("=", 1) for line in unit.splitlines()
                                   if "=" in line and not line.startswith("#"))
-                self.assertEqual(directives["User"], "root")
-                self.assertEqual(directives["Group"], "root")
+                self.assertNotIn("User", directives)
+                self.assertNotIn("Group", directives)
                 self.assertEqual(directives["NoNewPrivileges"], "yes")
                 self.assertEqual(directives["AmbientCapabilities"], "")
                 self.assertEqual(set(directives["CapabilityBoundingSet"].split()), required)

@@ -17,8 +17,6 @@ Type=oneshot
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
-User=root
-Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
 # Nodes without SSH report admission failures through the serial console.
 StandardError=journal+console
@@ -29,10 +27,9 @@ RuntimeDirectoryMode=0700
 StateDirectory=terrascale-orchestrator-bootstrap
 StateDirectoryMode=0755
 # Initial admission drops to the service account to preflight its
-# credentials in a child process. With no_new_privs set, that exec fails
-# with EPERM on first boot (live R7 finding); the unit stays root-only with a
-# bounded capability set instead.
-NoNewPrivileges=no
+# credentials in a child process, so the unit runs as root by default:
+# User=root with NoNewPrivileges=yes would make systemd drop CAP_SETUID.
+NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL
 AmbientCapabilities=
 ProtectSystem=strict

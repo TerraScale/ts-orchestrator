@@ -962,8 +962,9 @@ fi
         self.assertIn("WantedBy=sockets.target", socket_source)
 
         service = directives(service_source, "Service")
-        self.assertEqual(service["User"], "root")
-        self.assertEqual(service["Group"], "root")
+        # Root by default: User=root with NoNewPrivileges=yes drops CAP_SETUID.
+        self.assertNotIn("User", service)
+        self.assertNotIn("Group", service)
         self.assertEqual(
             service["ExecStart"],
             "/usr/local/bin/terrascale-orchestrator host-volume-init --config /etc/terrascale-orchestrator/host.json",
@@ -1030,7 +1031,7 @@ fi
                                 "-m", "0755", str(path)], check=True, timeout=10)
             try:
                 script = '"$3" "$1/created" || exit 21; if "$3" "$2/created"; then exit 22; fi; exit 0'
-                properties = ["User", "Group", "ProtectSystem", "NoNewPrivileges",
+                properties = ["ProtectSystem", "NoNewPrivileges",
                               "CapabilityBoundingSet", "AmbientCapabilities"]
                 result = subprocess.run(
                     ["sudo", "-n", "systemd-run", "--wait", "--collect",
@@ -1187,9 +1188,10 @@ fi
                 )
                 self.assertNotIn("ProtectClock", directives)
                 self.assertNotIn("SystemCallFilter", directives)
-                # Initial admission's service-account child needs setuid without no_new_privs.
-                expected_nnp = "no" if name == "terrascale-orchestrator-bootstrap.service" else "yes"
-                self.assertEqual(directives["NoNewPrivileges"], expected_nnp)
+                self.assertEqual(directives["NoNewPrivileges"], "yes")
+                # Root units run as root by default: User=root with no_new_privs
+                # makes systemd drop CAP_SETUID from the service.
+                self.assertNotEqual(directives.get("User"), "root")
                 self.assertEqual(directives["AmbientCapabilities"], "")
                 self.assertNotIn("CAP_SYS_TIME", directives["CapabilityBoundingSet"].split())
 

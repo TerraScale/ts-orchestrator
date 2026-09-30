@@ -834,7 +834,7 @@ class Lab:
         host_service = ""
         if name == "host":
             host_service = (
-                "User=root\nGroup=root\nNoNewPrivileges=yes\n"
+                "NoNewPrivileges=yes\n"
                 "CapabilityBoundingSet=CAP_CHOWN CAP_KILL CAP_SETUID CAP_SETGID CAP_SETPCAP\n"
                 "AmbientCapabilities=\nDelegate=yes\nDelegateSubgroup=supervisor\n"
                 f"ExecStartPre=/usr/bin/install -d -o {WORKLOAD_UID} -g {WORKLOAD_GID} "

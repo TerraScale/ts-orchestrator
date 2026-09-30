@@ -1180,8 +1180,6 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-User=root
-Group=root
 {volume_environment}Delegate=yes
 DelegateSubgroup=supervisor
 MemoryMax=5G

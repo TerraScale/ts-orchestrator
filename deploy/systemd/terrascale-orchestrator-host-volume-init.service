@@ -4,8 +4,6 @@ ConditionPathExists=/etc/terrascale-orchestrator/host.json
 
 [Service]
 Type=simple
-User=root
-Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator host-volume-init --config /etc/terrascale-orchestrator/host.json
 Restart=on-failure
 RestartSec=5s

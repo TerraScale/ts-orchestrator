@@ -34,7 +34,11 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	}
 	imds := bootstrapstart.NewIMDSClient()
 	now := time.Now().Round(0).UTC()
-	if err := bootstrapstart.InstallLaunchMaterial(ctx, imds, now); err != nil {
+	if err := bootstrapstart.InstallLaunchMaterial(ctx, imds, now); errors.Is(err, bootstrapstart.ErrNotController) {
+		// Managed hosts share the image; the bootstrap unit then skips on its
+		// missing controller config.
+		return nil
+	} else if err != nil {
 		return fmt.Errorf("install launch bootstrap material: %w", err)
 	}
 	baked, err := bootstrapstart.LoadBakedInputs()

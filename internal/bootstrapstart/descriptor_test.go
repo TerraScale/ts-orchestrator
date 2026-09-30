@@ -68,6 +68,24 @@ func TestIMDSRejectsRedirectOversizeAndForeignDial(t *testing.T) {
 	}
 }
 
+func TestFetchLaunchMaterialReportsNonControllerInstance(t *testing.T) {
+	client := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(request *http.Request) (*http.Response, error) {
+		if request.URL.String() != identityMetadataEndpoint {
+			t.Fatalf("launch material read %s before the identity key", request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}}
+	if _, err := client.FetchLaunchMaterial(t.Context()); !errors.Is(err, ErrNotController) {
+		t.Fatalf("instance without controller metadata = %v", err)
+	}
+	missing := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}, nil
+	})}}
+	if _, err := missing.FetchDescriptor(t.Context()); !errors.Is(err, ErrInvalidDescriptor) || errors.Is(err, ErrNotController) {
+		t.Fatalf("absent descriptor = %v", err)
+	}
+}
+
 func TestIMDSInstanceIDIsOnlyALocalLocator(t *testing.T) {
 	client := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.String() != identityEndpoint || request.Header.Get("Authorization") != "Bearer Oracle" {

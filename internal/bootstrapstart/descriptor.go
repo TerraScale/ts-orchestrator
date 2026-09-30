@@ -34,8 +34,12 @@ const (
 
 var (
 	ErrInvalidDescriptor = errors.New("OCI bootstrap descriptor is invalid")
-	descriptorSlotRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	instanceIDRE         = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
+	// ErrNotController reports an instance launched without controller launch
+	// metadata, such as a managed host sharing the qualified image.
+	ErrNotController  = errors.New("instance has no controller launch metadata")
+	errMetadataAbsent = fmt.Errorf("%w: metadata key is absent", ErrInvalidDescriptor)
+	descriptorSlotRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	instanceIDRE      = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
 )
 
 // Descriptor is an untrusted IMDS transport hint. Its slot identifies the
@@ -111,6 +115,9 @@ func (imds IMDSClient) FetchControllerManifest(ctx context.Context) ([]byte, err
 // anchor against the image's trust roots before installing any of them.
 func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial, error) {
 	identity, err := imds.fetch(ctx, identityMetadataEndpoint, maxIdentity)
+	if errors.Is(err, errMetadataAbsent) {
+		return LaunchMaterial{}, ErrNotController
+	}
 	if err != nil {
 		return LaunchMaterial{}, fmt.Errorf("read launch identity metadata: %w", err)
 	}
@@ -141,6 +148,9 @@ func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64
 		return nil, fmt.Errorf("read fixed OCI IMDS endpoint: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, errMetadataAbsent
+	}
 	if response.StatusCode != http.StatusOK || response.ContentLength > maximum {
 		return nil, ErrInvalidDescriptor
 	}

@@ -200,8 +200,8 @@ class FaultAndLeaseTests(unittest.TestCase):
         clock_gate = (f"/bin/sh -c 'while ! test -f {qualify.CLOCK_READY}; "
                       "do sleep 0.1; done'")
 
-        self.assertEqual(directives["User"], "root")
-        self.assertEqual(directives["Group"], "root")
+        self.assertNotIn("User", directives)
+        self.assertNotIn("Group", directives)
         self.assertEqual(directives["NoNewPrivileges"], "yes")
         self.assertEqual(directives["Delegate"], "yes")
         self.assertEqual(directives["DelegateSubgroup"], "supervisor")

@@ -558,8 +558,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
-Group=root
 Delegate=yes
 DelegateSubgroup=supervisor
 MemoryMax=5G
