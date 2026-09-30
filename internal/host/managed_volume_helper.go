@@ -827,23 +827,23 @@ func completeManagedVolumeLayout(root string, pins ManagedRuntimePins, identity 
 		if !ok || !childInfo.IsDir() || childInfo.Mode()&os.ModeSymlink != 0 || childOwner.Dev != rdev {
 			return errors.New("managed volume child is unsafe")
 		}
-		children, err := os.ReadDir(path)
-		if err != nil || len(children) != 0 {
-			return errors.New("unclaimed managed volume child contains data")
-		}
-		if err := os.Chown(path, int(identity.UID), int(identity.GID)); err != nil {
+		// The initializer holds CAP_CHOWN but not CAP_FOWNER or DAC overrides:
+		// it takes the child back as root to inspect it and set its mode, which
+		// also resumes an interrupted layout, and hands it over last.
+		if err := os.Lchown(path, 0, 0); err != nil {
 			return err
+		}
+		children, err := os.ReadDir(path)
+		if err != nil {
+			return fmt.Errorf("inspect unclaimed managed volume child: %w", err)
+		}
+		if len(children) != 0 {
+			return errors.New("unclaimed managed volume child contains data")
 		}
 		if err := os.Chmod(path, 0700); err != nil {
 			return err
 		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		err = file.Sync()
-		_ = file.Close()
-		if err != nil {
+		if err := os.Lchown(path, int(identity.UID), int(identity.GID)); err != nil {
 			return err
 		}
 	}
@@ -852,5 +852,6 @@ func completeManagedVolumeLayout(root string, pins ManagedRuntimePins, identity 
 		return err
 	}
 	defer directory.Close()
-	return directory.Sync()
+	// One filesystem sync persists the children's modes and owners with the root.
+	return unix.Syncfs(int(directory.Fd()))
 }
