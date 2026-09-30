@@ -86,6 +86,7 @@ class PrivatePeerInspectionTests(unittest.TestCase):
             "security_list": f"ocid1.securitylist.oc1.{region}.{cell.lower()}sl",
             "route_table": f"ocid1.routetable.oc1.{region}.{cell.lower()}rt",
             "service_gateway": f"ocid1.servicegateway.oc1.{region}.{cell.lower()}sgw",
+            "local_peering_gateway": None,
             "controller_dynamic_group": f"ocid1.dynamicgroup.oc1..{cell.lower()}controller",
             "controller_policy": f"ocid1.policy.oc1..{cell.lower()}controller",
             "objectstorage_key_policy": f"ocid1.policy.oc1..{cell.lower()}storage",

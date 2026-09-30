@@ -55,7 +55,20 @@ class PreviewAdmissionTests(unittest.TestCase):
                         preview.oci("os", "object", operation, "--all")
 
     def setUp(self):
-        self.plan = preview.load_plan()
+        # Budget and import cases model the foundation before peering exists.
+        # Use a separate file so CLI reads and inventory hashes agree with the
+        # fixture even when the checked-in plan records a live LPG pair.
+        plan_value = json.loads((ROOT / "plan.json").read_text())
+        plan_value["resource_ids"]["local_peering_gateway"] = None
+        plan_value["operator_gateway"]["local_peering_gateway_id"] = None
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        plan_path = pathlib.Path(directory.name) / "plan.json"
+        plan_path.write_text(json.dumps(plan_value))
+        plan_patch = mock.patch.object(preview, "PLAN", plan_path)
+        plan_patch.start()
+        self.addCleanup(plan_patch.stop)
+        self.plan = preview.load_plan(plan_path)
         self.plan["bootstrap_object_prefix"] = "fixture-deployment"
         existing = self.plan["existing_forgejo"]
         shared = self.plan["shared_compartment_id"]
@@ -206,7 +219,8 @@ class PreviewAdmissionTests(unittest.TestCase):
                 preview.load_plan(path)
 
     def test_checked_in_plan_pins_reconciled_private_ports(self):
-        network_security = self.plan["network_security"]
+        plan = preview.load_plan(ROOT / "plan.json")
+        network_security = plan["network_security"]
         pinned = lambda key: {(rule["tcp_min"], rule["source"]) for rule in network_security[key]}
         gateway = "10.250.10.155/32"
         self.assertEqual(pinned("nsg_rules"), {(4222, "10.251.0.0/25"), (4222, gateway),
@@ -215,11 +229,16 @@ class PreviewAdmissionTests(unittest.TestCase):
         self.assertEqual(pinned("workload_nsg_rules"), {(9443, "10.251.0.21/32"), (9443, "10.251.0.22/32"),
                                                         (9465, "10.251.0.18/32"), (9465, gateway),
                                                         (9465, "10.251.0.128/26")})
-        self.assertEqual(self.plan["public_api"], {"subnet_cidr": "10.251.0.128/26", "listener_port": 443,
+        self.assertEqual(plan["public_api"], {"subnet_cidr": "10.251.0.128/26", "listener_port": 443,
                                                    "client_port": 9465})
         self.assertEqual(network_security["security_list_ingress_rules"], [])
-        self.assertEqual(self.plan["operator_gateway"], {"private_ip": "10.250.10.155", "vcn_cidr": "10.250.0.0/16",
-                                                         "local_peering_gateway_id": None})
+        self.assertEqual(plan["operator_gateway"]["private_ip"], "10.250.10.155")
+        self.assertEqual(plan["operator_gateway"]["vcn_cidr"], "10.250.0.0/16")
+        cell_lpg = plan["resource_ids"]["local_peering_gateway"]
+        forgejo_lpg = plan["operator_gateway"]["local_peering_gateway_id"]
+        preview.require_ocid(cell_lpg, "localpeeringgateway", plan["region"])
+        preview.require_ocid(forgejo_lpg, "localpeeringgateway", plan["region"])
+        self.assertNotEqual(cell_lpg, forgejo_lpg)
 
     def test_operator_gateway_private_outside_cell_inside_its_vcn(self):
         def gateway(**fields):
@@ -1023,6 +1042,9 @@ class PreviewAdmissionTests(unittest.TestCase):
             changed_without_preserving = json.loads(path.read_text())
             changed_without_preserving["seed_a_create_identity"] = None
             changed_without_preserving["resource_ids"]["instances"]["controller-a"] = None
+            # A new launch scope must generate a different identity; changing
+            # JSON formatting alone must not be the reason this assertion passes.
+            changed_without_preserving["orchestrator_owner"] = "ts-preview-gru-next-attempt"
             path.write_text(json.dumps(changed_without_preserving))
             changed = preview.load_plan(path)
             self.assertNotEqual(preview.create_identity(changed, path, summary), identity)
