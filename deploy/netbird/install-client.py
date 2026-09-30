@@ -103,7 +103,15 @@ def main() -> int:
                 systemctl("restart" if daemon_active else "start", "netbird.service")
                 systemctl("--no-block", "restart", "terrascale-netbird-enroll.service")
             else:
-                systemctl(f"--root={root}", "enable", *UNITS)
+                wants = directory(root, "/etc/systemd/system/multi-user.target.wants")
+                for name in UNITS:
+                    link = wants / name
+                    target = f"../{name}"
+                    if link.is_symlink() and os.readlink(link) == target:
+                        continue
+                    if link.is_symlink() or link.exists():
+                        raise ValueError(f"service enablement destination already exists: {link}")
+                    link.symlink_to(target)
         print(f"NetBird {pin['version']} installed; enrollment {'started' if live else 'enabled in offline root'}")
         return 0
     except (OSError, ValueError, KeyError, TypeError) as error:
