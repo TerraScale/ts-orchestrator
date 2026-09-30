@@ -361,7 +361,7 @@ func (provider *sdkProvider) AttachVolume(ctx context.Context, request CloudVolu
 			IsShareable:                    &request.IsShareable,
 			IsPvEncryptionInTransitEnabled: &request.IsPvEncryptionInTransitEnabled,
 		},
-		OpcRetryToken: new(retryToken(request.IdempotencyKey)),
+		OpcRetryToken: new(request.RetryToken),
 	})
 	if err != nil {
 		return CloudAttachment{}, fmt.Errorf("attach retained OCI volume: %w", err)

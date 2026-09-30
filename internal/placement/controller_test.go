@@ -659,6 +659,36 @@ func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *
 	}
 }
 
+func TestControllerFailingPlacementDoesNotStarveLaterPlacement(t *testing.T) {
+	failingDraft := validIntent(oci.RegionGRU)
+	failingDraft.DatabaseID = "a-failing"
+	failing := committedTestIntent(t, failingDraft)
+	laterDraft := validIntent(oci.RegionGRU)
+	laterDraft.DatabaseID = "z-later"
+	later := committedTestIntent(t, laterDraft)
+	store := &placementMemoryStore{intents: []Intent{failing, later}, members: make(map[string]VersionedMemberState)}
+	launchErr := errors.New("injected OCI launch failure")
+	fleet := &placementTestFleet{ensureErr: launchErr}
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(string) {})
+
+	// First pass prepares the failing placement's first seat.
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// Its host launch fails, yet the same pass still prepares the later
+	// placement. The memory store keys members by seat alone, so that write
+	// is observed through its CAS hook.
+	reachedLater := false
+	store.onCAS = func(state MemberState) error {
+		reachedLater = reachedLater || state.DatabaseID == later.DatabaseID
+		return nil
+	}
+	err := controller.Tick(t.Context())
+	if !errors.Is(err, launchErr) || fleet.ensureCalls != 1 || !reachedLater {
+		t.Fatalf("failing placement starved the later placement: err=%v ensures=%d reached=%v", err, fleet.ensureCalls, reachedLater)
+	}
+}
+
 func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
@@ -1147,6 +1177,7 @@ func (hosts *placementTestHosts) ApplyDesired(_ context.Context, desired host.De
 type placementTestFleet struct {
 	instances        []oci.Instance
 	ensureResult     *oci.Instance
+	ensureErr        error
 	ensureRequests   []oci.EnsureRequest
 	volumeResult     *oci.RetainedVolume
 	onObserve        func()
@@ -1173,6 +1204,9 @@ func (fleet *placementTestFleet) Observe(context.Context) ([]oci.Instance, error
 func (fleet *placementTestFleet) EnsureHost(_ context.Context, request oci.EnsureRequest) (oci.Instance, error) {
 	fleet.ensureCalls++
 	fleet.ensureRequests = append(fleet.ensureRequests, request)
+	if fleet.ensureErr != nil && fleet.ensureCalls == 1 {
+		return oci.Instance{}, fleet.ensureErr
+	}
 	if fleet.ensureResult == nil {
 		return oci.Instance{}, errors.New("unexpected EnsureHost")
 	}

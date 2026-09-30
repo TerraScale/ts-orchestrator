@@ -752,7 +752,10 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	}
 	created, attachErr := f.provider.AttachVolume(ctx, CloudVolumeAttachRequest{
 		VolumeID: request.VolumeID, InstanceID: request.InstanceID,
-		IdempotencyKey: request.IdempotencyKey, Device: intent.Device,
+		RetryToken: retryToken(strings.Join([]string{
+			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.IdempotencyKey,
+		}, ":")),
+		Device:     intent.Device,
 		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
 		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
 	})

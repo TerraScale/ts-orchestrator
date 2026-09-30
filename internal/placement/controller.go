@@ -199,6 +199,10 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		statusByNode[node] = status
 	}
 	seenIntents := make(map[string]struct{}, len(intents))
+	// A failing placement must not starve independent ones: its error is
+	// reported with the pass while later placements still advance.
+	var placementErrs []error
+intents:
 	for _, intent := range intents {
 		if err := intent.Validate(); err != nil {
 			return err
@@ -324,10 +328,11 @@ func (controller *Controller) Tick(ctx context.Context) error {
 		}
 		managedUpdateActed, err := controller.reconcileManagedUpdate(ctx, epoch, intent, seats, memberByID)
 		if err != nil {
-			return err
+			placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
+			continue
 		}
 		if managedUpdateActed {
-			return nil
+			return errors.Join(placementErrs...)
 		}
 		for _, seat := range seats {
 			versioned, exists := memberByID[seat.MemberID]
@@ -335,20 +340,21 @@ func (controller *Controller) Tick(ctx context.Context) error {
 				state := controller.initialState(intent, seat, rowsBySeat[seat.MemberID], rosterDigest,
 					profile, profileDigest, manifestsBySeat[seat.MemberID], manifestDigestsBySeat[seat.MemberID], 1)
 				if _, err := controller.persist(ctx, epoch, 0, state); err != nil {
-					return err
+					return errors.Join(append(placementErrs, err)...)
 				}
-				return nil
+				return errors.Join(placementErrs...)
 			}
 			acted, err := controller.advanceMember(ctx, epoch, intent, seat, versioned, instanceByID, statusByNode)
 			if err != nil {
-				return err
+				placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
+				continue intents
 			}
 			if acted {
-				return nil
+				return errors.Join(placementErrs...)
 			}
 		}
 	}
-	return nil
+	return errors.Join(placementErrs...)
 }
 
 func (controller *Controller) advanceMember(

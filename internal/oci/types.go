@@ -400,9 +400,11 @@ type CloudDevice struct {
 // CloudVolumeAttachRequest is the provider-bound mutation assembled by Fleet
 // from its durable intent. Placement callers cannot select the device or flags.
 type CloudVolumeAttachRequest struct {
-	VolumeID                       string
-	InstanceID                     string
-	IdempotencyKey                 string
+	VolumeID   string
+	InstanceID string
+	// RetryToken is scoped to the fleet: placement idempotency keys repeat
+	// across cells, and OCI rejects a reused token for different parameters.
+	RetryToken                     string
 	Device                         string
 	IsReadOnly                     bool
 	IsShareable                    bool

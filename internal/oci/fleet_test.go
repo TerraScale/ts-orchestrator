@@ -1192,6 +1192,19 @@ func TestRetainedVolumeAttachConfirmsTheSettledAttachment(t *testing.T) {
 	}
 }
 
+func TestRetainedVolumeAttachScopesItsRetryTokenToTheFleet(t *testing.T) {
+	config, provider, _, fleet, host, volume := newAttachTestState(t)
+	if _, err := fleet.AttachRetainedVolume(t.Context(), VolumeAttachRequest{DatabaseID: "db-main", PartitionID: "partition-main",
+		VolumeID: volume.ID, InstanceID: host.ID, IdempotencyKey: "attach-shared-key",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scoped := retryToken(strings.Join([]string{config.Owner, string(config.Region), fmt.Sprint(config.Generation), "attach-shared-key"}, ":"))
+	if _, ok := provider.attachRetryTokens[scoped]; !ok || len(provider.attachRetryTokens) != 1 {
+		t.Fatalf("attach used an unscoped OCI retry token: %v", provider.attachRetryTokens)
+	}
+}
+
 func setAttachmentSettle(f Fleet, timeout time.Duration) {
 	f.(*fleet).attachmentSettle = timeout
 }
@@ -2201,7 +2214,7 @@ func (p *fakeProvider) GetVolumeAttachment(_ context.Context, id string) (CloudA
 }
 
 func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttachRequest) (CloudAttachment, error) {
-	if id, exists := p.attachRetryTokens[request.IdempotencyKey]; exists {
+	if id, exists := p.attachRetryTokens[request.RetryToken]; exists {
 		return p.attachments[id], p.attachReplayError
 	}
 	p.attachCalls++
@@ -2216,7 +2229,7 @@ func (p *fakeProvider) AttachVolume(_ context.Context, request CloudVolumeAttach
 	response := attachment
 	response.LifecycleState, response.ETag = "ATTACHING", "a0"
 	p.attachments[attachment.ID] = attachment
-	p.attachRetryTokens[request.IdempotencyKey] = attachment.ID
+	p.attachRetryTokens[request.RetryToken] = attachment.ID
 	if p.afterAttach != nil {
 		p.afterAttach(p, attachment.ID)
 		p.afterAttach = nil
