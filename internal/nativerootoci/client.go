@@ -140,6 +140,8 @@ func constructInstancePrincipalClient(region string) (ObjectClient, error) {
 	return &client, nil
 }
 
+type requestOperationKey struct{}
+
 // Execute is one bounded request. authorize must recheck the exact active
 // member, process and host lease immediately before each OCI SDK operation.
 func (service *Service) Execute(ctx context.Context, request Request, authorize func(context.Context) error) (response Response) {
@@ -151,6 +153,7 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestLimit)
 	defer cancel()
+	ctx = context.WithValue(ctx, requestOperationKey{}, request.Operation)
 	started := time.Now()
 	rejected := false
 	defer func() {
@@ -300,6 +303,9 @@ func logNativeRootFailure(ctx context.Context, operation, stage string, err erro
 		cause = "canceled"
 	case err != nil:
 		cause = "operation_failed"
+		if failure, ok := errors.AsType[AuthorizationError](err); ok {
+			cause = failure.Cause
+		}
 	}
 	if failure, ok := errors.AsType[serviceError](err); ok {
 		status = failure.GetHTTPStatusCode()
@@ -308,8 +314,10 @@ func logNativeRootFailure(ctx context.Context, operation, stage string, err erro
 	if deadline, ok := ctx.Deadline(); ok {
 		remaining = time.Until(deadline)
 	}
+	requestOperation, _ := ctx.Value(requestOperationKey{}).(string)
 	slog.Warn("native OCI root operation uncertain", "operation", operation,
-		"stage", stage, "cause", cause, "http_status", status, "deadline_remaining", remaining)
+		"request_operation", requestOperation, "stage", stage,
+		"cause", cause, "http_status", status, "deadline_remaining", remaining)
 }
 
 func noRetryMetadata() common.RequestMetadata {

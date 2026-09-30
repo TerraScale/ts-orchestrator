@@ -49,7 +49,8 @@ func TestNativeRootUncertaintyLogsStageAndStatusWithoutProviderSecrets(t *testin
 		}
 	}
 	for _, field := range []string{`"operation":"get"`, `"operation":"put"`, `"stage":"sdk"`,
-		`"http_status":503`, `"deadline_remaining"`, `"elapsed"`} {
+		`"http_status":503`, `"deadline_remaining"`, `"elapsed"`,
+		`"request_operation":"get"`, `"request_operation":"update"`} {
 		if !strings.Contains(logs.String(), field) {
 			t.Fatalf("missing diagnostic %s: %s", field, logs.String())
 		}
@@ -94,6 +95,24 @@ func TestNativeRootUncertaintyLogsStageAndStatusWithoutProviderSecrets(t *testin
 	if !strings.Contains(logs.String(), "native OCI root request rejected") ||
 		strings.Contains(logs.String(), "native OCI root request uncertain") {
 		t.Fatalf("malformed request was mislabeled: %s", logs.String())
+	}
+	logs.Reset()
+	if response := service.Execute(t.Context(), testRequest(target, "probe_update", nil, ""), authorize); response.Status != "uncertain" {
+		t.Fatalf("probe failure response changed: %+v", response)
+	}
+	if !strings.Contains(logs.String(), `"request_operation":"probe_update"`) ||
+		!strings.Contains(logs.String(), `"operation":"get"`) {
+		t.Fatalf("probe SDK failure lost its parent operation: %s", logs.String())
+	}
+	logs.Reset()
+	rejection := errors.New("secret-host-detail")
+	if response := service.Execute(t.Context(), testRequest(target, "get", nil, ""), func(context.Context) error {
+		return AuthorizationError{Cause: "peer_credentials", Err: rejection}
+	}); response.Status != "uncertain" {
+		t.Fatalf("authorization failure response changed: %+v", response)
+	}
+	if !strings.Contains(logs.String(), `"cause":"peer_credentials"`) || strings.Contains(logs.String(), "secret-host-detail") {
+		t.Fatalf("authorization classification lost or exposed details: %s", logs.String())
 	}
 }
 
