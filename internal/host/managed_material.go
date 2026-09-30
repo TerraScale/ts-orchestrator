@@ -322,12 +322,9 @@ func (a *Agent) downloadManagedFile(ctx context.Context, desired Desired, regist
 			RegistrationGeneration: registration.Generation,
 			InstanceID:             desired.ManagedMember.OCI.InstanceID, Offset: len(contents), Length: materialChunkBytes,
 			EphemeralPublicKey: private.PublicKey().Bytes()}
-		req, err := a.makeRequest("material", query)
-		if err != nil {
-			return nil, "", err
-		}
 		var reply materialReply
-		if err := exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, req, &reply); err != nil {
+		req, err := a.sendToLeader(ctx, "material", query, &reply, nil, nil)
+		if err != nil {
 			return nil, "", err
 		}
 		if reply.File != name || reply.Offset != query.Offset || reply.Total < 1 ||

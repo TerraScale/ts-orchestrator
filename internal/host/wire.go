@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -18,6 +20,9 @@ import (
 
 var errSessionOwned = errors.New("another process owns the host session")
 var errSessionRequestDenied = errors.New("host session request was denied")
+
+// errControllerNotLeader reports a request answered by a follower controller.
+var errControllerNotLeader = errors.New("host request reached a follower controller")
 var errSessionBackendUnavailable = errors.New("host session backend temporarily unavailable")
 
 func transientSessionTransport(err error) bool {
@@ -232,6 +237,9 @@ func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, con
 		return errors.New("host response binding mismatch")
 	}
 	if result.Error != "" {
+		if strings.HasPrefix(result.Error, authority.ErrNotLeader.Error()) {
+			return fmt.Errorf("%w: %s", errControllerNotLeader, result.Error)
+		}
 		if result.Retryable {
 			if result.Error == errSessionContention.Error() {
 				return errSessionContention

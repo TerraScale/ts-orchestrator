@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -1284,6 +1285,44 @@ func TestSignedSessionContentionIsTransientWithoutLeaseChange(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestAgentResendsRequestsDeniedByAFollowerController(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	// The queue group first delivers to followers, which deny the request.
+	denials := 2
+	sub, err := conn.Subscribe("ts.orch.v1.gru.agent.*.observation.session", func(msg *nats.Msg) {
+		if denials == 0 {
+			c.handle(t.Context(), msg)
+			return
+		}
+		denials--
+		var envelope protocol.Envelope
+		var req request
+		if protocol.DecodeStrict(msg.Data, &envelope, 64<<10) != nil ||
+			protocol.DecodeStrict([]byte(envelope.Payload), &req, 64<<10) != nil {
+			return
+		}
+		data, _ := protocol.EncodeJSON(response{Nonce: req.Nonce, Node: req.Node, SessionID: req.SessionID,
+			Epoch: req.Epoch, Operation: req.Operation, Error: authority.ErrNotLeader.Error()})
+		issued := time.Now().UTC()
+		signed, _ := protocol.SignEnvelope(data, protocol.EnvelopeScope{Region: "gru", Kind: "host.response." + req.Operation,
+			Actor: "controller", OperationID: req.Nonce, Epoch: req.Epoch}, issued, issued.Add(requestTTL), controllerKey)
+		wire, _ := protocol.EncodeJSON(signed)
+		_ = msg.Respond(wire)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"}, Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey), Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil || denials != 0 {
+		t.Fatalf("session acquire did not reach the leader after follower denials: %v (denials left %d)", err, denials)
+	}
 }
 
 func TestAgentResumesOpenCycleAfterSignedSessionContention(t *testing.T) {

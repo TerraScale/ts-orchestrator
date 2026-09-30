@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -150,7 +151,10 @@ func RunVolumeInitializer(ctx context.Context, cfg VolumeInitConfig) error {
 			return err
 		}
 		if unixConnection, ok := connection.(*net.UnixConn); ok {
-			_ = serveVolumeInitConnection(ctx, cfg, unixConnection)
+			// The caller only sees a closed connection; the journal keeps the cause.
+			if err := serveVolumeInitConnection(ctx, cfg, unixConnection); err != nil {
+				slog.Warn("volume initialization request failed", "error", err)
+			}
 		}
 		_ = connection.Close()
 	}

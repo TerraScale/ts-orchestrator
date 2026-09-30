@@ -21,10 +21,18 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nkeys"
 )
 
 const sessionExecutionReserve = 5 * time.Second
+
+// A follower denial is re-sent at most leaderRequestAttempts times, backing
+// off by leaderRetryBackoff per attempt (under 1.5 s in total).
+const (
+	leaderRequestAttempts = 8
+	leaderRetryBackoff    = 50 * time.Millisecond
+)
 
 var errSessionExecutionReserve = errors.New("host session execution reserve exhausted")
 
@@ -355,22 +363,46 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 	return r, nil
 }
 
+// sendToLeader builds, signs and sends a fresh request, and sends a new one
+// when a follower controller denies it: every controller of the cell serves
+// the host subjects, but only the authority leader answers effectful requests.
+// It returns the request whose reply was accepted.
+func (a *Agent) sendToLeader(ctx context.Context, operation string, payload, out any,
+	signedOut *protocol.Envelope, prepare func(*request) error,
+) (request, error) {
+	for attempt := 1; ; attempt++ {
+		r, err := a.makeRequest(operation, payload)
+		if err != nil {
+			return request{}, err
+		}
+		if prepare != nil {
+			if err := prepare(&r); err != nil {
+				return request{}, err
+			}
+		}
+		err = exchangeWithEnvelope(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, out, signedOut)
+		if !errors.Is(err, errControllerNotLeader) || attempt == leaderRequestAttempts {
+			return r, err
+		}
+		select {
+		case <-ctx.Done():
+			return request{}, ctx.Err()
+		case <-time.After(time.Duration(attempt) * leaderRetryBackoff):
+		}
+	}
+}
+
 func (a *Agent) acquire(ctx context.Context) error {
 	if err := a.checkClock(); err != nil {
 		return err
 	}
-	r, err := a.makeRequest("session", struct {
-		Kind string `json:"kind"`
-	}{"acquire"})
-	if err != nil {
-		return err
-	}
-	r.Epoch = 0
-	if err := signRequest(&r, a.cfg.Identity, a.cfg.Cell); err != nil {
-		return err
-	}
 	var s session
-	if err := exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &s); err != nil {
+	if _, err := a.sendToLeader(ctx, "session", struct {
+		Kind string `json:"kind"`
+	}{"acquire"}, &s, nil, func(r *request) error {
+		r.Epoch = 0
+		return signRequest(r, a.cfg.Identity, a.cfg.Cell)
+	}); err != nil {
 		return fmt.Errorf("acquire host session: %w", err)
 	}
 	if s.SessionID != a.processID || s.Epoch == 0 {
@@ -506,21 +538,18 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 			a.failSession(cancel, lost, err)
 			return
 		}
-		r, err := a.makeRequest("session", struct {
+		var next session
+		renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
+		_, err = a.sendToLeader(renewCtx, "session", struct {
 			Kind string `json:"kind"`
-		}{"renew"})
+		}{"renew"}, &next, nil, nil)
+		renewCancel()
 		if err == nil {
-			var next session
-			renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
-			err = exchange(renewCtx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &next)
-			renewCancel()
-			if err == nil {
-				if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
-					err = errors.New("renewed session binding mismatch")
-				} else if _, _, err = a.executionLease(); err == nil {
-					if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
-						a.logSessionAccepted("renew", next)
-					}
+			if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
+				err = errors.New("renewed session binding mismatch")
+			} else if _, _, err = a.executionLease(); err == nil {
+				if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
+					a.logSessionAccepted("renew", next)
 				}
 			}
 		}
@@ -616,11 +645,8 @@ func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error,
 }
 
 func (a *Agent) request(ctx context.Context, operation string, payload, out any) error {
-	r, err := a.makeRequest(operation, payload)
-	if err != nil {
-		return err
-	}
-	return exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, out)
+	_, err := a.sendToLeader(ctx, operation, payload, out, nil, nil)
+	return err
 }
 
 func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {

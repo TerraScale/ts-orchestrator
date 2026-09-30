@@ -159,15 +159,11 @@ func (a *Agent) ensureManagedVolume(ctx context.Context, desired Desired, target
 	if err != nil {
 		return err
 	}
-	request, err := a.makeRequest("volume-init", volumeInitQuery{Role: desired.Role,
-		DesiredRevision: target.Revision, RegistrationRevision: target.RegistrationRevision})
-	if err != nil {
-		return err
-	}
 	var permit volumeInitPermit
 	var signed protocol.Envelope
-	if err := exchangeWithEnvelope(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey,
-		request, &permit, &signed); err != nil {
+	if _, err := a.sendToLeader(ctx, "volume-init", volumeInitQuery{Role: desired.Role,
+		DesiredRevision: target.Revision, RegistrationRevision: target.RegistrationRevision},
+		&permit, &signed, nil); err != nil {
 		return err
 	}
 	if !sameJSON(permit.Desired, desired) || !sameJSON(permit.Registration, *target.Registration) ||
