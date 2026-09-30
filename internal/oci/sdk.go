@@ -219,7 +219,9 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 	networkSecurityGroupIDs := append([]string(nil), config.NetworkSecurityGroupIDs...)
 	freeformTags := placementProfileTags(request.FreeformTags, request.PlacementProfileDigest, request.PlacementGeneration)
 	// Launch options come from the image capability schema: OCI rejects partial
-	// LaunchOptions, and volume attach verifies consistent naming on the instance.
+	// LaunchOptions, and volume attach verifies consistent naming on the
+	// instance. In-transit encryption is enabled per instance, and retained
+	// volumes attach only with it.
 	details := core.LaunchInstanceDetails{
 		AvailabilityDomain: new(config.AvailabilityDomain),
 		CompartmentId:      new(config.CompartmentID),
@@ -239,6 +241,7 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 			AssignPublicIp:      new(false),
 			SkipSourceDestCheck: new(false),
 		},
+		IsPvEncryptionInTransitEnabled: new(retainedVolumeEncryptionInTransit),
 		SourceDetails: core.InstanceSourceViaImageDetails{
 			ImageId:             new(request.ImageID),
 			BootVolumeSizeInGBs: new(int64(request.BootVolumeGB)),
