@@ -236,37 +236,49 @@ func listenManagedNativeRoot(path string, identity WorkloadIdentity) (*net.UnixL
 func (a *Agent) authorizeManagedNativeRoot(ctx context.Context, peer nativerootoci.Peer,
 	desired Desired, root *managedNativeRoot,
 ) (time.Time, error) {
-	if ctx.Err() != nil || a.sessionLost.Load() || peer.UID != a.cfg.WorkloadIdentity.UID ||
-		peer.GID != a.cfg.WorkloadIdentity.GID || peer.PID <= 0 {
-		return time.Time{}, errors.New("managed native OCI root peer is unauthorized")
+	if ctx.Err() != nil || a.sessionLost.Load() {
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "session_revoked",
+			Err: errors.New("managed native OCI root peer is unauthorized")}
+	}
+	if peer.UID != a.cfg.WorkloadIdentity.UID || peer.GID != a.cfg.WorkloadIdentity.GID || peer.PID <= 0 {
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "peer_credentials",
+			Err: errors.New("managed native OCI root peer is unauthorized")}
 	}
 	a.nativeRootMu.Lock()
 	active := a.nativeRoots[desired.Role] == root
 	pin, pinned := a.nativeDesired[desired.Role]
 	a.nativeRootMu.Unlock()
 	if !active || !pinned || pin.fingerprint != root.fingerprint || !time.Now().Before(pin.until) {
-		return time.Time{}, errors.New("managed native OCI root listener is no longer active")
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "listener_or_pin_revoked",
+			Err: errors.New("managed native OCI root listener is no longer active")}
 	}
 	_, deadline, err := a.executionLease()
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "execution_lease", Err: err}
 	}
 	if pin.until.Before(deadline) {
 		deadline = pin.until
 	}
 	observed, err := a.runner.Observe(ctx, desired.Role)
-	if err != nil || !observed.Running || observed.PID != peer.PID ||
+	if err != nil || !observed.Running {
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "process_unavailable",
+			Err: errors.New("managed native OCI root peer differs from active member")}
+	}
+	if observed.PID != peer.PID ||
 		observed.Digest != desired.Digest || observed.Fingerprint != root.fingerprint ||
 		observed.CgroupMemoryMaxBytes != desired.ManagedMember.CgroupMemoryMaxBytes {
-		return time.Time{}, errors.New("managed native OCI root peer differs from active member")
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "process_witness",
+			Err: errors.New("managed native OCI root peer differs from active member")}
 	}
 	runner, ok := a.runner.(*processRunner)
 	if !ok || runner.cgroups == "" {
-		return time.Time{}, errors.New("managed native OCI root has no native cgroup witness")
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "cgroup_witness",
+			Err: errors.New("managed native OCI root has no native cgroup witness")}
 	}
 	contained, err := nativeCgroupContainsPID(filepath.Join(runner.cgroups, desired.Role), peer.PID)
 	if err != nil || !contained {
-		return time.Time{}, errors.New("managed native OCI root peer left its role cgroup")
+		return time.Time{}, nativerootoci.AuthorizationError{Cause: "cgroup_membership",
+			Err: errors.New("managed native OCI root peer left its role cgroup")}
 	}
 	return deadline, nil
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -66,6 +67,22 @@ type Peer struct {
 // deadline so an in-flight OCI request is canceled when that lease ends.
 type Authorize func(context.Context, Peer) (time.Time, error)
 
+// AuthorizationError preserves the host error while supplying a fixed,
+// non-secret journal cause. Hosts must supply a constant cause, never peer
+// input or an underlying error message.
+type AuthorizationError struct {
+	Cause string
+	Err   error
+}
+
+func (failure AuthorizationError) Error() string {
+	if failure.Err == nil {
+		return "native OCI root authorization rejected"
+	}
+	return failure.Err.Error()
+}
+func (failure AuthorizationError) Unwrap() error { return failure.Err }
+
 // Serve handles at most two connections at once. The listener must be created
 // in a verified host-owned per-member directory and removed by the host when
 // that member is stopped or replaced. It has no HTTP or network listener.
@@ -111,6 +128,18 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service *
 	}
 	leaseDeadline, err := authorize(ctx, peer)
 	if err != nil || leaseDeadline.IsZero() || !time.Now().Before(leaseDeadline) {
+		cause, remaining := "authorization_rejected", time.Duration(0)
+		if failure, ok := errors.AsType[AuthorizationError](err); ok {
+			cause = failure.Cause
+		}
+		if err == nil {
+			cause = "lease_missing"
+			if !leaseDeadline.IsZero() {
+				cause, remaining = "lease_expired", max(0, time.Until(leaseDeadline))
+			}
+		}
+		slog.Warn("native OCI root IPC rejected", "stage", "authorize",
+			"cause", cause, "lease_remaining", remaining)
 		return
 	}
 	ctx, leaseCancel := context.WithDeadline(ctx, leaseDeadline)
