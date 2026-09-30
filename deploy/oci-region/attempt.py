@@ -268,13 +268,23 @@ class Attempt:
         release.mkdir(mode=0o700, exist_ok=True)
         detail = json.loads(self.run("fj", "actions", "run-detail", run_number, "-r", "TerraScale/ts-orchestrator",
                                      capture=True))
-        if detail["head_sha"] != revision or detail["status"] != "success":
-            raise SystemExit(f"CI run {run_number} is not a successful run of {revision}: {detail['status']}")
+        if detail["head_sha"] != revision:
+            raise SystemExit(f"CI run {run_number} did not check {revision}")
         tag = f"ci-{revision}-run-{detail['run_id']}"
         for asset in ("qualification.json", "terrascale-orchestrator-linux-arm64"):
             if not (release / asset).exists():
                 self.run("fj", "release", "asset", "download", "-r", "TerraScale/ts-orchestrator", tag, asset,
                          "-o", release / asset)
+        # CI publishes the qualification only after every gate passed, so it is
+        # the verdict; the run status can still read failure when the runner
+        # loses the report of a finished job.
+        verification = json.loads((release / "qualification.json").read_text())["verification"]
+        if verification != {"conclusion": "success", "job": "verify/go + artifact/linux-amd64-arm64",
+                            "run_id": detail["run_id"], "run_number": run_number, "workflow": "ci.yml"}:
+            raise SystemExit(f"CI run {run_number} did not qualify {revision}: {verification}")
+        if detail["status"] != "success":
+            print(f"CI run {run_number} reports {detail['status']} after publishing a successful qualification",
+                  flush=True)
         issued, expires = self.validity()
         delegation = release / "binary-delegation.signed.json"
         if not delegation.exists():
