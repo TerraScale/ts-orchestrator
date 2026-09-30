@@ -1287,6 +1287,39 @@ func TestSignedSessionContentionIsTransientWithoutLeaseChange(t *testing.T) {
 	<-done
 }
 
+func TestOnlyTheAuthorityLeaderServesHostRequests(t *testing.T) {
+	c, conn, _, _, controllerKey := testController(t)
+	hostKey := registerTestHost(t, c)
+	var leader atomic.Bool
+	c.authorityLeader = leader.Load
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	<-c.Ready()
+	acquire := func() error {
+		r := signedHostRequest(t, hostKey, "session", "0123456789abcdef0123456789abcdef", 0, struct {
+			Kind string `json:"kind"`
+		}{"acquire"})
+		attempt, stop := context.WithTimeout(t.Context(), time.Second)
+		defer stop()
+		return exchange(attempt, conn, "gru", controllerKey.Public().(ed25519.PublicKey), r, nil)
+	}
+	if err := acquire(); !errors.Is(err, nats.ErrNoResponders) {
+		t.Fatalf("follower served a host request: %v", err)
+	}
+	leader.Store(true)
+	deadline := time.Now().Add(5 * hostLeaderPoll)
+	for err := acquire(); err != nil; err = acquire() {
+		if time.Now().After(deadline) {
+			t.Fatalf("new leader did not serve host requests: %v", err)
+		}
+		time.Sleep(hostLeaderPoll / 5)
+	}
+	cancel()
+	<-done
+}
+
 func TestAgentResendsRequestsDeniedByAFollowerController(t *testing.T) {
 	c, conn, _, _, controllerKey := testController(t)
 	hostKey := registerTestHost(t, c)

@@ -332,6 +332,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), Artifacts: service.Artifacts(),
 				StateReplicas: cfg.NATS.Replicas, ResponseKey: responseKey, HostMutations: control,
 				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
+				AuthorityLeader:             func() bool { return control.Current().Leader },
 				ManagedRegistrationVerifier: registrationVerifier,
 				ManagedDesiredVerifier:      managedDesiredVerifier,
 				ManagedMaterialProvider:     materialProvider,

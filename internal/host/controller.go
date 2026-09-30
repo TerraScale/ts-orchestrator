@@ -54,6 +54,7 @@ type Controller struct {
 	sessionDiagAt          map[string]time.Time
 	authorityEpoch         func() uint64
 	authorityGuard         func(context.Context, uint64) error
+	authorityLeader        func() bool
 }
 
 func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
@@ -112,7 +113,7 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
 		artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
-		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard,
+		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
@@ -552,35 +553,73 @@ func sameReportMeaning(a, b Report) bool {
 	return sameJSON(a, b)
 }
 
-// Run serves exact host requests until ctx ends. Safe to run on several controllers;
-// durable CAS resolves concurrent admission and report writes.
+// hostOperations are the host request subjects a leader serves.
+var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init"}
+
+// hostLeaderPoll is how often Run follows authority leadership.
+const hostLeaderPoll = 500 * time.Millisecond
+
+// Run serves exact host requests until ctx ends. Every controller runs it, but
+// only the authority leader subscribes: NATS delivers a queue request to a
+// subscriber on the publisher's own server first, so a follower subscription
+// would capture, and deny, every request of the hosts connected to it.
 func (c *Controller) Run(ctx context.Context) error {
 	var subscriptions []*nats.Subscription
-	for _, operation := range []string{"session", "desired", "artifact", "material", "cycle", "report", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init"} {
-		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
-		if err != nil {
-			for _, existing := range subscriptions {
-				_ = existing.Unsubscribe()
-			}
-			return err
-		}
-		subscriptions = append(subscriptions, sub)
-	}
-	defer func() {
+	unsubscribe := func() {
 		for _, sub := range subscriptions {
 			_ = sub.Unsubscribe()
 		}
+		subscriptions = nil
+	}
+	defer func() {
+		unsubscribe()
 		c.closeCache()
 	}()
+	ticker := time.NewTicker(hostLeaderPoll)
+	defer ticker.Stop()
+	for {
+		leader := c.authorityLeader == nil || c.authorityLeader()
+		if leader && subscriptions == nil {
+			var err error
+			if subscriptions, err = c.subscribeHostRequests(ctx); err != nil {
+				return err
+			}
+		} else if !leader && subscriptions != nil {
+			unsubscribe()
+		}
+		c.readyOnce.Do(func() { close(c.ready) })
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *Controller) subscribeHostRequests(ctx context.Context) ([]*nats.Subscription, error) {
+	subscriptions := make([]*nats.Subscription, 0, len(hostOperations))
+	for _, operation := range hostOperations {
+		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
+		if err == nil {
+			subscriptions = append(subscriptions, sub)
+			continue
+		}
+		for _, existing := range subscriptions {
+			_ = existing.Unsubscribe()
+		}
+		return nil, err
+	}
 	flushCtx, flushCancel := context.WithTimeout(ctx, 5*time.Second)
 	err := c.conn.FlushWithContext(flushCtx)
 	flushCancel()
 	if err != nil {
-		return fmt.Errorf("flush host subscriptions: %w", err)
+		for _, sub := range subscriptions {
+			_ = sub.Unsubscribe()
+		}
+		return nil, fmt.Errorf("flush host subscriptions: %w", err)
 	}
-	c.readyOnce.Do(func() { close(c.ready) })
-	<-ctx.Done()
-	return ctx.Err()
+	return subscriptions, nil
 }
 
 func (c *Controller) handle(parent context.Context, msg *nats.Msg) {

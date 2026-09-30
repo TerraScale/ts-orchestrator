@@ -231,15 +231,18 @@ type AgentConfig struct {
 }
 
 type ControllerConfig struct {
-	Cell                        string
-	Conn                        *nats.Conn
-	JS                          jetstream.JetStream
-	State                       jetstream.KeyValue
-	Artifacts                   ArtifactStore
-	ResponseKey                 ed25519.PrivateKey
-	StateReplicas               int
-	AuthorityEpoch              func() uint64
-	AuthorityGuard              func(context.Context, uint64) error
+	Cell           string
+	Conn           *nats.Conn
+	JS             jetstream.JetStream
+	State          jetstream.KeyValue
+	Artifacts      ArtifactStore
+	ResponseKey    ed25519.PrivateKey
+	StateReplicas  int
+	AuthorityEpoch func() uint64
+	AuthorityGuard func(context.Context, uint64) error
+	// AuthorityLeader reports whether this controller holds the cell authority;
+	// only the leader serves host requests. Nil serves always (one controller).
+	AuthorityLeader             func() bool
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
 	ManagedDesiredVerifier      ManagedDesiredVerifier
