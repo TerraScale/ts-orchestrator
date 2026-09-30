@@ -29,7 +29,7 @@
         "management_ip": "10.250.10.155",
         "secret_compartment_id": "ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria",
         "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta",
-        "policy_id": "ocid1.policy.oc1..aaaaaaaaasb7kmxzx65ydfqik6ehucompy6slz7l4gw4co2xzkidcmbway7a",
+        "policy_id": "ocid1.policy.oc1..aaaaaaaai6mfxu6q525tsbhyw2mahtmzoywhkw4iyfvoykvuao36z4r3c5zq",
         "policy_name": "terrascale-netbird-server-enrollment"
     },
     "public_api": {
