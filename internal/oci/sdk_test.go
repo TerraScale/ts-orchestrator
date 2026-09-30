@@ -184,6 +184,11 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
 			t.Fatalf("transient boot attachment %s classified as foreign: %v", state, err)
 		}
+		reader.boots.OpcNextPage = new("extra")
+		if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+			t.Fatalf("paginated transient boot attachment was not foreign: %v", err)
+		}
+		reader.boots.OpcNextPage = nil
 	}
 	reader.boots.Items[0].LifecycleState = core.BootVolumeAttachmentLifecycleStateAttached
 	for _, state := range []core.VnicAttachmentLifecycleStateEnum{
@@ -194,6 +199,11 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
 			t.Fatalf("transient VNIC attachment %s classified as foreign: %v", state, err)
 		}
+		reader.attachments.OpcNextPage = new("extra")
+		if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+			t.Fatalf("paginated transient VNIC attachment was not foreign: %v", err)
+		}
+		reader.attachments.OpcNextPage = nil
 	}
 	reader.attachments.Items[0].LifecycleState = core.VnicAttachmentLifecycleStateAttached
 	boots := reader.boots.Items
