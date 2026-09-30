@@ -410,6 +410,11 @@ func waitSurvivingAuthority(t *testing.T, ctx context.Context, port int, priorEp
 	t.Fatalf("authority did not take over after leader crash: previous epoch=%d last=%+v err=%v", priorEpoch, last, lastErr)
 }
 
+// controllerStopBudget matches TimeoutStopSec in the controller unit. The
+// last controller of a stopping cell has no JetStream quorum, so its graceful
+// shutdown waits out in-flight request timeouts.
+const controllerStopBudget = 60 * time.Second
+
 func waitControllerChildStopped(t *testing.T, child *controllerChild) {
 	t.Helper()
 	select {
@@ -418,7 +423,7 @@ func waitControllerChildStopped(t *testing.T, child *controllerChild) {
 			data, _ := os.ReadFile(child.logPath)
 			t.Fatalf("controller shutdown: %v; log %s\n%s", err, child.logPath, data)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("controller did not stop: %s", child.logPath)
+	case <-time.After(controllerStopBudget):
+		t.Fatalf("controller did not stop within %s: %s", controllerStopBudget, child.logPath)
 	}
 }
