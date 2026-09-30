@@ -21,7 +21,203 @@ the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
 verified acceptance, not effort or source completion.
 
-## Current checkpoint — 2026-09-29 02:54 UTC
+## Current handoff 2026-09-29
+
+The root [`GOAL.md`](../../../GOAL.md) remains the goal authority. This dated
+handoff supersedes progress observations in the 02:54 UTC checkpoint and older
+sections below, while preserving their evidence and every M0/D01–D15
+acceptance requirement. Substantial build, image, and bootstrap prerequisites
+have passed; **formal acceptance remains 0/16**. No R5 controller or TerraBase
+workload has a verified serving receipt. Current authorization is GRU
+(`sa-saopaulo-1`) under the combined US$200/month qualification and preview
+ceiling: Ops owns the regional foundation, credentials, image prerequisites,
+and controller A only. After an explicit healthy A identity, authority, and
+inventory handoff, `ts-orchestrator` owns B/C formation, workload hosts,
+volumes, enrollment, and TerraBase deployment through signed desired state.
+
+**Exact candidate pins.** Go/image qualification uses `ts-orchestrator`
+`e631cd6b05578a50d23d85e31d20f52ec024a5e9`, tree
+`13b9f81dc47459a63f8ccfad164cc1a2102110fb`, Go CI #701 and image CI
+#702/run 11709/job 25246 attempt 1. Image #702 retained ARM64 QCOW2 SHA-256
+`873105a00cb55aa8fc8c541d53093ff33d147fc2908f6a3682ab6c5d5ef5aa28`;
+the signed R5 image receipt SHA-256 is
+`dc271eb3b618899374c78ecfbf7f4783c77bc4b513c6bc0c754c07f8b66af873`.
+Before this ledger edit, the local `ts-orchestrator` `main`/`origin/main`
+implementation baseline was
+`10c85e37aecd85591d1fa6c186d44049e34402ac`, tree
+`71b33e2b6147db85282b84983a59adff27e5b2c7`. Its Go CI #704/run 11712
+retained log records race tests, 45 Python tests, and both static builds, but
+ends during Nixpkgs unpacking; the terminal CI result is **unknown**. Do not
+substitute that main revision or its artifacts for the qualified `e631` image.
+TerraBase `main` `470d1f898897d4a0cefc7d638ce8eb72f0ca73b8` passed CI
+#1018/run 11711 (Fast 150 passed, 0 failed, 3 ignored; Release and Publish
+passed). The first R5 OCI workload remains pinned to TerraBase
+`d2017ca9668a650ec490dff3f79bd51b75bb6466` / CI #1012 with `Backup=nil`;
+CI #1018 does not change the R5 image-input pin or supply a signed workload
+placement or live OCI proof.
+
+**Last authenticated OCI snapshot, with its limits.** Define private evidence
+root `E` as
+`/home/mariogk/.local/share/terrascale-controller-bootstrap-20260927/oci-operator-20260927/genesis-5e72567b-20260928`.
+The manual inventory `E/r5-deployment/manual-inventory-preimport-r5.json`
+(SHA-256 `50ad33e1f76da2622350fa4562266be864213b01d7ac0020d2667b1f659dcea2`)
+was captured **2026-09-29 08:00:24 UTC, before R5 image import**. It lists 28
+scoped resource rows, seven GRU buckets, and six AVAILABLE custom images at
+2 billable GiB each. These categories are separate; they are not a total
+deployed-resource count or a whole-tenancy zero check. The rows include five
+instances: the existing `ts-forgejo-server` RUNNING and four older controller
+attempts TERMINATED; five boot volumes: Forgejo AVAILABLE and four older ones
+TERMINATED; one 50 GiB Forgejo data volume AVAILABLE. Its network rows are
+four AVAILABLE NSGs, four route tables, three security lists, two subnets, two
+VCNs, one service gateway, and one ASSIGNED public IP. The seven buckets are
+`ts-forgejo`, `ts-forgejo-backup`, and five shared
+`ts-preview-gru-20260926-{backup,head,ledger,material,terrabase-live}`
+buckets. Forgejo and shared foundation retain their existing owners; neither
+the A-only bootstrap nor cleanup may claim them as new R5 resources.
+
+The saved foundation check `E/r5-deployment/foundation-preimport-r5.json`
+(SHA-256 `75cc8f0c4d2bd85781e9d2f37f8ee0687d16df099a66d020006baa809f127d92`)
+was inspected **08:01:14 UTC**. Its GRU tenancy is
+`ocid1.tenancy.oc1..aaaaaaaae4zbeypc66rholaayphrk6h2eg7j4up6tfncehv6agji6o5v4yga`;
+control, network, and workload compartments are respectively
+`ocid1.compartment.oc1..aaaaaaaaifvroeyjgu4l5h5gy4qzv7t6yfbcbd3fwwqxmzbamqkbjc5nvria`,
+`ocid1.compartment.oc1..aaaaaaaaw2igbgmgiwm7uq7awu4arpipym7y5xsw65zwlobf4xfyedykvw2q`,
+and `ocid1.compartment.oc1..aaaaaaaas46bwgh6tamohp43vvtw3xmtcwfal34tmwk3zzx3tbxtepbnq5ma`.
+The R5 seed plan names VCN
+`ocid1.vcn.oc1.sa-saopaulo-1.amaaaaaappuhpdqa6dz7gvnghd6a532ys3s3pdbpwxr3iqptdp2fyv5tj7ea`,
+subnet
+`ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaamqsca7442n6vrmros37z6hhpha2rct3bps2hgp2dml35cnu3djbq`,
+shared controller NSG
+`ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaanfaj2mqrjua5shofwm6uu2kl5dzbqaqyl3y4vc326j6vjiv5q67q`,
+and seed SSH NSG
+`ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaasmq3frwqq7mm2ewf52fafwdydychkqefxsr2yohu7koag2ljl3xa`.
+The separately saved workload NSG readback names
+`ocid1.networksecuritygroup.oc1.sa-saopaulo-1.aaaaaaaadwza5moxpf3hdss64efjhfhrg5kadyuger5scecyfgm3ucgz4zna`
+as AVAILABLE. The plan references two dynamic groups, three policies, one
+Vault, and one KMS key; retained controller dynamic-group and policy readbacks
+say ACTIVE. The R5 Vault exact-version readback verified **25/25** controller
+secret references at **05:35:24 UTC**. Those are dated bindings, not proof
+that every IAM/Vault resource is current. The signed R5 anchor instead pins
+new deployment owner `ts-preview-gru-20260929-r5`, object namespace
+`grxnmoqvrcdv`, and prefix `r5-20260929` within the shared head/ledger
+buckets; the plan's `ts-preview-gru-20260926` owner tag identifies shared
+foundation.
+
+After that preimport inventory, cached `E/r5-deployment/image-available-r5.json`
+recorded the **new** 2-billable-GiB image
+`ocid1.image.oc1.sa-saopaulo-1.aaaaaaaa3nwsziponjnum4elqg2dxb2jjp575tpuublhbcq4jabxzbluu4hq`
+AVAILABLE at its 08:10 UTC file readback. The final shape readback SHA-256
+`877914fe33b314eb3f3ca300949f879634587cb08c2dbb83a5ea59623f12e819`
+permits `VM.Standard.A1.Flex` at exactly 1 OCPU/6 GiB and
+`VM.Standard.Ampere.Generic`. The signer rerun finished successfully at
+**08:19:51 UTC** and produced the signed image receipt above, with saved
+`verify-image` output covering the QCOW2 and embedded binary. A later
+independent review passed receipt signature, delegation, scope, and expiry,
+but this sandbox denied its fresh libguestfs extraction (`bind: Operation not
+permitted`); it did not repeat the full image check. The preimport cost admission
+`E/r5-deployment/cost-admission-preimport-r5.json` (SHA-256
+`3f76c74127007aaf4c10612ab308fdda6c1151011f63ba18e7a9c8d4efec4260`)
+forecast **US$90.46/month of US$200** at **08:00:33 UTC**, before R5 import
+completion, and excludes the new 2-billable-GiB image. The admission expired
+**08:15:33 UTC** and must be refreshed before launch. It is neither actual
+billed cost nor a current postimport admission.
+
+The historical failed-A cleanup receipt `E/failed-a-cleanup-receipt.json`
+(SHA-256 `d7fbafaaf44ff455ea6bc949d9b29da7946aecec5237865f160ea2c71c669c0d`)
+observed an older A and boot volume TERMINATED, `.11` released, eight older
+objects preserved, and shared bastion/subnet/head/ledger/material resources
+retained at **2026-09-28 20:42 UTC**. R4 is frozen. Its image, manifests,
+placement/spec, and failed-attempt resource identities must not be reused for
+R5; cleanup follows the current resource owner. The scoped preimport snapshot
+and E's lack of R5 launch files do **not** establish that all current tenancy
+instances are absent. There is no retained R5 A launch, B/C, or workload
+serving evidence. One bounded live image GET during this ledger edit returned
+no data and timed out after 12 seconds (exit 124); current OCI state remains
+unknown. This session also cannot reach the user systemd bus, resolve Forgejo
+DNS, or write private E. These access limits are distinct from a diagnosed
+product defect; recover authorized operator access before live steps.
+
+**Prepared but unsigned.** The independently reviewed private packet
+`/tmp/ts-r5-offline-Dd9nlgMt` has [STATUS](/tmp/ts-r5-offline-Dd9nlgMt/STATUS.md)
+and `SHA256SUMS` SHA-256
+`5a85fdf5088508f636203fea07576a5617f7346df0f22b1f48e48de1a0273d69`.
+It contains exact-schema `oci-region.json` SHA-256
+`45ec4963ae192f58eb4abb9a9e348507f33f96783fd5133acf396db7ec2d961f`
+and unsigned A/B/C candidate SHA-256 values
+`7abc34f97af2f87bdd2305400d28d9fc5321283d0ad9869382753918a52c7dcb`,
+`dca56bf62e7df31f6737afd304488b062c6c24fc13de1cbcfefbe3490c36484e`,
+and `4d23b143721f03ec63fc45f7d5bb043110658ea295e4f7a953f674f4bf6a977f`.
+Released `ts-bootstrap-e631` rendered all three controller configs offline.
+No R5 region sidecar, signed A/B/C manifests, founder plan/selection, seed
+reservation, or A launch receipt exists in private E as of this check. The
+packet is review material, not live OCI admission. Private E contains the
+durable build/import/signing and trust evidence; `/tmp` image bytes, readback
+receipt, offline packet, M0/D10 packets and Go CI log are ephemeral. Preserve
+or deliberately copy their hashes/bytes before temp cleanup. Never copy
+Vault secret values or private keys into source or the public ledger.
+
+**Proof deadlines (UTC, recheck at use).** The signed image receipt expires
+**2026-09-30 08:19:30**; peer-receipt delegation **2026-10-01 07:36:59**;
+bootstrap anchor **2026-10-02 05:20:29**; ledger delegation
+**2026-10-02 13:20:24**; material record **2026-10-03 05:19:52**; release
+image delegation and signed binary receipt **2026-10-06 07:03:53**. Expiry
+requires renewed current proofs and exact dependent hashes. Source
+`ts-release sign-image` can sign an unchanged retained image candidate into a
+new output after its current Forgejo qualification, binary-receipt,
+delegation, and byte checks pass; expiry alone does not require a CI or QCOW2
+rebuild. A newly signed receipt changes `releaseReceiptSha256`, so regenerate
+and re-review the unsigned manifest candidates before signing. Preserve the
+old immutable receipt instead of overwriting it.
+
+**Other active tracks.** M0 remains unaccepted: its pinned Go
+`c4effe176e7b06ba7f9a40e83bb03cfbd952229f` / CI #697 is independent
+of the R5 `e631` deployment image. R14 failed before a guest started and its
+cleanup receipt says `CLEANUP_PASS`; R15 remains a plan-only HOLD with no
+launch or joined Go→Rust write/read, while its no-guest metrics rehearsal and
+cleanup passed. Continue M0 only after independent capacity and process
+readback; it does not replace OCI D01. D10 Go Complete/catch-up remains an
+unmerged scratch worktree plus stable `/tmp` snapshot. The old focused failure
+log predates its current test assertions, so the exact host CAS rejection
+predicate requires a bounded focused rerun after host-scope quiescence. Do not
+weaken the production fence from that old log. There is no live clean restore
+or PITR proof. TerraBase CI #1018 and these prerequisite advances do not
+complete an acceptance gate.
+
+**Next authorized sequence.** From a permitted operator environment, first
+read current host/process and authority state; refresh authenticated GRU
+image/shape, resource inventory, IAM/foundation/Vault, NSG/free-IP, and the
+combined US$200 admission. Verify exact EMPTY HEAD, ledger and reservation
+prefix/version state before any seed publication. Review the packet's region
+sidecar against fresh readbacks; renew expiring proofs; construct, sign, and
+verify exact R5 A/B/C manifests and founder/selection; run seed preflight and
+reserve. Ops then bootstraps **A only**, proves it healthy and hands off its
+identities, authority and inventory. `ts-orchestrator` then forms **B/C via
+the founder**, creates the two distinct TerraBase hosts and their owned
+volumes, enrolls them, and applies signed workload desired state. Prove an
+authorized external write/read and the remaining M1–M3, D01–D15 scenarios
+before changing 0/16. M0 may proceed in parallel only under independent
+capacity and authorization.
+
+Evidence index: private `E/r5-deployment/{manual-inventory-preimport-r5.json,
+foundation-preimport-r5.json,cost-admission-preimport-r5.json,
+image-available-r5.json,image-shapes-final-r5.json,
+image-receipt.signed.json,image-receipt.verify-r5.txt}`;
+`E/r5-material-prep/{bootstrap-anchor.signed.json,
+peer-receipt-delegation.signed.json,ledger-delegation.signed.json}`;
+`E/r5-go-release/{canary-release-image-delegation.signed.json,
+canary-linux-arm64.receipt.json}`; ephemeral
+`/tmp/ts-r5-image-artifacts-702/post-success-readback.receipt.json`
+(SHA-256 `8a2afa539628e3309677d18ba36ca87ddd4efea712a6d65f0034f4f4599ca162`),
+`/tmp/ts-r5-offline-Dd9nlgMt/STATUS.md`,
+`/tmp/ts-orch-ci-run704.log` (SHA-256
+`5aa19982c96263003f1bea8ae33cac0e65edc4b85c3af28e673f8b575053cff8`),
+TerraBase [CI #1018 readback](../../../.qualification/terrabase-ci1018-470d1f8/qualification-readback.md),
+`/tmp/ts-m0-full-r15-20260929/plan-only.json`, and
+`/tmp/ts-d10-go-catchup-rerun-handoff-20260929.md`. The older ledger rows
+below retain their dates and requirements; use this section for current
+operational state.
+
+## Historical checkpoint — 2026-09-29 02:54 UTC (superseded observations)
 
 The current root [`GOAL.md`](../../../GOAL.md) is the sole goal authority for
 this refresh (SHA-256
