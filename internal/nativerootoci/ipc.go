@@ -112,8 +112,15 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service *
 	}
 	leaseDeadline, err := authorize(ctx, peer)
 	if err != nil || leaseDeadline.IsZero() || !time.Now().Before(leaseDeadline) {
+		cause, remaining := "authorization_rejected", time.Duration(0)
+		if err == nil {
+			cause = "lease_missing"
+			if !leaseDeadline.IsZero() {
+				cause, remaining = "lease_expired", time.Until(leaseDeadline)
+			}
+		}
 		slog.Warn("native OCI root IPC rejected", "stage", "authorize",
-			"cause", "authority_unavailable", "lease_remaining", time.Until(leaseDeadline))
+			"cause", cause, "lease_remaining", remaining)
 		return
 	}
 	ctx, leaseCancel := context.WithDeadline(ctx, leaseDeadline)

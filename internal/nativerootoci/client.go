@@ -152,8 +152,12 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 	ctx, cancel := context.WithTimeout(ctx, requestLimit)
 	defer cancel()
 	started := time.Now()
+	rejected := false
 	defer func() {
-		if response.Status == "uncertain" {
+		// Stage logs identify an individual GET/PUT failure. This request
+		// summary supplies total elapsed time, including permit wait and
+		// multiple SDK operations for probe_update.
+		if response.Status == "uncertain" && !rejected {
 			slog.Warn("native OCI root request uncertain", "operation", request.Operation,
 				"elapsed", time.Since(started))
 		}
@@ -181,6 +185,9 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 		body, err := base64.StdEncoding.Strict().DecodeString(request.RootBase64)
 		if err != nil || len(body) == 0 || len(body) > MaxRootBytes ||
 			base64.StdEncoding.EncodeToString(body) != request.RootBase64 {
+			rejected = true
+			slog.Warn("native OCI root request rejected", "operation", request.Operation,
+				"cause", "invalid_root_payload")
 			return response
 		}
 		ifMatch := request.IfMatch
@@ -209,7 +216,7 @@ func (service *Service) get(ctx context.Context, key string, maximum int,
 		if response.Content != nil {
 			_ = response.Content.Close()
 		}
-		logNativeRootFailure(ctx, "get", "sdk", ctx.Err())
+		logNativeRootFailure(ctx, "get", "sdk", errors.Join(ctx.Err(), err))
 		return nil, "", "uncertain"
 	}
 	if err != nil {
@@ -263,7 +270,7 @@ func (service *Service) put(ctx context.Context, key string, body []byte, ifMatc
 	// A failed write acknowledgement may have committed. Never retry the Put.
 	response, err := service.client.PutObject(ctx, request)
 	if ctx.Err() != nil {
-		logNativeRootFailure(ctx, "put", "sdk", ctx.Err())
+		logNativeRootFailure(ctx, "put", "sdk", errors.Join(ctx.Err(), err))
 		return "", "uncertain"
 	}
 	if err != nil {

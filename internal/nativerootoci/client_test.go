@@ -57,6 +57,44 @@ func TestNativeRootUncertaintyLogsStageAndStatusWithoutProviderSecrets(t *testin
 	if strings.Contains(logs.String(), "secret-") || strings.Contains(logs.String(), target.Bucket) {
 		t.Fatalf("sensitive provider or request detail leaked: %s", logs.String())
 	}
+	for _, operation := range []string{"get", "update"} {
+		logs.Reset()
+		ctx, cancel := context.WithCancel(t.Context())
+		service, err := NewService(target, objectClientStub{
+			get: func(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+				cancel()
+				return objectstorage.GetObjectResponse{}, objectFailure(http.StatusServiceUnavailable)
+			},
+			put: func(context.Context, objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
+				cancel()
+				return objectstorage.PutObjectResponse{}, objectFailure(http.StatusServiceUnavailable)
+			},
+		})
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		request := testRequest(target, operation, nil, "")
+		if operation == "update" {
+			request = testRequest(target, operation, []byte("root"), "etag")
+		}
+		response := service.Execute(ctx, request, authorize)
+		cancel()
+		if response.Status != "uncertain" || !strings.Contains(logs.String(), `"cause":"canceled"`) ||
+			!strings.Contains(logs.String(), `"http_status":503`) {
+			t.Fatalf("cancellation lost provider evidence for %s: %+v %s", operation, response, logs.String())
+		}
+	}
+	logs.Reset()
+	malformed := testRequest(target, "update", []byte("root"), "etag")
+	malformed.RootBase64 = "!!!!"
+	if response := service.Execute(t.Context(), malformed, authorize); response.Status != "uncertain" {
+		t.Fatalf("malformed request response changed: %+v", response)
+	}
+	if !strings.Contains(logs.String(), "native OCI root request rejected") ||
+		strings.Contains(logs.String(), "native OCI root request uncertain") {
+		t.Fatalf("malformed request was mislabeled: %s", logs.String())
+	}
 }
 
 func (client objectClientStub) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
