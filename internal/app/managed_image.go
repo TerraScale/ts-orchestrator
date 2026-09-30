@@ -40,12 +40,12 @@ type managedImageVerifier struct {
 var _ oci.ImageQualificationVerifier = (*managedImageVerifier)(nil)
 
 type managedFleetFactory func(oci.RegionConfig, oci.RegionIntent, oci.Journal, authority.Fencer,
-	oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier) (oci.Fleet, error)
+	oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier, map[string]string) (oci.Fleet, error)
 
 // Keep the production constructor's qualification dependency explicit. A nil
 // verifier must never silently turn managed retained volumes into held work.
 func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, intent oci.RegionIntent,
-	journal oci.Journal, fencer authority.Fencer,
+	journal oci.Journal, fencer authority.Fencer, hostMetadata map[string]string,
 	newVerifier func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error),
 	newFleet managedFleetFactory,
 ) (oci.Fleet, error) {
@@ -59,7 +59,7 @@ func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, in
 	if verifier == nil {
 		return nil, errors.New("managed OCI image qualification is unavailable")
 	}
-	return newFleet(region, intent, journal, fencer, nil, nil, verifier)
+	return newFleet(region, intent, journal, fencer, nil, nil, verifier, hostMetadata)
 }
 
 // The accepted slot ledger is the source of the release image proof. The

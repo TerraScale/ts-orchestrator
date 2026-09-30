@@ -21,6 +21,7 @@ import shutil
 import signal
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -38,7 +39,7 @@ MEMBER_INPUTS = {
     "volume_ext4", "authority_tbca", "trusted_public_key", "server_crt",
     "server_key", "client_ca_pem", "server_ca_pem", "client_managed_manifest",
     "client_config", "client_chain", "client_private_key", "client_api_keys",
-    "client_api_token", "client_https_ca_pem",
+    "client_api_token", "client_https_ca_pem", "signed_v2_s3_config",
 }
 MATERIAL = {
     "authority_tbca": "authority.tbca",
@@ -52,7 +53,17 @@ MATERIAL = {
     "client_chain": "client-chain.pem",
     "client_private_key": "client-private-key.pem",
     "client_api_keys": "client-api-keys.json",
+    "signed_v2_s3_config": "signed-v2-s3-config.json",
 }
+S3_REGION = "sa-saopaulo-1"
+S3_HOST = "rustfs.terrabase.test"
+S3_PORT = 9000
+S3_ENDPOINT = f"https://{S3_HOST}:{S3_PORT}"
+S3_SECRET_OCID = ("ocid1.vaultsecret.oc1.sa-saopaulo-1."
+                  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+S3_CREDENTIAL_PATHS = (Path("/etc/ts-managed-member/s3-access-key-id"),
+                       Path("/etc/ts-managed-member/s3-secret-access-key"))
+RUSTFS_IMAGE = "docker.io/rustfs/rustfs@sha256:ba0a1b53e36f321c0d46f3867104abef169f7bc59c467c664ddac87e7ddc9a8b"
 SUBNET = ipaddress.ip_network("10.77.39.0/24")
 HOST_IP = "10.77.39.1"
 GUEST_IPS = {"a": "10.77.39.11", "b": "10.77.39.12"}
@@ -84,6 +95,7 @@ TEST_PHASE_PASS = re.compile(r"^TS_MANAGED_MEMBER_PHASE=PASS node=node-[ab]$")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 _COMMIT = re.compile(r"[0-9a-f]{40,64}\Z")
 _FIRECRACKER_ID = re.compile(r"[A-Za-z0-9_]+\Z")
+_S3_BUCKET = re.compile(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]\Z")
 
 
 class QualificationError(RuntimeError):
@@ -124,6 +136,73 @@ def sha256_file(path: Path) -> str:
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def s3_target_digest(region: str, bucket: str, endpoint: str) -> str:
+    digest = hashlib.sha256(b"terrabase-s3-target-v1\x00")
+    for value in (region, bucket, endpoint):
+        encoded = value.encode("utf-8")
+        digest.update(struct.pack(">Q", len(encoded)))
+        digest.update(encoded)
+    return digest.hexdigest()
+
+
+def signed_s3_config(member: str, record: dict[str, Any]) -> dict[str, Any]:
+    if record["size"] == 0 or record["size"] > 16 << 10:
+        raise QualificationError(f"{member}: signed S3 config size invalid")
+    path = record["path"]
+    before = path.lstat()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(descriptor, "rb") as stream:
+        opened = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(opened.st_mode) or
+                (before.st_dev, before.st_ino) != (opened.st_dev, opened.st_ino)):
+            raise QualificationError(f"{member}: signed S3 config is not a direct regular file")
+        raw = stream.read((16 << 10) + 1)
+        after = os.fstat(stream.fileno())
+    if (len(raw) != record["size"] or (opened.st_size, opened.st_mtime_ns) !=
+            (after.st_size, after.st_mtime_ns) or sha256_bytes(raw) != record["sha256"]):
+        raise QualificationError(f"{member}: signed S3 config changed")
+    try:
+        config = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise QualificationError(f"{member}: signed S3 config is not JSON") from error
+    if (not isinstance(config, dict) or set(config) != {"version", "ack_profile", "bucket", "region", "endpoint"} or
+            type(config["version"]) is not int or config["version"] != 1 or
+            config["ack_profile"] != "object_durable" or config["region"] != S3_REGION or
+            config["endpoint"] != S3_ENDPOINT or not isinstance(config["bucket"], str) or
+            not _S3_BUCKET.fullmatch(config["bucket"]) or ".." in config["bucket"]):
+        raise QualificationError(f"{member}: signed S3 target is invalid")
+    canonical = json.dumps(config, separators=(",", ":"), ensure_ascii=False).encode()
+    if raw != canonical:
+        raise QualificationError(f"{member}: signed S3 config is not canonical exporter JSON")
+    return config
+
+
+def read_s3_credential(path: Path) -> str:
+    if not path.is_absolute():
+        raise QualificationError("S3 credential path must be absolute")
+    before = path.lstat()
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or (before.st_dev, before.st_ino) != (info.st_dev, info.st_ino) or
+                info.st_uid not in (0, os.getuid()) or stat.S_IMODE(info.st_mode) != 0o600 or
+                not 0 < info.st_size <= 1024):
+            raise QualificationError("S3 credential file has unsafe ownership, mode or size")
+        value = stream.read(1025)
+        if len(value) != info.st_size or os.fstat(stream.fileno()).st_mtime_ns != info.st_mtime_ns:
+            raise QualificationError("S3 credential file changed while reading")
+    if not value or any(byte < 0x21 or byte > 0x7e for byte in value):
+        raise QualificationError("S3 credential file contains invalid bytes")
+    return value.decode("ascii")
+
+
+def s3_credentials(paths: tuple[Path, Path]) -> tuple[str, str]:
+    access, secret = (read_s3_credential(path) for path in paths)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", access) or not re.fullmatch(r"[A-Za-z0-9_-]+", secret):
+        raise QualificationError("S3 fixture credentials must use ASCII letters, digits, '-' or '_'")
+    return access, secret
 
 
 def exact_input(name: str, record: Any) -> dict[str, Any]:
@@ -200,10 +279,17 @@ def _valid_config(member: str, config: Any, inputs: dict[str, dict[str, Any]]) -
         "client_ca_roots_sha256", "client_managed_material_manifest_sha256",
         "replication_listen_address", "replication_peer_member_id",
         "replication_peer_address", "replication_server_ca_sha256",
+        "live_s3_config_sha256", "live_s3_target_sha256", "live_s3_credential",
     }
     if not isinstance(runtime, dict) or set(runtime) != runtime_keys:
         raise QualificationError(f"{member}: runtime pins are malformed")
+    credential = runtime["live_s3_credential"]
+    if (not isinstance(credential, dict) or set(credential) != {"secret_ocid", "version_number"} or
+            credential["secret_ocid"] != S3_SECRET_OCID or
+            type(credential["version_number"]) is not int or credential["version_number"] != 1):
+        raise QualificationError(f"{member}: runtime S3 credential reference is malformed")
     other = "b" if member == "a" else "a"
+    s3 = signed_s3_config(member, inputs["signed_v2_s3_config"])
     expected = {
         "device_path": "/dev/oracleoci/oraclevdb",
         "mount_path": str(MEMBER_DIRS[member] / "volume"),
@@ -218,6 +304,9 @@ def _valid_config(member: str, config: Any, inputs: dict[str, dict[str, Any]]) -
         "replication_peer_member_id": MEMBER_IDS[other],
         "replication_peer_address": f"{GUEST_IPS[other]}:{REPLICATION_PORT}",
         "replication_server_ca_sha256": inputs["server_ca_pem"]["sha256"],
+        "live_s3_config_sha256": inputs["signed_v2_s3_config"]["sha256"],
+        "live_s3_target_sha256": s3_target_digest(s3["region"], s3["bucket"], s3["endpoint"]),
+        "live_s3_credential": {"secret_ocid": S3_SECRET_OCID, "version_number": 1},
     }
     if runtime != expected:
         raise QualificationError(f"{member}: runtime pins differ from immutable inputs or peer layout")
@@ -257,7 +346,8 @@ def load_manifest(path: Path) -> dict[str, Any]:
         if inputs["volume_ext4"]["size"] != VOLUME_BYTES:
             raise QualificationError(f"{member}: volume image must be exactly 256 MiB")
         _valid_config(member, record["guest_config"], inputs)
-        parsed_members[member] = {"inputs": inputs, "guest_config": record["guest_config"]}
+        parsed_members[member] = {"inputs": inputs, "guest_config": record["guest_config"],
+                                  "s3": signed_s3_config(member, inputs["signed_v2_s3_config"])}
     left, right = parsed_members["a"]["guest_config"], parsed_members["b"]["guest_config"]
     for field in ("cluster_id", "tenant_id", "database_id", "shard_id"):
         if left["member"]["scope"][field] != right["member"]["scope"][field]:
@@ -268,6 +358,8 @@ def load_manifest(path: Path) -> dict[str, Any]:
     for field in ("source_digest", "system_reserve_bytes", "collection_id", "schema_generation", "schema_digest", "document_id"):
         if left[field] != right[field]:
             raise QualificationError("members disagree on transaction fixture")
+    if parsed_members["a"]["s3"] != parsed_members["b"]["s3"]:
+        raise QualificationError("members disagree on signed S3 target")
     return {"raw": raw, "sha256": sha256_bytes(raw), "source_commits": commits,
             "inputs": verified, "members": parsed_members}
 
@@ -295,7 +387,7 @@ def check_subnet_collision() -> None:
 
 
 def prerequisites() -> None:
-    required = ("sudo", "ip", "mount", "umount", "install", "ln", "cp", "e2fsck", "resize2fs", "blkid", "sha256sum", "stat")
+    required = ("sudo", "ip", "mount", "umount", "install", "ln", "cp", "cmp", "e2fsck", "resize2fs", "blkid", "sha256sum", "stat", "chroot", "openssl", "curl", "podman")
     missing = [name for name in required if shutil.which(name) is None]
     if missing:
         raise QualificationError(f"host commands missing: {missing}")
@@ -310,19 +402,30 @@ class CommandLog:
         self.number = 0
 
     def run(self, label: str, argv: list[str], *, sudo: bool = False,
-            timeout: int = 120, allowed: tuple[int, ...] = (0,)) -> str:
+            timeout: int = 120, allowed: tuple[int, ...] = (0,),
+            env: dict[str, str] | None = None) -> str:
         self.number += 1
         path = self.root / f"{self.number:03d}-{label}.log"
         command = (["sudo", "-n"] if sudo else []) + argv
         with path.open("wb") as output:
-            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
+            process = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT, env=env,
                                        start_new_session=True)
             try:
                 status = process.wait(timeout=timeout)
-            except subprocess.TimeoutExpired as error:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=10)
-                raise QualificationError(f"{label}: timed out; see {path}") from error
+            except BaseException as error:
+                previous_sigterm = signal.getsignal(signal.SIGTERM)
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                try:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=10)
+                finally:
+                    signal.signal(signal.SIGTERM, previous_sigterm)
+                if isinstance(error, subprocess.TimeoutExpired):
+                    raise QualificationError(f"{label}: timed out; see {path}") from error
+                raise
         if path.stat().st_size > LOG_BOUND:
             raise QualificationError(f"{label}: command log exceeded {LOG_BOUND} bytes")
         content = path.read_text(errors="replace")
@@ -344,6 +447,7 @@ def guest_path(mount: Path, destination: Path) -> Path:
 
 def check_guest_tools(mount: Path) -> None:
     required = (Path("/usr/lib/systemd/systemd"), Path("/usr/sbin/blkid"),
+                Path("/usr/sbin/update-ca-certificates"),
                 *(Path("/usr/bin") / command for command in
                   ("mount", "findmnt", "mountpoint", "readlink", "systemctl", "ip")))
     for destination in required:
@@ -411,6 +515,8 @@ if [ "$attempt" -ge 120 ]; then
   exit 90
 fi
 TS_FC_MANAGED_MEMBER_CONFIG=/etc/ts-managed-member/guest-config.json \\
+TS_FC_MANAGED_S3_ACCESS_KEY_FILE={S3_CREDENTIAL_PATHS[0]} \\
+TS_FC_MANAGED_S3_SECRET_KEY_FILE={S3_CREDENTIAL_PATHS[1]} \\
   /opt/ts-managed-member/host.test -test.run='^{GO_TEST}$' -test.v -test.timeout={SERVICE_SECONDS}s > "$LOG" 2>&1
 status=$?
 cat "$LOG"
@@ -452,8 +558,6 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=root
-Group=root
 Delegate=yes
 DelegateSubgroup=supervisor
 MemoryMax=5G
@@ -630,7 +734,8 @@ class VM:
 
 
 class Lab:
-    def __init__(self, manifest: dict[str, Any], run_dir: Path):
+    def __init__(self, manifest: dict[str, Any], run_dir: Path,
+                 s3_credential_paths: tuple[Path, Path]):
         self.manifest = manifest
         self.root = run_dir
         self.logs = run_dir / "logs"
@@ -638,6 +743,12 @@ class Lab:
         self.images = run_dir / "images"
         self.mounts = run_dir / "mounts"
         self.stage = run_dir / "stage"
+        self.fixture = run_dir / "rustfs"
+        self.s3_credential_paths = s3_credential_paths
+        self.rustfs_name = "tsmm-rustfs-" + secrets.token_hex(8)
+        self.rustfs_started = False
+        self.fixture_ca = self.fixture / "ca.crt"
+        self.s3_key_hashes: tuple[str, str] | None = None
         self.socket_dir: Path | None = None
         suffix = secrets.token_hex(3)
         self.bridge = "tsm" + suffix + "b"
@@ -664,9 +775,10 @@ class Lab:
         self.events.append({"at": datetime.now(timezone.utc).isoformat(), "kind": kind, **fields})
 
     def run_cmd(self, label: str, argv: list[str], *, sudo: bool = False,
-                timeout: int = 120, allowed: tuple[int, ...] = (0,)) -> str:
+                timeout: int = 120, allowed: tuple[int, ...] = (0,),
+                env: dict[str, str] | None = None) -> str:
         assert self.command_log is not None
-        result = self.command_log.run(label, argv, sudo=sudo, timeout=timeout, allowed=allowed)
+        result = self.command_log.run(label, argv, sudo=sudo, timeout=timeout, allowed=allowed, env=env)
         self.note("command", label=label, argv=argv, sudo=sudo)
         return result
 
@@ -674,7 +786,7 @@ class Lab:
         if os.path.lexists(self.root):
             raise QualificationError("run directory must not exist before qualification")
         self.root.mkdir(mode=0o700)
-        for directory in (self.logs, self.commands, self.images, self.mounts, self.stage):
+        for directory in (self.logs, self.commands, self.images, self.mounts, self.stage, self.fixture):
             directory.mkdir(mode=0o700)
         (self.root / "manifest.json").write_bytes(self.manifest["raw"])
         (self.root / "manifest.json").chmod(0o600)
@@ -834,6 +946,32 @@ class Lab:
                     raise QualificationError(f"{member}: staged {key} changed")
             inputs = self.manifest["members"][member]["inputs"]
             self.stage_managed_material(mount, member, inputs)
+            keys = s3_credentials(self.s3_credential_paths)
+            if self.s3_key_hashes != tuple(sha256_bytes(value.encode()) for value in keys):
+                raise QualificationError("S3 fixture credentials changed after RustFS startup")
+            for source, destination in zip(self.s3_credential_paths, S3_CREDENTIAL_PATHS, strict=True):
+                self.install(mount, source, destination, "0600")
+                self.run_cmd(f"{member}-verify-{destination.name}",
+                             ["cmp", "-s", "--", str(source), str(guest_path(mount, destination))],
+                             sudo=True, timeout=15)
+            ca_destination = Path("/usr/local/share/ca-certificates/ts-managed-rustfs.crt")
+            self.install(mount, self.fixture_ca, ca_destination, "0644")
+            if self.staged_sha256(mount, ca_destination) != sha256_file(self.fixture_ca):
+                raise QualificationError(f"{member}: RustFS CA staging changed")
+            hosts_path = guest_path(mount, Path("/etc/hosts"))
+            if not stat.S_ISREG(hosts_path.lstat().st_mode):
+                raise QualificationError(f"{member}: guest hosts file is not regular")
+            hosts = hosts_path.read_text()
+            if S3_HOST in hosts:
+                raise QualificationError(f"{member}: guest hosts already defines RustFS name")
+            self.install(mount, self.stage_text(f"{member}-hosts", hosts.rstrip("\n") +
+                                                f"\n{HOST_IP} {S3_HOST}\n", 0o644),
+                         Path("/etc/hosts"), "0644")
+            self.run_cmd(f"{member}-update-ca", ["chroot", str(mount), "/usr/sbin/update-ca-certificates"],
+                         sudo=True, timeout=60)
+            self.run_cmd(f"{member}-verify-ca", ["openssl", "verify", "-CAfile",
+                         str(guest_path(mount, Path("/etc/ssl/certs/ca-certificates.crt"))),
+                         str(self.fixture_ca)], timeout=15)
             for key, filename in (("client_api_token", "client-api-token"),
                                   ("client_https_ca_pem", "client-https-ca.pem")):
                 destination = Path("/opt/ts-managed-member") / filename
@@ -886,6 +1024,79 @@ class Lab:
             self.run_cmd(f"tap-{member}-master", ["ip", "link", "set", tap, "master", self.bridge], sudo=True)
             self.run_cmd(f"tap-{member}-up", ["ip", "link", "set", tap, "up"], sudo=True)
         self.note("private_network", bridge=self.bridge, taps=self.taps, subnet=str(SUBNET))
+
+    def start_rustfs(self) -> None:
+        access, secret = s3_credentials(self.s3_credential_paths)
+        self.s3_key_hashes = (sha256_bytes(access.encode()), sha256_bytes(secret.encode()))
+        tls = self.fixture / "tls"
+        tls.mkdir(mode=0o755)
+        ca_key = self.fixture / "ca.key"
+        leaf_key = tls / "rustfs_key.pem"
+        leaf_cert = tls / "rustfs_cert.pem"
+        csr = self.fixture / "leaf.csr"
+        extension = self.stage_text("rustfs-leaf.ext", "basicConstraints=critical,CA:FALSE\n"
+                                    "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                                    "extendedKeyUsage=serverAuth\n"
+                                    f"subjectAltName=DNS:{S3_HOST}\n")
+        self.run_cmd("rustfs-ca", ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256",
+                    "-days", "1", "-subj", "/CN=TerraBase managed member RustFS CA",
+                    "-addext", "basicConstraints=critical,CA:TRUE",
+                    "-addext", "keyUsage=critical,keyCertSign,cRLSign",
+                    "-keyout", str(ca_key), "-out", str(self.fixture_ca)], timeout=30)
+        self.run_cmd("rustfs-leaf-request", ["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes",
+                    "-sha256", "-subj", f"/CN={S3_HOST}", "-keyout", str(leaf_key), "-out", str(csr)], timeout=30)
+        self.run_cmd("rustfs-leaf-sign", ["openssl", "x509", "-req", "-sha256", "-days", "1",
+                    "-in", str(csr), "-CA", str(self.fixture_ca), "-CAkey", str(ca_key),
+                    "-CAcreateserial", "-extfile", str(extension), "-out", str(leaf_cert)], timeout=30)
+        leaf_cert.chmod(0o644)
+        leaf_key.chmod(0o644)  # Copied leaf files must be readable by RustFS uid 10001.
+        auth = self.fixture / "curl.conf"
+        auth.write_text(f'aws-sigv4 = "aws:amz:{S3_REGION}:s3"\nuser = "{access}:{secret}"\n')
+        auth.chmod(0o600)
+        location = self.stage_text("rustfs-bucket-location.xml",
+                                   "<CreateBucketConfiguration xmlns=\"http://s3.amazonaws.com/doc/2006-03-01/\">"
+                                   f"<LocationConstraint>{S3_REGION}</LocationConstraint>"
+                                   "</CreateBucketConfiguration>")
+        env = {**os.environ, "RUSTFS_ACCESS_KEY": access, "RUSTFS_SECRET_KEY": secret,
+               "RUSTFS_TLS_PATH": "/opt/tls", "RUSTFS_ADDRESS": f"{HOST_IP}:{S3_PORT}",
+               "RUSTFS_REGION": S3_REGION, "RUSTFS_CONSOLE_ENABLE": "false"}
+        self.rustfs_started = True  # Removal by the unique name also covers a lost create response.
+        self.run_cmd("rustfs-create", ["podman", "create", "--pull=missing",
+                     "--name", self.rustfs_name, "--network", "host", "--memory", str(1 << 30),
+                     "--env", "RUSTFS_ACCESS_KEY",
+                     "--env", "RUSTFS_SECRET_KEY", "--env", "RUSTFS_TLS_PATH",
+                     "--env", "RUSTFS_ADDRESS", "--env", "RUSTFS_REGION",
+                     "--env", "RUSTFS_CONSOLE_ENABLE",
+                     RUSTFS_IMAGE], timeout=120, env=env)
+        self.run_cmd("rustfs-copy-tls", ["podman", "cp", str(tls) + "/.",
+                     f"{self.rustfs_name}:/opt/tls"], timeout=30)
+        self.run_cmd("rustfs-start", ["podman", "start", self.rustfs_name], timeout=30)
+        bucket = self.manifest["members"]["a"]["s3"]["bucket"]
+        curl = ["curl", "--silent", "--show-error", "--noproxy", "*", "--cacert", str(self.fixture_ca),
+                "--resolve", f"{S3_HOST}:{S3_PORT}:{HOST_IP}", "--config", str(auth),
+                "--output", "/dev/null", "--write-out", "%{http_code}", "--max-time", "2"]
+        url = f"{S3_ENDPOINT}/{bucket}"
+        for attempt in range(60):
+            status = self.run_cmd(f"rustfs-ready-{attempt}", curl + ["--head", url],
+                                  timeout=5, allowed=(0, 7, 28)).strip()[-3:]
+            if status == "404":
+                break
+            if status not in ("000", "500", "502", "503", "504"):
+                raise QualificationError(f"RustFS authenticated bucket absence returned HTTP {status}")
+            time.sleep(1)
+        else:
+            raise QualificationError("RustFS authenticated HTTPS readiness timed out")
+        status = self.run_cmd("rustfs-create-bucket", curl + ["--max-time", "10", "--request", "PUT",
+                                                               "--header", "Content-Type: application/xml",
+                                                               "--data-binary", "@" + str(location), url],
+                              timeout=15).strip()
+        if status not in ("200", "201"):
+            raise QualificationError(f"RustFS bucket creation returned HTTP {status}")
+        status = self.run_cmd("rustfs-check-bucket", curl + ["--head", url], timeout=5).strip()
+        if status != "200":
+            raise QualificationError(f"RustFS authenticated bucket probe returned HTTP {status}")
+        self.note("rustfs_ready", endpoint=S3_ENDPOINT, bucket=bucket,
+                  ca_sha256=sha256_file(self.fixture_ca))
 
     def start_vms(self) -> None:
         self.recheck_inputs()
@@ -1067,13 +1278,22 @@ class Lab:
     def cleanup(self) -> None:
         for vm in self.vms.values():
             self.cleanup_errors.extend(vm.stop())
+        if self.rustfs_started:
+            try:
+                self.run_cmd("rustfs-stop", ["podman", "rm", "--force", "--volumes", self.rustfs_name],
+                             timeout=30, allowed=(0, 1))
+                self.run_cmd("rustfs-removed", ["podman", "container", "exists", self.rustfs_name],
+                             timeout=10, allowed=(1,))
+                self.rustfs_started = False
+            except Exception as error:
+                self.cleanup_errors.append(f"remove RustFS fixture: {error}")
         for member in tuple(self.mounted):
             try:
                 self.unmount_root(member)
             except Exception as error:
                 self.cleanup_errors.append(f"unmount {member}: {error}")
-        if any(not vm.stopped for vm in self.vms.values()):
-            self.cleanup_errors.append("private network retained while a VM may still be live")
+        if any(not vm.stopped for vm in self.vms.values()) or self.rustfs_started:
+            self.cleanup_errors.append("private network retained while a VM or RustFS may still be live")
         else:
             for link in reversed(self.created_links):
                 try:
@@ -1092,21 +1312,50 @@ class Lab:
                     self.socket_dir.rmdir()
                 except Exception as error:
                     self.cleanup_errors.append(f"remove private API socket directory: {error}")
-        if not self.failure and not self.cleanup_errors and not self.mounted and all(vm.stopped for vm in self.vms.values()):
-            for path in self.images.glob("*.ext4"):
-                path.unlink()
-            self.note("private_images_removed")
+        if not self.mounted and all(vm.stopped for vm in self.vms.values()):
+            # Rootfs copies contain private S3 keys. Never retain them as failed
+            # evidence snapshots; the source images and logs remain available.
+            for path in self.images.glob("*-rootfs.ext4"):
+                try:
+                    path.unlink()
+                except OSError as error:
+                    self.cleanup_errors.append(f"remove private rootfs {path}: {error}")
+            if not self.failure and not self.cleanup_errors:
+                for path in self.images.glob("*-volume.ext4"):
+                    try:
+                        path.unlink()
+                    except OSError as error:
+                        self.cleanup_errors.append(f"remove private volume {path}: {error}")
+            self.note("private_rootfs_removed", retained=[str(path) for path in self.images.glob("*-rootfs.ext4")])
         else:
-            self.note("private_images_retained", failure=self.failure, cleanup_errors=self.cleanup_errors)
+            self.cleanup_errors.append("private rootfs with S3 credentials could not be removed")
+        if not self.rustfs_started:
+            try:
+                for path in self.fixture.rglob("*"):
+                    if path.is_file():
+                        path.unlink()
+                for path in sorted((item for item in self.fixture.rglob("*") if item.is_dir()), reverse=True):
+                    path.rmdir()
+                self.fixture.rmdir()
+            except Exception as error:
+                self.cleanup_errors.append(f"remove RustFS TLS and auth files: {error}")
 
     def run(self) -> dict[str, Any]:
         self.prepare_dirs()
+        previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+        def terminate(_signum: int, _frame: Any) -> None:
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            raise QualificationError("runner received SIGTERM")
+
+        signal.signal(signal.SIGTERM, terminate)
         try:
             self.recheck_inputs()
             self.copy_images()
+            self.network()
+            self.start_rustfs()
             for member in ("a", "b"):
                 self.stage_guest(member)
-            self.network()
             self.start_vms()
             self.exercise()
             self.finish_guests()
@@ -1115,18 +1364,22 @@ class Lab:
             self.failure = f"{type(error).__name__}: {error}"
             self.note("failure", detail=self.failure)
         finally:
-            changed = {}
-            for name, path in self.source_paths.items():
-                try:
-                    current = sha256_file(path)
-                except OSError:
-                    current = "missing"
-                if current != self.source_hashes[name]:
-                    changed[name] = {"initial": self.source_hashes[name], "observed": current}
-            if changed:
-                self.failure = "; ".join(part for part in (self.failure, "local qualification source changed") if part)
-                self.note("source_changed", files=changed)
-            self.cleanup()
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            try:
+                changed = {}
+                for name, path in self.source_paths.items():
+                    try:
+                        current = sha256_file(path)
+                    except OSError:
+                        current = "missing"
+                    if current != self.source_hashes[name]:
+                        changed[name] = {"initial": self.source_hashes[name], "observed": current}
+                if changed:
+                    self.failure = "; ".join(part for part in (self.failure, "local qualification source changed") if part)
+                    self.note("source_changed", files=changed)
+                self.cleanup()
+            finally:
+                signal.signal(signal.SIGTERM, previous_sigterm)
         self.outcome = "CLEANUP_FAILED" if self.cleanup_errors else "FAILED" if self.failure else "PASS"
         summary = {
             "schema_version": 1, "profile": PROFILE, "outcome": self.outcome,
@@ -1154,6 +1407,8 @@ def main() -> int:
     parser.add_argument("command", choices=("check", "run"))
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--run-dir", type=Path)
+    parser.add_argument("--s3-access-key-file", type=Path)
+    parser.add_argument("--s3-secret-key-file", type=Path)
     args = parser.parse_args()
     try:
         manifest = load_manifest(args.manifest)
@@ -1163,7 +1418,11 @@ def main() -> int:
             return 0
         if args.run_dir is None or not args.run_dir.is_absolute() or not args.run_dir.parent.is_dir():
             raise QualificationError("run requires an absolute new --run-dir under an existing parent")
-        return 0 if Lab(manifest, args.run_dir).run()["outcome"] == "PASS" else 1
+        if args.s3_access_key_file is None or args.s3_secret_key_file is None:
+            raise QualificationError("run requires both private S3 credential file paths")
+        paths = (args.s3_access_key_file, args.s3_secret_key_file)
+        s3_credentials(paths)
+        return 0 if Lab(manifest, args.run_dir, paths).run()["outcome"] == "PASS" else 1
     except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError, QualificationError) as error:
         print(f"managed-member qualification: {error}", file=sys.stderr)
         return 1

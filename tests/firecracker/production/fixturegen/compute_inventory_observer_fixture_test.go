@@ -34,5 +34,5 @@ func assertPacketComputeObserver(t *testing.T, provider common.ConfigurationProv
 		!slices.Equal(actual.NSGOCIDs, primary.NsgIds) {
 		t.Fatalf("production OCI observer rejected packet Compute evidence: %+v, %v", actual, err)
 	}
-	return 3
+	return 4
 }

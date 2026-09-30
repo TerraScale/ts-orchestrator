@@ -1,0 +1,29 @@
+[Unit]
+Description=Enroll this TerraScale managed host
+Wants=network-online.target systemd-time-wait-sync.service
+After=network-online.target systemd-time-wait-sync.service
+Before=terrascale-orchestrator-host.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/terrascale-orchestrator host-setup --public-config /etc/terrascale-orchestrator/host-enrollment-public.json --output-root /etc/terrascale-orchestrator
+# Start the runtime once enrollment succeeds, also when an earlier failed
+# attempt left it stopped by a failed dependency; restart it after a refresh.
+ExecStartPost=/usr/bin/systemctl --no-block restart terrascale-orchestrator-host.service
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=90s
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/terrascale-orchestrator
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

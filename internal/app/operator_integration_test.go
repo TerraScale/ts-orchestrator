@@ -152,7 +152,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
 	registration := host.Registration{Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), Generation: 1,
+		PublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: hostNKey, Generation: 1,
 		Capacity: host.Capacity{CPU: 2, MemoryBytes: 256 << 20, DiskBytes: 512 << 20}}
 	registrationPath := testJSONFile(t, root, "registration.json", registration)
 	var output bytes.Buffer
@@ -173,7 +173,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
 	agent, err := host.NewAgent(host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "gru", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
-		Conn: hostRuntime.Conn(), Identity: hostPrivate, ControllerPublicKey: controllerPublic, Runner: runner,
+		Conn: hostRuntime.Conn(), Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: runner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
 		ClockCheck: controllerClockCheck(clock)})
 	if err != nil {

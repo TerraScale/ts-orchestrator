@@ -22,18 +22,22 @@ type Config struct {
 }
 
 type ControllerConfig struct {
-	CandidateID           string                     `json:"candidate_id"`
-	ArtifactStoreMaxBytes int64                      `json:"artifact_store_max_bytes,omitzero"`
-	LeaseSeconds          int                        `json:"lease_seconds,omitzero"`
-	RenewSeconds          int                        `json:"renew_seconds,omitzero"`
-	ResponseKeyFile       string                     `json:"response_key_file,omitempty"`
-	BrokerTicketKeyFile   string                     `json:"broker_ticket_key_file,omitempty"`
-	TrustKeyFile          string                     `json:"trust_key_file,omitempty"`
-	OciRegionConfig       string                     `json:"oci_region_config,omitempty"`
-	OciRegionIntentFile   string                     `json:"oci_region_intent_file,omitempty"`
-	PlacementConfig       string                     `json:"placement_config,omitempty"`
-	TrustedSigners        []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
-	Workloads             map[string]WorkloadProfile `json:"workloads,omitempty"`
+	CandidateID                 string                     `json:"candidate_id"`
+	ArtifactStoreMaxBytes       int64                      `json:"artifact_store_max_bytes,omitzero"`
+	LeaseSeconds                int                        `json:"lease_seconds,omitzero"`
+	RenewSeconds                int                        `json:"renew_seconds,omitzero"`
+	ResponseKeyFile             string                     `json:"response_key_file,omitempty"`
+	BrokerTicketKeyFile         string                     `json:"broker_ticket_key_file,omitempty"`
+	HostNATSIssuerSeedFile      string                     `json:"host_nats_issuer_seed_file,omitempty"`
+	HostTLSIssuerKeyFile        string                     `json:"host_tls_issuer_key_file,omitempty"`
+	HostTLSIssuerCertFile       string                     `json:"host_tls_issuer_cert_file,omitempty"`
+	HostEnrollmentListenAddress string                     `json:"host_enrollment_listen_address,omitempty"`
+	TrustKeyFile                string                     `json:"trust_key_file,omitempty"`
+	OciRegionConfig             string                     `json:"oci_region_config,omitempty"`
+	OciRegionIntentFile         string                     `json:"oci_region_intent_file,omitempty"`
+	PlacementConfig             string                     `json:"placement_config,omitempty"`
+	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
+	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
 }
 
 type WorkloadProfile struct {
@@ -43,19 +47,27 @@ type WorkloadProfile struct {
 }
 
 type TrustedSignerConfig struct {
-	Actor                  string   `json:"actor"`
-	PublicKey              string   `json:"public_key"`
-	Roles                  []string `json:"roles"`
-	Environments           []string `json:"environments"`
-	CanRegisterHosts       bool     `json:"can_register_hosts,omitzero"`
-	CanPlaceTerraBase      bool     `json:"can_place_terrabase,omitzero"`
-	CanRotateBrokerAccount bool     `json:"can_rotate_broker_account,omitzero"`
-	Repositories           []string `json:"repositories,omitempty"`
+	Actor                            string   `json:"actor"`
+	PublicKey                        string   `json:"public_key"`
+	Roles                            []string `json:"roles"`
+	Environments                     []string `json:"environments"`
+	CanRegisterHosts                 bool     `json:"can_register_hosts,omitzero"`
+	CanPlaceTerraBase                bool     `json:"can_place_terrabase,omitzero"`
+	CanUpdateTerraBaseRuntime        bool     `json:"can_update_terrabase_runtime,omitzero"`
+	CanCertifyTerraBaseCompatibility bool     `json:"can_certify_terrabase_compatibility,omitzero"`
+	CanTeardownTerraBase             bool     `json:"can_teardown_terrabase,omitzero"`
+	CanPrepareManagedMaterial        bool     `json:"can_prepare_managed_material,omitzero"`
+	CanOperateBackup                 bool     `json:"can_operate_backup,omitzero"`
+	CanManageClientKeys              bool     `json:"can_manage_client_keys,omitzero"`
+	ClientKeyScopes                  []string `json:"client_key_scopes,omitempty"`
+	CanRotateBrokerAccount           bool     `json:"can_rotate_broker_account,omitzero"`
+	Repositories                     []string `json:"repositories,omitempty"`
 }
 
 type OperatorConfig struct {
 	Actor                     string `json:"actor"`
 	SigningKeyFile            string `json:"signing_key_file"`
+	ControllerPublicKey       string `json:"controller_public_key,omitempty"`
 	BrokerTicketPublicKeyFile string `json:"broker_ticket_public_key_file,omitempty"`
 }
 

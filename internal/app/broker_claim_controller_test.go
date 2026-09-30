@@ -82,7 +82,10 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	}
 	controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerNKey + ".>",
 		"ts.broker.gru.ticket.>", "ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",
-		"ts.orch.v1.gru.agent.*.observation.*", "ts.orch.v1.gru.delivery.artifact.admit", "ts.orch.v1.gru.host.register", "ts.orch.v1.gru.placement.apply"}
+		"ts.orch.v1.gru.agent.*.observation.*", "ts.orch.v1.gru.delivery.artifact.admit", "ts.orch.v1.gru.host.register", "ts.orch.v1.gru.placement.apply",
+		"ts.orch.v1.gru.managed-update.prepare",
+		"ts.orch.v1.gru.backup.operation",
+		"ts.orch.v1.gru.terminal.>"}
 	controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 	controllerCreds = testBrokerJWTUserWithClaim(t, root, "controller.creds", cellKey, controllerClaim)
 	if err := natscell.ValidateBrokerControllerCredentials(controllerCreds, "gru", "broker-a"); err != nil {
@@ -109,7 +112,8 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	systemClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + systemNKey + ".>"}
 	systemCreds = testBrokerJWTUserWithClaim(t, root, "system.creds", systemKey, systemClaim)
 	operatorNKey, operatorCreds := testBrokerJWTUser(t, root, "operator.creds", cellKey, cellID,
-		[]string{"ts.orch.v1.gru.broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_CONTROL_LOG", "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG"}, nil)
+		[]string{"ts.orch.v1.gru.broker.claim.apply", "ts.orch.v1.gru.backup.operation", "ts.orch.v1.gru.terminal.plan", "ts.orch.v1.gru.terminal.apply",
+			"ts.orch.v1.gru.terminal.status", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_CONTROL_LOG", "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG"}, nil)
 	actorClaim, err := jwt.DecodeUserClaims(testDecoratedJWT(t, operatorCreds))
 	if err != nil {
 		t.Fatal(err)

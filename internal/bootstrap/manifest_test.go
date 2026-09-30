@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,7 +82,9 @@ func TestManifestVerifiesExactSlotAndReturnsDefensiveCopies(t *testing.T) {
 
 func TestSignManifestDoesNotRetainCallerReleaseWireAliases(t *testing.T) {
 	authority := newTestBootstrapAuthority(t)
-	manifest := cloneManifest(authority.manifest)
+	manifest := authority.manifest
+	originalReceipt := bytes.Clone(manifest.ReleaseImageReceiptWire)
+	originalDelegation := bytes.Clone(manifest.ReleaseDelegationWire)
 	envelope, err := SignManifest(manifest, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -98,8 +101,8 @@ func TestSignManifestDoesNotRetainCallerReleaseWireAliases(t *testing.T) {
 		t.Fatalf("signed manifest changed through caller wire aliases: %v", err)
 	}
 	signedManifest := verified.Manifest()
-	if !bytes.Equal(signedManifest.ReleaseImageReceiptWire, authority.manifest.ReleaseImageReceiptWire) ||
-		!bytes.Equal(signedManifest.ReleaseDelegationWire, authority.manifest.ReleaseDelegationWire) {
+	if !bytes.Equal(signedManifest.ReleaseImageReceiptWire, originalReceipt) ||
+		!bytes.Equal(signedManifest.ReleaseDelegationWire, originalDelegation) {
 		t.Fatal("signed manifest payload did not preserve the original release proof bytes")
 	}
 }
@@ -288,22 +291,64 @@ func TestManifestRejectsExpiredWrongRootAndOverbroadPeerDelegation(t *testing.T)
 
 func TestManifestValidationRejectsUnboundProfilesAndSecretOutputs(t *testing.T) {
 	authority := newTestBootstrapAuthority(t)
-	manifest := authority.manifest
+	manifest := cloneManifest(authority.manifest)
 	manifest.Profiles = manifest.Profiles[:1]
 	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
 		t.Fatalf("manifest without every exact slot profile error = %v", err)
 	}
 
-	manifest = authority.manifest
+	manifest = cloneManifest(authority.manifest)
 	manifest.Secrets[1].TargetFile = manifest.Secrets[0].TargetFile
 	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
 		t.Fatalf("manifest with duplicate output path error = %v", err)
 	}
 
-	manifest = authority.manifest
+	manifest = cloneManifest(authority.manifest)
 	manifest.Profiles[0].SubnetOCID = "ocid1.image.oc1.iad.notasubnet"
 	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
 		t.Fatalf("manifest with wrong profile OCID kind error = %v", err)
+	}
+
+	manifest = cloneManifest(authority.manifest)
+	manifest.Secrets[0].SecretOCID = "ocid1.secret.oc1.sa-saopaulo-1.synthetic"
+	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("manifest with wrong secret OCID kind error = %v", err)
+	}
+
+	manifest = cloneManifest(authority.manifest)
+	manifest.Secrets[0].VersionNumber = 0
+	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("manifest with no exact secret version error = %v", err)
+	}
+
+	manifest = cloneManifest(authority.manifest)
+	manifest.ControllerFiles[1].Bytes = []byte(`{"changed":true}`)
+	if err := manifest.Validate(); !errors.Is(err, ErrManifestInvalid) {
+		t.Fatalf("manifest with changed signed sidecar bytes error = %v", err)
+	}
+}
+
+func TestManifestKeepsIssuerAndOperatorLocalFilesInTheirRoles(t *testing.T) {
+	manifest := newTestBootstrapAuthority(t).manifest
+	reference := manifest.Secrets[0]
+	for _, name := range []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"} {
+		reference.TargetFile = name
+		reference.Purpose = SecretRegionalShared
+		if err := reference.validate(manifest); !errors.Is(err, ErrManifestInvalid) {
+			t.Fatalf("%s accepted as regional shared: %v", name, err)
+		}
+		reference.Purpose = SecretHostIssuer
+		if err := reference.validate(manifest); err != nil {
+			t.Fatalf("%s rejected as host issuer: %v", name, err)
+		}
+	}
+	for _, name := range []string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
+		"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem"} {
+		reference.TargetFile = name
+		reference.Purpose = SecretRegionalShared
+		if err := reference.validate(manifest); !errors.Is(err, ErrManifestInvalid) {
+			t.Fatalf("owner-only %s accepted for publication: %v", name, err)
+		}
 	}
 }
 
@@ -630,15 +675,24 @@ func newTestBootstrapAuthority(t *testing.T) testBootstrapAuthority {
 			HeadBucket: "bootstrap-head", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap",
 		},
 		Secrets: []SecretReference{
-			{Purpose: SecretRegionalShared, SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 2,
+			{Purpose: SecretRegionalShared, SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regional", VersionNumber: 2,
 				SHA256: digestBytes(regional), MaxBytes: 128, TargetFile: "regional.key"},
-			{Purpose: SecretSeedFounder, Slot: "seed-a", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.founder", VersionNumber: 3,
+			{Purpose: SecretSeedFounder, Slot: "seed-a", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.founder", VersionNumber: 3,
 				SHA256: digestBytes([]byte("founder")), MaxBytes: 128, TargetFile: "founder.key"},
-			{Purpose: SecretController, Slot: "seed-a", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.seed", VersionNumber: 1,
+			{Purpose: SecretController, Slot: "seed-a", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.seed", VersionNumber: 1,
 				SHA256: digestBytes([]byte("seed")), MaxBytes: 128, TargetFile: "seed.key"},
-			{Purpose: SecretController, Slot: "peer-b", SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.peer", VersionNumber: 1,
+			{Purpose: SecretController, Slot: "peer-b", SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.peer", VersionNumber: 1,
 				SHA256: digestBytes([]byte("peer")), MaxBytes: 128, TargetFile: "peer.key"},
 		},
+	}
+	controllerConfig := []byte(`{"nats":{},"controller":{}}`)
+	manifest.ControllerConfig = controllerConfig
+	manifest.ControllerConfigSHA256 = digestBytes(controllerConfig)
+	for _, name := range ControllerConfigFileNames {
+		body := []byte(`{}`)
+		manifest.ControllerFiles = append(manifest.ControllerFiles, ControllerConfigFile{
+			Name: name, SHA256: digestBytes(body), Bytes: body,
+		})
 	}
 	return testBootstrapAuthority{
 		now: now, policy: trust.Policy{MaxLifetime: time.Hour, ClockSkew: time.Minute},
@@ -706,6 +760,33 @@ var _ SecretBundleReader = (*memorySecretReader)(nil)
 func TestManifestCurrentRootKeyTypeMatchesOCICompartmentOCID(t *testing.T) {
 	if !isOCID("ocid1.compartment.oc1..compartment", "compartment") {
 		t.Fatal("global OCI compartment OCID with an empty region was rejected")
+	}
+}
+
+func TestOCIDAcceptsOptionalFutureUseWithoutLosingTypeOrComponentChecks(t *testing.T) {
+	tests := []struct {
+		name, value, kind string
+		want              bool
+	}{
+		{name: "regional KMS key", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.uniquekey", kind: "key", want: true},
+		{name: "regional vault", value: "ocid1.vault.oc1.sa-saopaulo-1.vaultpart.uniquevault", kind: "vault", want: true},
+		{name: "regional instance", value: "ocid1.instance.oc1.sa-saopaulo-1.uniqueinstance", kind: "instance", want: true},
+		{name: "regional subnet", value: "ocid1.subnet.oc1.sa-saopaulo-1.uniquesubnet", kind: "subnet", want: true},
+		{name: "global compartment", value: "ocid1.compartment.oc1..uniquecompartment", kind: "compartment", want: true},
+		{name: "regional secret", value: "ocid1.vaultsecret.oc1.sa-saopaulo-1.uniquesecret", kind: "vaultsecret", want: true},
+		{name: "wrong kind", value: "ocid1.vault.oc1.sa-saopaulo-1.vaultpart.uniquevault", kind: "key"},
+		{name: "empty future-use component", value: "ocid1.key.oc1.sa-saopaulo-1..uniquekey", kind: "key"},
+		{name: "empty unique component", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.", kind: "key"},
+		{name: "extra component", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.extra.uniquekey", kind: "key"},
+		{name: "invalid character", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart.unique_key", kind: "key"},
+		{name: "oversized", value: "ocid1.key.oc1.sa-saopaulo-1.vaultpart." + strings.Repeat("a", 220), kind: "key"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isOCID(test.value, test.kind); got != test.want {
+				t.Fatalf("isOCID(%q, %q) = %t, want %t", test.value, test.kind, got, test.want)
+			}
+		})
 	}
 }
 

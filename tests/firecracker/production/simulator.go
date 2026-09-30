@@ -268,6 +268,8 @@ func (simulator *Simulator) allowedComputeRead(uri *url.URL) bool {
 		return true
 	case strings.HasPrefix(uri.Path, "/20160918/vnics/ocid1.vnic."):
 		return uri.RawQuery == "" && !strings.Contains(strings.TrimPrefix(uri.Path, "/20160918/vnics/"), "/")
+	case strings.HasPrefix(uri.Path, "/20160918/subnets/ocid1.subnet.oc1.sa-saopaulo-1."):
+		return uri.RawQuery == "" && !strings.Contains(strings.TrimPrefix(uri.Path, "/20160918/subnets/"), "/")
 	default:
 		return false
 	}

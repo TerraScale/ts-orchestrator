@@ -2,6 +2,8 @@ package bootstrapstart
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
@@ -77,6 +80,7 @@ type founderComputeAPI interface {
 
 type founderNetworkAPI interface {
 	GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error)
+	GetSubnet(context.Context, core.GetSubnetRequest) (core.GetSubnetResponse, error)
 }
 
 type founderVolumeAPI interface {
@@ -86,13 +90,16 @@ type founderVolumeAPI interface {
 // FounderOCI is an offline-testable SDK seam. It makes no authority decision:
 // every individual OCI request obtains a fresh peer from its caller's reader.
 type FounderOCI struct {
-	region  oci.Region
-	compute founderComputeAPI
-	network founderNetworkAPI
-	volume  founderVolumeAPI
+	region   oci.Region
+	material LaunchMaterial
+	compute  founderComputeAPI
+	network  founderNetworkAPI
+	volume   founderVolumeAPI
 }
 
-func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider) (*FounderOCI, error) {
+// NewFounderOCI binds the founder's OCI clients to one region. Each peer it
+// launches receives the same launch material this controller was admitted with.
+func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider, material LaunchMaterial) (*FounderOCI, error) {
 	ociRegion, err := region.OCIRegion()
 	if err != nil || provider == nil {
 		return nil, ErrFounderOCI
@@ -125,7 +132,7 @@ func NewFounderOCI(region oci.Region, provider common.ConfigurationProvider) (*F
 	if volume.HTTPClient, err = bootstrap.NewInstancePrincipalSDKHTTPClient(); err != nil {
 		return nil, err
 	}
-	return &FounderOCI{region: region, compute: &compute, network: &network, volume: &volume}, nil
+	return &FounderOCI{region: region, material: material, compute: &compute, network: &network, volume: &volume}, nil
 }
 
 func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIAttempt, refresh FounderPeerRefresh) (context.Context, context.CancelFunc, error) {
@@ -213,7 +220,7 @@ func (adapter *FounderOCI) Launch(ctx context.Context, attempt FounderOCIAttempt
 		return "", err
 	}
 	defer cancel()
-	request, err := founderLaunchSDKRequest(attempt.request)
+	request, err := founderLaunchSDKRequest(attempt.request, adapter.material)
 	if err != nil {
 		return "", err
 	}
@@ -237,26 +244,41 @@ func founderLaunchCandidateMatches(instance core.Instance, row bootstrap.Founder
 		value(instance.CompartmentId) == row.CompartmentOCID && imageValid
 }
 
-func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest) (core.LaunchInstanceRequest, error) {
+func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, material LaunchMaterial) (core.LaunchInstanceRequest, error) {
 	row := request.Row
+	manifestHash := sha256.Sum256(request.ManifestWire)
+	manifestEnvelope, manifestErr := trust.DecodeEnvelope(request.ManifestWire)
+	var manifest bootstrap.Manifest
+	if manifestErr == nil {
+		manifest, manifestErr = bootstrap.ManifestPayload(manifestEnvelope.Payload)
+	}
 	vpus, ok := row.BootVolumeTier.VPUsPerGB()
 	if !ok || vpus != 10 || row.Slot != request.Slot || row.WholeOCPUs == 0 ||
 		row.MemoryInGB == 0 || row.BootVolumeGB < founderMinBootVolumeGB ||
 		row.BootVolumeGB > founderMaxBootVolumeGB || request.RetryToken == "" ||
-		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 {
+		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 ||
+		len(request.ManifestWire) == 0 || len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
+		hex.EncodeToString(manifestHash[:]) != request.ManifestSHA256 || manifestErr != nil ||
+		manifest.Slot != request.Slot || manifest.DeploymentID != request.DeploymentID ||
+		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
+		manifest.ImageOCID != row.ImageOCID ||
+		len(material.Identity) == 0 || len(material.Anchor) == 0 || len(material.HostEnrollment) == 0 {
 		return core.LaunchInstanceRequest{}, ErrFounderOCI
 	}
 	descriptor, err := protocol.EncodeJSON(Descriptor{SchemaVersion: 1, Slot: request.Slot})
 	if err != nil {
 		return core.LaunchInstanceRequest{}, err
 	}
+	metadata := material.ControllerMetadata()
+	metadata["terrascale-bootstrap"] = string(descriptor)
+	metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
 	return core.LaunchInstanceRequest{
 		OpcRetryToken: new(request.RetryToken), RequestMetadata: noFounderSDKRetry(),
 		LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: new(row.AvailabilityDomain), CompartmentId: new(row.CompartmentOCID),
 			FaultDomain: new(row.FaultDomain), Shape: new(row.Shape),
 			DisplayName: new(request.Slot),
-			Metadata:    map[string]string{"terrascale-bootstrap": string(descriptor)},
+			Metadata:    metadata,
 			ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 				Ocpus: new(float32(row.WholeOCPUs)), MemoryInGBs: new(float32(row.MemoryInGB)),
 			},
@@ -438,6 +460,20 @@ func (adapter *FounderOCI) observeFounderVNIC(ctx context.Context, attempt Found
 	if !founderVNICMatches(vnic, vnicID, row) {
 		return "", ErrFounderOCI
 	}
+	effectCtx, cancel, err = adapter.beforeEffect(ctx, attempt, refresh)
+	if err != nil {
+		return "", err
+	}
+	subnetResponse, err := adapter.network.GetSubnet(effectCtx, core.GetSubnetRequest{
+		SubnetId: new(row.SubnetOCID), RequestMetadata: noFounderSDKRetry(),
+	})
+	cancel()
+	if err != nil {
+		return "", fmt.Errorf("GetSubnet exact founder primary: %w", err)
+	}
+	if !vnicSubnetMatches(vnic, subnetResponse.Subnet, instanceID) {
+		return "", ErrFounderOCI
+	}
 	return vnicID, nil
 }
 
@@ -494,7 +530,7 @@ func (adapter *FounderOCI) observeFounderBootVolume(ctx context.Context, attempt
 func founderVNICMatches(vnic core.Vnic, vnicID string, row bootstrap.FounderPeerRow) bool {
 	nsgs := slices.Clone(vnic.NsgIds)
 	slices.Sort(nsgs)
-	return value(vnic.Id) == vnicID && value(vnic.CompartmentId) == row.CompartmentOCID &&
+	return value(vnic.Id) == vnicID && strings.HasPrefix(value(vnic.CompartmentId), "ocid1.compartment.") &&
 		value(vnic.AvailabilityDomain) == row.AvailabilityDomain && value(vnic.SubnetId) == row.SubnetOCID &&
 		value(vnic.PrivateIp) == row.PrivateIP && vnic.IsPrimary != nil && *vnic.IsPrimary &&
 		vnic.LifecycleState == core.VnicLifecycleStateAvailable && slices.Equal(nsgs, row.NetworkSecurityGroupOCIDs) &&

@@ -128,8 +128,12 @@ func TestBootstrapUnitPinsMaterialInstallCapabilities(t *testing.T) {
 	if directives["CapabilityBoundingSet"] != want {
 		t.Fatalf("bootstrap CapabilityBoundingSet = %q, want %q", directives["CapabilityBoundingSet"], want)
 	}
-	if directives["NoNewPrivileges"] != "yes" {
-		t.Fatalf("bootstrap NoNewPrivileges = %q, want yes", directives["NoNewPrivileges"])
+	// Initial admission execs its service-account credential child after a
+	// setuid. The unit keeps no_new_privs and runs as root by default, since
+	// User=root with no_new_privs makes systemd drop CAP_SETUID.
+	if directives["NoNewPrivileges"] != "yes" || directives["User"] != "" {
+		t.Fatalf("bootstrap NoNewPrivileges = %q User = %q, want yes and unset",
+			directives["NoNewPrivileges"], directives["User"])
 	}
 }
 

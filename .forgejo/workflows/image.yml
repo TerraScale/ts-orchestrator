@@ -1,0 +1,100 @@
+name: Qualified GRU ARM64 image
+
+# ci.yml dispatches this workflow as its last step on main, once the
+# revision's binaries and qualification manifest are retained (trigger
+# "ci"). Automatic builds queue rather than cancel each other, so a build in
+# progress always finishes, and a queued build that a newer qualified
+# revision has overtaken skips itself. An operator can dispatch any
+# CI-qualified main revision; those runs are always built.
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Full SHA of a main revision with a successful ci.yml run
+        required: true
+        type: string
+      trigger:
+        description: "ci for the automatic build, manual otherwise"
+        required: false
+        default: manual
+        type: string
+
+concurrency:
+  group: ts-orchestrator-image-${{ inputs.trigger == 'ci' && 'ci' || inputs.source_revision }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    name: build/qualified-gru-arm64-image
+    runs-on: terrascale-builder
+    timeout-minutes: 60
+    env:
+      SOURCE_SHA: ${{ inputs.source_revision }}
+    steps:
+      - name: Check out the named source revision
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ inputs.source_revision }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify the source revision and Go toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ ${SOURCE_SHA} =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = go1.27.1
+          printf 'source=%s tree=%s kvm=%s\n' "${SOURCE_SHA}" "$(git rev-parse 'HEAD^{tree}')" \
+            "$([[ -w /dev/kvm ]] && echo available || echo unavailable)"
+
+      - name: Prepare pinned Forgejo admission client
+        shell: bash
+        run: |
+          set -euo pipefail
+          export TS_FJ_ADMISSION_CACHE_DIR=/cache/ts-orchestrator/fj-admission
+          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
+          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
+
+      - name: Configure Forgejo read and write access
+        shell: bash
+        env:
+          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
+          FORGEJO_WRITE_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/configure-fj-profiles.sh "${RUNNER_TEMP}/forgejo"
+
+      - name: Skip an automatic build a newer revision has overtaken
+        id: superseded
+        if: ${{ inputs.trigger == 'ci' }}
+        shell: bash
+        env:
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: |
+          FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
+            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}"
+
+      - name: Build the image from the qualified candidate
+        if: ${{ steps.superseded.outputs.superseded != 'true' }}
+        shell: bash
+        env:
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          TS_IMAGE_TOOL_CACHE: file:///cache/nix
+          TS_IMAGE_BASE_CACHE: /cache/ts-orchestrator/image-base
+        run: |
+          set -euo pipefail
+          XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/read" \
+          FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
+            bash deploy/image/tools.sh \
+            bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image --wait-for-ci 1800
+
+      - name: Retain the image release
+        if: ${{ steps.superseded.outputs.superseded != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          XDG_DATA_HOME="${RUNNER_TEMP}/forgejo/write" FJ_READ_PROFILE="${RUNNER_TEMP}/forgejo/read" \
+            bash deploy/image/publish-image.sh dist/image

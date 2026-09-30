@@ -23,7 +23,6 @@ const (
 
 	intentPublishTimeout        = 10 * time.Second
 	intentPublishAttemptTimeout = 2 * time.Second
-	intentPublishMaxAttempts    = 5
 	intentPublishInitialBackoff = 100 * time.Millisecond
 	intentPublishMaxBackoff     = 800 * time.Millisecond
 )
@@ -208,7 +207,10 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	if err != nil {
 		return err
 	}
-	if existing, readErr := s.getOperation(ctx, operationKey(intent.OperationID)); readErr == nil {
+	key := operationKey(intent.OperationID)
+	if existing, readErr := retrySubmitOperationRead(ctx, func(readCtx context.Context) (*operationValue, error) {
+		return s.getOperation(readCtx, key)
+	}); readErr == nil {
 		var op operation
 		if err := json.Unmarshal(existing.Value(), &op); err != nil {
 			return err
@@ -233,13 +235,74 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	return nil
 }
 
+// A transient leader-read failure must not turn a valid submit into a failed
+// operation during cluster recovery. Only the read is retried; signing and
+// publishing remain a single idempotent Submit pass after it succeeds.
+func retrySubmitOperationRead(ctx context.Context, read func(context.Context) (*operationValue, error)) (*operationValue, error) {
+	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
+	defer cancel()
+
+	backoff := intentPublishInitialBackoff
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if err := retryCtx.Err(); err != nil {
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, err
+		}
+		attemptCtx, stop := context.WithTimeout(retryCtx, intentPublishAttemptTimeout)
+		value, err := read(attemptCtx)
+		attemptExpired := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		stop()
+		if err == nil {
+			return value, nil
+		}
+		lastErr = err
+		if parentErr := ctx.Err(); parentErr != nil {
+			return nil, parentErr
+		}
+		if retryCtx.Err() != nil || !retryableSubmitOperationReadError(err, attemptExpired) {
+			return nil, err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-retryCtx.Done():
+			timer.Stop()
+			if parentErr := ctx.Err(); parentErr != nil {
+				return nil, parentErr
+			}
+			return nil, err
+		}
+		backoff = min(backoff*2, intentPublishMaxBackoff)
+	}
+}
+
+func retryableSubmitOperationReadError(err error, attemptDeadlineExpired bool) bool {
+	if errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrTimeout) ||
+		errors.Is(err, nats.ErrDisconnected) || errors.Is(err, nats.ErrNoServers) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return attemptDeadlineExpired
+	}
+	if apiErr, ok := errors.AsType[*nats.APIError](err); ok {
+		return apiErr.Code == 503 && apiErr.ErrorCode == 10008
+	}
+	return false
+}
+
 func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte, msgID string) error {
 	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
 	defer cancel()
 
 	backoff := intentPublishInitialBackoff
 	var lastErr error
-	for attempt := 0; attempt < intentPublishMaxAttempts; attempt++ {
+	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -267,10 +330,6 @@ func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte
 		if !retryableIntentPublishError(publishErr, errors.Is(attemptErr, context.DeadlineExceeded)) {
 			return publishErr
 		}
-		if attempt == intentPublishMaxAttempts-1 {
-			return publishErr
-		}
-
 		timer := time.NewTimer(backoff)
 		select {
 		case <-timer.C:
@@ -283,7 +342,6 @@ func (s *Service) publishIntent(ctx context.Context, subject string, wire []byte
 		}
 		backoff = min(backoff*2, intentPublishMaxBackoff)
 	}
-	return lastErr
 }
 
 func retryableIntentPublishError(err error, attemptDeadlineExpired bool) bool {

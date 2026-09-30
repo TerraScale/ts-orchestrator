@@ -3,16 +3,54 @@ package oci
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
+
+type terminalSDKRecorder struct {
+	requests []*http.Request
+}
+
+func (recorder *terminalSDKRecorder) Do(request *http.Request) (*http.Response, error) {
+	recorder.requests = append(recorder.requests, request)
+	return &http.Response{StatusCode: http.StatusNoContent, Header: make(http.Header),
+		Body: io.NopCloser(strings.NewReader("")), Request: request}, nil
+}
+
+func TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot(t *testing.T) {
+	config, _ := testRegionConfig()
+	recorder := &terminalSDKRecorder{}
+	base := common.BaseClient{Host: "https://sdk.test.invalid", BasePath: "20160918",
+		UserAgent: "oci-terminal-test", Signer: observeSDKSigner{}, HTTPClient: recorder}
+	provider := &sdkProvider{config: config, compute: core.ComputeClient{BaseClient: base},
+		storage: core.BlockstorageClient{BaseClient: base}}
+	if err := provider.TerminateTerminalInstance(t.Context(), "ocid1.instance.exact", "instance-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.DeleteBootVolume(t.Context(), "ocid1.bootvolume.exact", "boot-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.DeleteVolume(t.Context(), "ocid1.volume.exact", "data-etag"); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.requests) != 3 || recorder.requests[0].Header.Get("If-Match") != "instance-etag" ||
+		recorder.requests[1].Header.Get("If-Match") != "boot-etag" ||
+		recorder.requests[2].Header.Get("If-Match") != "data-etag" ||
+		recorder.requests[0].URL.Query().Get("preserveBootVolume") != "true" {
+		t.Fatalf("terminal SDK lost conditional ETags or boot preservation: %+v", recorder.requests)
+	}
+}
 
 func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	config, _ := testRegionConfig()
 	request := LaunchRequest{
-		CreateKey: "sdk-shape-config", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
+		CreateKey: "sdk-shape-config", PrivateIP: "10.251.0.21", Node: hostNode(config, "sdk-shape-config"), RetryToken: "retry-token-sdk-shape-config",
 		FaultDomain: "FAULT-DOMAIN-1", Shape: config.Shape, WholeOCPUs: 2, MemoryInGBs: 12,
 		PlacementProfileDigest: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		PlacementGeneration:    9,
@@ -41,9 +79,19 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 		},
 		Etag: new("sdk-etag"),
 	}}
-	cloud, err := launchInstance(t.Context(), compute, config, request)
+	enrollment := `{"schema_version":1}`
+	cloud, err := launchInstance(t.Context(), compute, config, request,
+		map[string]string{hostboot.EnrollmentMetadataKey: enrollment})
 	if err != nil {
 		t.Fatalf("launchInstance: %v", err)
+	}
+	if got := compute.request.LaunchInstanceDetails.Metadata; got[hostboot.EnrollmentMetadataKey] != enrollment ||
+		got[hostboot.MetadataKey] != string(wire) || got["terrascale_host_node"] != request.Node {
+		t.Fatalf("host launch metadata lost its enrollment bundle or boot binding: %v", got)
+	}
+	if _, err := launchInstance(t.Context(), compute, config, request,
+		map[string]string{hostboot.MetadataKey: "{}"}); !errors.Is(err, ErrHostBootBindingMismatch) {
+		t.Fatalf("launch material replaced the fleet-bound boot descriptor: %v", err)
 	}
 	if compute.calls != 1 || compute.request == nil {
 		t.Fatalf("OCI SDK client did not receive a launch request: calls=%d request=%+v", compute.calls, compute.request)
@@ -64,7 +112,9 @@ func TestLaunchInstanceMapsSignedProfileIntoOCIRequest(t *testing.T) {
 	}
 	if details.DisplayName == nil || *details.DisplayName != config.Owner+"-"+request.Node ||
 		details.CreateVnicDetails == nil || details.CreateVnicDetails.AssignPublicIp == nil ||
-		*details.CreateVnicDetails.AssignPublicIp {
+		*details.CreateVnicDetails.AssignPublicIp || details.CreateVnicDetails.PrivateIp == nil ||
+		*details.CreateVnicDetails.PrivateIp != request.PrivateIP ||
+		details.CreateVnicDetails.SkipSourceDestCheck == nil || *details.CreateVnicDetails.SkipSourceDestCheck {
 		t.Fatalf("launch lost the bounded display name or private-only VNIC: %+v", details)
 	}
 	imageDetails, ok := details.SourceDetails.(core.InstanceSourceViaImageDetails)
@@ -89,7 +139,7 @@ func TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK(t *testing.T) 
 		PlacementGeneration:    9,
 	}
 	compute := &fakeLaunchSDKClient{}
-	if _, err := launchInstance(t.Context(), compute, config, request); !errors.Is(err, ErrPlacementProfileMismatch) {
+	if _, err := launchInstance(t.Context(), compute, config, request, nil); !errors.Is(err, ErrPlacementProfileMismatch) {
 		t.Fatalf("non-exact float32 sizing was not rejected: %v", err)
 	}
 	if compute.calls != 0 {
@@ -123,16 +173,81 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 			LifecycleState: core.VnicLifecycleStateAvailable,
 		}},
 	}
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil {
+	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
 		t.Fatalf("exact boot and private VNIC refused: %v", err)
 	}
-	reader.boot.VpusPerGB = new(int64(20))
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrImageNotQualified) {
-		t.Fatalf("costed boot tier drift was accepted: %v", err)
+	for _, state := range []core.BootVolumeAttachmentLifecycleStateEnum{
+		core.BootVolumeAttachmentLifecycleStateAttaching, core.BootVolumeAttachmentLifecycleStateDetaching,
+	} {
+		reader.boots.Items[0].LifecycleState = state
+		_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
+			t.Fatalf("transient boot attachment %s classified as foreign: %v", state, err)
+		}
 	}
-	reader.boot.VpusPerGB = new(int64(10))
+	reader.boots.Items[0].LifecycleState = core.BootVolumeAttachmentLifecycleStateAttached
+	for _, state := range []core.VnicAttachmentLifecycleStateEnum{
+		core.VnicAttachmentLifecycleStateAttaching, core.VnicAttachmentLifecycleStateDetaching,
+	} {
+		reader.attachments.Items[0].LifecycleState = state
+		_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
+			t.Fatalf("transient VNIC attachment %s classified as foreign: %v", state, err)
+		}
+	}
+	reader.attachments.Items[0].LifecycleState = core.VnicAttachmentLifecycleStateAttached
+	boots := reader.boots.Items
+	reader.boots.Items = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("not-yet-visible boot attachment was not retryable: %v", err)
+	}
+	reader.boots.Items = boots
+	vnics := reader.attachments.Items
+	reader.attachments.Items = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("not-yet-visible VNIC attachment was not retryable: %v", err)
+	}
+	reader.attachments.Items = vnics
+	for _, test := range []struct {
+		name    string
+		mutate  func()
+		restore func()
+	}{
+		{"image", func() { reader.boot.ImageId = new("ocid1.image.other") },
+			func() { reader.boot.ImageId = new(config.ImageID) }},
+		{"size", func() { reader.boot.SizeInGBs = new(int64(100)) },
+			func() { reader.boot.SizeInGBs = new(int64(50)) }},
+		{"tier", func() { reader.boot.VpusPerGB = new(int64(20)) },
+			func() { reader.boot.VpusPerGB = new(int64(10)) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			test.mutate()
+			defer test.restore()
+			_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+			if !errors.Is(err, ErrImageNotQualified) || !errors.Is(err, ErrForeignResource) {
+				t.Fatalf("instance boot drift did not carry both classifications: %v", err)
+			}
+		})
+	}
+	bootGets := reader.bootGets
+	reader.boots.Items[0].BootVolumeId = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) || reader.bootGets != bootGets {
+		t.Fatalf("missing boot ID reached GetBootVolume or was not foreign: err=%v calls=%d", err, reader.bootGets)
+	}
+	reader.boots.Items[0].BootVolumeId = new(bootID)
+	vnicGets := reader.vnicGets
+	reader.attachments.Items[0].VnicId = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) || reader.vnicGets != vnicGets {
+		t.Fatalf("missing VNIC ID reached GetVnic or was not foreign: err=%v calls=%d", err, reader.vnicGets)
+	}
+	reader.attachments.Items[0].VnicId = new(vnicID)
+	reader.vnic.SkipSourceDestCheck = new(true)
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+		t.Fatalf("VNIC without source/destination checks was accepted: %v", err)
+	}
+	reader.vnic.SkipSourceDestCheck = new(false)
 	reader.vnic.PublicIp = new("203.0.113.5")
-	if err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
 		t.Fatalf("public VNIC was accepted: %v", err)
 	}
 }
@@ -142,6 +257,8 @@ type fakeInstanceReadback struct {
 	boot        core.GetBootVolumeResponse
 	attachments core.ListVnicAttachmentsResponse
 	vnic        core.GetVnicResponse
+	bootGets    int
+	vnicGets    int
 }
 
 func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {
@@ -149,6 +266,7 @@ func (reader *fakeInstanceReadback) ListBootVolumeAttachments(context.Context, c
 }
 
 func (reader *fakeInstanceReadback) GetBootVolume(context.Context, core.GetBootVolumeRequest) (core.GetBootVolumeResponse, error) {
+	reader.bootGets++
 	return reader.boot, nil
 }
 
@@ -157,6 +275,7 @@ func (reader *fakeInstanceReadback) ListVnicAttachments(context.Context, core.Li
 }
 
 func (reader *fakeInstanceReadback) GetVnic(context.Context, core.GetVnicRequest) (core.GetVnicResponse, error) {
+	reader.vnicGets++
 	return reader.vnic, nil
 }
 

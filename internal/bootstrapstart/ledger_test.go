@@ -109,8 +109,8 @@ func TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly(t *testing.
 	if err != nil {
 		t.Fatalf("production restart cannot open historical v3 anchor ledger: %v", err)
 	}
-	if _, ok := reader.(readOnlyLedger); !ok {
-		t.Fatalf("historical ledger opener returned a write-capable reader: %T", reader)
+	if _, ok := reader.(admissionLedger); !ok {
+		t.Fatalf("historical ledger opener returned a write-capable ledger: %T", reader)
 	}
 }
 

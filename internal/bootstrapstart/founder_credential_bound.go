@@ -21,8 +21,10 @@ type CredentialBound struct {
 	ValidUntil time.Time
 }
 
-func (check LiveCredentials) CurrentCredentialBound(expected map[string]string) (CredentialBound, error) {
-	if len(expected) == 0 || check.Config.Embedded == nil || check.verifyPaths(expected) != nil {
+func (check LiveCredentials) CurrentCredentialBound(expected map[string]string,
+	manifest bootstrap.Manifest,
+) (CredentialBound, error) {
+	if len(expected) == 0 || check.Config.Embedded == nil || check.verifyPaths(expected, manifest) != nil {
 		return CredentialBound{}, ErrLiveCredentials
 	}
 	if err := check.verifyInventory(expected); err != nil {
@@ -44,6 +46,44 @@ func (check LiveCredentials) CurrentCredentialBound(expected map[string]string) 
 		}
 		return readMaterial(dir, name, check.ServiceUID, check.ServiceGID, expected[name], bootstrap.MaxSecretBytes)
 	}
+	e := check.Config.Embedded
+	cutoff, err := credentialCutoff(read, CredentialFiles{
+		OperatorJWT: e.OperatorJWTFile, SystemJWT: e.SystemJWTFile, CellJWT: e.CellJWTFile,
+		SystemCredentials: e.SystemCredentialsFile, Credentials: check.Config.CredentialsFile,
+		TLSCertificates: []string{check.Config.TLS.CertFile, e.TLS.CertFile, e.RouteTLS.CertFile},
+	})
+	if err != nil {
+		return CredentialBound{}, err
+	}
+	return CredentialBound{SHA256: inventorySHA256, ValidUntil: cutoff}, nil
+}
+
+// CredentialFiles names one controller's JWT, NATS credential and TLS leaf
+// files whose earliest expiry bounds its install continuity.
+type CredentialFiles struct {
+	OperatorJWT       string
+	SystemJWT         string
+	CellJWT           string
+	SystemCredentials string
+	Credentials       string
+	TLSCertificates   []string
+}
+
+// SlotCredentialFiles returns the generated material file names a controller
+// slot installs, for computing its continuity bound offline.
+func SlotCredentialFiles(slot string) CredentialFiles {
+	return CredentialFiles{OperatorJWT: "operator.jwt", SystemJWT: "system.jwt", CellJWT: "cell.jwt",
+		SystemCredentials: "system.creds", Credentials: slot + ".creds",
+		TLSCertificates: []string{slot + "-tls-cert.pem"}}
+}
+
+// CredentialValidUntil is the continuity cutoff the controller derives from
+// the same files: the first JWT or TLS leaf expiry.
+func CredentialValidUntil(read func(string) ([]byte, error), files CredentialFiles) (time.Time, error) {
+	return credentialCutoff(read, files)
+}
+
+func credentialCutoff(read func(string) ([]byte, error), files CredentialFiles) (time.Time, error) {
 	var cutoff time.Time
 	add := func(expiry time.Time) error {
 		if expiry.IsZero() || !expiry.After(time.Now()) {
@@ -54,56 +94,56 @@ func (check LiveCredentials) CurrentCredentialBound(expected map[string]string) 
 		}
 		return nil
 	}
-	e := check.Config.Embedded
 	for _, item := range []struct {
-		path   string
-		decode func(string) (jwt.Claims, error)
+		path      string
+		decorated bool
+		decode    func(string) (jwt.Claims, error)
 	}{
-		{e.OperatorJWTFile, func(raw string) (jwt.Claims, error) { return jwt.DecodeOperatorClaims(raw) }},
-		{e.SystemJWTFile, func(raw string) (jwt.Claims, error) { return jwt.DecodeAccountClaims(raw) }},
-		{e.CellJWTFile, func(raw string) (jwt.Claims, error) { return jwt.DecodeAccountClaims(raw) }},
-		{e.SystemCredentialsFile, func(raw string) (jwt.Claims, error) { return jwt.DecodeUserClaims(raw) }},
-		{check.Config.CredentialsFile, func(raw string) (jwt.Claims, error) { return jwt.DecodeUserClaims(raw) }},
+		{files.OperatorJWT, false, func(raw string) (jwt.Claims, error) { return jwt.DecodeOperatorClaims(raw) }},
+		{files.SystemJWT, false, func(raw string) (jwt.Claims, error) { return jwt.DecodeAccountClaims(raw) }},
+		{files.CellJWT, false, func(raw string) (jwt.Claims, error) { return jwt.DecodeAccountClaims(raw) }},
+		{files.SystemCredentials, true, func(raw string) (jwt.Claims, error) { return jwt.DecodeUserClaims(raw) }},
+		{files.Credentials, true, func(raw string) (jwt.Claims, error) { return jwt.DecodeUserClaims(raw) }},
 	} {
 		data, err := read(item.path)
 		if err != nil {
-			return CredentialBound{}, err
+			return time.Time{}, err
 		}
 		var raw string
-		if item.path == e.SystemCredentialsFile || item.path == check.Config.CredentialsFile {
+		if item.decorated {
 			raw, err = nkeys.ParseDecoratedJWT(data)
 		} else {
 			raw = strings.TrimSpace(string(data))
 		}
 		clear(data)
 		if err != nil {
-			return CredentialBound{}, err
+			return time.Time{}, err
 		}
 		claim, err := item.decode(raw)
 		if err != nil || claim.Claims().Expires <= 0 {
-			return CredentialBound{}, ErrLiveCredentials
+			return time.Time{}, ErrLiveCredentials
 		}
 		if err := add(time.Unix(claim.Claims().Expires, 0).UTC()); err != nil {
-			return CredentialBound{}, err
+			return time.Time{}, err
 		}
 	}
-	for _, path := range []string{check.Config.TLS.CertFile, e.TLS.CertFile, e.RouteTLS.CertFile} {
+	for _, path := range files.TLSCertificates {
 		data, err := read(path)
 		if err != nil {
-			return CredentialBound{}, err
+			return time.Time{}, err
 		}
 		block, _ := pem.Decode(data)
 		clear(data)
 		if block == nil || block.Type != "CERTIFICATE" {
-			return CredentialBound{}, ErrLiveCredentials
+			return time.Time{}, ErrLiveCredentials
 		}
 		certificate, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
-			return CredentialBound{}, fmt.Errorf("%w: parse installed TLS leaf: %v", ErrLiveCredentials, err)
+			return time.Time{}, fmt.Errorf("%w: parse installed TLS leaf: %v", ErrLiveCredentials, err)
 		}
 		if err := add(certificate.NotAfter.UTC()); err != nil {
-			return CredentialBound{}, err
+			return time.Time{}, err
 		}
 	}
-	return CredentialBound{SHA256: inventorySHA256, ValidUntil: cutoff}, nil
+	return cutoff, nil
 }

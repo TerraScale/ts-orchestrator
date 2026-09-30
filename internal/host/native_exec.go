@@ -130,8 +130,8 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 	if err := unix.Setpriority(unix.PRIO_PROCESS, 0, 0); err != nil {
 		return fmt.Errorf("reset native workload nice: %w", err)
 	}
-	if err := os.WriteFile("/proc/self/oom_score_adj", []byte("0"), 0); err != nil {
-		return fmt.Errorf("reset native workload OOM score adjustment: %w", err)
+	if err := resetNativeWorkloadOOMScore("/proc/self/oom_score_adj"); err != nil {
+		return err
 	}
 	if err := setNativeIOPriority(0, nativeIOPriorityNeutral); err != nil {
 		return fmt.Errorf("reset native workload I/O priority: %w", err)
@@ -192,6 +192,32 @@ func dropNativePrivileges(identity WorkloadIdentity, parentPID int) error {
 		if capset.Effective != 0 || capset.Permitted != 0 || capset.Inheritable != 0 {
 			return errors.New("native workload retained capabilities")
 		}
+	}
+	return nil
+}
+
+func resetNativeWorkloadOOMScore(path string) error {
+	oomScore, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read native workload OOM score adjustment: %w", err)
+	}
+	currentOOM := strings.TrimSpace(string(oomScore))
+	adjustment, err := strconv.Atoi(currentOOM)
+	if err != nil || adjustment < -1000 || adjustment > 1000 {
+		return fmt.Errorf("invalid inherited native workload OOM score adjustment %q", currentOOM)
+	}
+	if adjustment >= 0 {
+		return nil
+	}
+	if err := os.WriteFile(path, []byte("0"), 0); err != nil {
+		return fmt.Errorf("reset native workload OOM score adjustment from %d: %w", adjustment, err)
+	}
+	oomScore, err = os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("verify native workload OOM score adjustment: %w", err)
+	}
+	if strings.TrimSpace(string(oomScore)) != "0" {
+		return fmt.Errorf("native workload OOM score adjustment did not reset: %q", strings.TrimSpace(string(oomScore)))
 	}
 	return nil
 }

@@ -4,10 +4,8 @@ package natscell
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -99,6 +97,9 @@ type Config struct {
 	CredentialsFile string    `json:"credentials_file"`
 	TLS             TLSFiles  `json:"tls"`
 	Embedded        *Embedded `json:"embedded"`
+	// OperatorForward is a transient CLI-only TCP route. Its keys remain the
+	// configured controller TLS identities; values are local Bastion forwards.
+	OperatorForward map[string]string `json:"-"`
 }
 
 // Runtime keeps the broker and client alive together. Closing it drains the
@@ -274,6 +275,22 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
+// embeddedReadyTimeout bounds embedded server startup. JetStream cluster
+// bootstrap on a loaded single-OCPU host can take well over ten seconds.
+const embeddedReadyTimeout = time.Minute
+
+// serverReady waits until the embedded server accepts connections, the
+// caller's context ends, or embeddedReadyTimeout passes.
+func serverReady(ctx context.Context, embedded *server.Server) bool {
+	deadline := time.Now().Add(embeddedReadyTimeout)
+	for ctx.Err() == nil && time.Now().Before(deadline) {
+		if embedded.ReadyForConnections(time.Second) {
+			return true
+		}
+	}
+	return false
+}
+
 // Start starts the embedded server when requested and establishes an authenticated
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
@@ -297,7 +314,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		}
 		r.server.ConfigureLogger()
 		go r.server.Start()
-		if !r.server.ReadyForConnections(10 * time.Second) {
+		if !serverReady(ctx, r.server) {
 			return nil, errors.New("embedded NATS did not become ready")
 		}
 		cfg.URL = r.server.ClientURL()
@@ -337,6 +354,15 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	go func() {
 		connectURL := cfg.URL
 		if !cfg.Lab && cfg.Embedded == nil {
+			if len(cfg.OperatorForward) != 0 {
+				selected, _, forwardErr := operatorForwarding(cfg)
+				if forwardErr != nil {
+					connectErr = forwardErr
+					close(connected)
+					return
+				}
+				connectURL = selected
+			}
 			connectURL = bridgeClientURLs(connectURL)
 		}
 		r.conn, connectErr = nats.Connect(connectURL, options...)
@@ -467,6 +493,11 @@ func (r *Runtime) peerCount() int {
 }
 
 func (cfg Config) validate() error {
+	if len(cfg.OperatorForward) != 0 {
+		if _, _, err := operatorForwarding(cfg); err != nil {
+			return err
+		}
+	}
 	if !cellName.MatchString(cfg.Cell) || !cellName.MatchString(cfg.Instance) {
 		return errors.New("cell and instance must be lowercase NATS tokens")
 	}
@@ -687,7 +718,16 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		if cfg.Lab {
 			options = append(options, nats.Secure(tlsConfig))
 		} else {
-			options = append(options, nats.SetCustomDialer(&tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}))
+			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+			if len(cfg.OperatorForward) != 0 {
+				_, destinations, err := operatorForwarding(cfg)
+				if err != nil {
+					return nil, err
+				}
+				dialer.forward = destinations
+				options = append(options, nats.IgnoreDiscoveredServers())
+			}
+			options = append(options, nats.SetCustomDialer(dialer))
 		}
 	}
 	return options, nil
@@ -706,9 +746,8 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 		if !cellName.MatchString(user.Node) {
 			return nil, errors.New("host NATS user needs a valid node identity")
 		}
-		sum := sha256.Sum256([]byte(user.Node))
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".agent." + hex.EncodeToString(sum[:]) + ".observation.*",
+			root + ".agent." + user.PublicKey + ".observation.*",
 		}}
 	case "controller":
 		if user.Node != "" {
@@ -719,34 +758,12 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".broker.claim.apply")
+			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>")
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")
 		}
-		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
-			"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
-			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
-			"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
-			"$JS.API.STREAM.INFO.KV_TS_HOST_STATE",
-			"$JS.API.STREAM.INFO.TS_CONTROL_LOG",
-			"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS",
-			"$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
-			"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
-			"$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
-			"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*",
-			"$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
-			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS",
-			"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
-			"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.>",
-			"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.>",
-			"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>",
-			"$O.TS_ARTIFACTS.>",
-		}}
+		permissions.Publish = &server.SubjectPermission{Allow: []string(BrokerOperatorPublishPermissions(cell))}
 	default:
 		return nil, fmt.Errorf("invalid NATS user role %q", user.Role)
 	}

@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -18,6 +20,9 @@ import (
 
 var errSessionOwned = errors.New("another process owns the host session")
 var errSessionRequestDenied = errors.New("host session request was denied")
+
+// errControllerNotLeader reports a request answered by a follower controller.
+var errControllerNotLeader = errors.New("host request reached a follower controller")
 var errSessionBackendUnavailable = errors.New("host session backend temporarily unavailable")
 
 func transientSessionTransport(err error) bool {
@@ -67,15 +72,17 @@ func sessionErrorClass(err error) string {
 }
 
 type request struct {
-	Version   int               `json:"version"`
-	Node      string            `json:"node"`
-	Operation string            `json:"operation"`
-	SessionID string            `json:"session_id"`
-	Epoch     uint64            `json:"epoch"`
-	Nonce     string            `json:"nonce"`
-	IssuedAt  time.Time         `json:"issued_at"`
-	Payload   json.RawMessage   `json:"payload"`
-	Envelope  protocol.Envelope `json:"-"`
+	Version            int               `json:"version"`
+	CredentialProtocol uint64            `json:"credential_protocol,omitzero"`
+	Node               string            `json:"node"`
+	NATSUserPublicKey  string            `json:"nats_user_public_key"`
+	Operation          string            `json:"operation"`
+	SessionID          string            `json:"session_id"`
+	Epoch              uint64            `json:"epoch"`
+	Nonce              string            `json:"nonce"`
+	IssuedAt           time.Time         `json:"issued_at"`
+	Payload            json.RawMessage   `json:"payload"`
+	Envelope           protocol.Envelope `json:"-"`
 }
 
 type response struct {
@@ -182,6 +189,12 @@ func decodeStrict(data []byte, destination any) error {
 }
 
 func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey, r request, out any) error {
+	return exchangeWithEnvelope(ctx, conn, cell, controllerKey, r, out, nil)
+}
+
+func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, controllerKey ed25519.PublicKey,
+	r request, out any, signedOut *protocol.Envelope,
+) error {
 	if conn == nil {
 		return errors.New("NATS connection is required")
 	}
@@ -192,11 +205,15 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 	if len(data) > 64<<10 {
 		return errors.New("host request is too large")
 	}
-	subject, err := protocol.AgentObservationSubject(cell, r.Node, r.Operation)
+	subject, err := protocol.AgentObservationSubject(cell, r.NATSUserPublicKey, r.Operation)
 	if err != nil {
 		return err
 	}
-	deadline, cancel := context.WithTimeout(ctx, 5*time.Second)
+	timeout := 5 * time.Second
+	if r.Operation == "material" || r.Operation == "volume-init" {
+		timeout = 30 * time.Second
+	}
+	deadline, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	msg, err := conn.RequestWithContext(deadline, subject, data)
 	if err != nil {
@@ -220,6 +237,9 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 		return errors.New("host response binding mismatch")
 	}
 	if result.Error != "" {
+		if strings.HasPrefix(result.Error, authority.ErrNotLeader.Error()) {
+			return fmt.Errorf("%w: %s", errControllerNotLeader, result.Error)
+		}
 		if result.Retryable {
 			if result.Error == errSessionContention.Error() {
 				return errSessionContention
@@ -238,7 +258,12 @@ func exchange(ctx context.Context, conn *nats.Conn, cell string, controllerKey e
 		return fmt.Errorf("host request denied: %s", result.Error)
 	}
 	if out != nil {
-		return decodeStrict(result.Payload, out)
+		if err := decodeStrict(result.Payload, out); err != nil {
+			return err
+		}
+	}
+	if signedOut != nil {
+		*signedOut = signed
 	}
 	return nil
 }

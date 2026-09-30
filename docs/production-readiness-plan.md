@@ -8,13 +8,29 @@ Current Go orchestration work belongs to `ts-orchestrator`; TerraBase is the
 database service. The former `ts-deploy`-era guidance is historical. See the
 [current orchestrator overview](../README.md).
 
+The current regional bootstrap flow is the operator-run
+[manual regional bootstrap](region-bootstrap.md): the operator provisions the
+foundation and starts only controller A for one mapped cell; admitted A
+provisions controller B/C, and `ts-orchestrator` owns managed workload hosts
+and volumes after the cell-specific host-enrollment bundle is available.
+`ts-infra` manages shared Email Delivery only (four resource identities);
+regional networking, IAM, and bootstrap inputs remain operator-prepared. The
+OpenTofu seed candidate described later in this dated plan is historical and
+is superseded for current operation by the runbook.
+The material generator and first-seed verifier accept only the fixed GRU /
+`sa-saopaulo-1`, SFO / `us-sanjose-1`, and FRA / `eu-frankfurt-1` mappings.
+The checked-in regional plan is populated for GRU. The host-enrollment public
+bundle renderer accepts matching reviewed material for all three mappings;
+the mapped CLI support and its tests are not evidence of a live deployment in
+any cell.
+
 Prioritize correct APIs and end-to-end integration, then an early deployed
 preview before full product completion. Use the existing leaderless profile
 for the first milestone; regional Raft remains a separate proposal. The goal
 authorizes OCI inspection and task-owned preview resources for both services
 on low-cost ARM64, preferring `VM.Standard.A1.Flex` where capacity and cost
 permit and starting in GRU when feasible. Combined recurring costs for
-qualification testing and preview are capped at **US$100/month**, including
+qualification testing and preview are capped at **US$200/month**, including
 every required compute, storage, networking, object-storage, and retained
 resource. Record the itemized estimate and resource inventory before creating
 resources.
@@ -129,9 +145,18 @@ regional foundation can be assumed during rollout. The zero counts are a
 point-in-time resource inventory, not a cost estimate. Quotas and total monthly
 cost remain unknown; any future estimate must separate unit-priced resources
 with explicit quantity and duration assumptions from unpriced services and
-usage such as Vault, logging, and data transfer. A future production apply
-requires the reviewed `ts-infra` workflow after target and budget
-authorization; this proposed canary requires its own reviewed root and state.
+usage such as Vault, logging, and data transfer. The statement that a future
+production apply would use the reviewed `ts-infra` workflow records the
+assumption in this dated checkpoint. The current ownership boundary assigns
+regional foundation and seed setup to the operator through controller A, then
+same-cell peers to `ts-orchestrator`; `ts-infra` manages shared Email Delivery
+only. Its approved state-only handoff subsequently completed without resource
+additions, changes, or destruction; 25 regional state entries were removed,
+and post-apply checks verified the four email resources. This state transition
+does not establish regional resource health or a live controller. The regional
+Terraform definitions and workflow were later removed from `ts-infra` main
+commit `e347f13a313ebb2b9d0a0b631ba0aed56af65126`. See the
+[manual regional bootstrap runbook](region-bootstrap.md).
 
 Relevant source: [`internal/oci/sdk.go`](../internal/oci/sdk.go),
 [`internal/app/config.go`](../internal/app/config.go),
@@ -224,7 +249,8 @@ source is [Oracle's VCN-local managed service](https://docs.oracle.com/en-us/iaa
 at `169.254.169.254` UDP/123; it needs guest chrony/timesyncd configuration
 and an effective route/firewall audit, but no service-gateway or NAT route.
 Stage signed artifacts in the pinned offline image and separately review the
-private operator path. Guest clocks must pass the production `adjtimex`
+private operator path; the GRU path is the
+[operator gateway](region-bootstrap.md#operator-gateway-peering). Guest clocks must pass the production `adjtimex`
 predicate (`TIME_OK`, no `STA_UNSYNC` or `STA_CLOCKERR`, maxerror at most
 250 ms), and actual service reachability must be demonstrated before workload
 admission.
@@ -281,7 +307,7 @@ those ranges are entirely unused by the rest of the tenancy. The A1 priced
 subtotal therefore remains $65.345; $10.625 is only the compute-free scenario,
 not a promised price. These historical subtotals are not an all-in preview
 estimate and do not establish that an A1 deployment fits the current
-$100/month combined testing-and-preview cap. Recalculate with the current
+$200/month combined testing-and-preview cap. Recalculate with the current
 tenancy inventory and all required charges.
 
 For the E4 canary, four VMs cost 4 × (1 × $0.025 + 6 × $0.0015) = $0.136 per
@@ -301,7 +327,7 @@ recorded and a prior draft's **$50 first-billing-period example was unapproved
 and illustrative only**: under the two-hour compute scenario, $0.272 plus a
 full month of five volumes at that assumed tier leaves $39.103 before every
 other itemized charge. That arithmetic is not an all-in estimate for the
-current authorized $100/month combined testing-and-preview recurring-cost cap,
+current authorized $200/month combined testing-and-preview recurring-cost cap,
 and a safety hold can extend
 billable compute beyond the planned duration.
 Image/Object Storage, network/transfer, logs, Vault and continued retention
@@ -323,7 +349,9 @@ priced subtotal.
 The unpriced or quantity-unknown items are actual VM and block-volume
 availability, exact volume retention and boot disposition, tenancy/contract/tax
 price differences, custom-image storage and licensing, VCN/gateway charges,
-private NTP and operator paths, eligible service traffic, data transfer and
+private NTP and operator paths (the GRU
+[operator gateway](region-bootstrap.md#operator-gateway-peering) adds no priced
+OCI resource), eligible service traffic, data transfer and
 any cross-region traffic, object retention and version-history growth, API
 request volume, logs and metrics volume, Vault tier and shared free-range
 consumption, and backup storage/lifecycle. The public catalog showing no
@@ -595,14 +623,15 @@ qualification. They are design inputs, not accepted production behavior.
    seed-handoff proof, then read back every write before OCI launch. A mutable
    head cannot use the WORM ledger bucket, so it needs a separately authorized
    CAS-capable store and IAM policy.
-5. `ts-infra` must separate foundation from seed creation: first create the
-   Vault and ledger foundation with no seed, then populate and pin the Vault
-   material and signed manifest, and only then create the seed from the
-   verified image. The reviewed two-phase change is committed in `ts-infra` as
-   `3fff4df2d3f92c0343cd11c633fc0ba36a82f3e8` and available on draft PR #16;
-   no apply was run. Both gates remain false by default. An existing seed stays
-   OpenTofu-owned and protected until explicit handoff. Disabling future
-   ledger archiving does not restore records already archived.
+5. **Historical proposal, superseded for current operation.** The earlier
+   two-phase `ts-infra` proposal put foundation and seed creation in OpenTofu
+   and is replaced by the operator-run [regional bootstrap
+   runbook](region-bootstrap.md). At its recorded candidate (`ts-infra`
+   `3fff4df2d3f92c0343cd11c633fc0ba36a82f3e8`, draft PR #16), no apply had run
+   and both gates were false. Regional source/state migration still requires
+   its own reviewed, non-destructive plan identifying the exact resources;
+   this historical proposal does not show that migration has completed.
+   Disabling future ledger archiving does not restore records already archived.
 6. TerraBase admission should use native v2 ULID database/member identities,
    numeric shard and incarnation values, and reject legacy v1 labels without
    an alias shim. This remains blocked on a frozen TerraBase producer
@@ -621,12 +650,12 @@ are tracked separately in the [shared-goal acceptance ledger](evidence/shared-go
 | --- | --- | --- |
 | OCI operation recovery — `internal/oci/**` | Use the persisted original operation time and stop replaying OCI create requests before the provider retry-token window expires. Hold expired unknown outcomes and disappeared confirmed resources for explicit, authority-fenced, OCID-specific reconciliation. Preserve the immutable create receipt and use the currently observed ETag for the next fenced operation. Real JetStream KV integration tests must prove no additional provider create at the expiry boundary and safe recovery after lost acknowledgements. | IN PROGRESS; implementation committed as `997498bff9a9c1e6aed29622796515b753ca7b69`; fake-journal unit/race tests passed. Real JetStream KV boundary tests, final review, and reconciliation tooling remain open. |
 | Signed release and pinned image — `.forgejo/workflows/**`, `deploy/image/**`, `deploy/systemd/**`, `deploy/release/**`, `docs/releases.md` | Retain exact static artifacts and signed manifests; bind source revision, architecture, binary and image digests, signer, OCI image OCID, and region. Build from a pinned and qualified base image. Install one binary for controller and host roles with explicit service, filesystem, cgroup, and privilege contracts. Require the Linux realtime clock gate before NATS opens: `adjtimex` must report `TIME_OK`, with `STA_UNSYNC` and `STA_CLOCKERR` clear and `maxerror <= 250 ms`; production images need working chrony or systemd-timesyncd. A manually set wall clock is not proof and there is no bypass. Verify an offline image build, installed-binary receipt, and a staged systemd restart/health-check/rollback path. Missing signing keys must fail closed. | IN PROGRESS; this row tracks production image/release qualification. The root GOAL separately authorizes publishing qualified preview artifacts; the OCI preview record currently reports no deployed artifact. `cmd/ts-release` creates/verifies canonical receipts and conditionally publishes exact OCI objects, but the production image and release gates remain open. `internal/bootstrapstart` and `internal/app/bootstrap_controller.go` contain the intended image-receipt and running-binary consumer path; this integration is still under review and has no OCI or guest proof. Controller/host units and an offline installer exist, but first-boot config/enrollment and the corrected host cgroup service layout remain unqualified. The R7 amd64 build passed, but its attempt failed at host Chrony readiness before VM boot; the guest result needs a rerun, and arm64 execution has not been tested. Base-image pinning, installed-binary runtime verification, staged restart/rollback, and signer-environment review remain OPEN. |
-| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**`; `ts-infra` separately | Connect the signed immutable bootstrap ledger, current founder selection/floor, and OCI launch adapter through a reviewed caller. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; founder plan verification, signed current-selection reading, rollback-floor checks, and an offline-testable OCI seed launch adapter have focused package evidence at their recorded source checkpoints. At `d5fc307`, no production `internal/app` caller connects the current-selection reader to the OCI adapter, and no live seed launch or cold-cell qualification exists. `ts-infra` gates remain false; its current GRU seed validator accepts A1 only. Exact seed handoff, cold GRU formation and SFO/FRA formation remain OPEN. |
+| Durable pre-quorum bootstrap and region formation — bootstrap slice, `internal/app/controller.go`, `internal/natscell/**` | Connect the signed immutable bootstrap ledger, current founder selection/floor, and OCI launch adapter through a reviewed caller. Prove a cold three-peer GRU cell can form, restart, survive one-node loss, and refuse mutations without quorum. Then prove admitted SFO and FRA cells form automatically with pinned routes, TLS, and trust material. No first-region or cross-region mutation may depend on an already formed JetStream cluster. | IN PROGRESS; founder plan verification, signed current-selection reading, rollback-floor checks, and an offline-testable OCI seed launch adapter have focused package evidence at their recorded source checkpoints. At `d5fc307`, no production `internal/app` caller connects the current-selection reader to the OCI adapter, and no live seed launch or cold-cell qualification exists. At that same historical checkpoint, `ts-infra` gates were false and its GRU seed validator accepted A1 only. Current ownership is operator-provisioned foundation and controller A, followed by Go-managed same-cell B/C after handoff; that boundary does not prove live launch or formation. Cold GRU formation and SFO/FRA formation remain OPEN. |
 | Instance identity and host enrollment — NATS authorization/enrollment, host image/runtime owners | Use least-privilege OCI policies and version-pinned Vault material to issue per-host NATS identity and Ed25519 identity, pin the controller response key, and complete signed registration and rotation for the exact OCI instance. Demonstrate denied foreign-region, stale-generation, revoked, and tag-only identities through the real boot path. The preferred proof is a private HTTPS begin/complete exchange, fresh nonce, and public-only serial-console response; the controller reads console history, verifies exact instance ID and both signatures, and issues a durable one-time grant before NATS JWT issuance. Fail closed on 1 MiB history truncation or missing/replayed proof; do not grant console-connection IAM to the validator. | IN PROGRESS; local signed operator `broker-claim-apply` and R3 JWT/fence caller tests passed at the committed checkpoint, addressing the earlier helper-only review findings. The R7 fixture generates private JWT identities but is not a production issuer. Live OCI console-history/IAM denial, first-boot credential issuance and delivery, retry cleanup, and broker-revocation convergence in guests remain OPEN. |
 | Host runtime contract — host image/runtime slice, `internal/host/**` | Qualify the exact pinned kernel and image for writable cgroup v2, execution, cancellation, restart recovery, and safe child cleanup. Define the service user, cgroup delegation, state/install directory ownership, read/write mounts, stop timeout, and restart policy. Prove workload privilege boundaries before accepting untrusted workloads; a native process and a startup probe alone are not a tenant sandbox. | IN PROGRESS; the earlier 8/8 native security run covered nested-supervisor death and child cleanup, but full systemd main-process death and writable-cgroup guest qualification remain OPEN. The earlier one-guest Unix-socket attempt exited status 1 without a captured application result; the later delegated attempt captured a verified journal but failed during native Apply with a Go netpoll fatal error before role and Unix-socket verification. The cause is under runtime investigation. Root-to-service credential handoff has source but its real privileged subprocess and restart caller still require review and qualification. The delegated supervisor leaf reached guest startup, but native workload verification failed. R7 failed before VM boot, so JWT/NTP host evidence still needs a rerun. |
 | TerraBase member and retained-volume contract — TerraBase producer first; then `internal/placement/**` and host member runtime | Freeze canonical database/member IDs, shard/incarnation semantics, desired-state fields, mTLS, durable directories, readiness, replication evidence, shutdown, and writer-lease semantics. Prove the exact attached retained OCI volume is mounted by the intended process before serving. Serving requires fresh identity-bound local readiness plus independent replication/quorum evidence. | OPEN; at `d5fc307`, placement held at `awaiting-runtime-contract` after OCI attachment. Later commits (`ccfe2566` host bridge, `c0a4d639` placement) publish signed TerraBase desired state, verify a pinned exclusive mount and volume claim on the host, launch the member and report local process/mount status, then hold at `awaiting-healthy`; this path is not qualified here. Guest block-device discovery and safe format/adoption remain absent. The bounded receiver-only member-status surface has no serving proof. Later mutable producer source includes an outbound sender and `AppliedAck`, but current-source real-peer acceptance, independently observed applied frontiers and a durable serving/drain receipt remain open. |
 | Healing, autoscale, and retirement — `internal/placement/**`, followed by OCI drain integration | Choose and approve capacity signals, replica floor, min/max, hysteresis, anti-affinity, budget ceiling, and scale-in policy. Implement durable drain, graceful database shutdown, fresh writer-stop proof, retained-volume detach and re-observation, and only then termination. Exercise interrupted and ambiguous lifecycle operations without data loss or duplicate members. | OPEN; the TerraBase producer has no durable drain or writer-fence receipt, and the real OCI controller has no member-serving/drain/writer-stop verifier wired. Fixed seats do not establish autoscaling or safe scale-in. |
-| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before production approval. Qualification testing and preview share the authorized US$100/month recurring cap above. | OPEN; no production restore procedure or production qualification exists. |
+| Recovery, operations, and production approval — operations slice | Set RPO/RTO and retention. Back up and restore JetStream authority, OCI journal, and TerraBase data to a tested point; exercise controller quorum loss, host replacement, image upgrade/rollback, scale-in, and recovery. Expose capacity, cost, replication, backup age, and held operations. Review tenancy IAM, regional quotas, network, image OCIDs, and monthly cost before production approval. Qualification testing and preview share the authorized US$200/month recurring cap above. | OPEN; no production restore procedure or production qualification exists. |
 
 ## Production-readiness follow-on
 
@@ -651,14 +680,21 @@ not imply production readiness.
 - Select and verify the OCI tenancy, base operating-system image and kernel,
   architecture support, image-builder identity, regional image OCIDs, IAM
   policies, network rules, and quotas. Record an itemized preview estimate
-  within the authorized US$100/month combined testing-and-preview recurring-cost cap before resource
+  within the authorized US$200/month combined testing-and-preview recurring-cost cap before resource
   creation; production cost approval remains separate.
 - Provision the offline release signer, publish its trust anchor into the
   image, and decide signer rotation and revocation behavior. A missing signer
   key cannot be replaced by an unsigned build or test key.
-- Confirm the immutable pre-quorum ledger bucket, conditional-write and
-  retention behavior, KMS authority, Vault path/version policy, and exact
-  seed ownership handoff between `ts-infra` and the Go controller.
+- Qualify the immutable pre-quorum ledger bucket, conditional-write and
+  retention behavior, KMS authority, Vault path/version policy, and the
+  operator-A to Go-controller identity/authority handoff. The current boundary
+  keeps regional foundation and the first seed with the operator until explicit
+  handoff, then assigns same-cell B/C to `ts-orchestrator`. The completed
+  `ts-infra` state-only handoff is a separate state operation; it does not
+  establish regional resource health, a live controller, or the required
+  operator-to-orchestrator identity, authority, and inventory handoff. Source
+  cleanup is separate. See the
+  [manual regional bootstrap runbook](region-bootstrap.md).
 - Freeze TerraBase v2 identity, readiness, replication, drain, and writer-stop
   contracts with its producer team.
 - Set availability targets for controller loss and host session loss, replica

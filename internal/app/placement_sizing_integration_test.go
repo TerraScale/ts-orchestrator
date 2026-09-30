@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,7 +187,7 @@ func TestSignedPlacementSizingReachesProviderThroughController(t *testing.T) {
 		t.Fatal(err)
 	}
 	retry, err := restarted.EnsureHost(ctx, oci.EnsureRequest{
-		CreateKey: prepared.State.CreateKey, FaultDomain: prepared.State.FailureDomain,
+		CreateKey: prepared.State.CreateKey, PrivateIP: launch.PrivateIP, FaultDomain: prepared.State.FailureDomain,
 		Shape: profile.Compute.Shape, WholeOCPUs: profile.Compute.WholeOCPUs,
 		MemoryInGBs: profile.Compute.MemoryInGBs, PlacementProfileDigest: profileDigest,
 		PlacementGeneration: prepared.State.IntentGeneration,
@@ -233,6 +234,37 @@ func (f placementSizingFencer) Guard(ctx context.Context, epoch uint64) error {
 	return nil
 }
 
+func (f placementSizingFencer) ReadManagedUpdate(ctx context.Context, databaseID, partitionID string) (authority.LogEntry, error) {
+	return f.control.ReadManagedUpdate(ctx, databaseID, partitionID)
+}
+
+func (f placementSizingFencer) ReadManagedUpdateOperation(
+	ctx context.Context, databaseID, partitionID, operationID string,
+) ([]authority.LogEntry, error) {
+	return f.control.ReadManagedUpdateOperation(ctx, databaseID, partitionID, operationID)
+}
+
+func (f placementSizingFencer) ListManagedUpdates(ctx context.Context, databaseID, partitionID string) ([]authority.LogEntry, error) {
+	return f.control.ListManagedUpdates(ctx, databaseID, partitionID)
+}
+
+func (f placementSizingFencer) BeginActiveWorkloadEffect(ctx context.Context, epoch uint64,
+	scope authority.WorkloadScope,
+) (func(), error) {
+	if scope.DatabaseID == "" || scope.PartitionID == "" {
+		return nil, authority.ErrFenced
+	}
+	if err := f.Guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	if _, err := f.control.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID); err == nil {
+		return nil, authority.ErrFenced
+	} else if !errors.Is(err, authority.ErrNotFound) {
+		return nil, err
+	}
+	return func() {}, nil
+}
+
 type placementSizingHosts struct{}
 
 func (placementSizingHosts) ListHosts(context.Context) ([]host.HostStatus, error) { return nil, nil }
@@ -247,9 +279,11 @@ func (placementSizingHosts) ApplyDesired(context.Context, host.Desired) (host.Re
 
 type placementSizingProvider struct {
 	oci.Provider
-	config   oci.RegionConfig
-	instance oci.CloudInstance
-	launches []oci.LaunchRequest
+	config         oci.RegionConfig
+	instance       oci.CloudInstance
+	bootInstanceID string
+	bootVolume     oci.CloudBootVolume
+	launches       []oci.LaunchRequest
 }
 
 func (p *placementSizingProvider) ListInstances(_ context.Context, compartmentID string) ([]oci.CloudInstance, error) {
@@ -283,6 +317,7 @@ func (p *placementSizingProvider) LaunchInstance(_ context.Context, request oci.
 	p.launches = append(p.launches, request)
 	p.instance = oci.CloudInstance{
 		ID: "ocid1.instance.oc1..placement-sized", CompartmentID: p.config.CompartmentID,
+		PrivateIP:          request.PrivateIP,
 		AvailabilityDomain: p.config.AvailabilityDomain, FaultDomain: request.FaultDomain,
 		Shape: request.Shape, Ocpus: new(float32(request.WholeOCPUs)),
 		MemoryInGBs: new(float32(request.MemoryInGBs)), LifecycleState: "PROVISIONING", ETag: "etag-1",
@@ -290,7 +325,36 @@ func (p *placementSizingProvider) LaunchInstance(_ context.Context, request oci.
 		Metadata:     map[string]string{hostboot.MetadataKey: request.BootDescriptor, "terrascale_host_node": request.Node},
 		FreeformTags: maps.Clone(request.FreeformTags),
 	}
+	if err := p.bindBootVolume(p.instance.ID); err != nil {
+		return oci.CloudInstance{}, err
+	}
 	return p.instance, nil
+}
+
+func (p *placementSizingProvider) bindBootVolume(instanceID string) error {
+	if instanceID == "" || p.instance.ID != instanceID || len(p.launches) != 1 {
+		return errors.New("fake OCI boot volume requires its one launched instance")
+	}
+	suffix, ok := strings.CutPrefix(instanceID, "ocid1.instance.")
+	if !ok || suffix == "" {
+		return errors.New("fake OCI instance has no valid boot-volume identity")
+	}
+	p.bootInstanceID = instanceID
+	p.bootVolume = oci.CloudBootVolume{
+		ID: "ocid1.bootvolume." + suffix, CompartmentID: p.config.CompartmentID,
+		AvailabilityDomain: p.config.AvailabilityDomain, ImageID: p.config.ImageID,
+		SizeGB: int64(p.config.BootVolumeGB), VPUsPerGB: int64(p.config.BootVolumeVPUsPerGB),
+		LifecycleState: "AVAILABLE", ETag: "boot-etag-1",
+	}
+	return nil
+}
+
+func (p *placementSizingProvider) GetAttachedBootVolume(_ context.Context, instanceID string) (oci.CloudBootVolume, error) {
+	if instanceID == "" || p.instance.ID != instanceID || p.bootInstanceID != instanceID ||
+		p.bootVolume.ID == "" {
+		return oci.CloudBootVolume{}, errors.New("unknown fake OCI boot attachment")
+	}
+	return p.bootVolume, nil
 }
 
 func (p *placementSizingProvider) ListVolumeAttachments(_ context.Context, compartmentID, instanceID string) ([]oci.CloudAttachment, error) {

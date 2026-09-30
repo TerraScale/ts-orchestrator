@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -31,14 +33,26 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		TrustedKeySHA256: strings.Repeat("1", 64), ServerCertificateSHA256: strings.Repeat("2", 64),
 		ServerPrivateKeySHA256: strings.Repeat("3", 64), ClientCARootsSHA256: strings.Repeat("4", 64),
 		ClientManagedMaterialManifestSHA256: strings.Repeat("5", 64),
-		ReplicationListenAddress:            "127.0.0.1:7000",
+		LiveS3ConfigSHA256:                  strings.Repeat("7", 64),
+		LiveS3TargetSHA256:                  strings.Repeat("8", 64),
+		LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
+		ReplicationListenAddress:            "10.0.0.11:7000",
 		ReplicationPeerMemberID:             "018f0000-0000-7000-8000-000000000002",
-		ReplicationPeerAddress:              "127.0.0.1:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
+		ReplicationPeerAddress:              "10.0.0.12:7001", ReplicationServerCASHA256: strings.Repeat("6", 64),
 	}
 	desired.ManagedMember.Runtime = &pins
 	desired.ManagedMember.AttachmentETag = "etag-current"
 	if err := validateDesired(desired, registration.Cell, registration); err != nil {
 		t.Fatal(err)
+	}
+	sqlDesired := desired
+	sqlPins := pins
+	sqlPins.SQLSchemaBundleSHA256 = strings.Repeat("9", 64)
+	sqlLaunch := *desired.ManagedMember
+	sqlLaunch.Runtime = &sqlPins
+	sqlDesired.ManagedMember = &sqlLaunch
+	if err := validateDesired(sqlDesired, registration.Cell, registration); err != nil {
+		t.Fatalf("valid signed SQL bundle pin was rejected: %v", err)
 	}
 	for _, test := range []struct {
 		name   string
@@ -48,9 +62,17 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 		{"symlink-like device path", func(p *ManagedRuntimePins) { p.DevicePath = "/dev/../tmp/sdb" }},
 		{"missing trust key digest", func(p *ManagedRuntimePins) { p.TrustedKeySHA256 = "" }},
 		{"missing signed client manifest", func(p *ManagedRuntimePins) { p.ClientManagedMaterialManifestSHA256 = "" }},
+		{"missing live S3 config", func(p *ManagedRuntimePins) { p.LiveS3ConfigSHA256 = "" }},
+		{"invalid SQL bundle digest", func(p *ManagedRuntimePins) { p.SQLSchemaBundleSHA256 = "bad" }},
+		{"missing exact Vault version", func(p *ManagedRuntimePins) { p.LiveS3Credential.VersionNumber = 0 }},
 		{"invalid filesystem UUID", func(p *ManagedRuntimePins) { p.FileSystemUUID = "unknown" }},
 		{"unapproved filesystem type", func(p *ManagedRuntimePins) { p.FileSystemType = "fuse" }},
 		{"DNS listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "example.com:7000" }},
+		{"loopback listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "127.0.0.1:7000" }},
+		{"public listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "198.51.100.11:7000" }},
+		{"wildcard listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "0.0.0.0:7000" }},
+		{"IPv6 listener", func(p *ManagedRuntimePins) { p.ReplicationListenAddress = "[fd00::11]:7000" }},
+		{"public peer", func(p *ManagedRuntimePins) { p.ReplicationPeerAddress = "198.51.100.12:7001" }},
 		{"partial peer", func(p *ManagedRuntimePins) { p.ReplicationPeerAddress = "" }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -73,7 +95,7 @@ func TestManagedRuntimePinsRequireExactPreprovisionedIdentity(t *testing.T) {
 	}
 }
 
-func TestExclusiveMountRejectsDuplicateAndWrongSource(t *testing.T) {
+func TestExclusiveMountRequiresVisibleMountAtTargetOnly(t *testing.T) {
 	device := unix.Mkdev(8, 1)
 	path := filepath.Join(t.TempDir(), "mountinfo")
 	target := "/var/lib/terrascale/member/volume"
@@ -87,18 +109,29 @@ func TestExclusiveMountRejectsDuplicateAndWrongSource(t *testing.T) {
 		}
 	}
 	write(entry(23, target, "ext4"))
-	if id, err := findExclusiveMount(path, target, device, "ext4"); err != nil || id != 23 {
+	if id, err := exclusiveMountEntry(path, target, device, "ext4", 23); err != nil || id != 23 {
 		t.Fatalf("exact mount = %d, %v", id, err)
 	}
-	for _, test := range []struct{ name, content string }{
-		{"duplicate mount", entry(23, target, "ext4") + entry(24, "/other", "ext4")},
-		{"wrong target", entry(23, "/other", "ext4")},
-		{"wrong filesystem", entry(23, target, "xfs")},
-		{"no mount", entry(23, target, "ext4")[:0]},
+	// A ProtectSystem service namespace sees one propagated copy per slave
+	// mount of the runtime root; only the visible one is pinned.
+	write(entry(23, target, "ext4") + entry(31, target, "ext4"))
+	if id, err := exclusiveMountEntry(path, target, device, "ext4", 31); err != nil || id != 31 {
+		t.Fatalf("shadowed propagated mount = %d, %v", id, err)
+	}
+	for _, test := range []struct {
+		name    string
+		content string
+		visible uint64
+	}{
+		{"second mount elsewhere", entry(23, target, "ext4") + entry(24, "/other", "ext4"), 23},
+		{"wrong target", entry(23, "/other", "ext4"), 23},
+		{"wrong filesystem", entry(23, target, "xfs"), 23},
+		{"no mount", "", 23},
+		{"visible mount is another device", entry(23, target, "ext4"), 40},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			write(test.content)
-			if _, err := findExclusiveMount(path, target, device, "ext4"); err == nil {
+			if _, err := exclusiveMountEntry(path, target, device, "ext4", test.visible); err == nil {
 				t.Fatal("unsafe mount accepted")
 			}
 		})

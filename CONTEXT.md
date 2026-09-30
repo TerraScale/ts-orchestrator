@@ -122,6 +122,14 @@ The provider seam behind regional control. Current tests use fakes; no live OCI
 account mutation, automatic regional first boot, or production capacity
 convergence has been qualified.
 
+**Operator gateway**
+
+The NetBird routing peer on the Forgejo VM (`10.250.10.155`), reached from the
+cell through one local peering gateway pair and source-NATed to that address.
+The cell admits it only on TCP 4222 (controllers), 22 (controller A), and 9465
+(members), never on 8443. The private subnet keeps no internet route, NAT, or
+public IP. The OCI Bastion remains the break-glass operator path.
+
 **Production readiness**
 
 Evidence that the actual Go binary and its caller preserve authority,

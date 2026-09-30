@@ -3,6 +3,9 @@ package authority
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,11 +15,444 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "terminal-test", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "place-a", 0, []byte("admitted")); err != nil {
+		t.Fatal(err)
+	}
+	intent := TerminalIntent{Cell: "gru", DatabaseID: "db-a", PartitionID: "partition-a",
+		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
+		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
+		OperationID: "terminal-a", Nonce: uuid.New().String(),
+		Targets:            []TerminalTarget{{SeatID: "seat-a", MemberID: "member-a", HostCreateKey: "host-a", DataCreateKey: "data-a"}},
+		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
+	payload, err := json.Marshal(intent, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	effectCtx := WithActiveWorkloadEffectContext(ctx)
+	releaseOuter, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entered := make(chan struct{})
+	started := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		close(started)
+		_, err := runtime.CommitTerminalIntent(ctx, epoch, scope, intent.OperationID, payload,
+			func(context.Context) error { close(entered); return nil })
+		result <- err
+	}()
+	<-started
+	select {
+	case <-entered:
+		t.Fatal("terminal verification entered during outer effect")
+	case <-time.After(20 * time.Millisecond):
+	}
+	releaseNested, err := runtime.BeginActiveWorkloadEffect(effectCtx, epoch, scope)
+	if err != nil {
+		releaseOuter()
+		t.Fatalf("nested active effect blocked by pending terminal writer: %v", err)
+	}
+	releaseOuter()
+	select {
+	case <-entered:
+		t.Fatal("terminal verification entered before nested effect settled")
+	default:
+	}
+	releaseNested()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("commit terminal marker: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("terminal marker did not complete after active effect release")
+	}
+	if _, err := runtime.BeginActiveWorkloadEffect(ctx, epoch, scope); !errors.Is(err, ErrFenced) {
+		t.Fatalf("active effect after terminal marker = %v, want fenced", err)
+	}
+	if _, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "place-b", 0, []byte("new")); !errors.Is(err, ErrFenced) {
+		t.Fatalf("placement after terminal marker = %v, want fenced", err)
+	}
+	if _, err := runtime.ConfirmActivePlacementIntent(ctx, epoch, "db-a", "partition-a", []byte("admitted")); !errors.Is(err, ErrFenced) {
+		t.Fatalf("idempotent placement after terminal marker = %v, want fenced", err)
+	}
+	read, err := runtime.ReadTerminalIntent(ctx, "db-a", "partition-a")
+	if err != nil || !bytes.Equal(read.Payload, payload) || read.OperationID != intent.OperationID {
+		t.Fatalf("read immutable terminal marker: %+v, %v", read, err)
+	}
+}
+
+func TestEnrollmentEffectIsDurableTerminalAdmissionHold(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "grant-effect-test", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	effectID, instanceID := uuid.New().String(), "ocid1.instance.oc1..grant-effect-test"
+	started, err := runtime.BeginEnrollmentEffect(ctx, epoch, scope, effectID, instanceID)
+	if err != nil || started == 0 {
+		t.Fatalf("start durable enrollment effect: sequence=%d error=%v", started, err)
+	}
+	pending, err := runtime.ListPendingEnrollmentEffects(ctx, scope)
+	if err != nil || len(pending) != 1 || pending[0].EffectID != effectID ||
+		pending[0].InstanceID != instanceID || pending[0].Sequence != started {
+		t.Fatalf("pending enrollment effect is not visible to terminal admission: %+v, %v", pending, err)
+	}
+	if _, err := runtime.SettleEnrollmentEffect(ctx, epoch+1, scope, effectID, instanceID, started); err == nil {
+		t.Fatal("a different epoch settled an in-flight enrollment effect")
+	}
+	settled, err := runtime.SettleEnrollmentEffect(ctx, epoch, scope, effectID, instanceID, started)
+	if err != nil || settled <= started {
+		t.Fatalf("settle exact enrollment effect: sequence=%d error=%v", settled, err)
+	}
+	pending, err = runtime.ListPendingEnrollmentEffects(ctx, scope)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("settled enrollment effect remained pending: %+v, %v", pending, err)
+	}
+}
+
+type settledHistoryStream struct {
+	jetstream.Stream
+	info      jetstream.StreamInfo
+	prefix    string
+	pendingID string
+}
+
+func (stream *settledHistoryStream) Info(context.Context, ...jetstream.StreamInfoOpt) (*jetstream.StreamInfo, error) {
+	info := stream.info
+	return &info, nil
+}
+
+func (stream *settledHistoryStream) GetLastMsgForSubject(ctx context.Context, subject string) (*jetstream.RawStreamMsg, error) {
+	effectID, ok := strings.CutPrefix(subject, stream.prefix)
+	if !ok {
+		return stream.Stream.GetLastMsgForSubject(ctx, subject)
+	}
+	phase, operationID := "settled", effectID+"-settled"
+	if effectID == stream.pendingID {
+		phase, operationID = "pending", effectID
+	}
+	payload, err := enrollmentEffectBytes("ocid1.instance.oc1..history", phase)
+	if err != nil {
+		return nil, err
+	}
+	key := "db-a.partition-a." + effectID
+	record, err := json.Marshal(controlRecord{Version: 1, Kind: MutationEnrollmentEffect,
+		Scope: "gru", SubjectKey: key, OperationID: operationID, Epoch: 1, Payload: payload})
+	if err != nil {
+		return nil, err
+	}
+	return &jetstream.RawStreamMsg{Subject: subject, Sequence: 1, Data: record}, nil
+}
+
+func TestPendingEnrollmentEffectsSurviveLargeSettledHistory(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "effect-history-test", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	info, err := runtime.readStream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const prefix = "ts.control.gru.placement.enrollment.db-a.partition-a."
+	const pendingID = "e4097"
+	all := make(map[string]uint64, 4098)
+	for index := range 4098 {
+		all[fmt.Sprintf("%se%04d", prefix, index)] = 1
+	}
+	info.State.Subjects = all
+	runtime.readStream = &settledHistoryStream{Stream: runtime.readStream, info: *info,
+		prefix: prefix, pendingID: pendingID}
+	pending, err := runtime.ListPendingEnrollmentEffects(ctx, WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"})
+	if err != nil || len(pending) != 1 || pending[0].EffectID != pendingID {
+		t.Fatalf("large settled history hid the pending enrollment effect: %+v, %v", pending, err)
+	}
+}
+
+func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	old, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "old-grant-owner", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	effectID, instanceID := uuid.New().String(), "ocid1.instance.oc1..prior-grant-effect"
+	sequence, err := old.BeginEnrollmentEffect(ctx, old.Current().Epoch, scope, effectID, instanceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldEpoch := old.Current().Epoch
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	current, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "new-grant-owner", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = current.Close() })
+	newEpoch := current.Current().Epoch
+	if newEpoch <= oldEpoch {
+		t.Fatalf("new leader epoch %d did not advance past %d", newEpoch, oldEpoch)
+	}
+	if _, err := current.SettleFencedEnrollmentEffect(ctx, newEpoch, scope,
+		effectID, instanceID, sequence, nil); err == nil {
+		t.Fatal("prior effect settled without grant fence verifier")
+	}
+	if _, err := current.SettleFencedEnrollmentEffect(ctx, newEpoch, scope,
+		effectID, instanceID, sequence, func(context.Context) error { return errors.New("grant not disabled") }); err == nil {
+		t.Fatal("prior effect settled when grant fence readback failed")
+	}
+	pending, err := current.ListPendingEnrollmentEffects(ctx, scope)
+	if err != nil || len(pending) != 1 || pending[0].Epoch != oldEpoch {
+		t.Fatalf("unknown old effect was not retained: %+v, %v", pending, err)
+	}
+	settled, err := current.SettleFencedEnrollmentEffect(ctx, newEpoch, scope,
+		effectID, instanceID, sequence, func(context.Context) error { return nil })
+	if err != nil || settled <= sequence {
+		t.Fatalf("settle fenced prior effect: sequence=%d error=%v", settled, err)
+	}
+	pending, err = current.ListPendingEnrollmentEffects(ctx, scope)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("fenced prior effect remained pending: %+v, %v", pending, err)
+	}
+}
+
+func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	first, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-a", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstClosed := false
+	t.Cleanup(func() {
+		if !firstClosed {
+			_ = first.Close()
+		}
+	})
+	firstEpoch := first.Current().Epoch
+	record := validManagedUpdateRecord()
+	preparedSequence, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil)
+	if err != nil || preparedSequence == 0 {
+		t.Fatalf("commit signed Prepare: sequence=%d error=%v", preparedSequence, err)
+	}
+	replayed, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil)
+	if err != nil || replayed != preparedSequence {
+		t.Fatalf("same Prepare retry changed its receipt: sequence=%d error=%v", replayed, err)
+	}
+
+	changed := record
+	changed.SignedRequest = []byte("different signed request")
+	changed.SignedRequestSHA256 = digestString(changed.SignedRequest)
+	if _, err := first.CommitManagedUpdate(ctx, firstEpoch, changed, 0, nil); !errors.Is(err, ErrOperationConflict) {
+		t.Fatalf("changed-body retry = %v, want operation conflict", err)
+	}
+
+	serving := record
+	serving.Phase = ManagedUpdateCanaryServing
+	serving.Outcome = "fresh-serving-proof"
+	servingSequence, err := first.CommitManagedUpdate(ctx, firstEpoch, serving, preparedSequence, nil)
+	if err != nil || servingSequence <= preparedSequence {
+		t.Fatalf("commit canary result: sequence=%d error=%v", servingSequence, err)
+	}
+	if _, err := first.CommitManagedUpdate(ctx, firstEpoch, record, 0, nil); err != nil {
+		t.Fatalf("historical Prepare receipt was not idempotent after phase advance: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	firstClosed = true
+
+	second, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-owner-b", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if second.Current().Epoch <= firstEpoch {
+		t.Fatalf("leader epoch did not advance: first=%d second=%d", firstEpoch, second.Current().Epoch)
+	}
+	history, err := second.ReadManagedUpdateOperation(ctx, record.DatabaseID, record.PartitionID, record.OperationID)
+	if err != nil || len(history) != 2 || history[0].Sequence != preparedSequence ||
+		history[0].Epoch != firstEpoch || history[1].Sequence != servingSequence ||
+		history[1].Epoch != firstEpoch || !bytes.Equal(history[0].Payload, mustManagedUpdatePayload(t, record)) {
+		t.Fatalf("exact operation history was not retained after epoch change: %+v, %v", history, err)
+	}
+	read, err := second.ReadManagedUpdate(ctx, record.DatabaseID, record.PartitionID)
+	if err != nil || read.Sequence != servingSequence || read.OperationID != record.OperationID {
+		t.Fatalf("latest update result differs from immutable history: %+v, %v", read, err)
+	}
+	reader, err := OpenReader(ctx, js, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readOnlyHistory, err := reader.ReadManagedUpdateOperation(ctx, record.DatabaseID, record.PartitionID, record.OperationID)
+	if err != nil || len(readOnlyHistory) != len(history) || readOnlyHistory[0].Sequence != preparedSequence {
+		t.Fatalf("read-only exact history differs: %+v, %v", readOnlyHistory, err)
+	}
+}
+
+func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "managed-update-successor", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	epoch := runtime.Current().Epoch
+	first := validManagedUpdateRecord()
+	prepared, err := runtime.CommitManagedUpdate(ctx, epoch, first, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	successor := first
+	successor.OperationID, successor.CanarySeatID = "update-b", "permanent-a"
+	successor.SignedRequest = []byte("peer promotion request")
+	successor.SignedRequestSHA256 = digestString(successor.SignedRequest)
+	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("successor while the first operation is prepared = %v, want invalid transition", err)
+	}
+	held := first
+	held.Phase, held.Outcome = ManagedUpdateHeld, "candidate-proof-timeout"
+	terminal, err := runtime.CommitManagedUpdate(ctx, epoch, held, prepared, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.CommitManagedUpdate(ctx, epoch, successor, prepared, nil); !errors.Is(err, ErrConflict) {
+		t.Fatalf("successor after a stale latest sequence = %v, want conflict", err)
+	}
+	next, err := runtime.CommitManagedUpdate(ctx, epoch, successor, terminal, nil)
+	if err != nil || next <= terminal {
+		t.Fatalf("successor after the held outcome: sequence=%d err=%v", next, err)
+	}
+	latest, err := runtime.ReadManagedUpdate(ctx, first.DatabaseID, first.PartitionID)
+	if err != nil || latest.OperationID != successor.OperationID || latest.Sequence != next {
+		t.Fatalf("latest operation = %+v, %v", latest, err)
+	}
+}
+
+func validManagedUpdateRecord() ManagedUpdateRecord {
+	request := []byte("exact canonical signed managed update request")
+	return ManagedUpdateRecord{
+		SchemaVersion: 1, Cell: "gru", DatabaseID: "db-managed", PartitionID: "partition-a",
+		OperationID: "update-a", Phase: ManagedUpdatePrepared, SignedRequest: request,
+		SignedRequestSHA256: digestString(request), PlacementGeneration: 1,
+		PlacementPayloadDigest: strings.Repeat("a", 64), PlacementSequence: 1,
+		CanarySeatID: "elastic-gru", CanaryDesiredGeneration: 2,
+		OldArtifactDigest: strings.Repeat("b", 64), CandidateArtifactDigest: strings.Repeat("c", 64),
+		CandidateManifestDigest: strings.Repeat("d", 64), CandidateSourceDigest: strings.Repeat("e", 64),
+		DurabilityProfileSHA256: strings.Repeat("f", 64),
+	}
+}
+
+func digestString(value []byte) string {
+	digest := sha256.Sum256(value)
+	return hex.EncodeToString(digest[:])
+}
+
+func mustManagedUpdatePayload(t *testing.T, record ManagedUpdateRecord) []byte {
+	t.Helper()
+	payload, err := json.Marshal(record, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
+func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing.T) {
+	js := newAuthorityTestJetStream(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "terminal-cas-test", Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	scope := WorkloadScope{DatabaseID: "db-a", PartitionID: "partition-a"}
+	intent := TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID,
+		Region: "GRU", Owner: "owner-a", CompartmentID: "ocid1.compartment.oc1..terminaltest",
+		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64),
+		OperationID: "terminal-cas", Nonce: uuid.New().String(),
+		Targets:            []TerminalTarget{{SeatID: "seat-a", MemberID: "member-a", HostCreateKey: "host-a", DataCreateKey: "data-a"}},
+		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
+	payload, err := json.Marshal(intent, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = runtime.CommitTerminalIntent(ctx, runtime.Current().Epoch, scope, intent.OperationID, payload,
+		func(ctx context.Context) error {
+			calls++
+			if calls == 1 {
+				// Simulate an independent leader-effect publication after the
+				// first read-only proof but before the marker CAS.
+				effectID := uuid.New().String()
+				key, _ := enrollmentEffectSubjectKey(scope, effectID)
+				effectPayload, _ := enrollmentEffectBytes("ocid1.instance.oc1..pending", "pending")
+				record, err := json.Marshal(controlRecord{Version: 1, Kind: MutationEnrollmentEffect,
+					Scope: "gru", SubjectKey: key, OperationID: effectID,
+					Epoch: runtime.Current().Epoch, Payload: effectPayload})
+				if err != nil {
+					return err
+				}
+				info, err := runtime.stream.Info(ctx)
+				if err != nil {
+					return err
+				}
+				_, err = js.PublishMsg(ctx, controlMessage(mutationSubject("gru", MutationEnrollmentEffect, key),
+					string(MutationEnrollmentEffect), effectID, record),
+					jetstream.WithExpectLastSequence(info.State.LastSeq),
+					jetstream.WithExpectLastSequenceForSubject(0, mutationSubject("gru", MutationEnrollmentEffect, key)))
+				return err
+			}
+			pending, err := runtime.ListPendingEnrollmentEffects(ctx, scope)
+			if err != nil {
+				return err
+			}
+			if len(pending) != 0 {
+				return errors.New("new enrollment effect makes first terminal proof stale")
+			}
+			return nil
+		})
+	if err == nil || calls != 2 {
+		t.Fatalf("terminal CAS did not rerun proof after concurrent effect: calls=%d error=%v", calls, err)
+	}
+	if _, err := runtime.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("stale proof wrote terminal marker: %v", err)
+	}
+}
 
 func TestVerifyControlStreamConfigRejectsMessageEviction(t *testing.T) {
 	tests := []struct {
@@ -170,6 +606,18 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	}
 	if _, err := runtime.CommitHostMutation(ctx, epoch, MutationRegistration, "gru.node-a", "host-operation", 0, []byte("host")); err != nil {
 		t.Fatalf("commit host registration for concurrent reads: %v", err)
+	}
+	materialSequence, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "material-operation", 0, []byte("signed-receipt"))
+	if err != nil {
+		t.Fatalf("commit initial material receipt: %v", err)
+	}
+	materialEntry, err := runtime.ReadMaterialReceipt(ctx, "db-a", "partition-a")
+	if err != nil || materialEntry.Kind != MutationMaterialReceipt || materialEntry.Sequence != materialSequence ||
+		string(materialEntry.Payload) != "signed-receipt" {
+		t.Fatalf("read committed material receipt: %+v, %v", materialEntry, err)
+	}
+	if _, err := runtime.CommitMaterialReceipt(ctx, epoch, "db-a", "partition-a", "other-material", 0, []byte("foreign")); !errors.Is(err, ErrConflict) {
+		t.Fatalf("second material receipt did not respect R3 CAS: %v", err)
 	}
 
 	firstSequence, err := runtime.CommitPlacementIntent(ctx, epoch, "db-a", "partition-a", "operation-a", 0, []byte("first"))

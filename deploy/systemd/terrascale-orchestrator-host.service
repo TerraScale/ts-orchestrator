@@ -1,13 +1,14 @@
 [Unit]
 Description=TerraScale Orchestrator host runtime
 Wants=network-online.target
-After=network-online.target
+Requires=terrascale-orchestrator-host-setup.service
+After=network-online.target terrascale-orchestrator-host-setup.service
 ConditionPathExists=/etc/terrascale-orchestrator/host.json
 
 [Service]
 Type=simple
-User=root
-Group=root
+# Runs as root by default: User=root with NoNewPrivileges=yes would make
+# systemd drop CAP_SETUID, which the native workload helper needs.
 SupplementaryGroups=
 ExecStart=/usr/local/bin/terrascale-orchestrator host --config /etc/terrascale-orchestrator/host.json
 # Protect the host manager without throttling the managed database when idle.
@@ -46,7 +47,7 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=no
 ProtectHostname=yes
-ProtectClock=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
 LockPersonality=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 SystemCallArchitectures=native

@@ -1,0 +1,268 @@
+{
+  "schema": "terrascale.runtime-priority-pressure/v5",
+  "repository_revision": "0000000000000000000000000000000000000000",
+  "identity": {
+    "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
+    "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-import",
+    "artifact_id": "dry-run-artifact",
+    "config_id": "dry-run-config",
+    "profile_id": "dry-run-profile",
+    "architecture": "aarch64",
+    "cell": "gru",
+    "environment": "qualification"
+  },
+  "authorization": {
+    "live_stress_authorized": false,
+    "owner_handoff_path": "/run/terrascale-d15/owner-handoff.md",
+    "owner_handoff_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "adapter_contract": {
+    "schema": "terrascale.d15.adapter-contract/v5",
+    "version": 5,
+    "id": "UNFROZEN-D15-INTERFACE",
+    "frozen": false,
+    "source_path": "/usr/local/lib/terrascale-d15/alpha_adapter.py",
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "database_frontier_binding": "object_durable.event{database,shard,replica,incarnation,sequence};serving_proof.v1/same_scope/v1",
+    "host_status_source": "operator-hosts-json/controller-admitted/read-only/v1",
+    "managed_process_witness": "accepted-managed-report+proc-stat+cgroup+boot-id/v1",
+    "pressure_survival_policy": "all-pressure-workers-through-duration/v1",
+    "database_progress_deadline_seconds": 30,
+    "host_report_max_age_seconds": 30,
+    "target_witness_max_age_ms": 1000,
+    "oom_journal_format": "systemd-journal-kernel-oom/v1",
+    "oom_event_window_seconds": 30
+  },
+  "managed_member": {
+    "source": {
+      "cell": "gru",
+      "node": "dry-run-source",
+      "environment": "qualification",
+      "role": "terrabase",
+      "scope": {
+        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tenant_id": "018f0000-0000-7000-8000-000000000001",
+        "database_id": "018f0000-0000-7000-8000-000000000002",
+        "shard_id": 1,
+        "member_id": "018f0000-0000-7000-8000-000000000003",
+        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "authority": {
+        "epoch": 1,
+        "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    "peer": {
+      "cell": "gru",
+      "node": "dry-run-peer",
+      "environment": "qualification",
+      "role": "terrabase",
+      "scope": {
+        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "tenant_id": "018f0000-0000-7000-8000-000000000001",
+        "database_id": "018f0000-0000-7000-8000-000000000002",
+        "shard_id": 1,
+        "member_id": "018f0000-0000-7000-8000-000000000004",
+        "incarnation": "cccccccccccccccccccccccccccccccc"
+      },
+      "authority": {
+        "epoch": 1,
+        "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+        "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      }
+    },
+    "document": {
+      "collection_id": "018f0000-0000-7000-8000-000000000005",
+      "schema_generation": 1,
+      "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+      "field_id": 1
+    },
+    "acknowledgment_profile": "object_durable"
+  },
+  "page_size_bytes": 4096,
+  "qualification": {
+    "expected_memory_min_bytes": 67108864,
+    "expected_memory_low_bytes": 134217728,
+    "expected_controller_memory_min_bytes": 67108864,
+    "expected_controller_memory_low_bytes": 134217728,
+    "expected_system_slice_memory_min_bytes": 134217728,
+    "expected_system_slice_memory_low_bytes": 268435456,
+    "system_reserve_bytes": 1073741824,
+    "allocatable_memory_bytes": 5368709120,
+    "database_memory_max_bytes": 1073741824
+  },
+  "memory_floor_evidence": {
+    "host_service": {
+      "basis": "allocation",
+      "source": "illustrative allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/host-service-floor.json",
+      "source_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    },
+    "controller_service": {
+      "basis": "allocation",
+      "source": "illustrative allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/controller-floor.json",
+      "source_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    },
+    "system_slice": {
+      "basis": "allocation",
+      "source": "illustrative allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/system-slice-floor.json",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    }
+  },
+  "transport": {
+    "operator": {
+      "executable_path": "/usr/bin/terrascale",
+      "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "config_path": "/run/terrascale-d15/operator.toml",
+      "config_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "ssh": {
+      "executable_path": "/usr/bin/ssh",
+      "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "targets": {
+        "source": {
+          "address": "192.0.2.10",
+          "user": "qualification",
+          "port": 22,
+          "host_key_alias": "dry-run-source",
+          "known_hosts_path": "/run/terrascale-d15/source-known-hosts",
+          "known_hosts_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "identity_file_path": "/run/terrascale-d15/source-key",
+          "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source"
+        },
+        "peer": {
+          "address": "192.0.2.11",
+          "user": "qualification",
+          "port": 22,
+          "host_key_alias": "dry-run-peer",
+          "known_hosts_path": "/run/terrascale-d15/peer-known-hosts",
+          "known_hosts_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "identity_file_path": "/run/terrascale-d15/peer-key",
+          "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer"
+        },
+        "controller": {
+          "address": "192.0.2.12",
+          "user": "qualification",
+          "port": 22,
+          "host_key_alias": "dry-run-controller",
+          "known_hosts_path": "/run/terrascale-d15/controller-known-hosts",
+          "known_hosts_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "identity_file_path": "/run/terrascale-d15/controller-key",
+          "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller"
+        }
+      }
+    },
+    "https": {
+      "source_base_url": "https://source.invalid",
+      "peer_base_url": "https://peer.invalid",
+      "source_credential_file": "/run/terrascale-d15/source-token",
+      "peer_credential_file": "/run/terrascale-d15/peer-token",
+      "source_metrics_url": "http://127.0.0.1:9100/metrics",
+      "peer_metrics_url": "http://127.0.0.1:9100/metrics",
+      "ca_bundle_path": "/run/terrascale-d15/client-ca.pem",
+      "ca_bundle_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "runtime": {
+      "service_names": {
+        "host": "terrascale-orchestrator-host.service",
+        "controller": "terrascale-orchestrator-controller.service"
+      },
+      "sudo_path": "/usr/bin/sudo",
+      "remote_python_path": "/usr/bin/python3",
+      "qualify_path": "/run/terrascale-d15/probes/0000000000000000000000000000000000000000/0000000000000000000000000000000000000000000000000000000000000000/qualify.py",
+      "stress_launcher_path": "/usr/local/lib/terrascale-d15/pressure.py",
+      "stress_launcher_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "stress_launcher_contract": "terrascale.d15.cgroup-launch/v1",
+      "systemctl_path": "/usr/bin/systemctl",
+      "systemd_run_path": "/usr/bin/systemd-run",
+      "journalctl_path": "/usr/bin/journalctl",
+      "workload_slice": "terrascale-workload.slice",
+      "qualify_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  },
+  "adapter": {
+    "python_path": "/usr/bin/python3",
+    "python_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source_path": "/usr/local/lib/terrascale-d15/alpha_adapter.py",
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "deadlines_seconds": {
+      "target_identity": 20,
+      "qualify": 60,
+      "host_status": 20,
+      "database_progress": 30,
+      "service_state": 20,
+      "pressure_start": 30,
+      "pressure_status": 20,
+      "pressure_stop": 30,
+      "cleanup_verify": 20
+    }
+  },
+  "pressure": {
+    "scenario": "management_stability",
+    "duration_seconds": 60,
+    "sample_interval_seconds": 10,
+    "cpu_workers": 1,
+    "memory_bytes": 67108864,
+    "memory_headroom_bytes": 33554432,
+    "io_workers": 1,
+    "io_file_bytes": 16777216,
+    "io_total_bytes": 268435456,
+    "io_bytes_per_second": 1048576,
+    "io_block_bytes": 4096,
+    "io_directory": "/var/tmp/terrascale-d15",
+    "workload_cgroup": {
+      "parent_path": "/sys/fs/cgroup/terrascale-workload.slice",
+      "path": "/sys/fs/cgroup/terrascale-workload.slice/terrascale-d15-dry-run.scope",
+      "cpu_max": "75000 100000",
+      "memory_max_bytes": 536870912,
+      "io_weight": 1000,
+      "io_device": "0:0"
+    }
+  },
+  "controller_identity": {
+    "oci_instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+    "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+    "artifact_id": "dry-run-artifact",
+    "config_id": "dry-run-controller-config",
+    "profile_id": "dry-run-controller-profile",
+    "architecture": "aarch64",
+    "cell": "gru",
+    "environment": "qualification"
+  },
+  "controller_qualification": {
+    "expected_controller_memory_min_bytes": 67108864,
+    "expected_controller_memory_low_bytes": 134217728,
+    "expected_system_slice_memory_min_bytes": 134217728,
+    "expected_system_slice_memory_low_bytes": 268435456,
+    "system_reserve_bytes": 1073741824,
+    "allocatable_memory_bytes": 5368709120
+  },
+  "controller_memory_floor_evidence": {
+    "controller_service": {
+      "basis": "allocation",
+      "source": "illustrative controller guest allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/controller-controller_service-floor.json",
+      "source_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    },
+    "system_slice": {
+      "basis": "allocation",
+      "source": "illustrative controller guest allocation; not a measurement",
+      "source_path": "/run/terrascale-d15/controller-system_slice-floor.json",
+      "source_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observed_at_utc": "2026-09-26T00:00:00Z"
+    }
+  },
+  "probe_admission": {
+    "receipt_path": "/run/terrascale-d15/probe-admission.json",
+    "receipt_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  }
+}

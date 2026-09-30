@@ -429,7 +429,8 @@ func serviceCredentialChildFixture(t *testing.T) (bootstrapstart.CredentialChild
 	if err != nil {
 		return bootstrapstart.CredentialChildRequest{}, "", nil, err
 	}
-	controllerClaim.Sub.Allow = append(controllerClaim.Sub.Allow, "ts.orch.v1.gru.inbox."+controllerUserID+".>")
+	controllerClaim.Sub.Allow = append(controllerClaim.Sub.Allow,
+		"ts.orch.v1.gru.inbox."+controllerUserID+".>", "ts.orch.v1.gru.managed-update.prepare", "ts.orch.v1.gru.backup.operation", "ts.orch.v1.gru.terminal.>")
 	controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 	controllerCredentials = testBrokerJWTUserWithClaim(t, root, "controller.creds", cellKey, controllerClaim)
 	tlsFiles, _ := testR3TLSMaterial(t, root)

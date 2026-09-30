@@ -119,7 +119,7 @@ func newFounderPlanFixture(t *testing.T) founderPlanFixture {
 				name := founderTLSMaterialName(index)
 				manifest.Secrets = append(manifest.Secrets, SecretReference{
 					Purpose: SecretController, Slot: slot,
-					SecretOCID:    "ocid1.secret.oc1.sa-saopaulo-1." + slot + "-" + name,
+					SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1." + slot + "-" + name,
 					VersionNumber: 1, SHA256: digest, MaxBytes: 1024, TargetFile: slot + "-" + name + ".pem",
 				})
 			}
@@ -246,6 +246,99 @@ func (fixture founderPlanFixture) verify(t *testing.T) VerifiedFounderPlan {
 		t.Fatalf("VerifyFounderPlan(): %v", err)
 	}
 	return verified
+}
+
+func TestFounderPlanAcceptsLongerLivedManifestDelegation(t *testing.T) {
+	fixture := newFounderPlanFixture(t)
+	peerPublicWire, err := trust.EncodeDelegatedPublicKey(fixture.authority.peerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.SignDelegation(trust.Delegation{
+		SchemaVersion:    trust.SchemaVersion,
+		SubjectKeyID:     keyID(t, fixture.authority.peerPublic),
+		SubjectPublicKey: peerPublicWire,
+		Capabilities: []trust.Capability{{
+			Domain: peerReceiptDomain, DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
+			Environment: fixture.plan.Environment, Role: roleController,
+			Slots: []string{"controller-a", "controller-b"}, Actions: []string{"sign"},
+		}},
+	}, fixture.now, fixture.now.Add(48*time.Hour), fixture.authority.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for slot, wire := range fixture.manifestWires {
+		manifest := manifestFromWire(t, wire, fixture.authority.roots, fixture.now, fixture.policy)
+		manifest.PeerReceiptDelegation = &delegation
+		envelope, signErr := SignManifest(manifest, fixture.now, fixture.now.Add(MinimumManifestWindow), fixture.authority.rootPrivate)
+		if signErr != nil {
+			t.Fatalf("sign %s manifest: %v", slot, signErr)
+		}
+		if _, verifyErr := VerifyManifest(envelope, fixture.authority.roots,
+			mustFounderManifestExpectation(t, fixture.anchor, slot, manifest.ImageOCID), fixture.now, ManifestTrustPolicy()); verifyErr != nil {
+			t.Fatalf("verify %s manifest: %v", slot, verifyErr)
+		}
+		fixture.manifestWires[slot], err = trust.EncodeEnvelope(envelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, digestErr := trust.Fingerprint(envelope)
+		if digestErr != nil {
+			t.Fatal(digestErr)
+		}
+		if slot == fixture.plan.SeedSlot {
+			fixture.plan.SeedManifestSHA256 = digest
+		} else {
+			for index := range fixture.plan.Peers {
+				if fixture.plan.Peers[index].Slot == slot {
+					fixture.plan.Peers[index].ManifestSHA256 = digest
+				}
+			}
+		}
+	}
+	fixture.planWire = signFounderPlanWire(t, fixture.plan, fixture.plan.SeedSlot,
+		fixture.authority.rootPrivate, fixture.now, fixture.now.Add(23*time.Hour))
+	fixture.verify(t)
+
+	overlongPlanWire := signFounderPlanWire(t, fixture.plan, fixture.plan.SeedSlot,
+		fixture.authority.rootPrivate, fixture.now, fixture.now.Add(25*time.Hour))
+	if _, err := VerifyFounderPlan(overlongPlanWire, fixture.authority.roots, fixture.anchorWire,
+		fixture.manifestWires, fixture.now, fixture.policy); !errors.Is(err, ErrFounderPlanAuthorization) {
+		t.Fatalf("overlong founder plan error = %v, want ErrFounderPlanAuthorization", err)
+	}
+	if _, err := VerifyFounderPlan(fixture.planWire, fixture.authority.roots, fixture.anchorWire,
+		fixture.manifestWires, fixture.now.Add(23*time.Hour), fixture.policy); !errors.Is(err, ErrFounderPlanAuthorization) {
+		t.Fatalf("expired founder plan error = %v, want ErrFounderPlanAuthorization", err)
+	}
+	_, roguePrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrustedManifest := manifestFromWire(t, fixture.manifestWires["controller-a"], fixture.authority.roots,
+		fixture.now, ManifestTrustPolicy())
+	rogueEnvelope, err := SignManifest(untrustedManifest, fixture.now,
+		fixture.now.Add(MinimumManifestWindow), roguePrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untrustedWires := cloneFounderManifestWires(fixture.manifestWires)
+	untrustedWires["controller-a"], err = trust.EncodeEnvelope(rogueEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyFounderPlan(fixture.planWire, fixture.authority.roots, fixture.anchorWire,
+		untrustedWires, fixture.now, fixture.policy); !errors.Is(err, ErrFounderPlanAuthorization) {
+		t.Fatalf("untrusted manifest error = %v, want ErrFounderPlanAuthorization", err)
+	}
+}
+
+func mustFounderManifestExpectation(t *testing.T, anchor VerifiedBootstrapAnchor, slot, imageOCID string) ManifestExpectation {
+	t.Helper()
+	expected, err := anchor.ManifestExpectation(slot, imageOCID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return expected
 }
 
 func TestCompletedFounderPlanVerificationSurvivesLaunchDeadlineOnly(t *testing.T) {

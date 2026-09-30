@@ -86,7 +86,7 @@ func newFounderSignerFixture(t *testing.T) *founderSignerFixture {
 			} {
 				manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{
 					Purpose: signer.purpose, Slot: slot, TargetFile: signer.name,
-					SecretOCID:    "ocid1.secret.oc1.sa-saopaulo-1.signer-" + string(rune('a'+i)),
+					SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1.signer-" + string(rune('a'+i)),
 					VersionNumber: 1, SHA256: digestWire(signer.key), MaxBytes: 128,
 				})
 				fixture.accepted.MaterialSHA256[signer.name] = digestWire(signer.key)

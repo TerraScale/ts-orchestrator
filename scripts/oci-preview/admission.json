@@ -1,5 +1,5 @@
 {
-  "admitted_at": "2026-09-27T00:16:06.779458+00:00",
+  "admitted_at": "2026-09-27T00:37:47.667962+00:00",
   "estimate": {
     "assumptions": {
       "a1_free_memory_gb_hours": 9000,
@@ -24,9 +24,9 @@
     "limit": "100",
     "total": "89.55"
   },
-  "expires_at": "2026-09-27T00:31:06.779505+00:00",
-  "inventory_sha256": "ec6a1b6cf6e9b19942ba301d9b57f07a7fc7556261d227c7461474b1ae409e9e",
-  "plan_sha256": "b165b17e99c660cee21d93cf204eeed44b6e0891365c117f16d49a565468c76a",
+  "expires_at": "2026-09-27T00:52:47.667979+00:00",
+  "inventory_sha256": "23952bb7fb347ee03e62889df6fc6aa0acfa78e28b2a7534c9d0eec319842bd3",
+  "plan_sha256": "33e4cf3c782f8092e5bedbdd0e3c9c5aaf66aa23f1a76b9d61784251e53ff9c4",
   "preview_compartment_ids": {
     "control": null,
     "network": null,

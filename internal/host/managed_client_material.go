@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,6 +38,7 @@ type managedClientManifest struct {
 type managedClientConfig struct {
 	Version            uint64 `json:"version"`
 	ListenAddress      string `json:"listen_addr,omitempty"`
+	SQLListenAddress   string `json:"sql_listen_addr,omitempty"`
 	CertificateChain   string `json:"certificate_chain"`
 	PrivateKey         string `json:"private_key"`
 	APIKeyRegistry     string `json:"api_key_registry"`
@@ -82,7 +84,9 @@ func readManagedClientFile(path, digest string, identity WorkloadIdentity, maxim
 	return data, nil
 }
 
-func readManagedClientMaterial(material, digest string, identity WorkloadIdentity, ownerUID uint32) ([]string, error) {
+func readManagedClientMaterial(material, digest, sqlBundleDigest, replicationListenAddress string,
+	identity WorkloadIdentity, ownerUID uint32,
+) ([]string, error) {
 	manifestPath := filepath.Join(material, managedClientManifestName)
 	manifestBytes, err := readManagedClientFile(manifestPath, digest, identity, 4<<10, ownerUID)
 	if err != nil {
@@ -108,15 +112,22 @@ func readManagedClientMaterial(material, digest string, identity WorkloadIdentit
 		config.HandshakeTimeoutMS != 0 && (config.HandshakeTimeoutMS < 1000 || config.HandshakeTimeoutMS > 10000) {
 		return nil, errors.New("managed client config does not bind deterministic material paths")
 	}
+	if sqlBundleDigest == "" {
+		if config.SQLListenAddress != "" {
+			return nil, errors.New("SQL listener is configured without a signed schema bundle pin")
+		}
+	} else if !lowerHex(sqlBundleDigest, 64) ||
+		!validPrivateSQLSocket(config.SQLListenAddress, config.ListenAddress, replicationListenAddress) {
+		return nil, errors.New("managed SQL listener is not a private, distinct TLS socket")
+	}
 	address := config.ListenAddress
 	if address == "" {
 		address = "127.0.0.1:9465"
 	}
-	host, port, err := net.SplitHostPort(address)
-	ip := net.ParseIP(host)
-	number, numberErr := strconv.Atoi(port)
-	if err != nil || numberErr != nil || number < 1 || number > 65535 || ip == nil || ip.IsUnspecified() {
-		return nil, errors.New("managed client listener must be a concrete IP and port")
+	listen, err := netip.ParseAddrPort(address)
+	if err != nil || listen.String() != address || listen.Port() == 0 || !listen.Addr().Is4() ||
+		!listen.Addr().IsLoopback() && !listen.Addr().IsPrivate() {
+		return nil, errors.New("managed client listener must be an IPv4 loopback or private address and port")
 	}
 	for _, file := range []struct {
 		name, digest string
@@ -132,13 +143,56 @@ func readManagedClientMaterial(material, digest string, identity WorkloadIdentit
 		}
 		clear(contents)
 	}
+	if sqlBundleDigest != "" {
+		contents, err := readManagedClientFile(filepath.Join(material, sqlSchemaBundleName),
+			sqlBundleDigest, identity, managedSQLSchemaBundleMaxBytes, ownerUID)
+		if err != nil {
+			return nil, fmt.Errorf("managed SQL schema bundle: %w", err)
+		}
+		clear(contents)
+	}
 	args := []string{
 		"--client-config", configPath,
 		"--client-managed-material-manifest", manifestPath,
 		"--client-managed-material-manifest-sha256", digest,
 	}
-	if !ip.IsLoopback() {
+	if sqlBundleDigest != "" {
+		args = append(args, "--sql-schema-bundle", filepath.Join(material, sqlSchemaBundleName))
+	}
+	if !listen.Addr().IsLoopback() {
 		args = append(args, "--client-allow-nonloopback")
 	}
 	return args, nil
+}
+
+func validPrivateSQLSocket(address, httpsAddress, replicationAddress string) bool {
+	if !validPrivateSQLAddress(address) {
+		return false
+	}
+	_, port, ok := socketPort(address)
+	_, httpsPort, httpsOK := socketPort(httpsAddress)
+	_, replicationPort, replicationOK := socketPort(replicationAddress)
+	if !ok || !httpsOK || !replicationOK || port == httpsPort || port == replicationPort {
+		return false
+	}
+	return true
+}
+
+func socketPort(address string) (string, int, bool) {
+	host, port, err := net.SplitHostPort(address)
+	ip := net.ParseIP(host)
+	portNumber, portErr := strconv.Atoi(port)
+	if err != nil || ip == nil || portErr != nil || portNumber < 1 || portNumber > 65535 {
+		return "", 0, false
+	}
+	return host, portNumber, true
+}
+
+func validPrivateSQLAddress(address string) bool {
+	host, _, ok := socketPort(address)
+	if !ok {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsPrivate() && !ip.IsLoopback() && !ip.IsUnspecified()
 }

@@ -117,6 +117,9 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 		}},
 		{"wrong trusted key", func(intent *Intent) { intent.RuntimeManifests[0].TrustedKeySHA256 = strings.Repeat("f", 64) }},
 		{"missing artifact digest", func(intent *Intent) { intent.RuntimeManifests[0].ArtifactDigest = "" }},
+		{"invalid SQL schema bundle digest", func(intent *Intent) {
+			intent.RuntimeManifests[0].SQLSchemaBundleSHA256 = "bad"
+		}},
 		{"missing managed HTTPS manifest", func(intent *Intent) { intent.RuntimeManifests[0].ClientManagedMaterialManifestSHA256 = "" }},
 		{"missing outbound peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = ""
@@ -126,9 +129,24 @@ func TestManagedIntentRequiresCompleteOrderedRuntimeManifests(t *testing.T) {
 		{"incomplete peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerAddress = ""
 		}},
+		{"loopback replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "127.0.0.1:7000"
+		}},
+		{"public replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "198.51.100.11:7000"
+		}},
+		{"wildcard replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "0.0.0.0:7000"
+		}},
+		{"IPv6 replication listener", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationListenAddress = "[fd00::11]:7000"
+		}},
+		{"public replication peer", func(intent *Intent) {
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "198.51.100.12:7001"
+		}},
 		{"foreign peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = "018f0000-0000-7000-8000-000000000016"
-			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
 			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
 		}},
 	} {
@@ -288,74 +306,6 @@ func TestCanonicalRosterDigestLookupAndValidation(t *testing.T) {
 	}
 }
 
-func TestRosterSupersessionPreservesScopeSeatIdentityAndRetirementGate(t *testing.T) {
-	previous := validIntent(oci.RegionGRU)
-	unchanged := validIntent(oci.RegionGRU)
-	unchanged.Generation = previous.Generation + 1
-	if err := unchanged.ValidateSupersession(previous); err != nil {
-		t.Fatalf("later generation with unchanged roster row rejected: %v", err)
-	}
-	addition := validIntent(oci.RegionGRU, oci.RegionFRA)
-	addition.Generation = previous.Generation + 1
-	if err := addition.ValidateSupersession(previous); err != nil {
-		t.Fatalf("signed added seats with continuous existing identity rejected: %v", err)
-	}
-
-	removed := validIntent(oci.RegionGRU)
-	removed.Generation = 2
-	if err := removed.ValidateSupersession(validIntent(oci.RegionGRU, oci.RegionFRA)); err == nil {
-		t.Fatal("seat removal was accepted without verified retirement evidence")
-	}
-
-	rotatedMember := validIntent(oci.RegionGRU)
-	rotatedMember.Generation = 2
-	rotatedMember.CanonicalRoster.Rows[0].MemberID = "018f0000-0000-7000-8000-000000000010"
-	if err := rotatedMember.ValidateSupersession(previous); err == nil {
-		t.Fatal("ordinary generation increment authorized member identity rotation")
-	}
-
-	rotatedIncarnation := validIntent(oci.RegionGRU)
-	rotatedIncarnation.Generation = 2
-	rotatedIncarnation.CanonicalRoster.Rows[0].Incarnation = strings.Repeat("d", 32)
-	if err := rotatedIncarnation.ValidateSupersession(previous); err == nil {
-		t.Fatal("ordinary generation increment authorized member incarnation rotation")
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*CanonicalRosterRow)
-	}{
-		{name: "failure domain", mutate: func(row *CanonicalRosterRow) { row.FailureDomain = "FAULT-DOMAIN-3" }},
-		{name: "TLS leaf", mutate: func(row *CanonicalRosterRow) { row.TLSLeafSHA256 = strings.Repeat("e", 64) }},
-		{name: "server name", mutate: func(row *CanonicalRosterRow) { row.ServerName = "renewed-permanent-gru.tb.example" }},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := validIntent(oci.RegionGRU)
-			candidate.Generation = previous.Generation + 1
-			test.mutate(&candidate.CanonicalRoster.Rows[0])
-			if err := candidate.ValidateForAdmission(); err != nil {
-				t.Fatalf("changed row is not otherwise admissible: %v", err)
-			}
-			if err := candidate.ValidateSupersession(previous); err == nil {
-				t.Fatal("supersession accepted a changed row for a continuing seat")
-			}
-		})
-	}
-
-	changedScope := validIntent(oci.RegionGRU)
-	changedScope.Generation = 2
-	changedScope.CanonicalRoster.ShardID++
-	if err := changedScope.ValidateSupersession(previous); err == nil {
-		t.Fatal("supersession changed the canonical shared scope")
-	}
-
-	legacy := Intent{SchemaVersion: profileIntentSchemaVersion, DatabaseID: "db-main", PartitionID: "partition-a",
-		ActiveRegions: []oci.Region{oci.RegionGRU}, Generation: 1,
-		ManagedHostProfiles: []ManagedHostProfile{testManagedHostProfile(oci.RegionGRU)}}
-	if err := addition.ValidateSupersession(legacy); err == nil {
-		t.Fatal("schema-2 history without a roster authorized schema-3 supersession")
-	}
-}
-
 func TestMemberStateManagedProfilePinsAreAdditiveAndValidated(t *testing.T) {
 	legacyState := validMemberStateForPins()
 	legacyState.SchemaVersion = legacyMemberStateSchemaVersion
@@ -472,7 +422,7 @@ func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
 		{"ULID member", func(intent *Intent) { intent.CanonicalRoster.Rows[0].MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV" }},
 		{"ULID peer", func(intent *Intent) {
 			intent.RuntimeManifests[0].ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-			intent.RuntimeManifests[0].ReplicationPeerAddress = "127.0.0.1:7001"
+			intent.RuntimeManifests[0].ReplicationPeerAddress = "10.0.0.12:7001"
 			intent.RuntimeManifests[0].ReplicationServerCASHA256 = strings.Repeat("a", 64)
 		}},
 		{"noncanonical UUID", func(intent *Intent) {
@@ -501,9 +451,6 @@ func TestSchemaFiveUsesNativeUUIDWithoutReinterpretingSchemaFour(t *testing.T) {
 	}
 	if err := decoded.ValidateForAdmission(); err == nil {
 		t.Fatal("historical ULID placement was admitted again")
-	}
-	if err := current.ValidateSupersession(decoded); err == nil {
-		t.Fatal("schema-5 generation reinterpreted historical ULID authority")
 	}
 }
 
@@ -538,7 +485,7 @@ func TestMemberStateSchemaFourPinsNativeUUIDAndReadsSchemaThreeAsHistory(t *test
 	historical.SchemaVersion = ulidMemberStateSchemaVersion
 	historical.CanonicalRosterRow.MemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	historical.RuntimeManifest.ReplicationPeerMemberID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	historical.RuntimeManifest.ReplicationPeerAddress = "127.0.0.1:7001"
+	historical.RuntimeManifest.ReplicationPeerAddress = "10.0.0.12:7001"
 	historical.RuntimeManifest.ReplicationServerCASHA256 = strings.Repeat("a", 64)
 	historical.RuntimeManifest.ClientManagedMaterialManifestSHA256 = ""
 	historical.RuntimeManifestDigest, err = historical.RuntimeManifest.digestWithIdentity(canonicalLegacyMemberID, false)
@@ -802,9 +749,12 @@ func validIntent(regions ...oci.Region) Intent {
 			ServerPrivateKeySHA256:              strings.Repeat("2", 64),
 			ClientCARootsSHA256:                 strings.Repeat("3", 64),
 			ClientManagedMaterialManifestSHA256: strings.Repeat("4", 64),
-			ReplicationListenAddress:            fmt.Sprintf("127.0.0.1:%d", 7000+index),
+			LiveS3ConfigSHA256:                  strings.Repeat("5", 64),
+			LiveS3TargetSHA256:                  strings.Repeat("6", 64),
+			LiveS3Credential:                    oci.SecretVersionReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.alpha", VersionNumber: 3},
+			ReplicationListenAddress:            fmt.Sprintf("10.0.0.%d:%d", 11+index, 7000+index),
 			ReplicationPeerMemberID:             peer.MemberID,
-			ReplicationPeerAddress:              fmt.Sprintf("127.0.0.1:%d", 7000+(index^1)),
+			ReplicationPeerAddress:              fmt.Sprintf("10.0.0.%d:%d", 11+(index^1), 7000+(index^1)),
 			ReplicationServerCASHA256:           strings.Repeat("a", 64),
 		})
 	}

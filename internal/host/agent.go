@@ -20,9 +20,19 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nkeys"
 )
 
 const sessionExecutionReserve = 5 * time.Second
+
+// A follower denial is re-sent at most leaderRequestAttempts times, backing
+// off by leaderRetryBackoff per attempt (under 1.5 s in total).
+const (
+	leaderRequestAttempts = 8
+	leaderRetryBackoff    = 50 * time.Millisecond
+)
 
 var errSessionExecutionReserve = errors.New("host session execution reserve exhausted")
 
@@ -40,6 +50,9 @@ type Agent struct {
 	diagAt           time.Time
 	diagClass        string
 	diagFailed       bool
+	nativeRootMu     sync.Mutex
+	nativeRoots      map[string]*managedNativeRoot
+	nativeDesired    map[string]nativeRootDesired
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
 	watchdogTicks    <-chan time.Time
@@ -60,6 +73,9 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	if cfg.Conn == nil || len(cfg.Identity) != ed25519.PrivateKeySize || len(cfg.ControllerPublicKey) != ed25519.PublicKeySize {
 		return nil, errors.New("agent requires NATS connection, Ed25519 identity and pinned controller public key")
+	}
+	if !nkeys.IsValidPublicUserKey(cfg.NATSUserPublicKey) {
+		return nil, errors.New("agent requires its authenticated NATS user public key")
 	}
 	if cfg.ClockCheck == nil {
 		return nil, errors.New("agent requires a fresh host clock health check")
@@ -105,7 +121,8 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle)}, nil
+	return &Agent{cfg: cfg, runner: runner, processID: id, pending: make(map[string]pendingCycle),
+		nativeRoots: make(map[string]*managedNativeRoot)}, nil
 }
 
 // ValidateWorkloadPaths rejects roots that could expose supervisor state or
@@ -240,6 +257,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		defer stopCancel()
 		_ = a.runner.Close(stopCtx)
 	}()
+	defer a.stopAllManagedNativeRoots()
 	if err := a.checkClock(); err != nil {
 		return err
 	}
@@ -338,29 +356,53 @@ func (a *Agent) makeRequest(operation string, payload any) (request, error) {
 	a.mu.RLock()
 	s := a.session
 	a.mu.RUnlock()
-	r := request{Version: 1, Node: a.cfg.Node, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
+	r := request{Version: 1, CredentialProtocol: 1, Node: a.cfg.Node, NATSUserPublicKey: a.cfg.NATSUserPublicKey, Operation: operation, SessionID: a.processID, Epoch: s.Epoch, Nonce: nonce, IssuedAt: time.Now().UTC(), Payload: data}
 	if err := signRequest(&r, a.cfg.Identity, a.cfg.Cell); err != nil {
 		return request{}, err
 	}
 	return r, nil
 }
 
+// sendToLeader builds, signs and sends a fresh request, and sends a new one
+// when a follower controller denies it: every controller of the cell serves
+// the host subjects, but only the authority leader answers effectful requests.
+// It returns the request whose reply was accepted.
+func (a *Agent) sendToLeader(ctx context.Context, operation string, payload, out any,
+	signedOut *protocol.Envelope, prepare func(*request) error,
+) (request, error) {
+	for attempt := 1; ; attempt++ {
+		r, err := a.makeRequest(operation, payload)
+		if err != nil {
+			return request{}, err
+		}
+		if prepare != nil {
+			if err := prepare(&r); err != nil {
+				return request{}, err
+			}
+		}
+		err = exchangeWithEnvelope(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, out, signedOut)
+		if !errors.Is(err, errControllerNotLeader) || attempt == leaderRequestAttempts {
+			return r, err
+		}
+		select {
+		case <-ctx.Done():
+			return request{}, ctx.Err()
+		case <-time.After(time.Duration(attempt) * leaderRetryBackoff):
+		}
+	}
+}
+
 func (a *Agent) acquire(ctx context.Context) error {
 	if err := a.checkClock(); err != nil {
 		return err
 	}
-	r, err := a.makeRequest("session", struct {
-		Kind string `json:"kind"`
-	}{"acquire"})
-	if err != nil {
-		return err
-	}
-	r.Epoch = 0
-	if err := signRequest(&r, a.cfg.Identity, a.cfg.Cell); err != nil {
-		return err
-	}
 	var s session
-	if err := exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &s); err != nil {
+	if _, err := a.sendToLeader(ctx, "session", struct {
+		Kind string `json:"kind"`
+	}{"acquire"}, &s, nil, func(r *request) error {
+		r.Epoch = 0
+		return signRequest(r, a.cfg.Identity, a.cfg.Cell)
+	}); err != nil {
 		return fmt.Errorf("acquire host session: %w", err)
 	}
 	if s.SessionID != a.processID || s.Epoch == 0 {
@@ -496,21 +538,18 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 			a.failSession(cancel, lost, err)
 			return
 		}
-		r, err := a.makeRequest("session", struct {
+		var next session
+		renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
+		_, err = a.sendToLeader(renewCtx, "session", struct {
 			Kind string `json:"kind"`
-		}{"renew"})
+		}{"renew"}, &next, nil, nil)
+		renewCancel()
 		if err == nil {
-			var next session
-			renewCtx, renewCancel := context.WithDeadline(ctx, deadline)
-			err = exchange(renewCtx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, &next)
-			renewCancel()
-			if err == nil {
-				if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
-					err = errors.New("renewed session binding mismatch")
-				} else if _, _, err = a.executionLease(); err == nil {
-					if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
-						a.logSessionAccepted("renew", next)
-					}
+			if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
+				err = errors.New("renewed session binding mismatch")
+			} else if _, _, err = a.executionLease(); err == nil {
+				if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
+					a.logSessionAccepted("renew", next)
 				}
 			}
 		}
@@ -579,6 +618,9 @@ func (a *Agent) failSession(cancel context.CancelFunc, lost chan<- error, reason
 func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error, reason error) {
 	a.sessionLost.Store(true)
 	cancel()
+	if err := a.stopAllManagedNativeRoots(); err != nil {
+		reason = errors.Join(reason, err)
+	}
 	if a.cfg.SessionTrace {
 		a.mu.RLock()
 		accepted := a.session
@@ -603,11 +645,8 @@ func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error,
 }
 
 func (a *Agent) request(ctx context.Context, operation string, payload, out any) error {
-	r, err := a.makeRequest(operation, payload)
-	if err != nil {
-		return err
-	}
-	return exchange(ctx, a.cfg.Conn, a.cfg.Cell, a.cfg.ControllerPublicKey, r, out)
+	_, err := a.sendToLeader(ctx, operation, payload, out, nil, nil)
+	return err
 }
 
 func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
@@ -628,12 +667,15 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if err := a.request(ctx, "desired", struct {
 		Role string `json:"role"`
 	}{role}, &target); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
 	}
 	if err := a.validateDesiredReply(target); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
 	}
 	if target.Desired == nil {
+		if err := a.revokeManagedNativeRoot(role); err != nil {
+			return err
+		}
 		if hasPending {
 			if err := a.failPendingCycle(ctx, role); err != nil {
 				return err
@@ -643,10 +685,22 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	}
 	d := *target.Desired
 	if d.Cell != a.cfg.Cell || d.Node != a.cfg.Node || d.Environment != a.cfg.Environment || d.Role != role || d.Generation == 0 {
-		return errors.New("desired identity mismatch")
+		return errors.Join(errors.New("desired identity mismatch"), a.revokeManagedNativeRoot(role))
 	}
 	if err := validateDesired(d, a.cfg.Cell, *target.Registration); err != nil {
-		return err
+		return errors.Join(err, a.revokeManagedNativeRoot(role))
+	}
+	if !d.Withdrawn && d.ManagedMember != nil {
+		fingerprint, err := desiredFingerprint(d)
+		if err != nil {
+			return errors.Join(err, a.revokeManagedNativeRoot(role))
+		}
+		if err := a.pinManagedNativeRootDesired(role, fingerprint); err != nil {
+			return errors.Join(err, a.revokeManagedNativeRoot(role))
+		}
+		if err := a.stopManagedNativeRootIfChanged(role, fingerprint); err != nil {
+			return err
+		}
 	}
 	if hasPending && (d.Withdrawn || d.Generation != pending.query.Generation || d.Digest != pending.query.Digest || d.AuthorityEpoch != pending.query.AuthorityEpoch) {
 		if err := a.failPendingCycle(ctx, role); err != nil {
@@ -654,12 +708,16 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		}
 		hasPending = false
 	}
+	backupObserved := false
 	defer func() {
-		if resultErr != nil && !errors.Is(resultErr, errSessionContention) {
+		if resultErr != nil && !backupObserved && !errors.Is(resultErr, errSessionContention) {
 			_ = a.publishReport(ctx, a.reportFor(d, "failed", resultErr))
 		}
 	}()
 	if d.Withdrawn {
+		if err := a.revokeManagedNativeRoot(role); err != nil {
+			return err
+		}
 		if err := a.runner.Stop(ctx, role); err != nil {
 			return err
 		}
@@ -669,7 +727,41 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		return err
 	}
 	if d.ManagedMember != nil {
-		return a.reconcileManaged(ctx, d, target)
+		if d.ManagedMember.Runtime != nil && a.cfg.ManagedRuntimeRoot != "" {
+			backup, err := a.fetchManagedBackupCommand(ctx, role)
+			if err != nil {
+				return err
+			}
+			if backup.Pending {
+				current, err := a.runner.Observe(ctx, role)
+				if err != nil {
+					return err
+				}
+				if !current.Running {
+					err := a.reconcileManaged(ctx, d, target, true)
+					backupObserved = err == nil
+					return err
+				}
+				var operationErr error
+				if backup.Command != nil {
+					operationErr = a.reconcileManagedBackup(ctx, d, *target.Registration, *backup.Command)
+				}
+				reportErr := a.reportManagedBackupProcess(ctx, d, nil)
+				backupObserved = reportErr == nil
+				return errors.Join(operationErr, reportErr)
+			}
+			command, err := a.fetchManagedDrainCommand(ctx, role)
+			if err != nil {
+				return err
+			}
+			if command != nil {
+				return a.reconcileManagedDrain(ctx, d, *target.Registration, *command)
+			}
+		}
+		return a.reconcileManaged(ctx, d, target, false)
+	}
+	if err := a.revokeManagedNativeRoot(role); err != nil {
+		return err
 	}
 	fingerprint, err := desiredFingerprint(d)
 	if err != nil {

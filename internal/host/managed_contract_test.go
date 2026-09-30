@@ -31,7 +31,7 @@ func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
 			return errors.New("memory check reached")
 		},
 	}
-	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	err := agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration}, false)
 	if err == nil || !strings.Contains(err.Error(), "differs from image priority profile") || checkedMemory {
 		t.Fatalf("managed launch did not reject changed signed reserve before memory check: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestManagedLaunchRejectsReserveDifferentFromBakedImage(t *testing.T) {
 	}
 	registration.SystemReserveBytes = 1 << 30
 	desired.ManagedMember.SystemReserveBytes = 1 << 30
-	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration})
+	err = agent.reconcileManaged(t.Context(), desired, desiredReply{Registration: &registration}, false)
 	if err == nil || !checkedMemory {
 		t.Fatalf("matching baked reserve did not reach the next launch check: %v", err)
 	}
@@ -51,7 +51,7 @@ func managedContractFixture() (Registration, Desired, ed25519.PrivateKey) {
 	key := ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize))
 	registration := Registration{
 		Cell: "gru", Node: "node-a", Environment: "production", FailureDomain: "FAULT-DOMAIN-1",
-		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), Generation: 1,
+		Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(key.Public().(ed25519.PublicKey)), NATSUserPublicKey: testNATSUserKey("node-a"), Generation: 1,
 		Capacity: Capacity{MemoryBytes: 8 << 30}, SystemReserveBytes: 1 << 30,
 		ManagedOCI:    &ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1..node-a", Owner: "terrascale", FleetGeneration: 1, CreateKey: "node-a"},
 		ManagedMember: &ManagedMemberBinding{Scope: MemberScope{ClusterID: strings.Repeat("a", 32), TenantID: "018f0000-0000-7000-8000-000000000001", DatabaseID: "018f0000-0000-7000-8000-000000000001", ShardID: 1, MemberID: "018f0000-0000-7000-8000-000000000001", Incarnation: strings.Repeat("b", 32)}, HostAttempt: 1},
@@ -129,7 +129,7 @@ func TestManagedDesiredMemoryAndIdentityBoundaries(t *testing.T) {
 
 func TestManagedReplyBinding(t *testing.T) {
 	r, d, key := managedContractFixture()
-	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key}, session: session{RegistrationGeneration: r.Generation}}
+	a := &Agent{cfg: AgentConfig{Cell: r.Cell, Node: r.Node, Environment: r.Environment, Identity: key, NATSUserPublicKey: r.NATSUserPublicKey}, session: session{RegistrationGeneration: r.Generation}}
 	reply := desiredReply{Desired: &d, Revision: 4, Registration: &r, RegistrationRevision: 3}
 	if err := a.validateDesiredReply(reply); err != nil {
 		t.Fatal(err)
@@ -166,10 +166,13 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 	if err := os.MkdirAll(leaf, 0700); err != nil {
 		t.Fatal(err)
 	}
-	for path, value := range map[string]string{root: "max", filepath.Join(root, "service"): "9663676416", leaf: "max"} {
+	for path, value := range map[string]string{filepath.Join(root, "service"): "9663676416", leaf: "max"} {
 		if err := os.WriteFile(filepath.Join(path, "memory.max"), []byte(value), 0600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	meminfo := filepath.Join(t.TempDir(), "meminfo")
 	membership := filepath.Join(t.TempDir(), "cgroup")
@@ -180,6 +183,33 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err != nil {
+		t.Fatalf("valid cgroup root without memory.max: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root without memory.max or memory controller accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(membership, []byte("0::/\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root-only cgroup membership accepted")
+	}
+	if err := os.WriteFile(membership, []byte("0::/service/supervisor\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(leaf, "memory.max")); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("missing non-root memory.max accepted")
+	}
+	if err := os.WriteFile(filepath.Join(leaf, "memory.max"), []byte("max"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "service", "memory.max"), []byte("8589934592"), 0600); err != nil {
@@ -189,6 +219,30 @@ func TestManagedHostMemoryUsesPhysicalAndAncestorCaps(t *testing.T) {
 		t.Fatal("service cap smaller than allocatable plus reserve accepted")
 	}
 	if err := os.WriteFile(filepath.Join(root, "service", "memory.max"), []byte("max"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.max"), []byte("8589934592"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root cap smaller than allocatable plus reserve accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "memory.max"), []byte("max"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err == nil {
+		t.Fatal("root memory.max without memory controller accepted")
+	}
+	if err := os.WriteFile(filepath.Join(root, "cgroup.controllers"), []byte("cpu io memory\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateManagedHostMemoryAt(r, meminfo, membership, root); err != nil {
+		t.Fatalf("root memory.max with memory controller: %v", err)
+	}
+	if err := os.Remove(filepath.Join(root, "memory.max")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(meminfo, []byte("MemTotal: 8388608 kB\n"), 0600); err != nil {

@@ -22,8 +22,12 @@ credential files have mode `0600`; root-owned baked identity, anchor, and
 public roots have mode `0444`. The plan's numeric UID/GID must match the
 packaged guest account.
 
-`BuildComputeInventory` derives three exact SDK request URIs and JSON response
-bodies per controller: `GetInstance`, `ListVnicAttachments`, and `GetVnic`.
+`BuildComputeInventory` derives four exact SDK request URIs and JSON response
+bodies per controller: `GetInstance`, `ListVnicAttachments`, `GetVnic`, and
+`GetSubnet`. The host-only fixture inputs supply the VNIC network compartment
+and VCN identity separately from the signed instance control compartment and
+subnet identity. The subnet route binds its response to the exact signed subnet
+OCID, VNIC network compartment, and regional VCN.
 The example caller supplies that inventory. The emitter restricts prepared
 routes to the Compute host, and packet validation restricts their URI shapes;
 it does not prove that an arbitrary caller used `BuildComputeInventory`. The
@@ -31,7 +35,7 @@ emitter derives Object Storage 200/404 routes from the captured ledger's keys an
 bytes. `VerifiedPacket.SimulatorRoutes(slot)` isolates the combined route
 inventory by instance. The synthetic integration test sends real OCI SDK
 instance-principal requests through each isolated simulator. Under the
-`fixturetest` build tag, it repeats those reads through
+`fixturetest` build tag, it repeats those reads, including `GetSubnet`, through
 `OCIInstanceObserver.ObserveInstance` using a test-only transport seam. Both
 paths check decoded identities and unlisted requests. Run the caller gate with
 `go test -tags fixturetest ./tests/firecracker/production/fixturegen -run TestCompletedPacketEmitsSignedThreeSlotCaptureAndVerifiedFloors -count=1`.
@@ -50,7 +54,9 @@ binding are separate checks: source pins do not establish the receipt's
 `ValidateProductionGuests` additionally checks canonical production configs,
 real-format NATS JWT/TLS credentials, credential digests, the guest OCI CA,
 host-only HTTPS and per-slot IMDS identities, and exact private network/time
-files. `fixturegen production-preflight` applies those gates with the source
+files. The signed timesync drop-in pins `PollIntervalMinSec=32` and
+`PollIntervalMaxSec=64`, matching the offline image builder. The
+`fixturegen production-preflight` command applies these gates with the source
 and image checks. `fixturegen stage` also rejects `/` or a plain host
 directory, requires a distinct ext4 mount, checks the guest service UID/GID
 and shipped units, installs the executable and signed guest files, refreshes

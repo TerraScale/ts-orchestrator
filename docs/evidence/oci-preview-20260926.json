@@ -1,10 +1,10 @@
 {
   "buckets": [
     {
-      "bytes": 18837972019,
+      "bytes": 18840424022,
       "compartment_id": "ocid1.compartment.oc1..aaaaaaaazb4rfjdb3bfi2rdlle3smjfhcvuf5rq57qk3q3cyytdgc6anlkca",
       "name": "ts-forgejo",
-      "object_count": 10103,
+      "object_count": 10154,
       "region": "sa-saopaulo-1",
       "storage_tier": "Standard",
       "versioning": "Disabled"
@@ -19,8 +19,8 @@
       "versioning": "Disabled"
     }
   ],
-  "captured_at": "2026-09-27T00:16:02.614371+00:00",
-  "plan_sha256": "b165b17e99c660cee21d93cf204eeed44b6e0891365c117f16d49a565468c76a",
+  "captured_at": "2026-09-27T00:37:39.586053+00:00",
+  "plan_sha256": "33e4cf3c782f8092e5bedbdd0e3c9c5aaf66aa23f1a76b9d61784251e53ff9c4",
   "preview_compartment_ids": {
     "control": null,
     "network": null,
@@ -106,6 +106,8 @@
       "id": "ocid1.subnet.oc1.sa-saopaulo-1.aaaaaaaalmgzqpofr7t2wjomaaqz2ou4v23ymulkec2zdgpyekxhtm3r4dpa",
       "kind": "subnet",
       "lifecycle-state": "AVAILABLE",
+      "prohibit-internet-ingress": false,
+      "prohibit-public-ip-on-vnic": false,
       "region": "sa-saopaulo-1",
       "time-created": "2026-09-17T14:04:59.331000+00:00"
     },

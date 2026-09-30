@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import errno
 import hashlib
 import json
@@ -17,6 +18,10 @@ from pathlib import Path
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 PROC_ROOT = Path("/proc")
+MAX_MEMORY_STAT_BYTES = 16_384
+MAX_MEMORY_COUNTER_BYTES = 128
+MAX_SYSTEM_SLICE_CHILD_CGROUPS = 256
+MAX_SYSTEM_SLICE_CHILD_NAME_BYTES = 16_384
 HOST_UNIT_DEFAULT = "terrascale-orchestrator-host.service"
 CONTROLLER_UNIT_DEFAULT = "terrascale-orchestrator-controller.service"
 RUNTIME_PRIORITY_PROFILE = Path("/etc/terrascale-orchestrator/runtime-priority.json")
@@ -95,7 +100,7 @@ class Probe:
             raise QualificationError(f"{name}: invalid MainPID {values['MainPID']!r}") from error
         if pid <= 1:
             raise QualificationError(f"{name}: no running MainPID")
-        if host and values["ControlGroup"].rstrip("/") == "":
+        if not values["ControlGroup"].startswith("/") or values["ControlGroup"].rstrip("/") == "":
             raise QualificationError(f"{name}: empty ControlGroup")
         return pid
 
@@ -106,6 +111,113 @@ class Probe:
             return int(value)
         except (OSError, ValueError) as error:
             raise QualificationError(f"cannot read numeric cgroup value {path}: {error}") from error
+
+    @staticmethod
+    def utc_now() -> str:
+        return dt.datetime.now(dt.timezone.utc).isoformat(
+            timespec="milliseconds",
+        ).replace("+00:00", "Z")
+
+    @staticmethod
+    def canonical_json(value: object) -> bytes:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=True).encode("ascii")
+
+    def memory_usage_sample(self, cgroups: dict[str, Path], systemd_version: str) -> dict[str, object]:
+        started_at = self.utc_now()
+        root = CGROUP_ROOT.resolve(strict=True)
+        rows: dict[str, object] = {}
+        for scope, path in cgroups.items():
+            try:
+                if path.is_symlink() or not path.is_dir():
+                    raise QualificationError(f"{scope} memory sample path is not a cgroup directory: {path}")
+                resolved = path.resolve(strict=True)
+                if root not in resolved.parents or resolved == root:
+                    raise QualificationError(f"{scope} memory sample escaped the cgroup root: {path}")
+                directory_fd = os.open(
+                    resolved,
+                    os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                )
+                try:
+                    directory_stat = os.fstat(directory_fd)
+                    if not stat.S_ISDIR(directory_stat.st_mode):
+                        raise QualificationError(f"{scope} memory sample target is not a directory: {path}")
+                    before_stat = resolved.stat(follow_symlinks=False)
+                    if (before_stat.st_dev, before_stat.st_ino) != (directory_stat.st_dev, directory_stat.st_ino):
+                        raise QualificationError(f"{scope} memory sample cgroup changed before capture: {path}")
+
+                    def read_cgroup_file(name: str, maximum_bytes: int, encoding: str) -> str:
+                        file_fd = os.open(
+                            name, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                            dir_fd=directory_fd,
+                        )
+                        with os.fdopen(file_fd, "rb") as cgroup_file:
+                            raw = cgroup_file.read(maximum_bytes + 1)
+                        if len(raw) > maximum_bytes:
+                            raise QualificationError(f"{scope} {name} exceeds its fixed evidence bound")
+                        try:
+                            return raw.decode(encoding)
+                        except UnicodeDecodeError as error:
+                            raise QualificationError(f"{scope} {name} is not {encoding} text") from error
+
+                    current_raw = read_cgroup_file("memory.current", MAX_MEMORY_COUNTER_BYTES, "ascii")
+                    peak_raw = read_cgroup_file("memory.peak", MAX_MEMORY_COUNTER_BYTES, "ascii")
+                    stat_raw = read_cgroup_file("memory.stat", MAX_MEMORY_STAT_BYTES, "utf-8")
+                    after_stat = resolved.stat(follow_symlinks=False)
+                    if (after_stat.st_dev, after_stat.st_ino) != (directory_stat.st_dev, directory_stat.st_ino):
+                        raise QualificationError(f"{scope} memory sample cgroup changed during capture: {path}")
+                    inode = directory_stat.st_ino
+                finally:
+                    os.close(directory_fd)
+            except OSError as error:
+                raise QualificationError(f"cannot capture {scope} cgroup memory usage at {path}: {error}") from error
+            current_text, peak_text = current_raw.strip(), peak_raw.strip()
+            if not current_text.isdecimal() or not peak_text.isdecimal():
+                raise QualificationError(f"{scope} memory.current/memory.peak is not decimal bytes")
+            rows[scope] = {
+                "cgroup_path": str(resolved), "cgroup_inode": inode,
+                "memory_current_raw": current_raw, "memory_current_bytes": int(current_text),
+                "memory_peak_raw": peak_raw, "memory_peak_bytes": int(peak_text),
+                "memory_stat_raw": stat_raw,
+                "memory_stat_sha256": hashlib.sha256(stat_raw.encode("utf-8")).hexdigest(),
+            }
+        system_slice = cgroups["system_slice"].resolve(strict=True)
+        children: list[str] = []
+        children_size = 0
+        try:
+            for child in system_slice.iterdir():
+                if child.is_symlink():
+                    raise QualificationError("system.slice contains a symlink while its child scopes are sampled")
+                if not child.is_dir():
+                    continue
+                child_name = child.name
+                child_size = len(child_name.encode("utf-8"))
+                if (len(children) >= MAX_SYSTEM_SLICE_CHILD_CGROUPS or
+                        children_size + child_size > MAX_SYSTEM_SLICE_CHILD_NAME_BYTES):
+                    raise QualificationError("system.slice child-cgroup list exceeds its fixed evidence bound")
+                children.append(child_name)
+                children_size += child_size
+        except OSError as error:
+            raise QualificationError(f"cannot enumerate system.slice direct child cgroups: {error}") from error
+        children.sort()
+        sample: dict[str, object] = {
+            "schema": "terrascale.d15.memory-usage-sample/v2",
+            "guest_role": self.args.role,
+            "oci_instance_id": self.args.oci_instance_id,
+            "image_id": self.args.image_id,
+            "artifact_id": self.args.artifact_id,
+            "config_id": self.args.config_id,
+            "profile_id": self.args.profile_id,
+            "host_boot_id": (PROC_ROOT / "sys/kernel/random/boot_id").read_text(encoding="ascii").strip(),
+            "kernel_release": os.uname().release,
+            "systemd_version": systemd_version,
+            "started_at_utc": started_at,
+            "finished_at_utc": self.utc_now(),
+            "scopes": rows,
+            "system_slice_direct_child_cgroups": children,
+        }
+        sample["sample_sha256"] = hashlib.sha256(self.canonical_json(sample)).hexdigest()
+        return sample
 
     @staticmethod
     def io_weight(path: Path) -> int:
@@ -145,11 +257,12 @@ class Probe:
             fields = stat[end + 1 :].split()
             nice = int(fields[16])
             scheduler_policy = int(fields[38])
+            start_time = int(fields[19])
             oom = int((proc / "oom_score_adj").read_text().strip())
         except (OSError, ValueError, IndexError) as error:
             raise QualificationError(f"cannot inspect scheduling/OOM values for PID {pid}: {error}") from error
         return {"pid": pid, "nice": nice, "scheduler_policy": scheduler_policy,
-                "oom_score_adj": oom}
+                "oom_score_adj": oom, "process_start_time": str(start_time)}
 
     def assert_process(self, pid: int, label: str, protected: bool) -> dict[str, object]:
         values = self.process_values(pid)
@@ -197,14 +310,9 @@ class Probe:
             raise QualificationError(f"invalid non-ASCII value for {name} on {path}") from error
         return value
 
-    def verify_oomd_policy(self, unit_root: Path, supervisor: Path, runner: Path,
-                           roles: list[Path], controller: Path) -> dict[str, object]:
+    def verify_oomd_policy(self, protected: dict[str, Path],
+                           workload_paths: dict[str, Path]) -> dict[str, object]:
         expected = "1"
-        protected = {
-            "host_service": unit_root,
-            "host_supervisor": supervisor,
-            "controller_service": controller,
-        }
         observations: dict[str, object] = {"omit": {}, "avoid": {}}
         for label, path in protected.items():
             omit = self.oomd_xattr(path, "user.oomd_omit")
@@ -215,8 +323,6 @@ class Probe:
                 )
             observations["omit"][label] = omit
             observations["avoid"][label] = avoid
-        workload_paths = {"native_runner": runner}
-        workload_paths.update({f"role:{path.name}": path for path in roles})
         for label, path in workload_paths.items():
             omit = self.oomd_xattr(path, "user.oomd_omit")
             avoid = self.oomd_xattr(path, "user.oomd_avoid")
@@ -241,105 +347,85 @@ class Probe:
             )
         return {"cpu_weight": actual_cpu, "io_weight": actual_io}
 
-    def verify_memory_budget(self, host_values: dict[str, str], controller_values: dict[str, str],
-                             service: Path, controller: Path) -> dict[str, object]:
+    def verify_memory_budget(self, unit_values: dict[str, str],
+                             service: Path) -> dict[str, object]:
         args = self.args
+        role = args.role
         page = os.sysconf("SC_PAGE_SIZE")
-        limits = {
-            "expected_memory_min_bytes": args.expected_memory_min_bytes,
-            "expected_memory_low_bytes": args.expected_memory_low_bytes,
-            "expected_controller_memory_min_bytes": args.expected_controller_memory_min_bytes,
-            "expected_controller_memory_low_bytes": args.expected_controller_memory_low_bytes,
-            "expected_system_slice_memory_min_bytes": args.expected_system_slice_memory_min_bytes,
-            "expected_system_slice_memory_low_bytes": args.expected_system_slice_memory_low_bytes,
-            "system_reserve_bytes": args.system_reserve_bytes,
-            "allocatable_memory_bytes": args.allocatable_memory_bytes,
-        }
-        if any(value <= 0 or value % page for value in limits.values()):
-            raise QualificationError(f"memory profile values must be positive, page-aligned bytes: {limits}")
-        min_bytes = args.expected_memory_min_bytes
-        low_bytes = args.expected_memory_low_bytes
-        controller_min = args.expected_controller_memory_min_bytes
-        controller_low = args.expected_controller_memory_low_bytes
+        min_bytes = (args.expected_memory_min_bytes if role == "host"
+                     else args.expected_controller_memory_min_bytes)
+        low_bytes = (args.expected_memory_low_bytes if role == "host"
+                     else args.expected_controller_memory_low_bytes)
         slice_min = args.expected_system_slice_memory_min_bytes
         slice_low = args.expected_system_slice_memory_low_bytes
         reserve = args.system_reserve_bytes
-        if (min_bytes > low_bytes or controller_min > controller_low or
-                slice_min < min_bytes + controller_min or slice_low < low_bytes + controller_low or
+        limits = {
+            "service_min": min_bytes, "service_low": low_bytes,
+            "system_slice_min": slice_min, "system_slice_low": slice_low,
+            "system_reserve": reserve, "allocatable": args.allocatable_memory_bytes,
+        }
+        if any(value is None or value <= 0 or value % page for value in limits.values()):
+            raise QualificationError(f"memory profile values must be positive, page-aligned bytes: {limits}")
+        if (min_bytes > low_bytes or slice_min < min_bytes or slice_low < low_bytes or
                 slice_min > slice_low or slice_low > reserve):
             raise QualificationError(
-                "require positive service floors, system.slice aggregate >= both protected units, "
-                "and aggregate MemoryLow <= signed SystemReserveBytes"
+                f"{role} and system.slice memory floors exceed the signed reserve or fail to protect the service"
             )
-        for name, values, expected in (
-            ("host", host_values, {"MemoryMin": min_bytes, "MemoryLow": low_bytes}),
-            ("controller", controller_values,
-             {"MemoryMin": controller_min, "MemoryLow": controller_low}),
-        ):
-            for label, value in expected.items():
-                try:
-                    actual = int(values[label])
-                except ValueError as error:
-                    raise QualificationError(f"{name} unit {label} is not a finite byte count") from error
-                if actual != value:
-                    raise QualificationError(
-                        f"{name} unit {label}={actual}, expected profile value {value}"
-                    )
+        for label, expected in (("MemoryMin", min_bytes), ("MemoryLow", low_bytes)):
+            try:
+                actual = int(unit_values[label])
+            except ValueError as error:
+                raise QualificationError(f"{role} unit {label} is not a finite byte count") from error
+            if actual != expected:
+                raise QualificationError(
+                    f"{role} unit {label}={actual}, expected profile value {expected}"
+                )
 
         actual_min = self.number(service / "memory.min")
         actual_low = self.number(service / "memory.low")
-        controller_min_actual = self.number(controller / "memory.min")
-        controller_low_actual = self.number(controller / "memory.low")
-        supervisor = service / "supervisor"
-        supervisor_min = self.number(supervisor / "memory.min")
-        supervisor_low = self.number(supervisor / "memory.low")
         system_slice = service.parent
         if system_slice.name != "system.slice":
-            raise QualificationError(f"host unit is not a child of system.slice: {service}")
+            raise QualificationError(f"{role} unit is not a child of system.slice: {service}")
         system_slice_min = self.number(system_slice / "memory.min")
         system_slice_low = self.number(system_slice / "memory.low")
         actual = {
-            "service_memory_min_bytes": actual_min,
-            "service_memory_low_bytes": actual_low,
-            "supervisor_memory_min_bytes": supervisor_min,
-            "supervisor_memory_low_bytes": supervisor_low,
-            "controller_memory_min_bytes": controller_min_actual,
-            "controller_memory_low_bytes": controller_low_actual,
+            f"{role}_memory_min_bytes": actual_min,
+            f"{role}_memory_low_bytes": actual_low,
             "system_slice_memory_min_bytes": system_slice_min,
             "system_slice_memory_low_bytes": system_slice_low,
         }
-        if (actual_min, actual_low, supervisor_min, supervisor_low,
-                controller_min_actual, controller_low_actual, system_slice_min, system_slice_low) != (
-            min_bytes, low_bytes, min_bytes, low_bytes,
-            controller_min, controller_low, slice_min, slice_low,
-        ):
+        if (actual_min, actual_low, system_slice_min, system_slice_low) != (
+                min_bytes, low_bytes, slice_min, slice_low):
             raise QualificationError(
-                f"service/supervisor/controller/system.slice memory protections differ from profile: {actual}"
+                f"{role}/system.slice memory protections differ from profile: {actual}"
             )
+        if role == "host":
+            supervisor = service / "supervisor"
+            actual["supervisor_memory_min_bytes"] = self.number(supervisor / "memory.min")
+            actual["supervisor_memory_low_bytes"] = self.number(supervisor / "memory.low")
+            if (actual["supervisor_memory_min_bytes"], actual["supervisor_memory_low_bytes"]) != (
+                    min_bytes, low_bytes):
+                raise QualificationError(f"host supervisor lacks the service memory floors: {actual}")
 
         ancestor_protections = []
         root = CGROUP_ROOT.resolve()
-        for service_path, want_min, want_low, label in (
-            (service, min_bytes, low_bytes, "host"),
-            (controller, controller_min, controller_low, "controller"),
-        ):
-            ancestor = service_path.parent
-            while ancestor.resolve() != root:
-                ancestor_min = self.number(ancestor / "memory.min")
-                ancestor_low = self.number(ancestor / "memory.low")
-                if ancestor_min < want_min or ancestor_low < want_low:
-                    raise QualificationError(
-                        f"{label} ancestor {ancestor} protects memory.min/low={ancestor_min}/{ancestor_low}, "
-                        f"below required service reservation {want_min}/{want_low}"
-                    )
-                ancestor_protections.append({
-                    "service": label, "cgroup": str(ancestor),
-                    "memory_min_bytes": ancestor_min, "memory_low_bytes": ancestor_low,
-                })
-                parent = ancestor.parent
-                if parent == ancestor or root not in parent.resolve().parents and parent.resolve() != root:
-                    raise QualificationError(f"cgroup ancestor escaped unified root: {ancestor}")
-                ancestor = parent
+        ancestor = service.parent
+        while ancestor.resolve() != root:
+            ancestor_min = self.number(ancestor / "memory.min")
+            ancestor_low = self.number(ancestor / "memory.low")
+            if ancestor_min < min_bytes or ancestor_low < low_bytes:
+                raise QualificationError(
+                    f"{role} ancestor {ancestor} protects memory.min/low={ancestor_min}/{ancestor_low}, "
+                    f"below required service reservation {min_bytes}/{low_bytes}"
+                )
+            ancestor_protections.append({
+                "service": role, "cgroup": str(ancestor),
+                "memory_min_bytes": ancestor_min, "memory_low_bytes": ancestor_low,
+            })
+            parent = ancestor.parent
+            if parent == ancestor or (root not in parent.resolve().parents and parent.resolve() != root):
+                raise QualificationError(f"cgroup ancestor escaped unified root: {ancestor}")
+            ancestor = parent
 
         try:
             meminfo = (PROC_ROOT / "meminfo").read_text()
@@ -366,7 +452,7 @@ class Probe:
             if cursor.resolve() == root:
                 break
             parent = cursor.parent
-            if parent == cursor or root not in parent.resolve().parents and parent.resolve() != root:
+            if parent == cursor or (root not in parent.resolve().parents and parent.resolve() != root):
                 raise QualificationError(f"cgroup ancestor escaped unified root: {cursor}")
             cursor = parent
         needed = args.allocatable_memory_bytes + reserve
@@ -447,24 +533,64 @@ class Probe:
             raise QualificationError(
                 f"target requires systemd 255 or newer for DelegateSubgroup=: {systemd_version!r}"
             )
-        host = self.unit(args.host_unit)
-        controller = self.unit(args.controller_unit)
+        role = args.role
+        name = args.host_unit if role == "host" else args.controller_unit
+        values = self.unit(name)
         baked_profile = self.verify_baked_profile()
-        host_pid = self.assert_unit_priority(args.host_unit, host, host=True)
-        controller_pid = self.assert_unit_priority(args.controller_unit, controller, host=False)
+        pid = self.assert_unit_priority(name, values, host=role == "host")
+        service = CGROUP_ROOT / values["ControlGroup"].lstrip("/")
+        process = self.assert_process(pid, role, protected=True)
+        expected_process_group = service / "supervisor" if role == "host" else service
+        if Path(str(process["cgroup"])) != expected_process_group:
+            raise QualificationError(
+                f"{role} PID {pid} is outside its exact protected cgroup {expected_process_group}"
+            )
+        weights = self.verify_priority_cgroup(service, 10000, 10000, f"{role} service")
+        memory = self.verify_memory_budget(values, service)
+        system_slice = service.parent
+        if role == "controller":
+            if args.database_pid is not None:
+                raise QualificationError("controller guest cannot qualify a TerraBase PID")
+            controller_cpu_max = normalize_cpu_max(service / "cpu.max")
+            if not controller_cpu_max.startswith("max "):
+                raise QualificationError(f"controller service has a CPU quota: {controller_cpu_max}")
+            oomd_policy = self.verify_oomd_policy({"controller_service": service}, {})
+            role_cgroups = {"controller_service": str(service), "controller_weights": weights,
+                            "controller_cpu_max": controller_cpu_max}
+            role_processes = {"controller": process}
+        else:
+            role_cgroups, role_processes, oomd_policy = self.verify_host_runtime(
+                args, pid, service, process, weights,
+            )
 
-        host_service = CGROUP_ROOT / host["ControlGroup"].lstrip("/")
-        controller_service = CGROUP_ROOT / controller["ControlGroup"].lstrip("/")
-        host_process = self.assert_process(host_pid, "host supervisor", protected=True)
-        controller_process = self.assert_process(controller_pid, "controller", protected=True)
-        if Path(str(host_process["cgroup"])) != host_service / "supervisor":
-            raise QualificationError(
-                f"host PID {host_pid} is outside exact DelegateSubgroup=supervisor: {host_process['cgroup']}"
-            )
-        if Path(str(controller_process["cgroup"])) != controller_service:
-            raise QualificationError(
-                f"controller PID {controller_pid} is outside its service cgroup: {controller_process['cgroup']}"
-            )
+        rev, unit_root = self.source_identity()
+        unit_hash = hashlib.sha256((unit_root / name).read_bytes()).hexdigest()
+        qualifier_hash = hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+        return {
+            "status": "PASS", "guest_role": role,
+            "repository_revision": rev,
+            "qualifier_sha256": qualifier_hash,
+            "baked_runtime_priority_profile": baked_profile,
+            "oci_instance_id": args.oci_instance_id,
+            "image_id": args.image_id,
+            "artifact_id": args.artifact_id,
+            "config_id": args.config_id,
+            "profile_id": args.profile_id,
+            "systemd_version": systemd_version,
+            "units": {role: values},
+            "processes": role_processes,
+            "cgroups": role_cgroups,
+            "memory_usage_sample": self.memory_usage_sample({
+                f"{role}_service": service, "system_slice": system_slice,
+            }, systemd_version),
+            "memory_profile": memory,
+            "systemd_oomd_policy": oomd_policy,
+            "unit_sha256": {name: unit_hash},
+        }
+
+    def verify_host_runtime(self, args: argparse.Namespace, host_pid: int,
+                            host_service: Path, host_process: dict[str, object],
+                            host_weights: dict[str, int]) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
 
         service_controllers = set((host_service / "cgroup.controllers").read_text().split())
         if not {"cpu", "io", "memory"}.issubset(service_controllers):
@@ -480,11 +606,8 @@ class Probe:
         if len(cpu_max) != 2 or cpu_max[0] != "max":
             raise QualificationError(f"host service has a CPU quota: cpu.max={cpu_max}")
 
-        host_weights = self.verify_priority_cgroup(host_service, 10000, 10000, "host service")
-        controller_weights = self.verify_priority_cgroup(controller_service, 10000, 10000, "controller service")
         supervisor = host_service / "supervisor"
         supervisor_weights = self.verify_priority_cgroup(supervisor, 10000, 10000, "host supervisor subgroup")
-        memory = self.verify_memory_budget(host, controller, host_service, controller_service)
 
         roots = sorted(host_service.glob("terrascale-host-*"))
         if len(roots) != 1 or not roots[0].is_dir():
@@ -523,8 +646,8 @@ class Probe:
                 raise QualificationError(f"native role {role.name} inherited manager memory protection: {role_memory}")
             roles[role.name] = {"weights": role_weights, "memory": role_memory}
         oomd_policy = self.verify_oomd_policy(
-            host_service, supervisor, runner,
-            [runner / name for name in roles], controller_service,
+            {"host_service": host_service, "host_supervisor": supervisor},
+            {"native_runner": runner, **{f"role:{name}": runner / name for name in roles}},
         )
 
         database = None
@@ -547,54 +670,35 @@ class Probe:
         elif args.database_memory_max_bytes is not None:
             raise QualificationError("--database-memory-max-bytes requires --database-pid")
 
-        rev, unit_root = self.source_identity()
-        unit_hashes = {}
-        for name in ("terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"):
-            path = unit_root / name
-            unit_hashes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
-        qualifier_hash = hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
-        return {
-            "status": "PASS",
-            "repository_revision": rev,
-            "qualifier_sha256": qualifier_hash,
-            "baked_runtime_priority_profile": baked_profile,
-            "artifact_id": args.artifact_id,
-            "config_id": args.config_id,
-            "profile_id": args.profile_id,
-            "systemd_version": systemd_version,
-            "units": {"host": host, "controller": controller},
-            "processes": {"host_supervisor": host_process, "controller": controller_process, "terrabase": database},
-            "cgroups": {
-                "host_service": str(host_service), "host_service_weights": host_weights,
-                "host_cpu_max": " ".join(cpu_max), "host_supervisor_weights": supervisor_weights,
-                "native_runner": str(runner), "native_runner_weights": runner_weights,
-                "native_workload_cpu_max": expected_cpu_max,
-                "native_runner_memory": runner_resources, "roles": roles,
-                "controller_service": str(controller_service), "controller_weights": controller_weights,
-            },
-            "memory_profile": memory,
-            "systemd_oomd_policy": oomd_policy,
-            "unit_sha256": unit_hashes,
-        }
+        return ({
+            "host_service": str(host_service), "host_service_weights": host_weights,
+            "host_cpu_max": " ".join(cpu_max), "host_supervisor_weights": supervisor_weights,
+            "native_runner": str(runner), "native_runner_weights": runner_weights,
+            "native_workload_cpu_max": expected_cpu_max,
+            "native_runner_memory": runner_resources, "roles": roles,
+        }, {"host_supervisor": host_process, "terrabase": database}, oomd_policy)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_subparsers(dest="mode", required=True)
     qualify = modes.add_parser("qualify", help="read live systemd, process and cgroup state")
+    qualify.add_argument("--role", choices=("host", "controller"), required=True)
     qualify.add_argument("--host-unit", default=HOST_UNIT_DEFAULT)
     qualify.add_argument("--controller-unit", default=CONTROLLER_UNIT_DEFAULT)
     qualify.add_argument("--database-pid", type=int)
     qualify.add_argument("--database-memory-max-bytes", type=int)
-    qualify.add_argument("--expected-memory-min-bytes", type=int, required=True)
-    qualify.add_argument("--expected-memory-low-bytes", type=int, required=True)
-    qualify.add_argument("--expected-controller-memory-min-bytes", type=int, required=True)
-    qualify.add_argument("--expected-controller-memory-low-bytes", type=int, required=True)
+    qualify.add_argument("--expected-memory-min-bytes", type=int)
+    qualify.add_argument("--expected-memory-low-bytes", type=int)
+    qualify.add_argument("--expected-controller-memory-min-bytes", type=int)
+    qualify.add_argument("--expected-controller-memory-low-bytes", type=int)
     qualify.add_argument("--expected-system-slice-memory-min-bytes", type=int, required=True)
     qualify.add_argument("--expected-system-slice-memory-low-bytes", type=int, required=True)
     qualify.add_argument("--system-reserve-bytes", type=int, required=True)
     qualify.add_argument("--allocatable-memory-bytes", type=int, required=True)
     qualify.add_argument("--artifact-id", required=True)
+    qualify.add_argument("--oci-instance-id", required=True)
+    qualify.add_argument("--image-id", required=True)
     qualify.add_argument("--config-id", required=True)
     qualify.add_argument("--profile-id", required=True)
     qualify.add_argument("--evidence-dir", type=Path, required=True)
@@ -610,6 +714,14 @@ def parse_args() -> argparse.Namespace:
     render.add_argument("--output-root", type=Path, required=True)
     args = parser.parse_args()
     if args.mode == "qualify":
+        role_floors = ((args.expected_memory_min_bytes, args.expected_memory_low_bytes)
+                       if args.role == "host" else
+                       (args.expected_controller_memory_min_bytes, args.expected_controller_memory_low_bytes))
+        if any(value is None for value in role_floors):
+            parser.error(f"--role {args.role} requires its two service memory floor values")
+        if args.role == "controller" and (args.database_pid is not None or
+                                           args.database_memory_max_bytes is not None):
+            parser.error("--role controller cannot qualify a TerraBase process")
         if args.database_pid is not None and args.database_pid <= 1:
             parser.error("--database-pid must be greater than 1")
         if args.database_memory_max_bytes is not None and args.database_memory_max_bytes <= 0:
@@ -736,6 +848,9 @@ def main() -> int:
         print(f"evidence directory already exists: {args.evidence_dir}", file=sys.stderr)
         return 2
     probe = Probe(args)
+    started_at_utc = dt.datetime.now(dt.timezone.utc).isoformat(
+        timespec="milliseconds",
+    ).replace("+00:00", "Z")
     status = "FAILED"
     result: dict[str, object] = {
         "status": status,
@@ -750,6 +865,10 @@ def main() -> int:
         result.update({"stage": "effective_priority_and_resource_validation", "error": str(error)})
         print(f"runtime priority qualification failed: {error}", file=sys.stderr)
     finally:
+        result["started_at_utc"] = started_at_utc
+        result["finished_at_utc"] = dt.datetime.now(dt.timezone.utc).isoformat(
+            timespec="milliseconds",
+        ).replace("+00:00", "Z")
         result["status"] = status
         (args.evidence_dir / "commands.log").write_text("\n".join(probe.log) + "\n")
         (args.evidence_dir / "summary.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")

@@ -1,0 +1,5 @@
+tests/deploy/test_build_offline.py
+tests/runtime_priority/qualify.py
+deploy/image/build-offline.sh
+deploy/image/terrascale-orchestrator.sysusers
+deploy/image/validate-host-enrollment-public.py

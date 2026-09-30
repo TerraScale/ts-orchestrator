@@ -180,9 +180,17 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			ReleaseReceiptSHA256: historyDigest(imageWire), ReleaseImageReceiptWire: imageWire,
 			ReleaseDelegationWire: releaseGrantWire, PeerReceiptDelegation: &peerGrant,
 			StorageDomain: storage}
+		manifest.ControllerConfig = []byte(`{"nats":{},"controller":{}}`)
+		manifest.ControllerConfigSHA256 = historyDigest(manifest.ControllerConfig)
+		for _, name := range bootstrap.ControllerConfigFileNames {
+			body := []byte(`{}`)
+			manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+				Name: name, SHA256: historyDigest(body), Bytes: body,
+			})
+		}
 		if credentials == nil {
 			manifest.Secrets = []bootstrap.SecretReference{{Purpose: bootstrap.SecretRegionalShared,
-				SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regionalfixture", VersionNumber: 1,
+				SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regionalfixture", VersionNumber: 1,
 				SHA256: historyDigest([]byte("regional fixture credential")), MaxBytes: 1024,
 				TargetFile: "regional.key"}}
 			if slot != "seed-a" {
@@ -194,7 +202,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 			for index, name := range names {
 				manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{
 					Purpose: bootstrap.SecretController, Slot: slot,
-					SecretOCID:    fmt.Sprintf("ocid1.secret.oc1.sa-saopaulo-1.%s-credential-%02d", slot, index),
+					SecretOCID:    fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.%s-credential-%02d", slot, index),
 					VersionNumber: 1, SHA256: historyDigest(material[name]),
 					MaxBytes: bootstrap.MaxSecretBytes, TargetFile: name,
 				})
@@ -365,7 +373,7 @@ func historyTestTLSSecrets(slot string) []bootstrap.SecretReference {
 	secrets := make([]bootstrap.SecretReference, 0, 6)
 	for index, name := range names {
 		secrets = append(secrets, bootstrap.SecretReference{Purpose: bootstrap.SecretController, Slot: slot,
-			SecretOCID:    fmt.Sprintf("ocid1.secret.oc1.sa-saopaulo-1.%s-%s", slot, name),
+			SecretOCID:    fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.%s-%s", slot, name),
 			VersionNumber: 1, SHA256: digests[index], MaxBytes: 1024,
 			TargetFile: slot + "-" + name + ".pem"})
 	}

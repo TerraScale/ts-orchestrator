@@ -90,13 +90,9 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	ticketPub, ticketPrivate := testEd25519(t, root, "broker-ticket.key")
 	ticketPubFile := write("broker-ticket.pub", base64.StdEncoding.EncodeToString(ticketPub))
 	brokerIDs := []string{"broker-a", "broker-b", "broker-c"}
-	clientPorts := make([]int, 3)
-	routePorts := make([]int, 3)
-	routes := make([]string, 3)
-	for index := range clientPorts {
-		clientPorts[index] = reserveControllerPort(t)
-		routePorts[index] = reserveControllerPort(t)
-	}
+	ports := reserveControllerPorts(t, 2*len(brokerIDs))
+	clientPorts, routePorts := ports[:len(brokerIDs)], ports[len(brokerIDs):]
+	routes := make([]string, len(brokerIDs))
 	for index, port := range routePorts {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
 	}
@@ -113,7 +109,8 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 			t.Fatal(err)
 		}
 		controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerPub + ".>",
-			"ts.broker.gru.ticket.>", "ts.broker.gru.fence." + id, "ts.orch.v1.gru.broker.claim.apply"}
+			"ts.broker.gru.ticket.>", "ts.broker.gru.fence." + id, "ts.orch.v1.gru.broker.claim.apply",
+			"ts.orch.v1.gru.managed-update.prepare", "ts.orch.v1.gru.backup.operation", "ts.orch.v1.gru.terminal.>"}
 		controllerClaim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		controllerCreds = testBrokerJWTUserWithClaim(t, root, fmt.Sprintf("controller-%d.creds", index), cellKey, controllerClaim)
 		systemPub, systemCreds := testBrokerJWTUser(t, root, fmt.Sprintf("system-%d.creds", index), sysKey, sysID,
@@ -212,7 +209,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		admissionSubs[index] = sub
 	}
 	operatorPub, operatorCreds := testBrokerJWTUser(t, root, "claim-operator.creds", cellKey, cellID,
-		[]string{"ts.orch.v1.gru.broker.claim.apply", "$JS.API.INFO", "$JS.API.STREAM.INFO.TS_CONTROL_LOG", "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG"}, nil)
+		[]string(natscell.BrokerOperatorPublishPermissions("gru")), nil)
 	operatorClaim, err := jwt.DecodeUserClaims(testDecoratedJWT(t, operatorCreds))
 	if err != nil {
 		t.Fatal(err)
@@ -460,6 +457,10 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	offlineOperator := operatorConfig
 	offlineOperator.NATS.URL = fmt.Sprintf("tls://127.0.0.1:%d", clientPorts[activeBroker])
 	offlineOperatorPath := testJSONFile(t, root, "offline-operator.json", offlineOperator)
+	// Route quorum does not prove the live broker's authority-backed claim bridge is ready.
+	waitBrokerGateStatus(t, ctx, []*natscell.Runtime{runtimes[activeBroker]}, func(status natscell.BridgeStatus) bool {
+		return status.Open && status.ClaimSequence == result.Claim.Sequence && status.JWTHash == result.Claim.Hash
+	})
 	var pendingOutput bytes.Buffer
 	err = Run(ctx, []string{"operator", "broker-claim-apply", "--config", offlineOperatorPath, "--file", nextFile,
 		"--expected-sequence", strconv.FormatUint(result.Claim.Sequence, 10)}, &pendingOutput)

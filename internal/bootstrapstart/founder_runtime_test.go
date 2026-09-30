@@ -130,64 +130,22 @@ func signFounderLedgerValue(t *testing.T, key []byte, domain string, scope boots
 	return wire
 }
 
-func reserveFounderPeer(t *testing.T, fixture *founderSignerFixture, ledger *bootstrap.Ledger, slot string) {
-	t.Helper()
-	var row bootstrap.FounderPeerRow
-	for _, peer := range fixture.plan.Peers {
-		if peer.Slot == slot {
-			row = peer
-		}
-	}
-	if row.Slot == "" {
-		t.Fatalf("missing founder row %q", slot)
-	}
-	profile := bootstrap.LaunchProfile{Slot: slot, CompartmentOCID: row.CompartmentOCID,
-		AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain,
-		SubnetOCID: row.SubnetOCID, NetworkSecurityGroupOCIDs: row.NetworkSecurityGroupOCIDs, Shape: row.Shape}
-	profileWire, err := trust.EncodePayload(profile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rowDigest, err := bootstrap.FounderPeerRowDigest(row)
-	if err != nil {
-		t.Fatal(err)
-	}
-	scope := bootstrap.BootstrapScope{DeploymentID: fixture.accepted.DeploymentID, Cell: fixture.accepted.Cell, Slot: slot}
-	manifestEnvelope, err := trust.DecodeEnvelope(fixture.manifests[slot])
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest bootstrap.Manifest
-	if err := protocol.DecodeStrict(manifestEnvelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil {
-		t.Fatal(err)
-	}
-	intent := bootstrap.Intent{SchemaVersion: 2, Mode: bootstrap.IntentModeManaged,
-		DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: "production", Role: "controller",
-		Slot: slot, Attempt: 1, Generation: 1, ManifestDigest: row.ManifestSHA256,
-		ReleaseReceiptDigest: manifest.ReleaseReceiptSHA256, ImageOCID: row.ImageOCID,
-		RegionIntentGeneration: fixture.current.Anchor.Anchor().InitialRegionIntentGeneration,
-		RegionIntentDigest:     fixture.current.Anchor.Anchor().InitialRegionIntentSHA256,
-		LaunchRequestDigest:    digestWire(profileWire), FounderPlanSHA256: fixture.current.Plan.Digest(),
-		PeerRowDigest: rowDigest, CreateKey: "founder-create-" + slot, RetryToken: "founder-retry-" + slot,
-		CreatedAt: fixture.now.Add(-time.Minute), OCIRegion: "sa-saopaulo-1", CompartmentOCID: row.CompartmentOCID,
-		AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain,
-		SubnetOCID: row.SubnetOCID, NetworkSecurityGroupIDs: row.NetworkSecurityGroupOCIDs,
-		Shape: row.Shape, Node: slot}
-	intentWire := signFounderLedgerValue(t, fixture.ledgerKey, "bootstrap-intent", scope, intent, fixture.now)
-	head := bootstrap.SlotHead{SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
-		Environment: "production", Role: "controller", Slot: slot, Attempt: 1, Generation: 1,
-		IntentDigest: digestWire(intentWire)}
-	headWire := signFounderLedgerValue(t, fixture.ledgerKey, "bootstrap-slot-head", scope, head, fixture.now)
-	if _, err := ledger.ReserveSlot(t.Context(), scope, intentWire, headWire); err != nil {
-		t.Fatalf("reserve founder %s: %v", slot, err)
-	}
-}
-
 func newFounderRuntimeFixture(t *testing.T) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
 	return newFounderRuntimeFixtureWithSetup(t, nil)
 }
 
+// newUnreservedFounderRuntimeFixture leaves every planned peer slot empty, as
+// on a freshly admitted seed.
+func newUnreservedFounderRuntimeFixture(t *testing.T) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
+	return newFounderRuntimeFixtureWithReservation(t, nil, false)
+}
+
 func newFounderRuntimeFixtureWithSetup(t *testing.T, setup func(*founderSignerFixture)) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
+	return newFounderRuntimeFixtureWithReservation(t, setup, true)
+}
+
+func newFounderRuntimeFixtureWithReservation(t *testing.T, setup func(*founderSignerFixture), reserve bool,
+) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
 	t.Helper()
 	fixture := newFounderSignerFixture(t)
 	if setup != nil {
@@ -203,19 +161,28 @@ func newFounderRuntimeFixtureWithSetup(t *testing.T, setup func(*founderSignerFi
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, row := range fixture.plan.Peers {
-		reserveFounderPeer(t, fixture, ledger, row.Slot)
-	}
 	fake := &founderFakeOCI{rows: make(map[string]bootstrap.FounderPeerRow), now: fixture.now}
 	for _, row := range fixture.plan.Peers {
 		fake.rows[row.Slot] = row
 	}
 	caller := &founderCaller{reader: fixture.reader(t), roots: fixture.baked.Roots,
-		accepted: fixture.accepted, signers: fixture.store,
-		adapter: &FounderOCI{region: oci.RegionGRU, compute: fake, network: fake, volume: fake},
+		accepted: fixture.accepted, signers: fixture.store, now: func() time.Time { return fixture.now },
+		adapter: &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial, compute: fake, network: fake, volume: fake},
 		openLedger: func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
 			return ledger, nil
 		}}
+	for _, row := range fixture.plan.Peers {
+		if !reserve {
+			break
+		}
+		snapshot, err := caller.fresh(t.Context(), row.Slot)
+		if !errors.Is(err, errFounderPeerUnreserved) {
+			t.Fatalf("fresh %s slot is not unreserved: %v", row.Slot, err)
+		}
+		if err := caller.reservePeer(t.Context(), snapshot, row.Slot); err != nil {
+			t.Fatalf("reserve founder %s: %v", row.Slot, err)
+		}
+	}
 	return fixture, caller, objects, fake
 }
 
@@ -358,6 +325,20 @@ func TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent(t *testing
 	}
 	if fake.launches != 2 || fake.observations != 2 {
 		t.Fatalf("three-controller founding effects: launches=%d observations=%d", fake.launches, fake.observations)
+	}
+}
+
+func TestFounderRuntimeReservesUnreservedPeersBeforeLaunch(t *testing.T) {
+	fixture, caller, _, fake := newUnreservedFounderRuntimeFixture(t)
+	for range 2 {
+		for _, row := range fixture.plan.Peers {
+			if err := caller.runPeer(t.Context(), row.Slot); err != nil {
+				t.Fatalf("found %s from an empty slot: %v", row.Slot, err)
+			}
+		}
+	}
+	if fake.launches != len(fixture.plan.Peers) || fake.observations != len(fixture.plan.Peers) {
+		t.Fatalf("founding from empty slots: launches=%d observations=%d", fake.launches, fake.observations)
 	}
 }
 
@@ -600,7 +581,9 @@ type founderAdmissionLedger struct {
 
 type founderAdmissionCredentials struct{ calls int }
 
-func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string) error {
+func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected map[string]string,
+	_ bootstrap.Manifest,
+) error {
 	checker.calls++
 	if len(expected) == 0 {
 		return ErrLiveCredentials
@@ -610,7 +593,7 @@ func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Cont
 
 func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrAdmission
 	}
@@ -619,11 +602,17 @@ func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, ancho
 
 func (reader *founderAdmissionLedger) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrAdmission
 	}
 	return reader, nil
+}
+
+func (reader *founderAdmissionLedger) PublishAcceptedInstall(ctx context.Context, scope bootstrap.BootstrapScope,
+	marker []byte,
+) error {
+	return reader.ledger.PublishAcceptedInstall(ctx, scope, marker)
 }
 
 func (reader *founderAdmissionLedger) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
@@ -649,6 +638,9 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(markerDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	peerFloorDirectory := filepath.Join(t.TempDir(), "peer-floor")
 	if err := os.Mkdir(peerFloorDirectory, 0o700); err != nil {
 		t.Fatal(err)
@@ -665,8 +657,9 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 		serviceUID: serviceUID, serviceGID: serviceGID,
 		now: func() time.Time { return fixture.now }}
 	gate := Gate{Roots: fixture.baked.Roots, AnchorWire: fixture.baked.AnchorWire,
-		Expected:   fixture.baked.Identity.AnchorExpectation(),
-		Descriptor: fixedDescriptor{slot: row.Slot, instance: instanceID},
+		Expected:                     fixture.baked.Identity.AnchorExpectation(),
+		LoadedControllerConfigSHA256: testControllerConfigDigestFromManifestWire(t, fixture.current.ManifestWires[row.Slot]),
+		Descriptor:                   fixedDescriptor{slot: row.Slot, instance: instanceID},
 		Instances: fakeInstanceObserver{InstanceObservation{InstanceOCID: instanceID,
 			CompartmentOCID: row.CompartmentOCID, ImageOCID: row.ImageOCID,
 			AvailabilityDomain: row.AvailabilityDomain, FaultDomain: row.FaultDomain, Shape: row.Shape,
@@ -1226,7 +1219,8 @@ func TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult(t *te
 		t.Fatal(err)
 	}
 	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
-	fake.now = fixture.now.Add(2 * time.Second)
+	fixture.now = fixture.now.Add(2 * time.Second)
+	fake.now = fixture.now
 	objects.now = fake.now
 	if err := caller.completePeer(t.Context(), slot, observed); err != nil {
 		t.Fatalf("stale exact observation did not reobserve: %v", err)
@@ -1276,7 +1270,8 @@ func TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance(t *testing.T) {
 	advanced := false
 	fake.afterBoot = func() {
 		if !advanced {
-			objects.now = fixture.now.Add(12 * time.Second)
+			fixture.now = fixture.now.Add(12 * time.Second)
+			objects.now = fixture.now
 			fake.now = objects.now
 			advanced = true
 		}
@@ -1317,25 +1312,25 @@ func TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete(t *tes
 	if err := caller.pinCandidate(t.Context(), snapshot, slot, instanceID); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err = caller.fresh(t.Context(), slot)
-	if err != nil {
-		t.Fatal(err)
+	// A previously observed candidate has aged out before result writing. The
+	// recovery path must reread the pinned instance instead of using these facts.
+	row := attempt.request.Row
+	observed := FounderOCIObservation{
+		InstanceOCID: instanceID, InstanceETag: "founder-instance-etag-" + slot,
+		PrimaryVNICID: "ocid1.vnic.oc1.sa-saopaulo-1." + slot,
+		BootVolumeID:  "ocid1.bootvolume.oc1.sa-saopaulo-1." + slot,
+		CompartmentID: row.CompartmentOCID, ImageID: row.ImageOCID,
+		PrivateIP: row.PrivateIP, Shape: row.Shape, WholeOCPUs: row.WholeOCPUs,
+		MemoryInGB: row.MemoryInGB, BootVolumeGB: row.BootVolumeGB, BootVPUsPerGB: 10,
+		ObservedAt:   snapshot.now,
+		observedMono: time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second),
 	}
-	observationAttempt, err := NewFounderOCIObservationAttempt(snapshot.peer, snapshot.now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed, err := caller.adapter.Observe(t.Context(), observationAttempt, caller.peerRefresh(slot), instanceID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	observed.observedMono = time.Now().Add(-bootstrap.ManagedPeerObservationMaxAge - time.Second)
 	fake.instanceChanged = true
 	writes := objects.writes
 	if err := caller.completePeer(t.Context(), slot, observed); err == nil {
 		t.Fatal("changed instance produced a positive result from stale facts")
 	}
-	if fake.launches != 1 || fake.observations <= 1 || objects.writes != writes {
+	if fake.launches != 1 || fake.observations == 0 || objects.writes != writes {
 		t.Fatalf("changed instance touched founder ledger or relaunched: launches=%d observations=%d writes=%d/%d",
 			fake.launches, fake.observations, objects.writes, writes)
 	}
@@ -1560,7 +1555,7 @@ func (fake *founderFakeOCI) GetVnic(_ context.Context, request core.GetVnicReque
 	for slot, row := range fake.rows {
 		if *request.VnicId == "ocid1.vnic.oc1.sa-saopaulo-1."+slot {
 			return core.GetVnicResponse{Vnic: core.Vnic{
-				Id: request.VnicId, CompartmentId: new(row.CompartmentOCID),
+				Id: request.VnicId, CompartmentId: new("ocid1.compartment.oc1..network"),
 				AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
 				PrivateIp: new(row.PrivateIP), IsPrimary: new(true),
 				LifecycleState: core.VnicLifecycleStateAvailable,
@@ -1569,6 +1564,19 @@ func (fake *founderFakeOCI) GetVnic(_ context.Context, request core.GetVnicReque
 		}
 	}
 	return core.GetVnicResponse{}, errors.New("unknown founder VNIC")
+}
+
+func (fake *founderFakeOCI) GetSubnet(_ context.Context, request core.GetSubnetRequest) (core.GetSubnetResponse, error) {
+	for _, row := range fake.rows {
+		if value(request.SubnetId) == row.SubnetOCID {
+			return core.GetSubnetResponse{Subnet: core.Subnet{
+				Id: request.SubnetId, CompartmentId: new("ocid1.compartment.oc1..network"),
+				VcnId:          new("ocid1.vcn.oc1.sa-saopaulo-1.founder"),
+				LifecycleState: core.SubnetLifecycleStateAvailable,
+			}}, nil
+		}
+	}
+	return core.GetSubnetResponse{}, errors.New("unknown founder subnet")
 }
 
 func (fake *founderFakeOCI) ListBootVolumeAttachments(_ context.Context, request core.ListBootVolumeAttachmentsRequest) (core.ListBootVolumeAttachmentsResponse, error) {

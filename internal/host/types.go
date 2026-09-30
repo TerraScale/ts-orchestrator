@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,8 +16,11 @@ import (
 	"unicode"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 const (
@@ -45,6 +48,7 @@ type Registration struct {
 	Environment        string                   `json:"environment"`
 	Roles              []string                 `json:"roles"`
 	PublicKey          string                   `json:"public_key"`
+	NATSUserPublicKey  string                   `json:"nats_user_public_key"`
 	Generation         uint64                   `json:"generation"`
 	Capacity           Capacity                 `json:"capacity"`
 	ManagedPlacement   *ManagedPlacementBinding `json:"managed_placement,omitempty"`
@@ -125,19 +129,31 @@ type ManagedMemberLaunch struct {
 // may be attached to this signed member desired. Missing pins keep it held.
 // The corresponding files are installed outside NATS by a trusted operator.
 type ManagedRuntimePins struct {
-	DevicePath                          string `json:"device_path"`
-	MountPath                           string `json:"mount_path"`
-	FileSystemUUID                      string `json:"filesystem_uuid"`
-	FileSystemType                      string `json:"filesystem_type"`
-	TrustedKeySHA256                    string `json:"trusted_key_sha256"`
-	ServerCertificateSHA256             string `json:"server_certificate_sha256"`
-	ServerPrivateKeySHA256              string `json:"server_private_key_sha256"`
-	ClientCARootsSHA256                 string `json:"client_ca_roots_sha256"`
-	ClientManagedMaterialManifestSHA256 string `json:"client_managed_material_manifest_sha256"`
-	ReplicationListenAddress            string `json:"replication_listen_address"`
-	ReplicationPeerMemberID             string `json:"replication_peer_member_id,omitempty"`
-	ReplicationPeerAddress              string `json:"replication_peer_address,omitempty"`
-	ReplicationServerCASHA256           string `json:"replication_server_ca_sha256,omitempty"`
+	DevicePath                          string                     `json:"device_path"`
+	MountPath                           string                     `json:"mount_path"`
+	FileSystemUUID                      string                     `json:"filesystem_uuid"`
+	FileSystemType                      string                     `json:"filesystem_type"`
+	TrustedKeySHA256                    string                     `json:"trusted_key_sha256"`
+	ServerCertificateSHA256             string                     `json:"server_certificate_sha256"`
+	ServerPrivateKeySHA256              string                     `json:"server_private_key_sha256"`
+	ClientCARootsSHA256                 string                     `json:"client_ca_roots_sha256"`
+	ClientManagedMaterialManifestSHA256 string                     `json:"client_managed_material_manifest_sha256"`
+	SQLSchemaBundleSHA256               string                     `json:"sql_schema_bundle_sha256,omitempty"`
+	LiveS3ConfigSHA256                  string                     `json:"live_s3_config_sha256"`
+	LiveS3TargetSHA256                  string                     `json:"live_s3_target_sha256"`
+	LiveS3Credential                    oci.SecretVersionReference `json:"live_s3_credential"`
+	BackupManifestSHA256                string                     `json:"backup_manifest_sha256,omitempty"`
+	BackupS3ConfigSHA256                string                     `json:"backup_s3_config_sha256,omitempty"`
+	BackupS3TargetSHA256                string                     `json:"backup_s3_target_sha256,omitempty"`
+	BackupS3CredentialSHA256            string                     `json:"backup_s3_credential_sha256,omitempty"`
+	BackupDataKeySHA256                 string                     `json:"backup_data_key_sha256,omitempty"`
+	BackupOwner                         bool                       `json:"backup_owner,omitzero"`
+	BackupS3Credential                  oci.SecretVersionReference `json:"backup_s3_credential,omitzero"`
+	BackupDataKey                       oci.SecretVersionReference `json:"backup_data_key,omitzero"`
+	ReplicationListenAddress            string                     `json:"replication_listen_address"`
+	ReplicationPeerMemberID             string                     `json:"replication_peer_member_id,omitempty"`
+	ReplicationPeerAddress              string                     `json:"replication_peer_address,omitempty"`
+	ReplicationServerCASHA256           string                     `json:"replication_server_ca_sha256,omitempty"`
 }
 
 type Receipt struct {
@@ -160,26 +176,28 @@ type Report struct {
 	Managed     *ManagedRuntimeReport `json:"managed,omitempty"`
 }
 
-// ManagedRuntimeReport is a host-process and mounted-volume observation only.
-// It does not assert client serving, catch-up, or a writer fence.
+// ManagedRuntimeReport binds a native process and mounted volume to its
+// TerraBase serving proof when the process currently offers one.
 type ManagedRuntimeReport struct {
-	Member           ManagedMemberBinding `json:"member"`
-	Authority        MemberAuthority      `json:"authority"`
-	OCI              ManagedOCIBinding    `json:"oci"`
-	VolumeID         string               `json:"volume_id"`
-	AttachmentID     string               `json:"attachment_id"`
-	AttachmentETag   string               `json:"attachment_etag"`
-	FileSystemUUID   string               `json:"filesystem_uuid"`
-	FileSystemType   string               `json:"filesystem_type"`
-	MountDevice      string               `json:"mount_device"`
-	MountPath        string               `json:"mount_path"`
-	MountID          uint64               `json:"mount_id"`
-	ProcessPID       int                  `json:"process_pid"`
-	ProcessStart     string               `json:"process_start"`
-	ProcessCgroup    string               `json:"process_cgroup"`
-	ProcessBootID    string               `json:"process_boot_id"`
-	StorageRecovered bool                 `json:"storage_recovered"`
-	ListenerReady    bool                 `json:"listener_ready"`
+	ClientCredentialGeneration uint64                     `json:"client_credential_generation,omitzero"`
+	Member                     ManagedMemberBinding       `json:"member"`
+	Authority                  MemberAuthority            `json:"authority"`
+	OCI                        ManagedOCIBinding          `json:"oci"`
+	VolumeID                   string                     `json:"volume_id"`
+	AttachmentID               string                     `json:"attachment_id"`
+	AttachmentETag             string                     `json:"attachment_etag"`
+	FileSystemUUID             string                     `json:"filesystem_uuid"`
+	FileSystemType             string                     `json:"filesystem_type"`
+	MountDevice                string                     `json:"mount_device"`
+	MountPath                  string                     `json:"mount_path"`
+	MountID                    uint64                     `json:"mount_id"`
+	ProcessPID                 int                        `json:"process_pid"`
+	ProcessStart               string                     `json:"process_start"`
+	ProcessCgroup              string                     `json:"process_cgroup"`
+	ProcessBootID              string                     `json:"process_boot_id"`
+	StorageRecovered           bool                       `json:"storage_recovered"`
+	ListenerReady              bool                       `json:"listener_ready"`
+	ServingProof               *memberstatus.ServingProof `json:"serving_proof,omitempty"`
 }
 
 type HostStatus struct {
@@ -196,38 +214,67 @@ type AgentConfig struct {
 	Roles                   []string
 	Conn                    *nats.Conn
 	Identity                ed25519.PrivateKey
+	NATSUserPublicKey       string
 	ControllerPublicKey     ed25519.PublicKey
 	Runner                  Runner
 	InstallRoot             string
 	StateRoot               string
 	ManagedRuntimeRoot      string
+	ManagedS3Credentials    ManagedS3CredentialResolver
+	ManagedBackupDataKeys   ManagedBackupDataKeyResolver
 	BakedSystemReserveBytes uint64
 	WorkloadIdentity        WorkloadIdentity
 	PollInterval            time.Duration
 	SessionTrace            bool
 	ClockCheck              func() error
+	VolumeInitSocket        string
 }
 
 type ControllerConfig struct {
-	Cell                        string
-	Conn                        *nats.Conn
-	JS                          jetstream.JetStream
-	State                       jetstream.KeyValue
-	Artifacts                   ArtifactStore
-	ResponseKey                 ed25519.PrivateKey
-	StateReplicas               int
-	AuthorityEpoch              func() uint64
-	AuthorityGuard              func(context.Context, uint64) error
+	Cell           string
+	Conn           *nats.Conn
+	JS             jetstream.JetStream
+	State          jetstream.KeyValue
+	Artifacts      ArtifactStore
+	ResponseKey    ed25519.PrivateKey
+	StateReplicas  int
+	AuthorityEpoch func() uint64
+	AuthorityGuard func(context.Context, uint64) error
+	// AuthorityLeader reports whether this controller holds the cell authority;
+	// only the leader serves host requests. Nil serves always (one controller).
+	AuthorityLeader             func() bool
 	HostMutations               authority.HostMutationStore
 	ManagedRegistrationVerifier ManagedRegistrationVerifier
+	ManagedDesiredVerifier      ManagedDesiredVerifier
+	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
+	ManagedMaterialProvider     ManagedMaterialProvider
+	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
+	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
 }
+
+// ManagedVolumeInspector independently reobserves the exact owned OCI host,
+// retained volume and attachment before a host may prepare its local device.
+type ManagedVolumeInspector func(context.Context, Desired, Registration) (VolumeInitObservation, error)
+
+type VolumeInitObservation struct {
+	BootDescriptorSHA256 string `json:"boot_descriptor_sha256"`
+	AllowFormat          bool   `json:"allow_format"`
+}
+
+// ManagedMaterialProvider returns only a currently admitted member's exact
+// R3-pinned host files. The host RPC encrypts each requested chunk separately.
+type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[string][]byte, error)
 
 // ManagedRegistrationVerifier checks a managed registration against current
 // admitted placement, durable member state, and OCI observation.
 type ManagedRegistrationVerifier interface {
 	VerifyManagedRegistration(context.Context, Registration) error
 }
+
+// ManagedDesiredVerifier admits only a managed desired whose initial launch or
+// signed canary update is current in durable placement and authority state.
+type ManagedDesiredVerifier func(context.Context, Desired, Registration, Desired, bool) error
 
 type ReaderConfig struct {
 	Cell          string
@@ -310,6 +357,9 @@ func validateRegistration(r Registration, cell string) error {
 	}
 	if _, err := decodePublicKey(r.PublicKey); err != nil {
 		return err
+	}
+	if !nkeys.IsValidPublicUserKey(r.NATSUserPublicKey) {
+		return errors.New("registration NATS user public key is invalid")
 	}
 	if r.Capacity.CPU < 0 || r.Capacity.MemoryBytes < 0 || r.Capacity.DiskBytes < 0 {
 		return errors.New("negative host capacity")
@@ -493,31 +543,38 @@ func validateManagedRuntimePins(pins ManagedRuntimePins) error {
 		!lowerHex(pins.TrustedKeySHA256, 64) || !lowerHex(pins.ServerCertificateSHA256, 64) ||
 		!lowerHex(pins.ServerPrivateKeySHA256, 64) || !lowerHex(pins.ClientCARootsSHA256, 64) ||
 		!lowerHex(pins.ClientManagedMaterialManifestSHA256, 64) ||
-		!validSocketAddress(pins.ReplicationListenAddress) {
+		!lowerHex(pins.LiveS3ConfigSHA256, 64) || !lowerHex(pins.LiveS3TargetSHA256, 64) ||
+		pins.SQLSchemaBundleSHA256 != "" && !lowerHex(pins.SQLSchemaBundleSHA256, 64) ||
+		pins.LiveS3Credential.Validate() != nil ||
+		!validPrivateIPv4Endpoint(pins.ReplicationListenAddress) {
 		return errors.New("managed runtime device, filesystem, material or listener pin is invalid")
 	}
 	peer := pins.ReplicationPeerMemberID != "" || pins.ReplicationPeerAddress != "" || pins.ReplicationServerCASHA256 != ""
-	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validSocketAddress(pins.ReplicationPeerAddress) ||
+	if !peer || !canonicalMemberID(pins.ReplicationPeerMemberID) || !validPrivateIPv4Endpoint(pins.ReplicationPeerAddress) ||
 		!lowerHex(pins.ReplicationServerCASHA256, 64) {
 		return errors.New("managed runtime outbound peer pins are incomplete")
+	}
+	if pins.BackupManifestSHA256 != "" {
+		if !lowerHex(pins.BackupManifestSHA256, 64) || !lowerHex(pins.BackupS3ConfigSHA256, 64) ||
+			!lowerHex(pins.BackupS3TargetSHA256, 64) || !lowerHex(pins.BackupS3CredentialSHA256, 64) ||
+			!lowerHex(pins.BackupDataKeySHA256, 64) || pins.BackupS3TargetSHA256 == pins.LiveS3TargetSHA256 ||
+			pins.BackupOwner && (pins.BackupS3Credential.Validate() != nil || pins.BackupDataKey.Validate() != nil ||
+				pins.BackupS3Credential.SecretOCID == pins.LiveS3Credential.SecretOCID ||
+				pins.BackupS3Credential.SecretOCID == pins.BackupDataKey.SecretOCID) ||
+			!pins.BackupOwner && (pins.BackupS3Credential != (oci.SecretVersionReference{}) ||
+				pins.BackupDataKey != (oci.SecretVersionReference{})) {
+			return errors.New("managed backup runtime pins are incomplete")
+		}
+	} else if pins.BackupS3ConfigSHA256 != "" || pins.BackupS3TargetSHA256 != "" ||
+		pins.BackupS3CredentialSHA256 != "" || pins.BackupDataKeySHA256 != "" || pins.BackupOwner ||
+		pins.BackupS3Credential != (oci.SecretVersionReference{}) || pins.BackupDataKey != (oci.SecretVersionReference{}) {
+		return errors.New("partial managed backup runtime pins")
 	}
 	return nil
 }
 
-func validSocketAddress(address string) bool {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil || net.ParseIP(host) == nil || port == "" {
-		return false
-	}
-	var number uint64
-	for _, digit := range port {
-		if digit < '0' || digit > '9' {
-			return false
-		}
-		number = number*10 + uint64(digit-'0')
-		if number > 65535 {
-			return false
-		}
-	}
-	return number > 0
+func validPrivateIPv4Endpoint(address string) bool {
+	endpoint, err := netip.ParseAddrPort(address)
+	return err == nil && endpoint.String() == address && endpoint.Port() != 0 &&
+		endpoint.Addr().Is4() && endpoint.Addr().IsPrivate()
 }

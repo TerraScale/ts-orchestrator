@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const memberStatusFixture = `{"schema_version":1,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"018f0000-0000-7000-8000-000000000001","database_id":"018f0000-0000-7000-8000-000000000002","shard_id":1,"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":true,"serving":false,"capabilities":{"serving_proof":false,"durable_drain":false}}`
+const memberStatusFixture = `{"schema_version":2,"nonce":"00000000000000000000000000000001","process":{"pid":123,"start_nonce":"00000000000000000000000000000002"},"scope":{"cluster_id":"00000000000000000000000000000003","tenant_id":"018f0000-0000-7000-8000-000000000001","database_id":"018f0000-0000-7000-8000-000000000002","shard_id":1,"member_id":"018f0000-0000-7000-8000-000000000003","incarnation":"00000000000000000000000000000004"},"authority":{"epoch":1,"configuration_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","certificate_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tls_leaf_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"local":{"storage_recovered":true,"replication_listener_ready":true,"healthy":true,"ready":false},"receiver_only":false,"serving":false,"capabilities":{"serving_proof":true,"durable_drain":true}}`
 
 func memberFixtureExpectation() ExpectedMemberStatus {
 	return ExpectedMemberStatus{
@@ -30,14 +30,14 @@ func memberFixtureExpectation() ExpectedMemberStatus {
 	}
 }
 
-func TestDecodeMemberStatusStrictReceiverContract(t *testing.T) {
+func TestDecodeMemberStatusStrictServingContract(t *testing.T) {
 	nonce := "00000000000000000000000000000001"
 	expected := memberFixtureExpectation()
 	status, err := decodeMemberStatus([]byte(memberStatusFixture), nonce, 123, expected)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !status.ReceiverOnly || status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain ||
+	if status.ReceiverOnly || status.Serving || !status.Capabilities.ServingProof || !status.Capabilities.DurableDrain ||
 		!status.Local.StorageRecovered || !status.Local.ReplicationListenerReady || !status.Local.Healthy || status.Local.Ready {
 		t.Fatalf("receiver status changed meaning: %+v", status)
 	}
@@ -47,14 +47,15 @@ func TestDecodeMemberStatusStrictReceiverContract(t *testing.T) {
 		body string
 		want string
 	}{
-		{"unknown field", strings.Replace(memberStatusFixture, `"receiver_only":true`, `"new_field":0,"receiver_only":true`, 1), "invalid member status JSON"},
+		{"unknown field", strings.Replace(memberStatusFixture, `"receiver_only":false`, `"new_field":0,"receiver_only":false`, 1), "invalid member status JSON"},
 		{"duplicate field", strings.Replace(memberStatusFixture, `"nonce":"00000000000000000000000000000001"`, `"nonce":"00000000000000000000000000000001","nonce":"00000000000000000000000000000001"`, 1), "invalid member status JSON"},
-		{"missing false field", strings.Replace(memberStatusFixture, `"serving_proof":false,`, "", 1), "omits required fields"},
-		{"null field", strings.Replace(memberStatusFixture, `"serving_proof":false`, `"serving_proof":null`, 1), "omits required fields"},
+		{"missing field", strings.Replace(memberStatusFixture, `"serving_proof":true,`, "", 1), "omits required fields"},
+		{"null field", strings.Replace(memberStatusFixture, `"serving_proof":true`, `"serving_proof":null`, 1), "omits required fields"},
 		{"nonce mismatch", strings.Replace(memberStatusFixture, nonce, "00000000000000000000000000000009", 1), "identity or capability mismatch"},
 		{"PID mismatch", strings.Replace(memberStatusFixture, `"pid":123`, `"pid":124`, 1), "identity or capability mismatch"},
 		{"authority mismatch", strings.Replace(memberStatusFixture, strings.Repeat("b", 64), strings.Repeat("d", 64), 1), "identity or capability mismatch"},
-		{"false serving claim", strings.Replace(memberStatusFixture, `"serving":false`, `"serving":true`, 1), "identity or capability mismatch"},
+		{"serving without readiness", strings.Replace(memberStatusFixture, `"serving":false`, `"serving":true`, 1), "identity or capability mismatch"},
+		{"missing serving proof", strings.Replace(memberStatusFixture, `"serving_proof":true`, `"serving_proof":false`, 1), "identity or capability mismatch"},
 		{"trailing data", memberStatusFixture + ` {}`, "invalid member status JSON"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -66,25 +67,26 @@ func TestDecodeMemberStatusStrictReceiverContract(t *testing.T) {
 	}
 }
 
-func TestDecodeMemberStatusSenderRoleDoesNotClaimServing(t *testing.T) {
+func TestDecodeMemberStatusServingRequiresLiveReadiness(t *testing.T) {
 	nonce := "00000000000000000000000000000001"
 	expected := memberFixtureExpectation()
-	senderStatus := strings.Replace(memberStatusFixture, `"receiver_only":true`, `"receiver_only":false`, 1)
+	senderStatus := strings.Replace(memberStatusFixture, `"ready":false`, `"ready":true`, 1)
+	senderStatus = strings.Replace(senderStatus, `"serving":false`, `"serving":true`, 1)
 	status, err := decodeMemberStatus([]byte(senderStatus), nonce, 123, expected)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status.ReceiverOnly || status.Serving || status.Capabilities.ServingProof || status.Capabilities.DurableDrain {
-		t.Fatalf("sender role changed capability meaning: %+v", status)
+	if status.ReceiverOnly || !status.Serving || !status.Capabilities.ServingProof || !status.Capabilities.DurableDrain {
+		t.Fatalf("serving proof was rejected: %+v", status)
 	}
 
 	for _, test := range []struct {
 		name string
 		body string
 	}{
-		{"serving", strings.Replace(senderStatus, `"serving":false`, `"serving":true`, 1)},
-		{"serving proof", strings.Replace(senderStatus, `"serving_proof":false`, `"serving_proof":true`, 1)},
-		{"durable drain", strings.Replace(senderStatus, `"durable_drain":false`, `"durable_drain":true`, 1)},
+		{"receiver-only", strings.Replace(senderStatus, `"receiver_only":false`, `"receiver_only":true`, 1)},
+		{"serving proof", strings.Replace(senderStatus, `"serving_proof":true`, `"serving_proof":false`, 1)},
+		{"durable drain", strings.Replace(senderStatus, `"durable_drain":true`, `"durable_drain":false`, 1)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := decodeMemberStatus([]byte(test.body), nonce, 123, expected); err == nil ||

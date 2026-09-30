@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -177,7 +178,7 @@ func outputNames(brokers []string) []string {
 	for _, broker := range brokers {
 		names = append(names, broker+".creds")
 	}
-	return append(names, "host.creds", "operator.creds", "broker-ticket.key", "broker-ticket.pub")
+	return append(names, "host.creds", "operator.creds", "natsdiag.creds", "broker-ticket.key", "broker-ticket.pub")
 }
 
 func makeFixtureFiles(cell string, brokers []string, hostNode string) (publicManifest, map[string][]byte, error) {
@@ -245,7 +246,7 @@ func buildFixtureFiles(cell string, brokers []string, hostNode string, files map
 
 	manifest := publicManifest{
 		OperatorAccount: operatorID, SystemAccount: systemID, CellAccount: cellID,
-		Users: make(map[string]string, len(brokers)+3),
+		Users: make(map[string]string, len(brokers)+4),
 	}
 	systemCredentials, systemUserID, err := makeCredentials(systemKey, systemID, func(public string) userGrants {
 		return userGrants{
@@ -287,7 +288,7 @@ func buildFixtureFiles(cell string, brokers []string, hostNode string, files map
 
 	operatorCredentials, operatorUserID, err := makeCredentials(cellKey, cellID, func(public string) userGrants {
 		return userGrants{
-			publish:   operatorGrants(cell, hostNode),
+			publish:   []string(natscell.BrokerOperatorPublishPermissions(cell)),
 			subscribe: []string{inboxPrefix(cell, public) + ".>"},
 		}
 	})
@@ -296,6 +297,17 @@ func buildFixtureFiles(cell string, brokers []string, hostNode string, files map
 	}
 	files["operator.creds"] = operatorCredentials
 	manifest.Users["operator"] = operatorUserID
+	diagnosticCredentials, diagnosticUserID, err := makeCredentials(cellKey, cellID, func(public string) userGrants {
+		return userGrants{
+			publish:   diagnosticGrants(cell, hostNode),
+			subscribe: []string{inboxPrefix(cell, public) + ".>"},
+		}
+	})
+	if err != nil {
+		return publicManifest{}, fmt.Errorf("create diagnostic credentials: %w", err)
+	}
+	files["natsdiag.creds"] = diagnosticCredentials
+	manifest.Users["natsdiag"] = diagnosticUserID
 
 	ticketPublic, ticketPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -352,31 +364,25 @@ func controllerGrants(cell, broker, public string) ([]string, []string) {
 		inboxPrefix(cell, public) + ".>",
 		root + ".agent.*.observation.*", root + ".delivery.artifact.admit",
 		root + ".host.register", root + ".placement.apply", root + ".broker.claim.apply",
+		root + ".managed-update.prepare",
+		root + ".backup.operation",
 		"ts.broker." + cell + ".ticket.>", "ts.broker." + cell + ".fence." + broker,
+		root + ".terminal.>",
 	}
 	return publish, subscribe
 }
 
-func operatorGrants(cell, hostNode string) []string {
-	root := "ts.orch.v1." + cell
+func diagnosticGrants(cell, hostNode string) []string {
 	return []string{
-		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".broker.claim.apply", "$JS.API.INFO",
+		"$JS.API.INFO",
 		"$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS", "$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS", "$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
 		"$JS.API.STREAM.INFO.KV_TS_HOST_STATE", "$JS.API.STREAM.INFO.TS_CONTROL_LOG",
-		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_OPERATIONS",
-		"$JS.API.STREAM.MSG.GET.OBJ_TS_ARTIFACTS", "$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_ADMISSIONS",
 		"$JS.API.STREAM.MSG.GET.KV_TS_DELIVERY_OPERATIONS", "$JS.API.STREAM.MSG.GET.KV_TS_HOST_STATE",
-		"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG", "$JS.API.CONSUMER.CREATE.OBJ_TS_ARTIFACTS.>",
-		"$JS.API.CONSUMER.INFO.OBJ_TS_ARTIFACTS.*", "$JS.API.CONSUMER.DELETE.OBJ_TS_ARTIFACTS.*",
-		"$JS.API.CONSUMER.INFO.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER",
-		"$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS", "$JS.API.DIRECT.GET.OBJ_TS_ARTIFACTS.>",
-		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_ADMISSIONS.>",
+		"$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG",
 		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.$KV.TS_HOST_STATE.session." + cell + "." + hostNode,
 		"$JS.API.DIRECT.GET.KV_TS_HOST_STATE.$KV.TS_HOST_STATE.report." + cell + "." + hostNode + ".terrabase",
 		"$JS.API.DIRECT.GET.KV_TS_DELIVERY_OPERATIONS.$KV.TS_DELIVERY_OPERATIONS.*",
-		"$JS.API.DIRECT.GET.TS_CONTROL_LOG.>", "$O.TS_ARTIFACTS.>",
 	}
 }
 

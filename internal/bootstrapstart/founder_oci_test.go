@@ -19,11 +19,16 @@ const (
 	founderTestBootID     = "ocid1.bootvolume.oc1.sa-saopaulo-1.peer"
 )
 
-func founderOCIRequestFixture() bootstrap.FounderPeerLaunchRequest {
+func founderOCIRequestFixture(t *testing.T) bootstrap.FounderPeerLaunchRequest {
+	t.Helper()
+	fixture := newFounderSelectionFixture(t)
+	manifestWire := fixture.manifests["controller-b"]
 	return bootstrap.FounderPeerLaunchRequest{
-		Cell: oci.RegionGRU, Slot: "controller-b", RetryToken: "fixed-original-token",
+		DeploymentID: "deployment-a", Cell: oci.RegionGRU, Environment: "production",
+		Slot: "controller-b", ManifestWire: manifestWire, ManifestSHA256: digestWire(manifestWire),
+		RetryToken: "fixed-original-token",
 		Row: bootstrap.FounderPeerRow{
-			Slot: "controller-b", ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.peer",
+			Slot: "controller-b", ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image",
 			ImageCompartmentOCID: "ocid1.compartment.oc1..images",
 			CompartmentOCID:      "ocid1.compartment.oc1..peers",
 			AvailabilityDomain:   "SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-2",
@@ -40,10 +45,10 @@ func founderOCIRequestFixture() bootstrap.FounderPeerLaunchRequest {
 }
 
 func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	attempt := FounderOCIAttempt{request: request, deadline: time.Now().UTC().Add(time.Hour),
 		observationOnly: true, candidateID: founderTestInstanceID, valid: true}
-	adapter := &FounderOCI{region: oci.RegionGRU}
+	adapter := &FounderOCI{region: oci.RegionGRU, material: testLaunchMaterial}
 	if _, err := adapter.Launch(t.Context(), attempt, nil); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("observation-only attempt reached launch path: %v", err)
 	}
@@ -52,6 +57,9 @@ func TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate(t *testin
 		t.Fatalf("observation-only attempt changed exact candidate: %v", err)
 	}
 }
+
+var testLaunchMaterial = LaunchMaterial{Identity: []byte(`{"identity":1}`), Anchor: []byte(`{"anchor":1}`),
+	HostEnrollment: []byte(`{"bundle":1}`)}
 
 type lostResponseCompute struct {
 	requests []core.LaunchInstanceRequest
@@ -64,13 +72,13 @@ func (fake *lostResponseCompute) LaunchInstance(_ context.Context, request core.
 	}
 	return core.LaunchInstanceResponse{Instance: core.Instance{
 		Id: new(founderTestInstanceID), CompartmentId: request.CompartmentId,
-		ImageId: new(founderOCIRequestFixture().Row.ImageOCID),
+		ImageId: new("ocid1.image.oc1.sa-saopaulo-1.image"),
 	}}, nil
 }
 
 func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T) {
-	request := founderOCIRequestFixture()
-	sdk, err := founderLaunchSDKRequest(request)
+	request := founderOCIRequestFixture(t)
+	sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,10 +113,10 @@ func TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier(t *testing.T)
 }
 
 func TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	fake := new(lostResponseCompute)
 	for range 2 {
-		sdk, err := founderLaunchSDKRequest(request)
+		sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -126,12 +134,12 @@ func TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt(t *testin
 	}
 	bad := request
 	bad.Row.BootVolumeTier = "higher-performance"
-	if _, err := founderLaunchSDKRequest(bad); !errors.Is(err, ErrFounderOCI) {
+	if _, err := founderLaunchSDKRequest(bad, testLaunchMaterial); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("unsupported boot tier = %v", err)
 	}
 	bad = request
 	bad.Row.WholeOCPUs = 1<<24 + 1
-	if _, err := founderLaunchSDKRequest(bad); !errors.Is(err, ErrFounderOCI) {
+	if _, err := founderLaunchSDKRequest(bad, testLaunchMaterial); !errors.Is(err, ErrFounderOCI) {
 		t.Fatalf("inexact float32 OCPU count = %v", err)
 	}
 }
@@ -146,9 +154,9 @@ func TestFounderOCIBootVolumeLaunchSizeBounds(t *testing.T) {
 		{32768, true},
 		{32769, false},
 	} {
-		request := founderOCIRequestFixture()
+		request := founderOCIRequestFixture(t)
 		request.Row.BootVolumeGB = test.gigabytes
-		sdk, err := founderLaunchSDKRequest(request)
+		sdk, err := founderLaunchSDKRequest(request, testLaunchMaterial)
 		if test.valid {
 			if err != nil {
 				t.Fatalf("boot volume %d GB was rejected: %v", test.gigabytes, err)
@@ -164,7 +172,7 @@ func TestFounderOCIBootVolumeLaunchSizeBounds(t *testing.T) {
 }
 
 func TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	request.FounderPlanSHA256 = "plan-A"
 	request.IntentSHA256 = "original-intent"
 	now := time.Date(2026, time.September, 26, 7, 0, 0, 0, time.UTC)
@@ -196,7 +204,7 @@ func TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline(t *testing.T) 
 }
 
 func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
-	request := founderOCIRequestFixture()
+	request := founderOCIRequestFixture(t)
 	row := request.Row
 	descriptor := `{"schemaVersion":1,"slot":"controller-b"}`
 	instance := core.Instance{
@@ -208,7 +216,7 @@ func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
 	image := core.Image{Id: new(row.ImageOCID), CompartmentId: new(row.ImageCompartmentOCID),
 		LifecycleState: core.ImageLifecycleStateAvailable}
 	vnic := core.Vnic{
-		Id: new(founderTestVNICID), CompartmentId: new(row.CompartmentOCID),
+		Id: new(founderTestVNICID), CompartmentId: new("ocid1.compartment.oc1..network"),
 		AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
 		PrivateIp: new(row.PrivateIP), IsPrimary: new(true), LifecycleState: core.VnicLifecycleStateAvailable,
 		NsgIds: slices.Clone(row.NetworkSecurityGroupOCIDs),
@@ -319,8 +327,28 @@ func TestFounderOCIObservationRejectsEveryPinnedMismatch(t *testing.T) {
 	}
 }
 
+func TestFounderVNICRequiresSubnetNetworkOwnership(t *testing.T) {
+	row := founderOCIRequestFixture(t).Row
+	vnic := core.Vnic{
+		Id: new(founderTestVNICID), CompartmentId: new("ocid1.compartment.oc1..network"),
+		AvailabilityDomain: new(row.AvailabilityDomain), SubnetId: new(row.SubnetOCID),
+		PrivateIp: new(row.PrivateIP), IsPrimary: new(true), LifecycleState: core.VnicLifecycleStateAvailable,
+		NsgIds: slices.Clone(row.NetworkSecurityGroupOCIDs),
+	}
+	subnet := core.Subnet{Id: new(row.SubnetOCID), CompartmentId: new("ocid1.compartment.oc1..network"),
+		VcnId: new("ocid1.vcn.oc1.sa-saopaulo-1.founder"), LifecycleState: core.SubnetLifecycleStateAvailable}
+	if !founderVNICMatches(vnic, founderTestVNICID, row) ||
+		!vnicSubnetMatches(vnic, subnet, founderTestInstanceID) {
+		t.Fatal("valid founder VNIC in network compartment rejected")
+	}
+	subnet.CompartmentId = new(row.CompartmentOCID)
+	if vnicSubnetMatches(vnic, subnet, founderTestInstanceID) {
+		t.Fatal("founder VNIC accepted subnet in control compartment")
+	}
+}
+
 func TestFounderOCIUsesModernImageSourceAndRequiresPositiveProvenance(t *testing.T) {
-	row := founderOCIRequestFixture().Row
+	row := founderOCIRequestFixture(t).Row
 	instance := core.Instance{Id: new(founderTestInstanceID), CompartmentId: new(row.CompartmentOCID)}
 	if !founderLaunchCandidateMatches(instance, row) {
 		t.Fatal("launch response without deprecated image ID lost its exact candidate OCID")

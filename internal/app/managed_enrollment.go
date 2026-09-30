@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
@@ -144,7 +145,9 @@ func (verifier managedRegistrationVerifier) VerifyManagedRegistration(ctx contex
 		foundInstance = true
 	}
 	compute := profile.Compute
+	privateIP, _, addressErr := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
 	if instance.ID != state.InstanceID || instance.Node != state.HostNode || instance.CreateKey != state.CreateKey ||
+		addressErr != nil || privateIP == "" || instance.PrivateIP != privateIP ||
 		instance.Region != verifier.region || instance.Owner != verifier.owner || instance.Generation != verifier.fleetGeneration ||
 		instance.FaultDomain != row.FailureDomain || instance.Shape != compute.Shape ||
 		instance.WholeOCPUs != compute.WholeOCPUs || instance.MemoryInGBs != compute.MemoryInGBs ||
@@ -167,7 +170,8 @@ func managedRegistrationStage(stage placement.MemberStage) bool {
 	switch stage {
 	case placement.StageAwaitingHost, placement.StagePreparedVolume, placement.StagePreparedAttach,
 		placement.StageAwaitingAttach, placement.StagePreparedDesired, placement.StageAwaitingRuntimeContract,
-		placement.StageAwaitingHealthy, placement.StageServing:
+		placement.StageAwaitingHealthy, placement.StageServing, placement.StageCordoned,
+		placement.StageDraining, placement.StageDrained:
 		return true
 	default:
 		return false

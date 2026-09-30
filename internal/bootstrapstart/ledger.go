@@ -23,7 +23,7 @@ type InstancePrincipalLedgerOpener struct {
 
 func (opener InstancePrincipalLedgerOpener) OpenCurrentLedger(ctx context.Context,
 	verified bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	config, err := currentLedgerConfig(verified, roots)
 	if err != nil {
 		return nil, err
@@ -76,7 +76,7 @@ func currentLedgerConfig(verified bootstrap.VerifiedBootstrapAnchor, roots trust
 
 func (opener InstancePrincipalLedgerOpener) OpenHistoricalLedger(ctx context.Context,
 	verified bootstrap.HistoricalBootstrapAnchor, roots trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	config, err := historicalLedgerConfig(verified, roots)
 	if err != nil {
 		return nil, err
@@ -149,7 +149,7 @@ func newOCIAdmissionProvider(config bootstrap.LedgerConfig) (common.Configuratio
 	return provider, nil
 }
 
-func openInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerConfig, provider common.ConfigurationProvider) (SlotReader, error) {
+func openInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerConfig, provider common.ConfigurationProvider) (AdmissionLedger, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -166,12 +166,12 @@ func openInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerCon
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return readOnlyLedger{ledger: ledger}, nil
+	return admissionLedger{ledger: ledger}, nil
 }
 
 func openHistoricalInstancePrincipalLedger(ctx context.Context, config bootstrap.LedgerConfig,
 	provider common.ConfigurationProvider,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func openHistoricalInstancePrincipalLedger(ctx context.Context, config bootstrap
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return readOnlyLedger{ledger: ledger}, nil
+	return admissionLedger{ledger: ledger}, nil
 }
 
 // ledgerConfigFromAnchor is called only with a typed verified grant obtained
@@ -211,11 +211,19 @@ func ledgerConfigFromAnchor(anchor bootstrap.BootstrapAnchor, roots trust.Keyrin
 	}
 }
 
-type readOnlyLedger struct{ ledger *bootstrap.Ledger }
+// admissionLedger exposes only slot reads and the one object admission
+// writes: its public accepted-install marker.
+type admissionLedger struct{ ledger *bootstrap.Ledger }
 
-func (reader readOnlyLedger) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+func (reader admissionLedger) ReadSlot(ctx context.Context, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
 	return reader.ledger.ReadSlot(ctx, scope)
 }
 
+func (reader admissionLedger) PublishAcceptedInstall(ctx context.Context, scope bootstrap.BootstrapScope,
+	marker []byte,
+) error {
+	return reader.ledger.PublishAcceptedInstall(ctx, scope, marker)
+}
+
 var _ LedgerOpener = InstancePrincipalLedgerOpener{}
-var _ SlotReader = readOnlyLedger{}
+var _ AdmissionLedger = admissionLedger{}

@@ -1,0 +1,11 @@
+Running as unit: run-p3029077-i7311528.scope; invocation ID: 0fe68d2b3df847618aa0e99da988d0ec
+ionice: ignoring given class data for idle class
+--- FAIL: TestSignManifestDoesNotRetainCallerReleaseWireAliases (0.00s)
+    manifest_test.go:103: signed manifest payload did not preserve the original release proof bytes
+FAIL
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap	5.068s
+ok  	git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart	24.703s
+# git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-bootstrap [git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-bootstrap.test]
+cmd/ts-bootstrap/render_controller_config.go:149:12: declared and not used: err
+FAIL	git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-bootstrap [build failed]
+FAIL

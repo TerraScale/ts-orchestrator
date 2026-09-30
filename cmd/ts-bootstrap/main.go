@@ -43,7 +43,7 @@ func run(args []string) error {
 
 func runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 	switch args[0] {
 	case "verify-anchor":
@@ -56,14 +56,50 @@ func runAt(args []string, now time.Time) error {
 		return signBootstrapAnchorAt(args[1:], now)
 	case "sign-manifest":
 		return signManifestAt(args[1:], now)
+	case "render-controller-config":
+		return renderControllerConfigAt(args[1:], now)
+	case "render-operator-config":
+		return renderOperatorConfigAt(args[1:], now)
+	case "render-host-enrollment-public":
+		return renderHostEnrollmentPublicAt(args[1:], now)
+	case "install-operator-material":
+		return installOperatorMaterialAt(args[1:], now)
+	case "open-customer-material":
+		return openCustomerMaterialAt(args[1:])
+	case "open-rotated-customer-material":
+		return openRotatedCustomerMaterialAt(args[1:])
+	case "generate-controller-material":
+		return runGenerateControllerMaterial(args[1:])
+	case "provision-controller-material":
+		return runProvisionControllerMaterial(args[1:])
+	case "sign-peer-receipt-delegation":
+		return signPeerReceiptDelegationAt(args[1:], now)
+	case "render-founder-continuity":
+		return renderFounderContinuityAt(args[1:])
 	case "sign-founder-continuity":
 		return signFounderContinuityAt(args[1:], now)
+	case "sign-founder-plan":
+		return signFounderPlanAt(args[1:], now)
+	case "sign-initial-founder-selection":
+		return signInitialFounderSelectionAt(args[1:], now)
+	case "publish-initial-founder-selection":
+		return publishInitialFounderSelectionAt(args[1:], now)
+	case "sign-external-seed-reservation":
+		return signSeedReservationAt(args[1:], now)
+	case "publish-external-seed-reservation":
+		return publishSeedReservationAt(args[1:], now)
+	case "observe-external-seed":
+		return observeExternalSeedAt(args[1:], now)
+	case "sign-external-seed-completion":
+		return signSeedCompletionAt(args[1:], now)
+	case "publish-external-seed-completion":
+		return publishSeedCompletionAt(args[1:], now)
 	case "sign-founder-selection":
 		return signFounderSelectionAt(args[1:], now)
 	case "publish-founder-selection":
 		return publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | sign-manifest | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New("usage: ts-bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
 	}
 }
 
@@ -526,7 +562,15 @@ func signBootstrapAnchorAt(args []string, now time.Time) error {
 func signManifestAt(args []string, now time.Time) error {
 	flags := flag.NewFlagSet("sign-manifest", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	candidatePath := flags.String("candidate", "", "reviewed unsigned v2 bootstrap manifest JSON")
+	candidatePath := flags.String("candidate", "", "reviewed unsigned bootstrap manifest JSON")
+	controllerConfigPath := flags.String("controller-config", "", "reviewed canonical controller role JSON")
+	controllerConfigSHA := flags.String("controller-config-sha256", "", "reviewed controller role SHA-256")
+	regionIntentPath := flags.String("oci-region-intent", "", "reviewed canonical regional intent JSON")
+	regionIntentSHA := flags.String("oci-region-intent-sha256", "", "reviewed regional intent SHA-256")
+	regionConfigPath := flags.String("oci-region-config", "", "reviewed canonical regional fleet JSON")
+	regionConfigSHA := flags.String("oci-region-config-sha256", "", "reviewed regional fleet SHA-256")
+	placementPath := flags.String("placement-config", "", "reviewed canonical placement JSON")
+	placementSHA := flags.String("placement-config-sha256", "", "reviewed placement SHA-256")
 	anchorPath := flags.String("anchor", "", "current root-signed deployment bootstrap anchor envelope")
 	imageReceiptPath := flags.String("image-receipt", "", "canonical signed OCI image receipt envelope")
 	releaseDelegationPath := flags.String("release-delegation", "", "canonical root-signed release delegation envelope")
@@ -537,9 +581,12 @@ func signManifestAt(args []string, now time.Time) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *candidatePath == "" || *anchorPath == "" || *imageReceiptPath == "" || *releaseDelegationPath == "" ||
+	if *candidatePath == "" || *controllerConfigPath == "" || *controllerConfigSHA == "" ||
+		*regionIntentPath == "" || *regionIntentSHA == "" || *regionConfigPath == "" ||
+		*regionConfigSHA == "" || *placementPath == "" || *placementSHA == "" ||
+		*anchorPath == "" || *imageReceiptPath == "" || *releaseDelegationPath == "" ||
 		*rootPublicPath == "" || *rootPrivatePath == "" || *outputPath == "" || flags.NArg() != 0 {
-		return errors.New("sign-manifest requires --candidate, --anchor, --image-receipt, --release-delegation, --root-key, --signing-key, and --out")
+		return errors.New("sign-manifest requires the reviewed controller config and three sidecars with SHA-256 pins, candidate, anchor, release proofs, root keys, and output")
 	}
 	policy := bootstrap.ManifestTrustPolicy()
 	if *validFor <= 0 || *validFor > policy.MaxLifetime {
@@ -557,6 +604,11 @@ func signManifestAt(args []string, now time.Time) error {
 	var manifest bootstrap.Manifest
 	if err := protocol.DecodeStrict(candidateBytes, &manifest, bootstrap.MaxManifestBytes); err != nil {
 		return fmt.Errorf("decode candidate manifest: %w", err)
+	}
+	if err := attachReviewedControllerConfig(&manifest, *controllerConfigPath, *controllerConfigSHA,
+		*regionIntentPath, *regionIntentSHA, *regionConfigPath, *regionConfigSHA,
+		*placementPath, *placementSHA); err != nil {
+		return err
 	}
 	imageWire, err := readBoundedRegular(*imageReceiptPath, bootstrap.MaxManifestBytes)
 	if err != nil {
@@ -666,8 +718,8 @@ func signManifestAt(args []string, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("encode signed manifest: %w", err)
 	}
-	if len(encoded) > bootstrap.MaxManifestBytes {
-		return fmt.Errorf("signed manifest envelope exceeds %d bytes", bootstrap.MaxManifestBytes)
+	if len(encoded) > bootstrapstart.MaxControllerManifestMetadataBytes {
+		return fmt.Errorf("signed manifest envelope exceeds %d-byte OCI metadata transport", bootstrapstart.MaxControllerManifestMetadataBytes)
 	}
 	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err

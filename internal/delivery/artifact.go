@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,9 @@ func admissionKey(digest, cell, role, environment string) string {
 }
 
 const admissionCASAttempts = 8
+
+// artifactUploadTimeout bounds one artifact upload, including every chunk ack.
+const artifactUploadTimeout = 15 * time.Minute
 
 func ArtifactClaimSubject(cell string) string {
 	return "ts.orch.v1." + cell + ".delivery.artifact.admit"
@@ -90,7 +94,11 @@ func (s *Service) PrepareArtifact(ctx context.Context, reader io.ReadSeeker, req
 		if _, err := snapshot.Seek(0, io.SeekStart); err != nil {
 			return ArtifactRecord{}, nil, err
 		}
-		if _, err := s.artifacts.Put(ctx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{ctx, snapshot}); err != nil {
+		// Without a deadline every chunk ack gets only the JetStream default
+		// timeout, which a slow operator link such as a bastion forward misses.
+		uploadCtx, cancel := context.WithTimeout(ctx, artifactUploadTimeout)
+		defer cancel()
+		if _, err := s.artifacts.Put(uploadCtx, jetstream.ObjectMeta{Name: artifactKey(r.Digest)}, contextReader{uploadCtx, snapshot}); err != nil {
 			if isArtifactStoreFullError(err) {
 				return ArtifactRecord{}, nil, fmt.Errorf("store artifact: %w: %w", ErrArtifactStoreFull, err)
 			}
@@ -124,16 +132,14 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 	if err != nil {
 		return false, fmt.Errorf("bind artifact metadata reader: %w", err)
 	}
-	legacyArtifacts, err := legacyJS.ObjectStore(ArtifactBucket)
+	info, missing, err := retryArtifactMetadataRead(ctx, func(attemptCtx context.Context) (*nats.ObjectInfo, bool, error) {
+		return authoritativeArtifactInfo(attemptCtx, legacyJS, digest)
+	})
 	if err != nil {
-		return false, fmt.Errorf("bind authoritative artifact metadata reader: %w", err)
+		return false, err
 	}
-	info, err := legacyArtifacts.GetInfo(artifactKey(digest), nats.Context(ctx))
-	if errors.Is(err, nats.ErrObjectNotFound) {
+	if missing {
 		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("inspect authoritative artifact metadata: %w", err)
 	}
 	if info == nil {
 		return false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
@@ -142,6 +148,88 @@ func (s *Service) artifactExistsForUpload(ctx context.Context, digest string) (b
 		return false, err
 	}
 	return true, nil
+}
+
+// The legacy ObjectStore.GetInfo uses this leader MSG.GET but discards its
+// context option, while ObjectStore setup does an unbounded StreamInfo. Use
+// the SDK's context-aware raw read and decode the same metadata format.
+func authoritativeArtifactInfo(ctx context.Context, js nats.JetStreamContext, digest string) (*nats.ObjectInfo, bool, error) {
+	key := artifactKey(digest)
+	subject := "$O." + ArtifactBucket + ".M." + base64.URLEncoding.EncodeToString([]byte(key))
+	message, err := js.GetLastMsg("OBJ_"+ArtifactBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil, true, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("inspect authoritative artifact metadata: %w", err)
+	}
+	if message == nil {
+		return nil, false, fmt.Errorf("%w: authoritative artifact metadata is empty", ErrInvalid)
+	}
+	var info nats.ObjectInfo
+	if err := json.Unmarshal(message.Data, &info); err != nil {
+		return nil, false, fmt.Errorf("inspect authoritative artifact metadata: %w", nats.ErrBadObjectMeta)
+	}
+	if info.Deleted {
+		return nil, true, nil
+	}
+	info.ModTime = message.Time
+	return &info, false, nil
+}
+
+// A leader change can briefly reject the authoritative MSG.GET lookup. Retry
+// only that read; a missing object permits upload, while an unresolved read
+// failure never permits a Put.
+func retryArtifactMetadataRead(ctx context.Context, read func(context.Context) (*nats.ObjectInfo, bool, error)) (*nats.ObjectInfo, bool, error) {
+	retryCtx, cancel := context.WithTimeout(ctx, intentPublishTimeout)
+	defer cancel()
+
+	backoff := intentPublishInitialBackoff
+	var lastErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
+		if err := retryCtx.Err(); err != nil {
+			if lastErr != nil {
+				return nil, false, lastErr
+			}
+			return nil, false, err
+		}
+
+		attemptCtx, stop := context.WithTimeout(retryCtx, intentPublishAttemptTimeout)
+		info, missing, err := read(attemptCtx)
+		attemptExpired := errors.Is(attemptCtx.Err(), context.DeadlineExceeded)
+		stop()
+		if err == nil {
+			if parentErr := ctx.Err(); parentErr != nil {
+				return nil, false, parentErr
+			}
+			if attemptExpired {
+				return nil, false, context.DeadlineExceeded
+			}
+			return info, missing, nil
+		}
+		lastErr = err
+		if parentErr := ctx.Err(); parentErr != nil {
+			return nil, false, parentErr
+		}
+		if retryCtx.Err() != nil || !retryableSubmitOperationReadError(err, attemptExpired) {
+			return nil, false, err
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-retryCtx.Done():
+			timer.Stop()
+			if parentErr := ctx.Err(); parentErr != nil {
+				return nil, false, parentErr
+			}
+			return nil, false, err
+		}
+		backoff = min(backoff*2, intentPublishMaxBackoff)
+	}
 }
 
 func isArtifactStoreFullError(err error) bool {
@@ -211,7 +299,7 @@ func (s *Service) persistArtifactAdmission(ctx context.Context, record ArtifactR
 		return err
 	}
 	for range admissionCASAttempts {
-		entry, getErr := s.admissions.Get(ctx, key)
+		entry, getErr := s.getAdmission(ctx, key)
 		if errors.Is(getErr, jetstream.ErrKeyNotFound) {
 			if _, createErr := s.admissions.Create(ctx, key, encoded); createErr == nil {
 				return s.verifyCurrentAdmission(ctx, record)
@@ -292,8 +380,29 @@ func decodeStoredAdmission(value []byte, digest, cell, role, environment string)
 	return signed, nil
 }
 
+// Admission decisions and CAS revisions must come from the stream leader.
+// KeyValue.Get may read a follower whose direct-get view is stale.
+func (s *Service) getAdmission(ctx context.Context, key string) (*operationValue, error) {
+	if s == nil || s.config.Conn == nil {
+		return nil, errors.New("delivery admission leader read requires NATS connection")
+	}
+	js, err := s.config.Conn.JetStream()
+	if err != nil {
+		return nil, err
+	}
+	subject := "$KV." + AdmissionBucket + "." + key
+	msg, err := js.GetLastMsg("KV_"+AdmissionBucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return operationValueFromMsg(subject, msg)
+}
+
 func (s *Service) readAdmission(ctx context.Context, digest, cell, role, environment string) (ArtifactRecord, error) {
-	e, err := s.admissions.Get(ctx, admissionKey(digest, cell, role, environment))
+	e, err := s.getAdmission(ctx, admissionKey(digest, cell, role, environment))
 	if err != nil {
 		return ArtifactRecord{}, err
 	}

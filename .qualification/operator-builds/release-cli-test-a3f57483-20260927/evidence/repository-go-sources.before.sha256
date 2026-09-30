@@ -1,0 +1,16 @@
+859485e98f30a6620046f86270e75a7641508430e81b94a9c05316da97a35c6e  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/admission.go
+bb24c254b5cba58c76994bc937d5d669cb0c838e0fda92005c0448fdcb3a1bc7  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/admission_test.go
+4601e804dd130a285f36af58d3fc789081101013bc2ac2661553a0798670a55e  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/delegation.go
+df4b37500d970aef0b969c83b8ece8692657ad61a1ef2baa6a017036bd1c75dd  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/delegation_test.go
+347a3523e06b178ae0042acaeb53ee5c870dfe84ffaa75e2deec494a7d2f73a2  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/main.go
+a7647abe9c9cc839f983af3f6d178b3dff99e4e42ad312501a6278c157a549bd  /home/mariogk/Projects/TerraScale/ts-orchestrator/cmd/ts-release/main_test.go
+e4155fcbbc421ba6c39daa47ad44b8204a6d57fa0f8815a38017707e41e43f59  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/envelope.go
+8bbba213825cc5231a2264f2e95261fd1ec1a7848770a37f6e3b37baed1d29a3  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/json.go
+defcc9674006a4e989f366afaf1925edf634023043351d23c69a781f8035f338  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/protocol_test.go
+8800f57c9b96371a93b3ad666511e664620fb914d4d9ef16fd1e4398d29b0f67  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/protocol/subjects.go
+5f6e930e795e6b632c0afbe0684cbb8eccd673b57f35498e3c09fa0dd10119a9  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/admission.go
+22df8b6ae4350f850c428b7a7e2fe7ad8d56087f77210dcab0c01fe60e0715d8  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/admission_test.go
+27caa3101d615894ddde2facf01bbc1faedd6d18b6e948bbc323e55808c44222  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/receipt.go
+7c44620cf3566055cb39fa0c56d9d89dcd3ad01ffecdc689da03c56a4b6dfbd5  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/release/receipt_test.go
+1b13ca0826d6effd078b434c61237563e2d0643e413388c2000b341d3a56d768  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/trust/envelope.go
+1a1aadf429a56eab69a5b01877b924750a440cd79553c8eb2d9468c6491e3deb  /home/mariogk/Projects/TerraScale/ts-orchestrator/internal/trust/envelope_test.go

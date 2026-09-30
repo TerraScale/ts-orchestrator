@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -18,9 +19,12 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -53,6 +57,9 @@ type manifestFixture struct {
 	delegationPath       string
 	rootPath             string
 	privatePath          string
+	controllerConfigPath string
+	regionConfigPath     string
+	placementConfigPath  string
 }
 
 func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *manifestFixture {
@@ -172,7 +179,10 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 		ledgerDelegationPath: filepath.Join(directory, "ledger-delegation.json"),
 		imagePath:            filepath.Join(directory, "image.json"),
 		delegationPath:       filepath.Join(directory, "release-delegation.json"), rootPath: filepath.Join(directory, "root.pub"),
-		privatePath: filepath.Join(directory, "root.key"),
+		privatePath:          filepath.Join(directory, "root.key"),
+		controllerConfigPath: filepath.Join(directory, "controller-config.json"),
+		regionConfigPath:     filepath.Join(directory, "oci-region.json"),
+		placementConfigPath:  filepath.Join(directory, "placement.json"),
 	}
 	writeFixture(t, fixture.imagePath, imageWire, 0o600)
 	writeFixture(t, fixture.delegationPath, delegationWire, 0o600)
@@ -194,6 +204,14 @@ func newManifestFixture(t *testing.T, delegationFor, imageFor time.Duration) *ma
 func (fixture *manifestFixture) args(output string, validFor string) []string {
 	args := []string{
 		"--candidate", fixture.candidatePath,
+		"--controller-config", fixture.controllerConfigPath,
+		"--controller-config-sha256", fixtureFileDigest(fixture.controllerConfigPath),
+		"--oci-region-intent", fixture.intentPath,
+		"--oci-region-intent-sha256", digest(fixture.initialIntentWire),
+		"--oci-region-config", fixture.regionConfigPath,
+		"--oci-region-config-sha256", fixtureFileDigest(fixture.regionConfigPath),
+		"--placement-config", fixture.placementConfigPath,
+		"--placement-config-sha256", fixtureFileDigest(fixture.placementConfigPath),
 		"--anchor", fixture.anchorPath,
 		"--image-receipt", fixture.imagePath,
 		"--release-delegation", fixture.delegationPath,
@@ -224,11 +242,98 @@ func (fixture *manifestFixture) anchorArgs(output string, validFor string) []str
 
 func (fixture *manifestFixture) writeCandidate(t *testing.T, manifest bootstrap.Manifest) {
 	t.Helper()
+	guestPath := func(name string) string { return filepath.Join(bootstrapstart.MaterialDirectory, name) }
+	privateIP := map[string]string{"seed-a": "10.0.0.11", "peer-b": "10.0.0.12"}
+	host := privateIP[manifest.Slot]
+	if host == "" {
+		host = "10.0.0.13"
+	}
+	tls := natscell.TLSFiles{CAFile: guestPath("ca.pem"), CertFile: guestPath(manifest.Slot + "-tls-cert.pem"),
+		KeyFile: guestPath(manifest.Slot + "-tls-key.pem")}
+	routes := make([]string, 0, len(manifest.ControllerSlots))
+	for _, slot := range manifest.ControllerSlots {
+		if slot != manifest.Slot {
+			routes = append(routes, "nats-route://"+privateIP[slot]+":6222")
+		}
+	}
+	cfg := app.Config{NATS: natscell.Config{Cell: strings.ToLower(string(manifest.Cell)), Instance: manifest.Slot,
+		Replicas: len(manifest.ControllerSlots), ClientRole: "controller", URL: "tls://" + host + ":4222",
+		CredentialsFile: guestPath(manifest.Slot + ".creds"), TLS: tls,
+		Embedded: &natscell.Embedded{Host: host, Port: 4222, RouteHost: host, RoutePort: 6222,
+			Routes: routes, StoreDir: "/var/lib/terrascale-orchestrator-controller/nats", StoreMaxBytes: 4 << 30,
+			TLS: tls, RouteTLS: tls, RouteUser: "ts-route", RoutePasswordFile: guestPath("route-password"),
+			OperatorJWTFile: guestPath("operator.jwt"), SystemJWTFile: guestPath("system.jwt"),
+			CellJWTFile: guestPath("cell.jwt"), SystemCredentialsFile: guestPath("system.creds"),
+			TicketPublicKeyFile: guestPath("ticket.pub"), BrokerIDs: slices.Clone(manifest.ControllerSlots)}},
+		Controller: app.ControllerConfig{CandidateID: manifest.Slot, ArtifactStoreMaxBytes: 512 << 20,
+			ResponseKeyFile: guestPath(manifest.Slot + "-response.key"), BrokerTicketKeyFile: guestPath("ticket.key"),
+			HostNATSIssuerSeedFile:      guestPath("host-nats-issuer.seed"),
+			HostTLSIssuerKeyFile:        guestPath("host-tls-issuer-key.pem"),
+			HostTLSIssuerCertFile:       guestPath("host-tls-issuer-cert.pem"),
+			HostEnrollmentListenAddress: host + ":8443",
+			OciRegionIntentFile:         "/etc/terrascale-orchestrator/oci-region-intent.json",
+			OciRegionConfig:             "/etc/terrascale-orchestrator/oci-region.json",
+			PlacementConfig:             "/etc/terrascale-orchestrator/placement.json",
+			TrustedSigners: []app.TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(fixture.rootPublic),
+				Roles: []string{"terrabase"}, Environments: []string{manifest.Environment}, CanRegisterHosts: true,
+				CanPlaceTerraBase: true, CanPrepareManagedMaterial: true}}}}
+	configWire, err := protocol.EncodeJSON(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, fixture.controllerConfigPath, configWire, 0o600)
+	regionWire, err := protocol.EncodeJSON(oci.RegionConfig{Region: manifest.Cell, Generation: manifest.IntentGeneration,
+		Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1..owned",
+		ImageCompartmentID: "ocid1.compartment.oc1..image", AvailabilityDomain: "AD-1",
+		FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1..owned",
+		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
+		ImageID:                 "ocid1.image.oc1..managed", Shape: "VM.Standard.A1.Flex", BootVolumeGB: 50,
+		BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50, Owner: "test-owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, fixture.regionConfigPath, regionWire, 0o600)
+	placementWire, err := protocol.EncodeJSON(struct {
+		Environment string              `json:"environment"`
+		MemberRole  string              `json:"member_role"`
+		Resources   placement.Resources `json:"resources"`
+	}{Environment: manifest.Environment, MemberRole: "terrabase", Resources: placement.Resources{
+		CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 50 << 30}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixture(t, fixture.placementConfigPath, placementWire, 0o600)
+	secretNames := []string{manifest.Slot + ".creds", "ca.pem", manifest.Slot + "-tls-cert.pem",
+		manifest.Slot + "-tls-key.pem", "route-password", "operator.jwt", "system.jwt", "cell.jwt",
+		"system.creds", "ticket.pub", manifest.Slot + "-response.key", "ticket.key",
+		"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"}
+	for _, name := range secretNames {
+		if slices.ContainsFunc(manifest.Secrets, func(reference bootstrap.SecretReference) bool {
+			return reference.TargetFile == name
+		}) {
+			continue
+		}
+		purpose, slot := bootstrap.SecretRegionalShared, ""
+		if strings.HasPrefix(name, manifest.Slot+"-") || name == manifest.Slot+".creds" {
+			purpose, slot = bootstrap.SecretController, manifest.Slot
+		}
+		if strings.HasPrefix(name, "host-") {
+			purpose, slot = bootstrap.SecretHostIssuer, ""
+		}
+		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: purpose, Slot: slot,
+			SecretOCID:    "ocid1.vaultsecret.oc1.sa-saopaulo-1." + strings.ReplaceAll(name, ".", "-"),
+			VersionNumber: 1, SHA256: digest([]byte(name)), MaxBytes: int64(len(name)), TargetFile: name})
+	}
 	encoded, err := trust.EncodePayload(manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
 	writeFixture(t, fixture.candidatePath, encoded, 0o600)
+}
+
+func fixtureFileDigest(path string) string {
+	wire, _ := os.ReadFile(path)
+	return digest(wire)
 }
 
 func (fixture *manifestFixture) writeAnchorCandidate(t *testing.T, anchor bootstrap.BootstrapAnchor) {
@@ -869,6 +974,71 @@ func (fixture *manifestFixture) verifyOutput(t *testing.T, output string, expect
 	return envelope
 }
 
+func TestSignedControllerConfigRoundTripRejectsHostRoleFields(t *testing.T) {
+	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
+	fixture.writeCandidate(t, fixture.manifest)
+	candidateWire, err := os.ReadFile(fixture.candidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest bootstrap.Manifest
+	if err := protocol.DecodeStrict(candidateWire, &manifest, bootstrap.MaxManifestBytes); err != nil {
+		t.Fatal(err)
+	}
+	manifest.ControllerConfig, err = os.ReadFile(fixture.controllerConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.ControllerConfigSHA256 = digest(manifest.ControllerConfig)
+	for index, path := range []string{fixture.intentPath, fixture.regionConfigPath, fixture.placementConfigPath} {
+		wire, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: bootstrap.ControllerConfigFileNames[index], SHA256: digest(wire), Bytes: wire,
+		})
+	}
+	var decoded app.Config
+	if err := protocol.DecodeStrict(manifest.ControllerConfig, &decoded, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Host.Roles == nil || len(decoded.Host.Roles) != 0 {
+		t.Fatalf("canonical empty host roles did not round-trip as an empty slice: %#v", decoded.Host.Roles)
+	}
+	canonical, err := protocol.EncodeJSON(decoded)
+	if err != nil || !bytes.Equal(canonical, manifest.ControllerConfig) {
+		t.Fatalf("controller config lost canonical JSON round trip: %v", err)
+	}
+	if _, err := app.ValidateSignedControllerConfig(manifest, ""); err != nil {
+		t.Fatalf("canonical controller config with no host role fields: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*app.Config)
+	}{
+		{name: "host roles", change: func(cfg *app.Config) { cfg.Host.Roles = []string{"terrabase"} }},
+		{name: "host node", change: func(cfg *app.Config) { cfg.Host.Node = "node-a" }},
+		{name: "host workload UID", change: func(cfg *app.Config) { cfg.Host.WorkloadUID = 2000 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := decoded
+			test.change(&cfg)
+			wire, err := protocol.EncodeJSON(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			modified := manifest
+			modified.ControllerConfig = wire
+			modified.ControllerConfigSHA256 = digest(wire)
+			if _, err := app.ValidateSignedControllerConfig(modified, ""); err == nil ||
+				!strings.Contains(err.Error(), "role, slot, or fixed paths") {
+				t.Fatalf("signed controller config admitted host role field: %v", err)
+			}
+		})
+	}
+}
+
 func TestSignManifestSignsEachSlotWithExactCurrentReleaseProofs(t *testing.T) {
 	fixture := newManifestFixture(t, 60*24*time.Hour, 45*24*time.Hour)
 	peerPublic, _, err := ed25519.GenerateKey(rand.Reader)
@@ -1219,9 +1389,17 @@ func TestSignManifestRejectsFinalEnvelopeOverSizeLimit(t *testing.T) {
 	fixture.writeAnchorFor(t, fixture.anchorForSlots(t, manifest.ControllerSlots), 48*time.Hour)
 	manifest.StorageDomain.Namespace = strings.Repeat("n", 128)
 	manifest.StorageDomain.Prefix = strings.Repeat("p", 128)
+	manifest.ControllerConfig = []byte(`{"nats":{},"controller":{}}`)
+	manifest.ControllerConfigSHA256 = digest(manifest.ControllerConfig)
+	for _, name := range bootstrap.ControllerConfigFileNames {
+		body := []byte(`{}`)
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: name, SHA256: digest(body), Bytes: body,
+		})
+	}
 	for index := range 128 {
 		target := "file-" + strings.Repeat("x", 120) + fmt.Sprintf("%03d", index)
-		ocidPrefix := "ocid1.secret.oc1.sa-saopaulo-1."
+		ocidPrefix := "ocid1.vaultsecret.oc1.sa-saopaulo-1."
 		suffix := fmt.Sprintf("%03d", index)
 		secretOCID := ocidPrefix + strings.Repeat("a", 255-len(ocidPrefix)-len(suffix)) + suffix
 		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{

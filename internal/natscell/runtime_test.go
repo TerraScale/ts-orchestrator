@@ -3,8 +3,6 @@ package natscell
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,8 +232,7 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	if err := controller.Conn().FlushTimeout(time.Second); err != nil {
 		t.Fatal(err)
 	}
-	hash := sha256.Sum256([]byte("node-one"))
-	allowed := "ts.orch.v1.lab.agent." + hex.EncodeToString(hash[:]) + ".observation.report"
+	allowed := "ts.orch.v1.lab.agent." + hostPublic + ".observation.report"
 	if err := host.Conn().Publish(allowed, []byte("own")); err != nil {
 		t.Fatal(err)
 	}
@@ -245,8 +243,7 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	if err != nil || string(message.Data) != "own" {
 		t.Fatalf("own observation was not delivered: %v %v", message, err)
 	}
-	hash = sha256.Sum256([]byte("node-two"))
-	forbidden := "ts.orch.v1.lab.agent." + hex.EncodeToString(hash[:]) + ".observation.report"
+	forbidden := "ts.orch.v1.lab.agent." + otherPublic + ".observation.report"
 	_ = host.Conn().Publish(forbidden, []byte("spoof"))
 	_ = host.Conn().FlushTimeout(time.Second)
 	if _, err := observations.NextMsg(300 * time.Millisecond); !errors.Is(err, nats.ErrTimeout) {
@@ -273,6 +270,36 @@ func TestHostNKeyCannotCrossNodeOrUseJetStream(t *testing.T) {
 	defer probeCancel()
 	if _, err := host.JetStream().AccountInfo(probeCtx); err == nil {
 		t.Fatal("host accessed JetStream account API")
+	}
+}
+
+func TestLabTerminalPermissionsAreRoleScoped(t *testing.T) {
+	public, _ := newUserIdentity(t)
+	controller, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "controller"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
+		t.Fatal("controller cannot subscribe to terminal requests")
+	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.managed-update.prepare") {
+		t.Fatal("controller cannot subscribe to managed update requests")
+	}
+	if !slices.Contains(controller.Subscribe.Allow, "ts.orch.v1.lab.backup.operation") {
+		t.Fatal("controller cannot subscribe to backup operation requests")
+	}
+	operator, err := userPermissions("lab", NKeyGrant{PublicKey: public, Role: "operator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, subject := range []string{"ts.orch.v1.lab.managed-update.prepare", "ts.orch.v1.lab.backup.operation", "ts.orch.v1.lab.terminal.plan", "ts.orch.v1.lab.terminal.apply", "ts.orch.v1.lab.terminal.status"} {
+		if !slices.Contains(operator.Publish.Allow, subject) {
+			t.Fatalf("operator cannot publish %s", subject)
+		}
+	}
+	if slices.Contains(operator.Publish.Allow, "ts.orch.v1.lab.terminal.>") ||
+		slices.Contains(operator.Subscribe.Allow, "ts.orch.v1.lab.terminal.>") {
+		t.Fatal("operator received wildcard terminal permissions")
 	}
 }
 
@@ -385,6 +412,25 @@ func TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState(t *testing.T)
 	}
 	if _, err := requests.NextMsg(time.Second); err != nil {
 		t.Fatalf("operator artifact claim publish: %v", err)
+	}
+	backupRequests, err := controller.Conn().Subscribe("ts.orch.v1.lab.backup.operation", func(message *nats.Msg) {
+		_ = message.Respond([]byte("accepted"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backupRequests.Unsubscribe() })
+	if err := controller.Conn().FlushTimeout(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	backupReply, err := operator.Conn().RequestWithContext(ctx, "ts.orch.v1.lab.backup.operation", []byte("signed"))
+	if err != nil {
+		t.Fatalf("operator backup operation request: %v", err)
+	}
+	if string(backupReply.Data) != "accepted" ||
+		!strings.HasPrefix(backupReply.Subject, inboxPrefix("lab", operatorPublic)+".") {
+		t.Fatalf("backup operation response did not use the operator's private inbox: subject=%s body=%q",
+			backupReply.Subject, backupReply.Data)
 	}
 }
 

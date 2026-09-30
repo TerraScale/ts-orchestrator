@@ -88,10 +88,20 @@ func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
 	primary, err := network.GetVnic(t.Context(), core.GetVnicRequest{VnicId: new(vnic.PrimaryVNICOCID)})
 	if err != nil || primary.Id == nil || *primary.Id != vnic.PrimaryVNICOCID ||
 		primary.PrivateIp == nil || *primary.PrivateIp != vnic.PrimaryPrivateIP ||
-		primary.SubnetId == nil ||
+		primary.SubnetId == nil || primary.CompartmentId == nil || primary.AvailabilityDomain == nil ||
+		*primary.CompartmentId != vnic.NetworkCompartmentOCID ||
 		primary.IsPrimary == nil || !*primary.IsPrimary ||
 		primary.LifecycleState != core.VnicLifecycleStateAvailable {
 		t.Fatalf("%s SDK GetVnic decoded unexpected response: %+v, %v", slot, primary, err)
+	}
+	subnet, err := network.GetSubnet(t.Context(), core.GetSubnetRequest{SubnetId: primary.SubnetId})
+	if err != nil || subnet.Id == nil || *subnet.Id != *primary.SubnetId ||
+		subnet.CompartmentId == nil || *subnet.CompartmentId != vnic.NetworkCompartmentOCID ||
+		*subnet.CompartmentId == *instance.CompartmentId ||
+		subnet.VcnId == nil || *subnet.VcnId != vnic.VCNOCID ||
+		subnet.AvailabilityDomain == nil || *subnet.AvailabilityDomain != *primary.AvailabilityDomain ||
+		subnet.LifecycleState != core.SubnetLifecycleStateAvailable {
+		t.Fatalf("%s SDK GetSubnet decoded unexpected network identity: %+v, %v", slot, subnet, err)
 	}
 	additionalComputeReads := assertPacketComputeObserver(t, provider, &compute, &network,
 		observed, vnic, instance, primary)
@@ -104,7 +114,7 @@ func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
 			computeReads++
 		}
 	}
-	if computeReads != 3+additionalComputeReads || simulator.OverflowCount() != 0 {
+	if computeReads != 4+additionalComputeReads || simulator.OverflowCount() != 0 {
 		t.Fatalf("%s SDK Compute request count = %d, audit overflow = %d", slot,
 			computeReads, simulator.OverflowCount())
 	}

@@ -1,0 +1,1 @@
+/home/mariogk/.local/share/mise/installs/go/1.27.1/bin/go

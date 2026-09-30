@@ -18,6 +18,9 @@ const (
 	SchemaVersion      = 1
 	MetadataKey        = "terrascale_hostboot_v1"
 	MaxDescriptorBytes = 4096
+	// EnrollmentMetadataKey carries the exact public host enrollment bundle.
+	// Controllers deliver it at launch so the host image stays deployment-neutral.
+	EnrollmentMetadataKey = "terrascale-host-enrollment-v1"
 )
 
 var (

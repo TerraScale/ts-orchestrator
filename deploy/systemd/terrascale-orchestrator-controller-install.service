@@ -1,0 +1,41 @@
+[Unit]
+Description=Install root-signed TerraScale controller configuration
+Wants=network-online.target
+After=network-online.target systemd-time-wait-sync.service
+Requires=systemd-timesyncd.service systemd-time-wait-sync.service
+Before=terrascale-orchestrator-bootstrap.service
+# A late success after a failed first boot must still start admission.
+OnSuccess=terrascale-orchestrator-bootstrap.service
+
+[Service]
+Type=oneshot
+# Units that Require this oneshot must see it active after it succeeds;
+# otherwise each dependent start reruns it and trips the start limit.
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=10s
+ExecStart=/usr/local/bin/terrascale-orchestrator install-controller-config
+# Nodes without SSH report admission failures through the serial console.
+StandardError=journal+console
+TimeoutStartSec=120s
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_CHOWN
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/etc/terrascale-orchestrator
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+ProtectProc=invisible
+ProcSubset=pid

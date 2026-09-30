@@ -54,8 +54,10 @@ func productionGuestTestInputs(t *testing.T, now time.Time, binary []byte) Guest
 		input.IMDS[slot] = IMDSIdentity{TenancyID: fixtureTenancyOCID,
 			Certificate: imdsCert, PrivateKey: imdsKey, Intermediate: imdsIntermediate}
 		input.VNICs[slot] = GuestObservation{
-			PrimaryVNICOCID:  "ocid1.vnic.oc1.sa-saopaulo-1." + slot,
-			PrimaryPrivateIP: addresses[slot],
+			PrimaryVNICOCID:        "ocid1.vnic.oc1.sa-saopaulo-1." + slot,
+			PrimaryPrivateIP:       addresses[slot],
+			NetworkCompartmentOCID: "ocid1.compartment.oc1..networkfixture",
+			VCNOCID:                "ocid1.vcn.oc1.sa-saopaulo-1.restartfixture",
 		}
 		credentials := make(map[string][]byte, 12)
 		for _, name := range []string{"operator.jwt", "system.jwt", "cell.jwt", "system.creds",

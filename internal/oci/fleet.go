@@ -1,10 +1,12 @@
 package oci
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"path"
 	"slices"
 	"strings"
@@ -24,6 +26,11 @@ const (
 	retainedVolumeReadOnly            = false
 	retainedVolumeShareable           = false
 	retainedVolumeEncryptionInTransit = true
+
+	// OCI returns a new attachment while it is still ATTACHING and changes its
+	// ETag when it settles.
+	attachmentSettleTimeout = 2 * time.Minute
+	attachmentSettlePoll    = 2 * time.Second
 
 	tagManagedBy              = "terrascale-managed-by"
 	tagOwner                  = "terrascale-owner"
@@ -99,25 +106,13 @@ func newFleet(
 	return &fleet{
 		config: config, provider: provider, journal: journal, fencer: fencer,
 		drainRequester: drainRequester, writerStop: writerStop, imageVerifier: imageVerifier, now: time.Now,
+		attachmentSettle: attachmentSettleTimeout,
 	}, nil
 }
 
-// NewInstancePrincipalFleet builds official OCI Compute and Block Volume SDK
-// clients using instance-principal authentication for one validated region.
-func NewInstancePrincipalFleet(
-	config RegionConfig,
-	intent RegionIntent,
-	journal Journal,
-	fencer authority.Fencer,
-	drainRequester DrainRequester,
-	writerStop WriterStopVerifier,
-) (Fleet, error) {
-	return NewInstancePrincipalFleetWithImageVerifier(config, intent, journal, fencer, drainRequester, writerStop, nil)
-}
-
-// NewInstancePrincipalFleetWithImageVerifier preserves instance-principal
-// construction while allowing an approved image qualification source to be
-// injected when one is available.
+// NewInstancePrincipalFleetWithImageVerifier builds official OCI Compute and
+// Block Volume SDK clients using instance-principal authentication for one
+// validated region. hostMetadata is added to every managed host launch.
 func NewInstancePrincipalFleetWithImageVerifier(
 	config RegionConfig,
 	intent RegionIntent,
@@ -126,11 +121,12 @@ func NewInstancePrincipalFleetWithImageVerifier(
 	drainRequester DrainRequester,
 	writerStop WriterStopVerifier,
 	imageVerifier ImageQualificationVerifier,
+	hostMetadata map[string]string,
 ) (Fleet, error) {
 	if err := config.Validate(intent); err != nil {
 		return nil, err
 	}
-	provider, err := newSDKProvider(config)
+	provider, err := newSDKProvider(config, hostMetadata)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +142,8 @@ type fleet struct {
 	writerStop     WriterStopVerifier
 	imageVerifier  ImageQualificationVerifier
 	now            func() time.Time
+	// attachmentSettle bounds the wait for a new attachment to leave ATTACHING.
+	attachmentSettle time.Duration
 }
 
 func (f *fleet) verifyPinnedImage(ctx context.Context) error {
@@ -222,8 +220,9 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 		}
 		instance, err := f.instanceFromCloud(ctx, cloud, identity, profileIntent)
 		if err != nil {
-			if errors.Is(err, ErrAttachmentRecoveryHold) {
-				slog.Warn("withholding OCI instance with an unbound retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region)
+			if errors.Is(err, ErrAttachmentRecoveryHold) || errors.Is(err, ErrForeignResource) ||
+				errors.Is(err, ErrRetainedVolumeUnknown) {
+				slog.Warn("withholding OCI instance with an unverified retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region, "error", err)
 				continue
 			}
 			return nil, err
@@ -236,6 +235,9 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance, error) {
 	if !validCreateKey(request.CreateKey) || !slices.Contains(f.config.FaultDomains, request.FaultDomain) {
 		return Instance{}, errors.New("OCI host launch has an invalid create key or unsupported fault domain")
+	}
+	if !validManagedPrivateIP(request.PrivateIP) {
+		return Instance{}, errors.New("OCI host launch requires a signed private IPv4 address")
 	}
 	if request.Shape != f.config.Shape || !validComputeProfile(request.Shape, request.WholeOCPUs,
 		request.MemoryInGBs, request.PlacementProfileDigest, request.PlacementGeneration) {
@@ -257,8 +259,17 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 	if err != nil {
 		return Instance{}, err
 	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, descriptor.DatabaseID, descriptor.PartitionID)
+	if err != nil {
+		return Instance{}, err
+	}
+	defer release()
+	if err := f.verifyLaunchScope(ctx, descriptor, request.CreateKey); err != nil {
+		return Instance{}, err
+	}
 	intent := f.intent(actionLaunch, request.CreateKey, "", request.CreateKey, "", request.FaultDomain, "")
 	intent.Shape = request.Shape
+	intent.PrivateIP = request.PrivateIP
 	intent.WholeOCPUs = request.WholeOCPUs
 	intent.MemoryInGBs = request.MemoryInGBs
 	intent.PlacementProfileDigest = request.PlacementProfileDigest
@@ -299,8 +310,14 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			if !cloudMatchesPlacementProfile(cloud, operationIntent) {
 				return Instance{}, fmt.Errorf("%w: observed instance does not match the immutable launch intent", ErrPlacementProfileMismatch)
 			}
+			if cloud.PrivateIP != operationIntent.PrivateIP {
+				return Instance{}, fmt.Errorf("%w: observed private IP differs from immutable launch intent", ErrPlacementProfileMismatch)
+			}
 			// The launch receipt is immutable; the live ETag belongs to this
 			// observation and will fence the next tag/termination operation.
+			if err := f.captureBootBinding(ctx, epoch, cloud, identity); err != nil {
+				return Instance{}, err
+			}
 			return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
 		}
 		if !hasPriorResult || !priorResult.Unknown {
@@ -323,6 +340,7 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.CreateKey,
 		}, ":")),
 		FaultDomain:            operationIntent.FaultDomain,
+		PrivateIP:              operationIntent.PrivateIP,
 		Shape:                  operationIntent.Shape,
 		WholeOCPUs:             operationIntent.WholeOCPUs,
 		MemoryInGBs:            operationIntent.MemoryInGBs,
@@ -372,10 +390,43 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 		unknownErr := fmt.Errorf("%w: %w: launched instance does not match the immutable launch intent", ErrOutcomeUnknown, ErrPlacementProfileMismatch)
 		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
 	}
+	if cloud.PrivateIP != operationIntent.PrivateIP {
+		unknownErr := fmt.Errorf("%w: %w: launched private IP differs from immutable launch intent", ErrOutcomeUnknown, ErrPlacementProfileMismatch)
+		return Instance{}, errors.Join(unknownErr, f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, Unknown: true}))
+	}
 	if err := f.recordResult(ctx, epoch, OperationResult{Intent: operationIntent, ResourceID: cloud.ID, ETag: cloud.ETag}); err != nil {
 		return Instance{}, err
 	}
+	if err := f.captureBootBinding(ctx, epoch, cloud, identity); err != nil {
+		return Instance{}, err
+	}
 	return f.instanceFromCloud(ctx, cloud, identity, operationIntent)
+}
+
+func (f *fleet) captureBootBinding(ctx context.Context, epoch uint64, cloud CloudInstance, identity ResourceIdentity) error {
+	if cloud.LifecycleState == "TERMINATING" || cloud.LifecycleState == "TERMINATED" {
+		binding, found, err := f.journal.GetBootBinding(ctx, cloud.ID)
+		if err != nil || !found || binding.InstanceID != cloud.ID {
+			return fmt.Errorf("%w: terminated host lacks its active-instance boot binding: %v", ErrHostBootBindingMismatch, err)
+		}
+		return nil
+	}
+	boot, err := f.provider.GetAttachedBootVolume(ctx, cloud.ID)
+	if err != nil {
+		return fmt.Errorf("capture active OCI boot attachment: %w", err)
+	}
+	if !f.terminalBootMatches(boot, boot.ID) {
+		return ErrHostBootBindingMismatch
+	}
+	if err := f.guard(ctx, epoch); err != nil {
+		return err
+	}
+	return f.journal.RecordBootBinding(ctx, BootBinding{
+		InstanceID: cloud.ID, BootVolumeID: boot.ID, Region: f.config.Region,
+		Generation: f.config.Generation, Owner: f.config.Owner, CreateKey: identity.CreateKey,
+		CompartmentID: boot.CompartmentID, AvailabilityDomain: boot.AvailabilityDomain,
+		ImageID: boot.ImageID, SizeGB: boot.SizeGB, VPUsPerGB: boot.VPUsPerGB,
+	})
 }
 
 // CreateRetainedVolume creates or recovers one region-pinned member data
@@ -385,9 +436,11 @@ func (f *fleet) EnsureHost(ctx context.Context, request EnsureRequest) (Instance
 // the resource remains withheld for operator inspection instead of being
 // adopted from tags alone.
 func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRequest) (RetainedVolume, error) {
-	if !validCreateKey(request.CreateKey) || request.SizeGB < minRetainedVolumeSizeGB ||
-		request.SizeGB > f.config.MaxDataVolumeGB {
-		return RetainedVolume{}, errors.New("retained OCI volume size exceeds the configured fleet bounds")
+	if !validCreateKey(request.CreateKey) {
+		return RetainedVolume{}, errors.New("retained OCI volume requires a valid create key")
+	}
+	if request.SizeGB < minRetainedVolumeSizeGB || request.SizeGB > f.config.MaxDataVolumeGB {
+		return RetainedVolume{}, fmt.Errorf("retained OCI volume size must be between %d GiB and the configured fleet bound %d GiB", minRetainedVolumeSizeGB, f.config.MaxDataVolumeGB)
 	}
 	if err := f.verifyPinnedImage(ctx); err != nil {
 		return RetainedVolume{}, err
@@ -400,6 +453,14 @@ func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRe
 	}
 	epoch, err := f.currentEpoch()
 	if err != nil {
+		return RetainedVolume{}, err
+	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, request.DatabaseID, request.PartitionID)
+	if err != nil {
+		return RetainedVolume{}, err
+	}
+	defer release()
+	if err := f.verifyDataCreateScope(ctx, request); err != nil {
 		return RetainedVolume{}, err
 	}
 	intent := f.intent(actionVolumeCreate, request.CreateKey, "", request.CreateKey, "", "", "")
@@ -575,6 +636,11 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err != nil {
 		return Attachment{}, err
 	}
+	release, err := f.beginActiveWorkloadEffect(ctx, epoch, request.DatabaseID, request.PartitionID)
+	if err != nil {
+		return Attachment{}, err
+	}
+	defer release()
 	instance, identity, err := f.ownedInstance(ctx, request.InstanceID)
 	if err != nil {
 		return Attachment{}, err
@@ -582,7 +648,11 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	if err := f.verifyRetainedVolumeHostImage(instance); err != nil {
 		return Attachment{}, err
 	}
-	if _, err := f.ownedVolume(ctx, request.VolumeID); err != nil {
+	volume, err := f.ownedVolume(ctx, request.VolumeID)
+	if err != nil {
+		return Attachment{}, err
+	}
+	if err := f.verifyAttachScope(ctx, request.DatabaseID, request.PartitionID, request.InstanceID, volume); err != nil {
 		return Attachment{}, err
 	}
 
@@ -655,7 +725,7 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		if attachments[0].InstanceID != request.InstanceID {
 			return Attachment{}, errors.Join(retryWindowErr, ErrRetainedVolumeInUse)
 		}
-		attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+		attachment, err := f.awaitAttached(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
 		if err != nil {
 			return Attachment{}, errors.Join(retryWindowErr, ErrAttachmentRecoveryHold, err)
 		}
@@ -684,7 +754,10 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 	}
 	created, attachErr := f.provider.AttachVolume(ctx, CloudVolumeAttachRequest{
 		VolumeID: request.VolumeID, InstanceID: request.InstanceID,
-		IdempotencyKey: request.IdempotencyKey, Device: intent.Device,
+		RetryToken: retryToken(strings.Join([]string{
+			f.config.Owner, string(f.config.Region), fmt.Sprint(f.config.Generation), request.IdempotencyKey,
+		}, ":")),
+		Device:     intent.Device,
 		IsReadOnly: intent.IsReadOnly, IsShareable: intent.IsShareable,
 		IsPvEncryptionInTransitEnabled: intent.IsPvEncryptionInTransitEnabled,
 	})
@@ -705,14 +778,14 @@ func (f *fleet) AttachRetainedVolume(ctx context.Context, request VolumeAttachRe
 		return Attachment{}, errors.Join(ErrRetainedVolumeInUse,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
-	attachment, err := f.reobserveAttachment(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
+	attachment, err := f.awaitAttached(ctx, attachments[0].ID, request.VolumeID, request.InstanceID, intent.Device)
 	if err != nil {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, err,
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
-	if created.ID != "" && created.ID != attachment.ID ||
-		created.ETag != "" && created.ETag != attachment.ETag ||
-		attachErr == nil && (created.ID == "" || created.ETag == "") {
+	// The response describes the ATTACHING attachment; only its ID must match
+	// the settled one, whose ETag becomes the confirmed ownership fence.
+	if created.ID != "" && created.ID != attachment.ID || attachErr == nil && created.ID == "" {
 		return Attachment{}, errors.Join(ErrOutcomeUnknown, errors.New("OCI attachment response and re-observation disagree"),
 			f.recordResult(ctx, epoch, OperationResult{Intent: intent, Unknown: true}))
 	}
@@ -821,6 +894,13 @@ func (f *fleet) Terminate(ctx context.Context, instanceID, expectedETag string, 
 	return fmt.Errorf("%w: OCI termination was accepted but state is %q", ErrOutcomeUnknown, current.LifecycleState)
 }
 
+// terminatedForeign reports a terminated resource of another fleet. Create
+// keys derive from placement identity and repeat across cells; a live foreign
+// resource still fails closed, a terminated one can no longer collide.
+func (f *fleet) terminatedForeign(tags map[string]string, state string) bool {
+	return state == "TERMINATED" && tags[tagOwner] != f.config.Owner
+}
+
 func (f *fleet) findByCreateKey(ctx context.Context, createKey string) (CloudInstance, ResourceIdentity, bool, error) {
 	instances, err := f.provider.ListInstances(ctx, f.config.CompartmentID)
 	if err != nil {
@@ -828,7 +908,7 @@ func (f *fleet) findByCreateKey(ctx context.Context, createKey string) (CloudIns
 	}
 	var ids []string
 	for _, instance := range instances {
-		if instance.FreeformTags[tagCreateKey] == createKey {
+		if instance.FreeformTags[tagCreateKey] == createKey && !f.terminatedForeign(instance.FreeformTags, instance.LifecycleState) {
 			ids = append(ids, instance.ID)
 		}
 	}
@@ -927,6 +1007,7 @@ func (f *fleet) instanceFromCloud(ctx context.Context, cloud CloudInstance, iden
 		FaultDomain: cloud.FaultDomain, Shape: profile.Shape, WholeOCPUs: profile.WholeOCPUs,
 		MemoryInGBs: profile.MemoryInGBs, PlacementProfileDigest: profile.PlacementProfileDigest,
 		PlacementGeneration: profile.PlacementGeneration, ImageID: cloud.ImageID,
+		PrivateIP:            cloud.PrivateIP,
 		BootDescriptorSHA256: observedDigest, ETag: cloud.ETag,
 		State: cloud.LifecycleState,
 	}
@@ -979,8 +1060,34 @@ func (f *fleet) selectRetainedVolumeDevice(ctx context.Context, instanceID strin
 	if len(available) == 0 {
 		return "", errors.New("OCI instance has no available retained-volume device")
 	}
-	slices.Sort(available)
+	// OCI device paths name virtio-scsi LUNs in order a, b, ..., z, aa, ...,
+	// af; the shortest name first selects the lowest free LUN (oraclevdb for
+	// the first data volume), not oraclevdaa.
+	slices.SortFunc(available, func(left, right string) int {
+		return cmp.Or(cmp.Compare(len(left), len(right)), strings.Compare(left, right))
+	})
 	return available[0], nil
+}
+
+// awaitAttached waits, bounded by attachmentSettle, for an attachment to leave
+// ATTACHING and then re-observes its complete attached scope.
+func (f *fleet) awaitAttached(ctx context.Context, attachmentID, volumeID, instanceID, expectedDevice string) (Attachment, error) {
+	settleCtx, cancel := context.WithTimeout(ctx, f.attachmentSettle)
+	defer cancel()
+	for {
+		cloud, err := f.provider.GetVolumeAttachment(settleCtx, attachmentID)
+		if err != nil {
+			return Attachment{}, err
+		}
+		if cloud.LifecycleState != "ATTACHING" {
+			return f.reobserveAttachment(ctx, attachmentID, volumeID, instanceID, expectedDevice)
+		}
+		select {
+		case <-settleCtx.Done():
+			return Attachment{}, fmt.Errorf("OCI volume attachment %s is still ATTACHING: %w", attachmentID, settleCtx.Err())
+		case <-time.After(attachmentSettlePoll):
+		}
+	}
 }
 
 func (f *fleet) reobserveAttachment(ctx context.Context, attachmentID, volumeID, instanceID, expectedDevice string) (Attachment, error) {
@@ -1046,7 +1153,7 @@ func (f *fleet) findVolumeByCreateKey(ctx context.Context, createKey string) (Cl
 	}
 	var ids []string
 	for _, volume := range volumes {
-		if volume.FreeformTags[tagCreateKey] == createKey {
+		if volume.FreeformTags[tagCreateKey] == createKey && !f.terminatedForeign(volume.FreeformTags, volume.LifecycleState) {
 			ids = append(ids, volume.ID)
 		}
 	}
@@ -1105,6 +1212,18 @@ func (f *fleet) currentEpoch() (uint64, error) {
 		return 0, authority.ErrNotLeader
 	}
 	return snapshot.Epoch, nil
+}
+
+type activeWorkloadFencer interface {
+	BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+}
+
+func (f *fleet) beginActiveWorkloadEffect(ctx context.Context, epoch uint64, databaseID, partitionID string) (func(), error) {
+	gate, ok := f.fencer.(activeWorkloadFencer)
+	if !ok || databaseID == "" || partitionID == "" {
+		return nil, errors.New("OCI active workload effect requires a terminal-aware authority gate and workload scope")
+	}
+	return gate.BeginActiveWorkloadEffect(ctx, epoch, authority.WorkloadScope{DatabaseID: databaseID, PartitionID: partitionID})
 }
 
 func checkCreateRetryWindow(resource, createKey string, intent OperationIntent, now time.Time) error {
@@ -1171,7 +1290,7 @@ func cloudMatchesPlacementProfile(cloud CloudInstance, intent OperationIntent) b
 	}
 	wantOCPUs, _ := exactFloat32(intent.WholeOCPUs)
 	wantMemory, _ := exactFloat32(intent.MemoryInGBs)
-	return cloud.Shape == intent.Shape && cloud.Ocpus != nil && *cloud.Ocpus == wantOCPUs &&
+	return cloud.PrivateIP == intent.PrivateIP && cloud.Shape == intent.Shape && cloud.Ocpus != nil && *cloud.Ocpus == wantOCPUs &&
 		cloud.MemoryInGBs != nil && *cloud.MemoryInGBs == wantMemory &&
 		cloud.FreeformTags[tagPlacementProfileDigest] == intent.PlacementProfileDigest &&
 		cloud.FreeformTags[tagPlacementGeneration] == fmt.Sprint(intent.PlacementGeneration)
@@ -1210,6 +1329,11 @@ func retryToken(value string) string { return digest(value) }
 func validCreateKey(value string) bool {
 	return len(value) > 0 && len(value) <= maxCreateKeyBytes &&
 		!strings.ContainsAny(value, " \t\r\n") && strings.TrimSpace(value) == value
+}
+
+func validManagedPrivateIP(value string) bool {
+	address, err := netip.ParseAddr(value)
+	return err == nil && address.Is4() && address.IsPrivate() && address.String() == value
 }
 
 func validLifecycleState(state string) bool {

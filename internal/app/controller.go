@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -113,6 +114,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// A managed TerraBase controller needs no generic delivery profile.
+	if managed == nil && len(cfg.Controller.Workloads) == 0 {
+		return errors.New("controller requires a managed placement config or explicit workload profiles")
+	}
 	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
 		return err
 	}
@@ -198,9 +203,41 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
+	var materialProvider host.ManagedMaterialProvider
+	var credentialFloor func(context.Context, host.Registration) (uint64, error)
 	var placementStore placement.Store
 	var fleet oci.Fleet
+	var volumeInspector host.ManagedVolumeInspector
+	var terminalExecutor oci.TerminalExecutor
+	var materialService *managedmaterial.PreparationService
+	var backupRuntime *backupOperationRuntime
+	var materialAdmission placementMaterialAdmission
+	managedRuntimeVerifier := managedRuntimeTargetVerifier(func(ctx context.Context, desired host.Desired,
+		registration host.Registration,
+	) (bool, error) {
+		if managedController == nil {
+			return false, errors.New("managed runtime target verifier is not ready")
+		}
+		return managedController.VerifyManagedRuntimeTarget(ctx, desired, registration)
+	})
 	if managed != nil {
+		if !cfg.NATS.Lab {
+			accepted, err := loadAcceptedMaterialConfig(cfg.NATS.Cell, managed.region)
+			if err != nil {
+				return fmt.Errorf("admit signed managed material domain: %w", err)
+			}
+			repository, err := managedmaterial.NewOCIRepository(accepted.repository, control)
+			if err != nil {
+				return fmt.Errorf("open managed material repository: %w", err)
+			}
+			materialService = &managedmaterial.PreparationService{Cell: cfg.NATS.Cell,
+				Repository: repository, Receipts: control, Fencer: control,
+				ControllerKey: responseKey, RecipientSigner: accepted.recipientSigner,
+				AllowedSubnetCIDR:    accepted.subnetCIDR,
+				NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
+				NativeVerifierSHA256: accepted.nativeVerifierSHA256}
+			materialAdmission = preparedMaterialAdmission(*materialService)
+		}
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,
 			func(attempt context.Context) (*oci.KVJournal, error) {
 				return oci.OpenJournal(attempt, runtime.JetStream(), cfg.NATS.Replicas)
@@ -208,15 +245,51 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		launchMaterial, err := bootstrapstart.LoadLaunchMaterial()
+		if err != nil {
+			return fmt.Errorf("load host launch material: %w", err)
+		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
+			launchMaterial.HostMetadata(), newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
+		}
+		inspector, ok := fleet.(oci.VolumeInitializationInspector)
+		if !ok {
+			return errors.New("managed OCI fleet lacks exact volume initialization inspection")
+		}
+		volumeInspector = func(ctx context.Context, desired host.Desired, registration host.Registration) (host.VolumeInitObservation, error) {
+			if err := verifyCurrentVolumeInitSeat(ctx, placementStore, desired, registration,
+				managedRuntimeVerifier); err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			launch := *desired.ManagedMember
+			proof, err := inspector.InspectVolumeInitialization(ctx, oci.VolumeInitializationPins{
+				DatabaseID:  registration.ManagedPlacement.DatabaseID,
+				PartitionID: registration.ManagedPlacement.PartitionID,
+				InstanceID:  launch.OCI.InstanceID, HostCreateKey: launch.OCI.CreateKey,
+				VolumeID: launch.VolumeID, AttachmentID: launch.AttachmentID,
+				AttachmentETag: launch.AttachmentETag, Device: launch.Runtime.DevicePath,
+				FileSystemUUID: launch.Runtime.FileSystemUUID, FileSystemType: launch.Runtime.FileSystemType,
+			})
+			if err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			if err := verifyCurrentVolumeInitSeat(ctx, placementStore, desired, registration,
+				managedRuntimeVerifier); err != nil {
+				return host.VolumeInitObservation{}, err
+			}
+			return host.VolumeInitObservation{BootDescriptorSHA256: proof.BootDescriptorSHA256,
+				AllowFormat: proof.AllowFormat}, nil
+		}
+		terminalExecutor, ok = fleet.(oci.TerminalExecutor)
+		if !ok {
+			return errors.New("managed OCI fleet lacks exact terminal reconciliation")
 		}
 		placementStore, _, err = retryControllerOpen(ctx, "open regional placement state", fullClusterReady, false,
 			func(attempt context.Context) (placement.Store, error) {
 				return placement.NewJetStreamStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas,
-					admittedPlacementReader{cell: cfg.NATS.Cell, store: control})
+					admittedPlacementReader{cell: cfg.NATS.Cell, store: control, material: materialAdmission})
 			}, nil)
 		if err != nil {
 			return err
@@ -228,6 +301,30 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("configure managed host enrollment: %w", err)
 		}
+		if materialService != nil {
+			credentials := managedmaterial.CredentialService{Preparation: *materialService, Store: control}
+			materialProvider = admittedManagedMaterialProvider(*materialService, control, credentials,
+				managedRuntimeVerifier)
+			credentialFloor = func(ctx context.Context, registration host.Registration) (uint64, error) {
+				if registration.ManagedPlacement == nil {
+					return 1, nil
+				}
+				state, _, err := credentials.Current(ctx, registration.ManagedPlacement.DatabaseID,
+					registration.ManagedPlacement.PartitionID)
+				return state.Generation, err
+			}
+		}
+	}
+	var managedDesiredVerifier host.ManagedDesiredVerifier
+	if managed != nil {
+		managedDesiredVerifier = func(verifyCtx context.Context, desired host.Desired,
+			registration host.Registration, current host.Desired, currentExists bool,
+		) error {
+			if managedController == nil {
+				return errors.New("managed placement desired verifier is not ready")
+			}
+			return managedController.VerifyManagedDesired(verifyCtx, desired, registration, current, currentExists)
+		}
 	}
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
@@ -235,24 +332,47 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), Artifacts: service.Artifacts(),
 				StateReplicas: cfg.NATS.Replicas, ResponseKey: responseKey, HostMutations: control,
 				AuthorityEpoch: func() uint64 { return control.Current().Epoch }, AuthorityGuard: control.Guard,
+				AuthorityLeader:             func() bool { return control.Current().Leader },
 				ManagedRegistrationVerifier: registrationVerifier,
+				ManagedDesiredVerifier:      managedDesiredVerifier,
+				ManagedMaterialProvider:     materialProvider,
+				ManagedCredentialFloor:      credentialFloor,
+				ManagedVolumeInspector:      volumeInspector,
 			})
 		}, nil)
 	if err != nil {
 		return err
 	}
 	planner.hosts = hostController
+	if materialService != nil && managed != nil {
+		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
+			memberRole: managed.placement.MemberRole, control: control,
+			placements: placementStore, hosts: hostController,
+			producer: managedmaterial.BackupOperationProducer{
+				Preparation: *materialService, Store: control},
+			policy: policy, responseKey: responseKey}
+	}
+	placementHolds := new(placementHoldLog)
 	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
-			func(err error) { log.Printf("TerraBase placement reconciliation: %v", err) },
-			func(reason string) { log.Printf("TerraBase placement held: %s", reason) }),
+			func(err error) {
+				log.Printf("TerraBase placement reconciliation: %v", err)
+				placementHolds.record("reconciliation error: " + err.Error())
+			},
+			func(reason string) {
+				log.Printf("TerraBase placement held: %s", reason)
+				placementHolds.record(reason)
+			}),
 			placementStore, control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
 				if err != nil {
 					return placement.AdmittedArtifact{}, err
 				}
-				return placement.AdmittedArtifact{Digest: record.Digest, SourceDigest: record.Source.TreeDigest}, nil
+				return placement.AdmittedArtifact{
+					Digest: record.Digest, ManifestDigest: record.ManifestDigest,
+					SourceDigest: record.Source.TreeDigest,
+				}, nil
 			})
 		if err != nil {
 			return fmt.Errorf("start regional TerraBase placement: %w", err)
@@ -260,21 +380,127 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
+	var enrollmentErrors <-chan error
+	var managedEnrollment *managedHostEnrollment
+	if managed != nil && !cfg.NATS.Lab {
+		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
+			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control)
+		if err != nil {
+			return fmt.Errorf("start private managed host enrollment: %w", err)
+		}
+		var ok bool
+		managedEnrollment, ok = server.Handler.(*managedHostEnrollment)
+		if !ok {
+			return errors.New("private managed host enrollment handler is unavailable")
+		}
+		stopEnrollment := context.AfterFunc(runCtx, func() { _ = server.Close() })
+		defer stopEnrollment()
+		defer server.Close()
+		defer listener.Close()
+		enrollmentErrors = serveErrors
+	}
+	var terminalRuntime *managedTerminalRuntime
+	if managed != nil {
+		terminalRuntime = &managedTerminalRuntime{
+			control: control, placements: placementStore, hosts: hostController,
+			executor: terminalExecutor, enrollment: managedEnrollment,
+			requireEnrollment: !cfg.NATS.Lab,
+		}
+	}
 	artifactSub, err := serveArtifactAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, control, service)
 	if err != nil {
 		return fmt.Errorf("serve artifact admission: %w", err)
 	}
 	defer artifactSub.Unsubscribe()
-	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController)
+	enrollmentSub, err := serveHostEnrollment(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, hostController, managedEnrollment)
 	if err != nil {
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
 	defer enrollmentSub.Unsubscribe()
-	placementSub, err := servePlacementAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control)
+	placementVerifiers := []placementMaterialAdmission{}
+	if materialService != nil {
+		placementVerifiers = append(placementVerifiers, materialAdmission)
+	}
+	placementSub, err := servePlacementAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, control, placementVerifiers...)
 	if err != nil {
 		return fmt.Errorf("serve placement admission: %w", err)
 	}
 	defer placementSub.Unsubscribe()
+	if managed != nil {
+		statusSub, err := servePlacementStatus(runCtx, runtime.Conn(), placementStatusSource{cell: cfg.NATS.Cell,
+			policy: policy, control: control, placements: placementStore, hosts: hostController,
+			holds: placementHolds, responseKey: responseKey,
+			owner: managed.region.Owner, fleetGeneration: managed.region.Generation})
+		if err != nil {
+			return fmt.Errorf("serve TerraBase placement status: %w", err)
+		}
+		defer statusSub.Unsubscribe()
+		managedUpdateSub, err := serveManagedUpdateAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, control, managedController, service)
+		if err != nil {
+			return fmt.Errorf("serve managed TerraBase update admission: %w", err)
+		}
+		defer managedUpdateSub.Unsubscribe()
+	}
+	if managed != nil {
+		terminalEnrollment := func() (*managedHostEnrollment, error) {
+			if managedEnrollment == nil || managedEnrollment.grants == nil {
+				return nil, errors.New("managed terminal admission requires the enrollment grant store")
+			}
+			return managedEnrollment, nil
+		}
+		grantFence := func(ctx context.Context, epoch uint64, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.fenceTerminalGrants(ctx, epoch, intent)
+		}
+		grantProof := func(ctx context.Context, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.verifyTerminalGrantFence(ctx, intent)
+		}
+		grantStatus := func(ctx context.Context, intent authority.TerminalIntent) error {
+			enrollment, err := terminalEnrollment()
+			if err != nil {
+				return err
+			}
+			return enrollment.verifyTerminalGrants(ctx, intent)
+		}
+		terminalAdmissionSub, err := serveTerminalAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, control, managed.region, placementStore, terminalExecutor, grantFence, grantProof, grantStatus)
+		if err != nil {
+			return fmt.Errorf("serve managed terminal admission: %w", err)
+		}
+		defer terminalAdmissionSub.Unsubscribe()
+	}
+	if materialService != nil {
+		backupSub, err := serveBackupOperation(runCtx, runtime.Conn(), *backupRuntime)
+		if err != nil {
+			return fmt.Errorf("serve backup operation admission: %w", err)
+		}
+		defer backupSub.Unsubscribe()
+		materialSub, err := serveMaterialPreparation(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, *materialService)
+		if err != nil {
+			return fmt.Errorf("serve managed material preparation: %w", err)
+		}
+		defer materialSub.Unsubscribe()
+		credentialsSub, err := serveMaterialCredentials(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, managedmaterial.CredentialService{Preparation: *materialService, Store: control})
+		if err != nil {
+			return fmt.Errorf("serve managed client credentials: %w", err)
+		}
+		defer credentialsSub.Unsubscribe()
+		credentialStatusSub, err := serveMaterialCredentialStatus(runCtx, runtime.Conn(), cfg.NATS.Cell,
+			policy, managedmaterial.CredentialService{Preparation: *materialService, Store: control}, hostController)
+		if err != nil {
+			return fmt.Errorf("serve managed client credential status: %w", err)
+		}
+		defer credentialStatusSub.Unsubscribe()
+	}
 	if gate != nil {
 		brokerSub, err := serveBrokerClaimAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, policy, gate)
 		if err != nil {
@@ -282,12 +508,21 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 3)
+	workerErrors := make(chan error, 6)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
+	if backupRuntime != nil {
+		workers.Go(func() { workerErrors <- backupRuntime.Run(runCtx) })
+	}
 	if managedController != nil {
 		workers.Go(func() { workerErrors <- managedController.Run(runCtx) })
+	}
+	if terminalRuntime != nil {
+		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if enrollmentErrors != nil {
+		workers.Go(func() { workerErrors <- <-enrollmentErrors })
 	}
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {
 		stop()
@@ -374,8 +609,13 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 }
 
 func transientControllerBootstrapError(err error) bool {
+	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrLeaseCorrupt) ||
+		errors.Is(err, authority.ErrOutcomeUnknown) {
+		return false
+	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
-		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) {
+		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
+		errors.Is(err, authority.ErrConflict) {
 		return true
 	}
 	var apiErr *jetstream.APIError

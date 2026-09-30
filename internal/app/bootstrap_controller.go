@@ -101,7 +101,7 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	if commandName != "bootstrap-admit-initial" && commandName != "bootstrap-admit-restart" || executable == "" {
 		return errors.New("invalid controller admission child command")
 	}
-	wire, err := protocol.EncodeJSON(Config{NATS: cfg.NATS, Controller: cfg.Controller})
+	wire, err := protocol.EncodeJSON(cfg)
 	if err != nil || len(wire) == 0 || len(wire) > maxConfigBytes {
 		return errors.New("encode bounded controller admission configuration")
 	}
@@ -110,7 +110,8 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	child := exec.CommandContext(childCtx, executable, commandName)
 	child.Stdin = bytes.NewReader(wire)
 	child.Stdout = io.Discard
-	child.Stderr = io.Discard
+	// Admission errors carry no secret values; keep them in the unit journal.
+	child.Stderr = os.Stderr
 	child.Env = []string{"PATH=/usr/bin:/bin", "LANG=C"}
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	child.Cancel = func() error {
@@ -181,6 +182,10 @@ func admitProductionControllerRestart(ctx context.Context, cfg Config) error {
 }
 
 func admitProductionController(ctx context.Context, cfg Config, markers bootstrapstart.MarkerStore, initial bool) error {
+	loadedWire, err := protocol.EncodeJSON(cfg)
+	if err != nil || len(loadedWire) == 0 || len(loadedWire) > bootstrap.MaxControllerConfigBytes {
+		return errors.New("loaded controller config is not bounded canonical JSON")
+	}
 	clockCheck := controllerClockCheck(controllerBrokerClockProbe())
 	if err := clockCheck(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
@@ -201,7 +206,9 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		return errors.New("controller restart admission requires the dedicated service account")
 	}
 	checker, err := bootstrapstart.NewLiveCredentialChecker(cfg.NATS, serviceUID, serviceGID,
-		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile, func() error {
+		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile,
+		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
+		cfg.Controller.HostTLSIssuerCertFile, func() error {
 			if _, err := readPrivateKey(cfg.Controller.ResponseKeyFile); err != nil {
 				return fmt.Errorf("controller response key: %w", err)
 			}
@@ -217,8 +224,9 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	}
 	gate := bootstrapstart.Gate{
 		Roots: baked.Roots, AnchorWire: baked.AnchorWire, Expected: baked.Identity.AnchorExpectation(),
-		Descriptor:  bootstrapstart.NewIMDSClient(),
-		Credentials: checker, Markers: markers,
+		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
+		Descriptor:                   bootstrapstart.NewIMDSClient(),
+		Credentials:                  checker, Markers: markers,
 		ClockCheck: clockCheck,
 	}
 	if initial {

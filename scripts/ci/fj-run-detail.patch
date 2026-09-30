@@ -1,44 +1,78 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 592f7f1..caabbdc 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -694,2 +694,3 @@ dependencies = [
+  "regex",
++ "reqwest",
+  "semver",
+@@ -1995,2 +1996,3 @@ dependencies = [
+  "tokio-rustls",
++ "tokio-util",
+  "tower",
+@@ -2001,2 +2003,3 @@ dependencies = [
+  "wasm-bindgen-futures",
++ "wasm-streams",
+  "web-sys",
+@@ -2876,2 +2879,15 @@ dependencies = [
+
++[[package]]
++name = "wasm-streams"
++version = "0.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "9d1ec4f6517c9e11ae630e200b2b65d193279042e28edd4a2cda233e46670bbb"
++dependencies = [
++ "futures-util",
++ "js-sys",
++ "wasm-bindgen",
++ "wasm-bindgen-futures",
++ "web-sys",
++]
++
+ [[package]]
+diff --git a/Cargo.toml b/Cargo.toml
+index c1f55a3..0a23d09 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -57,2 +57,3 @@ rand = "0.10.0"
+ regex = "1.12.2"
++reqwest = { version = "=0.13.5", features = ["stream"] }
+ semver = { version = "1.0.26", optional = true }
+@@ -72,2 +73,3 @@ tokio = { version = "1.44.1", features = [
+   "io-std",
++  "time",
+ ] }
 diff --git a/src/actions.rs b/src/actions.rs
-index 779fd81..13e85da 100644
+index 779fd81..025d2dc 100644
 --- a/src/actions.rs
 +++ b/src/actions.rs
-@@ -1,7 +1,7 @@
- use std::{collections::BTreeMap, fmt::Display};
- 
+@@ -3,3 +3,3 @@ use std::{collections::BTreeMap, fmt::Display};
  use clap::{Args, Subcommand};
 -use eyre::OptionExt;
 +use eyre::{OptionExt, eyre};
  use forgejo_api::{
-     Forgejo, ForgejoError,
-     structs::{
-@@ -39,6 +39,12 @@ pub enum ActionsSubcommand {
-         page: u32,
-     },
- 
+@@ -41,2 +41,11 @@ pub enum ActionsSubcommand {
+
 +    /// Print the latest plaintext job logs of an action run by its displayed run number.
 +    Logs { run_number: i64 },
++
++    /// Print the plaintext log of one exact action job ID.
++    JobLogs { job_id: i64 },
 +
 +    /// Print exact source and job identities for an action run as JSON.
 +    RunDetail { run_number: i64 },
 +
      #[clap(about = h!("cmd-actions-variables"))]
-     Variables {
-         #[clap(subcommand)]
-@@ -126,6 +132,10 @@ impl ActionsCommand {
-             .ok_or_eyre("can't figure what repo to access, try specifying with `--repo`")?;
-         match self.command {
+@@ -128,2 +137,7 @@ impl ActionsCommand {
              ActionsSubcommand::Tasks { page } => view_tasks(repo, &api, page).await?,
 +            ActionsSubcommand::Logs { run_number } => view_logs(repo, &api, run_number).await?,
++            ActionsSubcommand::JobLogs { job_id } => view_job_logs(repo, &api, job_id).await?,
 +            ActionsSubcommand::RunDetail { run_number } => {
 +                view_run_detail(repo, &api, run_number).await?
 +            }
- 
-             ActionsSubcommand::Variables { command } => match command {
-                 ActionsVariablesSubcommmand::List { verbose } => {
-@@ -160,6 +170,97 @@ impl ActionsCommand {
-     }
- }
- 
+
+@@ -162,2 +176,109 @@ impl ActionsCommand {
+
 +async fn view_run_detail(repo: &RepoName, api: &Forgejo, run_number: i64) -> eyre::Result<()> {
 +    if run_number <= 0 {
 +        return Err(eyre!("run number must be positive"));
@@ -79,6 +113,22 @@ index 779fd81..13e85da 100644
 +        })).collect::<Vec<_>>(),
 +    });
 +    println!("{}", serde_json::to_string(&detail)?);
++    Ok(())
++}
++
++async fn view_job_logs(repo: &RepoName, api: &Forgejo, job_id: i64) -> eyre::Result<()> {
++    if job_id <= 0 {
++        return Err(eyre!("job ID must be positive"));
++    }
++    let logs = api
++        .repo_get_action_job_logs(
++            repo.owner(),
++            repo.name(),
++            job_id,
++            forgejo_api::structs::RepoGetActionJobLogsQuery::default(),
++        )
++        .await?;
++    print!("{logs}");
 +    Ok(())
 +}
 +
@@ -131,5 +181,649 @@ index 779fd81..13e85da 100644
 +}
 +
  async fn view_tasks(repo: &RepoName, api: &Forgejo, page: u32) -> eyre::Result<()> {
-     // We don't iterate this to collect all tasks (not just the ones on the first page) like the
-     // issue search subcommand will do, because it's unlikely someone wants to see *all* tasks.
+diff --git a/src/release.rs b/src/release.rs
+index 453db63..43e15b1 100644
+--- a/src/release.rs
++++ b/src/release.rs
+@@ -8,2 +8,3 @@ use futures::stream::TryStreamExt;
+ use tokio::io::AsyncWriteExt;
++use url::Url;
+
+@@ -17,2 +18,4 @@ use crate::{
+
++mod probe;
++
+ #[derive(Args, Clone, Debug)]
+@@ -121,2 +124,13 @@ pub enum AssetCommand {
+     },
++    /// Probe one release attachment without writing its body to disk.
++    Probe {
++        release: String,
++        asset: String,
++        #[clap(long)]
++        expect_sha256: String,
++        #[clap(long)]
++        expect_bytes: u64,
++        #[clap(long)]
++        compare_anonymous: bool,
++    },
+ }
+@@ -131,7 +145,31 @@ impl ReleaseCommand {
+         )?;
+-        let api = keys.get_api(repo.host_url()).await?;
+-        let repo = repo
++        let repo_name = repo
+             .name()
+             .ok_or_eyre("couldn't get repo name, try specifying with --repo")?;
+-        match self.command {
++        let command = match self.command {
++            ReleaseSubcommand::Asset(AssetCommand::Probe {
++                release,
++                asset,
++                expect_sha256,
++                expect_bytes,
++                compare_anonymous,
++            }) => {
++                return probe::run(
++                    repo_name,
++                    repo.host_url(),
++                    keys,
++                    &release,
++                    &asset,
++                    &expect_sha256,
++                    expect_bytes,
++                    compare_anonymous,
++                )
++                .await;
++            }
++            command => command,
++        };
++        let host = repo.host_url().clone();
++        let api = keys.get_api(&host).await?;
++        let repo = repo_name;
++        match command {
+             ReleaseSubcommand::Create {
+@@ -183,3 +221,4 @@ impl ReleaseCommand {
+                     output,
+-                } => download_asset(repo, &api, release, asset, output).await?,
++                } => download_asset(repo, &api, &host, keys, release, asset, output).await?,
++                AssetCommand::Probe { .. } => unreachable!("probe is dispatched before API setup"),
+             },
+@@ -518,2 +557,4 @@ async fn download_asset(
+     api: &Forgejo,
++    host: &Url,
++    keys: &mut KeyInfo,
+     release: String,
+@@ -555,4 +596,17 @@ async fn download_asset(
+                 .ok_or_else(|| eyre::eyre!("asset does not have id"))?;
+-            api.download_release_attachment(repo.owner(), repo.name(), release_id, asset_id)
++            let attachment = api
++                .repo_get_release_attachment(repo.owner(), repo.name(), release_id, asset_id)
++                .await?;
++            if attachment.id != Some(asset_id) || attachment.name.as_deref() != Some(name) {
++                return Err(eyre!("release attachment metadata changed"));
++            }
++            let url = attachment
++                .browser_download_url
++                .as_ref()
++                .ok_or_eyre("release attachment has no download URL")?;
++            probe::checked_attachment_response(host, keys, url)
+                 .await?
++                .bytes()
++                .await
++                .map_err(|_| eyre!("release attachment body read failed"))?
+         }
+diff --git a/src/release/probe.rs b/src/release/probe.rs
+new file mode 100644
+index 0000000..dc0e83b
+--- /dev/null
++++ b/src/release/probe.rs
+@@ -0,0 +1,548 @@
++//! Bounded, non-persistent diagnosis of a release attachment download.
++
++use std::{
++    sync::{Arc, Mutex},
++    time::Duration,
++};
++
++use eyre::eyre;
++use forgejo_api::ForgejoError;
++use futures::{TryStreamExt, io::AsyncReadExt};
++use reqwest::{
++    Client, Url,
++    header::{AUTHORIZATION, HeaderValue},
++    redirect::Policy,
++};
++use serde::Serialize;
++use sha2::{Digest, Sha256};
++
++use crate::{
++    keys::{KeyInfo, LoginInfo},
++    repo::RepoName,
++};
++
++const MAX_BODY_BYTES: usize = 64 * 1024;
++const MAX_REDIRECTS: usize = 5;
++const METADATA_TIMEOUT: Duration = Duration::from_secs(10);
++const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(20);
++
++#[derive(Default, Serialize)]
++struct RepositoryResult {
++    private: Option<bool>,
++}
++
++#[derive(Default, Serialize)]
++struct ReleaseResult {
++    tag: Option<String>,
++    name: Option<String>,
++    draft: Option<bool>,
++    prerelease: Option<bool>,
++    id: Option<i64>,
++}
++
++#[derive(Serialize)]
++struct AssetResult {
++    name: String,
++    size: Option<i64>,
++    id: Option<i64>,
++}
++
++#[derive(Default, Serialize)]
++struct UrlComparison {
++    origin_equal: Option<bool>,
++    path_equal: Option<bool>,
++    query_equal: Option<bool>,
++}
++
++#[derive(Default, Serialize)]
++struct FetchResult {
++    status: Option<u16>,
++    initial_origin: Option<String>,
++    final_origin: Option<String>,
++    redirect_count: usize,
++    redirect_origins: Vec<String>,
++    body_bytes: Option<u64>,
++    body_sha256: Option<String>,
++    error: Option<&'static str>,
++}
++
++#[derive(Default, Serialize)]
++struct AuthenticatedResult {
++    #[serde(flatten)]
++    fetch: FetchResult,
++    sent_authorization: bool,
++    matches_expected: bool,
++}
++
++#[derive(Serialize)]
++struct AnonymousResult {
++    #[serde(flatten)]
++    fetch: FetchResult,
++    skipped: bool,
++}
++
++impl Default for AnonymousResult {
++    fn default() -> Self {
++        Self {
++            fetch: FetchResult::default(),
++            skipped: true,
++        }
++    }
++}
++
++#[derive(Serialize)]
++struct ProbeResult {
++    schema: &'static str,
++    repository: RepositoryResult,
++    server_version: Option<String>,
++    release: ReleaseResult,
++    asset: AssetResult,
++    url_comparison: UrlComparison,
++    authenticated: AuthenticatedResult,
++    anonymous: AnonymousResult,
++}
++
++impl ProbeResult {
++    fn new(tag: &str, name: &str) -> Self {
++        Self {
++            schema: "terrascale.fj-attachment-probe.v1",
++            repository: RepositoryResult::default(),
++            server_version: None,
++            release: ReleaseResult {
++                tag: Some(tag.to_owned()),
++                ..ReleaseResult::default()
++            },
++            asset: AssetResult {
++                name: name.to_owned(),
++                size: None,
++                id: None,
++            },
++            url_comparison: UrlComparison::default(),
++            authenticated: AuthenticatedResult::default(),
++            anonymous: AnonymousResult::default(),
++        }
++    }
++
++    fn finish(self) -> eyre::Result<()> {
++        // Do not print upstream errors: they can contain the URL query or a token.
++        println!(
++            "{}",
++            serde_json::to_string(&self)
++                .map_err(|_| eyre!("attachment probe serialization failed"))?
++        );
++        if self.authenticated.matches_expected {
++            Ok(())
++        } else {
++            Err(eyre!("attachment probe failed"))
++        }
++    }
++
++    fn fail(mut self, error: &'static str) -> eyre::Result<()> {
++        self.authenticated.fetch.error = Some(error);
++        self.finish()
++    }
++}
++
++async fn metadata<T>(
++    request: impl std::future::IntoFuture<Output = Result<T, ForgejoError>>,
++) -> Result<T, &'static str> {
++    match tokio::time::timeout(
++        METADATA_TIMEOUT,
++        std::future::IntoFuture::into_future(request),
++    )
++    .await
++    {
++        Ok(Ok(value)) => Ok(value),
++        Ok(Err(_)) => Err("metadata_error"),
++        Err(_) => Err("metadata_timeout"),
++    }
++}
++
++fn origin(url: &Url) -> Option<String> {
++    if !matches!(url.scheme(), "http" | "https")
++        || url.host_str().is_none()
++        || !url.username().is_empty()
++        || url.password().is_some()
++    {
++        return None;
++    }
++    Some(url.origin().ascii_serialization())
++}
++
++fn legacy_attachment_url(host: &Url, uuid: &str) -> Option<Url> {
++    let mut url = host.clone();
++    url.set_path("/");
++    url.set_query(None);
++    url.set_fragment(None);
++    url.path_segments_mut()
++        .ok()?
++        .pop_if_empty()
++        .extend(["attachments", uuid]);
++    Some(url)
++}
++
++fn token_for<'a>(keys: &'a mut KeyInfo, host: &Url) -> Option<&'a str> {
++    match keys.get_login(host)? {
++        LoginInfo::Application { token } | LoginInfo::OAuth { token, .. } => Some(token),
++    }
++}
++
++fn request_error(error: &reqwest::Error) -> &'static str {
++    if error.is_timeout() {
++        "timeout"
++    } else if error.is_redirect() {
++        "redirect_error"
++    } else if error.is_connect() {
++        "connection_error"
++    } else if error.is_body() {
++        "body_error"
++    } else {
++        "request_error"
++    }
++}
++
++fn sha256_hex(body: &[u8]) -> String {
++    const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
++
++    let digest = Sha256::digest(body);
++    let mut hash = String::with_capacity(64);
++    for &byte in digest.iter() {
++        hash.push(HEX_DIGITS[(byte >> 4) as usize] as char);
++        hash.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
++    }
++    hash
++}
++
++pub(super) async fn checked_attachment_response(
++    host: &Url,
++    keys: &mut KeyInfo,
++    url: &Url,
++) -> eyre::Result<reqwest::Response> {
++    let Some(server_origin) = origin(host) else {
++        return Err(eyre!("Forgejo host URL has no safe origin"));
++    };
++    if origin(url).as_deref() != Some(server_origin.as_str()) {
++        return Err(eyre!(
++            "release attachment origin differs from the Forgejo host"
++        ));
++    }
++    let client = Client::builder()
++        .user_agent(crate::USER_AGENT)
++        .redirect(Policy::limited(MAX_REDIRECTS))
++        .connect_timeout(Duration::from_secs(5))
++        .timeout(Duration::from_secs(120))
++        .build()
++        .map_err(|_| eyre!("release attachment client setup failed"))?;
++    let mut request = client.get(url.clone());
++    if let Some(token) = token_for(keys, host) {
++        let mut value = HeaderValue::from_str(&format!("token {token}"))
++            .map_err(|_| eyre!("release attachment authorization is invalid"))?;
++        value.set_sensitive(true);
++        request = request.header(AUTHORIZATION, value);
++    }
++    let response = request
++        .send()
++        .await
++        .map_err(|_| eyre!("release attachment request failed"))?;
++    if response.status() != reqwest::StatusCode::OK {
++        return Err(eyre!(
++            "release attachment HTTP status {}",
++            response.status().as_u16()
++        ));
++    }
++    Ok(response)
++}
++
++async fn fetch(
++    url: &Url,
++    token: Option<&str>,
++    remaining_budget: &mut usize,
++) -> (FetchResult, bool) {
++    let mut result = FetchResult {
++        initial_origin: origin(url),
++        ..FetchResult::default()
++    };
++    let redirects = Arc::new(Mutex::new(Vec::new()));
++    let recorded = Arc::clone(&redirects);
++    let policy = Policy::custom(move |attempt| {
++        if attempt.previous().len() > MAX_REDIRECTS {
++            return attempt.error("redirect limit");
++        }
++        let Some(next_origin) = origin(attempt.url()) else {
++            return attempt.error("invalid redirect URL");
++        };
++        match recorded.lock() {
++            Ok(mut origins) => origins.push(next_origin),
++            Err(_) => return attempt.error("redirect state"),
++        }
++        attempt.follow()
++    });
++    let client = match Client::builder()
++        .user_agent(crate::USER_AGENT)
++        .redirect(policy)
++        .connect_timeout(Duration::from_secs(5))
++        .timeout(DOWNLOAD_TIMEOUT)
++        .build()
++    {
++        Ok(client) => client,
++        Err(_) => {
++            result.error = Some("client_error");
++            return (result, false);
++        }
++    };
++    let mut request = client.get(url.clone());
++    if let Some(token) = token {
++        let mut value = match HeaderValue::from_str(&format!("token {token}")) {
++            Ok(value) => value,
++            Err(_) => {
++                result.error = Some("authorization_error");
++                return (result, false);
++            }
++        };
++        value.set_sensitive(true);
++        request = request.header(AUTHORIZATION, value);
++    }
++    let request = match request.build() {
++        Ok(request) => request,
++        Err(_) => {
++            result.error = Some("request_build_error");
++            return (result, false);
++        }
++    };
++    let sent_authorization = request.headers().contains_key(AUTHORIZATION);
++    let response = client.execute(request).await;
++    if let Ok(origins) = redirects.lock() {
++        result.redirect_count = origins.len();
++        result.redirect_origins = origins.clone();
++    } else {
++        result.error = Some("redirect_state");
++        return (result, sent_authorization);
++    }
++    let response = match response {
++        Ok(response) => response,
++        Err(error) => {
++            result.error = Some(request_error(&error));
++            return (result, sent_authorization);
++        }
++    };
++    result.status = Some(response.status().as_u16());
++    result.final_origin = origin(response.url());
++    let status_success = response.status().is_success();
++    if response
++        .content_length()
++        .is_some_and(|len| len > *remaining_budget as u64)
++    {
++        result.error = Some("body_too_large");
++        return (result, sent_authorization);
++    }
++
++    // Read no more than the shared body budget plus one byte, which detects overflow.
++    // Reqwest/hyper may buffer a transport frame internally before this read.
++    let mut reader = Box::pin(
++        response
++            .bytes_stream()
++            .map_err(|error| {
++                let kind = if error.is_timeout() {
++                    std::io::ErrorKind::TimedOut
++                } else {
++                    std::io::ErrorKind::Other
++                };
++                std::io::Error::new(kind, "attachment body read failed")
++            })
++            .into_async_read(),
++    );
++    let mut body = Vec::new();
++    let mut buffer = [0_u8; 8192];
++    loop {
++        let to_read = buffer.len().min(*remaining_budget + 1);
++        match reader.read(&mut buffer[..to_read]).await {
++            Ok(0) => break,
++            Ok(read) if read > *remaining_budget => {
++                *remaining_budget = 0;
++                result.error = Some("body_too_large");
++                return (result, sent_authorization);
++            }
++            Ok(read) => {
++                *remaining_budget -= read;
++                body.extend_from_slice(&buffer[..read]);
++            }
++            Err(error) => {
++                result.error = Some(if error.kind() == std::io::ErrorKind::TimedOut {
++                    "timeout"
++                } else {
++                    "body_error"
++                });
++                return (result, sent_authorization);
++            }
++        }
++    }
++    result.body_bytes = Some(body.len() as u64);
++    result.body_sha256 = Some(sha256_hex(&body));
++    if !status_success {
++        result.error = Some("http_status");
++    }
++    (result, sent_authorization)
++}
++
++#[allow(clippy::too_many_arguments)]
++pub(super) async fn run(
++    repo: &RepoName,
++    host: &Url,
++    keys: &mut KeyInfo,
++    tag: &str,
++    name: &str,
++    expected_sha256: &str,
++    expected_bytes: u64,
++    compare_anonymous: bool,
++) -> eyre::Result<()> {
++    let mut result = ProbeResult::new(tag, name);
++    let mut remaining_body_budget = MAX_BODY_BYTES;
++    if expected_sha256.len() != 64 || !expected_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
++        return result.fail("invalid_expected_sha256");
++    }
++    if expected_bytes > MAX_BODY_BYTES as u64 {
++        return result.fail("expected_bytes_out_of_bounds");
++    }
++    let Some(server_origin) = origin(host) else {
++        return result.fail("invalid_server_url");
++    };
++    let api = match tokio::time::timeout(METADATA_TIMEOUT, keys.get_api(host)).await {
++        Ok(Ok(api)) => api,
++        Ok(Err(_)) => return result.fail("api_client_error"),
++        Err(_) => return result.fail("metadata_timeout"),
++    };
++    let token = token_for(keys, host);
++    let repository = match metadata(api.repo_get(repo.owner(), repo.name())).await {
++        Ok(repository) => repository,
++        Err(error) => return result.fail(error),
++    };
++    result.repository.private = repository.private;
++    let version = match metadata(api.get_version()).await {
++        Ok(version) => version,
++        Err(error) => return result.fail(error),
++    };
++    result.server_version = version.version;
++    let release = match metadata(api.repo_get_release_by_tag(repo.owner(), repo.name(), tag)).await
++    {
++        Ok(release) => release,
++        Err(error) => return result.fail(error),
++    };
++    result.release.tag = release.tag_name.clone();
++    result.release.name = release.name.clone();
++    result.release.draft = release.draft;
++    result.release.prerelease = release.prerelease;
++    result.release.id = release.id;
++    let Some(release_id) = release.id else {
++        return result.fail("release_metadata_incomplete");
++    };
++    let Some(asset_id) = release
++        .assets
++        .as_deref()
++        .unwrap_or_default()
++        .iter()
++        .find(|asset| asset.name.as_deref() == Some(name))
++        .and_then(|asset| asset.id)
++    else {
++        return result.fail("asset_not_found");
++    };
++    let attachment = match metadata(api.repo_get_release_attachment(
++        repo.owner(),
++        repo.name(),
++        release_id,
++        asset_id,
++    ))
++    .await
++    {
++        Ok(attachment) => attachment,
++        Err(error) => return result.fail(error),
++    };
++    result.asset.size = attachment.size;
++    result.asset.id = attachment.id;
++    if attachment.name.as_deref() != Some(name) || attachment.id != Some(asset_id) {
++        return result.fail("asset_metadata_mismatch");
++    }
++    let Some(uuid) = attachment.uuid.as_deref() else {
++        return result.fail("asset_metadata_incomplete");
++    };
++    let Some(legacy_url) = legacy_attachment_url(host, uuid) else {
++        return result.fail("legacy_url_error");
++    };
++    let Some(advertised_url) = attachment.browser_download_url.as_ref() else {
++        return result.fail("advertised_url_missing");
++    };
++    let Some(advertised_origin) = origin(advertised_url) else {
++        return result.fail("invalid_advertised_url");
++    };
++    result.url_comparison.origin_equal =
++        Some(advertised_origin == origin(&legacy_url).unwrap_or_default());
++    result.url_comparison.path_equal = Some(advertised_url.path() == legacy_url.path());
++    result.url_comparison.query_equal = Some(advertised_url.query() == legacy_url.query());
++    result.authenticated.fetch.initial_origin = Some(advertised_origin.clone());
++
++    if advertised_origin != server_origin {
++        // Reqwest strips Authorization on redirects, but cannot protect a
++        // credential attached to an already cross-origin initial URL.
++        result.authenticated.fetch.error = Some("origin_mismatch");
++    } else if let Some(token) = token {
++        (
++            result.authenticated.fetch,
++            result.authenticated.sent_authorization,
++        ) = fetch(advertised_url, Some(token), &mut remaining_body_budget).await;
++        if result.authenticated.fetch.error.is_none() {
++            if result.authenticated.fetch.body_bytes != Some(expected_bytes) {
++                result.authenticated.fetch.error = Some("size_mismatch");
++            } else if !result
++                .authenticated
++                .fetch
++                .body_sha256
++                .as_deref()
++                .is_some_and(|hash| hash.eq_ignore_ascii_case(expected_sha256))
++            {
++                result.authenticated.fetch.error = Some("sha256_mismatch");
++            } else {
++                result.authenticated.matches_expected = true;
++            }
++        }
++    } else {
++        result.authenticated.fetch.error = Some("authorization_unavailable");
++    }
++
++    if compare_anonymous
++        && result.repository.private == Some(false)
++        && result.release.draft == Some(false)
++    {
++        if remaining_body_budget == 0 {
++            result.anonymous.fetch.initial_origin = Some(advertised_origin);
++            result.anonymous.fetch.error = Some("body_budget_exhausted");
++        } else {
++            result.anonymous.skipped = false;
++            result.anonymous.fetch = fetch(advertised_url, None, &mut remaining_body_budget)
++                .await
++                .0;
++        }
++    }
++    result.finish()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::{legacy_attachment_url, origin};
++    use url::Url;
++
++    #[test]
++    fn origin_omits_path_and_query_and_rejects_userinfo() {
++        let url = Url::parse("https://example.test:8443/private/path?secret=value").unwrap();
++        assert_eq!(origin(&url).as_deref(), Some("https://example.test:8443"));
++        let with_userinfo = Url::parse("https://user:secret@example.test/path").unwrap();
++        assert_eq!(origin(&with_userinfo), None);
++    }
++
++    #[test]
++    fn legacy_attachment_url_uses_sdk_root_path() {
++        let host = Url::parse("https://example.test/nested/?secret=value#fragment").unwrap();
++        let url = legacy_attachment_url(&host, "1234").unwrap();
++        assert_eq!(url.path(), "/attachments/1234");
++        assert_eq!(url.query(), None);
++        assert_eq!(url.fragment(), None);
++    }
++}

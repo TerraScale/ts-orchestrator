@@ -567,6 +567,10 @@ func validRoute(route Route, files map[string]FileEntry) bool {
 			if uri.RawQuery != "" || strings.Contains(strings.TrimPrefix(uri.Path, "/20160918/vnics/"), "/") {
 				return false
 			}
+		case strings.HasPrefix(uri.Path, "/20160918/subnets/ocid1.subnet.oc1.sa-saopaulo-1."):
+			if uri.RawQuery != "" || strings.Contains(strings.TrimPrefix(uri.Path, "/20160918/subnets/"), "/") {
+				return false
+			}
 		default:
 			return false
 		}

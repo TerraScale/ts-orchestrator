@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -28,21 +30,27 @@ func (source fixedDescriptor) FetchInstanceID(context.Context) (string, error) {
 	return source.instance, nil
 }
 
-type fixedSlotReader struct{ state bootstrap.SlotState }
-
-func (reader fixedSlotReader) ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
-	return reader.state, nil
-}
-
 type countingLedgerOpener struct {
 	state                      bootstrap.SlotState
 	currentCalls, historyCalls int
 	onCurrent                  func(int)
+	published                  [][]byte
+}
+
+func (opener *countingLedgerOpener) ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
+	return opener.state, nil
+}
+
+func (opener *countingLedgerOpener) PublishAcceptedInstall(_ context.Context, _ bootstrap.BootstrapScope,
+	marker []byte,
+) error {
+	opener.published = append(opener.published, marker)
+	return nil
 }
 
 func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrLedgerGrant
 	}
@@ -50,7 +58,7 @@ func (opener *countingLedgerOpener) OpenCurrentLedger(_ context.Context, anchor 
 	if opener.onCurrent != nil {
 		opener.onCurrent(opener.currentCalls)
 	}
-	return fixedSlotReader{opener.state}, nil
+	return opener, nil
 }
 
 func TestManagedPeerInitialAdmissionWaitsForPositiveHEAD(t *testing.T) {
@@ -104,12 +112,12 @@ func TestManagedPeerPendingClassifierPreservesMalformedPositiveResult(t *testing
 
 func (opener *countingLedgerOpener) OpenHistoricalLedger(_ context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	_ trust.Keyring,
-) (SlotReader, error) {
+) (AdmissionLedger, error) {
 	if !anchor.IsVerified() {
 		return nil, ErrLedgerGrant
 	}
 	opener.historyCalls++
-	return fixedSlotReader{opener.state}, nil
+	return opener, nil
 }
 
 type fixedBinaryChecker struct{}
@@ -165,7 +173,9 @@ func (materializer *stagedSecretMaterializer) MaterializeCurrent(_ context.Conte
 	return os.WriteFile(filepath.Join(directory, reference.TargetFile), content, 0o600)
 }
 
-func (checker *countingCredentialChecker) VerifyLiveCredentials(_ context.Context, expected map[string]string) error {
+func (checker *countingCredentialChecker) VerifyLiveCredentials(_ context.Context, expected map[string]string,
+	_ bootstrap.Manifest,
+) error {
 	checker.calls++
 	if checker.onVerify != nil {
 		checker.onVerify()
@@ -279,10 +289,10 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		ReleaseReceiptSHA256: digest(imageWire), ReleaseImageReceiptWire: imageWire,
 		ReleaseDelegationWire: releaseGrantWire, StorageDomain: anchored.StorageDomain,
 		Secrets: []bootstrap.SecretReference{{Purpose: bootstrap.SecretController, Slot: "broker-a",
-			SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.controller", VersionNumber: 1,
+			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.controller", VersionNumber: 1,
 			SHA256: digest([]byte("credential fixture")), MaxBytes: 128, TargetFile: "controller.creds"},
 			{Purpose: bootstrap.SecretRegionalShared,
-				SecretOCID: "ocid1.secret.oc1.sa-saopaulo-1.regional", VersionNumber: 1,
+				SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.regional", VersionNumber: 1,
 				SHA256: digest([]byte("regional fixture")), MaxBytes: 128, TargetFile: "regional.creds"}}}
 	var peerPrivate ed25519.PrivateKey
 	if peer {
@@ -305,6 +315,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		}
 		manifest.PeerReceiptDelegation = &delegation
 	}
+	addTestControllerConfig(&manifest)
 	manifestEnvelope, err := bootstrap.SignManifest(manifest, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
 	if err != nil {
 		t.Fatal(err)
@@ -368,12 +379,16 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(markerDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	ledger := &countingLedgerOpener{state: state}
 	material := &countingMaterialChecker{}
 	credentials := &countingCredentialChecker{}
 	gate := Gate{Roots: roots, AnchorWire: anchorWire, Expected: bootstrap.BootstrapAnchorExpectation{
 		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment, Cell: anchored.Cell},
-		Descriptor: fixedDescriptor{slot: "broker-a", instance: instanceID}, Instances: fakeInstanceObserver{observation},
+		LoadedControllerConfigSHA256: manifest.ControllerConfigSHA256,
+		Descriptor:                   fixedDescriptor{slot: "broker-a", instance: instanceID}, Instances: fakeInstanceObserver{observation},
 		Ledgers: ledger, Binary: fixedBinaryChecker{}, Material: material, Credentials: credentials,
 		Markers:             MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
 		ClockCheck:          func() error { return nil },
@@ -384,6 +399,42 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		},
 	}
 	return admissionFlowFixture{gate: gate, ledger: ledger, material: material, credentials: credentials, now: &now}
+}
+
+func addTestControllerConfig(manifest *bootstrap.Manifest) {
+	config := []byte(`{"nats":{},"controller":{}}`)
+	manifest.ControllerConfig = config
+	manifest.ControllerConfigSHA256 = digest(config)
+	for _, name := range bootstrap.ControllerConfigFileNames {
+		body := []byte(`{}`)
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{
+			Name: name, SHA256: digest(body), Bytes: body,
+		})
+	}
+}
+
+func TestAdmissionRejectsLoadedConfigBeforeMaterial(t *testing.T) {
+	fixture := newAdmissionFlowFixture(t)
+	fixture.gate.LoadedControllerConfigSHA256 = digest([]byte("different loaded config"))
+	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
+		t.Fatalf("mismatched loaded controller config reached admission: %v", err)
+	}
+	if fixture.material.initialCalls != 0 || fixture.credentials.calls != 0 {
+		t.Fatal("mismatched loaded controller config reached material or credential effects")
+	}
+}
+
+func testControllerConfigDigestFromManifestWire(t *testing.T, wire []byte) string {
+	t.Helper()
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := bootstrap.ManifestPayload(envelope.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return manifest.ControllerConfigSHA256
 }
 
 func envelopeWire(t *testing.T, envelope trust.Envelope) []byte {
@@ -406,6 +457,10 @@ func TestGateInitialAndRestartThroughFakeAdapters(t *testing.T) {
 		t.Fatalf("initial gate did not reach exact adapters: marker=%+v ledger=%+v material=%+v credentials=%+v",
 			marker, fixture.ledger, fixture.material, fixture.credentials)
 	}
+	wire, err := protocol.EncodeJSON(marker)
+	if err != nil || len(fixture.ledger.published) != 1 || !bytes.Equal(fixture.ledger.published[0], wire) {
+		t.Fatalf("initial admission did not publish its exact marker: %d published, %v", len(fixture.ledger.published), err)
+	}
 	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("accepted marker did not fence second install: %v", err)
 	}
@@ -414,6 +469,9 @@ func TestGateInitialAndRestartThroughFakeAdapters(t *testing.T) {
 		fixture.material.restartCalls != 1 || fixture.credentials.calls != 2 {
 		t.Fatalf("restart gate = %+v, %v; ledger=%+v material=%+v credentials=%+v",
 			restarted, err, fixture.ledger, fixture.material, fixture.credentials)
+	}
+	if len(fixture.ledger.published) != 2 || !bytes.Equal(fixture.ledger.published[1], wire) {
+		t.Fatal("restart admission did not republish its exact marker")
 	}
 	fixture.ledger.state.Head.Generation++
 	if _, err := fixture.gate.AdmitRestart(t.Context()); !errors.Is(err, ErrAdmission) {

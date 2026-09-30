@@ -1,0 +1,1 @@
+python3 -m unittest discover -s tests/deploy -p 'test_build_offline.py'

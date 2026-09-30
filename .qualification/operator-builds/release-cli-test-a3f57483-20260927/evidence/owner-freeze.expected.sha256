@@ -1,0 +1,3 @@
+347a3523e06b178ae0042acaeb53ee5c870dfe84ffaa75e2deec494a7d2f73a2  cmd/ts-release/main.go
+4601e804dd130a285f36af58d3fc789081101013bc2ac2661553a0798670a55e  cmd/ts-release/delegation.go
+df4b37500d970aef0b969c83b8ece8692657ad61a1ef2baa6a017036bd1c75dd  cmd/ts-release/delegation_test.go

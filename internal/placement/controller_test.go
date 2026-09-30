@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"reflect"
 	"slices"
 	"strings"
@@ -61,7 +62,9 @@ func TestControllerHoldsUnsupportedMultiRegionSenderBeforeAnyEffect(t *testing.T
 }
 
 func TestControllerAppliesOnlyPreparedObservedManagedDesired(t *testing.T) {
-	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	draft := validIntent(oci.RegionGRU)
+	draft.RuntimeManifests[0].SQLSchemaBundleSHA256 = strings.Repeat("b", 64)
+	intent := committedTestIntent(t, draft)
 	store := newPlacementMemoryStore(t, intent)
 	instances := attachedInstances(t, intent)
 	for index := range instances {
@@ -92,6 +95,7 @@ func TestControllerAppliesOnlyPreparedObservedManagedDesired(t *testing.T) {
 	if desired.ManagedMember == nil || desired.ManagedMember.Runtime == nil ||
 		desired.AuthorityEpoch != 1 || desired.ManagedMember.Authority.Epoch != 7 ||
 		desired.ManagedMember.Runtime.DevicePath != prepared.AttachmentDevice ||
+		desired.ManagedMember.Runtime.SQLSchemaBundleSHA256 != prepared.RuntimeManifest.SQLSchemaBundleSHA256 ||
 		desired.ManagedMember.AttachmentETag != prepared.AttachmentETag ||
 		desired.ManagedMember.SourceDigest != prepared.RuntimeManifest.SourceDigest ||
 		desired.Digest != prepared.RuntimeManifest.ArtifactDigest {
@@ -655,16 +659,51 @@ func TestControllerSkipsHistoricalIntentWithoutBlockingLaterManagedPlacement(t *
 	}
 }
 
+func TestControllerFailingPlacementDoesNotStarveLaterPlacement(t *testing.T) {
+	failingDraft := validIntent(oci.RegionGRU)
+	failingDraft.DatabaseID = "a-failing"
+	failing := committedTestIntent(t, failingDraft)
+	laterDraft := validIntent(oci.RegionGRU)
+	laterDraft.DatabaseID = "z-later"
+	later := committedTestIntent(t, laterDraft)
+	store := &placementMemoryStore{intents: []Intent{failing, later}, members: make(map[string]VersionedMemberState)}
+	launchErr := errors.New("injected OCI launch failure")
+	fleet := &placementTestFleet{ensureErr: launchErr}
+	controller := startTestPlacementController(t, store, fleet, &placementTestHosts{}, func(string) {})
+
+	// First pass prepares the failing placement's first seat.
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// Its host launch fails, yet the same pass still prepares the later
+	// placement. The memory store keys members by seat alone, so that write
+	// is observed through its CAS hook.
+	reachedLater := false
+	store.onCAS = func(state MemberState) error {
+		reachedLater = reachedLater || state.DatabaseID == later.DatabaseID
+		return nil
+	}
+	err := controller.Tick(t.Context())
+	if !errors.Is(err, launchErr) || fleet.ensureCalls != 1 || !reachedLater {
+		t.Fatalf("failing placement starved the later placement: err=%v ensures=%d reached=%v", err, fleet.ensureCalls, reachedLater)
+	}
+}
+
 func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
 	for _, test := range []struct {
-		name       string
-		change     func(*placementMemoryStore, *placementTestFleet, *placementTestHosts)
-		wantCreate bool
-		wantError  bool
+		name           string
+		change         func(*placementMemoryStore, *placementTestFleet, *placementTestHosts)
+		wantCreate     bool
+		wantVolumeCall bool
+		wantError      bool
 	}{
 		{name: "current exact host", wantCreate: true},
+		{name: "undersized observed volume", wantVolumeCall: true, wantError: true,
+			change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
+				fleet.volumeResult.SizeGB = 1
+			}},
 		{name: "host missing", change: func(_ *placementMemoryStore, fleet *placementTestFleet, _ *placementTestHosts) {
 			fleet.instances = nil
 		}},
@@ -699,6 +738,7 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 			if test.change != nil {
 				test.change(store, fleet, hosts)
 			}
+			before := store.members[seat.MemberID].State
 			controller := startTestPlacementController(t, store, fleet, hosts, nil)
 			err := controller.Tick(t.Context())
 			if (err != nil) != test.wantError {
@@ -709,8 +749,14 @@ func TestControllerPreparesRetainedVolumeOnlyWithCurrentExactHost(t *testing.T) 
 				if fleet.volumeCalls != 1 || store.casCalls != 1 || state.VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
 					t.Fatalf("current host did not authorize exactly one retained volume: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
 				}
-			} else if fleet.volumeCalls != 0 || store.casCalls != 0 || state.Stage != StagePreparedVolume {
-				t.Fatalf("missing or drifted host allowed volume effect: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+			} else {
+				wantCalls := 0
+				if test.wantVolumeCall {
+					wantCalls = 1
+				}
+				if fleet.volumeCalls != wantCalls || store.casCalls != 0 || !reflect.DeepEqual(state, before) {
+					t.Fatalf("held volume altered durable placement: calls=%d CAS=%d state=%+v", fleet.volumeCalls, store.casCalls, state)
+				}
 			}
 		})
 	}
@@ -924,6 +970,39 @@ func testMemberState(t *testing.T, intent Intent, seat Seat, stage MemberStage) 
 	return state
 }
 
+func TestTerminalTargetsUseExactAdmittedSeatsAndDurableAttemptKeys(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seats, err := DesiredSeats(intent, map[oci.Region][]string{
+		oci.RegionGRU: {"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := testMemberState(t, intent, seats[0], StageAwaitingRuntimeContract)
+	states := []VersionedMemberState{{State: state, Revision: 1}}
+	targets, err := TerminalTargetsForRegion(intent, oci.RegionGRU,
+		[]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}, states)
+	if err != nil || len(targets) != 2 {
+		t.Fatalf("derive exact terminal targets: %+v, %v", targets, err)
+	}
+	for index, seat := range seats {
+		row, err := intent.RosterRowForSeat(seat)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if targets[index].SeatID != seat.MemberID || targets[index].MemberID != row.MemberID ||
+			targets[index].HostCreateKey != hostCreateKey(intent, seat, 1) ||
+			targets[index].DataCreateKey != volumeCreateKey(intent, seat) {
+			t.Fatalf("terminal target changed signed seat or durable create key: %+v", targets[index])
+		}
+	}
+	states[0].State.CreateKey = "other-host-key"
+	if _, err := TerminalTargetsForRegion(intent, oci.RegionGRU,
+		[]string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}, states); err == nil {
+		t.Fatal("terminal plan accepted a durable member with a different host create key")
+	}
+}
+
 func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 	t.Helper()
 	seats := []Seat{
@@ -945,8 +1024,13 @@ func attachedInstances(t *testing.T, intent Intent) []oci.Instance {
 		if err != nil {
 			t.Fatal(err)
 		}
+		privateIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+		if err != nil {
+			t.Fatal(err)
+		}
 		instances = append(instances, oci.Instance{
 			ID: state.InstanceID, Node: state.HostNode, CreateKey: state.CreateKey, Region: seat.Region,
+			PrivateIP:  privateIP,
 			Generation: 1, Owner: "owner-a", FaultDomain: seat.FailureDomain,
 			Shape: state.ManagedHostProfile.Compute.Shape, WholeOCPUs: state.ManagedHostProfile.Compute.WholeOCPUs,
 			MemoryInGBs:            state.ManagedHostProfile.Compute.MemoryInGBs,
@@ -995,6 +1079,10 @@ type placementMemoryStore struct {
 	members  map[string]VersionedMemberState
 	casCalls int
 	onCAS    func(MemberState) error
+}
+
+func (*placementMemoryStore) ReadTerminalIntent(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
 }
 
 func (store *placementMemoryStore) ListIntents(context.Context) ([]Intent, error) {
@@ -1046,6 +1134,22 @@ func (placementTestFencer) Current() authority.Snapshot {
 
 func (placementTestFencer) Guard(context.Context, uint64) error { return nil }
 
+func (placementTestFencer) ReadManagedUpdate(context.Context, string, string) (authority.LogEntry, error) {
+	return authority.LogEntry{}, authority.ErrNotFound
+}
+
+func (placementTestFencer) ReadManagedUpdateOperation(context.Context, string, string, string) ([]authority.LogEntry, error) {
+	return nil, authority.ErrNotFound
+}
+
+func (placementTestFencer) ListManagedUpdates(context.Context, string, string) ([]authority.LogEntry, error) {
+	return []authority.LogEntry{}, nil
+}
+
+func (placementTestFencer) BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error) {
+	return func() {}, nil
+}
+
 type placementTestHosts struct {
 	statuses      []host.HostStatus
 	desired       []host.Desired
@@ -1073,6 +1177,7 @@ func (hosts *placementTestHosts) ApplyDesired(_ context.Context, desired host.De
 type placementTestFleet struct {
 	instances        []oci.Instance
 	ensureResult     *oci.Instance
+	ensureErr        error
 	ensureRequests   []oci.EnsureRequest
 	volumeResult     *oci.RetainedVolume
 	onObserve        func()
@@ -1099,6 +1204,9 @@ func (fleet *placementTestFleet) Observe(context.Context) ([]oci.Instance, error
 func (fleet *placementTestFleet) EnsureHost(_ context.Context, request oci.EnsureRequest) (oci.Instance, error) {
 	fleet.ensureCalls++
 	fleet.ensureRequests = append(fleet.ensureRequests, request)
+	if fleet.ensureErr != nil && fleet.ensureCalls == 1 {
+		return oci.Instance{}, fleet.ensureErr
+	}
 	if fleet.ensureResult == nil {
 		return oci.Instance{}, errors.New("unexpected EnsureHost")
 	}

@@ -12,22 +12,34 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
-	imdsAddress        = "169.254.169.254:80"
-	imdsBaseURL        = "http://169.254.169.254/opc/v2/instance/"
-	descriptorEndpoint = imdsBaseURL + "metadata/terrascale-bootstrap"
-	identityEndpoint   = imdsBaseURL + "id"
-	maxDescriptorBytes = 4096
-	imdsTimeout        = 3 * time.Second
+	imdsAddress                        = "169.254.169.254:80"
+	imdsBaseURL                        = "http://169.254.169.254/opc/v2/instance/"
+	descriptorEndpoint                 = imdsBaseURL + "metadata/terrascale-bootstrap"
+	controllerManifestEndpoint         = imdsBaseURL + "metadata/terrascale-controller-manifest-v1"
+	identityMetadataEndpoint           = imdsBaseURL + "metadata/" + IdentityMetadataKey
+	anchorMetadataEndpoint             = imdsBaseURL + "metadata/" + AnchorMetadataKey
+	hostEnrollmentMetadataEndpoint     = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
+	identityEndpoint                   = imdsBaseURL + "id"
+	maxDescriptorBytes                 = 4096
+	MaxControllerManifestMetadataBytes = 30 << 10
+	imdsTimeout                        = 3 * time.Second
 )
 
 var (
 	ErrInvalidDescriptor = errors.New("OCI bootstrap descriptor is invalid")
-	descriptorSlotRE     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	instanceIDRE         = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
+	// ErrNotController reports an instance launched without controller launch
+	// metadata, such as a managed host sharing the qualified image.
+	ErrNotController  = errors.New("instance has no controller launch metadata")
+	errMetadataAbsent = fmt.Errorf("%w: metadata key is absent", ErrInvalidDescriptor)
+	descriptorSlotRE  = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	instanceIDRE      = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]*\.[a-z0-9-]+$`)
 )
 
 // Descriptor is an untrusted IMDS transport hint. Its slot identifies the
@@ -91,8 +103,39 @@ func (imds IMDSClient) FetchInstanceID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
+// FetchControllerManifest reads only the fixed public transport field. The
+// caller must verify the signed envelope against baked roots and observed OCI
+// identity before using its configuration.
+func (imds IMDSClient) FetchControllerManifest(ctx context.Context) ([]byte, error) {
+	return imds.fetch(ctx, controllerManifestEndpoint, MaxControllerManifestMetadataBytes)
+}
+
+// FetchLaunchMaterial reads the deployment identity, signed anchor and host
+// enrollment bundle delivered in launch metadata. The caller verifies the
+// anchor against the image's trust roots before installing any of them.
+func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial, error) {
+	identity, err := imds.fetch(ctx, identityMetadataEndpoint, maxIdentity)
+	if errors.Is(err, errMetadataAbsent) {
+		return LaunchMaterial{}, ErrNotController
+	}
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch identity metadata: %w", err)
+	}
+	anchor, err := imds.fetch(ctx, anchorMetadataEndpoint, bootstrap.MaxBootstrapAnchorBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch anchor metadata: %w", err)
+	}
+	enrollment, err := imds.fetch(ctx, hostEnrollmentMetadataEndpoint, hostenroll.MaxPublicBundleBytes)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch host enrollment metadata: %w", err)
+	}
+	return LaunchMaterial{Identity: identity, Anchor: anchor, HostEnrollment: enrollment}, nil
+}
+
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
-	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint {
+	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
+		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
+		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint {
 		return nil, ErrInvalidDescriptor
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -105,6 +148,9 @@ func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64
 		return nil, fmt.Errorf("read fixed OCI IMDS endpoint: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, errMetadataAbsent
+	}
 	if response.StatusCode != http.StatusOK || response.ContentLength > maximum {
 		return nil, ErrInvalidDescriptor
 	}

@@ -3,7 +3,7 @@
 This repository contains the current Go `ts-orchestrator` executable. The
 [workspace GOAL](../../GOAL.md) prioritizes end-to-end API behavior and an
 early, low-cost ARM64 preview of ts-orchestrator with TerraBase. It authorizes
-that preview under a combined recurring-cost cap of **US$100/month for
+that preview under a combined recurring-cost cap of **US$200/month for
 qualification testing and preview**; these local commands do not deploy or
 qualify it. Current preview evidence and open gates are linked in the
 [OCI preview record](evidence/oci-preview-20260926.json) and
@@ -19,15 +19,14 @@ targets used in CI:
 ```bash
 mise trust .mise.toml
 mise install
-nice -n 10 mise exec -- make verify
-nice -n 10 mise exec -- make build
-nice -n 10 mise exec -- make release-linux
+mise exec -- make verify
+mise exec -- make build
+mise exec -- make release-linux
 ```
 
 `make verify` checks formatting, runs the Python Firecracker harness contract
-tests, runs all Go tests and `go vet`, and runs the tests with the race
-detector. `make build` writes the current-platform binary
-to `dist/terrascale-orchestrator`.
+tests, runs `go vet`, and runs all Go tests with the race detector. `make build`
+writes the current-platform binary to `dist/terrascale-orchestrator`.
 
 `make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
 It is a cross-build target; it does not demonstrate execution on ARM64 or
@@ -78,8 +77,12 @@ read-only prerequisite check, then start the live qualification from the
 repository root:
 
 ```bash
-python3 tests/firecracker/qualify.py check
-python3 tests/firecracker/qualify.py run
+python3 tests/firecracker/qualify.py check \
+  --kernel /tmp/vm-inputs/vmlinux \
+  --rootfs /tmp/vm-inputs/rootfs.ext4
+python3 tests/firecracker/qualify.py run \
+  --kernel /tmp/vm-inputs/vmlinux \
+  --rootfs /tmp/vm-inputs/rootfs.ext4
 ```
 
 The harness requires Firecracker, `/dev/kvm`, `/dev/net/tun`, the pinned kernel

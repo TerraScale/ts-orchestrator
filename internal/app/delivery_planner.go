@@ -24,9 +24,6 @@ func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host
 }
 
 func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
-	if len(profiles) == 0 {
-		return errors.New("controller requires explicit workload profiles")
-	}
 	for role, profile := range profiles {
 		if !grantToken.MatchString(role) || profile.Resources.CPU <= 0 || profile.Resources.CPU > 4096 ||
 			profile.Resources.MemoryBytes <= 0 || profile.Resources.MemoryBytes > 1<<50 ||

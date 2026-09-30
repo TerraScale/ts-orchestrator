@@ -360,8 +360,8 @@ func (ledger *Ledger) writeManagedPeerProgress(ctx context.Context, scope Bootst
 	if err := ctx.Err(); err != nil {
 		return StoredRecord{}, ManagedPeerProgress{}, err
 	}
-	response, putErr := ledger.client.PutObject(ctx, request)
-	if putErr != nil && !shouldReadAfterPutError(putErr) {
+	response, putErr, putAttempted := ledger.putObjectAfterTimestampBoundary(ctx, request, envelope)
+	if putErr != nil && (!putAttempted || !shouldReadAfterPutError(putErr)) {
 		return StoredRecord{}, ManagedPeerProgress{}, fmt.Errorf("write managed-peer progress CAS: %w", putErr)
 	}
 	stored, readErr := ledger.readObject(ctx, ledger.config.HeadBucket, objectName)

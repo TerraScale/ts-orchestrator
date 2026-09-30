@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -26,6 +27,7 @@ const initialAdmissionRetryInterval = 2 * time.Second
 // primary VNIC. The IMDS identity merely selects which instance to observe.
 type InstanceObservation struct {
 	InstanceOCID       string
+	BootstrapCreateKey string
 	CompartmentOCID    string
 	ImageOCID          string
 	ETag               string
@@ -55,9 +57,16 @@ type SlotReader interface {
 	ReadSlot(context.Context, bootstrap.BootstrapScope) (bootstrap.SlotState, error)
 }
 
+// AdmissionLedger reads the signed slot and makes the accepted install's
+// public marker available to the offline root that signs install continuity.
+type AdmissionLedger interface {
+	SlotReader
+	PublishAcceptedInstall(context.Context, bootstrap.BootstrapScope, []byte) error
+}
+
 type LedgerOpener interface {
-	OpenCurrentLedger(context.Context, bootstrap.VerifiedBootstrapAnchor, trust.Keyring) (SlotReader, error)
-	OpenHistoricalLedger(context.Context, bootstrap.HistoricalBootstrapAnchor, trust.Keyring) (SlotReader, error)
+	OpenCurrentLedger(context.Context, bootstrap.VerifiedBootstrapAnchor, trust.Keyring) (AdmissionLedger, error)
+	OpenHistoricalLedger(context.Context, bootstrap.HistoricalBootstrapAnchor, trust.Keyring) (AdmissionLedger, error)
 }
 
 type BinaryChecker interface {
@@ -75,7 +84,7 @@ type MaterialChecker interface {
 type CurrentProofVerifier func(time.Time) error
 
 type LiveCredentialChecker interface {
-	VerifyLiveCredentials(context.Context, map[string]string) error
+	VerifyLiveCredentials(context.Context, map[string]string, bootstrap.Manifest) error
 }
 
 // CurrentContinuationChecker verifies an independently current renewal chain
@@ -89,21 +98,22 @@ type CurrentContinuationChecker interface {
 // local deployment identity must come from the baked image, never the IMDS
 // descriptor or a mutable instance tag.
 type Gate struct {
-	Roots               trust.Keyring
-	AnchorWire          []byte
-	Expected            bootstrap.BootstrapAnchorExpectation
-	Descriptor          DescriptorSource
-	Instances           InstanceObserver
-	Ledgers             LedgerOpener
-	Binary              BinaryChecker
-	Material            MaterialChecker
-	Credentials         LiveCredentialChecker
-	Continuation        CurrentContinuationChecker
-	Markers             MarkerStore
-	ClockCheck          func() error
-	Now                 func() time.Time
-	InitialFounderFloor func(context.Context, AcceptedInstall, time.Time) error
-	InitialPeerFloor    func(context.Context, AcceptedInstall, bootstrap.SlotState, time.Time) error
+	Roots                        trust.Keyring
+	AnchorWire                   []byte
+	Expected                     bootstrap.BootstrapAnchorExpectation
+	LoadedControllerConfigSHA256 string
+	Descriptor                   DescriptorSource
+	Instances                    InstanceObserver
+	Ledgers                      LedgerOpener
+	Binary                       BinaryChecker
+	Material                     MaterialChecker
+	Credentials                  LiveCredentialChecker
+	Continuation                 CurrentContinuationChecker
+	Markers                      MarkerStore
+	ClockCheck                   func() error
+	Now                          func() time.Time
+	InitialFounderFloor          func(context.Context, AcceptedInstall, time.Time) error
+	InitialPeerFloor             func(context.Context, AcceptedInstall, bootstrap.SlotState, time.Time) error
 }
 
 type executableBinaryChecker struct{}
@@ -119,7 +129,8 @@ func (executableBinaryChecker) VerifyHistorical(image release.HistoricalImage) (
 func (gate Gate) prerequisites() error {
 	if len(gate.Roots) == 0 || len(gate.AnchorWire) == 0 || gate.Descriptor == nil ||
 		gate.Instances == nil || gate.Ledgers == nil || gate.Material == nil || gate.Credentials == nil ||
-		gate.Markers.directory == "" || gate.ClockCheck == nil {
+		gate.Markers.directory == "" || gate.ClockCheck == nil ||
+		!markerDigestRE.MatchString(gate.LoadedControllerConfigSHA256) {
 		return fmt.Errorf("%w: trusted input or required verifier is absent", ErrAdmission)
 	}
 	return nil
@@ -204,8 +215,11 @@ func (gate Gate) observe(ctx context.Context, instanceID string, state bootstrap
 		Profile: bootstrap.LaunchProfile{
 			Slot: state.Intent.Slot, CompartmentOCID: observed.CompartmentOCID,
 			AvailabilityDomain: observed.AvailabilityDomain, FaultDomain: observed.FaultDomain,
-			SubnetOCID: observed.SubnetOCID, NetworkSecurityGroupOCIDs: slices.Clone(observed.NSGOCIDs),
-			Shape: observed.Shape,
+			SubnetOCID: observed.SubnetOCID,
+			// OCI reports NSG membership without a stable order. The exact set
+			// was checked above; keep the signed order for receipt verification.
+			NetworkSecurityGroupOCIDs: slices.Clone(state.Intent.NetworkSecurityGroupIDs),
+			Shape:                     observed.Shape,
 		},
 	}
 	return observed, nil
@@ -223,22 +237,39 @@ func sameOCIDSet(left, right []string) bool {
 
 func (gate Gate) currentSlot(ctx context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
 	scope bootstrap.BootstrapScope,
-) (bootstrap.SlotState, error) {
+) (bootstrap.SlotState, AdmissionLedger, error) {
 	ledger, err := gate.Ledgers.OpenCurrentLedger(ctx, anchor, gate.Roots)
 	if err != nil {
-		return bootstrap.SlotState{}, fmt.Errorf("open signed slot ledger: %w", err)
+		return bootstrap.SlotState{}, nil, fmt.Errorf("open signed slot ledger: %w", err)
 	}
-	return readSlot(ctx, ledger, scope)
+	state, err := readSlot(ctx, ledger, scope)
+	return state, ledger, err
 }
 
 func (gate Gate) historicalSlot(ctx context.Context, anchor bootstrap.HistoricalBootstrapAnchor,
 	scope bootstrap.BootstrapScope,
-) (bootstrap.SlotState, error) {
+) (bootstrap.SlotState, AdmissionLedger, error) {
 	ledger, err := gate.Ledgers.OpenHistoricalLedger(ctx, anchor, gate.Roots)
 	if err != nil {
-		return bootstrap.SlotState{}, fmt.Errorf("open historical signed slot ledger: %w", err)
+		return bootstrap.SlotState{}, nil, fmt.Errorf("open historical signed slot ledger: %w", err)
 	}
-	return readSlot(ctx, ledger, scope)
+	state, err := readSlot(ctx, ledger, scope)
+	return state, ledger, err
+}
+
+// publishAcceptedInstall publishes the exact accepted-install marker, which
+// managed peers need the root to countersign before they can restart.
+func publishAcceptedInstall(ctx context.Context, ledger AdmissionLedger, scope bootstrap.BootstrapScope,
+	marker AcceptedInstall,
+) error {
+	wire, err := protocol.EncodeJSON(marker)
+	if err != nil {
+		return err
+	}
+	if err := ledger.PublishAcceptedInstall(ctx, scope, wire); err != nil {
+		return fmt.Errorf("%w: publish accepted-install marker: %v", ErrAdmission, err)
+	}
+	return nil
 }
 
 func readSlot(ctx context.Context, ledger SlotReader, scope bootstrap.BootstrapScope) (bootstrap.SlotState, error) {
@@ -306,7 +337,7 @@ func digest(body []byte) string {
 func expectedMaterials(manifest bootstrap.Manifest, slot string) map[string]string {
 	materials := make(map[string]string)
 	for _, reference := range manifest.Secrets {
-		if reference.Purpose == bootstrap.SecretRegionalShared ||
+		if reference.Purpose == bootstrap.SecretRegionalShared || reference.Purpose == bootstrap.SecretHostIssuer ||
 			reference.Purpose == bootstrap.SecretController && reference.Slot == slot ||
 			(reference.Purpose == bootstrap.SecretSeedFounder || reference.Purpose == bootstrap.SecretSeedLedgerSigner) &&
 				slot == manifest.SeedSlot {
@@ -335,6 +366,10 @@ func (gate Gate) initialProofs(state bootstrap.SlotState, anchor bootstrap.Verif
 		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, fmt.Errorf("%w: current signed manifest differs from intent: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
+	if payload.ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
+		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{},
+			fmt.Errorf("%w: loaded controller config differs from signed ledger manifest", ErrAdmission)
+	}
 	if payload.ReleaseReceiptSHA256 != state.Intent.ReleaseReceiptDigest ||
 		payload.ImageOCID != state.Intent.ImageOCID || len(payload.ReleaseImageReceiptWire) == 0 {
 		return bootstrap.VerifiedManifest{}, bootstrap.VerifiedReceipt{}, release.VerifiedImage{}, ErrAdmission
@@ -397,7 +432,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
-	state, err := gate.currentSlot(ctx, anchor, scope)
+	state, ledger, err := gate.currentSlot(ctx, anchor, scope)
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
@@ -439,7 +474,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err := gate.Material.PrepareInitial(ctx, manifest, receipt, materials, verifyCurrent); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("prepare current controller materials: %w", err)
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials); err != nil {
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials, manifest.Manifest()); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	receiptRecord := state.SeedReceiptRecord
@@ -472,6 +507,7 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 		HeadAttempt: state.Head.Attempt, HeadGeneration: state.Head.Generation,
 		ResultSHA256: state.ResultRecord.SHA256, BinarySHA256: binary.SHA256,
 		MaterialSHA256: materials, AcceptedAt: acceptedAt,
+		ManagedMaterial: manifest.Manifest().ManagedMaterial,
 	}
 	if err := verifyCurrent(time.Time{}); err != nil {
 		return AcceptedInstall{}, err
@@ -515,6 +551,9 @@ func (gate Gate) AdmitInitial(ctx context.Context) (AcceptedInstall, error) {
 	if err := gate.Markers.WriteNew(marker); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("persist accepted-install marker: %w", err)
 	}
+	if err := publishAcceptedInstall(ctx, ledger, scope, marker); err != nil {
+		return AcceptedInstall{}, err
+	}
 	return marker, nil
 }
 
@@ -550,7 +589,7 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		scope.Slot != marker.Slot || instanceID != marker.InstanceOCID {
 		return AcceptedInstall{}, fmt.Errorf("%w: local locator differs from accepted install", ErrAdmission)
 	}
-	state, err := gate.historicalSlot(ctx, anchor, scope)
+	state, ledger, err := gate.historicalSlot(ctx, anchor, scope)
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
@@ -561,6 +600,11 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		state.Intent.ImageOCID != marker.ImageOCID ||
 		state.Intent.ReleaseReceiptDigest != marker.ImageReceiptSHA256 {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted install differs from signed current slot", ErrAdmission)
+	}
+	// Peers restart only through a root-signed continuity for this exact
+	// marker, so publish it before any continuity check.
+	if err := publishAcceptedInstall(ctx, ledger, scope, marker); err != nil {
+		return AcceptedInstall{}, err
 	}
 	observed, err := gate.observe(ctx, instanceID, state, anchor.Anchor())
 	if err != nil {
@@ -588,6 +632,9 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical manifest is invalid: %v", ErrAdmission, err)
 	}
 	payload := manifest.Manifest()
+	if payload.ControllerConfigSHA256 != gate.LoadedControllerConfigSHA256 {
+		return AcceptedInstall{}, fmt.Errorf("%w: loaded controller config differs from accepted manifest", ErrAdmission)
+	}
 	if marker.SeedSlot != payload.SeedSlot {
 		return AcceptedInstall{}, fmt.Errorf("%w: accepted seed role differs from signed manifest", ErrAdmission)
 	}
@@ -640,10 +687,14 @@ func (gate Gate) AdmitRestart(ctx context.Context) (AcceptedInstall, error) {
 			return AcceptedInstall{}, fmt.Errorf("%w: accepted material digest differs", ErrAdmission)
 		}
 	}
+	if (payload.ManagedMaterial == nil) != (marker.ManagedMaterial == nil) ||
+		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
+		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
+	}
 	if err := gate.Material.VerifyRestart(ctx, manifest, materials); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials); err != nil {
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, materials, payload); err != nil {
 		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	peerContinuation := !seed && state.Intent.Mode == bootstrap.IntentModeManaged

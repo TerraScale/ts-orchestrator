@@ -338,10 +338,19 @@ func TestSimulatorPinsIMDSAndRejectsUnlistedRoutes(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("unlisted OCI host status = %d", response.Code)
 	}
+	if err := simulator.addRead(ReadResponse{
+		Host:       simulator.computeHost,
+		RequestURI: "/20160918/subnets/ocid1.subnet.oc1.sa-saopaulo-1.subnet-a",
+		Body:       []byte("{}"), ETag: "fixture", LastModified: simulator.now(),
+	}); err != nil {
+		t.Fatalf("regional GetSubnet route was rejected: %v", err)
+	}
 	for _, uri := range []string{
 		"/20160918/instances/ocid1.instance.oc1.sa-saopaulo-1.other",
 		"/20160918/instances/" + testInstance + "?unexpected=1",
 		"/20160918/bootVolumes/ocid1.bootvolume.oc1..other",
+		"/20160918/subnets/ocid1.subnet.oc1.us-ashburn-1.other",
+		"/20160918/subnets/ocid1.subnet.oc1.sa-saopaulo-1.subnet-a?unexpected=1",
 		"/20160918/vnicAttachments?instanceId=" + testInstance + "&limit=50",
 	} {
 		if err := simulator.addRead(ReadResponse{Host: simulator.computeHost, RequestURI: uri,

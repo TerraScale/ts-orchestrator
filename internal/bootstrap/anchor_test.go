@@ -117,6 +117,29 @@ func (fixture bootstrapAnchorFixture) sign(t *testing.T, issuedAt, expiresAt tim
 	return envelope
 }
 
+func TestBootstrapAnchorSignsRegionalKMSKeyOCIDsWithFutureUse(t *testing.T) {
+	fixture := newBootstrapAnchorFixture(t)
+	fixture.anchor.Cell = oci.RegionGRU
+	fixture.anchor.OCIRegion = "sa-saopaulo-1"
+	fixture.anchor.StorageDomain.LedgerKMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.vaultpart.ledgerkey"
+	fixture.anchor.StorageDomain.HeadKMSKeyOCID = "ocid1.key.oc1.sa-saopaulo-1.vaultpart.headkey"
+	grant := signBootstrapLedgerGrant(t, fixture.rootPrivate, fixture.ledgerPublic,
+		fixture.anchor.DeploymentID, fixture.anchor.Cell, fixture.anchor.Environment,
+		fixture.anchor.ControllerSlots, fixture.now.Add(-4*time.Hour), fixture.now.Add(MaxBootstrapAnchorLifetime-4*time.Hour))
+	grantWire, err := trust.EncodeEnvelope(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.anchor.LedgerDelegationWire = grantWire
+	if err := fixture.anchor.StorageDomain.Validate(); err != nil {
+		t.Fatalf("StorageDomain.Validate() rejected regional OCI KMS IDs: %v", err)
+	}
+	if err := fixture.anchor.Validate(); err != nil {
+		t.Fatalf("BootstrapAnchor.Validate() rejected regional OCI KMS IDs: %v", err)
+	}
+	fixture.sign(t, fixture.now.Add(-time.Minute), fixture.now.Add(24*time.Hour))
+}
+
 func TestBootstrapAnchorCurrentVerificationPinsIdentityAndReturnsDefensiveCopies(t *testing.T) {
 	fixture := newBootstrapAnchorFixture(t)
 	input := cloneBootstrapAnchor(fixture.anchor)

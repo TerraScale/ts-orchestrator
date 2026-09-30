@@ -7,6 +7,17 @@ Actions owns source verification and binary builds. The orchestrator owns
 artifact admission and rollout authority. `ts-deploy` is not the build or
 rollout engine for this repository.
 
+Regional foundation and first-controller setup are operator-run; after the
+identity and authority handoff, the orchestrator forms that cell's remaining
+controller peers. See the [manual regional bootstrap runbook](docs/region-bootstrap.md)
+for the current supported procedure and its limits.
+
+`ts-infra` manages shared Email Delivery only. The operator prepares regional
+networking, IAM, and bootstrap inputs and starts controller A; `ts-orchestrator`
+then forms the same-cell B/C peers and manages ARM workload hosts and TerraBase
+deployment. The current `ts-infra` source and guarded workflow do not seed or
+manage regional resources.
+
 This is a greenfield Go implementation. It does not promise compatibility with
 the retired C# commands, configuration, NATS subjects, or state. The current
 implementation and its gaps are described in [the architecture notes](docs/architecture.md).
@@ -24,12 +35,12 @@ mise exec -- make release-linux
 ```
 
 `make verify` checks Go formatting, runs the Python Firecracker harness contract
-tests, runs Go tests and `go vet`, and repeats the tests with the race
-detector. `make build` creates `dist/terrascale-orchestrator` for the current
-host. `make release-linux` creates static Linux amd64 and
-arm64 executables and requires no Go runtime on the target machine. Forgejo CI
-repeats the checks against the event's exact commit, verifies both ELF
-architectures and the embedded Git revision, and prints SHA-256 digests.
+tests, runs `go vet`, and runs the Go tests once with the race detector.
+`make build` creates `dist/terrascale-orchestrator` for the current host.
+`make release-linux` creates static Linux amd64 and arm64 executables and
+requires no Go runtime on the target machine. Forgejo CI repeats the checks
+against the event's exact commit, verifies both ELF architectures and the
+embedded Git revision, and prints SHA-256 digests.
 
 See [local development](docs/local-development.md) for Firecracker
 qualification and [release boundaries](docs/releases.md) for what CI proves

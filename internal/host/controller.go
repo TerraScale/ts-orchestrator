@@ -23,32 +23,38 @@ import (
 // Controller holds the durable host authority and serves restricted host RPCs.
 // Administrative callers own admission of Register and ApplyDesired operations.
 type Controller struct {
-	cell             string
-	conn             *nats.Conn
-	sessionRead      func(context.Context, string) (session, uint64, bool, error)
-	state            jetstream.KeyValue
-	controlLog       jetstream.Stream
-	readOnly         bool
-	mutations        authority.HostMutationStore
-	managedVerifier  ManagedRegistrationVerifier
-	artifacts        ArtifactStore
-	responseKey      ed25519.PrivateKey
-	registrationMu   sync.Mutex
-	ready            chan struct{}
-	readyOnce        sync.Once
-	cacheMu          sync.Mutex
-	cacheFile        *os.File
-	cacheDigest      string
-	cacheSize        int64
-	cacheDownloading bool
-	cacheClosed      bool
-	cacheCancel      context.CancelFunc
-	cacheContext     context.Context
-	cacheRetryAfter  time.Time
-	sessionDiagMu    sync.Mutex
-	sessionDiagAt    map[string]time.Time
-	authorityEpoch   func() uint64
-	authorityGuard   func(context.Context, uint64) error
+	cell                   string
+	conn                   *nats.Conn
+	sessionRead            func(context.Context, string) (session, uint64, bool, error)
+	state                  jetstream.KeyValue
+	controlLog             jetstream.Stream
+	readOnly               bool
+	mutations              authority.HostMutationStore
+	managedVerifier        ManagedRegistrationVerifier
+	managedDesiredVerifier ManagedDesiredVerifier
+	managedEffectGate      func(context.Context, uint64, authority.WorkloadScope) (func(), error)
+	materialProvider       ManagedMaterialProvider
+	credentialFloor        func(context.Context, Registration) (uint64, error)
+	volumeInspector        ManagedVolumeInspector
+	artifacts              ArtifactStore
+	responseKey            ed25519.PrivateKey
+	registrationMu         sync.Mutex
+	ready                  chan struct{}
+	readyOnce              sync.Once
+	cacheMu                sync.Mutex
+	cacheFile              *os.File
+	cacheDigest            string
+	cacheSize              int64
+	cacheDownloading       bool
+	cacheClosed            bool
+	cacheCancel            context.CancelFunc
+	cacheContext           context.Context
+	cacheRetryAfter        time.Time
+	sessionDiagMu          sync.Mutex
+	sessionDiagAt          map[string]time.Time
+	authorityEpoch         func() uint64
+	authorityGuard         func(context.Context, uint64) error
+	authorityLeader        func() bool
 }
 
 func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, error) {
@@ -60,6 +66,17 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	}
 	if cfg.AuthorityEpoch == nil || cfg.AuthorityGuard == nil {
 		return nil, errors.New("controller requires authority epoch and guard")
+	}
+	managedEffectGate := cfg.ManagedEffectGate
+	if managedEffectGate == nil {
+		if gate, ok := cfg.HostMutations.(interface {
+			BeginActiveWorkloadEffect(context.Context, uint64, authority.WorkloadScope) (func(), error)
+		}); ok {
+			managedEffectGate = gate.BeginActiveWorkloadEffect
+		}
+	}
+	if cfg.ManagedRegistrationVerifier != nil && managedEffectGate == nil {
+		return nil, errors.New("managed host registration requires a terminal effect gate")
 	}
 	replicas := cfg.StateReplicas
 	if replicas == 0 {
@@ -91,7 +108,13 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		}
 	}
 	cacheCtx, cacheCancel := context.WithCancel(context.Background())
-	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations, managedVerifier: cfg.ManagedRegistrationVerifier, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}), authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
+	return &Controller{cell: cfg.Cell, conn: cfg.Conn, state: state, controlLog: controlLog, mutations: cfg.HostMutations,
+		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
+		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
+		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector,
+		artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
+		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
 
 // Ready closes once all host request subscriptions are accepted by NATS.
@@ -218,12 +241,24 @@ func (c *Controller) Register(ctx context.Context, r Registration) (Receipt, err
 	if r.ManagedOCI != nil && r.ManagedPlacement == nil {
 		return Receipt{}, errors.New("managed host registration requires current schema-3 placement pins")
 	}
-	c.registrationMu.Lock()
-	defer c.registrationMu.Unlock()
 	authorityEpoch := c.authorityEpoch()
 	if err := c.guard(ctx, authorityEpoch); err != nil {
 		return Receipt{}, err
 	}
+	if r.ManagedMember != nil {
+		if c.managedEffectGate == nil || r.ManagedPlacement == nil {
+			return Receipt{}, errors.New("managed host registration requires a terminal effect gate and placement scope")
+		}
+		release, err := c.managedEffectGate(ctx, authorityEpoch, authority.WorkloadScope{
+			DatabaseID: r.ManagedPlacement.DatabaseID, PartitionID: r.ManagedPlacement.PartitionID,
+		})
+		if err != nil {
+			return Receipt{}, err
+		}
+		defer release()
+	}
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
 	payload, operationID, err := mutationPayload(r)
 	if err != nil {
 		return Receipt{}, err
@@ -323,6 +358,18 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 	if err := validateDesired(d, c.cell, r); err != nil {
 		return Receipt{}, err
 	}
+	if d.ManagedMember != nil && !d.Withdrawn {
+		if c.managedEffectGate == nil || r.ManagedPlacement == nil || c.managedDesiredVerifier == nil {
+			return Receipt{}, errors.New("managed desired requires a terminal effect gate, placement scope and durable verifier")
+		}
+		release, err := c.managedEffectGate(ctx, d.AuthorityEpoch, authority.WorkloadScope{
+			DatabaseID: r.ManagedPlacement.DatabaseID, PartitionID: r.ManagedPlacement.PartitionID,
+		})
+		if err != nil {
+			return Receipt{}, err
+		}
+		defer release()
+	}
 	if !d.Withdrawn {
 		info, err := c.artifacts.GetInfo(ctx, "sha256-"+d.Digest)
 		if err != nil {
@@ -373,7 +420,21 @@ func (c *Controller) ApplyDesired(ctx context.Context, d Desired) (Receipt, erro
 		if err := c.guard(ctx, d.AuthorityEpoch); err != nil {
 			return Receipt{}, err
 		}
-		written, err := c.mutations.CommitHostMutation(ctx, d.AuthorityEpoch, authority.MutationDesired, key, operationID, revision, payload)
+		var written uint64
+		if d.ManagedMember != nil && !d.Withdrawn {
+			verified, ok := c.mutations.(authority.VerifiedHostMutationStore)
+			if !ok {
+				return Receipt{}, errors.New("managed desired mutation store lacks a final verifier fence")
+			}
+			verify := func(verifyCtx context.Context) error {
+				return c.managedDesiredVerifier(verifyCtx, d, currentRegistration, current, exists)
+			}
+			written, err = verified.CommitHostMutationVerified(ctx, d.AuthorityEpoch, authority.MutationDesired,
+				key, operationID, revision, payload, verify)
+		} else {
+			written, err = c.mutations.CommitHostMutation(ctx, d.AuthorityEpoch, authority.MutationDesired,
+				key, operationID, revision, payload)
+		}
 		if err == nil {
 			return Receipt{d.Generation, written}, nil
 		}
@@ -477,45 +538,102 @@ func (c *Controller) ListHosts(ctx context.Context) ([]HostStatus, error) {
 func sameReportMeaning(a, b Report) bool {
 	a.ObservedAt = time.Time{}
 	b.ObservedAt = time.Time{}
+	if a.Managed != nil && a.Managed.ServingProof != nil {
+		managed, proof := *a.Managed, *a.Managed.ServingProof
+		proof.Nonce = ""
+		managed.ServingProof = &proof
+		a.Managed = &managed
+	}
+	if b.Managed != nil && b.Managed.ServingProof != nil {
+		managed, proof := *b.Managed, *b.Managed.ServingProof
+		proof.Nonce = ""
+		managed.ServingProof = &proof
+		b.Managed = &managed
+	}
 	return sameJSON(a, b)
 }
 
-// Run serves exact host requests until ctx ends. Safe to run on several controllers;
-// durable CAS resolves concurrent admission and report writes.
+// hostOperations are the host request subjects a leader serves.
+var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init"}
+
+// hostLeaderPoll is how often Run follows authority leadership.
+const hostLeaderPoll = 500 * time.Millisecond
+
+// Run serves exact host requests until ctx ends. Every controller runs it, but
+// only the authority leader subscribes: NATS delivers a queue request to a
+// subscriber on the publisher's own server first, so a follower subscription
+// would capture, and deny, every request of the hosts connected to it.
 func (c *Controller) Run(ctx context.Context) error {
 	var subscriptions []*nats.Subscription
-	for _, operation := range []string{"session", "desired", "artifact", "cycle", "report"} {
-		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
-		if err != nil {
-			for _, existing := range subscriptions {
-				_ = existing.Unsubscribe()
-			}
-			return err
-		}
-		subscriptions = append(subscriptions, sub)
-	}
-	defer func() {
+	unsubscribe := func() {
 		for _, sub := range subscriptions {
 			_ = sub.Unsubscribe()
 		}
+		subscriptions = nil
+	}
+	defer func() {
+		unsubscribe()
 		c.closeCache()
 	}()
+	ticker := time.NewTicker(hostLeaderPoll)
+	defer ticker.Stop()
+	for {
+		leader := c.authorityLeader == nil || c.authorityLeader()
+		if leader && subscriptions == nil {
+			var err error
+			if subscriptions, err = c.subscribeHostRequests(ctx); err != nil {
+				return err
+			}
+		} else if !leader && subscriptions != nil {
+			unsubscribe()
+		}
+		c.readyOnce.Do(func() { close(c.ready) })
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (c *Controller) subscribeHostRequests(ctx context.Context) ([]*nats.Subscription, error) {
+	subscriptions := make([]*nats.Subscription, 0, len(hostOperations))
+	for _, operation := range hostOperations {
+		sub, err := c.conn.QueueSubscribe("ts.orch.v1."+c.cell+".agent.*.observation."+operation, "host-controller-"+operation, func(msg *nats.Msg) { c.handle(ctx, msg) })
+		if err == nil {
+			subscriptions = append(subscriptions, sub)
+			continue
+		}
+		for _, existing := range subscriptions {
+			_ = existing.Unsubscribe()
+		}
+		return nil, err
+	}
 	flushCtx, flushCancel := context.WithTimeout(ctx, 5*time.Second)
 	err := c.conn.FlushWithContext(flushCtx)
 	flushCancel()
 	if err != nil {
-		return fmt.Errorf("flush host subscriptions: %w", err)
+		for _, sub := range subscriptions {
+			_ = sub.Unsubscribe()
+		}
+		return nil, fmt.Errorf("flush host subscriptions: %w", err)
 	}
-	c.readyOnce.Do(func() { close(c.ready) })
-	<-ctx.Done()
-	return ctx.Err()
+	return subscriptions, nil
 }
 
 func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	if msg.Reply == "" || len(msg.Data) > 64<<10 {
 		return
 	}
-	ctx, cancel := context.WithTimeout(parent, 4*time.Second)
+	deadline := 4 * time.Second
+	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
+		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result") ||
+		strings.Contains(msg.Subject, ".backup-command") || strings.Contains(msg.Subject, ".backup-result") ||
+		strings.Contains(msg.Subject, ".volume-init")) {
+		deadline = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(msg.Data, &envelope, 64<<10); err != nil {
@@ -526,8 +644,12 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	req.Envelope = envelope
-	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.Node, req.Operation)
+	expectedSubject, err := protocol.AgentObservationSubject(c.cell, req.NATSUserPublicKey, req.Operation)
 	if err != nil || expectedSubject != msg.Subject || envelope.Actor != req.Node || envelope.Kind != "host."+req.Operation {
+		return
+	}
+	registration, err := c.registration(ctx, req.Node)
+	if err != nil || registration.NATSUserPublicKey != req.NATSUserPublicKey {
 		return
 	}
 	result := response{Nonce: req.Nonce, Node: req.Node, SessionID: req.SessionID, Epoch: req.Epoch, Operation: req.Operation}
@@ -535,7 +657,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report":
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
 		err = errors.New("unknown host operation")
@@ -603,6 +725,9 @@ func (c *Controller) handleSession(ctx context.Context, req request) (payload an
 		}
 		stage = "verify"
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+			return nil, err
+		}
+		if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
 			return nil, err
 		}
 		now := time.Now().UTC()
@@ -758,6 +883,9 @@ func (c *Controller) authorize(ctx context.Context, req request) (Registration, 
 		if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
 			return Registration{}, session{}, err
 		}
+		if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
+			return Registration{}, session{}, err
+		}
 		s, revision, exists, err := c.sessionSnapshot(ctx, stateKey)
 		if err != nil {
 			return Registration{}, session{}, err
@@ -783,6 +911,9 @@ func (c *Controller) authorize(ctx context.Context, req request) (Registration, 
 		return Registration{}, session{}, err
 	}
 	if err := verifyRequest(req, key, c.cell, time.Now().UTC()); err != nil {
+		return Registration{}, session{}, err
+	}
+	if err := c.verifyCredentialProtocol(ctx, req, r); err != nil {
 		return Registration{}, session{}, err
 	}
 	s, _, exists, err := c.sessionSnapshot(ctx, stateKey)
@@ -841,6 +972,18 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return desiredReply{Desired: &desired, Revision: revision, Registration: &registration, RegistrationRevision: registrationRevision}, nil
 	case "artifact":
 		return c.serveArtifact(ctx, req, r)
+	case "material":
+		return c.serveMaterial(ctx, req, r, s)
+	case "volume-init":
+		return c.serveVolumeInit(ctx, req, r, s)
+	case "drain-command":
+		return c.serveManagedDrainCommand(ctx, req, r)
+	case "drain-result":
+		return c.storeManagedDrainResult(ctx, req, r)
+	case "backup-command":
+		return c.serveManagedBackupCommand(ctx, req, r)
+	case "backup-result":
+		return c.storeManagedBackupResult(ctx, req, r)
 	case "cycle":
 		return c.serveCycle(ctx, req, r, s)
 	case "report":

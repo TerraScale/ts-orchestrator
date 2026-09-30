@@ -1,0 +1,18 @@
+{
+  "algorithm": "SHA-256 of DOMAIN; length-prefixed HTTPS repository, commit, Git tree, Turso gitlink and prepared tree; then Git-path-sorted mode/path and SHA-256 of every tracked blob; END and 8-byte big-endian file count",
+  "cargo_lock_sha256": "d86e80530dba0864fbf22e3557407adb7e2a8253d98658a1b29bb452b49deec0",
+  "domain_hex": "74657272617363616c652e7465727261626173652e736f757263652d747265652d7368613235362e763100",
+  "prepared_turso_blob_count": 4116,
+  "qualification_sha256": "8ae3133ab66b6b300e5ad2e34ca42a11b61cef580657715480e68362f4bc7b09",
+  "repository": "https://git.terrascale.tech/TerraScale/TerraBase",
+  "schema": "terrascale.terrabase.source-digest-candidate.v1",
+  "server_linux_arm64_sha256": "bd940fe8055c61ea076e584b7d221c0f6b2c7dc1fee02232a82c476cb34ba81c",
+  "source_digest_sha256": "ab867f7f89131ef61ca2f9050840ca6da184b4239c876e022d2cdd5d9e264bc7",
+  "source_revision": "1909dcd36c1f0e09189756d976891127312a2d19",
+  "source_tree_git_sha1": "9c3855d1bcc53e45882a70da1e5beb94d0025eff",
+  "status": "candidate_pending_independent_policy_review",
+  "superproject_blob_count": 259,
+  "total_blob_count": 4375,
+  "turso_gitlink_revision": "64b8ef5742fc18937f9c89806c81e3f6475dc7a3",
+  "turso_prepared_tree_git_sha1": "1f89fbacaf2214005ecebf0d98a40c15d01ae5eb"
+}

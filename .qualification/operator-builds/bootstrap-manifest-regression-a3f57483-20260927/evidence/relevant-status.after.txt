@@ -1,0 +1,6 @@
+ M internal/bootstrap/founder_plan.go
+ M internal/bootstrap/ledger_head.go
+ M internal/bootstrap/ledger_test.go
+ M internal/bootstrap/manifest.go
+ M internal/bootstrap/manifest_test.go
+ M internal/bootstrap/vault.go

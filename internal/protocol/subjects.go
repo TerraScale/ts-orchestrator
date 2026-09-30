@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/nats-io/nkeys"
 )
 
 const (
@@ -79,8 +81,20 @@ func AgentCommandSubject(region, nodeID, command string) (string, error) {
 	return agentSubject(region, nodeID, "command", command)
 }
 
-func AgentObservationSubject(region, nodeID, observation string) (string, error) {
-	return agentSubject(region, nodeID, "observation", observation)
+// AgentObservationSubject binds the host RPC route to the authenticated NATS
+// user key. A scoped account signer grants publish on this exact key's route.
+func AgentObservationSubject(region, userPublicKey, observation string) (string, error) {
+	if !nkeys.IsValidPublicUserKey(userPublicKey) {
+		return "", ErrInvalidSubjectToken
+	}
+	root, err := RegionalRoot(region)
+	if err != nil {
+		return "", err
+	}
+	if err := ValidateSubjectToken(observation); err != nil {
+		return "", err
+	}
+	return root + ".agent." + userPublicKey + ".observation." + observation, nil
 }
 
 func AgentAckSubject(region, nodeID, acknowledgement string) (string, error) {

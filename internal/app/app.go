@@ -20,7 +20,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -49,6 +51,15 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	}
 	if command == "identity-new" {
 		return newIdentity(args[1:], output)
+	}
+	if command == "install-controller-config" {
+		return runInstallControllerConfig(ctx, args[1:])
+	}
+	if command == "host-setup" {
+		return runHostSetup(ctx, args[1:], output)
+	}
+	if command == "host-volume-init" {
+		return runHostVolumeInit(ctx, args[1:])
 	}
 	if command == "operator" {
 		return runOperator(ctx, args[1:], output)
@@ -95,6 +106,10 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("controller response public key: %w", err)
 	}
+	natsUserPublicKey, err := hostNATSUserPublicKey(cfg.NATS)
+	if err != nil {
+		return fmt.Errorf("host NATS user public key: %w", err)
+	}
 	if !filepath.IsAbs(cfg.Host.StateRoot) {
 		return errors.New("host state root must be absolute")
 	}
@@ -109,7 +124,16 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		return fmt.Errorf("host managed runtime root: %w", err)
 	}
 	var bakedSystemReserveBytes uint64
+	var managedS3Credentials host.ManagedS3CredentialResolver
+	var managedBackupDataKeys host.ManagedBackupDataKeyResolver
 	if cfg.Host.ManagedRuntimeRoot != "" {
+		resolver, resolverErr := host.NewOCIS3CredentialResolver(oci.Region(strings.ToUpper(cfg.NATS.Cell)))
+		err = resolverErr
+		if err != nil {
+			return fmt.Errorf("host managed S3 credentials: %w", err)
+		}
+		managedS3Credentials = resolver
+		managedBackupDataKeys = resolver
 		bakedSystemReserveBytes, err = readBakedRuntimePriorityProfile()
 		if err != nil {
 			return fmt.Errorf("host image runtime priority profile: %w", err)
@@ -132,19 +156,55 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	defer runtime.Close()
 	agent, err := host.NewAgent(host.AgentConfig{
 		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
-		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, ControllerPublicKey: controllerKey,
+		Roles: cfg.Host.Roles, Conn: runtime.Conn(), Identity: key, NATSUserPublicKey: natsUserPublicKey, ControllerPublicKey: controllerKey,
 		InstallRoot: cfg.Host.InstallRoot, StateRoot: cfg.Host.StateRoot,
 		ManagedRuntimeRoot:      cfg.Host.ManagedRuntimeRoot,
+		ManagedS3Credentials:    managedS3Credentials,
+		ManagedBackupDataKeys:   managedBackupDataKeys,
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
 		WorkloadIdentity:        identity,
 		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
-		ClockCheck: clockCheck,
+		ClockCheck:       clockCheck,
+		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
 	})
 	if err != nil {
 		return err
 	}
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
 	return hostRunResult(ctx, agent.Run(ctx))
+}
+
+func runHostVolumeInit(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet("host-volume-init", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	configPath := flags.String("config", "", "host role configuration")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("host-volume-init accepts no positional arguments")
+	}
+	cfg, err := LoadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	key, err := decodePublicKey(cfg.Host.ControllerPublicKey)
+	if err != nil {
+		return err
+	}
+	return host.RunVolumeInitializer(ctx, host.VolumeInitConfig{
+		Cell: cfg.NATS.Cell, Node: cfg.Host.Node, Environment: cfg.Host.Environment,
+		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
+		StateRoot:        "/var/lib/terrascale-orchestrator-volume-init",
+		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
+		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
+			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
+			if err != nil {
+				return host.VolumeInitMetadata{}, err
+			}
+			return host.VolumeInitMetadata{InstanceID: metadata.InstanceID, Descriptor: metadata.Descriptor}, nil
+		},
+	})
 }
 
 // A canceled parent is a normal shutdown. An agent that cancels its own work

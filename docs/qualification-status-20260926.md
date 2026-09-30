@@ -1,6 +1,6 @@
 # Migration and qualification status — 2026-09-26
 
-**Status: PAUSED pending the next CI/tool-status update; NOT PRODUCTION READY.**
+**Status: IN PROGRESS; NOT PRODUCTION READY.**
 **Acceptance completion: 0/16 gates verified (0%)**, as recorded in the
 [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
 The fixed denominator is M0 exit plus D01–D15. At each named breakthrough,
@@ -8,7 +8,33 @@ report the fully verified count and percentage and list completed and remaining
 gate names. A gate counts only when every child requirement has passing
 evidence from its specified environment. This measures acceptance coverage,
 not elapsed time or production readiness; GOAL requirements outside the 16
-gates remain separate until complete. The latest published source snapshot is
+gates remain separate until complete.
+
+## Current milestone summary — 2026-09-29 02:54 UTC
+
+Root `GOAL.md` SHA-256
+`99de61cbd4bd49a678d2d48b5cbc92297d93849746773229a80594ba7533d0a6`
+remains the scope authority. The [current shared-goal ledger](evidence/shared-goal-acceptance-20260926.md)
+and `/tmp/ts-alpha-acceptance-queue-20260928.md` keep the M0–M3 map and next
+checks. **Formal acceptance remains 0/16.**
+
+TerraBase main `d2017ca9668a650ec490dff3f79bd51b75bb6466` passed CI #1012/run
+11696 Fast 138/0/2, release and publish ([qualification](/home/mariogk/Projects/TerraScale/.qualification/terrabase-ci1012-d2017ca/qualification.json)
+SHA-256 `69ef5119a78ec1692d49f12447f66cdeb72ca09d8e42f135c05e779ef0e992e9`).
+Go main `db0231f1f2ee85cda8c087c8f9cb384147a7662d` published active $200 preview
+caps, but CI #696 failed test fixtures. Its seven-path test-only correction passed independent review and the repository-wide race run passed locally; corrected main and matching Forgejo CI qualification are pending. These source and CI results do not qualify OCI serving.
+
+R3 A and boot are TERMINATED, and its late signed intent has no HEAD. Fresh R4
+`ts-preview-gru-20260929-r4` is selected with StorageDomain prefix `r4-20260929`;
+it needs signed authority and an image from corrected, CI-qualified current Go
+main. No live controller or managed pair exists. M0 create-only passed, then two
+`conmon` placement probes held and cleaned up exactly without guests. D10 Complete
+implementation remains active. Current combined qualification and preview ceiling
+is US$200/month; dated $100 admissions remain historical.
+
+## Historical 2026-09-26 qualification observations
+
+The source snapshot for this dated report was
 `dafce2e44c4b8380e82ef79e535cfa32d57075c3`. Recorded milestones include
 `c30b3c` (host unit, image builder, and harness), `28ef` (continuity), `45ac`
 (CI fixture repair), `9496` (production fixture), `a20d2b29` (authority-startup
@@ -52,6 +78,6 @@ Remaining qualification includes a passing signed TerraBase serving report,
 real write/read and peer-ACK evidence, durable drain and quorum behavior,
 enrollment/first-boot integration, building and rerunning the three-VM
 fixture after the namespace fix, complete CI/release gates, and final
-high-availability and multi-region qualification. The OCI work remains
-plan/simulator-only; no cloud resources were created. Qualification work is
-paused pending the next CI/tool-status update.
+high-availability and multi-region qualification. At this dated checkpoint, OCI work was plan/simulator-only and created no cloud
+resources. Its pause and CI status do not describe the current milestone
+summary above.

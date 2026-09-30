@@ -17,13 +17,14 @@ import (
 const maxProviderItems = 512
 
 type sdkProvider struct {
-	config  RegionConfig
-	compute core.ComputeClient
-	storage core.BlockstorageClient
-	network core.VirtualNetworkClient
+	config       RegionConfig
+	hostMetadata map[string]string
+	compute      core.ComputeClient
+	storage      core.BlockstorageClient
+	network      core.VirtualNetworkClient
 }
 
-func newSDKProvider(config RegionConfig) (*sdkProvider, error) {
+func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkProvider, error) {
 	ociRegion, err := config.Region.OCIRegion()
 	if err != nil {
 		return nil, err
@@ -49,7 +50,8 @@ func newSDKProvider(config RegionConfig) (*sdkProvider, error) {
 	compute.Host = strings.TrimSuffix(config.Endpoint, "/")
 	storage.Host = strings.TrimSuffix(config.Endpoint, "/")
 	network.Host = strings.TrimSuffix(config.Endpoint, "/")
-	return &sdkProvider{config: config, compute: compute, storage: storage, network: network}, nil
+	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
+		compute: compute, storage: storage, network: network}, nil
 }
 
 func (provider *sdkProvider) ListInstances(ctx context.Context, compartmentID string) ([]CloudInstance, error) {
@@ -84,15 +86,17 @@ func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudI
 		return CloudInstance{}, fmt.Errorf("get OCI instance: %w", err)
 	}
 	instance := cloudInstance(response.Instance, stringValue(response.Etag))
-	if instance.LifecycleState == "RUNNING" || instance.LifecycleState == "STOPPED" {
-		if err := provider.verifyInstanceStorageAndNetwork(ctx, instance); err != nil {
+	if instance.LifecycleState != "TERMINATED" && instance.LifecycleState != "TERMINATING" {
+		privateIP, err := provider.verifyInstanceStorageAndNetwork(ctx, instance)
+		if err != nil {
 			return CloudInstance{}, err
 		}
+		instance.PrivateIP = privateIP
 	}
 	return instance, nil
 }
 
-func (provider *sdkProvider) verifyInstanceStorageAndNetwork(ctx context.Context, instance CloudInstance) error {
+func (provider *sdkProvider) verifyInstanceStorageAndNetwork(ctx context.Context, instance CloudInstance) (string, error) {
 	return verifyInstanceStorageAndNetwork(ctx, provider.config, instance, provider.compute, provider.storage, provider.network)
 }
 
@@ -110,50 +114,69 @@ type vnicReader interface {
 }
 
 func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, instance CloudInstance,
-	compute instanceAttachmentReader, storage bootVolumeReader, network vnicReader) error {
+	compute instanceAttachmentReader, storage bootVolumeReader, network vnicReader) (string, error) {
 	if instance.CompartmentID != config.CompartmentID ||
 		instance.AvailabilityDomain != config.AvailabilityDomain {
-		return ErrForeignResource
+		return "", ErrForeignResource
 	}
 	boots, err := compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), AvailabilityDomain: new(instance.AvailabilityDomain),
 		InstanceId: new(instance.ID),
 	})
 	if err != nil {
-		return fmt.Errorf("list exact instance boot attachment: %w", err)
+		return "", fmt.Errorf("list exact instance boot attachment: %w", err)
+	}
+	if len(boots.Items) == 0 && stringValue(boots.OpcNextPage) == "" {
+		return "", fmt.Errorf("%w: boot volume attachment is not visible yet", ErrOutcomeUnknown)
+	}
+	if len(boots.Items) == 1 && (boots.Items[0].LifecycleState == core.BootVolumeAttachmentLifecycleStateAttaching ||
+		boots.Items[0].LifecycleState == core.BootVolumeAttachmentLifecycleStateDetaching) &&
+		stringValue(boots.Items[0].InstanceId) == instance.ID {
+		return "", fmt.Errorf("%w: boot volume attachment is transitioning", ErrOutcomeUnknown)
 	}
 	if len(boots.Items) != 1 || stringValue(boots.OpcNextPage) != "" ||
 		boots.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
-		stringValue(boots.Items[0].InstanceId) != instance.ID {
-		return fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
+		stringValue(boots.Items[0].InstanceId) != instance.ID ||
+		stringValue(boots.Items[0].BootVolumeId) == "" {
+		return "", fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
 	}
 	boot, err := storage.GetBootVolume(ctx, core.GetBootVolumeRequest{
 		BootVolumeId: boots.Items[0].BootVolumeId,
 	})
 	if err != nil {
-		return fmt.Errorf("get exact instance boot volume: %w", err)
+		return "", fmt.Errorf("get exact instance boot volume: %w", err)
 	}
 	if stringValue(boot.Id) != stringValue(boots.Items[0].BootVolumeId) ||
 		stringValue(boot.CompartmentId) != config.CompartmentID ||
 		stringValue(boot.ImageId) != config.ImageID ||
 		int64Value(boot.SizeInGBs) != int64(config.BootVolumeGB) ||
 		int64Value(boot.VpusPerGB) != int64(config.BootVolumeVPUsPerGB) {
-		return fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified)
+		return "", errors.Join(ErrForeignResource,
+			fmt.Errorf("%w: instance boot image, size, or tier differs from the fleet pin", ErrImageNotQualified))
 	}
 	attachments, err := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{
 		CompartmentId: new(instance.CompartmentID), InstanceId: new(instance.ID),
 	})
 	if err != nil {
-		return fmt.Errorf("list exact instance VNIC: %w", err)
+		return "", fmt.Errorf("list exact instance VNIC: %w", err)
+	}
+	if len(attachments.Items) == 0 && stringValue(attachments.OpcNextPage) == "" {
+		return "", fmt.Errorf("%w: primary VNIC attachment is not visible yet", ErrOutcomeUnknown)
+	}
+	if len(attachments.Items) == 1 && (attachments.Items[0].LifecycleState == core.VnicAttachmentLifecycleStateAttaching ||
+		attachments.Items[0].LifecycleState == core.VnicAttachmentLifecycleStateDetaching) &&
+		stringValue(attachments.Items[0].InstanceId) == instance.ID {
+		return "", fmt.Errorf("%w: primary VNIC attachment is transitioning", ErrOutcomeUnknown)
 	}
 	if len(attachments.Items) != 1 || stringValue(attachments.OpcNextPage) != "" ||
 		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached ||
-		stringValue(attachments.Items[0].InstanceId) != instance.ID {
-		return fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
+		stringValue(attachments.Items[0].InstanceId) != instance.ID ||
+		stringValue(attachments.Items[0].VnicId) == "" {
+		return "", fmt.Errorf("%w: instance has no single attached primary VNIC", ErrForeignResource)
 	}
 	vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: attachments.Items[0].VnicId})
 	if err != nil {
-		return fmt.Errorf("get exact instance VNIC: %w", err)
+		return "", fmt.Errorf("get exact instance VNIC: %w", err)
 	}
 	gotNSGs := slices.Clone(vnic.NsgIds)
 	wantNSGs := slices.Clone(config.NetworkSecurityGroupIDs)
@@ -161,24 +184,29 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	slices.Sort(wantNSGs)
 	if stringValue(vnic.Id) != stringValue(attachments.Items[0].VnicId) ||
 		stringValue(vnic.SubnetId) != config.SubnetID ||
-		stringValue(vnic.PrivateIp) == "" || stringValue(vnic.PublicIp) != "" ||
+		!validManagedPrivateIP(stringValue(vnic.PrivateIp)) || stringValue(vnic.PublicIp) != "" ||
+		vnic.SkipSourceDestCheck != nil && *vnic.SkipSourceDestCheck ||
 		vnic.LifecycleState != core.VnicLifecycleStateAvailable ||
 		!slices.Equal(gotNSGs, wantNSGs) {
-		return fmt.Errorf("%w: instance VNIC differs from the private subnet and NSG pins", ErrForeignResource)
+		return "", fmt.Errorf("%w: instance VNIC differs from the private subnet and NSG pins", ErrForeignResource)
 	}
-	return nil
+	return stringValue(vnic.PrivateIp), nil
 }
 
 func (provider *sdkProvider) LaunchInstance(ctx context.Context, request LaunchRequest) (CloudInstance, error) {
-	return launchInstance(ctx, provider.compute, provider.config, request)
+	return launchInstance(ctx, provider.compute, provider.config, request, provider.hostMetadata)
 }
 
 type launchInstanceClient interface {
 	LaunchInstance(context.Context, core.LaunchInstanceRequest) (core.LaunchInstanceResponse, error)
 }
 
-func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest) (CloudInstance, error) {
-	if compute == nil || request.RetryToken == "" || request.Shape != config.Shape ||
+// launchInstance adds the fleet's launch material to the reserved host keys.
+// The material may not replace a key the fleet itself binds and observes.
+func launchInstance(ctx context.Context, compute launchInstanceClient, config RegionConfig, request LaunchRequest,
+	hostMetadata map[string]string,
+) (CloudInstance, error) {
+	if compute == nil || request.RetryToken == "" || !validManagedPrivateIP(request.PrivateIP) || request.Shape != config.Shape ||
 		request.BootVolumeGB != config.BootVolumeGB || request.BootVolumeVPUsPerGB != config.BootVolumeVPUsPerGB ||
 		request.BootVolumeGB < 50 || request.BootVolumeVPUsPerGB != 10 ||
 		!validComputeProfile(request.Shape, request.WholeOCPUs, request.MemoryInGBs,
@@ -194,29 +222,42 @@ func launchInstance(ctx context.Context, compute launchInstanceClient, config Re
 		descriptor.IntentGeneration != request.PlacementGeneration {
 		return CloudInstance{}, ErrHostBootBindingMismatch
 	}
+	metadata := maps.Clone(hostMetadata)
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+	for key, value := range map[string]string{"terrascale_host_node": request.Node, hostboot.MetadataKey: request.BootDescriptor} {
+		if _, reserved := metadata[key]; reserved {
+			return CloudInstance{}, ErrHostBootBindingMismatch
+		}
+		metadata[key] = value
+	}
 	networkSecurityGroupIDs := append([]string(nil), config.NetworkSecurityGroupIDs...)
 	freeformTags := placementProfileTags(request.FreeformTags, request.PlacementProfileDigest, request.PlacementGeneration)
+	// Launch options come from the image capability schema: OCI rejects partial
+	// LaunchOptions, and volume attach verifies consistent naming on the
+	// instance. In-transit encryption is enabled per instance, and retained
+	// volumes attach only with it.
 	details := core.LaunchInstanceDetails{
 		AvailabilityDomain: new(config.AvailabilityDomain),
 		CompartmentId:      new(config.CompartmentID),
 		FaultDomain:        new(request.FaultDomain),
 		DisplayName:        new(config.Owner + "-" + request.Node),
 		FreeformTags:       freeformTags,
-		Metadata: map[string]string{
-			"terrascale_host_node": request.Node,
-			hostboot.MetadataKey:   request.BootDescriptor,
-		},
-		Shape: new(request.Shape),
+		Metadata:           metadata,
+		Shape:              new(request.Shape),
 		ShapeConfig: &core.LaunchInstanceShapeConfigDetails{
 			Ocpus:       new(float32(request.WholeOCPUs)),
 			MemoryInGBs: new(float32(request.MemoryInGBs)),
 		},
 		CreateVnicDetails: &core.CreateVnicDetails{
-			SubnetId:       new(config.SubnetID),
-			NsgIds:         networkSecurityGroupIDs,
-			AssignPublicIp: new(false),
+			SubnetId:            new(config.SubnetID),
+			PrivateIp:           new(request.PrivateIP),
+			NsgIds:              networkSecurityGroupIDs,
+			AssignPublicIp:      new(false),
+			SkipSourceDestCheck: new(false),
 		},
-		LaunchOptions: &core.LaunchOptions{IsConsistentVolumeNamingEnabled: new(true)},
+		IsPvEncryptionInTransitEnabled: new(retainedVolumeEncryptionInTransit),
 		SourceDetails: core.InstanceSourceViaImageDetails{
 			ImageId:             new(request.ImageID),
 			BootVolumeSizeInGBs: new(int64(request.BootVolumeGB)),
@@ -248,6 +289,10 @@ func (provider *sdkProvider) UpdateInstanceTags(ctx context.Context, id, etag st
 }
 
 func (provider *sdkProvider) TerminateInstance(ctx context.Context, id, etag string) error {
+	return provider.TerminateTerminalInstance(ctx, id, etag)
+}
+
+func (provider *sdkProvider) TerminateTerminalInstance(ctx context.Context, id, etag string) error {
 	preserve := true
 	_, err := provider.compute.TerminateInstance(ctx, core.TerminateInstanceRequest{
 		InstanceId:                         new(id),
@@ -332,7 +377,7 @@ func (provider *sdkProvider) AttachVolume(ctx context.Context, request CloudVolu
 			IsShareable:                    &request.IsShareable,
 			IsPvEncryptionInTransitEnabled: &request.IsPvEncryptionInTransitEnabled,
 		},
-		OpcRetryToken: new(retryToken(request.IdempotencyKey)),
+		OpcRetryToken: new(request.RetryToken),
 	})
 	if err != nil {
 		return CloudAttachment{}, fmt.Errorf("attach retained OCI volume: %w", err)
@@ -411,8 +456,90 @@ func (provider *sdkProvider) GetVolume(ctx context.Context, id string) (CloudVol
 		SizeGB:             int64Value(volume.SizeInGBs),
 		VPUsPerGB:          int64Value(volume.VpusPerGB),
 		LifecycleState:     string(volume.LifecycleState),
+		ETag:               stringValue(response.Etag),
 		FreeformTags:       cloneStringMap(volume.FreeformTags),
 	}, nil
+}
+
+func (provider *sdkProvider) GetAttachedBootVolume(ctx context.Context, instanceID string) (CloudBootVolume, error) {
+	response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+		CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
+		InstanceId: new(instanceID),
+	})
+	if err != nil {
+		return CloudBootVolume{}, fmt.Errorf("list exact OCI boot attachment: %w", err)
+	}
+	if len(response.Items) != 1 || stringValue(response.OpcNextPage) != "" ||
+		response.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
+		stringValue(response.Items[0].InstanceId) != instanceID || stringValue(response.Items[0].BootVolumeId) == "" {
+		return CloudBootVolume{}, fmt.Errorf("%w: instance has no single attached boot volume", ErrForeignResource)
+	}
+	boot, err := provider.GetBootVolume(ctx, stringValue(response.Items[0].BootVolumeId))
+	if err != nil {
+		return CloudBootVolume{}, err
+	}
+	if boot.CompartmentID != provider.config.CompartmentID || boot.AvailabilityDomain != provider.config.AvailabilityDomain ||
+		boot.ImageID != provider.config.ImageID || boot.SizeGB != int64(provider.config.BootVolumeGB) ||
+		boot.VPUsPerGB != int64(provider.config.BootVolumeVPUsPerGB) || boot.ETag == "" {
+		return CloudBootVolume{}, fmt.Errorf("%w: attached boot volume differs from fleet pins", ErrForeignResource)
+	}
+	return boot, nil
+}
+
+func (provider *sdkProvider) GetBootVolume(ctx context.Context, id string) (CloudBootVolume, error) {
+	response, err := provider.storage.GetBootVolume(ctx, core.GetBootVolumeRequest{BootVolumeId: new(id)})
+	if err != nil {
+		return CloudBootVolume{}, fmt.Errorf("get OCI boot volume: %w", err)
+	}
+	return CloudBootVolume{
+		ID: stringValue(response.Id), CompartmentID: stringValue(response.CompartmentId),
+		AvailabilityDomain: stringValue(response.AvailabilityDomain), ImageID: stringValue(response.ImageId),
+		SizeGB: int64Value(response.SizeInGBs), VPUsPerGB: int64Value(response.VpusPerGB),
+		LifecycleState: string(response.LifecycleState), ETag: stringValue(response.Etag),
+	}, nil
+}
+
+func (provider *sdkProvider) ListBootVolumeAttachments(ctx context.Context, bootID string) ([]CloudBootAttachment, error) {
+	var attachments []CloudBootAttachment
+	var page *string
+	for {
+		response, err := provider.compute.ListBootVolumeAttachments(ctx, core.ListBootVolumeAttachmentsRequest{
+			CompartmentId: new(provider.config.CompartmentID), AvailabilityDomain: new(provider.config.AvailabilityDomain),
+			BootVolumeId: new(bootID), Page: page, Limit: new(100),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("list exact OCI boot attachments: %w", err)
+		}
+		for _, item := range response.Items {
+			attachments = append(attachments, CloudBootAttachment{
+				InstanceID: stringValue(item.InstanceId), BootVolumeID: stringValue(item.BootVolumeId),
+				LifecycleState: string(item.LifecycleState),
+			})
+			if len(attachments) > maxProviderItems {
+				return nil, errors.New("OCI boot attachment list exceeds its safety bound")
+			}
+		}
+		if stringValue(response.OpcNextPage) == "" {
+			return attachments, nil
+		}
+		page = response.OpcNextPage
+	}
+}
+
+func (provider *sdkProvider) DeleteBootVolume(ctx context.Context, id, etag string) error {
+	_, err := provider.storage.DeleteBootVolume(ctx, core.DeleteBootVolumeRequest{BootVolumeId: new(id), IfMatch: new(etag)})
+	if err != nil {
+		return fmt.Errorf("delete OCI boot volume: %w", err)
+	}
+	return nil
+}
+
+func (provider *sdkProvider) DeleteVolume(ctx context.Context, id, etag string) error {
+	_, err := provider.storage.DeleteVolume(ctx, core.DeleteVolumeRequest{VolumeId: new(id), IfMatch: new(etag)})
+	if err != nil {
+		return fmt.Errorf("delete OCI retained volume: %w", err)
+	}
+	return nil
 }
 
 func cloudVolume(volume core.Volume) CloudVolume {

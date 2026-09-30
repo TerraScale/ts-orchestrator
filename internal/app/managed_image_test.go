@@ -25,7 +25,8 @@ func TestManagedControllerFleetPassesQualifiedImageVerifier(t *testing.T) {
 	intent := oci.RegionIntent{Generation: 7}
 	verifier := &managedImageVerifier{}
 	var called bool
-	fleet, err := openManagedControllerFleet(t.Context(), region, intent, nil, nil,
+	hostMetadata := map[string]string{"terrascale-host-enrollment-v1": "{}"}
+	fleet, err := openManagedControllerFleet(t.Context(), region, intent, nil, nil, hostMetadata,
 		func(_ context.Context, got oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
 			if !reflect.DeepEqual(got, region) {
 				t.Fatal("verifier received a different regional image pin")
@@ -34,11 +35,11 @@ func TestManagedControllerFleetPassesQualifiedImageVerifier(t *testing.T) {
 		},
 		func(gotRegion oci.RegionConfig, gotIntent oci.RegionIntent, _ oci.Journal,
 			_ authority.Fencer, drain oci.DrainRequester, stopped oci.WriterStopVerifier,
-			gotVerifier oci.ImageQualificationVerifier,
+			gotVerifier oci.ImageQualificationVerifier, gotMetadata map[string]string,
 		) (oci.Fleet, error) {
 			called = true
 			if !reflect.DeepEqual(gotRegion, region) || gotIntent.Generation != intent.Generation ||
-				gotVerifier != verifier || drain != nil || stopped != nil {
+				gotVerifier != verifier || drain != nil || stopped != nil || !reflect.DeepEqual(gotMetadata, hostMetadata) {
 				t.Fatal("managed fleet constructor lost its exact image verifier or regional scope")
 			}
 			return regionOnlyFleet{region: region.Region}, nil
@@ -46,10 +47,10 @@ func TestManagedControllerFleetPassesQualifiedImageVerifier(t *testing.T) {
 	if err != nil || !called || fleet == nil {
 		t.Fatalf("managed fleet was not built with qualification: fleet=%v called=%t err=%v", fleet, called, err)
 	}
-	_, err = openManagedControllerFleet(t.Context(), region, intent, nil, nil,
+	_, err = openManagedControllerFleet(t.Context(), region, intent, nil, nil, hostMetadata,
 		func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) { return nil, nil },
 		func(oci.RegionConfig, oci.RegionIntent, oci.Journal, authority.Fencer,
-			oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier,
+			oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier, map[string]string,
 		) (oci.Fleet, error) {
 			t.Fatal("fleet constructor called without image qualification")
 			return nil, nil

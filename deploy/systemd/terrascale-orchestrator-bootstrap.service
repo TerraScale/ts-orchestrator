@@ -4,23 +4,31 @@ Wants=network-online.target
 After=network-online.target
 Requires=systemd-timesyncd.service systemd-time-wait-sync.service
 After=systemd-timesyncd.service systemd-time-wait-sync.service
+Requires=terrascale-orchestrator-controller-install.service
+After=terrascale-orchestrator-controller-install.service
 ConditionPathExists=/etc/terrascale-orchestrator/controller.json
 Before=terrascale-orchestrator-controller.service
 OnSuccess=terrascale-orchestrator-controller.service
 
 [Service]
 Type=oneshot
+# The controller Requires this oneshot and OnSuccess starts the controller:
+# without RemainAfterExit each controller start reruns admission in a loop.
+RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
-User=root
-Group=root
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
+# Nodes without SSH report admission failures through the serial console.
+StandardError=journal+console
 TimeoutStartSec=300s
 UMask=0077
 RuntimeDirectory=terrascale-orchestrator-bootstrap
 RuntimeDirectoryMode=0700
 StateDirectory=terrascale-orchestrator-bootstrap
 StateDirectoryMode=0755
+# Initial admission drops to the service account to preflight its
+# credentials in a child process, so the unit runs as root by default:
+# User=root with NoNewPrivileges=yes would make systemd drop CAP_SETUID.
 NoNewPrivileges=yes
 CapabilityBoundingSet=CAP_CHOWN CAP_SETGID CAP_SETUID CAP_DAC_OVERRIDE CAP_KILL
 AmbientCapabilities=
@@ -34,7 +42,7 @@ ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectHostname=yes
-ProtectClock=yes
+# The read-only kernel NTP health probe uses adjtimex(2); CAP_SYS_TIME is absent.
 LockPersonality=yes
 RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
