@@ -20,13 +20,14 @@ import (
 )
 
 type cdTestFeed struct {
-	t        *testing.T
-	releases map[string]terrabaseReleaseFiles
-	commits  []string
-	listing  []string
-	badRun   bool
-	badLog   bool
-	calls    int
+	t         *testing.T
+	releases  map[string]terrabaseReleaseFiles
+	commits   []string
+	listing   []string
+	badRun    bool
+	badLog    bool
+	calls     int
+	downloads []string
 }
 
 func newCDTestFeed(t *testing.T) *cdTestFeed {
@@ -105,6 +106,7 @@ func (feed *cdTestFeed) run(_ context.Context, name string, args ...string) ([]b
 		return []byte(strings.Join(feed.listing, "\n")), nil
 	}
 	if args[0] == "release" && args[1] == "asset" {
+		feed.downloads = append(feed.downloads, args[8])
 		files := feed.releases[args[7]]
 		source := map[string]string{"qualification.json": files.Qualification, terrabaseServerArtifact: files.Binary, "source-digest.json": files.SourceDigest}[args[8]]
 		wire, err := os.ReadFile(source)
@@ -195,6 +197,21 @@ func TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout(t *tes
 	if updates != 1 || completed.Tag != latest {
 		t.Fatalf("updates=%d completion=%+v", updates, completed)
 	}
+	// Crash recovery after the completion receipt is synced must remove the
+	// stale active pin without contacting Forgejo or running another update.
+	journal, err := openDeployState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := journal.ensureJSON(cdActiveFile, completed); err != nil {
+		t.Fatal(err)
+	}
+	if err := syncTerraBase(t.Context(), state, root, nil, nil, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale active pin retained: %v", err)
+	}
 }
 
 func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing.T) {
@@ -238,6 +255,9 @@ func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing
 			}
 			if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("unverified release pinned: %v", err)
+			}
+			if failure != "binary" && slices.Contains(feed.downloads, terrabaseServerArtifact) {
+				t.Fatal("large server downloaded before publication readiness was checked")
 			}
 		})
 	}

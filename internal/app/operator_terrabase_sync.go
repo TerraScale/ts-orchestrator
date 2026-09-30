@@ -190,11 +190,24 @@ func syncTerraBase(ctx context.Context, statePath, checkout string, run cdRunCom
 	defer os.RemoveAll(directory)
 	files := terrabaseReleaseFiles{Qualification: filepath.Join(directory, "qualification.json"),
 		Binary: filepath.Join(directory, terrabaseServerArtifact), SourceDigest: filepath.Join(directory, "source-digest.json")}
-	for _, path := range []string{files.Qualification, files.Binary, files.SourceDigest} {
+	download := func(path string) error {
 		if _, err := run(ctx, "fj", "release", "asset", "download", "-H", "https://git.terrascale.tech",
 			"-r", terrabaseForgejoRepo, candidate.Tag, filepath.Base(path), "-o", path); err != nil {
 			return fmt.Errorf("download %s for %s: %w", filepath.Base(path), candidate.Tag, err)
 		}
+		return nil
+	}
+	// Check publication readiness before downloading the much larger server.
+	for _, path := range []string{files.Qualification, files.SourceDigest} {
+		if err := download(path); err != nil {
+			return err
+		}
+	}
+	if err := cdVerifyPublication(ctx, files.Qualification, candidate, run); err != nil {
+		return err
+	}
+	if err := download(files.Binary); err != nil {
+		return err
 	}
 	release, err := loadTerraBaseRelease(files)
 	if err != nil {
@@ -202,9 +215,6 @@ func syncTerraBase(ctx context.Context, statePath, checkout string, run cdRunCom
 	}
 	if release.Source.Repository != terrabaseSourceRepo || release.Source.Commit != candidate.Commit || release.CIRunID != candidate.RunID {
 		return errors.New("TerraBase release does not match its selected repository, commit and run")
-	}
-	if err := cdVerifyPublication(ctx, files.Qualification, candidate, run); err != nil {
-		return err
 	}
 	verified := candidate
 	verified.QualificationSHA256, verified.BinarySHA256, verified.SourceSHA256 = release.QualificationSHA256, release.Digest, release.Source.TreeDigest
