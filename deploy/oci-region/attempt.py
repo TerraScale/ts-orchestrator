@@ -408,6 +408,9 @@ class Attempt:
         delegation = self.path("image", "image-delegation.signed.json")
         peer = json.loads(self.path("peer-receipt-delegation.signed.json").read_text())
         domain = json.loads(pathlib.Path(self.config["managed_material_domain"]).read_text())
+        # Controllers hash the image's packaged native verifier against this
+        # signed digest, so it always comes from the image this attempt builds.
+        domain["nativeVerifierSha256"] = self.config["image"]["native_verifier_sha256"]
         profiles = []
         for slot in SLOTS:
             nsgs = [plan["resource_ids"]["network_security_group"]]
