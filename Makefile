@@ -16,10 +16,10 @@ PYTHON_TEST_JOBS ?= 16
 
 verify: format-check python-test vet race-test
 
-# CI runs the independent checks and the release build at once. Each
-# target's output is printed as one block when it finishes.
+# CI runs the independent checks and the release build at once. The race
+# scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=target format-check python-test vet race-test release-check
+	$(MAKE) --jobs --keep-going --output-sync=none format-check python-test vet race-test release-check
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \

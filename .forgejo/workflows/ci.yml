@@ -25,6 +25,12 @@ jobs:
   verify:
     name: verify/go + artifact/linux-amd64-arm64
     runs-on: terrascale-builder
+    container:
+      # Process labs and bounded log collectors must meet real lease/cleanup
+      # deadlines even when Rust jobs saturate the shared Docker disk. This
+      # per-job scratch mount retains files across child-process restarts;
+      # dependency/build caches and published binaries remain persistent.
+      options: --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
     timeout-minutes: 90
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
@@ -58,6 +64,8 @@ jobs:
           mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
           test -w "$(go env GOCACHE)"
           test -w "$(go env GOMODCACHE)"
+          test "$(stat -f -c %T /tmp)" = tmpfs
+          df -h /tmp
           printf 'gocache=%s gomodcache=%s goflags=%s gomaxprocs=%s cpus=%s\n' \
             "$(go env GOCACHE)" "$(go env GOMODCACHE)" "$(go env GOFLAGS)" "${GOMAXPROCS}" "$(nproc)"
           for pressure in cpu io memory; do
