@@ -416,6 +416,21 @@ func TestManagedCanaryHeldSeatCannotAdvanceFromLateProof(t *testing.T) {
 		!controller.hasServingReport(fixture.intent, state, instance, status) {
 		t.Fatal("late candidate serving report was not valid for the held seat")
 	}
+	// A report from a slow host reconcile still counts; one older than the
+	// serving report bound does not.
+	for _, test := range []struct {
+		age   time.Duration
+		valid bool
+	}{{45 * time.Second, true}, {servingReportMaxAge + 5*time.Second, false}} {
+		aged := status
+		aged.Reports = slices.Clone(status.Reports)
+		for index := range aged.Reports {
+			aged.Reports[index].ObservedAt = time.Now().Add(-test.age)
+		}
+		if controller.hasServingReport(fixture.intent, state, instance, aged) != test.valid {
+			t.Fatalf("serving report aged %s: valid=%t, want %t", test.age, !test.valid, test.valid)
+		}
+	}
 	before := fixture.store.casCalls
 
 	acted, err := controller.advanceMember(t.Context(), 1, fixture.intent,
