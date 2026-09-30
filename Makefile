@@ -10,7 +10,7 @@ endif
 CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
-PYTHON_TEST_JOBS ?= 8
+PYTHON_TEST_JOBS ?= 16
 
 .PHONY: verify ci-verify format-check python-test test vet race-test build build-linux release-linux release-check image run host check clean
 
