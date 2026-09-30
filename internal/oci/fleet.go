@@ -889,6 +889,13 @@ func (f *fleet) Terminate(ctx context.Context, instanceID, expectedETag string, 
 	return fmt.Errorf("%w: OCI termination was accepted but state is %q", ErrOutcomeUnknown, current.LifecycleState)
 }
 
+// terminatedForeign reports a terminated resource of another fleet. Create
+// keys derive from placement identity and repeat across cells; a live foreign
+// resource still fails closed, a terminated one can no longer collide.
+func (f *fleet) terminatedForeign(tags map[string]string, state string) bool {
+	return state == "TERMINATED" && tags[tagOwner] != f.config.Owner
+}
+
 func (f *fleet) findByCreateKey(ctx context.Context, createKey string) (CloudInstance, ResourceIdentity, bool, error) {
 	instances, err := f.provider.ListInstances(ctx, f.config.CompartmentID)
 	if err != nil {
@@ -896,7 +903,7 @@ func (f *fleet) findByCreateKey(ctx context.Context, createKey string) (CloudIns
 	}
 	var ids []string
 	for _, instance := range instances {
-		if instance.FreeformTags[tagCreateKey] == createKey {
+		if instance.FreeformTags[tagCreateKey] == createKey && !f.terminatedForeign(instance.FreeformTags, instance.LifecycleState) {
 			ids = append(ids, instance.ID)
 		}
 	}
@@ -1141,7 +1148,7 @@ func (f *fleet) findVolumeByCreateKey(ctx context.Context, createKey string) (Cl
 	}
 	var ids []string
 	for _, volume := range volumes {
-		if volume.FreeformTags[tagCreateKey] == createKey {
+		if volume.FreeformTags[tagCreateKey] == createKey && !f.terminatedForeign(volume.FreeformTags, volume.LifecycleState) {
 			ids = append(ids, volume.ID)
 		}
 	}

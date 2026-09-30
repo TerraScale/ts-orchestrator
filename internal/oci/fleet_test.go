@@ -287,6 +287,27 @@ func TestEnsureHostRefusesForeignResourceWithSameCreateKey(t *testing.T) {
 	}
 }
 
+func TestEnsureHostIgnoresTerminatedHostOfAnotherFleet(t *testing.T) {
+	ctx := t.Context()
+	config, intent := testRegionConfig()
+	provider := newFakeProvider(config)
+	tags := hostTags(config, "shared-create-key")
+	tags[tagOwner] = "previous-cell"
+	provider.instances["ocid1.instance.previous"] = CloudInstance{
+		ID: "ocid1.instance.previous", CompartmentID: config.CompartmentID,
+		AvailabilityDomain: config.AvailabilityDomain, FaultDomain: "FAULT-DOMAIN-1",
+		LifecycleState: "TERMINATED", ETag: "e1", FreeformTags: tags,
+	}
+	fleet, err := newTestFleet(config, intent, provider, newFakeJournal(), &fakeFencer{snapshot: writableSnapshot()}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := fleet.EnsureHost(ctx, testEnsureRequest("shared-create-key"))
+	if err != nil || provider.launches != 1 || host.ID == "ocid1.instance.previous" {
+		t.Fatalf("terminated host of another fleet blocked the launch: host=%+v launches=%d err=%v", host, provider.launches, err)
+	}
+}
+
 func TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof(t *testing.T) {
 	ctx := t.Context()
 	config, intent := testRegionConfig()
