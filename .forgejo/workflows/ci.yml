@@ -8,6 +8,11 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+  pull_request:
+    branches: [develop, main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   workflow_dispatch:
 
 # A newer push supersedes a running check of the same branch. On main the
@@ -20,9 +25,24 @@ jobs:
   verify:
     name: verify/go + artifact/linux-amd64-arm64
     runs-on: terrascale-builder
+    container:
+      # Process labs and bounded log collectors must meet real lease/cleanup
+      # deadlines even when Rust jobs saturate the shared Docker disk. This
+      # per-job scratch mount retains files across child-process restarts;
+      # dependency/build caches and published binaries remain persistent.
+      options: --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
     timeout-minutes: 90
     env:
       SOURCE_SHA: ${{ forgejo.sha }}
+      # Persist dependency, build and test-result caches in the runner mount.
+      GOCACHE: /cache/go/build
+      GOMODCACHE: /cache/go/mod
+      # Bound nested parallelism: make, Go packages, race shards and Python
+      # otherwise each try to use every CPU on the shared builder.
+      GOFLAGS: -p=4
+      GOMAXPROCS: '2'
+      TS_RACE_JOBS: '6'
+      PYTHON_TEST_JOBS: '16'
     steps:
       - name: Check out the exact source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -41,6 +61,19 @@ jobs:
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
           go_version="$(go env GOVERSION)"
           test "${go_version}" = "go1.27.1"
+          mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
+          test -w "$(go env GOCACHE)"
+          test -w "$(go env GOMODCACHE)"
+          test "$(stat -f -c %T /tmp)" = tmpfs
+          df -h /tmp
+          printf 'gocache=%s gomodcache=%s goflags=%s gomaxprocs=%s cpus=%s\n' \
+            "$(go env GOCACHE)" "$(go env GOMODCACHE)" "$(go env GOFLAGS)" "${GOMAXPROCS}" "$(nproc)"
+          for pressure in cpu io memory; do
+            if [[ -r /proc/pressure/${pressure} ]]; then
+              printf '%s pressure: ' "${pressure}"
+              cat "/proc/pressure/${pressure}"
+            fi
+          done
           printf 'source=%s tree=%s go=%s\n' \
             "${source_commit}" "$(git rev-parse "HEAD^{tree}")" "${go_version}"
 
@@ -57,6 +90,7 @@ jobs:
           printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
 
       - name: Retain verified binaries and qualification manifest
+        if: ${{ forgejo.event_name != 'pull_request' }}
         shell: bash
         env:
           FORGEJO_TOKEN: ${{ github.token }}
@@ -68,7 +102,7 @@ jobs:
       # own result never depends on it: a failed dispatch is visible here and
       # is repaired by dispatching image.yml for this revision by hand.
       - name: Start the image build for this revision
-        if: ${{ forgejo.ref == 'refs/heads/main' }}
+        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:

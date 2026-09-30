@@ -53,7 +53,9 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		}
 		return
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 125*time.Second)
+	// Each startup and shutdown has its own budget. A deadline shared by
+	// both boots can kill a healthy child during its graceful shutdown.
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	root := t.TempDir()
 	public, _ := testEd25519(t, root, "response.key")
@@ -89,13 +91,8 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 			children[index] = startControllerChild(t, ctx, root, configs[index], boot, index)
 		}
 		if boot == 1 {
-			select {
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
-			case <-time.After(3 * time.Second):
-			}
-			for _, child := range children[:2] {
-				assertControllerChildRunning(t, child)
+			for index, child := range children[:2] {
+				waitControllerChildListening(t, ctx, child, clientPorts[index], routePorts[index])
 			}
 		}
 		children[2] = startControllerChild(t, ctx, root, configs[2], boot, 2)
@@ -216,19 +213,13 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		}
 		// An R3 region must retain both surviving controllers and their
 		// embedded brokers when one controller is lost.
-		select {
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
-		case <-time.After(3 * time.Second):
-		}
+		waitSurvivingAuthority(t, ctx, clientPorts[(failedPeer+1)%3], 0)
 		for index, child := range children {
 			if index == failedPeer {
 				continue
 			}
 			assertControllerChildRunning(t, child)
-			if err := child.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-				t.Fatal(err)
-			}
+			signalControllerChild(t, child)
 		}
 		for index, child := range children {
 			if index == failedPeer {
@@ -260,9 +251,12 @@ func controllerLeaseRecordFromData(data []byte) (controllerLeaseRecordForTest, e
 }
 
 type controllerChild struct {
-	cmd     *exec.Cmd
-	done    chan error
-	logPath string
+	cmd      *exec.Cmd
+	done     chan struct{}
+	err      error // Read only after done is closed.
+	logPath  string
+	started  time.Time
+	stopping time.Time
 }
 
 func reserveControllerPort(t *testing.T) int {
@@ -321,14 +315,25 @@ func startControllerChild(t *testing.T, ctx context.Context, root, config string
 		logFile.Close()
 		t.Fatal(err)
 	}
-	child := &controllerChild{cmd: cmd, done: make(chan error, 1), logPath: logPath}
+	child := &controllerChild{cmd: cmd, done: make(chan struct{}), logPath: logPath, started: time.Now()}
 	go func() {
-		child.done <- cmd.Wait()
+		child.err = cmd.Wait()
 		logFile.Close()
+		close(child.done)
 	}()
 	t.Cleanup(func() {
-		if cmd.ProcessState == nil {
-			_ = cmd.Process.Kill()
+		select {
+		case <-child.done:
+			return
+		default:
+		}
+		_ = cmd.Process.Kill()
+		// Reap even failed fixtures before the next lab test starts. Reading
+		// Cmd.ProcessState while Wait writes it also races under -race.
+		select {
+		case <-child.done:
+		case <-time.After(controllerStopBudget):
+			t.Errorf("controller cleanup did not reap child: %s", child.logPath)
 		}
 	})
 	return child
@@ -337,15 +342,17 @@ func startControllerChild(t *testing.T, ctx context.Context, root, config string
 func assertControllerChildRunning(t *testing.T, child *controllerChild) {
 	t.Helper()
 	select {
-	case err := <-child.done:
+	case <-child.done:
 		data, _ := os.ReadFile(child.logPath)
-		t.Fatalf("controller exited before quorum: %v; log %s\n%s", err, child.logPath, data)
+		t.Fatalf("controller exited before quorum: %v; log %s\n%s", child.err, child.logPath, data)
 	default:
 	}
 }
 
 func waitControllerChildReady(t *testing.T, ctx context.Context, child *controllerChild) {
 	t.Helper()
+	ctx, cancel := context.WithDeadline(ctx, child.started.Add(controllerStartupBudget(t)))
+	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -362,13 +369,71 @@ func waitControllerChildReady(t *testing.T, ctx context.Context, child *controll
 	}
 }
 
+// The founder is deliberately absent here. Wait for both listeners instead
+// of assuming that a three-second sleep lets the other processes start.
+func waitControllerChildListening(t *testing.T, ctx context.Context, child *controllerChild, ports ...int) {
+	t.Helper()
+	ctx, cancel := context.WithDeadline(ctx, child.started.Add(controllerStartupBudget(t)))
+	defer cancel()
+	var lastErr error
+	for ctx.Err() == nil {
+		assertControllerChildRunning(t, child)
+		listening := true
+		for _, port := range ports {
+			conn, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port))
+			if err != nil {
+				lastErr, listening = err, false
+				break
+			}
+			conn.Close()
+		}
+		if listening {
+			assertControllerChildRunning(t, child)
+			return
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	data, _ := os.ReadFile(child.logPath)
+	t.Fatalf("controller listeners: %v; last error %v; log %s\n%s", ctx.Err(), lastErr, child.logPath, data)
+}
+
+func controllerStartupBudget(t *testing.T) time.Duration {
+	t.Helper()
+	// Use the deployed bootstrap admission budget for forming a fresh lab
+	// cell, including embedded NATS startup and provisioning retries.
+	data, err := os.ReadFile("../../deploy/systemd/terrascale-orchestrator-bootstrap.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if value, ok := strings.CutPrefix(line, "TimeoutStartSec="); ok {
+			budget, err := time.ParseDuration(value)
+			if err != nil || budget <= 0 {
+				t.Fatalf("invalid bootstrap startup budget %q: %v", value, err)
+			}
+			return budget
+		}
+	}
+	t.Fatal("bootstrap unit has no startup budget")
+	return 0
+}
+
 func stopControllerChild(t *testing.T, child *controllerChild) {
 	t.Helper()
+	signalControllerChild(t, child)
+	waitControllerChildStopped(t, child)
+}
+
+func signalControllerChild(t *testing.T, child *controllerChild) {
+	t.Helper()
+	child.stopping = time.Now()
 	if err := child.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		data, _ := os.ReadFile(child.logPath)
 		t.Fatalf("controller signal: %v; log %s\n%s", err, child.logPath, data)
 	}
-	waitControllerChildStopped(t, child)
 }
 
 func crashControllerChild(t *testing.T, child *controllerChild) {
@@ -418,12 +483,13 @@ const controllerStopBudget = 60 * time.Second
 func waitControllerChildStopped(t *testing.T, child *controllerChild) {
 	t.Helper()
 	select {
-	case err := <-child.done:
-		if err != nil {
+	case <-child.done:
+		if child.err != nil {
 			data, _ := os.ReadFile(child.logPath)
-			t.Fatalf("controller shutdown: %v; log %s\n%s", err, child.logPath, data)
+			t.Fatalf("controller shutdown: %v; log %s\n%s", child.err, child.logPath, data)
 		}
-	case <-time.After(controllerStopBudget):
-		t.Fatalf("controller did not stop within %s: %s", controllerStopBudget, child.logPath)
+	case <-time.After(time.Until(child.stopping.Add(controllerStopBudget))):
+		data, _ := os.ReadFile(child.logPath)
+		t.Fatalf("controller did not stop within %s: %s\n%s", controllerStopBudget, child.logPath, data)
 	}
 }

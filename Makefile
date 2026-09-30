@@ -10,15 +10,16 @@ endif
 CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
+PYTHON_TEST_JOBS ?= 16
 
 .PHONY: verify ci-verify format-check python-test test vet race-test build build-linux release-linux release-check image run host check clean
 
 verify: format-check python-test vet race-test
 
-# CI runs the independent checks and the release build at once. Each
-# target's output is printed as one block when it finishes.
+# CI runs the independent checks and the release build at once. The race
+# scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=target format-check python-test vet race-test release-check
+	$(MAKE) --jobs --keep-going --output-sync=none format-check python-test vet race-test release-check
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -32,7 +33,7 @@ PYTHON_SUITES := tests/deploy deploy/oci-region tests/ci tests/runtime_priority 
 	tests/firecracker/managedmember:test_qualify.py
 
 python-test:
-	python3 scripts/ci/run-python-tests.py $(PYTHON_SUITES)
+	python3 scripts/ci/run-python-tests.py --jobs $(PYTHON_TEST_JOBS) $(PYTHON_SUITES)
 
 test:
 	$(GO) test ./...
@@ -49,9 +50,17 @@ build:
 
 build-linux: release-linux
 
-release-linux:
+release-linux: dist/terrascale-orchestrator-linux-amd64 dist/terrascale-orchestrator-linux-arm64
+
+# Phony build targets always embed this checkout's VCS metadata. CI's make
+# jobserver builds both architectures together instead of serially.
+.PHONY: dist/terrascale-orchestrator-linux-amd64 dist/terrascale-orchestrator-linux-arm64
+dist/terrascale-orchestrator-linux-amd64:
 	mkdir -p dist
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -o dist/terrascale-orchestrator-linux-amd64 $(APP)
+
+dist/terrascale-orchestrator-linux-arm64:
+	mkdir -p dist
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -o dist/terrascale-orchestrator-linux-arm64 $(APP)
 
 release-check: release-linux

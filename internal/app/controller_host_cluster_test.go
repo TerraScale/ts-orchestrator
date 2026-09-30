@@ -37,23 +37,21 @@ func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
 // Legacy static NKeys remain an explicit TLS lab regression; production JWT
 // admission is exercised separately through the broker bridge.
 func TestLabTLSHostSessionRecoversAfterControllerLoss(t *testing.T) {
-	for _, test := range []struct {
-		name         string
-		blackhole    bool
-		forceRestart bool
-	}{
-		{name: "clean_kill"},
-		{name: "blackholed_socket", blackhole: true},
-		{name: "fenced_then_restarted", blackhole: true, forceRestart: true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, test.blackhole, test.forceRestart)
-		})
-	}
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, false, false)
+}
+
+func TestLabTLSHostSessionRecoversAfterBlackholedController(t *testing.T) {
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, false)
+}
+
+func TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, true)
 }
 
 func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole, forceRestart bool) {
-	ctx, cancel := context.WithTimeout(t.Context(), 165*time.Second)
+	// Controller startup and shutdown must not consume the host scenario's
+	// deadline or cause CommandContext to kill a gracefully stopping child.
+	controllerCtx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	root := t.TempDir()
 	var tlsFiles natscell.TLSFiles
@@ -103,7 +101,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	children := make([]*controllerChild, 3)
 	for index := range children {
-		children[index] = startControllerChild(t, ctx, root, configs[index], 1, index)
+		children[index] = startControllerChild(t, controllerCtx, root, configs[index], 1, index)
 	}
 	t.Cleanup(func() {
 		if !t.Failed() {
@@ -130,8 +128,10 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		t.Logf("controller logs: %s", logDir)
 	})
 	for _, child := range children {
-		waitControllerChildReady(t, ctx, child)
+		waitControllerChildReady(t, controllerCtx, child)
 	}
+	ctx, cancelScenario := context.WithTimeout(controllerCtx, 165*time.Second)
+	defer cancelScenario()
 	probe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "authority-probe", Replicas: 3,
 		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: controllerSeeds[0], TLS: tlsFiles})
 	if err != nil {
@@ -203,16 +203,16 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentCtx, stopAgent := context.WithCancel(ctx)
+	agentCtx, stopAgent := context.WithCancel(controllerCtx)
 	defer stopAgent()
 	agentDone := make(chan error, 1)
 	go func() { agentDone <- agent.Run(agentCtx) }()
 	firstSession := waitR3HostSession(t, ctx, operatorConfig, agentDone, time.Time{})
 	firstDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 1)
-	// The controller and authority can be ready before the delivery stream has
-	// two current followers. Crashing a peer before they catch up does not
-	// exercise a recoverable one-controller loss.
-	waitR3DeliveryIntentQuorum(t, ctx, probe, -1)
+	// Controller readiness does not prove that every host/delivery stream has
+	// two current followers. Inject loss only after the whole caller's durable
+	// state can survive it, including signed sessions in the control log.
+	waitR3CallerStreamQuorum(t, ctx, probe, -1)
 	connected := hostConn.ConnectedUrl()
 	failedPeer := -1
 	for index, url := range hostURLs {
@@ -299,7 +299,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 			if err != nil {
 				t.Fatal(err)
 			}
-			agentCtx, stopAgent = context.WithCancel(ctx)
+			agentCtx, stopAgent = context.WithCancel(controllerCtx)
 			defer stopAgent()
 			agentDone = make(chan error, 1)
 			go func() { agentDone <- agent.Run(agentCtx) }()
@@ -330,7 +330,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	defer operatorProbe.Close()
 	secondDigest := deployR3Workload(t, ctx, root, operatorConfig, runner, 2,
 		&r3CallerDiagnostics{probe: probe, operatorProbe: operatorProbe, agentDone: agentDone})
-	waitR3DeliveryIntentQuorum(t, ctx, probe, failedPeer)
+	waitR3CallerStreamQuorum(t, ctx, probe, failedPeer)
 	if firstDigest == secondDigest {
 		t.Fatal("replacement workload did not change artifact digest")
 	}
@@ -343,12 +343,18 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 				break
 			}
 		}
+		// Earlier startup, reconnect and restart waits cannot shorten the
+		// signed session's remaining execution reserve. Keep the absolute
+		// before-expiry assertion in assertR3HostFenced.
+		acceptedUntil, _ := acceptedSessions.snapshot()
+		fenceDeadline := time.NewTimer(time.Until(time.Unix(0, acceptedUntil)))
+		defer fenceDeadline.Stop()
 		select {
 		case err := <-agentDone:
-			assertR3HostFenced(t, ctx, runner, stopRunner, &acceptedSessions, err)
+			assertR3HostFenced(t, controllerCtx, runner, stopRunner, &acceptedSessions, err)
 			t.Logf("host fenced before accepted expiry after quorum loss: observed_expiry=%s", lastSession.SessionExpiresAt)
-		case <-ctx.Done():
-			t.Fatalf("host did not fail closed after quorum loss: %v", ctx.Err())
+		case <-fenceDeadline.C:
+			t.Fatal("host did not fail closed before accepted signed session expiry after quorum loss")
 		}
 		return
 	}
@@ -358,7 +364,12 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	for index, child := range children {
 		if index != failedPeer {
-			stopControllerChild(t, child)
+			signalControllerChild(t, child)
+		}
+	}
+	for index, child := range children {
+		if index != failedPeer {
+			waitControllerChildStopped(t, child)
 		}
 	}
 }
@@ -488,41 +499,50 @@ func waitR3Authority(t *testing.T, ctx context.Context, probe *natscell.Runtime,
 	return authority.Snapshot{}
 }
 
-func waitR3DeliveryIntentQuorum(t *testing.T, ctx context.Context, probe *natscell.Runtime, failedPeer int) {
+func waitR3CallerStreamQuorum(t *testing.T, ctx context.Context, probe *natscell.Runtime, failedPeer int) {
 	t.Helper()
 	started := time.Now()
 	checkCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
+	streams := []string{authority.ControlStreamName, delivery.IntentStream,
+		"OBJ_" + delivery.ArtifactBucket, "KV_" + delivery.AdmissionBucket,
+		"KV_" + delivery.OperationBucket, "KV_TS_HOST_STATE"}
+	var lastStream string
 	var lastCluster *jetstream.ClusterInfo
 	var lastErr error
 	for checkCtx.Err() == nil {
-		attempt, stop := context.WithTimeout(checkCtx, 2*time.Second)
-		stream, err := probe.JetStream().Stream(attempt, delivery.IntentStream)
-		if err == nil {
+		quorate := true
+		for _, name := range streams {
+			attempt, stop := context.WithTimeout(checkCtx, 2*time.Second)
+			stream, err := probe.JetStream().Stream(attempt, name)
 			var info *jetstream.StreamInfo
-			info, err = stream.Info(attempt)
-			if info != nil {
-				lastCluster = info.Cluster
+			if err == nil {
+				info, err = stream.Info(attempt)
 			}
-			if err == nil && r3DeliveryIntentQuorate(info, failedPeer) {
-				t.Logf("delivery intent stream quorate after peer%d loss: leader=%s replicas=%+v wait=%s",
-					failedPeer, info.Cluster.Leader, info.Cluster.Replicas, time.Since(started))
-				stop()
-				return
+			stop()
+			if err != nil || !r3CallerStreamQuorate(info, failedPeer) {
+				lastStream, lastErr, lastCluster = name, err, nil
+				if info != nil {
+					lastCluster = info.Cluster
+				}
+				quorate = false
+				break
 			}
 		}
-		stop()
-		lastErr = err
+		if quorate {
+			t.Logf("all %d caller streams have a current quorum after peer%d loss: wait=%s", len(streams), failedPeer, time.Since(started))
+			return
+		}
 		select {
 		case <-checkCtx.Done():
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	t.Fatalf("delivery intent stream lacks a current surviving quorum after peer%d loss: cluster=%+v err=%v: %v",
-		failedPeer, lastCluster, lastErr, checkCtx.Err())
+	t.Fatalf("caller stream %s lacks a current surviving quorum after peer%d loss: cluster=%+v err=%v: %v",
+		lastStream, failedPeer, lastCluster, lastErr, checkCtx.Err())
 }
 
-func r3DeliveryIntentQuorate(info *jetstream.StreamInfo, failedPeer int) bool {
+func r3CallerStreamQuorate(info *jetstream.StreamInfo, failedPeer int) bool {
 	if info == nil || info.Config.Replicas != 3 || info.Cluster == nil ||
 		info.Cluster.Leader == "" || len(info.Cluster.Replicas) != 2 {
 		return false
@@ -550,6 +570,41 @@ func r3DeliveryIntentQuorate(info *jetstream.StreamInfo, failedPeer int) bool {
 		}
 	}
 	return true
+}
+
+func TestR3CallerStreamQuorumRequiresEverySurvivingReplica(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		failedPeer int
+		leader     string
+		replicas   []*jetstream.PeerInfo
+		want       bool
+	}{
+		{"ready before loss", -1, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true}, {Name: "lab-peer2", Current: true}}, true},
+		{"lagging before loss", -1, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true}, {Name: "lab-peer2"}}, false},
+		{"ready after loss", 2, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true}, {Name: "lab-peer2", Offline: true}}, true},
+		{"surviving follower lagging", 2, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1"}, {Name: "lab-peer2", Offline: true}}, false},
+		{"surviving follower pending", 2, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true, Pending: true}, {Name: "lab-peer2", Offline: true}}, false},
+		{"surviving follower offline", 2, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true, Offline: true}, {Name: "lab-peer2", Offline: true}}, false},
+		{"failed leader", 2, "lab-peer2", []*jetstream.PeerInfo{
+			{Name: "lab-peer0", Current: true}, {Name: "lab-peer1", Current: true}}, false},
+		{"duplicate follower", -1, "lab-peer0", []*jetstream.PeerInfo{
+			{Name: "lab-peer1", Current: true}, {Name: "lab-peer1", Current: true}}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			info := &jetstream.StreamInfo{Config: jetstream.StreamConfig{Replicas: 3},
+				Cluster: &jetstream.ClusterInfo{Leader: test.leader, Replicas: test.replicas}}
+			if got := r3CallerStreamQuorate(info, test.failedPeer); got != test.want {
+				t.Fatalf("stream fixture ready=%t, want %t: %+v", got, test.want, info.Cluster)
+			}
+		})
+	}
 }
 
 func callR3Operator(ctx context.Context, config, operation string, args ...string) ([]byte, error) {
