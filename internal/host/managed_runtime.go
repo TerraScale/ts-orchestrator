@@ -704,6 +704,9 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 		if err != nil {
 			return errors.Join(err, a.runner.Stop(ctx, d.Role))
 		}
+		if err := a.refreshNativeRootPin(ctx, target, fingerprint); err != nil {
+			return errors.Join(err, a.runner.Stop(ctx, d.Role))
+		}
 		if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {
 			return errors.Join(err, a.runner.Stop(ctx, d.Role))
 		}
@@ -814,7 +817,7 @@ func (a *Agent) reconcileManaged(ctx context.Context, d Desired, target desiredR
 	if err := ensureManagedVolumeClaim(paths, *launch, a.cfg.WorkloadIdentity, currentMount, certificate); err != nil {
 		return fmt.Errorf("managed retained volume claim held: %w", err)
 	}
-	if _, _, err := a.executionLease(); err != nil {
+	if err := a.refreshNativeRootPin(ctx, target, fingerprint); err != nil {
 		return err
 	}
 	if err := a.ensureManagedNativeRoot(ctx, d, fingerprint); err != nil {

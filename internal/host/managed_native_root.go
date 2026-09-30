@@ -47,6 +47,27 @@ func (a *Agent) pinManagedNativeRootDesired(role, fingerprint string) error {
 	return nil
 }
 
+// refreshNativeRootPin re-validates the signed desired right before the native
+// OCI root starts and pins it again. The pin taken at reconcile start lasts one
+// session lease, which a first member start (artifact, material, volume
+// format) outlasts on a small host.
+func (a *Agent) refreshNativeRootPin(ctx context.Context, target desiredReply, fingerprint string) error {
+	if target.Desired == nil {
+		return errors.New("native OCI root requires a signed desired")
+	}
+	role := target.Desired.Role
+	latest := desiredReply{}
+	if err := a.request(ctx, "desired", struct {
+		Role string `json:"role"`
+	}{role}, &latest); err != nil {
+		return err
+	}
+	if err := a.validateDesiredReply(latest); err != nil || !sameDesiredReplyBinding(target, latest) {
+		return errors.New("managed desired changed before native OCI root start")
+	}
+	return a.pinManagedNativeRootDesired(role, fingerprint)
+}
+
 func (a *Agent) revokeManagedNativeRoot(role string) error {
 	a.nativeRootMu.Lock()
 	delete(a.nativeDesired, role)
