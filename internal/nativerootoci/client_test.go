@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -17,6 +20,43 @@ const nativeTestDigest = "678dcc5f87692c0885126111c6828c7181bedd6cdb268f655ac442
 type objectClientStub struct {
 	get func(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error)
 	put func(context.Context, objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error)
+}
+
+func TestNativeRootUncertaintyLogsStageAndStatusWithoutProviderSecrets(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	target := testTarget(t)
+	service, err := NewService(target, objectClientStub{
+		get: func(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+			return objectstorage.GetObjectResponse{}, objectFailure(http.StatusServiceUnavailable)
+		},
+		put: func(context.Context, objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
+			return objectstorage.PutObjectResponse{}, errors.New("secret-signed-provider-url")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authorize := func(context.Context) error { return nil }
+	for _, request := range []Request{
+		testRequest(target, "get", nil, ""),
+		testRequest(target, "update", []byte("secret-root-body"), "secret-etag"),
+	} {
+		if response := service.Execute(t.Context(), request, authorize); response.Status != "uncertain" {
+			t.Fatalf("failure did not stay uncertain: %+v", response)
+		}
+	}
+	for _, field := range []string{`"operation":"get"`, `"operation":"put"`, `"stage":"sdk"`,
+		`"http_status":503`, `"deadline_remaining"`, `"elapsed"`} {
+		if !strings.Contains(logs.String(), field) {
+			t.Fatalf("missing diagnostic %s: %s", field, logs.String())
+		}
+	}
+	if strings.Contains(logs.String(), "secret-") || strings.Contains(logs.String(), target.Bucket) {
+		t.Fatalf("sensitive provider or request detail leaked: %s", logs.String())
+	}
 }
 
 func (client objectClientStub) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {

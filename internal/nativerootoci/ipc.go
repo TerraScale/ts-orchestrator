@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -111,6 +112,8 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service *
 	}
 	leaseDeadline, err := authorize(ctx, peer)
 	if err != nil || leaseDeadline.IsZero() || !time.Now().Before(leaseDeadline) {
+		slog.Warn("native OCI root IPC rejected", "stage", "authorize",
+			"cause", "authority_unavailable", "lease_remaining", time.Until(leaseDeadline))
 		return
 	}
 	ctx, leaseCancel := context.WithDeadline(ctx, leaseDeadline)

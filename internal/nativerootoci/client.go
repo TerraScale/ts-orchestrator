@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -141,8 +142,8 @@ func constructInstancePrincipalClient(region string) (ObjectClient, error) {
 
 // Execute is one bounded request. authorize must recheck the exact active
 // member, process and host lease immediately before each OCI SDK operation.
-func (service *Service) Execute(ctx context.Context, request Request, authorize func(context.Context) error) Response {
-	response := Response{Version: 1, Status: "uncertain"}
+func (service *Service) Execute(ctx context.Context, request Request, authorize func(context.Context) error) (response Response) {
+	response = Response{Version: 1, Status: "uncertain"}
 	if service == nil || ctx == nil || authorize == nil ||
 		request.Version != 1 || request.PublicationDigest != service.target.PublicationDigest ||
 		request.TargetDigest != service.target.Digest || !request.valid() {
@@ -150,13 +151,22 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 	}
 	ctx, cancel := context.WithTimeout(ctx, requestLimit)
 	defer cancel()
+	started := time.Now()
+	defer func() {
+		if response.Status == "uncertain" {
+			slog.Warn("native OCI root request uncertain", "operation", request.Operation,
+				"elapsed", time.Since(started))
+		}
+	}()
 	select {
 	case service.permits <- struct{}{}:
 		defer func() { <-service.permits }()
 	case <-ctx.Done():
+		logNativeRootFailure(ctx, request.Operation, "permit", ctx.Err())
 		return response
 	}
 	if err := authorize(ctx); err != nil {
+		logNativeRootFailure(ctx, request.Operation, "authorize", err)
 		return response
 	}
 	switch request.Operation {
@@ -188,6 +198,7 @@ func (service *Service) get(ctx context.Context, key string, maximum int,
 	authorize func(context.Context) error,
 ) ([]byte, string, string) {
 	if err := authorize(ctx); err != nil {
+		logNativeRootFailure(ctx, "get", "authorize", err)
 		return nil, "", "uncertain"
 	}
 	response, err := service.client.GetObject(ctx, objectstorage.GetObjectRequest{
@@ -198,25 +209,30 @@ func (service *Service) get(ctx context.Context, key string, maximum int,
 		if response.Content != nil {
 			_ = response.Content.Close()
 		}
+		logNativeRootFailure(ctx, "get", "sdk", ctx.Err())
 		return nil, "", "uncertain"
 	}
 	if err != nil {
 		if failure, ok := errors.AsType[serviceError](err); ok && failure.GetHTTPStatusCode() == http.StatusNotFound {
 			return nil, "", "absent"
 		}
+		logNativeRootFailure(ctx, "get", "sdk", err)
 		return nil, "", "uncertain"
 	}
 	if response.Content == nil {
+		logNativeRootFailure(ctx, "get", "response_metadata", nil)
 		return nil, "", "uncertain"
 	}
 	if response.ContentLength == nil || *response.ContentLength < 1 ||
 		*response.ContentLength > int64(maximum) || response.ETag == nil || !validETag(*response.ETag) {
 		_ = response.Content.Close()
+		logNativeRootFailure(ctx, "get", "response_metadata", nil)
 		return nil, "", "uncertain"
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Content, int64(maximum)+1))
 	closeErr := response.Content.Close()
 	if err != nil || closeErr != nil || len(body) != int(*response.ContentLength) || len(body) > maximum {
+		logNativeRootFailure(ctx, "get", "response_body", errors.Join(err, closeErr))
 		return nil, "", "uncertain"
 	}
 	return body, *response.ETag, "found"
@@ -226,6 +242,7 @@ func (service *Service) put(ctx context.Context, key string, body []byte, ifMatc
 	authorize func(context.Context) error,
 ) (string, string) {
 	if err := authorize(ctx); err != nil {
+		logNativeRootFailure(ctx, "put", "authorize", err)
 		return "", "uncertain"
 	}
 	length := int64(len(body))
@@ -246,6 +263,7 @@ func (service *Service) put(ctx context.Context, key string, body []byte, ifMatc
 	// A failed write acknowledgement may have committed. Never retry the Put.
 	response, err := service.client.PutObject(ctx, request)
 	if ctx.Err() != nil {
+		logNativeRootFailure(ctx, "put", "sdk", ctx.Err())
 		return "", "uncertain"
 	}
 	if err != nil {
@@ -253,12 +271,38 @@ func (service *Service) put(ctx context.Context, key string, body []byte, ifMatc
 			failure.GetHTTPStatusCode() == http.StatusPreconditionFailed {
 			return "", "precondition"
 		}
+		logNativeRootFailure(ctx, "put", "sdk", err)
 		return "", "uncertain"
 	}
 	if response.ETag == nil || !validETag(*response.ETag) {
+		logNativeRootFailure(ctx, "put", "response_metadata", nil)
 		return "", "uncertain"
 	}
 	return *response.ETag, "written"
+}
+
+// Provider errors can contain signed URLs and credential details. Keep journal
+// diagnostics bounded to operation, stage, status and the remaining lease.
+func logNativeRootFailure(ctx context.Context, operation, stage string, err error) {
+	cause := "invalid_response"
+	status := 0
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded), errors.Is(err, context.DeadlineExceeded):
+		cause = "deadline"
+	case errors.Is(ctx.Err(), context.Canceled), errors.Is(err, context.Canceled):
+		cause = "canceled"
+	case err != nil:
+		cause = "operation_failed"
+	}
+	if failure, ok := errors.AsType[serviceError](err); ok {
+		status = failure.GetHTTPStatusCode()
+	}
+	remaining := time.Duration(0)
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = time.Until(deadline)
+	}
+	slog.Warn("native OCI root operation uncertain", "operation", operation,
+		"stage", stage, "cause", cause, "http_status", status, "deadline_remaining", remaining)
 }
 
 func noRetryMetadata() common.RequestMetadata {
