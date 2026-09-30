@@ -12,6 +12,7 @@ The commands are subcommands of the orchestrator binary:
 | `operator terrabase-deploy --plan FILE --state DIR` | Verifies the release, pushes and admits the artifact, generates identities once, signs the recipient grant, prepares material, opens the customer envelope, renders the schema-5 placement from the signed receipt, and applies it. |
 | `operator terrabase-status --state DIR [--wait 30m]` | Prints the controller-signed durable stage of each member, its OCI host, volume and attachment, desired generation, host session, latest host report, and recent placement holds. With `--wait` it reprints only when a member moves and exits 0 once both members serve. |
 | `operator terrabase-update --state DIR --qualification F --binary F --source-digest F --compatibility-actor A --compatibility-key F [--wait 20m]` | Rolls a newer TerraBase release across the pair one seat at a time; see [Continuous delivery](#continuous-delivery). |
+| `operator terrabase-sync --state DIR --source-checkout DIR --compatibility-actor A --compatibility-key F` | Discovers and verifies a newer published release, then invokes the signed updater; opt-in operator-host timer entry point with durable resume and failure stop. |
 | `operator terrabase-walkthrough --state DIR [--forward IP:PORT=127.0.0.1:PORT]...` | Customer scenario over HTTPS: rejected missing, invalid and wrong-tenant credentials, then create, exact retry, cross-member read, update and delete of one disposable document. It uses no controller or NATS access. |
 
 `terrabase-deploy` and `terrabase-status` take the usual `--config
@@ -216,6 +217,11 @@ statement is the assertion that it does.
 
 ### Running it on every release
 
+`operator terrabase-sync` implements the timer entry point described below.
+See [Continuous delivery](continuous-delivery.md) for its invocation,
+provenance/ancestry gates, durable pin and stop marker, rollout policy and
+human signing decisions. It is not enabled on any live cell by this change.
+
 The command runs where the operator config and a Bastion forward already
 exist. The simplest trigger is a timer on that operator host that, for each
 new successful TerraBase `main` release, downloads `qualification.json`,
@@ -283,4 +289,3 @@ controller and host image rebuilt from a source that contains it.
 | No operator view of placement stages | Launch, volume and attachment progress was only in controller logs. |
 | Managed update stopped after one canary seat | A release never reached the peer, a second release could not start, and a held candidate had no recovery. |
 | The image had no OCI device-path rule, and the fleet picked `oraclevdaa` | The host never found `/dev/oracleoci/oraclevd*`, so no volume could be formatted or mounted. |
-

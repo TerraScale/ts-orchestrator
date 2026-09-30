@@ -51,33 +51,7 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	var initial delivery.ArtifactRecord
 	readDeployTestState(t, state, deployIntentFile, &intent)
 	readDeployTestState(t, state, deployArtifactFile, &initial)
-	entry, err := cell.control.ReadPlacementIntent(ctx, intent.DatabaseID, intent.PartitionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := cell.status.Unsubscribe(); err != nil {
-		t.Fatal(err)
-	}
-	fake := &fakeRolloutController{cell: cell, intent: intent, sequence: entry.Sequence}
-	for _, row := range intent.CanonicalRoster.Rows {
-		manifest, err := intent.RuntimeManifestForSeat(placement.Seat{MemberID: row.SeatID, Region: row.Region})
-		if err != nil {
-			t.Fatal(err)
-		}
-		digest, err := manifest.Digest()
-		if err != nil {
-			t.Fatal(err)
-		}
-		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pins: placement.ManagedUpdateSeat{
-			SeatID: row.SeatID, Region: row.Region, MemberID: row.MemberID, Incarnation: row.Incarnation,
-			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + row.SeatID,
-			HostGeneration: 1, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..fake-" + row.SeatID,
-			OCIOwner: deployTestOwner, OCIFleetGeneration: 1, CreateKey: "th-" + row.SeatID,
-			VolumeID: "ocid1.volume.oc1..fake-" + row.SeatID, AttachmentID: "ocid1.volumeattachment.oc1..fake-" + row.SeatID,
-			AttachmentETag: "etag", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 1,
-			ArtifactDigest: manifest.ArtifactDigest}})
-	}
-	fake.serve(t)
+	fake := startFakeRolloutController(t, cell, intent)
 	update := func(release terrabaseReleaseFiles) ([]string, error) {
 		output, err := runDeployTestOperatorErr(ctx, cell, "terrabase-update", "--state", state,
 			"--qualification", release.Qualification, "--binary", release.Binary, "--source-digest", release.SourceDigest,
@@ -131,6 +105,38 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 	if fake.seats[0].pins.ArtifactDigest != r2 || !fake.seats[0].serving || len(fake.rejected) != 0 {
 		t.Fatalf("rolled back seat does not serve release 2: %+v rejected %v", fake.seats[0], fake.rejected)
 	}
+}
+
+func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, intent placement.Intent) *fakeRolloutController {
+	t.Helper()
+	entry, err := cell.control.ReadPlacementIntent(t.Context(), intent.DatabaseID, intent.PartitionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cell.status.Unsubscribe(); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeRolloutController{cell: cell, intent: intent, sequence: entry.Sequence}
+	for _, row := range intent.CanonicalRoster.Rows {
+		manifest, err := intent.RuntimeManifestForSeat(placement.Seat{MemberID: row.SeatID, Region: row.Region})
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest, err := manifest.Digest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pins: placement.ManagedUpdateSeat{
+			SeatID: row.SeatID, Region: row.Region, MemberID: row.MemberID, Incarnation: row.Incarnation,
+			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + row.SeatID,
+			HostGeneration: 1, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..fake-" + row.SeatID,
+			OCIOwner: deployTestOwner, OCIFleetGeneration: 1, CreateKey: "th-" + row.SeatID,
+			VolumeID: "ocid1.volume.oc1..fake-" + row.SeatID, AttachmentID: "ocid1.volumeattachment.oc1..fake-" + row.SeatID,
+			AttachmentETag: "etag", AttachmentDevice: "/dev/oracleoci/oraclevdb", DesiredGeneration: 1,
+			ArtifactDigest: manifest.ArtifactDigest}})
+	}
+	fake.serve(t)
+	return fake
 }
 
 func (fake *fakeRolloutController) serve(t *testing.T) {

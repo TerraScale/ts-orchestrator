@@ -8,6 +8,7 @@ These pages describe the current greenfield Go implementation.
 | [Manual regional bootstrap](region-bootstrap.md) | Operator-created regional foundation and controller A, followed by orchestrator-managed peers and workloads |
 | [Local development](local-development.md) | Toolchain, build, test, and Firecracker qualification |
 | [Build and release](releases.md) | Exact-source CI checks and static Linux binaries |
+| [Continuous delivery](continuous-delivery.md) | Opt-in TerraBase release automation, signed image replacement design and human trust decisions |
 | [Broker account rotation](broker-claim-rotation.md) | Operator `broker-claim-apply` procedure and receipts |
 | [Workspace GOAL](../../GOAL.md) | Current cross-repository delivery authority and status |
 | [Shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md) | Dated cross-repository gate and evidence snapshot |
