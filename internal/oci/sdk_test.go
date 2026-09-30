@@ -176,6 +176,48 @@ func TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC(t *testing.T) {
 	if ip, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); err != nil || ip != "10.251.0.21" {
 		t.Fatalf("exact boot and private VNIC refused: %v", err)
 	}
+	for _, state := range []core.BootVolumeAttachmentLifecycleStateEnum{
+		core.BootVolumeAttachmentLifecycleStateAttaching, core.BootVolumeAttachmentLifecycleStateDetaching,
+	} {
+		reader.boots.Items[0].LifecycleState = state
+		_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
+			t.Fatalf("transient boot attachment %s classified as foreign: %v", state, err)
+		}
+		reader.boots.OpcNextPage = new("extra")
+		if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+			t.Fatalf("paginated transient boot attachment was not foreign: %v", err)
+		}
+		reader.boots.OpcNextPage = nil
+	}
+	reader.boots.Items[0].LifecycleState = core.BootVolumeAttachmentLifecycleStateAttached
+	for _, state := range []core.VnicAttachmentLifecycleStateEnum{
+		core.VnicAttachmentLifecycleStateAttaching, core.VnicAttachmentLifecycleStateDetaching,
+	} {
+		reader.attachments.Items[0].LifecycleState = state
+		_, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader)
+		if !errors.Is(err, ErrOutcomeUnknown) || errors.Is(err, ErrForeignResource) {
+			t.Fatalf("transient VNIC attachment %s classified as foreign: %v", state, err)
+		}
+		reader.attachments.OpcNextPage = new("extra")
+		if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrForeignResource) {
+			t.Fatalf("paginated transient VNIC attachment was not foreign: %v", err)
+		}
+		reader.attachments.OpcNextPage = nil
+	}
+	reader.attachments.Items[0].LifecycleState = core.VnicAttachmentLifecycleStateAttached
+	boots := reader.boots.Items
+	reader.boots.Items = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("not-yet-visible boot attachment was not retryable: %v", err)
+	}
+	reader.boots.Items = boots
+	vnics := reader.attachments.Items
+	reader.attachments.Items = nil
+	if _, err := verifyInstanceStorageAndNetwork(t.Context(), config, instance, reader, reader, reader); !errors.Is(err, ErrOutcomeUnknown) {
+		t.Fatalf("not-yet-visible VNIC attachment was not retryable: %v", err)
+	}
+	reader.attachments.Items = vnics
 	for _, test := range []struct {
 		name    string
 		mutate  func()

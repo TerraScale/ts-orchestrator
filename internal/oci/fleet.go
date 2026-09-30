@@ -436,9 +436,11 @@ func (f *fleet) captureBootBinding(ctx context.Context, epoch uint64, cloud Clou
 // the resource remains withheld for operator inspection instead of being
 // adopted from tags alone.
 func (f *fleet) CreateRetainedVolume(ctx context.Context, request VolumeCreateRequest) (RetainedVolume, error) {
-	if !validCreateKey(request.CreateKey) || request.SizeGB < minRetainedVolumeSizeGB ||
-		request.SizeGB > f.config.MaxDataVolumeGB {
-		return RetainedVolume{}, errors.New("retained OCI volume size exceeds the configured fleet bounds")
+	if !validCreateKey(request.CreateKey) {
+		return RetainedVolume{}, errors.New("retained OCI volume requires a valid create key")
+	}
+	if request.SizeGB < minRetainedVolumeSizeGB || request.SizeGB > f.config.MaxDataVolumeGB {
+		return RetainedVolume{}, fmt.Errorf("retained OCI volume size must be between %d GiB and the configured fleet bound %d GiB", minRetainedVolumeSizeGB, f.config.MaxDataVolumeGB)
 	}
 	if err := f.verifyPinnedImage(ctx); err != nil {
 		return RetainedVolume{}, err

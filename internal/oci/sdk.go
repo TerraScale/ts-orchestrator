@@ -126,6 +126,15 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	if err != nil {
 		return "", fmt.Errorf("list exact instance boot attachment: %w", err)
 	}
+	if len(boots.Items) == 0 && stringValue(boots.OpcNextPage) == "" {
+		return "", fmt.Errorf("%w: boot volume attachment is not visible yet", ErrOutcomeUnknown)
+	}
+	if len(boots.Items) == 1 && stringValue(boots.OpcNextPage) == "" &&
+		(boots.Items[0].LifecycleState == core.BootVolumeAttachmentLifecycleStateAttaching ||
+			boots.Items[0].LifecycleState == core.BootVolumeAttachmentLifecycleStateDetaching) &&
+		stringValue(boots.Items[0].InstanceId) == instance.ID {
+		return "", fmt.Errorf("%w: boot volume attachment is transitioning", ErrOutcomeUnknown)
+	}
 	if len(boots.Items) != 1 || stringValue(boots.OpcNextPage) != "" ||
 		boots.Items[0].LifecycleState != core.BootVolumeAttachmentLifecycleStateAttached ||
 		stringValue(boots.Items[0].InstanceId) != instance.ID ||
@@ -151,6 +160,15 @@ func verifyInstanceStorageAndNetwork(ctx context.Context, config RegionConfig, i
 	})
 	if err != nil {
 		return "", fmt.Errorf("list exact instance VNIC: %w", err)
+	}
+	if len(attachments.Items) == 0 && stringValue(attachments.OpcNextPage) == "" {
+		return "", fmt.Errorf("%w: primary VNIC attachment is not visible yet", ErrOutcomeUnknown)
+	}
+	if len(attachments.Items) == 1 && stringValue(attachments.OpcNextPage) == "" &&
+		(attachments.Items[0].LifecycleState == core.VnicAttachmentLifecycleStateAttaching ||
+			attachments.Items[0].LifecycleState == core.VnicAttachmentLifecycleStateDetaching) &&
+		stringValue(attachments.Items[0].InstanceId) == instance.ID {
+		return "", fmt.Errorf("%w: primary VNIC attachment is transitioning", ErrOutcomeUnknown)
 	}
 	if len(attachments.Items) != 1 || stringValue(attachments.OpcNextPage) != "" ||
 		attachments.Items[0].LifecycleState != core.VnicAttachmentLifecycleStateAttached ||
