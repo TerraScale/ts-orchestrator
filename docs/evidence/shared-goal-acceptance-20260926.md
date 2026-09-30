@@ -21,6 +21,39 @@ the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
 verified acceptance, not effort or source completion.
 
+## GRU preview deployment — 2026-09-30 (R16)
+
+This dated entry records the first end-to-end GRU preview deployment. It
+supersedes the progress notes of the 2026-09-29 handoff below; formal M0/D01–D15
+acceptance still follows the rules above.
+
+- **Cell.** Deployment `ts-preview-gru-20260930-r16`, object prefix
+  `r16-20260930`, ts-orchestrator `ee92b9bf35` (Go CI #778), qualified image
+  `ocid1.image.oc1.sa-saopaulo-1.aaaaaaaaza4lnybisxknfks4q4zkbixatrct6cs3tuwrdxpl6gg3cho4kd5a`. `deploy/oci-region/attempt.py up` ran every phase without operator
+  intervention: Ops launched controller A only, the founder launched B and C,
+  every controller published its accepted-install marker, and continuity
+  generation 2 and the operator config were installed automatically.
+- **Workload.** `operator terrabase-deploy` with the attempt's qualified
+  operator CLI admitted placement 405 for TerraBase `d2017ca` (CI #1012). The
+  orchestrator launched both member hosts, created and attached their
+  encrypted data volumes, initialized them and started TerraBase through
+  signed desired state; both seats reached `serving` with serving proofs about
+  seven minutes after the deploy. No member was reached by SSH.
+- **Customer checks.** `operator terrabase-walkthrough` passed 13/13 (OpenAPI,
+  missing/invalid/wrong-tenant credentials rejected, create, exact retry,
+  cross-member read, update, delete and their replication).
+- **Public API.** `https://gru.terrascale.tech` (Cloudflare → OCI NLB
+  150.230.93.187:443 → members :9465) and `https://api.terrascale.tech`
+  (ts-atlas regional router) serve `/docs` and `/openapi.json`. An
+  unauthenticated read returns 401; an authenticated write through
+  `gru.terrascale.tech` committed on its exact retry and was read back through
+  `api.terrascale.tech`.
+- **Open.** A write can return `commit_uncertain`; the member then drops out
+  of serving and the orchestrator restarts it within about two minutes.
+  Cloudflare's browser integrity check rejects clients that send a default
+  library User-Agent (error 1010). TerraBase on Turso 0.8.1 (`d9fb897f`) is
+  published but not yet rolled to this cell.
+
 ## Current handoff 2026-09-29
 
 The root [`GOAL.md`](../../../GOAL.md) remains the goal authority. This dated
