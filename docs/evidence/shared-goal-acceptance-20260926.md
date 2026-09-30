@@ -21,6 +21,54 @@ the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
 verified acceptance, not effort or source completion.
 
+## GRU preview with NetBird — 2026-09-30 (R21)
+
+This entry records the first cell built from the reviewed NetBird-aware plan.
+It supersedes the R20 state in the entry below.
+
+- **Cell.** Deployment `ts-preview-gru-20260930-r21`, ts-orchestrator
+  `cb8314f2` (Go CI #800), TerraBase `23ac1dc` (CI #1046).
+  - `attempt.py up` ran with main's `preview.py`.
+  - Its base plan is the reviewed `deploy/oci-region/plan.json` (`netbird`,
+    `operator_gateway`, `public_api`, current network rules) combined with
+    the live foundation resource IDs and `host_credential_secret`.
+  - `inspect-foundation` passed, including the NetBird peering, gateway,
+    egress, IAM and secret checks.
+- **Foundation corrections.**
+  - Runbook Apply step 3 was still pending: the control NSG allowed
+    `10.251.0.0/24` (including the public API subnet) on 4222, 6222, 7422,
+    8080 and 8443. It now allows only the private `/25` on 4222, 6222 and
+    8443, plus the gateway `/32` on 4222.
+  - The NetBird enrollment policy was in the parent `TerraScale`
+    compartment. It was recreated with identical statements in the setup
+    key's `terrascale-control` compartment (`7aae8102`).
+- **NetBird enrollment.** All five servers joined automatically at boot:
+  controllers A, B and C and both TerraBase hosts.
+  - `terrascale-netbird-enroll.service` reported management and signal
+    connected over the private LPG route, with `/etc/hosts` mapping
+    `netbird.terrascale.tech` to `10.250.10.155`.
+  - Both units are enabled, the peer identity persists in
+    `/var/lib/netbird/config.json`, and no setup-key file remains.
+  - Controller A was checked live over the break-glass bastion. The other
+    four were checked from read-only boot-volume clones, deleted afterwards.
+  - Controller A kept its public key, NetBird IP `100.123.36.145` and FQDN
+    across a reboot, and the cell kept serving.
+- **Customer checks.**
+  - `terrabase-walkthrough` passed 13/13.
+  - 20 of 20 authenticated writes committed and read back across
+    `api.terrascale.tech` and `gru.api.terrascale.tech` in both directions
+    (p50 1.8 s).
+  - The Scalar reference renders completely on both hosts.
+- **Open.**
+  - Manager-side evidence needs the owner PAT: peer list and group
+    membership, deletion of the default policy, the scoped
+    `operators → gru-cell` policy on 22/4222/9465, and backup integrity.
+  - Operator access through the gateway, including denial of 6222/8443,
+    needs an enrolled operator device.
+  - ts-rust #9 (TS-285) would revert the `.api.` regional hosts and the
+    discovery-unavailable proxy fallback. It is on hold for an owner
+    decision.
+
 ## GRU preview refresh — 2026-09-30 (R17–R20)
 
 This entry supersedes the R16 open items below.
