@@ -275,6 +275,22 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
+// embeddedReadyTimeout bounds embedded server startup. JetStream cluster
+// bootstrap on a loaded single-OCPU host can take well over ten seconds.
+const embeddedReadyTimeout = time.Minute
+
+// serverReady waits until the embedded server accepts connections, the
+// caller's context ends, or embeddedReadyTimeout passes.
+func serverReady(ctx context.Context, embedded *server.Server) bool {
+	deadline := time.Now().Add(embeddedReadyTimeout)
+	for ctx.Err() == nil && time.Now().Before(deadline) {
+		if embedded.ReadyForConnections(time.Second) {
+			return true
+		}
+	}
+	return false
+}
+
 // Start starts the embedded server when requested and establishes an authenticated
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
@@ -298,7 +314,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		}
 		r.server.ConfigureLogger()
 		go r.server.Start()
-		if !r.server.ReadyForConnections(10 * time.Second) {
+		if !serverReady(ctx, r.server) {
 			return nil, errors.New("embedded NATS did not become ready")
 		}
 		cfg.URL = r.server.ClientURL()
