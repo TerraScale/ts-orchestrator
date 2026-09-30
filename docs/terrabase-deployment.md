@@ -133,6 +133,10 @@ replication admission.
 
 ## Run
 
+Use the cell's own qualified operator CLI: `attempt.py operator` verifies it
+and prints its path. Signed command and artifact claims change between
+revisions, so a CLI from another revision is rejected by the controllers.
+
 ```sh
 F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)
 sudo terrascale-orchestrator operator terrabase-deploy --config /var/lib/terrascale-operator/operator.json \

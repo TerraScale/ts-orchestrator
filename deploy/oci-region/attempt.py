@@ -15,7 +15,8 @@ Phases, in order:
   continuity  sign install continuity for A/B/C from the markers they publish
             and publish the next read-only founder selection
   operator  render and install this attempt's operator config and credentials,
-            replacing a previous attempt's install (recipient keys are kept)
+            replacing a previous attempt's install (recipient keys are kept),
+            and verify the cell's qualified operator CLI
   up        every phase above, in order
   status    read-only view of the attempt's cloud and ledger state
 
@@ -45,6 +46,7 @@ IMPORT_IMAGE = HERE / "import-image.py"
 SLOTS = ("controller-a", "controller-b", "controller-c")
 PHASES = ("material", "release", "image", "sign", "launch", "complete", "continuity", "operator")
 OPERATOR_DIR = "/var/lib/terrascale-operator"
+OPERATOR_CLI = "terrascale-orchestrator-linux-amd64"
 OPERATOR_FILES = ("operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem", "ca.pem", "ticket.pub",
                   "operator-signing.key", "operator.json")
 REGION = "sa-saopaulo-1"
@@ -271,7 +273,7 @@ class Attempt:
         if detail["head_sha"] != revision or detail["status"] != "success":
             raise SystemExit(f"CI run {run_number} is not a successful run of {revision}: {detail['status']}")
         tag = f"ci-{revision}-run-{detail['run_id']}"
-        for asset in ("qualification.json", "terrascale-orchestrator-linux-arm64"):
+        for asset in ("qualification.json", "terrascale-orchestrator-linux-arm64", OPERATOR_CLI):
             if not (release / asset).exists():
                 self.run("fj", "release", "asset", "download", "-r", "TerraScale/ts-orchestrator", tag, asset,
                          "-o", release / asset)
@@ -673,6 +675,14 @@ class Attempt:
                          "--operator-signing-key-sha256", self.root_sha256(key), sudo=True)
             finally:
                 self.run("rm", "-f", "--", rendered, sudo=True)
+        # The operator CLI must be the cell's exact qualified release: signed
+        # command and artifact claims change between revisions.
+        cli = self.path("release", OPERATOR_CLI)
+        artifacts = json.loads(self.path("release", "qualification.json").read_text())["artifacts"]
+        if [row["sha256"] for row in artifacts if row["name"] == OPERATOR_CLI] != [sha256(cli)]:
+            raise SystemExit("operator CLI differs from the qualified CI artifact")
+        cli.chmod(0o755)
+        print(f"operator CLI for this cell: {cli}", flush=True)
 
     def phase_up(self) -> None:
         for phase in PHASES:
