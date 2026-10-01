@@ -477,8 +477,7 @@ func managedMemberHTTPSWrite(ctx context.Context, client *http.Client, cfg manag
 		"transaction_id": map[string]string{"expires_at_unix_ms": strconv.FormatInt(time.Now().Add(time.Hour).UnixMilli(), 10), "nonce": hex.EncodeToString(nonce)},
 		"writes": []any{map[string]any{
 			"collection": cfg.CollectionID, "document": cfg.DocumentID,
-			"schema_generation": strconv.FormatUint(cfg.SchemaGeneration, 10), "schema_digest": cfg.SchemaDigest,
-			"observed": []any{}, "value": map[string]any{"kind": "live", "fields": []any{}},
+			"observed": []any{}, "value": map[string]any{"kind": "live", "document": map[string]any{}},
 		}},
 	})
 	if err != nil {

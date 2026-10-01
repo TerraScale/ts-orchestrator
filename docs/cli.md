@@ -1,8 +1,7 @@
 # Unified orchestrator CLI
 
 TerraScale Orchestrator ships one Go executable for controller, host, and
-operator operations. `make build` writes `dist/ts-orch` and a compatibility
-symlink at `dist/terrascale-orchestrator`. Published Linux artifacts and guest
+operator operations. `make build` writes `dist/ts-orch`. Published Linux artifacts and guest
 installation paths retain their existing `terrascale-orchestrator` names;
 these executables expose the same commands. Release receipt artifact identities
 and systemd service commands therefore keep their existing names.

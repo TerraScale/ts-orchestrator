@@ -81,11 +81,11 @@ func validateManaged(v any) Object {
 		fail("source and peer require distinct member IDs and incarnations")
 	}
 	d := sub(m, "document")
-	if !exact(d, "collection_id", "schema_generation", "schema_digest", "field_id") || !uuidRE.MatchString(str(d, "collection_id")) || !hashRE.MatchString(str(d, "schema_digest")) {
+	if !exact(d, "collection_id", "schema_generation", "schema_digest", "utf8_field") || !uuidRE.MatchString(str(d, "collection_id")) || !hashRE.MatchString(str(d, "schema_digest")) {
 		fail("managed_member.document does not match alpha document transaction input")
 	}
 	num(d["schema_generation"], "schema_generation", 1)
-	num(d["field_id"], "field_id", 1)
+	text(d["utf8_field"], "utf8_field")
 	return m
 }
 func validateHTTPS(value any, label string) {

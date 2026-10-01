@@ -124,6 +124,20 @@ prepared-source digest record for the same revision, qualification and
 server bytes. The source digest is the artifact's source claim; the Git tree
 SHA-1 is not.
 
+This orchestrator pairs with TerraBase releases that contain `dfa00c40`
+(named JSON documents; TerraBase `main` from `b05b0828` onward). Their client
+API addresses document fields by name: the walkthrough writes
+`{"kind":"live","document":{"title":"…"}}` without a catalog generation,
+digest or field ID. Earlier TerraBase releases, such as `743c569` in the R22
+preview with orchestrator `7aae8102`, accept only the removed typed write and
+reject it. The generation-one deployment catalog is unchanged, so material
+and updates do not depend on the pairing, but a state directory written by
+an earlier orchestrator holds a version-1 `customer/client.json` that this
+walkthrough cannot read. Keep each candidate pair together.
+`make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>` runs this
+walkthrough against two local members serving freshly generated deployment
+material, with a `tb-server` built from the paired TerraBase revision.
+
 The memory profile is the tightest that TerraBase and the host accept on a
 1 OCPU / 6 GB A1 guest: process and cgroup limits of 4 GiB, 1 GiB headroom,
 and the image's 1 GiB system reserve. TerraBase replication admission also
@@ -172,7 +186,7 @@ The directory and every file are owner-only and written once.
 | `material-reply.json` | The controller-signed preparation receipt and customer envelope. |
 | `customer/credentials.json` | The customer API key and HTTPS CA. Secret. |
 | `customer/https-ca.pem` | The HTTPS CA. |
-| `customer/client.json` | Tenant, database, shard, collections with schema digest and fields, member URLs. |
+| `customer/client.json` | Version 2: tenant, database, shard, member URLs, and for each collection its UTF-8 field names and the catalog generation and digest that its live documents report. |
 | `placement-intent.json` | The applied schema-5 placement intent. |
 | `placement-receipt.json` | The first admission receipt. |
 
