@@ -31,7 +31,7 @@ the step that would hold.
    `material/v2/<cell>/...`. The controller policy must grant
    `OBJECT_READ` and `OBJECT_CREATE` on `target.object.name='material/v2/*'`
    in the material bucket. The reviewed statement in
-   `deploy/oci-region/preview.py` still names `material/v1/*`.
+   `ts-orch oci-region preview` still names `material/v1/*`.
 3. **Retained-volume device naming.** Placement attaches the data volume
    paravirtualized with PV in-transit encryption, at the lowest free OCI device
    path (`/dev/oracleoci/oraclevdb` for the first data volume), and only to an

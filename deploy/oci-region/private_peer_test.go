@@ -1,9 +1,11 @@
 package ociregion_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -153,7 +156,14 @@ func ppNew(t *testing.T) *ppFixture {
 		inv := ppObject{"schema_version": 2, "captured_at": time.Now().UTC().Add(-2 * time.Second).Format(time.RFC3339Nano), "plan_sha256": ppHash(t, paths[0]), "tenancy_id": p["tenancy_id"], "regions": regions, "preview_compartment_ids": compartments, "images": []any{}, "resources": resources, "buckets": []any{ppObject{"name": "ts-forgejo", "bytes": 30 * 1024 * 1024 * 1024, "versioning": "Disabled", "storage_tier": "Standard", "public_access_type": "NoPublicAccess"}, ppObject{"name": "ts-forgejo-backup", "bytes": 28 * 1024 * 1024 * 1024, "versioning": "Disabled", "storage_tier": "Standard", "public_access_type": "NoPublicAccess"}}}
 		script.Write(t, paths[1], ppJSON(t, inv), 0600)
 		f.inventories[cell] = inv
-		estimate := ppDecode(t, script.Python(t, "deploy/oci-region/preview.py", ppObject{"plan": paths[0], "inventory": inv}, "from pathlib import Path\np = Path(a['plan'])\nresult = m.estimate(m.load_plan(p), a['inventory'], p)\n"))
+		loaded, err := ociregion.LoadPlan(paths[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		estimate, err := ociregion.Estimate(loaded, inv, paths[0])
+		if err != nil {
+			t.Fatal(err)
+		}
 		now := time.Now().UTC().Truncate(time.Second)
 		admission := ppObject{"schema_version": 2, "admitted_at": now.Format(time.RFC3339), "expires_at": now.Add(15 * time.Minute).Format(time.RFC3339), "plan_sha256": ppHash(t, paths[0]), "inventory_sha256": ppHash(t, paths[1]), "preview_compartment_ids": compartments, "estimate": estimate}
 		script.Write(t, paths[2], ppJSON(t, admission), 0600)
@@ -297,40 +307,59 @@ func (f *ppFixture) observe(t *testing.T, cli bool) ppObject {
 	paths := []string{f.intentPath}
 	paths = append(paths, f.paths["GRU"]...)
 	paths = append(paths, f.paths["SFO"]...)
-	args := ppObject{"paths": paths, "responses": f.responses, "cli": cli, "out": filepath.Join(filepath.Dir(f.intentPath), "receipt.json")}
-	return ppDecode(t, script.Python(t, "deploy/oci-region/preview.py", args, `from pathlib import Path
-from unittest import mock
-calls = []
-def oci(*args, region=None):
-    calls.append([list(args), region])
-    identifier = ''
-    if tuple(args[:3]) in [('network', 'drg-attachment', 'get'), ('network', 'drg-route-table', 'get'), ('network', 'drg-route-distribution', 'get'), ('network', 'drg-route-distribution-statement', 'list'), ('network', 'drg-route-rule', 'list')]:
-        for flag in ('--drg-attachment-id', '--drg-route-table-id', '--route-distribution-id'):
-            if flag in args:
-                identifier = args[args.index(flag) + 1]
-                break
-    key = region + '|' + ' '.join(args[:3]) + '|' + identifier
-    return a['responses'][key]
-with mock.patch.object(m, 'oci', side_effect=oci):
-    try:
-        if a['cli']:
-            flags = ['--pair-intent', '--left-plan', '--left-inventory', '--left-admission', '--right-plan', '--right-inventory', '--right-admission']
-            argv = ['preview.py', 'inspect-private-peer']
-            for flag, path in zip(flags, a['paths']):
-                argv += [flag, path]
-            argv += ['--out', a['out']]
-            with mock.patch.object(m.sys, 'argv', argv), mock.patch('builtins.print') as printed:
-                m.main()
-            import json
-            receipt = json.loads(Path(a['out']).read_text())
-            output = ' '.join(str(c.args[0]) for c in printed.call_args_list)
-        else:
-            receipt = m.inspect_private_peer(*(Path(p) for p in a['paths']))
-            output = ''
-        result = {'receipt': receipt, 'output': output, 'calls': calls}
-    except ValueError as e:
-        result = {'error': str(e), 'error_type': type(e).__name__, 'calls': calls}
-`))
+	calls := []any{}
+	engine := &ociregion.Engine{Context: t.Context(), Dependency: func(name string, args []any, kwargs ppObject) (any, error) {
+		if name != "oci" {
+			t.Fatalf("unexpected dependency %s", name)
+		}
+		region := kwargs["region"].(string)
+		calls = append(calls, []any{args, region})
+		command := fmt.Sprint(args[0]) + " " + fmt.Sprint(args[1]) + " " + fmt.Sprint(args[2])
+		identifier := ""
+		switch command {
+		case "network drg-attachment get", "network drg-route-table get", "network drg-route-distribution get", "network drg-route-distribution-statement list", "network drg-route-rule list":
+			for i, arg := range args {
+				if arg == "--drg-attachment-id" || arg == "--drg-route-table-id" || arg == "--route-distribution-id" {
+					identifier = args[i+1].(string)
+					break
+				}
+			}
+		}
+		key := region + "|" + command + "|" + identifier
+		response, ok := f.responses[key]
+		if !ok {
+			t.Fatalf("missing provider fixture %s", key)
+		}
+		return response, nil
+	}}
+	output := ""
+	var receipt ppObject
+	var err error
+	if cli {
+		flags := []string{"--pair-intent", "--left-plan", "--left-inventory", "--left-admission", "--right-plan", "--right-inventory", "--right-admission"}
+		args := []string{"inspect-private-peer"}
+		for i, flag := range flags {
+			args = append(args, flag, paths[i])
+		}
+		out := filepath.Join(filepath.Dir(f.intentPath), "receipt.json")
+		args = append(args, "--out", out)
+		var stdout bytes.Buffer
+		err = engine.Run(args, &stdout)
+		if err == nil {
+			receipt = ppDecode(t, script.Read(t, out))
+			output = stdout.String()
+		}
+	} else {
+		receipt, err = engine.InspectPrivatePeer(paths...)
+	}
+	if err != nil {
+		failure, ok := errors.AsType[ociregion.Failure](err)
+		if !ok {
+			t.Fatalf("unexpected driver failure: %v", err)
+		}
+		return ppObject{"error": err.Error(), "error_type": failure.Kind, "calls": calls}
+	}
+	return ppObject{"receipt": receipt, "output": output, "calls": calls}
 }
 func ppExpectError(t *testing.T, out ppObject, want string) {
 	t.Helper()

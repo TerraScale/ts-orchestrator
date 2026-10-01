@@ -25,7 +25,7 @@ through `ts-orch bootstrap --help` and `ts-orch release --help`.
 
 The deployment scripts' `--bootstrap-tool` and `--release-tool` arguments
 default to the unified interface; both may point to the same executable.
-For historical standalone tools, `preview.py` requires explicit
+For historical standalone tools, `ts-orch oci-region preview` requires explicit
 `--legacy-bootstrap-tool` and `--legacy-release-tool` flags for their respective
 arguments. Regional bootstrap attempts inspect their retained, pinned source
 layout when building tools and on resume: sources containing

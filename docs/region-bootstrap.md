@@ -91,11 +91,11 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    cost admission:
 
    ```sh
-   python3 deploy/oci-region/preview.py inventory \
+   ts-orch oci-region preview inventory \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --out /ABSOLUTE/PATH/manual-inventory.json
 
-   python3 deploy/oci-region/preview.py admit \
+   ts-orch oci-region preview admit \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --out /ABSOLUTE/PATH/cost-admission.json
@@ -187,7 +187,7 @@ subnet keeps no internet route, NAT gateway, or public IP. The cell's only inter
 path. LPGs have no separate charge, and the NetBird server adds no OCI resource
 to the cost admission.
 
-`preview.py` enforces this boundary. In the plan, `operator_gateway` must be a
+`ts-orch oci-region preview` enforces this boundary. In the plan, `operator_gateway` must be a
 private address inside its own VCN that does not overlap the cell. Every NSG
 and security-list ingress source must be inside the cell or exactly the gateway
 `/32` on the ports above, and a source that overlaps the public API subnet must
@@ -283,7 +283,7 @@ ts-ops resource manifest and primary VNIC.
    done
    ```
 
-   Then run `preview.py inventory` and `admit` against the plan copy.
+   Then run `ts-orch oci-region preview inventory` and `admit` against the plan copy.
 2. Create and connect the LPGs. Do not pass `--route-table-id`: an LPG route
    table would let the peering carry traffic for other networks.
 
@@ -437,7 +437,7 @@ or a private link a GRU acceptance condition, and do not append a DRG route to
 the GRU example.
 
 For a separately reviewed pair, the `inspect-private-peer` subcommand in
-`deploy/oci-region/preview.py` accepts `--pair-intent`, `--left-plan`,
+`ts-orch oci-region preview` accepts `--pair-intent`, `--left-plan`,
 `--left-inventory`, `--left-admission`, the corresponding `--right-*` paths,
 and `--out`. It makes read-only OCI CLI calls and writes a hash-bound
 configuration receipt. It checks disjoint RFC1918 VCN and subnet ranges,
@@ -509,16 +509,16 @@ and the intended network boundary.
    proceeding:
 
    ```sh
-   python3 deploy/oci-region/preview.py inventory \
+   ts-orch oci-region preview inventory \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --out /ABSOLUTE/PATH/manual-inventory.json
 
-   python3 deploy/oci-region/preview.py admit \
+   ts-orch oci-region preview admit \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --out /ABSOLUTE/PATH/cost-admission.json
 
-   python3 deploy/oci-region/preview.py inspect-foundation \
+   ts-orch oci-region preview inspect-foundation \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --admission /ABSOLUTE/PATH/cost-admission.json \
@@ -590,7 +590,7 @@ and the intended network boundary.
    create an OCI instance:
 
    ```sh
-   python3 deploy/oci-region/preview.py seed-preflight \
+   ts-orch oci-region preview seed-preflight \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --admission /ABSOLUTE/PATH/cost-admission.json \
@@ -620,7 +620,7 @@ and the intended network boundary.
 7. Render the complete controller-A launch input from the reviewed seed plan:
 
    ```sh
-   python3 deploy/oci-region/preview.py seed-launch \
+   ts-orch oci-region preview seed-launch \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --reviewed-plan /ABSOLUTE/PATH/reviewed-seed-plan.json \
      --manifest /ABSOLUTE/PATH/controller-a.manifest.json \

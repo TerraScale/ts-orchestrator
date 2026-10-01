@@ -5,7 +5,9 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"io/fs"
 	"maps"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
@@ -89,7 +92,7 @@ func runPreviewContracts(t *testing.T, prefix string, methodCount int) {
 		name := fmt.Sprintf("%s/%03d_%s", strings.TrimPrefix(contract.Test, prefix), methods[contract.Test], contract.Function)
 		t.Run(name, func(t *testing.T) {
 			// Parallel execution is safe: every case receives independent files,
-			// a separate implementation process, and an explicit evaluation clock.
+			// an independent native API engine, and an explicit evaluation clock.
 			t.Parallel()
 			runPreviewContract(t, wire, table.SourceRoot)
 		})
@@ -194,21 +197,59 @@ func runPreviewContract(t *testing.T, originalWire []byte, sourceRoot string) {
 	}
 	// The adapter receives only invocation inputs and dependency responses;
 	// expected API results, exceptions, and filesystem assertions stay in Go.
-	request := map[string]any{
-		"function": contract.Function, "args": contract.Args, "kwargs": contract.Kwargs,
-		"plan": contract.Plan, "argv": contract.Argv, "clock": contract.Clock,
-		"dependencies": contract.Dependencies, "responses_by_arguments": contract.ResponsesByArguments,
-		"umask": 0o022,
-	}
-	requestWire, err := json.Marshal(request)
+	clock, err := time.Parse(time.RFC3339Nano, contract.Clock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	requestPath := filepath.Join(t.TempDir(), "invocation.json")
-	script.Write(t, requestPath, requestWire, 0o600)
-	result := script.Python(t, filepath.Join(script.Root(t), "deploy/oci-region/preview.py"), map[string]string{"input_path": requestPath}, previewAPIAdapter)
-	if err := json.Unmarshal(result, &observation); err != nil {
+	overrides := map[string]bool{}
+	for _, name := range contract.Dependencies {
+		overrides[name] = true
+	}
+	calls := []any{}
+	engine := &ociregion.Engine{Context: t.Context(), PlanPath: contract.Plan, Clock: func() time.Time { return clock }, Argv: contract.Argv, Overrides: overrides}
+	engine.Dependency = func(name string, args []any, kwargs map[string]any) (any, error) {
+		observation := map[string]any{"name": name, "args": ociregion.EncodeInvocation(args), "kwargs": ociregion.EncodeInvocation(kwargs)}
+		calls = append(calls, observation)
+		key := previewJSON(t, []any{name, observation["args"], observation["kwargs"]})
+		responses := contract.ResponsesByArguments[key]
+		if len(responses) == 0 {
+			observation["error"] = "unconfigured dependency call"
+			observation["error_type"] = "RuntimeError"
+			return nil, ociregion.Failure{Message: "unconfigured dependency call", Kind: "RuntimeError"}
+		}
+		contract.ResponsesByArguments[key] = responses[1:]
+		response := responses[0].(map[string]any)
+		if kind, ok := response["error_type"].(string); ok {
+			observation["error"] = response["error"]
+			observation["error_type"] = kind
+			return nil, ociregion.Failure{Message: response["error"].(string), Kind: kind}
+		}
+		observation["result"] = response["result"]
+		return ociregion.DecodeInvocation(response["result"]), nil
+	}
+	result, operationErr := engine.Invoke(contract.Function, ociregion.DecodeInvocation(contract.Args).([]any), ociregion.DecodeInvocation(contract.Kwargs).(map[string]any))
+	callWire, err := json.Marshal(calls)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := json.Unmarshal(callWire, &observation.Calls); err != nil {
+		t.Fatal(err)
+	}
+	if operationErr != nil {
+		observation.Error = operationErr.Error()
+		observation.ErrorType = "OSError"
+		if typed, ok := errors.AsType[ociregion.Failure](operationErr); ok {
+			observation.ErrorType = typed.Kind
+		}
+	} else {
+		// The wire normalization preserves the original observable number types.
+		encoded, err := json.Marshal(ociregion.EncodeInvocation(result))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(encoded, &observation.Result); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if observation.ErrorType != contract.ErrorType || observation.Error != contract.Error {
 		t.Errorf("exception = %s(%q), want %s(%q)", observation.ErrorType, observation.Error, contract.ErrorType, contract.Error)
@@ -370,86 +411,3 @@ func assertPreviewFile(t *testing.T, path string, got, want []byte) {
 		t.Errorf("%s bytes differ:\n got: %q\nwant: %q", path, got, want)
 	}
 }
-
-// This bridge only converts wire values, supplies the dependency responses
-// chosen by Go, invokes one implementation API, and reports observations.
-// Expected values are compared exclusively in Go.
-const previewAPIAdapter = `import argparse, base64, datetime, decimal, os, subprocess, types
-a = json.loads(pathlib.Path(a["input_path"]).read_text())
-os.umask(a["umask"])
-def decode(value):
-    if isinstance(value, list):
-        return [decode(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    if "$path" in value:
-        return pathlib.Path(value["$path"])
-    if "$bytes" in value:
-        return base64.b64decode(value["$bytes"])
-    if "$decimal" in value:
-        return decimal.Decimal(value["$decimal"])
-    if "$datetime" in value:
-        return datetime.datetime.fromisoformat(value["$datetime"])
-    if "$namespace" in value:
-        return argparse.Namespace(**decode(value["$namespace"]))
-    if "$process" in value:
-        return subprocess.CompletedProcess(**decode(value["$process"]))
-    return {key: decode(item) for key, item in value.items()}
-def encode(value):
-    if isinstance(value, pathlib.Path):
-        return {"$path": str(value)}
-    if isinstance(value, bytes):
-        return {"$bytes": base64.b64encode(value).decode()}
-    if isinstance(value, decimal.Decimal):
-        return {"$decimal": str(value)}
-    if isinstance(value, datetime.datetime):
-        return {"$datetime": value.isoformat()}
-    if isinstance(value, (argparse.Namespace, types.SimpleNamespace)):
-        return {"$namespace": encode(vars(value))}
-    if isinstance(value, subprocess.CompletedProcess):
-        return {"$process": encode({"args": value.args, "returncode": value.returncode, "stdout": value.stdout, "stderr": value.stderr})}
-    if isinstance(value, dict):
-        return {key: encode(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [encode(item) for item in value]
-    return value
-clock = datetime.datetime.fromisoformat(a["clock"])
-class Clock(datetime.datetime):
-    @classmethod
-    def now(cls, tz=None):
-        return clock.astimezone(tz) if tz else clock.replace(tzinfo=None)
-m.dt.datetime = Clock
-m.PLAN = pathlib.Path(a["plan"])
-m.sys.argv = a["argv"]
-operation = getattr(m, a["function"])
-calls = []
-keyed_responses = {key: iter(rows) for key, rows in (a.get("responses_by_arguments") or {}).items()}
-def dependency(name):
-    def invoke(*args, **kwargs):
-        observation = {"name": name, "args": encode(args), "kwargs": encode(kwargs)}
-        calls.append(observation)
-        key = json.dumps([name, encode(args), encode(kwargs)], sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-        selected = keyed_responses.get(key, iter(()))
-        response = next(selected, None)
-        if response is None:
-            observation.update(error="unconfigured dependency call", error_type="RuntimeError")
-            raise RuntimeError("unconfigured dependency call")
-        if "error_type" in response:
-            observation.update(error=response["error"], error_type=response["error_type"])
-            raise getattr(__import__("builtins"), response["error_type"])(response["error"])
-        observation["result"] = response.get("result")
-        return decode(response.get("result"))
-    return invoke
-# Block unconfigured process/cloud access as well as recording selected stubs.
-m.oci = dependency("oci")
-m.checked_tool = dependency("checked_tool")
-m.subprocess.run = dependency("subprocess.run")
-for name in a["dependencies"]:
-    if name == "subprocess.run":
-        continue
-    setattr(m, name, dependency(name))
-try:
-    result = {"result": encode(operation(*decode(a["args"]), **decode(a["kwargs"])))}
-except Exception as exc:
-    result = {"error": str(exc), "error_type": type(exc).__name__}
-result["calls"] = calls`
