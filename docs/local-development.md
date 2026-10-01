@@ -9,8 +9,9 @@ qualify it. Current preview evidence and open gates are linked in the
 [OCI preview record](evidence/oci-preview-20260926.json) and
 [shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md).
 The management resource-protection and pressure/restart acceptance requirement
-is defined as D15 in the [workspace GOAL](../../GOAL.md#minimum-end-to-end-acceptance-scenarios);
-the commands below do not establish that runtime qualification.
+is defined as D15 in the [workspace GOAL](../../GOAL.md#minimum-end-to-end-acceptance-scenarios)
+and tracked in the [D15 gate file](evidence/gates/d15.md); the commands below
+do not establish that runtime qualification.
 
 The repository pins Go 1.27.1 in `.mise.toml`. On a first checkout, trust that
 repository config and install its toolchain, then run the same verification
