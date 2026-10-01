@@ -473,7 +473,7 @@ fi
                                   "qemu-check", "guestfish-listen-ro"])
 
         release_arguments = [part.decode() for part in self.release_arguments.read_bytes().split(b"\0")[:-1]]
-        self.assertEqual(release_arguments[0], "binary-candidate")
+        self.assertEqual(release_arguments[:2], ["release", "binary-candidate"])
         self.assertEqual(release_arguments[release_arguments.index("--source-revision") + 1], SOURCE_REVISION)
         self.assertEqual(release_arguments[release_arguments.index("--qualification") + 1], str(self.qualification))
         self.assertEqual(Path(release_arguments[release_arguments.index("--binary") + 1]).name,

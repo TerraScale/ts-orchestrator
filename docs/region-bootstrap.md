@@ -7,7 +7,7 @@ controller, followed by the identity and authority handoff to
 controller A, and required credential/image prerequisites instead of leaving
 those provisioning steps to the user. Use the OCI CLI to get or create required
 Vault secrets where they are runbook inputs. Publish generated controller
-material through the documented `ts-bootstrap provision-controller-material`
+material through the documented `ts-orch bootstrap provision-controller-material`
 flow, which binds the material to authenticated readback and current cost
 admission. After the explicit controller-A handoff, `ts-orchestrator` alone
 owns B/C, the ARM workload hosts, and signed TerraBase deployment. The
@@ -540,7 +540,7 @@ and the intended network boundary.
    Hash the reviewed config, then generate the source and public record:
 
    ```text
-   ts-bootstrap generate-controller-material \
+   ts-orch bootstrap generate-controller-material \
      --config /ABSOLUTE/PATH/controller-material.json \
      --config-sha256 CONTROLLER_MATERIAL_CONFIG_SHA256 \
      --directory /ABSOLUTE/PATH/controller-material \
@@ -555,7 +555,7 @@ and the intended network boundary.
    versioned Vault material and public reference record with:
 
    ```text
-   ts-bootstrap provision-controller-material \
+   ts-orch bootstrap provision-controller-material \
      --directory /ABSOLUTE/PATH/controller-material \
      --manual-readback /ABSOLUTE/PATH/foundation-readback.json \
      --manual-readback-sha256 MANUAL_READBACK_SHA256 \
@@ -594,13 +594,13 @@ and the intended network boundary.
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --admission /ABSOLUTE/PATH/cost-admission.json \
-     --bootstrap-tool /ABSOLUTE/PATH/ts-bootstrap \
+     --bootstrap-tool /ABSOLUTE/PATH/ts-orch \
      --anchor /ABSOLUTE/PATH/anchor.signed.json \
      --manifest /ABSOLUTE/PATH/controller-a.manifest.json \
      --identity /ABSOLUTE/PATH/identity.json \
      --bootstrap-root /ABSOLUTE/PATH/bootstrap-root.pub \
      --image-ocid EXACT_IMAGE_OCID \
-     --release-tool /ABSOLUTE/PATH/ts-release \
+     --release-tool /ABSOLUTE/PATH/ts-orch \
      --image-receipt /ABSOLUTE/PATH/image-receipt.signed.json \
      --release-delegation /ABSOLUTE/PATH/release-delegation.signed.json \
      --release-root /ABSOLUTE/PATH/release-root.pub \
@@ -647,7 +647,7 @@ and the intended network boundary.
    Use the create identity from the reviewed seed plan without changing it:
 
    ```text
-   ts-bootstrap sign-external-seed-reservation \
+   ts-orch bootstrap sign-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json \
@@ -659,7 +659,7 @@ and the intended network boundary.
      --ledger-signing-key MATERIAL_DIRECTORY/founder-ledger.key \
      --out seed-reservation.json
 
-   ts-bootstrap publish-external-seed-reservation \
+   ts-orch bootstrap publish-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json \
@@ -699,7 +699,7 @@ and the intended network boundary.
    Record the exact OCI instance OCID returned by the CLI. OCI accepting the
    launch request is not proof that the signed network profile was applied.
 10. Re-read controller A, its primary VNIC, and boot-volume sizing with
-    `ts-bootstrap observe-external-seed`, then compare them with the reviewed
+    `ts-orch bootstrap observe-external-seed`, then compare them with the reviewed
     plan before signing anything. Require the exact instance in `RUNNING`,
     the exact `BootstrapCreateKey`, signed image and shape, primary VNIC on
     the reviewed subnet and reserved private IP, both signed NSGs, and no
@@ -712,8 +712,8 @@ and the intended network boundary.
     instance.
 
     After observation succeeds, sign the resulting completion bundle offline
-    with `ts-bootstrap sign-external-seed-completion`, then publish it with
-    `ts-bootstrap publish-external-seed-completion`. Follow steps 4 and 5 in
+    with `ts-orch bootstrap sign-external-seed-completion`, then publish it with
+    `ts-orch bootstrap publish-external-seed-completion`. Follow steps 4 and 5 in
     [Initial founder authority](founder-genesis-cli.md#first-external-seed-transaction)
     for the exact flags. Do not hand off controller A until completion
     publication succeeds or its exact uncertain outcome is reconciled.

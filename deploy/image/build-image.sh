@@ -202,8 +202,8 @@ marker="TS_RELEASE_QUALIFICATION_V1 source_sha=$source_sha run_id=$go_run_id run
 }
 echo "orchestrator candidate verified tag=$go_tag binary_sha256=$(sha256 "$go_binary")"
 
-go build -trimpath -buildvcs=true -o "$work/tools/ts-release" ./cmd/ts-release
-build_info=$(go version -m "$work/tools/ts-release")
+go build -trimpath -buildvcs=true -o "$work/tools/ts-orch" ./cmd/terrascale-orchestrator
+build_info=$(go version -m "$work/tools/ts-orch")
 grep -Fq "vcs.revision=$source_sha" <<< "$build_info" && grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 kernel_release=$(input_json .base.kernel_release)
@@ -221,7 +221,7 @@ deploy/image/build-offline.sh \
 	--netbird-binary "$work/netbird/netbird" \
 	--netbird-sha256 "$(input_json .netbird.archives.arm64.binary_sha256)" \
 	--netbird-config "$(input_json .netbird.enrollment_config.path)" \
-	--release-tool "$work/tools/ts-release" \
+	--release-tool "$work/tools/ts-orch" \
 	"${roots[@]}" \
 	--timesyncd-config "$(input_json .timesyncd_config.path)" \
 	--runtime-priority-profile-id "$(input_json .priority.profile_id)" \
@@ -256,7 +256,7 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
 	--arg go_qualification "$(sha256 "$qualification")" --arg go_binary "$(sha256 "$go_binary")" \
 	--argjson go_bytes "$(stat -c '%s' -- "$go_binary")" \
 	--arg terrabase_tag "$terrabase_tag" \
-	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$work/tools/ts-release")" \
+	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$work/tools/ts-orch")" \
 	--arg qemu_img "$(qemu-img --version | head -n 1)" --arg guestfish "$(guestfish --version)" \
 	--arg gpgv "$(gpgv --version | head -n 1)" --arg tools "${TS_IMAGE_TOOLS_ID:-unrecorded}" \
 	--arg kernel_release "$kernel_release" --arg kernel "$(sha256 "$output/guest-kernel")" \

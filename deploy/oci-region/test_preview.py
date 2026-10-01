@@ -696,10 +696,10 @@ class PreviewAdmissionTests(unittest.TestCase):
 
     def test_seed_preflight_uses_verified_anchor_command(self):
         args = SimpleNamespace(bootstrap_root=[pathlib.Path("/root.pub")],
-                               bootstrap_tool=pathlib.Path("/ts-bootstrap"),
+                               bootstrap_tool=pathlib.Path("/ts-orch"),
                                anchor=pathlib.Path("/anchor.json"), identity=pathlib.Path("/identity.json"),
                                manifest=pathlib.Path("/manifest.json"), image_ocid="ocid1.image.oc1.test",
-                               release_tool=pathlib.Path("/ts-release"), image_receipt=pathlib.Path("/receipt.json"),
+                               release_tool=pathlib.Path("/ts-orch"), image_receipt=pathlib.Path("/receipt.json"),
                                release_delegation=pathlib.Path("/delegation.json"),
                                release_root=pathlib.Path("/release-root.pub"),
                                image_file=pathlib.Path("/image.qcow2"),
@@ -714,9 +714,10 @@ class PreviewAdmissionTests(unittest.TestCase):
              mock.patch.object(preview, "create_identity", return_value="create-key"):
             result = preview.seed_preflight(args, self.plan, preview.PLAN)
         self.assertEqual(result["create_identity"], "create-key")
-        self.assertEqual(checked.call_args_list[0].args[:2], ("/ts-bootstrap", "verify-anchor"))
+        self.assertEqual(checked.call_args_list[0].args[:3], ("/ts-orch", "bootstrap", "verify-anchor"))
         self.assertIn("--root-key", checked.call_args_list[0].args)
-        self.assertEqual(checked.call_args_list[1].args[:2], ("/ts-bootstrap", "verify-manifest"))
+        self.assertEqual(checked.call_args_list[1].args[:3], ("/ts-orch", "bootstrap", "verify-manifest"))
+        self.assertEqual(checked.call_args_list[2].args[:3], ("/ts-orch", "release", "verify-image"))
         self.assertEqual(verify.call_args.args[3:5], (anchor, manifest))
 
     def live_rules(self, expected):

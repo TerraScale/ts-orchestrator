@@ -72,11 +72,11 @@ class Attempt:
 
     @property
     def bootstrap_tool(self) -> pathlib.Path:
-        return self.path("tools", "ts-bootstrap")
+        return self.path("tools", "ts-orch")
 
     @property
     def release_tool(self) -> pathlib.Path:
-        return self.path("tools", "ts-release")
+        return self.bootstrap_tool
 
     @property
     def plan(self) -> pathlib.Path:
@@ -175,7 +175,7 @@ class Attempt:
                 "slots": [{"name": slot, "privateIp": hosts[slot]["private_ip"]} for slot in SLOTS],
                 "subnetCidr": base["subnet_cidr"], "validityHours": self.config["validity_days"] * 24,
             }, indent=4).encode())
-            self.run(self.bootstrap_tool, "generate-controller-material", "--config", config,
+            self.run(self.bootstrap_tool, "bootstrap", "generate-controller-material", "--config", config,
                      "--config-sha256", sha256(config), "--directory", material_dir, "--out", record)
 
         self.ensure_controller_object_grants(base)
@@ -186,7 +186,7 @@ class Attempt:
             readback.unlink(missing_ok=True)
             self.run(sys.executable, PREVIEW, "inspect-foundation", "--plan", self.plan, "--inventory", inventory,
                      "--admission", admission, "--out", readback)
-            self.run(self.bootstrap_tool, "provision-controller-material", "--directory", material_dir,
+            self.run(self.bootstrap_tool, "bootstrap", "provision-controller-material", "--directory", material_dir,
                      "--manual-readback", readback, "--manual-readback-sha256", sha256(readback),
                      "--inventory", inventory, "--inventory-sha256", sha256(inventory),
                      "--cost-admission", admission, "--cost-admission-sha256", sha256(admission),
@@ -196,7 +196,7 @@ class Attempt:
         issued, expires = self.validity()
         ledger = self.path("ledger-delegation.signed.json")
         if not ledger.exists():
-            self.run(self.bootstrap_tool, "sign-ledger-delegation", "--deployment", self.deployment, "--cell", "GRU",
+            self.run(self.bootstrap_tool, "bootstrap", "sign-ledger-delegation", "--deployment", self.deployment, "--cell", "GRU",
                      "--environment", "canary", *sum((["--slot", slot] for slot in SLOTS), []),
                      "--signer-public-key", str(record) + ".ledger.pem", "--root-key", self.trust["root_public"],
                      "--signing-key", self.trust["root_private"], "--issued-at", issued, "--expires-at", expires,
@@ -215,22 +215,22 @@ class Attempt:
                 "controllerSlots": list(SLOTS)}).encode())
             anchor_expiry = datetime.fromisoformat(expires.replace("Z", "+00:00"))
             valid_for = int((anchor_expiry - datetime.now(timezone.utc)).total_seconds()) - 60
-            self.run(self.bootstrap_tool, "sign-anchor", "--candidate", candidate,
+            self.run(self.bootstrap_tool, "bootstrap", "sign-anchor", "--candidate", candidate,
                      "--region-intent", self.config["region_intent"], "--ledger-delegation", ledger,
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                      "--valid-for", f"{valid_for}s", "--out", anchor)
-        self.run(self.bootstrap_tool, "verify-anchor", "--anchor", anchor, "--identity", self.path("identity.json"),
+        self.run(self.bootstrap_tool, "bootstrap", "verify-anchor", "--anchor", anchor, "--identity", self.path("identity.json"),
                  "--root-key", self.trust["root_public"])
 
         enrollment = self.path("host-enrollment-public.json")
         if not enrollment.exists():
             with self.root_material() as copy:
-                self.run(self.bootstrap_tool, "render-host-enrollment-public", *self.pair(record, "--material-record"),
+                self.run(self.bootstrap_tool, "bootstrap", "render-host-enrollment-public", *self.pair(record, "--material-record"),
                          "--material-directory", copy, "--out", enrollment, sudo=True)
             self.run("chown", f"{os.getuid()}:{os.getgid()}", enrollment, sudo=True)
         peer = self.path("peer-receipt-delegation.signed.json")
         if not peer.exists():
-            self.run(self.bootstrap_tool, "sign-peer-receipt-delegation", "--identity", self.path("identity.json"),
+            self.run(self.bootstrap_tool, "bootstrap", "sign-peer-receipt-delegation", "--identity", self.path("identity.json"),
                      "--anchor", anchor, "--root-key", self.trust["root_public"],
                      "--signing-key", self.trust["root_private"], "--peer-public-key", str(record) + ".peer.pem",
                      "--out", peer, "--valid-for", f"{self.config['validity_days'] * 24}h")
@@ -259,9 +259,8 @@ class Attempt:
             self.run("git", "-C", orchestrator["repository"], "worktree", "add", "--detach", source,
                      orchestrator["source_revision"])
         tools.mkdir(mode=0o700, exist_ok=True)
-        for name in ("ts-bootstrap", "ts-release"):
-            subprocess.run(["go", "build", "-trimpath", "-o", str(tools / name), f"./cmd/{name}"],
-                           cwd=source, env=self.env, check=True)
+        subprocess.run(["go", "build", "-trimpath", "-buildvcs=true", "-o", str(self.bootstrap_tool),
+                        "./cmd/terrascale-orchestrator"], cwd=source, env=self.env, check=True)
 
     def phase_release(self) -> None:
         orchestrator = self.config["orchestrator"]
@@ -280,21 +279,21 @@ class Attempt:
         issued, expires = self.validity()
         delegation = release / "binary-delegation.signed.json"
         if not delegation.exists():
-            self.run(self.release_tool, "sign-delegation", "--subject-public-key", self.trust["release_leaf_public"],
+            self.run(self.release_tool, "release", "sign-delegation", "--subject-public-key", self.trust["release_leaf_public"],
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                      "--source-revision", revision, "--arch", "arm64", "--environment", "canary",
                      "--issued-at", issued, "--expires-at", expires, "--out", delegation)
         candidate, receipt = release / "binary-receipt.candidate.json", release / "binary-receipt.signed.json"
         binary, qualification = release / "terrascale-orchestrator-linux-arm64", release / "qualification.json"
         if not candidate.exists():
-            self.run(self.release_tool, "binary-candidate", "--binary", binary, "--source-revision", revision,
+            self.run(self.release_tool, "release", "binary-candidate", "--binary", binary, "--source-revision", revision,
                      "--qualification", qualification, "--out", candidate)
         if not receipt.exists():
-            self.run(self.release_tool, "sign-binary", "--candidate", candidate, "--binary", binary,
+            self.run(self.release_tool, "release", "sign-binary", "--candidate", candidate, "--binary", binary,
                      "--qualification", qualification, "--delegation", delegation,
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["release_leaf_private"],
                      "--environment", "canary", "--out", receipt)
-        self.run(self.release_tool, "verify-binary", "--receipt", receipt, "--delegation", delegation,
+        self.run(self.release_tool, "release", "verify-binary", "--receipt", receipt, "--delegation", delegation,
                  "--root-key", self.trust["root_public"], "--binary", binary, "--qualification", qualification,
                  "--environment", "canary")
 
@@ -338,7 +337,7 @@ class Attempt:
         issued, expires = self.validity()
         delegation = self.path("image", "image-delegation.signed.json")
         if not delegation.exists():
-            self.run(self.release_tool, "sign-delegation", "--subject-public-key", self.trust["release_leaf_public"],
+            self.run(self.release_tool, "release", "sign-delegation", "--subject-public-key", self.trust["release_leaf_public"],
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                      "--source-revision", self.config["orchestrator"]["source_revision"], "--arch", "arm64",
                      "--environment", "canary", "--image-cell", "GRU", "--image-ocid", image_id,
@@ -351,14 +350,14 @@ class Attempt:
                   "--root-key", self.trust["root_public"], "--environment", "canary", "--image-file", qcow2,
                   "--base-image-file", image_config["base_qcow2"], "--kernel-file", self.kernel]
         if not candidate.exists():
-            self.run(self.release_tool, "image-candidate", *common,
+            self.run(self.release_tool, "release", "image-candidate", *common,
                      "--base-image-ocid", image_config["base_image_ocid"], "--base-image-region", "GRU",
                      "--kernel-release", image_config["kernel_release"], "--image-ocid", image_id, "--region", "GRU",
                      "--out", candidate)
         if not receipt.exists():
-            self.run(self.release_tool, "sign-image", "--candidate", candidate, *common,
+            self.run(self.release_tool, "release", "sign-image", "--candidate", candidate, *common,
                      "--signing-key", self.trust["release_leaf_private"], "--out", receipt)
-        self.run(self.release_tool, "verify-image", "--receipt", receipt, "--delegation", delegation,
+        self.run(self.release_tool, "release", "verify-image", "--receipt", receipt, "--delegation", delegation,
                  "--root-key", self.trust["root_public"], "--image-file", qcow2,
                  "--base-image-file", image_config["base_qcow2"], "--kernel-file", self.kernel,
                  "--region", "GRU", "--environment", "canary")
@@ -439,16 +438,16 @@ class Attempt:
                 "managedMaterial": domain, "secrets": secrets,
             }, separators=(",", ":"), ensure_ascii=False).encode())
             if not config.exists():
-                self.run(self.bootstrap_tool, "render-controller-config", *self.pair(candidate, "--candidate"),
+                self.run(self.bootstrap_tool, "bootstrap", "render-controller-config", *self.pair(candidate, "--candidate"),
                          *self.pair(self.path("controller-material.json"), "--material-record"),
                          *self.pair(pathlib.Path(self.config["operator_grant"]), "--operator-grant"), *sidecars,
                          "--out", config)
-            self.run(self.bootstrap_tool, "sign-manifest", "--candidate", candidate,
+            self.run(self.bootstrap_tool, "bootstrap", "sign-manifest", "--candidate", candidate,
                      *self.pair(config, "--controller-config"), *sidecars, "--anchor", anchor,
                      "--image-receipt", receipt, "--release-delegation", delegation,
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                      "--out", manifest, "--valid-for", f"{self.config['validity_days'] * 24}h")
-            verified = self.run(self.bootstrap_tool, "verify-manifest", "--anchor", anchor, "--manifest", manifest,
+            verified = self.run(self.bootstrap_tool, "bootstrap", "verify-manifest", "--anchor", anchor, "--manifest", manifest,
                                 "--identity", self.path("identity.json"), "--slot", slot,
                                 "--image-ocid", self.image_id, "--root-key", self.trust["root_public"], capture=True)
             self.write_new(signed / f"{slot}.verify.json", verified.encode())
@@ -492,7 +491,7 @@ class Attempt:
                             ("bootVolumeGb", "bootVolumeGb"))},
                 "launchDeadline": utc(deadline),
             }, separators=(",", ":")).encode())
-            self.run(self.bootstrap_tool, "sign-founder-plan", "--candidate", candidate, "--identity", identity,
+            self.run(self.bootstrap_tool, "bootstrap", "sign-founder-plan", "--candidate", candidate, "--identity", identity,
                      "--anchor", anchor, *manifests, "--root-key", self.trust["root_public"],
                      "--signing-key", self.trust["root_private"], "--out", founder, "--valid-for", "24h")
         if not selection.exists():
@@ -502,11 +501,11 @@ class Attempt:
                 "generation": 1, "planSha256": sha256(founder), "anchorSha256": sha256(anchor),
                 "manifests": [{"slot": slot, "sha256": sha256(self.manifest(slot))} for slot in SLOTS],
             }, separators=(",", ":")).encode())
-            self.run(self.bootstrap_tool, "sign-initial-founder-selection", "--candidate", candidate,
+            self.run(self.bootstrap_tool, "bootstrap", "sign-initial-founder-selection", "--candidate", candidate,
                      "--identity", identity, "--anchor", anchor, "--plan", founder, *manifests,
                      "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                      "--out", selection, "--valid-for", "24h")
-        self.run(self.bootstrap_tool, "publish-initial-founder-selection", "--selection", selection,
+        self.run(self.bootstrap_tool, "bootstrap", "publish-initial-founder-selection", "--selection", selection,
                  "--identity", identity, "--anchor", anchor, "--plan", founder, *manifests,
                  "--root-key", self.trust["root_public"], "--oci-config", pathlib.Path.home() / ".oci/config",
                  "--oci-profile", "DEFAULT")
@@ -559,11 +558,11 @@ class Attempt:
         reservation = launch / "seed-reservation.json"
         reviewed_sha = sha256(reviewed)
         create_identity = json.loads(reviewed.read_text())["create_identity"]
-        self.run(self.bootstrap_tool, "sign-external-seed-reservation", *self.seed_args(),
+        self.run(self.bootstrap_tool, "bootstrap", "sign-external-seed-reservation", *self.seed_args(),
                  "--reviewed-plan", reviewed, "--reviewed-plan-sha256", reviewed_sha,
                  "--create-identity", create_identity,
                  "--ledger-signing-key", self.path("material", "founder-ledger.key"), "--out", reservation)
-        self.run(self.bootstrap_tool, "publish-external-seed-reservation", *self.seed_args(),
+        self.run(self.bootstrap_tool, "bootstrap", "publish-external-seed-reservation", *self.seed_args(),
                  "--reservation", reservation, "--oci-config", pathlib.Path.home() / ".oci/config",
                  "--oci-profile", "DEFAULT")
         submitted = self.oci("compute", "instance", "launch", "--from-json", f"file://{launch_input}")
@@ -587,14 +586,14 @@ class Attempt:
         observation, completion = launch / "seed-observation.json", launch / "seed-completion.json"
         if not completion.exists():
             observation.unlink(missing_ok=True)
-            self.run(self.bootstrap_tool, "observe-external-seed", *self.seed_args(),
+            self.run(self.bootstrap_tool, "bootstrap", "observe-external-seed", *self.seed_args(),
                      "--reservation", launch / "seed-reservation.json", *reviewed_args,
                      "--instance-ocid", instance, *oci_args, "--out", observation)
-            self.run(self.bootstrap_tool, "sign-external-seed-completion", *self.seed_args(),
+            self.run(self.bootstrap_tool, "bootstrap", "sign-external-seed-completion", *self.seed_args(),
                      "--reservation", launch / "seed-reservation.json", "--observation", observation,
                      "--signing-key", self.trust["root_private"],
                      "--ledger-signing-key", self.path("material", "founder-ledger.key"), "--out", completion)
-        self.run(self.bootstrap_tool, "publish-external-seed-completion", *self.seed_args(),
+        self.run(self.bootstrap_tool, "bootstrap", "publish-external-seed-completion", *self.seed_args(),
                  "--reservation", launch / "seed-reservation.json", "--completion", completion, *reviewed_args,
                  *oci_args)
 
@@ -634,10 +633,10 @@ class Attempt:
             candidate, proof = work / f"{slot}.candidate.json", work / f"{slot}.signed.json"
             if not proof.exists():
                 candidate.unlink(missing_ok=True)
-                self.run(self.bootstrap_tool, "render-founder-continuity", "--marker", continuity / f"{slot}.marker.json",
+                self.run(self.bootstrap_tool, "bootstrap", "render-founder-continuity", "--marker", continuity / f"{slot}.marker.json",
                          "--anchor", anchor, "--material-directory", self.path("material"),
                          "--selector-generation", generation, "--out", candidate)
-                self.run(self.bootstrap_tool, "sign-founder-continuity", "--candidate", candidate,
+                self.run(self.bootstrap_tool, "bootstrap", "sign-founder-continuity", "--candidate", candidate,
                          "--marker", continuity / f"{slot}.marker.json", "--anchor", anchor,
                          "--root-key", self.trust["root_public"], "--signing-key", self.trust["root_private"],
                          "--out", proof, "--valid-for", f"{self.config['validity_days'] * 24}h")
@@ -650,11 +649,11 @@ class Attempt:
                 "generation": generation,
                 "continuities": [{"slot": slot, "sha256": sha256(work / f"{slot}.signed.json")} for slot in SLOTS],
             }, separators=(",", ":")))
-            self.run(self.bootstrap_tool, "sign-founder-selection", "--candidate", candidate,
+            self.run(self.bootstrap_tool, "bootstrap", "sign-founder-selection", "--candidate", candidate,
                      "--identity", self.path("identity.json"), "--root-key", self.trust["root_public"],
                      "--signing-key", self.trust["root_private"], "--out", selection,
                      "--valid-for", f"{self.config['validity_days'] * 24}h", *proofs)
-        self.run(self.bootstrap_tool, "publish-founder-selection", "--selection", selection,
+        self.run(self.bootstrap_tool, "bootstrap", "publish-founder-selection", "--selection", selection,
                  "--identity", self.path("identity.json"), "--anchor", anchor, "--root-key", self.trust["root_public"],
                  "--oci-config", pathlib.Path.home() / ".oci/config", "--oci-profile", "DEFAULT", *proofs)
         record.write_text(str(generation))
@@ -667,12 +666,12 @@ class Attempt:
         with self.root_material() as material:
             self.run("rm", "-f", "--", rendered, sudo=True)
             try:
-                self.run(self.bootstrap_tool, "render-operator-config", *self.pair(record, "--material-record"),
+                self.run(self.bootstrap_tool, "bootstrap", "render-operator-config", *self.pair(record, "--material-record"),
                          "--material-directory", material, *self.pair(grant, "--operator-grant"),
                          "--operator-signing-key", key, "--operator-signing-key-sha256", self.root_sha256(key),
                          "--out", rendered, sudo=True)
                 self.run("rm", "-f", "--", *(f"{OPERATOR_DIR}/{name}" for name in OPERATOR_FILES), sudo=True)
-                self.run(self.bootstrap_tool, "install-operator-material", *self.pair(record, "--material-record"),
+                self.run(self.bootstrap_tool, "bootstrap", "install-operator-material", *self.pair(record, "--material-record"),
                          "--material-directory", material, "--operator-config", rendered,
                          "--operator-config-sha256", self.root_sha256(rendered), "--operator-signing-key", key,
                          "--operator-signing-key-sha256", self.root_sha256(key), sudo=True)

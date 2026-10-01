@@ -16,6 +16,10 @@ func TestCurrentCompletedSourcePinsCoverRecipeAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
+		"cmd/terrascale-orchestrator/main.go",
+		"internal/cli/cli.go",
+		"internal/bootstrap/cli/commands.go",
+		"internal/release/cli/commands.go",
 		"internal/bootstrapstart/founder_floor_artifact.go",
 		"internal/bootstrapstart/founder_selection_floor.go",
 		"internal/bootstrapstart/founder_continuation.go",
@@ -28,10 +32,17 @@ func TestCurrentCompletedSourcePinsCoverRecipeAndVerify(t *testing.T) {
 	if err := VerifyCompletedSourcePins(root, pins); err != nil {
 		t.Fatalf("current source pins did not verify: %v", err)
 	}
-	withoutFloor := slices.DeleteFunc(slices.Clone(pins), func(pin SourcePin) bool {
-		return pin.Path == "internal/bootstrapstart/founder_floor_artifact.go"
-	})
-	if err := VerifyCompletedSourcePins(root, withoutFloor); err == nil {
-		t.Fatal("completed source inventory accepted omitted floor implementation")
+	for _, omitted := range []string{
+		"internal/bootstrapstart/founder_floor_artifact.go",
+		"internal/cli/cli.go",
+		"internal/bootstrap/cli/commands.go",
+		"internal/release/cli/commands.go",
+	} {
+		withoutSource := slices.DeleteFunc(slices.Clone(pins), func(pin SourcePin) bool {
+			return pin.Path == omitted
+		})
+		if err := VerifyCompletedSourcePins(root, withoutSource); err == nil {
+			t.Fatalf("completed source inventory accepted omitted implementation %q", omitted)
+		}
 	}
 }

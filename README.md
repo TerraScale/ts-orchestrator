@@ -7,6 +7,13 @@ Actions owns source verification and binary builds. The orchestrator owns
 artifact admission and rollout authority. `ts-deploy` is not the build or
 rollout engine for this repository.
 
+Use **`ts-orch` as the operational CLI**. Implement new deployment,
+provisioning, bootstrap, release, and inspection tooling as Go subcommands in
+this executable instead of creating Python scripts or separate tools. CI and
+automation should call those commands. Existing operational Python and shell
+tools are migration targets; keep new feature logic in the relevant Go feature
+package. See [contributing](CONTRIBUTING.md) and [CLI boundaries](docs/cli.md).
+
 Regional foundation and first-controller setup are operator-run; after the
 identity and authority handoff, the orchestrator forms that cell's remaining
 controller peers. See the [manual regional bootstrap runbook](docs/region-bootstrap.md)
@@ -36,7 +43,19 @@ mise exec -- make release-linux
 
 `make verify` checks Go formatting, runs the Python Firecracker harness contract
 tests, runs `go vet`, and runs the Go tests once with the race detector.
-`make build` creates `dist/terrascale-orchestrator` for the current host.
+`make build` creates `dist/ts-orch` for the current host, with a
+`dist/terrascale-orchestrator` compatibility symlink. The same executable runs
+the controller, host agent, and operator tooling:
+
+```bash
+dist/ts-orch --help
+dist/ts-orch bootstrap --help
+dist/ts-orch release --help
+dist/ts-orch run --config controller.json
+dist/ts-orch operator hosts --config operator.json
+```
+
+See [the unified CLI](docs/cli.md) for command migration and feature boundaries.
 `make release-linux` creates static Linux amd64 and arm64 executables and
 requires no Go runtime on the target machine. Forgejo CI repeats the checks
 against the event's exact commit, verifies both ELF architectures and the

@@ -1,4 +1,4 @@
-"""Exercise deploy/image/promote-image.py against fake Forgejo, OCI and ts-release tools."""
+"""Exercise deploy/image/promote-image.py against fake Forgejo, OCI and ts-orch tools."""
 
 import hashlib
 import json
@@ -50,6 +50,9 @@ import os, sys
 from pathlib import Path
 fixture = Path(os.environ["PROMOTE_FIXTURE"])
 args = sys.argv[1:]
+if args[0] != "release":
+    raise SystemExit(f"expected unified release namespace: {args}")
+args = args[1:]
 with (fixture / "release-calls.log").open("a") as log:
     log.write("\0".join(args) + "\n")
 if os.environ.get("PROMOTE_FAIL_RELEASE") == args[0]:
@@ -119,7 +122,7 @@ class PromoteImageTests(unittest.TestCase):
         for directory in (self.fixture / "run-detail", self.fixture / "logs", self.bin):
             directory.mkdir(parents=True)
         self.fj = executable(self.root / "fj", FAKE_FJ)
-        self.release_tool = executable(self.root / "ts-release", FAKE_RELEASE)
+        self.release_tool = executable(self.root / "ts-orch", FAKE_RELEASE)
         executable(self.bin / "oci", FAKE_OCI)
         executable(self.bin / "virt-cat", "#!/bin/sh\necho 'virt-cat 1.52.3'\n")
         self.trust = self.root / "trust"
@@ -306,7 +309,7 @@ class PromoteImageTests(unittest.TestCase):
 
     def test_rejected_binary_receipt_stops_before_import(self) -> None:
         self.assert_rejected_before_effects(self.promote(*self.real_arguments(), PROMOTE_FAIL_RELEASE="verify-binary"),
-                                            "ts-release verify-binary failed")
+                                            "ts-orch release verify-binary failed")
 
     def test_unsigned_candidate_needs_sign_binary(self) -> None:
         receipt = self.fixture / "releases/TerraScale_ts-orchestrator" / GO_TAG / "canary-linux-arm64.receipt.json"

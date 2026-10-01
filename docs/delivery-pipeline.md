@@ -25,7 +25,7 @@ TerraBase main push ──► fast.yml: fast ∥ release ──► publish ─�
 Runs on every push to `main` or `develop` except documentation-only changes
 (`docs/**`, `**/*.md`). A newer push cancels a running check of the same
 branch; on `main` the newest revision contains every older one and is the
-candidate. The run stays one job because `ts-release` admission requires
+candidate. The run stays one job because `ts-orch release` admission requires
 exactly one job in the qualifying run, so parallelism is inside it:
 `make ci-verify` runs gofmt, every Python suite, `go vet`, the sharded race
 tests (`scripts/ci/race-test.sh`) and the static release build at once. The
@@ -68,7 +68,7 @@ One operator command per image: it verifies the image release (digests,
 successful image run and job attempt, log marker), the candidate binary and
 base image, and the signed binary receipt; imports the QCOW2 with
 `deploy/oci-region/import-image.py`; creates, signs and verifies the image
-receipt with `ts-release`; and writes `promotion-receipt.json`. `--dry-run`
+receipt with `ts-orch release`; and writes `promotion-receipt.json`. `--dry-run`
 runs every read-only gate without importing or signing.
 
 ### 5. Rollout

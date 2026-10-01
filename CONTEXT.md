@@ -4,6 +4,15 @@ Use these names in code, issues, tests, and current documentation. The
 implementation is a greenfield Go replacement; prior C# commands, wire
 formats, and stores are not compatibility contracts.
 
+**ts-orch CLI**
+
+The preferred operational interface to the single Go executable. New
+deployment, provisioning, bootstrap, release, and inspection tooling belongs
+in Go subcommands in the relevant feature package, rather than Python scripts
+or separate tools. CI calls these commands. Existing operational scripts are
+migration targets. See [contributing](CONTRIBUTING.md) and
+[CLI boundaries](docs/cli.md).
+
 ## Product and regional control
 
 **TerraScale Orchestrator**

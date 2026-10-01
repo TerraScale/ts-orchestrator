@@ -15,6 +15,7 @@ import (
 // packet boundaries consumed by a production restart fixture. Additional
 // source pins are allowed, but none of this baseline may be omitted.
 var requiredSourcePaths = []string{
+	"cmd/terrascale-orchestrator/main.go",
 	"deploy/image/build-offline.sh",
 	"deploy/systemd/terrascale-orchestrator-bootstrap.service",
 	"deploy/systemd/terrascale-orchestrator-controller.service",
@@ -22,6 +23,8 @@ var requiredSourcePaths = []string{
 	"internal/app/bootstrap_controller.go",
 	"internal/app/config.go",
 	"internal/bootstrap/anchor.go",
+	"internal/bootstrap/cli/commands.go",
+	"internal/bootstrap/cli/run.go",
 	"internal/bootstrap/founder_plan.go",
 	"internal/bootstrap/ledger.go",
 	"internal/bootstrap/ledger_head.go",
@@ -39,6 +42,9 @@ var requiredSourcePaths = []string{
 	"internal/bootstrapstart/founder_selection.go",
 	"internal/bootstrapstart/ledger.go",
 	"internal/bootstrapstart/marker.go",
+	"internal/cli/cli.go",
+	"internal/release/cli/commands.go",
+	"internal/release/cli/run.go",
 	"internal/release/receipt.go",
 	"internal/trust/envelope.go",
 	"tests/firecracker/production/simulator.go",
@@ -60,7 +66,7 @@ func RequiredSourcePaths() []string {
 // VerifySourcePins binds a packet recipe to the exact local source files used
 // by its signing, ledger, admission, and simulator APIs before emission.
 func VerifySourcePins(sourceRoot string, pins []SourcePin) error {
-	if len(pins) < len(requiredSourcePaths) || len(pins) > 128 {
+	if len(pins) < len(requiredSourcePaths) || len(pins) > maxSourcePins {
 		return errors.New("source pin inventory is absent or oversized")
 	}
 	for _, required := range requiredSourcePaths {

@@ -76,7 +76,7 @@ For the signer's live Forgejo check, prepare the pinned `fj` extension locally
 with `nice -n 19 bash scripts/ci/prepare-fj-admission.sh
 /ABSOLUTE/PRIVATE/fj-admission` and use that directory in `PATH`; stock `fj`
 does not provide the `actions run-detail` and `actions logs` commands required
-by `ts-release`. Keep root-key and delegated-key operations with their
+by `ts-orch release`. Keep root-key and delegated-key operations with their
 respective local key owners; pass only the public root PEM, leaf PEM, and
 delegation between those steps. Do not transfer either private key.
 
@@ -119,8 +119,8 @@ cd "$WORK/source-main"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 test "$(go env GOVERSION)" = go1.27.1
 nice -n 19 go build -trimpath -buildvcs=true \
-  -o "$WORK/ts-release" ./cmd/ts-release
-build_info=$(go version -m "$WORK/ts-release")
+  -o "$WORK/ts-orch" ./cmd/terrascale-orchestrator
+build_info=$(go version -m "$WORK/ts-orch")
 grep -Fq "vcs.revision=$SOURCE_SHA" <<< "$build_info"
 grep -Fq 'vcs.modified=false' <<< "$build_info"
 
@@ -130,7 +130,7 @@ test "$(sha256sum "$WORK/canary-release-root.pub" | awk '{print $1}')" = \
   bbdab8425dac0382d641cdf9de7c5a6685f0355a63f6b1131c64241873d418bc
 test "$(sha256sum /LOCAL/PINNED/canary-release-leaf.pub | awk '{print $1}')" = \
   ddd81158ef6f5ad7e42e3a87ec16665ed42d480a48ab69441cc12df0d4b629f3
-"$WORK/ts-release" sign-delegation \
+"$WORK/ts-orch" release sign-delegation \
   --subject-public-key /LOCAL/PINNED/canary-release-leaf.pub \
   --root-key "$WORK/canary-release-root.pub" \
   --signing-key /ABSOLUTE/OWNER-ONLY/offline-root-key.pem \
@@ -140,12 +140,12 @@ test "$(sha256sum /LOCAL/PINNED/canary-release-leaf.pub | awk '{print $1}')" = \
 fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator \
   > "$WORK/ci-run-detail.json"
 
-"$WORK/ts-release" binary-candidate \
+"$WORK/ts-orch" release binary-candidate \
   --binary "$WORK/terrascale-orchestrator-linux-arm64" \
   --source-revision "$SOURCE_SHA" \
   --qualification "$WORK/qualification.json" \
   --out "$WORK/canary-linux-arm64.candidate.json"
-"$WORK/ts-release" sign-binary \
+"$WORK/ts-orch" release sign-binary \
   --candidate "$WORK/canary-linux-arm64.candidate.json" \
   --binary "$WORK/terrascale-orchestrator-linux-arm64" \
   --qualification "$WORK/qualification.json" \
@@ -154,7 +154,7 @@ fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator \
   --signing-key /ABSOLUTE/OWNER-ONLY/canary-release-key.pem \
   --environment canary \
   --out "$WORK/canary-linux-arm64.receipt.json"
-"$WORK/ts-release" verify-binary \
+"$WORK/ts-orch" release verify-binary \
   --receipt "$WORK/canary-linux-arm64.receipt.json" \
   --delegation "$WORK/canary-release-delegation.json" \
   --root-key "$WORK/canary-release-root.pub" \
@@ -216,7 +216,7 @@ runs locally) finds its candidate by source revision:
   pin from a published, Fast-qualified release, and the build re-derives that
   pin from the release to prove it.
 
-The build checks the binary with `ts-release binary-candidate` (static ARM64
+The build checks the binary with `ts-orch release binary-candidate` (static ARM64
 ELF, Go toolchain, clean embedded revision, size and digest against the
 qualification). The signed binary receipt is not an image input any more: it
 is verified when the image is promoted. The tools (qemu, libguestfs with its
@@ -248,8 +248,8 @@ one `promotion-receipt.json`. It stops at the first failed gate:
    succeeded and the job log to carry the exact marker for these bytes;
 2. it downloads the candidate binary, `qualification.json` and the pinned
    base QCOW2 and checks them against the image manifest;
-3. it builds `ts-release` from the image's clean source revision and runs
-   `verify-binary` on the signed binary receipt;
+3. it builds `ts-orch` from the image's clean source revision and runs
+   `release verify-binary` on the signed binary receipt;
 4. it imports the QCOW2 with `deploy/oci-region/import-image.py` (UEFI and
    paravirtualized capability schema, A1-only shapes; idempotent);
 5. it runs `image-candidate` for the imported OCID, then, given the
@@ -259,7 +259,7 @@ one `promotion-receipt.json`. It stops at the first failed gate:
    with `virt-cat`) and `verify-image`.
 
 The root owner can extend a delegation to an image only once its OCID exists
-(`ts-release sign-delegation --previous-delegation ... --image-cell GRU
+(`ts-orch release sign-delegation --previous-delegation ... --image-cell GRU
 --image-ocid ...`). A first run without `--image-delegation` therefore stops
 after the import and prints that command for the imported OCID; the rerun
 with the extended delegation repeats every gate, finds the same image, and
@@ -297,7 +297,7 @@ sign-image reads image bytes back from OCI: they inspect the supplied local
 QCOW2 and accept the imported image OCID and region as inputs. OCI read-back and
 deployed-image execution therefore remain separate evidence.
 
-`cmd/ts-release` checks static ELF and embedded Go build metadata and consumes
+`internal/release/cli` checks static ELF and embedded Go build metadata and consumes
 the shared verifier for binary and image promotion receipts. OCI object upload
 is bounded to 512 MiB, streams from disk, uses conditional create, and accepts
 an existing object only after a matching streamed SHA-256/size read-back. Image
@@ -309,7 +309,7 @@ controller service starts. The host service still starts independently from
 its role config and does not run this image admission path; host startup
 admission remains open.
 
-`deploy/image/build-offline.sh` qualifies the binary with `ts-release
+`deploy/image/build-offline.sh` qualifies the binary with `ts-orch release
 binary-candidate`, requires a standalone QCOW2 base, and completes the
 candidate through filesystem-only guestfish operations in one appliance
 session. Before any write it audits the base kernel (exactly one

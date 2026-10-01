@@ -18,7 +18,7 @@ usage: build-offline.sh --base QCOW2 --kernel-release RELEASE \
 
 Creates a local QCOW2 candidate from a verified, pinned offline base image.
 It makes no OCI calls and installs no private keys or runtime secrets.
-`ts-release binary-candidate` checks the orchestrator binary against its CI
+`ts-orch release binary-candidate` checks the orchestrator binary against its CI
 qualification manifest and exact source revision: static ARM64 ELF, Go
 toolchain, clean embedded VCS revision, size and SHA-256. The binary's signed
 release receipt is checked when the image is promoted (`image-candidate`,
@@ -391,7 +391,7 @@ print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest())
 PY
 )
 printf 'timesyncd image config sha256=%s\n' "$timesyncd_config_image_sha256"
-"$release_tool" binary-candidate \
+"$release_tool" release binary-candidate \
 	--binary "$binary" --source-revision "$source_revision" --qualification "$qualification" \
 	--out "$temporary_directory/binary-candidate.json"
 binary_sha256=$(sha256sum -- "$binary" | cut -d ' ' -f 1)

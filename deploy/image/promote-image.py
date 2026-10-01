@@ -10,7 +10,7 @@ the first failure:
      TS_IMAGE_QUALIFICATION_V1 marker for these bytes;
   2. fetch the image's orchestrator candidate from its ci.yml release and
      the pinned base QCOW2, and check them against the image manifest;
-  3. build ts-release from the image's source revision and verify the signed
+  3. build ts-orch from the image's source revision and verify the signed
      binary receipt (verify-binary);
   4. import the QCOW2 into OCI (deploy/oci-region/import-image.py: UEFI and
      paravirtualized capability schema, A1-only shapes; idempotent);
@@ -105,7 +105,10 @@ class Promotion:
                                 capture_output=capture, check=False, **kwargs)
         if result.returncode:
             detail = (result.stderr or "").strip() if capture else ""
-            raise PromotionError(f"{Path(str(command[0])).name} {command[1] if len(command) > 1 else ''} "
+            action = str(command[1]) if len(command) > 1 else ""
+            if action in ("release", "bootstrap") and len(command) > 2:
+                action += " " + str(command[2])
+            raise PromotionError(f"{Path(str(command[0])).name} {action} "
                                  f"failed with status {result.returncode}{': ' + detail if detail else ''}")
         return result.stdout if capture else ""
 
@@ -208,6 +211,7 @@ class Promotion:
 
     # 3. Release tool from the image's own source revision.
     def release_tool(self, source: str) -> Path:
+        self.release_prefix = ("release",)
         if self.args.release_tool:
             tool = self.args.release_tool.resolve()
         else:
@@ -216,14 +220,18 @@ class Promotion:
             subprocess.run(["git", "-C", str(ROOT), "worktree", "add", "--quiet", "--detach", str(checkout), source],
                            check=True)
             try:
-                tool = self.work / "ts-release"
+                # Older pinned images retain their source-specific signing tool.
+                unified = (checkout / "internal/release/cli/run.go").is_file()
+                target = "./cmd/terrascale-orchestrator" if unified else "./cmd/ts-release"
+                self.release_prefix = ("release",) if unified else ()
+                tool = self.work / ("ts-orch" if unified else "ts-release")
                 subprocess.run(["nice", "-n", "19", "go", "build", "-trimpath", "-buildvcs=true", "-o", str(tool),
-                                "./cmd/ts-release"], cwd=checkout, check=True)
+                                target], cwd=checkout, check=True)
             finally:
                 subprocess.run(["git", "-C", str(ROOT), "worktree", "remove", "--force", str(checkout)], check=False)
             info = subprocess.run(["go", "version", "-m", str(tool)], capture_output=True, text=True, check=True).stdout
             require(f"vcs.revision={source}" in info and "vcs.modified=false" in info,
-                    "ts-release was not built from the clean image source revision")
+                    "release tool was not built from the clean image source revision")
         require(tool.is_file() and os.access(tool, os.X_OK), f"release tool is not executable: {tool}")
         self.receipt["tools"]["ts_release"] = {"path": str(tool), "sha256": sha256(tool)}
         return tool
@@ -250,7 +258,7 @@ class Promotion:
 
         if files["binary_receipt"] is None:
             unsigned = self.out / "binary-candidate.json"
-            self.run(tool, "binary-candidate", "--binary", files["binary"], "--source-revision",
+            self.run(tool, *self.release_prefix, "binary-candidate", "--binary", files["binary"], "--source-revision",
                      manifest["source_revision"], "--qualification", files["qualification"], "--out", unsigned)
             if not self.args.sign_binary:
                 require(self.args.dry_run, "the candidate has no signed binary receipt; pass --sign-binary "
@@ -259,11 +267,11 @@ class Promotion:
                 self.finish("dry run stopped before the image candidate: the binary is not signed yet")
                 return
             files["binary_receipt"] = self.out / "binary.receipt.json"
-            self.run(tool, "sign-binary", "--candidate", unsigned, "--binary", files["binary"], "--qualification",
+            self.run(tool, *self.release_prefix, "sign-binary", "--candidate", unsigned, "--binary", files["binary"], "--qualification",
                      files["qualification"], "--signing-key", self.args.signing_key, *trust,
                      "--out", files["binary_receipt"])
             step("binary receipt signed")
-        self.run(tool, "verify-binary", "--receipt", files["binary_receipt"], "--binary", files["binary"],
+        self.run(tool, *self.release_prefix, "verify-binary", "--receipt", files["binary_receipt"], "--binary", files["binary"],
                  "--qualification", files["qualification"], *trust)
         self.receipt["candidate"]["binary_receipt_sha256"] = sha256(files["binary_receipt"])
         step("signed binary receipt verified")
@@ -287,7 +295,7 @@ class Promotion:
             step(f"imported image_ocid={image_ocid}")
 
         candidate = self.out / "image-candidate.json"
-        self.run(tool, "image-candidate", "--binary-receipt", files["binary_receipt"], "--binary", files["binary"],
+        self.run(tool, *self.release_prefix, "image-candidate", "--binary-receipt", files["binary_receipt"], "--binary", files["binary"],
                  "--qualification", files["qualification"], *trust, "--image-file", image,
                  "--base-image-ocid", manifest["inputs"]["manifest"]["base"]["oci_image_ocid"],
                  "--base-image-region", region, "--base-image-file", files["base"],
@@ -302,7 +310,7 @@ class Promotion:
         if not self.args.image_delegation:
             self.receipt["image_receipt"] = {"awaiting": "root-signed image delegation", "image_ocid": image_ocid}
             print("promote-image: the root owner extends the delegation to this image with:\n"
-                  f"  ts-release sign-delegation --previous-delegation {self.args.delegation} "
+                  f"  ts-orch release sign-delegation --previous-delegation {self.args.delegation} "
                   f"--image-cell {region} --image-ocid {image_ocid} --source-revision {manifest['source_revision']} "
                   "--arch arm64 --environment canary --subject-public-key LEAF.pub "
                   f"--root-key {self.args.root_key} --signing-key ROOT.key --issued-at ... --expires-at ... "
@@ -313,11 +321,11 @@ class Promotion:
         image_trust = ("--delegation", self.args.image_delegation, "--root-key", self.args.root_key)
         self.receipt["trust"]["image_delegation_sha256"] = sha256(self.args.image_delegation)
         signed = self.out / "image-receipt.json"
-        self.run(tool, "sign-image", "--candidate", candidate, "--binary-receipt", files["binary_receipt"],
+        self.run(tool, *self.release_prefix, "sign-image", "--candidate", candidate, "--binary-receipt", files["binary_receipt"],
                  "--binary", files["binary"], "--qualification", files["qualification"], "--image-file", image,
                  "--base-image-file", files["base"], "--kernel-file", kernel, "--signing-key",
                  self.args.signing_key, *image_trust, "--environment", self.args.environment, "--out", signed)
-        verified = self.run(tool, "verify-image", "--receipt", signed, *image_trust, "--image-file", image,
+        verified = self.run(tool, *self.release_prefix, "verify-image", "--receipt", signed, *image_trust, "--image-file", image,
                             "--base-image-file", files["base"], "--kernel-file", kernel, "--region", region,
                             "--environment", self.args.environment, capture=True).strip()
         self.receipt["image_receipt"] = {"path": str(signed), "sha256": sha256(signed),
@@ -359,7 +367,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--bucket", help="Object Storage bucket for the QCOW2 upload")
     parser.add_argument("--display-name", help="OCI image display name (default: derived from source and digest)")
     parser.add_argument("--fj", help="pinned fj with actions run-detail/logs")
-    parser.add_argument("--release-tool", type=Path, help="prebuilt ts-release (default: built from the image source)")
+    parser.add_argument("--release-tool", type=Path, help="prebuilt unified ts-orch (default: built from the image source)")
     parser.add_argument("--dry-run", action="store_true", help="run every read-only gate; skip import and signing")
     args = parser.parse_args()
     if not args.dry_run:

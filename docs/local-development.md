@@ -26,7 +26,11 @@ mise exec -- make release-linux
 
 `make verify` checks formatting, runs the Python Firecracker harness contract
 tests, runs `go vet`, and runs all Go tests with the race detector. `make build`
-writes the current-platform binary to `dist/terrascale-orchestrator`.
+writes the current-platform binary to `dist/ts-orch`, with a
+`dist/terrascale-orchestrator` compatibility symlink. Use `ts-orch` for operator
+tasks and implement new operational tooling as Go subcommands rather than
+Python scripts; see [contributing](../CONTRIBUTING.md). Run verification with
+`umask 022`, as the qualification tests check exact file modes.
 
 `make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
 It is a cross-build target; it does not demonstrate execution on ARM64 or
