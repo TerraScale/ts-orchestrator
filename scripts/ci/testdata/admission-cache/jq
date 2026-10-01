@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+[[ $* == '-r .locked.narHash' ]] || exit 9
+printf '%s\n' 'sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM='

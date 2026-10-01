@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1 $2" == 'auth add-token' ]]; then
+  token=$(cat)
+  case "$token" in
+    fixture-write-token) role=write ;;
+    fixture-read-token) role=read ;;
+    *) exit 2 ;;
+  esac
+  printf '%s\n' "$role" > "$XDG_DATA_HOME/role"
+  exit 0
+fi
+if [[ "$1 $2" == 'release create' ]]; then
+  [[ $(cat "$XDG_DATA_HOME/role") == write ]] || exit 5
+  printf 'release-created\n' >> "$FAKE_FJ_EVENTS"
+  exit 0
+fi
+if [[ "$1 $2 $3" == 'release asset download' ]]; then
+  [[ $(cat "$XDG_DATA_HOME/role") == read ]] || exit 5
+  name=$5
+  output=$7
+  [[ ! -e $output ]] || exit 3
+  count_file="$FAKE_FJ_STATE/$name.count"
+  count=0
+  [[ ! -f $count_file ]] || count=$(cat "$count_file")
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$count_file"
+  [[ $FAKE_FJ_HTTP_FAILURE != yes ]] || exit 22
+  if [[ $FAKE_FJ_PERMANENT == yes || ( $name == terrascale-d15-qualify.py && $count == 1 ) ]]; then
+    printf 'transient wrong attachment body\n' > "$output"
+  else
+    cp -- "$FAKE_REPO/dist/$name" "$output"
+  fi
+  exit 0
+fi
+if [[ "$1 $2 $3" == 'release asset create' ]]; then
+  [[ $(cat "$XDG_DATA_HOME/role") == write ]] || exit 5
+  printf 'qualification-created\n' >> "$FAKE_FJ_EVENTS"
+  exit 0
+fi
+exit 4
