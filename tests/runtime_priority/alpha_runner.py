@@ -199,22 +199,18 @@ def validate_database_wire(evidence: dict[str, Any], request: dict[str, Any],
     _verify_wire_hash(request_raw, evidence.get("transaction_request_sha256"),
                       "database transaction request", 65536)
     transaction_request = _parse_raw_json(request_raw, "database transaction request", 65536)
-    expected_value = {"kind": "live", "fields": [{
-        "id": document["field_id"],
-        "value": {"type": "i64", "value": str(request["value"])},
-    }]}
+    expected_document = {document["utf8_field"]: str(request["value"])}
     if (type(transaction_request) is not dict or set(transaction_request) != {"version", "transaction_id", "writes"} or
             transaction_request.get("version") != 1 or transaction_request.get("transaction_id") != request.get("transaction_id") or
             type(transaction_request.get("writes")) is not list or len(transaction_request["writes"]) != 1):
-        raise HarnessError("transaction request does not match the alpha v1 typed write request")
+        raise HarnessError("transaction request does not match the alpha v1 document write request")
     write = transaction_request["writes"][0]
     expected_write = {
-        "collection": document["collection_id"], "document": request["document_id"],
-        "schema_generation": str(document["schema_generation"]),
-        "schema_digest": document["schema_digest"], "observed": [], "value": expected_value,
+        "collection": document["collection_id"], "document": request["document_id"], "observed": [],
+        "value": {"kind": "live", "document": expected_document},
     }
     if write != expected_write:
-        raise HarnessError("transaction request bytes do not bind the exact scoped schema/document/value")
+        raise HarnessError("transaction request bytes do not bind the exact scoped document and value")
     receipt_raw = require_text(evidence.get("write_receipt_raw"), "database.write_receipt_raw")
     _verify_wire_hash(receipt_raw, evidence.get("write_receipt_sha256"),
                       "database write receipt", 65536)
@@ -250,10 +246,6 @@ def validate_database_wire(evidence: dict[str, Any], request: dict[str, Any],
     if (type(point) is not dict or point.get("version") != 1 or point.get("state") != "value" or
             type(point.get("siblings")) is not list):
         raise HarnessError("cross-member point read did not return an alpha value point")
-    expected_fields = [{
-        "id": document["field_id"],
-        "value": {"type": "i64", "value": str(request["value"])},
-    }]
     exact_matches = []
     for sibling in point["siblings"]:
         if type(sibling) is not dict or sibling.get("event") != event:
@@ -261,7 +253,7 @@ def validate_database_wire(evidence: dict[str, Any], request: dict[str, Any],
         if (sibling.get("kind") != "live" or
                 sibling.get("schema_generation") != str(document["schema_generation"]) or
                 sibling.get("schema_digest") != document["schema_digest"] or
-                sibling.get("fields") != expected_fields):
+                sibling.get("document") != expected_document):
             raise HarnessError("peer read event matches the receipt but document schema/value does not")
         exact_matches.append(sibling)
     if len(exact_matches) != 1:

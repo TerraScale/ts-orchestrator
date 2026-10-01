@@ -76,8 +76,10 @@ func TestTerraBaseDeployDrivesManagedPlacementToDesiredState(t *testing.T) {
 	readDeployTestState(t, state, deployIntentFile, &intent)
 	readDeployTestState(t, state, deployMaterialFile, &reply)
 	if !strings.HasPrefix(credentials.Token, "tbk1.") || !strings.Contains(credentials.HTTPSCAPEM, "CERTIFICATE") ||
-		len(client.Members) != 2 || client.Members[0].URL != "https://10.251.0.21:9465" ||
-		client.Collections[0].SchemaDigest != "0d645cd6d847a903aaf2b34a6fa3b9ca3047c9b0a283218a4fa29cd0b6085090" {
+		client.Version != terrabaseClientProfileVersion || len(client.Members) != 2 ||
+		client.Members[0].URL != "https://10.251.0.21:9465" ||
+		client.Collections[0].SchemaDigest != "0d645cd6d847a903aaf2b34a6fa3b9ca3047c9b0a283218a4fa29cd0b6085090" ||
+		!slices.Equal(client.Collections[0].UTF8Fields, []string{"title"}) {
 		t.Fatalf("customer outputs are incomplete: client=%+v", client)
 	}
 	if info, err := os.Stat(filepath.Join(state, deployCredentialsFile)); err != nil || info.Mode().Perm() != 0o600 {

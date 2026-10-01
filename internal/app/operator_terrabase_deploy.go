@@ -40,6 +40,9 @@ const (
 	terrabaseDeployPlanSchema = 1
 	maxDeployStateFileBytes   = 256 << 10
 	maxGrantValidityHours     = 30 * 24
+	// The client profile lists collection properties by name, as TerraBase's
+	// named JSON document writes address them.
+	terrabaseClientProfileVersion = 2
 )
 
 type terrabaseDeployMember struct {
@@ -85,11 +88,14 @@ type terrabaseClientProfile struct {
 	Members     []terrabaseClientMember     `json:"members"`
 }
 
+// terrabaseClientCollection names one collection, the optional UTF-8 string
+// properties its enforced schema declares, and the catalog binding that
+// TerraBase reports on every live document version written under it.
 type terrabaseClientCollection struct {
-	CollectionID     string                             `json:"collection_id"`
-	SchemaGeneration uint64                             `json:"schema_generation"`
-	SchemaDigest     string                             `json:"schema_digest"`
-	Fields           []managedmaterial.CatalogUTF8Field `json:"fields"`
+	CollectionID     string   `json:"collection_id"`
+	SchemaGeneration uint64   `json:"schema_generation"`
+	SchemaDigest     string   `json:"schema_digest"`
+	UTF8Fields       []string `json:"utf8_fields"`
 }
 
 type terrabaseClientMember struct {
@@ -502,16 +508,19 @@ func (state deployState) customer(spec managedmaterial.InitialSpec, reply materi
 	} else if err != nil {
 		return false, err
 	}
-	profile := terrabaseClientProfile{Version: 1, TenantID: spec.Scope.TenantID, DatabaseID: spec.Scope.DatabaseID,
-		ShardID: spec.Scope.ShardID}
+	profile := terrabaseClientProfile{Version: terrabaseClientProfileVersion, TenantID: spec.Scope.TenantID,
+		DatabaseID: spec.Scope.DatabaseID, ShardID: spec.Scope.ShardID}
+	fields := make([]string, 0, len(managedmaterial.DeploymentDocumentFields))
+	for _, field := range managedmaterial.DeploymentDocumentFields {
+		fields = append(fields, field.Name)
+	}
 	for _, catalog := range spec.Catalogs {
 		built, err := managedmaterial.InitialCatalog(catalog.CollectionID, managedmaterial.DeploymentDocumentFields)
 		if err != nil || !bytes.Equal(built.Bytes, catalog.CanonicalCatalog) {
 			return false, errors.New("retained catalog differs from the deployment document schema")
 		}
 		profile.Collections = append(profile.Collections, terrabaseClientCollection{CollectionID: catalog.CollectionID,
-			SchemaGeneration: built.SchemaGeneration, SchemaDigest: built.SchemaDigest,
-			Fields: managedmaterial.DeploymentDocumentFields})
+			SchemaGeneration: built.SchemaGeneration, SchemaDigest: built.SchemaDigest, UTF8Fields: fields})
 	}
 	for _, member := range deployment.Members {
 		profile.Members = append(profile.Members, terrabaseClientMember{SeatID: member.SeatID, MemberID: member.MemberID,
