@@ -119,8 +119,8 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 	if code != http.StatusOK {
 		return ServingProof{}, fmt.Errorf("member serving proof HTTP %d", code)
 	}
-	var proof ServingProof
-	if err := decodeRequired(body, &proof, servingPaths...); err != nil {
+	proof, err := decodeServingProof(body)
+	if err != nil {
 		return ServingProof{}, err
 	}
 	if proof.SchemaVersion != 1 || proof.Nonce != challenge || proof.Process != status.Process ||
@@ -134,8 +134,7 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 		!proof.Replication.CurrentAuthenticated ||
 		proof.Replication.LocalSourceSequence != proof.Object.LocalSourceSequence ||
 		proof.Replication.PeerAppliedSequence < proof.Replication.LocalSourceSequence ||
-		proof.Replication.PeerDurableSequence < proof.Replication.PeerAppliedSequence ||
-		proof.Replication.LocalInboxAppliedSequence > proof.Replication.LocalInboxDurableSequence {
+		!proof.Replication.ordered() {
 		return ServingProof{}, ErrNotServing
 	}
 	proof.verified = true
@@ -298,6 +297,21 @@ var servingPaths = []string{
 	"replication.local_source_sequence", "replication.peer_member_id", "replication.peer_incarnation",
 	"replication.current_authenticated", "replication.peer_durable_sequence", "replication.peer_applied_sequence",
 	"replication.local_inbox_durable_sequence", "replication.local_inbox_applied_sequence",
+}
+
+// servingOptionalPaths are absent from TerraBase releases before the received
+// prefixes; when present they must be numbers.
+var servingOptionalPaths = []string{"replication.peer_received_sequence", "replication.local_inbox_received_sequence"}
+
+func decodeServingProof(body []byte) (ServingProof, error) {
+	var proof ServingProof
+	if err := decodeRequired(body, &proof, servingPaths...); err != nil {
+		return ServingProof{}, err
+	}
+	if err := rejectNull(body, servingOptionalPaths...); err != nil {
+		return ServingProof{}, err
+	}
+	return proof, nil
 }
 
 func encodeRequest(request DrainRequest) ([]byte, error) { return json.Marshal(request) }

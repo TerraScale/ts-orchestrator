@@ -18,8 +18,7 @@ func VerifyReportedServing(proof ServingProof, expected Identity, survivor Survi
 		!proof.Replication.CurrentAuthenticated ||
 		proof.Replication.LocalSourceSequence != proof.Object.LocalSourceSequence ||
 		proof.Replication.PeerAppliedSequence < proof.Replication.LocalSourceSequence ||
-		proof.Replication.PeerDurableSequence < proof.Replication.PeerAppliedSequence ||
-		proof.Replication.LocalInboxAppliedSequence > proof.Replication.LocalInboxDurableSequence {
+		!proof.Replication.ordered() {
 		return ErrNotServing
 	}
 	return nil

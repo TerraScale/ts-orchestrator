@@ -195,6 +195,40 @@ func TestPressureReadOnlyHostReports(t *testing.T) {
 	assertEqual(t, field(field(field(got, "value"), "members"), "source")["managed_identity"].(map[string]any)["pid"], 42)
 	assertPressureError(t, replayPressureInput(t, records[1].(map[string]any)), "verified must remain false")
 }
+func TestPressureServingProofReceivedPrefixes(t *testing.T) {
+	for _, tc := range []struct {
+		received float64
+		reason   string
+	}{{4, ""}, {3, "inconsistent alpha v1 frontier"}} {
+		record := pressureInputs(t, "test_host_status_uses_controller_admitted_read_only_reports_and_raw_process_witnesses")[0].(map[string]any)
+		evidence := record["args"].([]any)[0].(map[string]any)
+		var hosts []any
+		if err := json.Unmarshal([]byte(evidence["operator_hosts_json"].(string)), &hosts); err != nil {
+			t.Fatal(err)
+		}
+		for _, host := range hosts {
+			for _, report := range host.(map[string]any)["reports"].([]any) {
+				replication := field(field(field(report.(map[string]any), "managed"), "serving_proof"), "replication")
+				replication["peer_received_sequence"] = tc.received
+				replication["local_inbox_received_sequence"] = tc.received
+			}
+		}
+		raw, err := json.Marshal(hosts, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		evidence["operator_hosts_json"] = string(raw)
+		evidence["operator_hosts_sha256"] = digest(raw)
+		got := replayPressureInput(t, record)
+		if tc.reason == "" {
+			if got["error"] != nil {
+				t.Fatal(got)
+			}
+		} else {
+			assertPressureError(t, got, tc.reason)
+		}
+	}
+}
 func TestPressureManagerRecoveryPreservesPeerSession(t *testing.T) {
 	records := pressureInputs(t, "test_host_manager_recovery_allows_only_source_session_advance_with_restart_witness")
 	for i, reason := range []string{"", "", "", "process identity/restart counter changed", "host session identity changed", "host session identity changed"} {

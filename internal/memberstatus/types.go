@@ -81,15 +81,30 @@ type ObjectProof struct {
 	RemoteAppliedSequence        uint64 `json:"remote_applied_sequence"`
 }
 
+// ReplicationProof carries both directions' received, durable and applied
+// prefixes. TerraBase releases before the received prefixes omit them.
 type ReplicationProof struct {
-	LocalSourceSequence       uint64 `json:"local_source_sequence"`
-	PeerMemberID              string `json:"peer_member_id"`
-	PeerIncarnation           string `json:"peer_incarnation"`
-	CurrentAuthenticated      bool   `json:"current_authenticated"`
-	PeerDurableSequence       uint64 `json:"peer_durable_sequence"`
-	PeerAppliedSequence       uint64 `json:"peer_applied_sequence"`
-	LocalInboxDurableSequence uint64 `json:"local_inbox_durable_sequence"`
-	LocalInboxAppliedSequence uint64 `json:"local_inbox_applied_sequence"`
+	LocalSourceSequence        uint64  `json:"local_source_sequence"`
+	PeerMemberID               string  `json:"peer_member_id"`
+	PeerIncarnation            string  `json:"peer_incarnation"`
+	CurrentAuthenticated       bool    `json:"current_authenticated"`
+	PeerReceivedSequence       *uint64 `json:"peer_received_sequence,omitzero"`
+	PeerDurableSequence        uint64  `json:"peer_durable_sequence"`
+	PeerAppliedSequence        uint64  `json:"peer_applied_sequence"`
+	LocalInboxReceivedSequence *uint64 `json:"local_inbox_received_sequence,omitzero"`
+	LocalInboxDurableSequence  uint64  `json:"local_inbox_durable_sequence"`
+	LocalInboxAppliedSequence  uint64  `json:"local_inbox_applied_sequence"`
+}
+
+// ordered reports whether each direction's prefixes satisfy
+// received >= durable >= applied. Both received prefixes are present, or both
+// are omitted by an older TerraBase release.
+func (r ReplicationProof) ordered() bool {
+	return (r.PeerReceivedSequence == nil) == (r.LocalInboxReceivedSequence == nil) &&
+		r.PeerAppliedSequence <= r.PeerDurableSequence &&
+		(r.PeerReceivedSequence == nil || r.PeerDurableSequence <= *r.PeerReceivedSequence) &&
+		r.LocalInboxAppliedSequence <= r.LocalInboxDurableSequence &&
+		(r.LocalInboxReceivedSequence == nil || r.LocalInboxDurableSequence <= *r.LocalInboxReceivedSequence)
 }
 
 type ServingProof struct {
@@ -213,6 +228,32 @@ func decodeRequired(data []byte, into any, paths ...string) error {
 			if !ok || current == nil {
 				return fmt.Errorf("member evidence omits %s", path)
 			}
+		}
+	}
+	return nil
+}
+
+// rejectNull rejects an explicit JSON null at any present optional path.
+func rejectNull(data []byte, paths ...string) error {
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("decode member fields: %w", err)
+	}
+	for _, path := range paths {
+		current, present := any(root), true
+		for _, part := range splitPath(path) {
+			object, ok := current.(map[string]any)
+			if !ok {
+				present = false
+				break
+			}
+			if current, ok = object[part]; !ok {
+				present = false
+				break
+			}
+		}
+		if present && current == nil {
+			return fmt.Errorf("member evidence has null %s", path)
 		}
 	}
 	return nil
