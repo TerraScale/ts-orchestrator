@@ -124,7 +124,7 @@ convergence has been qualified.
 
 **Operator gateway**
 
-The NetBird routing peer on the Forgejo VM (`10.250.10.155`), reached from the
+The NetBird routing peer on the ts-ops host (`10.250.10.155`), reached from the
 cell through one local peering gateway pair and source-NATed to that address.
 The cell admits it only on TCP 22 (every server), 4222 (controllers), and 9465
 (members), never on 8443. The private subnet keeps no internet route, NAT, or

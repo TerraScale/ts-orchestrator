@@ -21,6 +21,24 @@ the M0 exit gate plus D01–D15. A gate counts only when every required child
 check passes on the required environment and immutable artifacts. This is
 verified acceptance, not effort or source completion.
 
+## GRU preview refresh — 2026-10-01 (R22)
+
+- **Cell.** Deployment `ts-preview-gru-20261001-r22`, ts-orchestrator
+  `7aae8102` (Go CI #802), TerraBase `743c569` (CI #1049). This TerraBase
+  build serves `/docs` as the Scalar reference alone (TerraBase PR #164).
+  `inspect-foundation` passed first time, and `up` and `terrabase-deploy`
+  ran without intervention.
+- **Checks.**
+  - The walkthrough passed 13/13.
+  - 10 of 10 writes committed and read back across `api.terrascale.tech` and
+    `gru.api.terrascale.tech`.
+  - Controller A joined NetBird automatically.
+  - `http://gru.api.terrascale.tech/` redirects to the Scalar-only reference.
+- **Atlas.** At 07:00 UTC, Worker version `e9ce83ed` was deployed from an
+  uncommitted, stale ts-atlas checkout and dropped the regional root redirect
+  (421). It was replaced from origin/main `07f210a` (version `a1ab188c`).
+  Production atlas deploys must come from a clean origin/main worktree.
+
 ## GRU preview with NetBird — 2026-09-30 (R21)
 
 This entry records the first cell built from the reviewed NetBird-aware plan.
