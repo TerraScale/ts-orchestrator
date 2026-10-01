@@ -14,7 +14,9 @@ set -euo pipefail
 read -r -a go <<< "${GO:-go}"
 shards=${TS_RACE_SHARDS:-6}
 jobs=${TS_RACE_JOBS:-6}
-sharded_packages=(./internal/app ./internal/bootstrapstart)
+# The image contract suite drives the offline builder through hundreds of
+# command fakes per test; unsharded it serialised most of the CI job.
+sharded_packages=(./internal/app ./internal/bootstrapstart ./tests/deploy)
 # Longest first, so a slow lab cannot get stuck behind short unit shards.
 heavy_tests=(
 	TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss
@@ -22,6 +24,8 @@ heavy_tests=(
 	TestLabTLSHostSessionRecoversAfterBlackholedController
 	TestLabTLSHostSessionRecoversAfterControllerLoss
 	TestAuthenticatedOperatorToHostDeliveryWithControllerLoss
+	TestOfflineRejectsBaseArtifacts
+	TestOfflineReadbackMismatchDiscardsCandidate
 )
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }
@@ -61,8 +65,15 @@ start() {
 
 module=$("${go[@]}" list -m)
 "${go[@]}" list ./... > "$logs/packages"
-mapfile -t other_packages < <(grep -v -x -F -e "$module/internal/app" -e "$module/internal/bootstrapstart" \
-	"$logs/packages")
+present=()
+for package in "${sharded_packages[@]}"; do
+	if grep -q -x -F -e "$module/${package#./}" "$logs/packages"; then
+		present+=("$package")
+		printf '%s\n' "$module/${package#./}"
+	fi
+done > "$logs/sharded"
+sharded_packages=("${present[@]}")
+mapfile -t other_packages < <(grep -v -x -F -f "$logs/sharded" "$logs/packages")
 # Discover all shards before running tests: a failed listing must fail CI,
 # and no package has several cold compilers/linkers running simultaneously.
 for package in "${sharded_packages[@]}"; do

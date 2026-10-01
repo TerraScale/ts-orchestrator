@@ -30,8 +30,9 @@ exactly one job in the qualifying run, so parallelism is inside it:
 `make ci-verify` runs gofmt, `go vet`, all native Go driver contracts, the sharded race
 tests (`scripts/ci/race-test.sh`) and the static release build at once. The
 job then retains both binaries and `qualification.json` (the completion
-marker) on `ci-<sha>-run-<id>` and, on `main`, dispatches `image.yml` for the
-same revision.
+marker) on `ci-<sha>-run-<id>`. On `main` its first step dispatches
+`image.yml` for the same revision, so the image job prepares its tools while
+the checks run and builds as soon as the release is retained.
 
 ### 2. TerraBase CI (`terrabase/.forgejo/workflows/fast.yml`)
 
@@ -57,9 +58,10 @@ builds a deployment-neutral image with `build-offline.sh` (trust roots only;
 identity, anchor and enrollment arrive in launch metadata). The release
 `image-<sha>-run-<id>-attempt-<n>` holds the QCOW2, guest kernel,
 `SHA256SUMS` and `image-qualification.json`. Automatic builds queue rather
-than cancel each other, so a running build always finishes; a queued build
-skips itself once a newer main revision has passed `ci.yml`
-(`scripts/ci/image-superseded.sh`). `make image SOURCE=<sha>` runs the same
+than cancel each other, so a running build always finishes. After preparing
+its tools, an automatic build waits for its revision's `ci.yml` run and skips
+itself if that run fails or is cancelled, or once a newer main revision has
+passed `ci.yml` (`scripts/ci/image-superseded.sh`). `make image SOURCE=<sha>` runs the same
 build on a developer machine from the same retained release.
 
 ### 4. Promotion (`ts-orch image promote`)
@@ -113,7 +115,7 @@ promoted with `--image-dir`.
 | Step | Trigger | Manual input |
 | --- | --- | --- |
 | Orchestrator checks, binaries, qualification | push to `main` | none |
-| Image build and retention | end of `ci.yml` on `main` | none (optional dispatch of a named revision) |
+| Image build and retention | start of `ci.yml` on `main`, built once it passes | none (optional dispatch of a named revision) |
 | TerraBase checks, tested-bytes publication | push to TerraBase `main` | none |
 | TerraBase pin bump into the image inputs | end of TerraBase `publish` | `TS_PIN_BUMP_TOKEN` secret (decision 2) |
 | Local image build | `make image SOURCE=<sha>` | revision |

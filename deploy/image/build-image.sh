@@ -28,6 +28,14 @@ image_job='build/qualified-gru-arm64-image'
 source_sha=
 output=
 wait_seconds=0
+ci_run_id=${SOURCE_CI_RUN_ID:-}
+ci_run_number=${SOURCE_CI_RUN_NUMBER:-}
+if [[ -n $ci_run_id || -n $ci_run_number ]]; then
+	[[ $ci_run_id =~ ^[1-9][0-9]{0,17}$ && $ci_run_number =~ ^[1-9][0-9]{0,17}$ ]] || {
+		echo 'automatic image builds require the dispatching CI run ID and number' >&2
+		exit 2
+	}
+fi
 while (($#)); do
 	case $1 in
 		--source) source_sha=${2:?}; shift 2 ;;
@@ -151,8 +159,10 @@ echo "terrabase verified tag=$terrabase_tag binary_sha256=$(input_json .terrabas
 # Orchestrator candidate: the successful ci.yml run on main for this revision.
 deadline=$((SECONDS + wait_seconds))
 while :; do
-	api_get "/actions/runs?workflow_id=ci.yml&head_sha=$source_sha&limit=50" > "$work/go/runs.json"
-	run=$(jq -c '[.workflow_runs[] | select(.prettyref == "main")] | max_by(.id) // empty' "$work/go/runs.json")
+	api_get "/actions/runs?workflow_id=ci.yml&head_sha=$source_sha&limit=50${ci_run_number:+&run_number=$ci_run_number}" > "$work/go/runs.json"
+	run=$(jq -c --arg id "$ci_run_id" --arg source "$source_sha" \
+		'[(.workflow_runs // [])[] | select(.prettyref == "main" and .commit_sha == $source and
+		  ($id == "" or (.id | tostring) == $id))] | max_by(.id) // empty' "$work/go/runs.json")
 	status=$(jq -r '.status // "absent"' <<< "${run:-null}")
 	case $status in
 		success) break ;;

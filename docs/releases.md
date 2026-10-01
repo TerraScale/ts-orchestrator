@@ -191,9 +191,10 @@ and must not be represented as authenticated approval.
 
 ### Image CI provenance
 
-Every successful `ci.yml` run on `main` ends by dispatching `image.yml` for
-its exact revision (`scripts/ci/dispatch-image.sh`; documentation-only
-commits run neither). These automatic builds queue; one that a newer
+Every `ci.yml` run on `main` starts by dispatching `image.yml` for its exact
+revision (`scripts/ci/dispatch-image.sh`; documentation-only commits run
+neither). The image job prepares its tools meanwhile, then waits for that run
+and builds only if it succeeds. These automatic builds queue; one that a newer
 qualified revision has overtaken skips itself. An operator can dispatch `image.yml` with
 `source_revision` for any other CI-qualified `main` revision; no run IDs,
 tags or digests are copied by hand. The image job
