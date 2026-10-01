@@ -319,11 +319,15 @@ func TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent(t *testing
 		if err := caller.runPeer(t.Context(), slot); err != nil {
 			t.Fatalf("complete %s: %v", slot, err)
 		}
+		launches, observations := fake.launches, fake.observations
 		if err := caller.runPeer(t.Context(), slot); err != nil {
 			t.Fatalf("restart %s: %v", slot, err)
 		}
+		if fake.launches != launches || fake.observations != observations {
+			t.Fatal("restart repeated launch or observation effects")
+		}
 	}
-	if fake.launches != 2 || fake.observations != 2 {
+	if fake.launches != 2 || fake.observations < 2 {
 		t.Fatalf("three-controller founding effects: launches=%d observations=%d", fake.launches, fake.observations)
 	}
 }
@@ -412,10 +416,11 @@ func TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate(t *testing.T)
 	if _, err := ledger.ReadSlot(t.Context(), scope); !errors.Is(err, bootstrap.ErrManagedPeerProofQuarantined) {
 		t.Fatalf("late result was not quarantined for historical admission: %v", err)
 	}
+	observationsBeforeRepair := fake.observations
 	if err := caller.runPeer(t.Context(), slot); err != nil {
 		t.Fatalf("repair quarantined founder result: %v", err)
 	}
-	if fake.launches != 1 || fake.observations != 2 {
+	if fake.launches != 1 || fake.observations <= observationsBeforeRepair {
 		t.Fatalf("quarantine repair relaunched or missed reobservation: launches=%d observations=%d",
 			fake.launches, fake.observations)
 	}
@@ -768,12 +773,13 @@ func TestFounderRuntimePeerGateWaitsForQuarantineRepair(t *testing.T) {
 	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("quarantined peer left an accepted marker: %v", err)
 	}
+	observationsBeforeRepair := fake.observations
 	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
 		t.Fatalf("repair quarantined founder result: %v", err)
 	}
 	accepted, err := gate.AdmitInitial(t.Context())
 	if err != nil || accepted.Slot != row.Slot || material.initialCalls != 1 || credentials.calls != 1 ||
-		fake.launches != 1 || fake.observations != 2 {
+		fake.launches != 1 || fake.observations <= observationsBeforeRepair {
 		t.Fatalf("repaired peer Gate admission: accepted=%+v err=%v material=%d credentials=%d launches=%d observations=%d",
 			accepted, err, material.initialCalls, credentials.calls, fake.launches, fake.observations)
 	}

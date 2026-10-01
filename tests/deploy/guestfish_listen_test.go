@@ -76,7 +76,7 @@ func listenerObservation(t *testing.T, failure bool) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(root, "guestfish"), []byte("#!/bin/sh\nexec "+shellQuote(exe)+" -test.run=^TestOfflineListenerCommand$ -- \"$@\"\n"), 0755)
+	write(t, filepath.Join(root, "guestfish"), []byte("#!/bin/sh\nGOMAXPROCS=2 GORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestOfflineListenerCommand$ -- \"$@\"\n"), 0755)
 	t.Cleanup(func() {
 		b, err := os.ReadFile(pidFile)
 		if os.IsNotExist(err) {
@@ -107,7 +107,7 @@ func listenerObservation(t *testing.T, failure bool) map[string]any {
 		env = append(env, "OFFLINE_LISTENER_FAILURE=1")
 	}
 	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestNativeListenerObservation$", "--", flag)
-	cmd.Env = env
+	cmd.Env = append(env, "GOMAXPROCS=2", "GORACE="+os.Getenv("GORACE")+" atexit_sleep_ms=0")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

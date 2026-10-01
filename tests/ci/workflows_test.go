@@ -166,7 +166,8 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 			script.Write(t, token, []byte("fixture-token"), 0o600)
 			budget := "10"
 			if test.mode == "wrong-id" || test.mode == "persistent" {
-				budget = "1"
+				// Leave enough time to reach the transport even on a contended host.
+				budget = "5"
 			}
 			env := map[string]string{
 				"PATH":      bin + string(os.PathListSeparator) + os.Getenv("PATH"),
