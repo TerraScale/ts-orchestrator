@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -41,6 +42,26 @@ func mmReject(t *testing.T, err error, part string) {
 
 var mmMaterials = [][2]string{{"authority_tbca", "authority.tbca"}, {"trusted_public_key", "trusted-public-key"}, {"server_crt", "server.crt"}, {"server_key", "server.key"}, {"client_ca_pem", "client-ca.pem"}, {"server_ca_pem", "server-ca.pem"}, {"client_managed_manifest", "client-managed-manifest.json"}, {"client_config", "client-config.json"}, {"client_chain", "client-chain.pem"}, {"client_private_key", "client-private-key.pem"}, {"client_api_keys", "client-api-keys.json"}, {"signed_v2_s3_config", "signed-v2-s3-config.json"}}
 var mmMemberNames = []string{"volume_ext4", "authority_tbca", "trusted_public_key", "server_crt", "server_key", "client_ca_pem", "server_ca_pem", "client_managed_manifest", "client_config", "client_chain", "client_private_key", "client_api_keys", "client_api_token", "client_https_ca_pem", "signed_v2_s3_config"}
+
+// Every fixture volume is the same sparse 256 MiB of zeros. Hashing it once
+// per process keeps the fixture from dominating the suite; loading the
+// manifest still digests every volume.
+var mmVolumeDigest = sync.OnceValues(func() (string, error) {
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("tbmm-volume-%d", os.Getpid()))
+	file, err := os.Create(path)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(path)
+	if err = file.Truncate(256 << 20); err != nil {
+		file.Close()
+		return "", err
+	}
+	if err = file.Close(); err != nil {
+		return "", err
+	}
+	return fc.DirectDigest(path)
+})
 
 const mmRegion = "sa-saopaulo-1"
 const mmEndpoint = "https://rustfs.terrabase.test:9000"
@@ -123,7 +144,7 @@ func mmManifest(t *testing.T) *mmFixture {
 				if err = file.Close(); err != nil {
 					t.Fatal(err)
 				}
-				hash, err := fc.DirectDigest(path)
+				hash, err := mmVolumeDigest()
 				if err != nil {
 					t.Fatal(err)
 				}
