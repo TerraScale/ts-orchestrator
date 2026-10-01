@@ -134,8 +134,7 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 		!proof.Replication.CurrentAuthenticated ||
 		proof.Replication.LocalSourceSequence != proof.Object.LocalSourceSequence ||
 		proof.Replication.PeerAppliedSequence < proof.Replication.LocalSourceSequence ||
-		proof.Replication.PeerDurableSequence < proof.Replication.PeerAppliedSequence ||
-		proof.Replication.LocalInboxAppliedSequence > proof.Replication.LocalInboxDurableSequence {
+		!proof.Replication.ordered() {
 		return ServingProof{}, ErrNotServing
 	}
 	proof.verified = true

@@ -81,15 +81,28 @@ type ObjectProof struct {
 	RemoteAppliedSequence        uint64 `json:"remote_applied_sequence"`
 }
 
+// ReplicationProof carries both directions' received, durable and applied
+// prefixes. TerraBase releases before the received prefixes omit them.
 type ReplicationProof struct {
-	LocalSourceSequence       uint64 `json:"local_source_sequence"`
-	PeerMemberID              string `json:"peer_member_id"`
-	PeerIncarnation           string `json:"peer_incarnation"`
-	CurrentAuthenticated      bool   `json:"current_authenticated"`
-	PeerDurableSequence       uint64 `json:"peer_durable_sequence"`
-	PeerAppliedSequence       uint64 `json:"peer_applied_sequence"`
-	LocalInboxDurableSequence uint64 `json:"local_inbox_durable_sequence"`
-	LocalInboxAppliedSequence uint64 `json:"local_inbox_applied_sequence"`
+	LocalSourceSequence        uint64  `json:"local_source_sequence"`
+	PeerMemberID               string  `json:"peer_member_id"`
+	PeerIncarnation            string  `json:"peer_incarnation"`
+	CurrentAuthenticated       bool    `json:"current_authenticated"`
+	PeerReceivedSequence       *uint64 `json:"peer_received_sequence,omitzero"`
+	PeerDurableSequence        uint64  `json:"peer_durable_sequence"`
+	PeerAppliedSequence        uint64  `json:"peer_applied_sequence"`
+	LocalInboxReceivedSequence *uint64 `json:"local_inbox_received_sequence,omitzero"`
+	LocalInboxDurableSequence  uint64  `json:"local_inbox_durable_sequence"`
+	LocalInboxAppliedSequence  uint64  `json:"local_inbox_applied_sequence"`
+}
+
+// ordered reports whether each direction's prefixes satisfy
+// received >= durable >= applied; an omitted received prefix is not checked.
+func (r ReplicationProof) ordered() bool {
+	return r.PeerAppliedSequence <= r.PeerDurableSequence &&
+		(r.PeerReceivedSequence == nil || r.PeerDurableSequence <= *r.PeerReceivedSequence) &&
+		r.LocalInboxAppliedSequence <= r.LocalInboxDurableSequence &&
+		(r.LocalInboxReceivedSequence == nil || r.LocalInboxDurableSequence <= *r.LocalInboxReceivedSequence)
 }
 
 type ServingProof struct {

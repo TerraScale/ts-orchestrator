@@ -60,7 +60,13 @@ func validateProof(report, member Object, label string) Object {
 	if !exact(process, "pid", "start_nonce") || !exact(listeners, "client", "replication") || !same(scope, member["scope"]) || !same(authority, member["authority"]) {
 		fail("%s ServingProof process/scope/authority fields differ from alpha wire", label)
 	}
-	if !exact(ob, "root_sha256", "target_sha256", "native_commit_seq_at_recovery", "inbox_archive_sha256_at_recovery", "local_source_sequence", "remote_inbox_durable_sequence", "remote_applied_sequence") || !exact(rep, "local_source_sequence", "peer_member_id", "peer_incarnation", "current_authenticated", "peer_durable_sequence", "peer_applied_sequence", "local_inbox_durable_sequence", "local_inbox_applied_sequence") {
+	// TerraBase releases before the received prefixes omit both of them.
+	frontiers := []string{"local_source_sequence", "peer_durable_sequence", "peer_applied_sequence", "local_inbox_durable_sequence", "local_inbox_applied_sequence"}
+	_, received := rep["peer_received_sequence"]
+	if received {
+		frontiers = append(frontiers, "peer_received_sequence", "local_inbox_received_sequence")
+	}
+	if !exact(ob, "root_sha256", "target_sha256", "native_commit_seq_at_recovery", "inbox_archive_sha256_at_recovery", "local_source_sequence", "remote_inbox_durable_sequence", "remote_applied_sequence") || !exact(rep, append([]string{"peer_member_id", "peer_incarnation", "current_authenticated"}, frontiers...)...) {
 		fail("%s ServingProof frontier fields differ from alpha v1", label)
 	}
 	if !same(process["pid"], managed["process_pid"]) || process["start_nonce"] != managed["process_boot_id"] || !same(sub(managed, "member")["scope"], member["scope"]) || !same(managed["authority"], member["authority"]) {
@@ -77,13 +83,14 @@ func validateProof(report, member Object, label string) Object {
 	for _, k := range []string{"native_commit_seq_at_recovery", "local_source_sequence", "remote_inbox_durable_sequence", "remote_applied_sequence"} {
 		num(ob[k], label+" ServingProof object."+k, 0)
 	}
-	for _, k := range []string{"local_source_sequence", "peer_durable_sequence", "peer_applied_sequence", "local_inbox_durable_sequence", "local_inbox_applied_sequence"} {
+	for _, k := range frontiers {
 		num(rep[k], label+" ServingProof replication."+k, 0)
 	}
 	if _, ok := rep["current_authenticated"].(bool); !ok {
 		fail("ServingProof authentication flag must be boolean")
 	}
-	if !same(rep["local_source_sequence"], ob["local_source_sequence"]) || n(ob, "remote_applied_sequence") > n(ob, "remote_inbox_durable_sequence") || n(rep, "peer_applied_sequence") > n(rep, "peer_durable_sequence") || n(rep, "local_inbox_applied_sequence") > n(rep, "local_inbox_durable_sequence") {
+	if !same(rep["local_source_sequence"], ob["local_source_sequence"]) || n(ob, "remote_applied_sequence") > n(ob, "remote_inbox_durable_sequence") || n(rep, "peer_applied_sequence") > n(rep, "peer_durable_sequence") || n(rep, "local_inbox_applied_sequence") > n(rep, "local_inbox_durable_sequence") ||
+		received && (n(rep, "peer_received_sequence") < n(rep, "peer_durable_sequence") || n(rep, "local_inbox_received_sequence") < n(rep, "local_inbox_durable_sequence")) {
 		fail("%s ServingProof contains inconsistent alpha v1 frontier", label)
 	}
 	return proof
