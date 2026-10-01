@@ -126,15 +126,17 @@ convergence has been qualified.
 
 The NetBird routing peer on the Forgejo VM (`10.250.10.155`), reached from the
 cell through one local peering gateway pair and source-NATed to that address.
-The cell admits it only on TCP 4222 (controllers), 22 (controller A), and 9465
+The cell admits it only on TCP 22 (every server), 4222 (controllers), and 9465
 (members), never on 8443. The private subnet keeps no internet route, NAT, or
 public IP. The OCI Bastion remains the break-glass operator path.
 
 **Operator SSH**
 
-NetBird SSH served by every enrolled controller and managed host on its
-NetBird address. Sessions require the operator's NetBird identity-provider
-login and a manager policy; no OpenSSH keys are distributed.
+Two independent SSH paths into every controller and managed host. NetBird SSH
+listens on the server's NetBird address and requires the operator's NetBird
+identity-provider login and a manager policy. OpenSSH listens on the private
+IP and accepts the owner's Ed25519 key, which controller A receives in OCI
+`ssh_authorized_keys` launch metadata and forwards to every server it launches.
 
 **Production readiness**
 

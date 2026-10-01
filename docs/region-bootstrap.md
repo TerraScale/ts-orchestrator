@@ -173,9 +173,11 @@ also enroll as individual NetBird peers through their image's boot services.
 
 | Cell NSG | Gateway access |
 | --- | --- |
-| Controller (`network_security_group`) | TCP 4222, the NATS mTLS bridge |
-| Seed SSH (`seed_ssh_network_security_group`, controller A only) | TCP 22 |
-| Member workload (`workload_network_security_group`) | TCP 9465, the TerraBase client API |
+| Controller (`network_security_group`) | TCP 4222, the NATS mTLS bridge, and TCP 22, OpenSSH |
+| Member workload (`workload_network_security_group`) | TCP 9465, the TerraBase client API, and TCP 22, OpenSSH |
+
+The OCI Bastion endpoint (`10.251.0.18/32`) reaches TCP 22 through the same two
+NSGs.
 
 The gateway never reaches 8443: host enrollment accepts only the enrolling
 instance's own private IP. Servers initiate NetBird management, signal and
@@ -260,14 +262,26 @@ and confirm that its existing peer identity reconnects.
 
 ### Operator SSH and internal tools
 
-Every enrolled server serves NetBird SSH on its NetBird address. No OpenSSH key
-is distributed: a session requires the operator's NetBird identity provider
-login (JWT) and a manager policy allowing it. Enrollment enables root login,
-SFTP and local port forwarding, and keeps remote port forwarding and
-unauthenticated machine access off. It re-applies these settings whenever a
-server's effective NetBird configuration differs. `netbird.service` therefore
-runs unconfined, like `ssh.service`, and the server clock must stay in sync for
-JWT validation (the image's timesyncd configuration provides this).
+Every controller and managed host serves two independent SSH paths, so one can
+debug a server whose other path is broken:
+
+- **NetBird SSH** on the server's NetBird address. A session requires the
+  operator's NetBird identity provider login (JWT) and a manager policy.
+- **OpenSSH** on the server's private IP, through the routing peer or the OCI
+  Bastion. The image keeps Noble's `ssh.socket` enabled and the image build
+  fails without it. The operator's Ed25519 key (`owner_ssh_public_key` in the
+  attempt configuration) travels in OCI's standard `ssh_authorized_keys` launch
+  metadata: `preview.py seed-launch` sets it on controller A, which forwards it
+  with its other launch material to controllers B and C and to every managed
+  host. cloud-init authorizes it for the `ubuntu` user (passwordless `sudo`);
+  password login stays off.
+
+For NetBird SSH, enrollment enables root login, SFTP and local port
+forwarding, and keeps remote port forwarding and unauthenticated machine access
+off. It re-applies these settings whenever a server's effective NetBird
+configuration differs. `netbird.service` therefore runs unconfined, like
+`ssh.service`, and the server clock must stay in sync for JWT validation (the
+image's timesyncd configuration provides this).
 
 Peer traffic to a server's NetBird address is filtered by that server's NetBird
 firewall, independently of the OCI NSGs, and the manager denies it unless a
@@ -290,27 +304,35 @@ netbird ssh root@SERVER_NETBIRD_NAME
 netbird ssh -L 8080:127.0.0.1:8080 root@SERVER_NETBIRD_NAME   # loopback-only tool
 ```
 
-Plain `ssh` also works through the NetBird client's OpenSSH drop-in. The
-routing-peer path to private IPs and controller A's seed OpenSSH key remain
-available; the OCI Bastion remains the break-glass path.
+Plain `ssh` to a NetBird name also uses NetBird SSH, through the NetBird
+client's OpenSSH drop-in. For OpenSSH, dial the private IP over the routing peer:
+
+```sh
+ssh -i ~/.ssh/terrascale-owner ubuntu@10.251.0.12
+```
+
+Controller A prints its host key to the serial console at first boot. For the
+other servers, compare the host key on first connection with
+`netbird ssh root@SERVER_NETBIRD_NAME ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`.
+The OCI Bastion remains the break-glass path.
 
 ### Apply
 
 Start from a reviewed plan copy that declares `operator_gateway` with null LPG
 IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
-`SEED_SSH_NSG`, `WORKLOAD_NSG`, and `CELL_SL` from that plan, and
+`WORKLOAD_NSG`, and `CELL_SL` from that plan, and
 `FORGEJO_COMPARTMENT`, `FORGEJO_VCN`, `FORGEJO_RT`, and `FORGEJO_NSG` from the
 Forgejo resource manifest and primary VNIC.
 
-1. Take a read-only snapshot. Save both route tables with their ETags and all
-   three cell NSGs, and confirm that no LPG exists and that the only internet
+1. Take a read-only snapshot. Save both route tables with their ETags and
+   both cell NSGs, and confirm that no LPG exists and that the only internet
    gateways are Forgejo's and the public API's:
 
    ```sh
    oci network route-table get --rt-id "$CELL_RT" > cell-rt-before.json
    oci network route-table get --rt-id "$FORGEJO_RT" > forgejo-rt-before.json
    oci network security-list get --security-list-id "$CELL_SL" > cell-sl-before.json
-   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG" "$FORGEJO_NSG"; do
+   for nsg in "$CONTROL_NSG" "$WORKLOAD_NSG" "$FORGEJO_NSG"; do
      oci network nsg rules list --nsg-id "$nsg" --all > "nsg-rules-$nsg-before.json"
    done
    for compartment in "$NETWORK_COMPARTMENT" "$FORGEJO_COMPARTMENT"; do
@@ -351,8 +373,12 @@ Forgejo resource manifest and primary VNIC.
      printf '[{"direction":"INGRESS","protocol":"17","source":"%s","sourceType":"CIDR_BLOCK","isStateless":false,"udpOptions":{"destinationPortRange":{"min":%s,"max":%s}}}]' "$1" "$2" "$2"
    }
    oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 4222)"
-   oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 22)"
    oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 9465)"
+   for nsg in "$CONTROL_NSG" "$WORKLOAD_NSG"; do
+     for source in 10.250.10.155/32 10.251.0.18/32; do
+       oci network nsg rules add --nsg-id "$nsg" --security-rules "$(tcp_rule "$source" 22)"
+     done
+   done
    oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 443)"
    oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(udp_rule 10.251.0.0/25 3478)"
    for port in 4222 6222 8443; do
@@ -406,11 +432,12 @@ Forgejo resource manifest and primary VNIC.
    as `operator_gateway.local_peering_gateway_id` in the reviewed plan copy.
    Then run `inventory`, `admit`, and `inspect-foundation`; all three must pass.
 6. From an enrolled NetBird operator device, check that TCP 4222 on the
-   controllers, 22 on controller A, and 9465 on members connect, and that 8443
-   and 6222 do not. `operator ... --config FILE` then dials the controllers'
-   private IPs directly, without `--nats-forward`. Then check that `netbird ssh`
+   controllers, 22 on every controller and member, and 9465 on members
+   connect, and that 8443 and 6222 do not. `operator ... --config FILE` then
+   dials the controllers' private IPs directly, without `--nats-forward`. Then check that `netbird ssh`
    opens a root session on every controller and member over its NetBird
-   address, and that a device outside the operators group is refused.
+   address, that `ssh ubuntu@PRIVATE_IP` with the owner key opens one over the
+   routing peer, and that a device outside the operators group is refused.
 
 ### Rollback
 
@@ -422,7 +449,7 @@ Remove access in reverse order, so that no route outlives its target:
 2. Remove every NSG rule whose source is the gateway:
 
    ```sh
-   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG"; do
+   for nsg in "$CONTROL_NSG" "$WORKLOAD_NSG"; do
      ids=$(oci network nsg rules list --nsg-id "$nsg" --all \
        --query "data[?source=='10.250.10.155/32'].id")
      oci network nsg rules remove --nsg-id "$nsg" --security-rule-ids "$ids"
