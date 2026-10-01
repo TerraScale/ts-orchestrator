@@ -18,7 +18,7 @@ ci_run_id=${2:-}
 ci_run_number=${3:-}
 wait_seconds=${4:-6000}
 [[ $source_sha =~ ^[0-9a-f]{40}$ && $ci_run_id =~ ^[1-9][0-9]{0,17}$ &&
-	$ci_run_number =~ ^[1-9][0-9]{0,17}$ && $wait_seconds =~ ^(0|[1-9][0-9]{0,5})$ && $# -le 4 ]] || {
+	$ci_run_number =~ ^[1-9][0-9]{0,17}$ && $wait_seconds =~ ^[1-9][0-9]{0,5}$ && $# -le 4 ]] || {
 	echo "usage: $0 SOURCE_SHA CI_RUN_ID CI_RUN_NUMBER [WAIT_SECONDS]" >&2
 	exit 2
 }

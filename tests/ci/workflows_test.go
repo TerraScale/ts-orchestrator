@@ -127,6 +127,12 @@ func TestWorkflowContracts(t *testing.T) {
 }
 
 func TestImageGateWaitsForDispatchingRun(t *testing.T) {
+	t.Run("zero-budget-is-invalid", func(t *testing.T) {
+		result := script.Run(t, script.Root(t), nil, "bash", "scripts/ci/image-superseded.sh", strings.Repeat("a", 40), "42", "7", "0")
+		if result.Code != 2 || !strings.Contains(result.Stderr, "usage:") {
+			t.Fatalf("zero budget: %+v", result)
+		}
+	})
 	sleepPath, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Fatal(err)
