@@ -455,25 +455,33 @@ func TestProfileLogInventory(t *testing.T) {
 func TestVMStartupRoutesAPICallsAndSeparatesBoundedLogs(t *testing.T) {
 	dir := t.TempDir()
 	logs := filepath.Join(dir, "logs")
-	os.Mkdir(logs, 0700)
+	if err := os.Mkdir(logs, 0700); err != nil {
+		t.Fatal(err)
+	}
 	socket := filepath.Join(dir, "socket")
-	os.Mkdir(socket, 0700)
+	if err := os.Mkdir(socket, 0700); err != nil {
+		t.Fatal(err)
+	}
 	binary := filepath.Join(dir, "vmm")
-	script.Write(t, binary, []byte("#!/bin/sh\nprintf 'serial output\\n'\nprintf 'vmm output\\n' >&2\n: > \"$2\"\nsleep 20\n"), 0700)
+	// Publish readiness after writing both streams so Start cannot return
+	// before the fake VM emits the output that this test verifies.
+	script.Write(t, binary, []byte("#!/bin/sh\nset -eu\nprintf 'serial output\\n'\nprintf 'vmm output\\n' >&2\n: > \"$2\"\nsleep 20\n"), 0700)
 	vm := &VM{Firecracker: binary, Kernel: "kernel", Image: "rootfs", ManagedVolume: "managed-volume.ext4", SocketDir: socket, Logs: logs, Events: &EventLog{Path: filepath.Join(logs, "events.json")}}
 	var calls []APIRequest
 	vm.API = func(ctx context.Context, method, path string, payload Object) error {
 		calls = append(calls, APIRequest{method, path, payload})
 		return nil
 	}
+	t.Cleanup(func() {
+		if vm.Process != nil && !vm.Process.Reaped {
+			if err := vm.Process.Stop(time.Second, true); err != nil {
+				t.Error(err)
+			}
+		}
+	})
 	if e := vm.Start(t.Context()); e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(func() {
-		if !vm.Process.Reaped {
-			vm.Process.Stop(time.Second, true)
-		}
-	})
 	if len(calls) != len(vm.Requests())+1 || calls[0].Method != "GET" || calls[0].Path != "/version" {
 		t.Fatal(calls)
 	}
@@ -492,6 +500,6 @@ func TestVMStartupRoutesAPICallsAndSeparatesBoundedLogs(t *testing.T) {
 	serial := string(script.Read(t, filepath.Join(logs, "guest-serial.log")))
 	vmm := string(script.Read(t, filepath.Join(logs, "firecracker-vmm.log")))
 	if serial != "serial output\n" || vmm != "vmm output\n" {
-		t.Fatal(serial, vmm)
+		t.Fatalf("serial output = %q; VMM output = %q", serial, vmm)
 	}
 }
