@@ -24,6 +24,8 @@ heavy_tests=(
 	TestLabTLSHostSessionRecoversAfterBlackholedController
 	TestLabTLSHostSessionRecoversAfterControllerLoss
 	TestAuthenticatedOperatorToHostDeliveryWithControllerLoss
+	TestOfflineRejectsBaseArtifacts
+	TestOfflineReadbackMismatchDiscardsCandidate
 )
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }

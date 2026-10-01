@@ -533,6 +533,7 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 		{"priority-floor", "system.slice floors must cover aggregate", func(*offlineFixture) {}, map[string]string{"--system-slice-memory-min-bytes": strconv.Itoa(64 << 20)}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			tc.prepare(f)
 			f.reject(f.run(nil, tc.replace, tc.env), tc.message)
@@ -551,6 +552,7 @@ func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
 	t.Parallel()
 	for _, guest := range []string{netbirdGuest, netbirdConfigGuest, "/usr/local/bin/terrascale-orchestrator", verifierGuest, ociRuleGuest, kernelGuest} {
 		t.Run(guest, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			f.reject(f.run(nil, nil, map[string]string{"GUESTFISH_CORRUPT_READBACK": guest}), "finished image bytes differ from the expected SHA-256: "+guest)
 			contains(t, f.eventText(), "guestfish-listen-ro")
@@ -567,6 +569,7 @@ func TestOfflineRejectsBaseArtifacts(t *testing.T) {
 	paths = append(paths, priorityHelperGuest)
 	for _, guest := range paths {
 		t.Run(guest, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			write(t, f.path(guest), []byte("conflicting image file\n"), 0644)
 			message := ""
@@ -615,6 +618,7 @@ func TestOfflineRejectsDeploymentFlagsBeforeImageEffects(t *testing.T) {
 	t.Parallel()
 	for _, flag := range []string{"--bootstrap-tool", "--bootstrap-anchor", "--bootstrap-identity", "--host-enrollment-public", "--host-enrollment-public-sha256", "--receipt", "--delegation", "--root-key", "--environment"} {
 		t.Run(flag, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			material := filepath.Join(f.inputs, "deployment material.json")
 			write(t, material, []byte("{}"), 0644)
@@ -630,6 +634,7 @@ func TestOfflineValidatesRevisionAndKernelReleaseBeforeEffects(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ flag, value string }{{"--source-revision", "HEAD"}, {"--source-revision", strings.ToUpper(offlineSource)}, {"--kernel-release", "../vmlinuz"}} {
 		t.Run(tc.flag+"="+tc.value, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			equal(t, f.run(nil, map[string]string{tc.flag: tc.value}, nil).Code, 2)
 			absent(t, f.events)
@@ -656,6 +661,7 @@ func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
 		}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			tc.prepare(f)
 			f.reject(f.run(nil, tc.replace, nil), tc.message)
@@ -664,6 +670,7 @@ func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
 		})
 	}
 	t.Run("gzip", func(t *testing.T) {
+		t.Parallel()
 		f := newOffline(t)
 		var b bytes.Buffer
 		gz := gzip.NewWriter(&b)
@@ -686,6 +693,7 @@ func TestOfflineCreatesMissingUploadParents(t *testing.T) {
 		env   map[string]string
 	}{{"native-library", []string{"/usr/local/lib/terrascale-orchestrator"}, map[string]string{"VIRT_FAIL_MISSING_LSTAT": "1"}}, {"upload-parents", []string{"/etc/sysusers.d", "/etc/systemd/system", "/etc/systemd", "/usr/local/bin"}, nil}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			if tc.name == "upload-parents" {
 				for _, directory := range []string{"sockets.target.wants", "ssh.service.requires"} {
@@ -772,6 +780,7 @@ func TestOfflineRejectsUnsafeNativeVerifierParents(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			tc.prepare(f)
 			r := f.run(nil, nil, nil)
@@ -792,6 +801,7 @@ func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
 	t.Parallel()
 	for _, guest := range []string{"/etc/sysusers.d", "/usr/local/bin"} {
 		t.Run(guest, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			p := f.path(guest)
 			if err := os.Remove(p); err != nil {
@@ -807,11 +817,13 @@ func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
 func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
 	t.Parallel()
 	t.Run("version", func(t *testing.T) {
+		t.Parallel()
 		f := newOffline(t)
 		write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 256.1\n\n"), 0644)
 		f.reject(f.run(nil, nil, nil), "audited Noble systemd 255")
 	})
 	t.Run("install", func(t *testing.T) {
+		t.Parallel()
 		f := newOffline(t)
 		write(t, f.path("/usr/lib/systemd/system/systemd-timesyncd.service"), []byte("[Install]\nWantedBy=sysinit.target\nFoo=bar\n"), 0644)
 		f.reject(f.run(nil, nil, nil), "unsupported systemd [Install] entry")
@@ -838,6 +850,7 @@ func TestOfflineEveryImageRequiresEnabledOpenSSHServer(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			tc.change(f)
 			f.reject(f.run(nil, nil, nil), tc.message)
@@ -882,6 +895,7 @@ func TestOfflineRequiresPinnedVolumeTools(t *testing.T) {
 		missingTool   bool
 	}{{"missing-package", "pinned e2fsprogs", false}, {"missing-tool", "missing required volume tool", true}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			if tc.missingTool {
 				if err := os.Remove(f.path("/usr/sbin/mkfs.ext4")); err != nil {
@@ -904,6 +918,7 @@ func TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange(t *testing.T) 
 	}{{"missing", nil}, {"empty-list", []byte("[Time]\nNTP=\n")}, {"lab-endpoint", []byte("[Time]\nNTP=198.19.8.1\n")}, {"accumulated-lab", []byte("[Time]\nNTP=198.19.8.1\nNTP=ntp.deployment.example\n")}, {"empty-reset", []byte("[Time]\nNTP=ntp.deployment.example\nNTP=\n")}, {"oversize", append([]byte("[Time]\nNTP=ntp.example\n"), bytes.Repeat([]byte("#"), 16*1024)...)}, {"continuation", []byte("[Time]\nNTP=ntp.example \\\nntp2.example\n")}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			if tc.data == nil {
 				if err := os.Remove(f.timesync); err != nil {
@@ -918,6 +933,7 @@ func TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange(t *testing.T) 
 		})
 	}
 	t.Run("reset-normalized", func(t *testing.T) {
+		t.Parallel()
 		f := newOffline(t)
 		write(t, f.timesync, []byte("# Systemd empty assignments reset earlier list members.\n[Time]\nPollIntervalMinSec=16\nPollIntervalMaxSec=2048\nNTP=198.19.8.1\nNTP=\nNTP=ntp.deployment.example\nFallbackNTP=198.19.3.5\nFallbackNTP=\nFallbackNTP=fallback.deployment.example\n"), 0644)
 		r := f.run(nil, nil, nil)
@@ -932,6 +948,7 @@ func TestOfflineRejectsCompetingTimesyncConfiguration(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, path, contents string }{{"endpoint", "/etc/systemd/timesyncd.conf.d/20-base.conf", "[Time]\nNTP=base.example\n"}, {"poll", "/etc/systemd/timesyncd.conf.d/zz-base.conf", "[Time]\nPollIntervalMaxSec=2048\n"}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			write(t, f.path(tc.path), []byte(tc.contents), 0644)
 			r := f.run(nil, nil, nil)
@@ -1017,6 +1034,7 @@ func TestOfflineRootSetBoundsBeforeVerification(t *testing.T) {
 		count, size int
 	}{{"too-many", bakedLimit(t, "MaxRootFiles") + 1, 4}, {"per-root", 1, 16*1024 + 1}, {"total", 5, 16 * 1024}} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newOffline(t)
 			var roots []string
 			for i := range tc.count {
