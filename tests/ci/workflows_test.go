@@ -60,17 +60,22 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Fatalf("paths-ignore: %v", patterns)
 		}
 		forbidText(t, image, "  push:")
+		// The image job starts with the checks and waits for them to pass.
 		steps := matches(ci, `(?m)^      - name: (.+)$`)
-		if len(steps) == 0 || steps[len(steps)-1] != "Start the image build for this revision" {
-			t.Fatalf("last step: %v", steps)
+		if len(steps) < 2 || steps[1] != "Start the image build for this revision" {
+			t.Fatalf("second step: %v", steps)
 		}
-		_, last, _ := strings.CutLast(ci, "- name:")
-		requireText(t, last, "run: bash scripts/ci/dispatch-image.sh")
-		requireText(t, last, "continue-on-error: true")
+		_, dispatchStep, _ := strings.Cut(ci, "- name: Start the image build for this revision")
+		dispatchStep, _, _ = strings.Cut(dispatchStep, "- name:")
+		requireText(t, dispatchStep, "run: bash scripts/ci/dispatch-image.sh")
+		requireText(t, dispatchStep, "continue-on-error: true")
 		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `trigger:"ci"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
 		requireText(t, image, "  cancel-in-progress: false\n")
-		requireText(t, image, "bash scripts/ci/image-superseded.sh")
+		requireText(t, image, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" 1800`)
+		if tools, gate := strings.Index(image, "deploy/image/tools.sh true"), strings.Index(image, "scripts/ci/image-superseded.sh"); tools < 0 || tools > gate {
+			t.Error("image tools are not prepared before the CI gate")
+		}
 	})
 	t.Run("release_admission_job", func(t *testing.T) {
 		const name = "verify/go + artifact/linux-amd64-arm64"
