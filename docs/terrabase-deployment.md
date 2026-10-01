@@ -36,7 +36,7 @@ the step that would hold.
    paravirtualized with PV in-transit encryption, at the lowest free OCI device
    path (`/dev/oracleoci/oraclevdb` for the first data volume), and only to an
    instance that reports consistent volume naming. The image capability schema
-   written by `deploy/oci-region/import-image.py` enables both launch options.
+   written by `ts-orch oci-region import-image` enables both launch options.
    Inside the guest, `/etc/udev/rules.d/65-terrascale-oci-device-paths.rules`
    (from `deploy/udev/`) links each `ORACLE BlockVolume` disk on the
    virtio-scsi controller to `/dev/oracleoci/oraclevd<x>` by its LUN, as OCI

@@ -401,7 +401,7 @@ rules are not restored; nothing listens on those ports.
 
 ## Public TerraBase API
 
-`deploy/oci-region/public-api.py` exposes the members' TerraBase HTTPS API
+`ts-orch oci-region public-api` exposes the members' TerraBase HTTPS API
 through a public Network Load Balancer. It creates an internet gateway, the
 public subnet `10.251.0.128/26` with its own route table and security list, a
 TCP passthrough NLB on 443 to each member's client port, and the one
@@ -410,7 +410,7 @@ keep private addresses, and TerraBase terminates TLS and authenticates every
 request.
 
 The plan declares this as `public_api` (`subnet_cidr`, `listener_port`,
-`client_port`). After `public-api.py` runs, record `internet_gateway`,
+`client_port`). After `ts-orch oci-region public-api` runs, record `internet_gateway`,
 `public_subnet`, `public_route_table`, `public_security_list`, and
 `network_load_balancer` in the reviewed plan copy. `load_plan` requires the
 public subnet to be inside the VCN and outside the private subnet, and admits
@@ -671,7 +671,7 @@ and the intended network boundary.
 
    Do not launch controller A until the exact signed reservation is published.
 9. Start only controller A with the rendered launch input. Import the image
-   with `deploy/oci-region/import-image.py` first: it applies the UEFI
+   with `ts-orch oci-region import-image` first: it applies the UEFI
    firmware, paravirtualized-device and A1-only shape contract that an ARM
    instance needs to boot. An imported image without that capability schema
    launches with BIOS firmware and never boots.
