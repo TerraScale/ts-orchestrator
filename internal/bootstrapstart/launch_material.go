@@ -172,7 +172,7 @@ func (store bakedStore) verifyLaunchMaterial(material LaunchMaterial, now time.T
 }
 
 // validateOperatorSSHKey accepts exactly one canonical OpenSSH Ed25519 public
-// key line without a trailing newline, the form preview.py renders.
+// key line without a trailing newline, the form ts-orch oci-region preview renders.
 func validateOperatorSSHKey(wire []byte) error {
 	parts := strings.Split(string(wire), " ")
 	if len(wire) > maxOperatorSSHKey || len(parts) < 2 || len(parts) > 3 || parts[0] != "ssh-ed25519" ||

@@ -92,7 +92,7 @@ func ppNew(t *testing.T) *ppFixture {
 		rules := []any{}
 		for _, v := range ppRows(sec["nsg_rules"]) {
 			r := ppMap(v)
-			if r["source"] != "10.250.10.155/32" {
+			if r["source"] != "10.250.10.155/32" && r["tcp_min"] != float64(22) {
 				r["source"] = cidr
 				rules = append(rules, r)
 			}

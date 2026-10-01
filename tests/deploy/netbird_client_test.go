@@ -260,7 +260,7 @@ func TestNetbirdUnitsRetryWithoutGatingOrchestrator(t *testing.T) {
 	}
 	for _, confinement := range []string{"CapabilityBoundingSet", "NoNewPrivileges", "ProtectSystem", "ProtectHome", "RestrictSUIDSGID", "DevicePolicy"} {
 		if strings.Contains(daemon, confinement) {
-			t.Fatalf("NetBird SSH sessions require an unconfined daemon: %s", confinement)
+			t.Errorf("NetBird SSH sessions need an unconfined daemon: %s", confinement)
 		}
 	}
 	for _, want := range []string{"Restart=on-failure", "StartLimitIntervalSec=0", "TimeoutStartSec=180s", "ConditionPathExists=/etc/terrascale-orchestrator/netbird.json", "UnsetEnvironment=OCI_GO_SDK_DEBUG"} {

@@ -348,6 +348,15 @@ func newOffline(t *testing.T) *offlineFixture {
 		write(t, f.path("/usr/lib/systemd/system/"+name), []byte("[Unit]\nDescription="+name+"\n[Install]\nWantedBy=sysinit.target\n"), 0644)
 	}
 	write(t, f.path("/usr/lib/systemd/system/ssh.socket"), []byte("[Unit]\nDescription=OpenBSD Secure Shell server socket\n[Install]\nWantedBy=sockets.target\nRequiredBy=ssh.service\n"), 0644)
+	for _, directory := range []string{"sockets.target.wants", "ssh.service.requires"} {
+		link := f.path("/etc/systemd/system/" + directory + "/ssh.socket")
+		if err := os.MkdirAll(filepath.Dir(link), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("/usr/lib/systemd/system/ssh.socket", link); err != nil {
+			t.Fatal(err)
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -498,6 +507,9 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 	}
 	for _, name := range []string{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service"} {
 		symlink(t, f.path("/etc/systemd/system/multi-user.target.wants/"+name))
+	}
+	for _, link := range []string{"sockets.target.wants/ssh.socket", "ssh.service.requires/ssh.socket"} {
+		symlink(t, f.path("/etc/systemd/system/"+link))
 	}
 	absent(t, f.path("/etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-bootstrap.service"))
 	equal(t, bytes.Contains(read(t, filepath.Join(deployRoot(t), "deploy/image/build-offline.sh")), []byte("--run-command")), false)
@@ -678,6 +690,13 @@ func TestOfflineCreatesMissingUploadParents(t *testing.T) {
 	}{{"native-library", []string{"/usr/local/lib/terrascale-orchestrator"}, map[string]string{"VIRT_FAIL_MISSING_LSTAT": "1"}}, {"upload-parents", []string{"/etc/sysusers.d", "/etc/systemd/system", "/etc/systemd", "/usr/local/bin"}, nil}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newOffline(t)
+			if tc.name == "upload-parents" {
+				for _, directory := range []string{"sockets.target.wants", "ssh.service.requires"} {
+					if err := os.RemoveAll(f.path("/etc/systemd/system/" + directory)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			for _, path := range tc.paths {
 				if err := os.Remove(f.path(path)); err != nil {
 					t.Fatal(err)
@@ -695,6 +714,9 @@ func TestOfflineCreatesMissingUploadParents(t *testing.T) {
 				equal(t, metadata[path], []any{float64(0), float64(0)})
 			}
 			if tc.name == "upload-parents" {
+				for _, link := range []string{"sockets.target.wants/ssh.socket", "ssh.service.requires/ssh.socket"} {
+					symlink(t, f.path("/etc/systemd/system/"+link))
+				}
 				info, err := os.Stat(f.path("/etc/sysusers.d/terrascale-orchestrator.conf"))
 				if err != nil {
 					t.Fatal(err)
@@ -797,6 +819,34 @@ func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
 		write(t, f.path("/usr/lib/systemd/system/systemd-timesyncd.service"), []byte("[Install]\nWantedBy=sysinit.target\nFoo=bar\n"), 0644)
 		f.reject(f.run(nil, nil, nil), "unsupported systemd [Install] entry")
 	})
+}
+
+func TestOfflineEveryImageRequiresEnabledOpenSSHServer(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, message string
+		change        func(*offlineFixture)
+	}{
+		{"missing-package", "installed openssh-server package", func(f *offlineFixture) {
+			p := f.path("/var/lib/dpkg/status")
+			write(t, p, bytes.ReplaceAll(read(t, p), []byte("Package: openssh-server"), []byte("Package: openssh-client")), 0644)
+		}},
+		{"disabled-server", "OpenSSH disable marker", func(f *offlineFixture) {
+			write(t, f.path("/etc/ssh/sshd_not_to_be_run"), nil, 0644)
+		}},
+		{"masked-socket", "required systemd unit is masked: ssh.socket", func(f *offlineFixture) {
+			if err := os.Symlink("/dev/null", f.path("/etc/systemd/system/ssh.socket")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newOffline(t)
+			tc.change(f)
+			f.reject(f.run(nil, nil, nil), tc.message)
+			absent(t, f.output)
+		})
+	}
 }
 
 func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {

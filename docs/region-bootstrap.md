@@ -271,7 +271,7 @@ debug a server whose other path is broken:
   Bastion. The image keeps Noble's `ssh.socket` enabled and the image build
   fails without it. The operator's Ed25519 key (`owner_ssh_public_key` in the
   attempt configuration) travels in OCI's standard `ssh_authorized_keys` launch
-  metadata: `preview.py seed-launch` sets it on controller A, which forwards it
+  metadata: `ts-orch oci-region preview seed-launch` sets it on controller A, which forwards it
   with its other launch material to controllers B and C and to every managed
   host. cloud-init authorizes it for the `ubuntu` user (passwordless `sudo`);
   password login stays off.

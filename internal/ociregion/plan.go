@@ -155,7 +155,7 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 	if gateway != nil {
 		source = text(gateway["private_ip"]) + "/32"
 	}
-	ports := map[string]int{"nsg_rules": 4222, "workload_nsg_rules": 9465}
+	ports := map[string][]int{"nsg_rules": {22, 4222}, "workload_nsg_rules": {22, 9465}}
 	for _, key := range ingressLists {
 		for _, v := range arr(sec[key]) {
 			r := obj(v)
@@ -163,8 +163,11 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 				fail("manual plan " + key + " must hold stateful CIDR ingress rules only")
 			}
 			if source != "" && r["source"] == source {
-				port, ok := ports[key]
-				if !ok || r["protocol"] != "6" || !eq(r["tcp_min"], r["tcp_max"]) || (!eq(r["tcp_min"], 22) && !eq(r["tcp_min"], port)) {
+				allowed := false
+				for _, port := range ports[key] {
+					allowed = allowed || eq(r["tcp_min"], port)
+				}
+				if !allowed || r["protocol"] != "6" || !eq(r["tcp_min"], r["tcp_max"]) {
 					fail("manual plan " + key + " admits the operator gateway outside its allowed ports")
 				}
 			} else if !within(r["source"], network) {

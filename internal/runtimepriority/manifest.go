@@ -85,7 +85,7 @@ func validateManaged(v any) Object {
 		fail("managed_member.document does not match alpha document transaction input")
 	}
 	num(d["schema_generation"], "schema_generation", 1)
-	text(d["utf8_field"], "utf8_field")
+	text(d["utf8_field"], "managed_member.document.utf8_field")
 	return m
 }
 func validateHTTPS(value any, label string) {

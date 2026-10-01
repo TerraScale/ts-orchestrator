@@ -1,6 +1,6 @@
 # Preview contract coverage
 
-The native Go tables preserve all 52 original test methods as 289 isolated API observations. Each case pins the complete return value or exception type/message, exact dependency calls (serial order and concurrent read multisets), and resulting files/modes. Shared JSON fixtures contain only data. Test time is supplied by Go so freshness/expiry inputs remain deterministic.
+The native Go tables preserve all 52 upstream test methods after the shared OpenSSH policy update as 288 isolated API observations. Each case pins the complete return value or exception type/message, ordered dependency calls, and resulting files/modes. Shared JSON fixtures contain only data. Dependency command records use the unified bootstrap/release namespaces. Test time is supplied by Go so freshness/expiry inputs remain deterministic.
 
 | Original test method | Native API cases |
 | --- | --- |
@@ -42,12 +42,12 @@ The native Go tables preserve all 52 original test methods as 289 isolated API o
 | PreviewAdmissionTests.test_public_api_subnet_inside_cell_outside_private_subnet | `load_plan` × 8 |
 | PreviewAdmissionTests.test_public_subnet_reaches_members_only_on_client_port | `load_plan` × 4 |
 | PreviewAdmissionTests.test_route_rules_service_gateway_plus_single_gateway_peering | `load_plan` × 7 |
-| PreviewAdmissionTests.test_rule_sources_limited_to_cell_or_gateway | `load_plan` × 12 |
+| PreviewAdmissionTests.test_rule_sources_limited_to_cell_or_gateway | `load_plan` × 14 |
 | PreviewAdmissionTests.test_seed_a_requires_exact_plan_ocid_and_bootstrap_create_key | `estimate` × 1 |
 | PreviewAdmissionTests.test_seed_create_identity_survives_recording_the_launched_instance | `load_plan` × 3, `create_identity` × 3 |
-| PreviewAdmissionTests.test_seed_launch_carries_launch_material_and_rejects_drift | `seed_launch` × 4 |
+| PreviewAdmissionTests.test_seed_launch_carries_launch_material_and_rejects_drift | `seed_launch` × 5 |
 | PreviewAdmissionTests.test_seed_preflight_binds_foundation_and_signed_image | `estimate` × 1, `verify_seed_preflight` × 13, `create_identity` × 1, `canonical_manual_seed_plan` × 1 |
-| PreviewAdmissionTests.test_seed_preflight_uses_explicit_tool_conventions | `seed_preflight` × 5 |
+| PreviewAdmissionTests.test_seed_preflight_uses_verified_anchor_command | `seed_preflight` × 1 |
 | PreviewAdmissionTests.test_stale_inventory_fails_closed | `estimate` × 1 |
 | PreviewAdmissionTests.test_unbudgeted_instance_fails_closed | `estimate` × 1 |
 | PreviewAdmissionTests.test_unknown_paid_network_resource_fails_closed | `estimate` × 1 |
