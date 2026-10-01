@@ -11,7 +11,7 @@ These pages describe the current greenfield Go implementation.
 | [Continuous delivery](continuous-delivery.md) | Opt-in TerraBase release automation, signed image replacement design and human trust decisions |
 | [Broker account rotation](broker-claim-rotation.md) | Operator `broker-claim-apply` procedure and receipts |
 | [Workspace GOAL](../../GOAL.md) | Current cross-repository delivery authority and status |
-| [Shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md) | Dated cross-repository gate and evidence snapshot |
+| [Shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md) | Gate index, formal count, live preview entries and current handoff; one evidence file per gate in [`evidence/gates/`](evidence/gates/) and per pipeline lane in [`evidence/pipeline/`](evidence/pipeline/) |
 | [Qualification status 2026-09-26](qualification-status-20260926.md) | Dated migration and qualification snapshot; not the current gate ledger |
 | [Production readiness checkpoint](production-readiness.md) | Checkpoint status and open areas |
 | [Production readiness plan](production-readiness-plan.md) | Dated readiness audit, historical canary, and open gate order |
