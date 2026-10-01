@@ -159,10 +159,16 @@ func Open(ctx context.Context, cfg Config) (*Service, error) {
 	}
 	stream, err := cfg.JS.Stream(ctx, "OBJ_"+ArtifactBucket)
 	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, fmt.Errorf("%w: inspect artifact store limits: %w", ErrStoreNotReady, err)
+		}
 		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
 	}
 	streamInfo, err := stream.Info(ctx)
 	if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, fmt.Errorf("%w: inspect artifact store limits: %w", ErrStoreNotReady, err)
+		}
 		return nil, fmt.Errorf("inspect artifact store limits: %w", err)
 	}
 	if streamInfo.Config.MaxBytes != artifactStoreMaxBytes || streamInfo.Config.Discard != jetstream.DiscardNew {
