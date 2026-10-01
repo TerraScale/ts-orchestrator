@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json/v2"
 	"fmt"
+	"os"
 	"os/exec"
+	"syscall"
 	"time"
 )
 
@@ -25,6 +27,14 @@ func (c CLI) execute(ctx context.Context, args []string) ([]byte, error) {
 		args = append([]string{"--region", c.Region}, args...)
 	}
 	cmd := exec.CommandContext(ctx, "oci", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if err == syscall.ESRCH {
+			return os.ErrProcessDone
+		}
+		return err
+	}
 	cmd.WaitDelay = 2 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

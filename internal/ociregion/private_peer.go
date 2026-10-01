@@ -334,7 +334,17 @@ func (e *Engine) inspectPrivatePeer(paths []string) Object {
 		fail("private peer inspection requires intent and both plan, inventory, admission paths")
 	}
 	wire := readBytes(paths[0], 64*1024, "private peer intent")
-	intent := readJSON(paths[0], 64*1024, "private peer intent")
+	value, err := decodeJSON(wire)
+	if err != nil {
+		if strings.Contains(err.Error(), "duplicate") {
+			fail("JSON document has duplicate fields")
+		}
+		fail("private peer intent is unreadable or invalid JSON")
+	}
+	intent, ok := value.(Object)
+	if !ok {
+		fail("private peer intent must be an object")
+	}
 	intentSHA := wireSHA(wire)
 	if fileSHA(paths[0]) != intentSHA {
 		fail("private peer intent changed while it was being read")

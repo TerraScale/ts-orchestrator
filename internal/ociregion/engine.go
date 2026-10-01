@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -413,10 +414,22 @@ func (e *Engine) process(command []string) Object {
 	ctx, cancel := context.WithTimeout(e.ctx(), 180*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if err == syscall.ESRCH {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	cmd.WaitDelay = 2 * time.Second
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
+	if ctx.Err() != nil {
+		panic(ctx.Err())
+	}
 	code := 0
 	if err != nil {
 		if cmd.ProcessState == nil {
