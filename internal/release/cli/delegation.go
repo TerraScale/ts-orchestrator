@@ -38,11 +38,14 @@ func (architectures *releaseArchitectures) Set(value string) error {
 	return nil
 }
 
-func signDelegation(args []string) error {
-	return signDelegationAt(args, time.Now().UTC())
+func (c command) signDelegation(args []string) error {
+	return c.signDelegationAt(args, time.Now().UTC())
 }
 
-func signDelegationAt(args []string, now time.Time) error {
+func (c command) signDelegationAt(args []string, now time.Time) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	flags := flag.NewFlagSet("sign-delegation", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	leafPath := flags.String("subject-public-key", "", "delegated Ed25519 PKIX public key PEM")
@@ -140,6 +143,9 @@ func signDelegationAt(args []string, now time.Time) error {
 	}
 	delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: leafID,
 		SubjectPublicKey: leafEncoded, Capabilities: capabilities}
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	envelope, err := trust.SignDelegation(delegation, issuedAt, expiresAt, rootPrivate)
 	if err != nil {
 		return err
@@ -160,7 +166,7 @@ func signDelegationAt(args []string, now time.Time) error {
 	if verified.SubjectKeyID() != leafID || !reflect.DeepEqual(verified.Capabilities(), capabilities) {
 		return errors.New("signed release delegation differs from exact requested capabilities")
 	}
-	return writeNew(*output, wire, 0o644)
+	return c.writeNew(*output, wire, 0o644)
 }
 
 func sameCapabilitySet(actual, expected []trust.Capability) bool {

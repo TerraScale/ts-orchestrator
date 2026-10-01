@@ -89,7 +89,7 @@ func (c command) renderOperatorConfigAt(args []string, now time.Time) error {
 	if err != nil || len(wire) == 0 || len(wire) > 16<<10 {
 		return errors.New("rendered operator config exceeds size bound")
 	}
-	if err := writeNew(*outputPath, wire, 0o600); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o600); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "rendered operator config actor=%s sha256=%s\n", grant.Actor, controllerConfigDigest(wire))

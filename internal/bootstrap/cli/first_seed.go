@@ -240,12 +240,12 @@ func readSeedBundle[T any](path string) (T, []byte, error) {
 	return value, wire, nil
 }
 
-func writeSeedBundle(path string, value any) error {
+func (c command) writeSeedBundle(path string, value any) error {
 	wire, err := protocol.EncodeJSON(value)
 	if err != nil || len(wire) > seedBundleMaxBytes {
 		return fmt.Errorf("%w: encode bounded seed bundle: %v", ErrSeedCLI, err)
 	}
-	return writeNew(path, wire, 0o644)
+	return c.writeNew(path, wire, 0o644)
 }
 
 func readSeedLedgerSigner(path string, anchor bootstrap.VerifiedBootstrapAnchor) (ed25519.PrivateKey, error) {
@@ -404,7 +404,7 @@ func (c command) signPeerReceiptDelegationAt(args []string, now time.Time) error
 	if err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed peer receipt delegation slots=controller-b,controller-c digest=%s\n", seedDigest(wire))
@@ -618,7 +618,7 @@ func (c command) signSeedReservationAt(args []string, now time.Time) error {
 	if _, err := verifySeedReservation(inputs, reservation, now, false); err != nil {
 		return err
 	}
-	if err := writeSeedBundle(*output, reservation); err != nil {
+	if err := c.writeSeedBundle(*output, reservation); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed external seed reservation slot=%s intent=%s reviewed-plan=%s\n",
@@ -757,7 +757,7 @@ func (c command) observeExternalSeedAt(args []string, now time.Time) error {
 		return err
 	}
 	observation := seedObservationFromOCI(seedDigest(reservationWire), observed, now)
-	if err := writeSeedBundle(*output, observation); err != nil {
+	if err := c.writeSeedBundle(*output, observation); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "observed exact external seed slot=%s instance=%s reservation=%s\n",
@@ -882,7 +882,7 @@ func (c command) signSeedCompletionAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := writeSeedBundle(*output, completion); err != nil {
+	if err := c.writeSeedBundle(*output, completion); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed external seed completion slot=%s instance=%s receipt=%s result=%s\n",

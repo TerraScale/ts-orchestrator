@@ -1,6 +1,7 @@
 """Exercise deploy/image/promote-image.py against fake Forgejo, OCI and ts-orch tools."""
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -10,9 +11,14 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 PROMOTE = ROOT / "deploy/image/promote-image.py"
+SPEC = importlib.util.spec_from_file_location("promote_image", PROMOTE)
+promote_image = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(promote_image)
 SOURCE = "5ff44290b67a91c3b27373c6661d778fe6ef8ffc"
 IMAGE_RUN_ID, IMAGE_RUN_NUMBER, IMAGE_JOB_ID = 11738, 713, 25300
 GO_RUN_ID, GO_RUN_NUMBER = 11737, 712
@@ -357,6 +363,79 @@ class PromoteImageTests(unittest.TestCase):
         result = self.promote("--dry-run")
         self.assertEqual(result.returncode, 1)
         self.assertIn("lacks the pinned `fj actions run-detail` extension", result.stderr)
+
+
+class PromotionToolBuildTests(unittest.TestCase):
+    """Exercise the automatic pinned-source path, without fetching a remote."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.work = Path(temporary.name)
+        self.promotion = promote_image.Promotion.__new__(promote_image.Promotion)
+        self.promotion.args = SimpleNamespace(release_tool=None)
+        self.promotion.work = self.work
+        self.promotion.receipt = {"tools": {}}
+
+    def build_tool(self, unified, *, revision=SOURCE, modified=False, build_failure=False):
+        checkout = self.work / "source"
+
+        def run(command, **kwargs):
+            if command[:2] == ["git", "-C"]:
+                if command[3:5] == ["worktree", "add"]:
+                    self.assertEqual(command[-1], SOURCE)
+                    marker = checkout / ("internal/release/cli/run.go" if unified else "cmd/ts-release/main.go")
+                    marker.parent.mkdir(parents=True)
+                    marker.write_text("pinned source entry point")
+                elif command[3:5] == ["worktree", "remove"]:
+                    shutil.rmtree(checkout)
+            elif command[:3] == ["nice", "-n", "19"]:
+                self.assertEqual(kwargs["cwd"], checkout)
+                self.assertIn("-trimpath", command)
+                self.assertIn("-buildvcs=true", command)
+                if build_failure:
+                    raise subprocess.CalledProcessError(1, command)
+                tool = Path(command[command.index("-o") + 1])
+                # Executing the selected tool later rejects the wrong prefix.
+                check = '[ "$1" = release ] && [ "$2" = verify-binary ]' if unified else '[ "$1" = verify-binary ]'
+                executable(tool, "#!/bin/sh\n" + check + "\n")
+            elif command[:3] == ["go", "version", "-m"]:
+                return SimpleNamespace(stdout=f"vcs.revision={revision}\nvcs.modified={str(modified).lower()}\n")
+            else:
+                self.fail(f"unexpected automatic tool command: {command}")
+            return SimpleNamespace(returncode=0)
+
+        with mock.patch.object(promote_image.subprocess, "run", side_effect=run) as invoke:
+            tool = self.promotion.release_tool(SOURCE)
+        return tool, invoke.call_args_list
+
+    def test_automatic_build_selects_pinned_legacy_and_unified_commands(self):
+        for unified in (False, True):
+            with self.subTest(unified=unified):
+                tool, calls = self.build_tool(unified)
+                build = next(call.args[0] for call in calls if call.args[0][0] == "nice")
+                self.assertEqual(build[-1], "./cmd/terrascale-orchestrator" if unified else "./cmd/ts-release")
+                self.assertEqual(tool.name, "ts-orch" if unified else "ts-release")
+                self.assertEqual(self.promotion.release_prefix, ("release",) if unified else ())
+                result = subprocess.run([str(tool), *self.promotion.release_prefix, "verify-binary"], check=False)
+                self.assertEqual(result.returncode, 0)
+                self.assertFalse((self.work / "source").exists())
+                self.assertEqual(self.promotion.receipt["tools"]["ts_release"]["sha256"],
+                                 hashlib.sha256(tool.read_bytes()).hexdigest())
+
+    def test_automatic_build_rejects_wrong_revision_and_dirty_metadata(self):
+        for unified in (False, True):
+            for revision, modified in (("0" * 40, False), (SOURCE, True)):
+                with self.subTest(unified=unified, revision=revision, modified=modified):
+                    with self.assertRaisesRegex(promote_image.PromotionError, "clean image source revision"):
+                        self.build_tool(unified, revision=revision, modified=modified)
+                    self.assertFalse((self.work / "source").exists())
+                    self.assertEqual(self.promotion.receipt["tools"], {})
+
+    def test_failed_automatic_build_removes_its_source_worktree(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.build_tool(True, build_failure=True)
+        self.assertFalse((self.work / "source").exists())
 
 
 if __name__ == "__main__":

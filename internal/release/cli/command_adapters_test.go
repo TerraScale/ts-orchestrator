@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"os"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 )
@@ -58,4 +59,14 @@ func publish(args []string) error {
 
 func run(args []string) error {
 	return (command{ctx: context.Background(), output: os.Stdout}).run(args)
+}
+
+func signBinaryWithCheck(args []string, check func(release.Qualification, string) error,
+	inspect func(string, string, string) (binaryReceipt, error),
+) error {
+	return (command{ctx: context.Background(), output: os.Stdout}).signBinaryWithCheck(args, check, inspect)
+}
+
+func signDelegationAt(args []string, now time.Time) error {
+	return (command{ctx: context.Background(), output: os.Stdout}).signDelegationAt(args, now)
 }

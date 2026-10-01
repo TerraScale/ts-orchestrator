@@ -1592,17 +1592,19 @@ def seed_preflight(args: argparse.Namespace, plan: dict, plan_path: pathlib.Path
     if not args.bootstrap_root:
         fail("seed preflight requires at least one bootstrap trust root")
     required_plan_bootstrap_prefix(plan)
+    bootstrap_prefix = () if getattr(args, "legacy_bootstrap_tool", False) else ("bootstrap",)
+    release_prefix = () if getattr(args, "legacy_release_tool", False) else ("release",)
     anchor_summary = json.loads(checked_tool(
-        str(args.bootstrap_tool), "bootstrap", "verify-anchor", "--anchor", str(args.anchor),
+        str(args.bootstrap_tool), *bootstrap_prefix, "verify-anchor", "--anchor", str(args.anchor),
         "--identity", str(args.identity),
         *(argument for root in args.bootstrap_root for argument in ("--root-key", str(root)))))
     manifest_summary = json.loads(checked_tool(
-        str(args.bootstrap_tool), "bootstrap", "verify-manifest", "--anchor", str(args.anchor),
+        str(args.bootstrap_tool), *bootstrap_prefix, "verify-manifest", "--anchor", str(args.anchor),
         "--manifest", str(args.manifest), "--identity", str(args.identity),
         "--slot", "controller-a", "--image-ocid", args.image_ocid,
         *(argument for root in args.bootstrap_root for argument in ("--root-key", str(root)))))
     image_verification = checked_tool(
-        str(args.release_tool), "release", "verify-image", "--receipt", str(args.image_receipt),
+        str(args.release_tool), *release_prefix, "verify-image", "--receipt", str(args.image_receipt),
         "--delegation", str(args.release_delegation), "--root-key", str(args.release_root),
         "--image-file", str(args.image_file), "--base-image-file", str(args.base_image_file),
         "--kernel-file", str(args.kernel_file), "--region", plan["cell"],
@@ -2636,12 +2638,16 @@ def main() -> None:
     parser.add_argument("--right-inventory", type=pathlib.Path, help="second regional plan inventory")
     parser.add_argument("--right-admission", type=pathlib.Path, help="second regional cost admission")
     parser.add_argument("--bootstrap-tool", type=pathlib.Path, help="unified ts-orch executable")
+    parser.add_argument("--legacy-bootstrap-tool", action="store_true",
+                        help="the bootstrap tool is a historical standalone executable")
     parser.add_argument("--anchor", type=pathlib.Path)
     parser.add_argument("--manifest", type=pathlib.Path)
     parser.add_argument("--identity", type=pathlib.Path)
     parser.add_argument("--bootstrap-root", type=pathlib.Path, action="append")
     parser.add_argument("--image-ocid")
     parser.add_argument("--release-tool", type=pathlib.Path, help="unified ts-orch executable (may match --bootstrap-tool)")
+    parser.add_argument("--legacy-release-tool", action="store_true",
+                        help="the release tool is a historical standalone executable")
     parser.add_argument("--image-receipt", type=pathlib.Path)
     parser.add_argument("--release-delegation", type=pathlib.Path)
     parser.add_argument("--release-root", type=pathlib.Path)

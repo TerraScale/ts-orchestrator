@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,5 +51,23 @@ func TestCanceledCommandDoesNotCreateIdentity(t *testing.T) {
 	}
 	if _, err := os.Stat(key); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("canceled command created a key: %v", err)
+	}
+}
+
+type brokenOutput struct{ err error }
+
+func (output brokenOutput) Write([]byte) (int, error) { return 0, output.err }
+
+func TestHelpPropagatesOutputFailure(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"bootstrap", "--help"}, {"release", "--help"}} {
+		for _, cause := range []error{io.ErrClosedPipe, nil} {
+			want := cause
+			if want == nil {
+				want = io.ErrShortWrite
+			}
+			if err := Run(t.Context(), args, brokenOutput{err: cause}); !errors.Is(err, want) {
+				t.Fatalf("%v error = %v, want %v", args, err, want)
+			}
+		}
 	}
 }

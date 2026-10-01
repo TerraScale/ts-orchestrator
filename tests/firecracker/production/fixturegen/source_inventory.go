@@ -24,6 +24,7 @@ var completedRecipeSourceDirs = []string{
 	"internal/bootstrap",
 	"internal/bootstrapstart",
 	"internal/cli",
+	"internal/commandio",
 	"internal/release",
 	"internal/trust",
 	"tests/firecracker/production",

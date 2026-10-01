@@ -116,14 +116,14 @@ func (c command) installOperatorMaterialAt(args []string, now time.Time) error {
 			clear(body)
 		}
 	}()
-	dir, err := openOperatorInstallDirectory()
+	dir, err := c.openOperatorInstallDirectory()
 	if err != nil {
 		return err
 	}
 	defer unix.Close(dir)
 	for _, name := range []string{"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem",
 		"ca.pem", "ticket.pub", "operator-signing.key", "operator.json"} {
-		if err := installOperatorExactFile(dir, name, sources[name]); err != nil {
+		if err := c.installOperatorExactFile(dir, name, sources[name]); err != nil {
 			return err
 		}
 	}
@@ -131,13 +131,20 @@ func (c command) installOperatorMaterialAt(args []string, now time.Time) error {
 	return nil
 }
 
-func openOperatorInstallDirectory() (int, error) {
+func (c command) openOperatorInstallDirectory() (int, error) {
+	if err := c.ctx.Err(); err != nil {
+		return -1, err
+	}
 	dir, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return -1, err
 	}
 	parts := strings.Split(strings.TrimPrefix(operatorInstallDirectory, "/"), "/")
 	for index, part := range parts {
+		if err := c.ctx.Err(); err != nil {
+			unix.Close(dir)
+			return -1, err
+		}
 		if index == len(parts)-1 {
 			if err := unix.Mkdirat(dir, part, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
 				unix.Close(dir)
@@ -164,7 +171,10 @@ func openOperatorInstallDirectory() (int, error) {
 	return dir, nil
 }
 
-func installOperatorExactFile(dir int, name string, wire []byte) error {
+func (c command) installOperatorExactFile(dir int, name string, wire []byte) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	if name == "" || name != filepath.Base(name) || len(wire) == 0 {
 		return errors.New("operator install file is invalid")
 	}
@@ -218,6 +228,9 @@ func installOperatorExactFile(dir int, name string, wire []byte) error {
 		return err
 	}
 	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := c.ctx.Err(); err != nil {
 		return err
 	}
 	if err := unix.Renameat2(dir, temporary, dir, name, unix.RENAME_NOREPLACE); err != nil {

@@ -51,13 +51,16 @@ func (c command) generateControllerMaterialAt(args []string, now time.Time) erro
 			return errors.New("public material output paths must not already exist")
 		}
 	}
-	wire, err := readBoundedRegular(*configPath, 16<<10)
+	wire, err := c.readBoundedRegular(*configPath, 16<<10)
 	if err != nil || !matchesSHA256(wire, *configSHA) {
 		return errors.New("reviewed controller configuration digest does not match")
 	}
 	var config bootstrapmaterial.Config
 	if err := json.Unmarshal(wire, &config, json.RejectUnknownMembers(true)); err != nil {
 		return fmt.Errorf("decode controller configuration: %w", err)
+	}
+	if err := c.ctx.Err(); err != nil {
+		return err
 	}
 	record, err := bootstrapmaterial.Generate(*directory, config, now)
 	if err != nil {
@@ -78,13 +81,13 @@ func (c command) generateControllerMaterialAt(args []string, now time.Time) erro
 	if err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, public, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, public, 0o644); err != nil {
 		return err
 	}
-	if err := writeNew(peerPath, peerPEM, 0o644); err != nil {
+	if err := c.writeNew(peerPath, peerPEM, 0o644); err != nil {
 		return err
 	}
-	if err := writeNew(ledgerPath, ledgerPEM, 0o644); err != nil {
+	if err := c.writeNew(ledgerPath, ledgerPEM, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "controller material ready inventory=%s peer-public=%s ledger-public=%s expires=%s\n",
@@ -282,15 +285,15 @@ func (c command) provisionControllerMaterialAt(args []string, now time.Time) err
 	if err != nil || !now.Before(record.ExpiresAt) {
 		return bootstrapmaterial.ErrMaterial
 	}
-	readbackWire, err := readBoundedRegular(*readbackPath, 16<<10)
+	readbackWire, err := c.readBoundedRegular(*readbackPath, 16<<10)
 	if err != nil {
 		return err
 	}
-	inventoryWire, err := readBoundedRegular(*inventoryPath, 8<<20)
+	inventoryWire, err := c.readBoundedRegular(*inventoryPath, 8<<20)
 	if err != nil {
 		return err
 	}
-	admissionWire, err := readBoundedRegular(*admissionPath, 64<<10)
+	admissionWire, err := c.readBoundedRegular(*admissionPath, 64<<10)
 	if err != nil {
 		return err
 	}
@@ -323,7 +326,7 @@ func (c command) provisionControllerMaterialAt(args []string, now time.Time) err
 	if err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "controller Vault references ready count=%d output=%s\n", len(publication.References), *outputPath)

@@ -51,7 +51,7 @@ func (c command) signFounderPlanAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	payload, err := readBoundedRegular(*candidatePath, bootstrap.MaxFounderPlanBytes)
+	payload, err := c.readBoundedRegular(*candidatePath, bootstrap.MaxFounderPlanBytes)
 	if err != nil {
 		return err
 	}
@@ -103,7 +103,7 @@ func (c command) signFounderPlanAt(args []string, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("verify newly signed founder plan: %w", err)
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed founder plan seed=%s digest=%s expires=%s\n",
@@ -140,7 +140,7 @@ func (c command) signInitialFounderSelectionAt(args []string, now time.Time) err
 	if err != nil {
 		return err
 	}
-	planWire, err := readBoundedRegular(*planPath, bootstrap.MaxFounderPlanBytes)
+	planWire, err := c.readBoundedRegular(*planPath, bootstrap.MaxFounderPlanBytes)
 	if err != nil {
 		return err
 	}
@@ -152,7 +152,7 @@ func (c command) signInitialFounderSelectionAt(args []string, now time.Time) err
 	if err != nil {
 		return fmt.Errorf("verify selected founder plan: %w", err)
 	}
-	payload, err := readBoundedRegular(*candidatePath, 4096)
+	payload, err := c.readBoundedRegular(*candidatePath, 4096)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (c command) signInitialFounderSelectionAt(args []string, now time.Time) err
 	if err != nil || !bytes.Equal(verifiedPayload, payload) {
 		return errors.New("newly signed founder selector failed verification")
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed initial founder selection generation=1 digest=%x expires=%s\n",
@@ -242,11 +242,11 @@ func (c command) publishInitialFounderSelectionAt(args []string, now time.Time) 
 	if err != nil {
 		return err
 	}
-	selectionWire, err := readBoundedRegular(*selectionPath, 4096)
+	selectionWire, err := c.readBoundedRegular(*selectionPath, 4096)
 	if err != nil {
 		return err
 	}
-	planWire, err := readBoundedRegular(*planPath, bootstrap.MaxFounderPlanBytes)
+	planWire, err := c.readBoundedRegular(*planPath, bootstrap.MaxFounderPlanBytes)
 	if err != nil {
 		return err
 	}

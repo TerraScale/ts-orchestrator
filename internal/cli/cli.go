@@ -8,6 +8,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	bootstrapcli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/cli"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
 )
 
@@ -38,7 +39,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return err
 	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		_, err := io.WriteString(output, usage)
+		_, err := io.WriteString(commandio.NewWriter(output), usage)
 		return err
 	}
 	switch args[0] {

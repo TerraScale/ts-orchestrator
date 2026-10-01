@@ -124,3 +124,7 @@ func renderHostEnrollmentPublicAt(args []string, now time.Time) error {
 func renderOperatorConfigAt(args []string, now time.Time) error {
 	return (command{ctx: context.Background(), output: os.Stdout}).renderOperatorConfigAt(args, now)
 }
+
+func writeSeedBundle(path string, value any) error {
+	return (command{ctx: context.Background(), output: os.Stdout}).writeSeedBundle(path, value)
+}

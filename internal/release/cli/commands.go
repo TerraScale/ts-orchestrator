@@ -27,6 +27,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -51,14 +52,17 @@ type binaryReceipt = release.BinaryReceipt
 type imageReceipt = release.ImageReceipt
 
 func (c command) run(args []string) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		return usageError()
 	}
 	switch args[0] {
 	case "sign-delegation":
-		return signDelegation(args[1:])
+		return c.signDelegation(args[1:])
 	case "binary-candidate":
-		return binaryCandidate(args[1:])
+		return c.binaryCandidate(args[1:])
 	case "sign-binary":
 		return c.signBinary(args[1:])
 	case "verify-binary":
@@ -94,11 +98,14 @@ func (c command) publish(args []string) error {
 	if *path == "" || !validRegion(*region) || !validStorageToken(*namespace) || !validStorageToken(*bucket) || !validObjectName(*object) || flags.NArg() != 0 {
 		return errors.New("publish requires --file, supported --region, --namespace, --bucket, and safe immutable --object")
 	}
-	asset, size, digest, err := openHashedArtifact(*path, maxArtifactBytes)
+	asset, size, digest, err := c.openHashedArtifact(*path, maxArtifactBytes)
 	if err != nil {
 		return err
 	}
 	defer asset.Close()
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[*region]
 	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
 	if err != nil {
@@ -112,8 +119,11 @@ func (c command) publish(args []string) error {
 	if err := putImmutable(c.ctx, client, *namespace, *bucket, *object, asset, size, digest); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.output, "published immutable OCI object region=%s bucket=%s name=%s bytes=%d sha256=%x\n", *region, *bucket, *object, size, digest)
-	return nil
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(c.output, "published immutable OCI object region=%s bucket=%s name=%s bytes=%d sha256=%x\n", *region, *bucket, *object, size, digest)
+	return err
 }
 
 type immutableObjectClient interface {
@@ -122,6 +132,9 @@ type immutableObjectClient interface {
 }
 
 func putImmutable(ctx context.Context, client immutableObjectClient, namespace, bucket, name string, source io.ReadSeeker, size int64, digest []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if size <= 0 || size > maxArtifactBytes || len(digest) != sha256.Size {
 		return errors.New("immutable object size or SHA-256 digest is invalid")
 	}
@@ -132,6 +145,9 @@ func putImmutable(ctx context.Context, client immutableObjectClient, namespace, 
 	contentType := "application/octet-stream"
 	cacheControl := "public, max-age=31536000, immutable"
 	checksum := base64.StdEncoding.EncodeToString(digest)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	_, putErr := client.PutObject(ctx, objectstorage.PutObjectRequest{
 		NamespaceName: common.String(namespace), BucketName: common.String(bucket), ObjectName: common.String(name),
 		ContentLength: common.Int64(size), PutObjectBody: io.NopCloser(&boundedReadSeeker{source: source, size: size}),
@@ -201,6 +217,9 @@ func (reader *boundedReadSeeker) Seek(offset int64, whence int) (int64, error) {
 }
 
 func getExactObjectDigest(ctx context.Context, client immutableObjectClient, namespace, bucket, name string, expectedBytes int64, expectedDigest []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	response, err := client.GetObject(ctx, objectstorage.GetObjectRequest{
 		NamespaceName: common.String(namespace), BucketName: common.String(bucket), ObjectName: common.String(name),
 	})
@@ -212,7 +231,7 @@ func getExactObjectDigest(ctx context.Context, client immutableObjectClient, nam
 		return fmt.Errorf("stored object length %d does not match %d", *response.ContentLength, expectedBytes)
 	}
 	hash := sha256.New()
-	read, err := io.Copy(hash, io.LimitReader(response.Content, expectedBytes+1))
+	read, err := io.Copy(hash, commandio.Reader(ctx, io.LimitReader(response.Content, expectedBytes+1)))
 	if err != nil {
 		return err
 	}
@@ -241,7 +260,7 @@ func validObjectName(value string) bool {
 	return true
 }
 
-func binaryCandidate(args []string) error {
+func (c command) binaryCandidate(args []string) error {
 	flags := flag.NewFlagSet("binary-candidate", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	binaryPath := flags.String("binary", "", "static Linux orchestrator binary")
@@ -259,7 +278,7 @@ func binaryCandidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	receipt, err := inspectBinary(*binaryPath, *goVersion, *sourceRevision)
+	receipt, err := c.inspectBinary(*binaryPath, *goVersion, *sourceRevision)
 	if err != nil {
 		return err
 	}
@@ -271,14 +290,14 @@ func binaryCandidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	return writeNew(*output, encoded, 0o644)
+	return c.writeNew(*output, encoded, 0o644)
 }
 
 func (c command) signBinary(args []string) error {
-	return signBinaryWithCheck(args, c.verifyForgejoQualification, inspectBinary)
+	return c.signBinaryWithCheck(args, c.verifyForgejoQualification, c.inspectBinary)
 }
 
-func signBinaryWithCheck(args []string, check func(release.Qualification, string) error,
+func (c command) signBinaryWithCheck(args []string, check func(release.Qualification, string) error,
 	inspect func(string, string, string) (binaryReceipt, error),
 ) error {
 	flags := flag.NewFlagSet("sign-binary", flag.ContinueOnError)
@@ -316,6 +335,9 @@ func signBinaryWithCheck(args []string, check func(release.Qualification, string
 	if err != nil {
 		return err
 	}
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	observed.QualificationSHA256 = qualificationDigest
 	if observed != payload {
 		return errors.New("retained CI binary does not match the qualified candidate")
@@ -323,7 +345,7 @@ func signBinaryWithCheck(args []string, check func(release.Qualification, string
 	if err := check(qualification, qualificationDigest); err != nil {
 		return err
 	}
-	envelope, err := signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
+	envelope, err := c.signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
 	if err != nil {
 		return err
 	}
@@ -331,11 +353,11 @@ func signBinaryWithCheck(args []string, check func(release.Qualification, string
 	if err != nil {
 		return err
 	}
-	return writeNew(*output, encoded, 0o644)
+	return c.writeNew(*output, encoded, 0o644)
 }
 
 func (c command) verifyBinary(args []string) error {
-	return c.verifyBinaryWithInspect(args, inspectBinary)
+	return c.verifyBinaryWithInspect(args, c.inspectBinary)
 }
 
 func (c command) verifyBinaryWithInspect(args []string,
@@ -371,12 +393,15 @@ func (c command) verifyBinaryWithInspect(args []string,
 	if err != nil {
 		return err
 	}
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	observed.QualificationSHA256 = qualificationDigest
 	if observed != receipt {
 		return errors.New("binary bytes or build metadata do not match the signed receipt")
 	}
-	fmt.Fprintf(c.output, "verified binary revision=%s arch=%s sha256=%s key_id=%s\n", receipt.SourceRevision, receipt.GOARCH, receipt.SHA256, verified.KeyID())
-	return nil
+	_, err = fmt.Fprintf(c.output, "verified binary revision=%s arch=%s sha256=%s key_id=%s\n", receipt.SourceRevision, receipt.GOARCH, receipt.SHA256, verified.KeyID())
+	return err
 }
 
 func (c command) imageCandidate(args []string) error {
@@ -422,7 +447,7 @@ func (c command) imageCandidate(args []string) error {
 	if err := qualification.MatchBinary(binary, qualificationDigest); err != nil {
 		return err
 	}
-	observedBinary, err := inspectBinary(*binaryPath, binary.GoVersion, binary.SourceRevision)
+	observedBinary, err := c.inspectBinary(*binaryPath, binary.GoVersion, binary.SourceRevision)
 	if err != nil {
 		return err
 	}
@@ -430,7 +455,7 @@ func (c command) imageCandidate(args []string) error {
 	if observedBinary != binary {
 		return errors.New("image binary does not match its signed binary receipt")
 	}
-	imageDigestBefore, imageBytesBefore, err := hashQcow2(*imageFile)
+	imageDigestBefore, imageBytesBefore, err := c.hashQcow2(*imageFile)
 	if err != nil {
 		return err
 	}
@@ -443,7 +468,7 @@ func (c command) imageCandidate(args []string) error {
 		_ = embeddedBinary.Close()
 		_ = os.Remove(name)
 	}()
-	observedEmbedded, err := inspectBinary(embeddedBinary.Name(), binary.GoVersion, binary.SourceRevision)
+	observedEmbedded, err := c.inspectBinary(embeddedBinary.Name(), binary.GoVersion, binary.SourceRevision)
 	if err != nil {
 		return fmt.Errorf("verify binary extracted from final QCOW2 image: %w", err)
 	}
@@ -451,18 +476,18 @@ func (c command) imageCandidate(args []string) error {
 	if observedEmbedded != binary {
 		return errors.New("binary embedded in final QCOW2 image does not match its signed receipt")
 	}
-	imageDigest, imageBytes, err := hashQcow2(*imageFile)
+	imageDigest, imageBytes, err := c.hashQcow2(*imageFile)
 	if err != nil {
 		return err
 	}
 	if imageDigest != imageDigestBefore || imageBytes != imageBytesBefore {
 		return errors.New("QCOW2 image changed while its embedded binary was being inspected")
 	}
-	baseDigest, _, err := hashQcow2(*baseImageFile)
+	baseDigest, _, err := c.hashQcow2(*baseImageFile)
 	if err != nil {
 		return fmt.Errorf("inspect pinned base image: %w", err)
 	}
-	kernelDigest, _, err := hashFile(*kernelFile)
+	kernelDigest, _, err := c.hashFile(*kernelFile)
 	if err != nil {
 		return fmt.Errorf("hash guest kernel: %w", err)
 	}
@@ -485,11 +510,11 @@ func (c command) imageCandidate(args []string) error {
 	if err != nil {
 		return err
 	}
-	return writeNew(*output, encoded, 0o644)
+	return c.writeNew(*output, encoded, 0o644)
 }
 
 func (c command) signImage(args []string) error {
-	return c.signImageWithCheck(args, c.verifyForgejoQualification, inspectBinary)
+	return c.signImageWithCheck(args, c.verifyForgejoQualification, c.inspectBinary)
 }
 
 func (c command) signImageWithCheck(args []string, check func(release.Qualification, string) error,
@@ -540,6 +565,9 @@ func (c command) signImageWithCheck(args []string, check func(release.Qualificat
 	if err != nil {
 		return err
 	}
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	observed.QualificationSHA256 = qualificationDigest
 	if observed != binary || payload.SourceRevision != binary.SourceRevision || payload.GoVersion != binary.GoVersion ||
 		payload.Architecture != binary.GOARCH || payload.BinaryBytes != binary.Bytes ||
@@ -552,7 +580,7 @@ func (c command) signImageWithCheck(args []string, check func(release.Qualificat
 	if err := c.verifyImageCandidateFiles(payload, *imageFile, *baseImageFile, *kernelFile, *guestBinary); err != nil {
 		return err
 	}
-	envelope, err := signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
+	envelope, err := c.signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
 	if err != nil {
 		return err
 	}
@@ -560,7 +588,7 @@ func (c command) signImageWithCheck(args []string, check func(release.Qualificat
 	if err != nil {
 		return err
 	}
-	return writeNew(*output, encoded, 0o644)
+	return c.writeNew(*output, encoded, 0o644)
 }
 
 func (c command) verifyImage(args []string) error {
@@ -591,12 +619,15 @@ func (c command) verifyImage(args []string) error {
 	if err := c.verifyImageCandidateFiles(receipt, *imageFile, *baseImageFile, *kernelFile, *guestBinary); err != nil {
 		return err
 	}
-	fmt.Fprintf(c.output, "verified OCI image=%s region=%s revision=%s arch=%s sha256=%s\n", receipt.OCIImageOCID, receipt.OCIRegion, receipt.SourceRevision, receipt.Architecture, receipt.ImageSHA256)
-	return nil
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(c.output, "verified OCI image=%s region=%s revision=%s arch=%s sha256=%s\n", receipt.OCIImageOCID, receipt.OCIRegion, receipt.SourceRevision, receipt.Architecture, receipt.ImageSHA256)
+	return err
 }
 
 func (c command) verifyImageCandidateFiles(receipt imageReceipt, imageFile, baseImageFile, kernelFile, guestBinary string) error {
-	imageDigestBefore, imageBytesBefore, err := hashQcow2(imageFile)
+	imageDigestBefore, imageBytesBefore, err := c.hashQcow2(imageFile)
 	if err != nil {
 		return err
 	}
@@ -609,25 +640,25 @@ func (c command) verifyImageCandidateFiles(receipt imageReceipt, imageFile, base
 		_ = embeddedBinary.Close()
 		_ = os.Remove(name)
 	}()
-	observedEmbedded, err := inspectBinary(embeddedBinary.Name(), receipt.GoVersion, receipt.SourceRevision)
+	observedEmbedded, err := c.inspectBinary(embeddedBinary.Name(), receipt.GoVersion, receipt.SourceRevision)
 	if err != nil {
 		return fmt.Errorf("verify binary extracted from final QCOW2 image: %w", err)
 	}
 	if observedEmbedded.Bytes != receipt.BinaryBytes || observedEmbedded.SHA256 != receipt.BinarySHA256 || observedEmbedded.GOARCH != receipt.Architecture {
 		return errors.New("binary embedded in final QCOW2 image does not match the signed image receipt")
 	}
-	imageDigest, imageBytes, err := hashQcow2(imageFile)
+	imageDigest, imageBytes, err := c.hashQcow2(imageFile)
 	if err != nil {
 		return err
 	}
 	if imageDigest != imageDigestBefore || imageBytes != imageBytesBefore {
 		return errors.New("QCOW2 image changed while its embedded binary was being inspected")
 	}
-	baseDigest, _, err := hashQcow2(baseImageFile)
+	baseDigest, _, err := c.hashQcow2(baseImageFile)
 	if err != nil {
 		return err
 	}
-	kernelDigest, _, err := hashFile(kernelFile)
+	kernelDigest, _, err := c.hashFile(kernelFile)
 	if err != nil {
 		return err
 	}
@@ -637,7 +668,10 @@ func (c command) verifyImageCandidateFiles(receipt imageReceipt, imageFile, base
 	return nil
 }
 
-func inspectBinary(path, requiredGoVersion, expectedRevision string) (binaryReceipt, error) {
+func (c command) inspectBinary(path, requiredGoVersion, expectedRevision string) (binaryReceipt, error) {
+	if err := c.ctx.Err(); err != nil {
+		return binaryReceipt{}, err
+	}
 	if !release.ValidSourceRevision(expectedRevision) || requiredGoVersion == "" {
 		return binaryReceipt{}, errors.New("binary candidate requires a lowercase 40-character source revision and Go version")
 	}
@@ -690,14 +724,14 @@ func inspectBinary(path, requiredGoVersion, expectedRevision string) (binaryRece
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return binaryReceipt{}, err
 	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
+	digest, _, err := c.hashArtifact(file)
+	if err != nil {
 		return binaryReceipt{}, err
 	}
 	return binaryReceipt{
 		Schema: binarySchema, SourceRevision: expectedRevision, GoVersion: build.GoVersion,
 		GOOS: settings["GOOS"], GOARCH: settings["GOARCH"], ELFMachine: machine, Static: true,
-		Bytes: info.Size(), SHA256: hex.EncodeToString(hash.Sum(nil)),
+		Bytes: info.Size(), SHA256: hex.EncodeToString(digest),
 	}, nil
 }
 
@@ -720,9 +754,12 @@ func imageScope(receipt imageReceipt, environment string) trust.Scope {
 	return release.ImageScope(receipt, environment)
 }
 
-func signReceiptWithFiles(payload any, environment, delegationPath, rootPath, privatePath string,
+func (c command) signReceiptWithFiles(payload any, environment, delegationPath, rootPath, privatePath string,
 	validFor time.Duration,
 ) (trust.Envelope, error) {
+	if err := c.ctx.Err(); err != nil {
+		return trust.Envelope{}, err
+	}
 	delegation, err := readEnvelope(delegationPath)
 	if err != nil {
 		return trust.Envelope{}, err
@@ -737,6 +774,10 @@ func signReceiptWithFiles(payload any, environment, delegationPath, rootPath, pr
 	}
 	private, err := readDelegatedPrivateKey(privatePath)
 	if err != nil {
+		return trust.Envelope{}, err
+	}
+	defer clear(private)
+	if err := c.ctx.Err(); err != nil {
 		return trust.Envelope{}, err
 	}
 	now := time.Now().UTC()
@@ -901,7 +942,10 @@ func readBoundedRegular(path string, maximum int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(file, maximum+1))
 }
 
-func openHashedArtifact(path string, maximum int64) (*os.File, int64, []byte, error) {
+func (c command) openHashedArtifact(path string, maximum int64) (*os.File, int64, []byte, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, 0, nil, err
+	}
 	file, err := openRegular(path)
 	if err != nil {
 		return nil, 0, nil, err
@@ -915,8 +959,7 @@ func openHashedArtifact(path string, maximum int64) (*os.File, int64, []byte, er
 		file.Close()
 		return nil, 0, nil, fmt.Errorf("%s must be between 1 and %d bytes", filepath.Base(path), maximum)
 	}
-	hash := sha256.New()
-	count, err := io.Copy(hash, io.LimitReader(file, maximum+1))
+	digest, count, err := c.hashArtifact(io.LimitReader(file, maximum+1))
 	if err != nil {
 		file.Close()
 		return nil, 0, nil, err
@@ -929,7 +972,7 @@ func openHashedArtifact(path string, maximum int64) (*os.File, int64, []byte, er
 		file.Close()
 		return nil, 0, nil, err
 	}
-	return file, count, hash.Sum(nil), nil
+	return file, count, digest, nil
 }
 
 type cappedWriter struct {
@@ -952,6 +995,9 @@ func (writer *cappedWriter) Write(contents []byte) (int, error) {
 }
 
 func (c command) extractGuestBinary(imageFile, guestPath string, expectedBytes int64) (*os.File, error) {
+	if err := c.ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !validGuestBinaryPath(guestPath) || expectedBytes <= 0 || expectedBytes > maxArtifactBytes {
 		return nil, errors.New("guest binary path or signed size is invalid")
 	}
@@ -1032,7 +1078,10 @@ func openRegular(path string) (*os.File, error) {
 	return file, nil
 }
 
-func writeNew(path string, contents []byte, mode os.FileMode) error {
+func (c command) writeNew(path string, contents []byte, mode os.FileMode) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	if path == "" || len(contents) == 0 {
 		return errors.New("output path and content are required")
 	}
@@ -1050,6 +1099,11 @@ func writeNew(path string, contents []byte, mode os.FileMode) error {
 		os.Remove(path)
 		return err
 	}
+	if err := c.ctx.Err(); err != nil {
+		file.Close()
+		os.Remove(path)
+		return err
+	}
 	if err := file.Close(); err != nil {
 		os.Remove(path)
 		return err
@@ -1057,18 +1111,23 @@ func writeNew(path string, contents []byte, mode os.FileMode) error {
 	return nil
 }
 
-func hashFile(path string) (string, int64, error) {
+func (c command) hashFile(path string) (string, int64, error) {
+	if err := c.ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	file, err := openRegular(path)
 	if err != nil {
 		return "", 0, err
 	}
 	defer file.Close()
-	hash := sha256.New()
-	bytes, err := io.Copy(hash, file)
-	return hex.EncodeToString(hash.Sum(nil)), bytes, err
+	digest, bytes, err := c.hashArtifact(file)
+	return hex.EncodeToString(digest), bytes, err
 }
 
-func hashQcow2(path string) (string, int64, error) {
+func (c command) hashQcow2(path string) (string, int64, error) {
+	if err := c.ctx.Err(); err != nil {
+		return "", 0, err
+	}
 	file, err := openRegular(path)
 	if err != nil {
 		return "", 0, err
@@ -1081,9 +1140,17 @@ func hashQcow2(path string) (string, int64, error) {
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		return "", 0, err
 	}
+	digest, bytes, err := c.hashArtifact(file)
+	return hex.EncodeToString(digest), bytes, err
+}
+
+func (c command) hashArtifact(reader io.Reader) ([]byte, int64, error) {
 	hash := sha256.New()
-	bytes, err := io.Copy(hash, file)
-	return hex.EncodeToString(hash.Sum(nil)), bytes, err
+	count, err := io.Copy(hash, commandio.Reader(c.ctx, reader))
+	if err != nil {
+		return nil, count, err
+	}
+	return hash.Sum(nil), count, nil
 }
 
 func validOCIImageIDForRegion(value, region string) bool {

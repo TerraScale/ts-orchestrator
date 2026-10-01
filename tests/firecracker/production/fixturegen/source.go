@@ -43,6 +43,7 @@ var requiredSourcePaths = []string{
 	"internal/bootstrapstart/ledger.go",
 	"internal/bootstrapstart/marker.go",
 	"internal/cli/cli.go",
+	"internal/commandio/io.go",
 	"internal/release/cli/commands.go",
 	"internal/release/cli/run.go",
 	"internal/release/receipt.go",

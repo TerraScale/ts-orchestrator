@@ -3,7 +3,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"io"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 )
 
 const usage = `Usage: ts-orch bootstrap <command> [flags]
@@ -47,9 +50,12 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	writer := commandio.NewWriter(output)
+	var err error
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h" || args[0] == "help") {
-		_, err := io.WriteString(output, usage)
-		return err
+		_, err = io.WriteString(writer, usage)
+	} else {
+		err = (command{ctx: ctx, output: writer}).run(args)
 	}
-	return (command{ctx: ctx, output: output}).run(args)
+	return errors.Join(err, ctx.Err(), writer.Err())
 }

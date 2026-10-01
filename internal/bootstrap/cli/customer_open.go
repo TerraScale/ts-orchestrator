@@ -30,7 +30,7 @@ type customerCredentialReply struct {
 
 // openRotatedCustomerMaterialAt authenticates a pending rotation receipt and
 // its original intent before opening the encrypted token for its recipient.
-func openRotatedCustomerMaterialAt(args []string) error {
+func (c command) openRotatedCustomerMaterialAt(args []string) error {
 	flags := flag.NewFlagSet("open-rotated-customer-material", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	replyPath := flags.String("reply", "", "operator material-credentials JSON reply")
@@ -47,7 +47,7 @@ func openRotatedCustomerMaterialAt(args []string) error {
 		*cell == "" || *recipientPath == "" || *outputPath == "" || !filepath.IsAbs(*outputPath) || flags.NArg() != 0 {
 		return errors.New("open-rotated-customer-material requires --reply, --request, --spec, --controller-key, --cell, --recipient-key, and absolute --out")
 	}
-	specWire, err := readBoundedRegular(*specPath, maxCustomerSpecBytes)
+	specWire, err := c.readBoundedRegular(*specPath, maxCustomerSpecBytes)
 	if err != nil {
 		return fmt.Errorf("read initial material spec: %w", err)
 	}
@@ -55,7 +55,7 @@ func openRotatedCustomerMaterialAt(args []string) error {
 	if err := protocol.DecodeStrict(specWire, &spec, maxCustomerSpecBytes); err != nil {
 		return fmt.Errorf("decode initial material spec: %w", err)
 	}
-	requestWire, err := readBoundedRegular(*requestPath, maxCredentialRequestBytes)
+	requestWire, err := c.readBoundedRegular(*requestPath, maxCredentialRequestBytes)
 	if err != nil {
 		return fmt.Errorf("read credential rotation intent: %w", err)
 	}
@@ -66,7 +66,7 @@ func openRotatedCustomerMaterialAt(args []string) error {
 	if request.Action != managedmaterial.CredentialRotate {
 		return errors.New("credential intent is not a rotation")
 	}
-	replyWire, err := readBoundedRegular(*replyPath, maxCredentialReplyBytes)
+	replyWire, err := c.readBoundedRegular(*replyPath, maxCredentialReplyBytes)
 	if err != nil {
 		return fmt.Errorf("read credential rotation reply: %w", err)
 	}
@@ -106,12 +106,12 @@ func openRotatedCustomerMaterialAt(args []string) error {
 		return err
 	}
 	defer clear(output)
-	return writeNewCustomerMaterial(*outputPath, output)
+	return c.writeNewCustomerMaterial(*outputPath, output)
 }
 
 // openCustomerMaterialAt authenticates the offline operator reply against the
 // original spec and independently pinned controller key before opening it.
-func openCustomerMaterialAt(args []string) error {
+func (c command) openCustomerMaterialAt(args []string) error {
 	flags := flag.NewFlagSet("open-customer-material", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	replyPath := flags.String("reply", "", "operator material-prepare JSON reply")
@@ -127,7 +127,7 @@ func openCustomerMaterialAt(args []string) error {
 		*recipientPath == "" || *outputPath == "" || !filepath.IsAbs(*outputPath) || flags.NArg() != 0 {
 		return errors.New("open-customer-material requires --reply, --spec, --controller-key, --cell, --recipient-key, and absolute --out")
 	}
-	specWire, err := readBoundedRegular(*specPath, maxCustomerSpecBytes)
+	specWire, err := c.readBoundedRegular(*specPath, maxCustomerSpecBytes)
 	if err != nil {
 		return fmt.Errorf("read material preparation spec: %w", err)
 	}
@@ -135,7 +135,7 @@ func openCustomerMaterialAt(args []string) error {
 	if err := protocol.DecodeStrict(specWire, &spec, maxCustomerSpecBytes); err != nil {
 		return fmt.Errorf("decode material preparation spec: %w", err)
 	}
-	replyWire, err := readBoundedRegular(*replyPath, maxCustomerReplyBytes)
+	replyWire, err := c.readBoundedRegular(*replyPath, maxCustomerReplyBytes)
 	if err != nil {
 		return fmt.Errorf("read material preparation reply: %w", err)
 	}
@@ -164,12 +164,15 @@ func openCustomerMaterialAt(args []string) error {
 		return err
 	}
 	defer clear(output)
-	return writeNewCustomerMaterial(*outputPath, output)
+	return c.writeNewCustomerMaterial(*outputPath, output)
 }
 
 // A complete, synced 0600 temporary file becomes visible at the output path
 // through a create-only hard link. Failed writes never publish partial JSON.
-func writeNewCustomerMaterial(path string, contents []byte) error {
+func (c command) writeNewCustomerMaterial(path string, contents []byte) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	if len(contents) == 0 {
 		return errors.New("customer material output is empty")
 	}
@@ -193,6 +196,9 @@ func writeNewCustomerMaterial(path string, contents []byte) error {
 		return err
 	}
 	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := c.ctx.Err(); err != nil {
 		return err
 	}
 	if err := os.Link(temporary, path); err != nil {

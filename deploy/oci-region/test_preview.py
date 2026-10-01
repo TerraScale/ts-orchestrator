@@ -694,31 +694,43 @@ class PreviewAdmissionTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "not canonical"):
                         preview.required_plan_bootstrap_prefix(plan)
 
-    def test_seed_preflight_uses_verified_anchor_command(self):
-        args = SimpleNamespace(bootstrap_root=[pathlib.Path("/root.pub")],
-                               bootstrap_tool=pathlib.Path("/ts-orch"),
-                               anchor=pathlib.Path("/anchor.json"), identity=pathlib.Path("/identity.json"),
-                               manifest=pathlib.Path("/manifest.json"), image_ocid="ocid1.image.oc1.test",
-                               release_tool=pathlib.Path("/ts-orch"), image_receipt=pathlib.Path("/receipt.json"),
-                               release_delegation=pathlib.Path("/delegation.json"),
-                               release_root=pathlib.Path("/release-root.pub"),
-                               image_file=pathlib.Path("/image.qcow2"),
-                               base_image_file=pathlib.Path("/base.qcow2"), kernel_file=pathlib.Path("/kernel"),
-                               inventory=pathlib.Path("/inventory.json"), admission=pathlib.Path("/admission.json"))
-        anchor = {"schemaVersion": 3, "anchorSha256": "a" * 64,
-                  "storageDomain": {"prefix": "fixture-deployment"}}
-        manifest = {"anchorSha256": "a" * 64, "environment": "canary"}
-        with mock.patch.object(preview, "checked_tool", side_effect=(json.dumps(anchor), json.dumps(manifest),
-                                                                      "verified image")) as checked, \
-             mock.patch.object(preview, "verify_seed_preflight", return_value={}) as verify, \
-             mock.patch.object(preview, "create_identity", return_value="create-key"):
-            result = preview.seed_preflight(args, self.plan, preview.PLAN)
-        self.assertEqual(result["create_identity"], "create-key")
-        self.assertEqual(checked.call_args_list[0].args[:3], ("/ts-orch", "bootstrap", "verify-anchor"))
-        self.assertIn("--root-key", checked.call_args_list[0].args)
-        self.assertEqual(checked.call_args_list[1].args[:3], ("/ts-orch", "bootstrap", "verify-manifest"))
-        self.assertEqual(checked.call_args_list[2].args[:3], ("/ts-orch", "release", "verify-image"))
-        self.assertEqual(verify.call_args.args[3:5], (anchor, manifest))
+    def test_seed_preflight_uses_explicit_tool_conventions(self):
+        for bootstrap_legacy, release_legacy in ((None, None), (False, False), (True, True),
+                                                  (True, False), (False, True)):
+            with self.subTest(bootstrap_legacy=bootstrap_legacy, release_legacy=release_legacy):
+                # Names never select the command convention: even these names may
+                # refer to a unified executable, unless legacy flags are supplied.
+                args = SimpleNamespace(bootstrap_root=[pathlib.Path("/root.pub")],
+                                       bootstrap_tool=pathlib.Path("/ts-bootstrap"),
+                                       anchor=pathlib.Path("/anchor.json"), identity=pathlib.Path("/identity.json"),
+                                       manifest=pathlib.Path("/manifest.json"), image_ocid="ocid1.image.oc1.test",
+                                       release_tool=pathlib.Path("/ts-release"), image_receipt=pathlib.Path("/receipt.json"),
+                                       release_delegation=pathlib.Path("/delegation.json"),
+                                       release_root=pathlib.Path("/release-root.pub"),
+                                       image_file=pathlib.Path("/image.qcow2"),
+                                       base_image_file=pathlib.Path("/base.qcow2"), kernel_file=pathlib.Path("/kernel"),
+                                       inventory=pathlib.Path("/inventory.json"), admission=pathlib.Path("/admission.json"))
+                if bootstrap_legacy is not None:
+                    args.legacy_bootstrap_tool = bootstrap_legacy
+                    args.legacy_release_tool = release_legacy
+                anchor = {"schemaVersion": 3, "anchorSha256": "a" * 64,
+                          "storageDomain": {"prefix": "fixture-deployment"}}
+                manifest = {"anchorSha256": "a" * 64, "environment": "canary"}
+                with mock.patch.object(preview, "checked_tool", side_effect=(json.dumps(anchor), json.dumps(manifest),
+                                                                              "verified image")) as checked, \
+                     mock.patch.object(preview, "verify_seed_preflight", return_value={}) as verify, \
+                     mock.patch.object(preview, "create_identity", return_value="create-key"):
+                    result = preview.seed_preflight(args, self.plan, preview.PLAN)
+                self.assertEqual(result["create_identity"], "create-key")
+                bootstrap_prefix = () if bootstrap_legacy else ("bootstrap",)
+                release_prefix = () if release_legacy else ("release",)
+                for index, command in enumerate(("verify-anchor", "verify-manifest")):
+                    expected = ("/ts-bootstrap", *bootstrap_prefix, command)
+                    self.assertEqual(checked.call_args_list[index].args[:len(expected)], expected)
+                self.assertIn("--root-key", checked.call_args_list[0].args)
+                expected = ("/ts-release", *release_prefix, "verify-image")
+                self.assertEqual(checked.call_args_list[2].args[:len(expected)], expected)
+                self.assertEqual(verify.call_args.args[3:5], (anchor, manifest))
 
     def live_rules(self, expected):
         result = []

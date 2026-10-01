@@ -58,7 +58,7 @@ func (c command) renderHostEnrollmentPublicAt(args []string, now time.Time) erro
 	if err := bootstrapmaterial.ValidateLive(*materialDirectory, live); err != nil {
 		return err
 	}
-	caWire, err := readBoundedRegular(filepath.Join(*materialDirectory, "ca.pem"), 64<<10)
+	caWire, err := c.readBoundedRegular(filepath.Join(*materialDirectory, "ca.pem"), 64<<10)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (c command) renderHostEnrollmentPublicAt(args []string, now time.Time) erro
 	if _, err := hostenroll.ParsePublicBundle(wire); err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "rendered host enrollment public bundle sha256=%s output=%s\n", controllerConfigDigest(wire), *outputPath)

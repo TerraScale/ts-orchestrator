@@ -137,7 +137,7 @@ class RealCallerJoinTests(unittest.TestCase):
 
     def test_bootstrap_receipt_requires_clean_qualified_source_and_binary(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            binary, receipt = Path(directory) / "ts-bootstrap", Path(directory) / "receipt.json"
+            binary, receipt = Path(directory) / "renamed-tool", Path(directory) / "receipt.json"
             header = bytearray(20)
             header[:6] = b"\x7fELF\x02\x01"
             header[18:20] = (62).to_bytes(2, "little")
@@ -171,17 +171,58 @@ class RealCallerJoinTests(unittest.TestCase):
                 "test_log_sha256": hashlib.sha256(retained["test_log"].read_bytes()).hexdigest(),
             }
             self.assertEqual(set(record), CALLER.BOOTSTRAP_RECEIPT_FIELDS)
+            qualified = {"source_revision": source, "source_tree": tree,
+                         "go_mod_sha256": digest, "go_sum_sha256": digest}
+            args = SimpleNamespace(bootstrap=binary, reply=Path("/tmp/reply.json"),
+                                   spec=Path("/tmp/spec.json"), controller_key=Path("/tmp/controller.pub"),
+                                   cell="gru", recipient_key=Path("/tmp/recipient.key"))
+            opened_path = Path(directory) / "opened.json"
+
+            def opened_command(*_args, **_kwargs):
+                opened_path.write_text('{"version":1}')
+                opened_path.chmod(0o600)
+                return SimpleNamespace(returncode=0)
+
+            for identity, namespace in (
+                    ("ts-bootstrap", []), ("ts-orch", ["bootstrap"]),
+                    ("terrascale-orchestrator", ["bootstrap"]),
+                    ("terrascale-orchestrator-linux-amd64", ["bootstrap"])):
+                with self.subTest(identity=identity):
+                    record["binary_name"] = identity
+                    receipt.write_text(json.dumps(record))
+                    receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
+                    with mock.patch.object(CALLER.subprocess, "run", side_effect=[
+                            SimpleNamespace(returncode=0, stdout=f"go1.27.1\nCGO_ENABLED=0\n"
+                                            f"vcs.revision={source}\nvcs.modified=false\n"),
+                            SimpleNamespace(returncode=0, stdout="ELF has no dynamic loader")]):
+                        result = CALLER.bootstrap_provenance(
+                            receipt, receipt_sha, binary, binary_sha, qualified, retained)
+                    self.assertEqual(result["sha256"], receipt_sha)
+                    self.assertEqual(result["binary_name"], identity)
+                    with mock.patch.object(CALLER.subprocess, "run", side_effect=opened_command) as invoke:
+                        self.assertEqual(CALLER.open_customer_material(args, result, opened_path),
+                                         {"version": 1})
+                    self.assertEqual(invoke.call_args.args[0], [
+                        str(binary), *namespace, "open-customer-material", "--reply", "/tmp/reply.json",
+                        "--spec", "/tmp/spec.json", "--controller-key", "/tmp/controller.pub",
+                        "--cell", "gru", "--recipient-key", "/tmp/recipient.key",
+                        "--out", str(opened_path)])
+                    self.assertEqual(invoke.call_args.kwargs,
+                                     {"capture_output": True, "timeout": 30, "check": False})
+                    with self.assertRaises(CALLER.QualificationError):
+                        CALLER.bootstrap_provenance(receipt, receipt_sha, binary, binary_sha,
+                                                    {**qualified, "source_revision": "d" * 40}, retained)
+            for identity in ("renamed-tool", "ts-release", "terrascale-orchestrator-linux-arm64"):
+                with self.subTest(rejected_identity=identity):
+                    record["binary_name"] = identity
+                    receipt.write_text(json.dumps(record))
+                    with self.assertRaises(CALLER.QualificationError):
+                        CALLER.bootstrap_provenance(
+                            receipt, hashlib.sha256(receipt.read_bytes()).hexdigest(),
+                            binary, binary_sha, qualified, retained)
+            record["binary_name"] = "ts-bootstrap"
             receipt.write_text(json.dumps(record))
             receipt_sha = hashlib.sha256(receipt.read_bytes()).hexdigest()
-            with mock.patch.object(CALLER.subprocess, "run", side_effect=[
-                    SimpleNamespace(returncode=0, stdout=f"go1.27.1\nCGO_ENABLED=0\n"
-                                    f"vcs.revision={source}\nvcs.modified=false\n"),
-                    SimpleNamespace(returncode=0, stdout="ELF has no dynamic loader")]):
-                result = CALLER.bootstrap_provenance(receipt, receipt_sha, binary, binary_sha,
-                                                     {"source_revision": source, "source_tree": tree,
-                                                      "go_mod_sha256": digest,
-                                                      "go_sum_sha256": digest}, retained)
-            self.assertEqual(result["sha256"], receipt_sha)
             retained["build_log"].write_text("tampered log\n")
             with self.assertRaises(CALLER.QualificationError):
                 CALLER.bootstrap_provenance(receipt, receipt_sha, binary, binary_sha,

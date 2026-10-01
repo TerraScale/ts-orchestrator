@@ -110,6 +110,13 @@ BOOTSTRAP_RECEIPT_FIELDS = {
     "test_log_sha256",
 }
 
+BOOTSTRAP_TOOL_NAMES = (
+    "ts-bootstrap",  # Retained standalone builds from historical source revisions.
+    "ts-orch",
+    "terrascale-orchestrator",
+    "terrascale-orchestrator-linux-amd64",
+)
+
 
 def bootstrap_provenance(path: Path, expected_sha: str, binary: Path, binary_sha: str,
                          go_qualification: dict, retained: dict[str, Path]) -> dict:
@@ -126,7 +133,7 @@ def bootstrap_provenance(path: Path, expected_sha: str, binary: Path, binary_sha
             record["go_mod_sha256"] == go_qualification["go_mod_sha256"] and
             record["go_sum_sha256"] == go_qualification["go_sum_sha256"] and
             record["goos"] == "linux" and record["goarch"] == "amd64" and
-            record["cgo_enabled"] is False and record["binary_name"] == "ts-bootstrap" and
+            record["cgo_enabled"] is False and record["binary_name"] in BOOTSTRAP_TOOL_NAMES and
             record["binary_sha256"] == binary_sha and
             record["binary_bytes"] == binary.stat().st_size and
             record["vcs_revision"] == record["source_revision"] and
@@ -154,7 +161,28 @@ def bootstrap_provenance(path: Path, expected_sha: str, binary: Path, binary_sha
     require_static(binary)
     return {"sha256": expected_sha, "source_revision": record["source_revision"],
             "source_tree": record["source_tree"], "binary_sha256": binary_sha,
+            "binary_name": record["binary_name"],
             "retained_evidence_sha256": {name: record[f"{name}_sha256"] for name in sorted(retained)}}
+
+
+def open_customer_material(args: argparse.Namespace, verified_receipt: dict,
+                           opened_path: Path) -> dict:
+    # The hashed, source-bound receipt selects the interface even if the
+    # retained executable has been renamed on the qualification executor.
+    name = verified_receipt["binary_name"]
+    require(name in BOOTSTRAP_TOOL_NAMES, "unknown verified bootstrap tool identity")
+    command = [str(args.bootstrap)]
+    if name != "ts-bootstrap":
+        command.append("bootstrap")
+    command.extend(("open-customer-material", "--reply", str(args.reply),
+                    "--spec", str(args.spec), "--controller-key", str(args.controller_key),
+                    "--cell", args.cell, "--recipient-key", str(args.recipient_key),
+                    "--out", str(opened_path)))
+    result = subprocess.run(command, capture_output=True, timeout=30, check=False)
+    require(result.returncode == 0 and opened_path.is_file() and
+            opened_path.stat().st_mode & 0o077 == 0,
+            "offline signed customer material opening failed")
+    return read_json(opened_path, 16 << 10)
 
 
 def catalog_binding(spec: dict, collection_id: str) -> tuple[int, str]:
@@ -396,15 +424,8 @@ def run(args: argparse.Namespace) -> dict:
             "preparation receipt differs from requested member spec")
     with tempfile.TemporaryDirectory(prefix="ts-m0-customer-") as directory:
         opened_path = Path(directory) / "opened.json"
-        command = [str(args.bootstrap), "open-customer-material", "--reply", str(args.reply),
-                   "--spec", str(args.spec), "--controller-key", str(args.controller_key),
-                   "--cell", args.cell, "--recipient-key", str(args.recipient_key),
-                   "--out", str(opened_path)]
-        result = subprocess.run(command, capture_output=True, timeout=30, check=False)
-        require(result.returncode == 0 and opened_path.is_file() and
-                opened_path.stat().st_mode & 0o077 == 0,
-                "offline signed customer material opening failed")
-        token, ca = customer_material(reply, read_json(opened_path, 16 << 10))
+        opened = open_customer_material(args, bootstrap_receipt, opened_path)
+        token, ca = customer_material(reply, opened)
     context = ssl.create_default_context(cadata=ca)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     members = spec["members"]
@@ -476,7 +497,7 @@ def run(args: argparse.Namespace) -> dict:
             "scope": "authenticated two-member document write/read and current peer ACK reports",
             "external_evidence_required": [
                 "current signed ARM64 image receipt binding deployed Go binary and OCI image OCID",
-                "retained ts-bootstrap binary source and successful qualification manifest",
+                "retained bootstrap tool binary source and successful qualification manifest",
                 "live OCI image and ownership readback for both member instance IDs",
                 "deployed host Go binary admission and approved private caller route"],
             "go_qualification": go_qualification, "tb_qualification": tb_qualification,

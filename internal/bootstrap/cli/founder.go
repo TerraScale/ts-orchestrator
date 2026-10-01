@@ -41,7 +41,7 @@ func (c command) renderFounderContinuityAt(args []string) error {
 		*outputPath == "" || flags.NArg() != 0 {
 		return errors.New("render-founder-continuity requires --marker, --anchor, --material-directory, --selector-generation >= 2, and --out")
 	}
-	markerWire, err := readBoundedRegular(*markerPath, 16<<10)
+	markerWire, err := c.readBoundedRegular(*markerPath, 16<<10)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func (c command) renderFounderContinuityAt(args []string) error {
 	if canonical, err := protocol.EncodeJSON(marker); err != nil || !bytes.Equal(markerWire, canonical) {
 		return errors.New("accepted marker must be canonical JSON")
 	}
-	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	anchorWire, err := c.readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (c command) renderFounderContinuityAt(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "rendered founder continuity slot=%s generation=%d credential-valid-until=%s\n",
@@ -135,7 +135,7 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if now.IsZero() || *validFor <= 0 || *validFor > policy.MaxLifetime {
 		return errors.New("continuity signing time or validity is invalid")
 	}
-	candidateWire, err := readBoundedRegular(*candidatePath, bootstrap.MaxInstallContinuityBytes)
+	candidateWire, err := c.readBoundedRegular(*candidatePath, bootstrap.MaxInstallContinuityBytes)
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,7 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if err != nil || !bytes.Equal(candidateWire, canonical) {
 		return errors.New("continuity candidate must be canonical JSON")
 	}
-	markerWire, err := readBoundedRegular(*markerPath, 16<<10)
+	markerWire, err := c.readBoundedRegular(*markerPath, 16<<10)
 	if err != nil {
 		return err
 	}
@@ -192,7 +192,7 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if !bytes.Equal(private.Public().(ed25519.PublicKey), public) {
 		return errors.New("root signing key does not match public key")
 	}
-	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	anchorWire, err := c.readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (c command) signFounderContinuityAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed founder continuity slot=%s generation=%d digest=%x expires=%s\n",
@@ -247,7 +247,7 @@ func (c command) signFounderSelectionAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	payload, err := readBoundedRegular(*candidatePath, 4096)
+	payload, err := c.readBoundedRegular(*candidatePath, 4096)
 	if err != nil {
 		return err
 	}
@@ -309,7 +309,7 @@ func (c command) signFounderSelectionAt(args []string, now time.Time) error {
 	if err := verifyFounderProofFiles(proofPaths, selection, roots, hex.EncodeToString(hash[:]), now); err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed read-only founder selection generation=%d digest=%x expires=%s\n",
@@ -347,7 +347,7 @@ func (c command) publishFounderSelectionAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	anchorWire, err := c.readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return err
 	}
@@ -360,7 +360,7 @@ func (c command) publishFounderSelectionAt(args []string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	selectionWire, err := readBoundedRegular(*selectionPath, 4096)
+	selectionWire, err := c.readBoundedRegular(*selectionPath, 4096)
 	if err != nil {
 		return err
 	}

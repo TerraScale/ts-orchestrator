@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
@@ -20,6 +21,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
@@ -56,9 +58,9 @@ func (c command) runAt(args []string, now time.Time) error {
 	case "install-operator-material":
 		return c.installOperatorMaterialAt(args[1:], now)
 	case "open-customer-material":
-		return openCustomerMaterialAt(args[1:])
+		return c.openCustomerMaterialAt(args[1:])
 	case "open-rotated-customer-material":
-		return openRotatedCustomerMaterialAt(args[1:])
+		return c.openRotatedCustomerMaterialAt(args[1:])
 	case "generate-controller-material":
 		return c.runGenerateControllerMaterial(args[1:])
 	case "provision-controller-material":
@@ -168,7 +170,7 @@ func (c command) verifyBootstrapManifestAt(args []string, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("derive manifest expectation from current anchor: %w", err)
 	}
-	manifestWire, err := readBoundedRegular(*manifestPath, bootstrap.MaxManifestBytes)
+	manifestWire, err := c.readBoundedRegular(*manifestPath, bootstrap.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("read bootstrap manifest: %w", err)
 	}
@@ -410,7 +412,7 @@ func (c command) signLedgerDelegationAt(args []string, now time.Time) error {
 	if len(encoded) > bootstrap.MaxBootstrapLedgerGrantBytes {
 		return errors.New("signed ledger delegation exceeds anchor size limit")
 	}
-	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed ledger delegation deployment=%s cell=%s signer=%s digest=%x expires=%s\n",
@@ -444,7 +446,7 @@ func (c command) signBootstrapAnchorAt(args []string, now time.Time) error {
 		return errors.New("anchor signing time is invalid")
 	}
 
-	candidateBytes, err := readBoundedRegular(*candidatePath, bootstrap.MaxBootstrapAnchorBytes)
+	candidateBytes, err := c.readBoundedRegular(*candidatePath, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return err
 	}
@@ -452,7 +454,7 @@ func (c command) signBootstrapAnchorAt(args []string, now time.Time) error {
 	if err := protocol.DecodeStrict(candidateBytes, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
 		return fmt.Errorf("decode candidate anchor: %w", err)
 	}
-	regionIntentWire, err := readBoundedRegular(*regionIntentPath, bootstrap.MaxInitialRegionIntentBytes)
+	regionIntentWire, err := c.readBoundedRegular(*regionIntentPath, bootstrap.MaxInitialRegionIntentBytes)
 	if err != nil {
 		return fmt.Errorf("read initial region intent: %w", err)
 	}
@@ -467,7 +469,7 @@ func (c command) signBootstrapAnchorAt(args []string, now time.Time) error {
 	if !bytes.Equal(regionIntentWire, canonicalIntentWire) {
 		return errors.New("initial region intent must be canonical JSON")
 	}
-	ledgerDelegationWire, err := readBoundedRegular(*ledgerDelegationPath, bootstrap.MaxBootstrapLedgerGrantBytes)
+	ledgerDelegationWire, err := c.readBoundedRegular(*ledgerDelegationPath, bootstrap.MaxBootstrapLedgerGrantBytes)
 	if err != nil {
 		return fmt.Errorf("read bootstrap ledger delegation: %w", err)
 	}
@@ -542,7 +544,7 @@ func (c command) signBootstrapAnchorAt(args []string, now time.Time) error {
 	if len(encoded) > bootstrap.MaxBootstrapAnchorBytes {
 		return fmt.Errorf("signed anchor envelope exceeds %d bytes", bootstrap.MaxBootstrapAnchorBytes)
 	}
-	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed bootstrap anchor cell=%s cluster=%s digest=%s expires=%s\n",
@@ -588,7 +590,7 @@ func (c command) signManifestAt(args []string, now time.Time) error {
 		return errors.New("manifest signing time is invalid")
 	}
 
-	candidateBytes, err := readBoundedRegular(*candidatePath, bootstrap.MaxManifestBytes)
+	candidateBytes, err := c.readBoundedRegular(*candidatePath, bootstrap.MaxManifestBytes)
 	if err != nil {
 		return err
 	}
@@ -601,11 +603,11 @@ func (c command) signManifestAt(args []string, now time.Time) error {
 		*placementPath, *placementSHA); err != nil {
 		return err
 	}
-	imageWire, err := readBoundedRegular(*imageReceiptPath, bootstrap.MaxManifestBytes)
+	imageWire, err := c.readBoundedRegular(*imageReceiptPath, bootstrap.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("read image receipt: %w", err)
 	}
-	delegationWire, err := readBoundedRegular(*releaseDelegationPath, bootstrap.MaxManifestBytes)
+	delegationWire, err := c.readBoundedRegular(*releaseDelegationPath, bootstrap.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("read release delegation: %w", err)
 	}
@@ -636,7 +638,7 @@ func (c command) signManifestAt(args []string, now time.Time) error {
 	if !bytes.Equal(rootPrivate.Public().(ed25519.PublicKey), rootPublic) {
 		return errors.New("offline root signing key does not match the supplied root public key")
 	}
-	anchorWire, err := readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
+	anchorWire, err := c.readBoundedRegular(*anchorPath, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
 		return fmt.Errorf("read bootstrap anchor: %w", err)
 	}
@@ -712,7 +714,7 @@ func (c command) signManifestAt(args []string, now time.Time) error {
 	if len(encoded) > bootstrapstart.MaxControllerManifestMetadataBytes {
 		return fmt.Errorf("signed manifest envelope exceeds %d-byte OCI metadata transport", bootstrapstart.MaxControllerManifestMetadataBytes)
 	}
-	if err := writeNew(*outputPath, encoded, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, encoded, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "signed current bootstrap manifest cell=%s slot=%s digest=%s expires=%s\n",
@@ -813,6 +815,17 @@ func readRootPrivateKey(path string) (ed25519.PrivateKey, error) {
 }
 
 func readBoundedRegular(path string, maximum int64) ([]byte, error) {
+	return readBoundedRegularContext(context.Background(), path, maximum)
+}
+
+func (c command) readBoundedRegular(path string, maximum int64) ([]byte, error) {
+	return readBoundedRegularContext(c.ctx, path, maximum)
+}
+
+func readBoundedRegularContext(ctx context.Context, path string, maximum int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	file, err := openRegular(path)
 	if err != nil {
 		return nil, err
@@ -825,7 +838,7 @@ func readBoundedRegular(path string, maximum int64) ([]byte, error) {
 	if info.Size() < 0 || info.Size() > maximum {
 		return nil, fmt.Errorf("%s exceeds the %d-byte limit", filepath.Base(path), maximum)
 	}
-	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	data, err := io.ReadAll(io.LimitReader(commandio.Reader(ctx, file), maximum+1))
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", filepath.Base(path), err)
 	}
@@ -855,13 +868,21 @@ func openRegular(path string) (*os.File, error) {
 	return file, nil
 }
 
-func writeNew(path string, contents []byte, mode os.FileMode) error {
+func (c command) writeNew(path string, contents []byte, mode os.FileMode) error {
+	if err := c.ctx.Err(); err != nil {
+		return err
+	}
 	if path == "" || len(contents) == 0 {
 		return errors.New("output path and content are required")
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 	if err != nil {
 		return fmt.Errorf("create output without overwrite: %w", err)
+	}
+	if err := c.ctx.Err(); err != nil {
+		_ = file.Close()
+		_ = os.Remove(path)
+		return err
 	}
 	if _, err := file.Write(contents); err != nil {
 		_ = file.Close()
@@ -874,6 +895,10 @@ func writeNew(path string, contents []byte, mode os.FileMode) error {
 		return err
 	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	if err := c.ctx.Err(); err != nil {
 		_ = os.Remove(path)
 		return err
 	}

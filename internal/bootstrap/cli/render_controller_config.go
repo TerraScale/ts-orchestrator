@@ -105,7 +105,7 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	if _, err := app.ValidateSignedControllerConfig(manifest, ""); err != nil {
 		return err
 	}
-	if err := writeNew(*outputPath, wire, 0o644); err != nil {
+	if err := c.writeNew(*outputPath, wire, 0o644); err != nil {
 		return err
 	}
 	fmt.Fprintf(c.output, "rendered controller config slot=%s sha256=%s\n", manifest.Slot, manifest.ControllerConfigSHA256)

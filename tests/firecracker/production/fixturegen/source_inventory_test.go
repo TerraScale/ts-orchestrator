@@ -18,6 +18,7 @@ func TestCurrentCompletedSourcePinsCoverRecipeAndVerify(t *testing.T) {
 	for _, path := range []string{
 		"cmd/terrascale-orchestrator/main.go",
 		"internal/cli/cli.go",
+		"internal/commandio/io.go",
 		"internal/bootstrap/cli/commands.go",
 		"internal/release/cli/commands.go",
 		"internal/bootstrapstart/founder_floor_artifact.go",
