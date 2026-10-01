@@ -36,13 +36,18 @@ This repository pins Go 1.27.1 in `.mise.toml`:
 ```bash
 mise trust .mise.toml  # first checkout only
 mise install
+umask 022
 mise exec -- make verify
 mise exec -- make build
 mise exec -- make release-linux
 ```
 
-`make verify` checks Go formatting, runs the Python Firecracker harness contract
-tests, runs `go vet`, and runs the Go tests once with the race detector.
+All first-party tests use Go's standard `testing` package. `make test` runs
+`go test ./...`; `make verify` checks formatting, runs `go vet`, and runs all
+Go suites with the race detector, including deployment and qualification
+driver contracts. Some contracts invoke existing Python tools, so Python
+remains a prerequisite until those tools move into `ts-orch`.
+See [Go testing](docs/testing.md) for focused suites and external prerequisites.
 `make build` creates `dist/ts-orch` for the current host, with a
 `dist/terrascale-orchestrator` compatibility symlink. The same executable runs
 the controller, host agent, and operator tooling:

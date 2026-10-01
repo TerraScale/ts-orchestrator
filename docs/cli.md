@@ -62,6 +62,11 @@ provider code remain in their existing feature packages. CLI command packages
 receive cancellation and output from the executable without changing global
 process output or starting NATS.
 
+Keep all first-party tests in Go using the standard `testing` package. Driver
+contracts for existing scripts also run through `go test`; Go owns their
+fixtures and assertions while small adapters invoke the code under test.
+See [Go testing](testing.md) for verification and feature-local fixtures.
+
 Bootstrap and release commands retain normal SIGINT/SIGTERM termination in the
 executable, including during synchronous OCI credential setup. Their Go `Run`
 APIs accept caller cancellation and return cancellation and output-write errors.

@@ -97,13 +97,15 @@ finally: m.shutil.rmtree(run.root)`)
 	}
 }
 func TestProductionNTPResponse(t *testing.T) {
-	got := productionObserve(t, nil, `request=bytearray(48)
-request[0]=0x23
-request[40:48]=b"client01"
-answer=m.ntp_response(bytes(request),1700000000.25)
+	request := make([]int, 48)
+	request[0] = 0x23
+	for i, value := range []byte("client01") {
+		request[40+i] = int(value)
+	}
+	got := productionObserve(t, map[string]any{"request": request, "time": 1700000000.25}, `answer=m.ntp_response(bytes(a["request"]),a["time"])
 result={"length":len(answer),"mode":answer[0]&7,"stratum":answer[1],"origin":answer[24:32].decode()}`)
 	productionEqual(t, got, map[string]any{"length": 48, "mode": 4, "stratum": 2, "origin": "client01"})
-	got = productionObserve(t, nil, `result=m.ntp_response(b"short",1700000000)`)
+	got = productionObserve(t, map[string]any{"request": []int{115, 104, 111, 114, 116}, "time": 1700000000}, `result=m.ntp_response(bytes(a["request"]),a["time"])`)
 	productionEqual(t, got["error_type"], "ValueError")
 }
 func TestProductionAudit(t *testing.T) {
@@ -183,10 +185,18 @@ finally: m.shutil.rmtree(run.root)`)
 	for _, v := range got["calls"].([]any) {
 		call := v.(map[string]any)
 		argv := call["args"].([]any)
-		if call["input"] != nil {
-			productionEqual(t, argv[:3], []string{"nft", "-f", "-"})
-			programs = append(programs, call["input"].(string))
+		if len(argv) < 3 {
+			t.Fatalf("unexpected short firewall command: %v", argv)
 		}
+		if reflect.DeepEqual(argv[:3], []any{"nft", "list", "table"}) {
+			continue
+		}
+		productionEqual(t, argv[:3], []string{"nft", "-f", "-"})
+		program, ok := call["input"].(string)
+		if !ok {
+			t.Fatalf("firewall command lacks input program: %v", argv)
+		}
+		programs = append(programs, program)
 	}
 	if len(programs) != 2 {
 		t.Fatalf("firewall programs %d", len(programs))
@@ -277,31 +287,57 @@ finally: m.shutil.rmtree(run.root)`)
 	}
 }
 func TestProductionRebootDisconnectRequiresNewIdentity(t *testing.T) {
-	got := productionObserve(t, nil, `from types import SimpleNamespace
+	for _, tc := range []struct {
+		name, firstBoot, newBoot, newInvocation string
+		valid                                   bool
+	}{
+		{"new_boot_and_invocation", "boot-old", "boot-new", "inv-new", true},
+		{"old_boot", "boot-old", "boot-old", "inv-new", false},
+		{"old_invocation", "boot-old", "boot-new", "inv-old", false},
+		{"identity_changes_during_initial_health", "boot-unexpected", "boot-new", "inv-new", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := productionObserve(t, map[string]any{"first_boot": tc.firstBoot, "new_boot": tc.newBoot, "new_invocation": tc.newInvocation}, `from types import SimpleNamespace
 run=m.Qualification(SimpleNamespace(run=False))
 run.report["serviceIdentity"]={slot:{"uid":1000,"gid":1000} for slot in m.SLOTS}
 class RebootingVM:
     rebooted=False
     def boot(self): pass
-    def wait_ssh(self,*,different_boot_id=None): return "boot-new" if different_boot_id else "boot-old"
-    def health(self,uid,gid): return {"bootId":"boot-new" if self.rebooted else "boot-old","controllerInvocation":"inv-new" if self.rebooted else "inv-old"}
+    def wait_ssh(self,*,different_boot_id=None): return a["new_boot"] if different_boot_id else "boot-old"
+    def health(self,uid,gid): return {"bootId":a["new_boot"] if self.rebooted else a["first_boot"],"controllerInvocation":a["new_invocation"] if self.rebooted else "inv-old"}
     def ssh(self,script,*,timeout,check): self.rebooted=True;raise m.subprocess.TimeoutExpired("ssh",timeout)
 run.vms={slot:RebootingVM() for slot in m.SLOTS}
 try:
-    run.run_vms()
-    result={"guests":run.report["guests"],"slots":list(m.SLOTS)}
+    error=None
+    try: run.run_vms()
+    except RuntimeError as exc: error=str(exc)
+    result={"error":error,"guests":run.report.get("guests",{}),"slots":list(m.SLOTS)}
 finally: m.shutil.rmtree(run.root)`)
-	guests := got["guests"].(map[string]any)
-	slots := got["slots"].([]any)
-	if len(guests) != len(slots) {
-		t.Fatal("missing guest receipts")
-	}
-	for _, slot := range slots {
-		receipt, ok := guests[slot.(string)]
-		if !ok {
-			t.Fatal("missing guest", slot)
-		}
-		productionEqual(t, receipt.(map[string]any)["restart"].(map[string]any)["bootId"], "boot-new")
+			if !tc.valid {
+				part := "did not complete a new production controller invocation"
+				if tc.name == "identity_changes_during_initial_health" {
+					part = "boot identity changed during health check"
+				}
+				productionContains(t, got["error"], part)
+				productionEqual(t, got["guests"], map[string]any{})
+				return
+			}
+			productionEqual(t, got["error"], nil)
+			guests := got["guests"].(map[string]any)
+			slots := got["slots"].([]any)
+			if len(guests) != len(slots) {
+				t.Fatal("missing guest receipts")
+			}
+			for _, slot := range slots {
+				receipt, ok := guests[slot.(string)]
+				if !ok {
+					t.Fatal("missing guest", slot)
+				}
+				restart := receipt.(map[string]any)["restart"].(map[string]any)
+				productionEqual(t, restart["bootId"], "boot-new")
+				productionEqual(t, restart["controllerInvocation"], "inv-new")
+			}
+		})
 	}
 }
 func TestProductionHealthFailureNamesStageAndDiagnostics(t *testing.T) {

@@ -2,7 +2,9 @@ package ci
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/v2"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -53,6 +55,7 @@ func (s *attachmentState) attachmentAuth() []bool {
 func (s *attachmentState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.requests = append(s.requests, attachmentRequest{r.URL.Path, r.Header.Get("Authorization") != ""})
+	mode, private, draft, size, browser, redirect := s.mode, s.private, s.draft, s.size, s.browser, s.redirect
 	s.mu.Unlock()
 	body := func(status int, data string) {
 		w.Header().Set("Content-Type", "text/plain")
@@ -67,8 +70,8 @@ func (s *attachmentState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(wire)
 	}
-	attachment := map[string]any{"id": 33, "uuid": assetUUID, "name": "image-inputs.json", "size": s.size, "browser_download_url": s.browser}
-	release := map[string]any{"id": 22, "tag_name": fixtureTag, "name": fixtureTag, "draft": s.draft, "prerelease": true, "assets": []any{attachment}}
+	attachment := map[string]any{"id": 33, "uuid": assetUUID, "name": "image-inputs.json", "size": size, "browser_download_url": browser}
+	release := map[string]any{"id": 22, "tag_name": fixtureTag, "name": fixtureTag, "draft": draft, "prerelease": true, "assets": []any{attachment}}
 	switch r.URL.Path {
 	case "/objects/" + assetUUID:
 		body(200, successBody)
@@ -77,7 +80,7 @@ func (s *attachmentState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/repos/search":
 		jsonBody(map[string]any{"data": []any{}})
 	case "/api/v1/repos/TerraScale/ts-orchestrator":
-		jsonBody(map[string]any{"private": s.private})
+		jsonBody(map[string]any{"private": private})
 	case "/api/v1/repos/TerraScale/ts-orchestrator/releases/tags/" + fixtureTag:
 		jsonBody(release)
 	case "/api/v1/repos/TerraScale/ts-orchestrator/releases":
@@ -86,16 +89,16 @@ func (s *attachmentState) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/v1/repos/TerraScale/ts-orchestrator/releases/22/assets/33":
 		jsonBody(attachment)
 	case "/attachments/" + assetUUID:
-		if s.mode == "error-body" {
+		if mode == "error-body" {
 			body(404, errorBody)
 			return
 		}
-		if s.mode == "redirect" {
-			w.Header().Set("Location", s.redirect)
+		if mode == "redirect" {
+			w.Header().Set("Location", redirect)
 			w.WriteHeader(302)
 			return
 		}
-		if (s.mode == "auth-vs-anonymous" || s.mode == "private") && r.Header.Get("Authorization") != "token "+fixtureToken {
+		if (mode == "auth-vs-anonymous" || mode == "private") && r.Header.Get("Authorization") != "token "+fixtureToken {
 			body(404, errorBody)
 			return
 		}
@@ -128,7 +131,9 @@ type attachmentReport struct {
 
 func fjCommand(t *testing.T, binary, origin, home, stdin string, args ...string) (int, string, string) {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), binary, append([]string{"--host", origin}, args...)...)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, append([]string{"--host", origin}, args...)...)
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "XDG_DATA_HOME=" + home, "NO_COLOR=1", "TERM=dumb", "LANG=C.UTF-8"}
 	if value := os.Getenv("LD_LIBRARY_PATH"); value != "" {
 		cmd.Env = append(cmd.Env, "LD_LIBRARY_PATH="+value)
@@ -137,10 +142,15 @@ func fjCommand(t *testing.T, binary, origin, home, stdin string, args ...string)
 	var out, errout bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errout
-	cmd.WaitDelay = 20 * time.Second
+	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
-	if err != nil && cmd.ProcessState == nil {
-		t.Fatal(err)
+	if ctx.Err() != nil {
+		t.Fatal("fj command exceeded its 20-second deadline", ctx.Err())
+	}
+	if err != nil {
+		if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+			t.Fatal(err)
+		}
 	}
 	return cmd.ProcessState.ExitCode(), out.String(), errout.String()
 }
@@ -188,6 +198,7 @@ func TestFJAttachmentProbe(t *testing.T) {
 			state := &attachmentState{mode: "auth-vs-anonymous", size: len(successBody)}
 			server := httptest.NewServer(state)
 			defer server.Close()
+			state.mu.Lock()
 			state.browser = server.URL + "/attachments/" + assetUUID
 			state.redirect = sink.URL + "/objects/" + assetUUID + "?" + secretQuery + "=value"
 			switch name {
@@ -208,13 +219,17 @@ func TestFJAttachmentProbe(t *testing.T) {
 			case "strict_pins":
 				state.mode = "private"
 			}
+			state.mu.Unlock()
 			home := t.TempDir()
 			if err := os.Chmod(home, 0o700); err != nil {
 				t.Fatal(err)
 			}
-			code, _, stderr := fjCommand(t, binary, server.URL, home, fixtureToken+"\n", "auth", "add-token")
+			code, authOut, stderr := fjCommand(t, binary, server.URL, home, fixtureToken+"\n", "auth", "add-token")
+			if strings.Contains(authOut+stderr, fixtureToken) {
+				t.Fatal("authentication setup exposed the fixture credential")
+			}
 			if code != 0 {
-				t.Fatal("fixture token setup failed", stderr)
+				t.Fatal("fixture token setup failed")
 			}
 			if strings.HasPrefix(name, "download_") {
 				output := filepath.Join(home, "downloaded-asset")
@@ -252,6 +267,26 @@ func TestFJAttachmentProbe(t *testing.T) {
 				t.Helper()
 				code, out, stderr := fjCommand(t, binary, server.URL, home, "", "release", "--repo", "TerraScale/ts-orchestrator", "asset", "probe", fixtureTag, "image-inputs.json", "--expect-sha256", hash, "--expect-bytes", strconv.Itoa(size), "--compare-anonymous")
 				noSensitiveOutput(t, out, stderr)
+				var wire map[string]any
+				// The original Python checks required these keys and strict bool
+				// values. Go zero values must not certify an omitted/null field.
+				if err := json.Unmarshal([]byte(out), &wire); err != nil {
+					t.Fatal("probe diagnostic must be a JSON object", err)
+				}
+				for section, keys := range map[string][]string{"authenticated": {"sent_authorization", "matches_expected"}, "anonymous": {"skipped"}, "url_comparison": {"origin_equal"}} {
+					fields, ok := wire[section].(map[string]any)
+					if !ok {
+						t.Fatalf("probe diagnostic lacks object %s", section)
+					}
+					for _, key := range keys {
+						if _, ok := fields[key].(bool); !ok {
+							t.Fatalf("probe diagnostic lacks boolean %s.%s", section, key)
+						}
+					}
+				}
+				if _, ok := wire["authenticated"].(map[string]any)["status"]; !ok {
+					t.Fatal("probe diagnostic lacks authenticated.status")
+				}
 				var report attachmentReport
 				if err := json.Unmarshal([]byte(out), &report); err != nil {
 					t.Fatal("probe did not return one JSON diagnostic object", err)

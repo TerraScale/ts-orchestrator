@@ -523,8 +523,9 @@ class Lab:
     @staticmethod
     def harness_digest() -> str:
         value = hashlib.sha256()
-        for name in ("qualify.py", "test_qualify.py", "natsdiag.go", "natsdiag_test.go",
-                     "jwtsetup/main.go", "clockprobe/main.go", "README.md"):
+        for name in ("qualify.py", "qualify_test.go", "natsdiag.go", "natsdiag_test.go",
+                     "jwtsetup/main.go", "clockprobe/main.go", "README.md",
+                     "../../internal/testutil/script/script.go"):
             path = REPO / "tests" / "firecracker" / name
             value.update(name.encode() + b"\0" + bytes.fromhex(digest(path)))
         return value.hexdigest()

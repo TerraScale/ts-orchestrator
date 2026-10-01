@@ -24,8 +24,12 @@ mise exec -- make build
 mise exec -- make release-linux
 ```
 
-`make verify` checks formatting, runs the Python Firecracker harness contract
-tests, runs `go vet`, and runs all Go tests with the race detector. `make build`
+`make verify` checks formatting, runs `go vet`, and runs all Go tests with the
+race detector. Deployment and qualification driver contracts use Go's
+standard `testing` package and are included in `go test ./...`. Their existing
+Python implementations still require Python to run. Use `make test` for an
+ordinary full run or `mise exec -- go test ./tests/deploy -run TestName` for a
+focused contract. Actual VM qualification is run separately. `make build`
 writes the current-platform binary to `dist/ts-orch`, with a
 `dist/terrascale-orchestrator` compatibility symlink. Use `ts-orch` for operator
 tasks and implement new operational tooling as Go subcommands rather than

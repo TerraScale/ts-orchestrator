@@ -16,9 +16,16 @@ command's operational logic.
 
 Existing Python and shell operational tools are migration targets, not the
 template for new features. Migrate them feature by feature, preserving their
-admission, ownership, resume, and verification contracts. Existing Python test
-and Firecracker harnesses may continue to exercise the product. External image
-tools such as QEMU/libguestfs remain build prerequisites.
+admission, ownership, resume, and verification contracts. External image tools
+such as QEMU/libguestfs remain build prerequisites.
+
+Write all first-party tests in Go with the standard `testing` package. Keep
+cases, fixtures, assertions, and test lifecycle in Go; use `t.TempDir`,
+`t.Context`, and `httptest` where appropriate. Test existing Python and shell
+tools through their command interfaces or small implementation observation
+adapters until those tools move into `ts-orch`. Do not add Python test suites
+or separate test runners. Store inert fixture data under feature-local
+`testdata` directories.
 
 ## Keep features together
 
@@ -51,6 +58,12 @@ mise exec -- make verify
 mise exec -- make build
 dist/ts-orch --help
 ```
+
+`make test` runs `go test ./...`; `make verify` checks formatting, runs `go vet`,
+and runs every Go suite with the race detector. Use `go test ./path -run Name`
+for focused checks. Some contract tests invoke existing Python tooling, so
+Python remains a prerequisite for those implementations. Actual Firecracker
+VM qualification remains an explicit environment-dependent command.
 
 The qualification tests expect ordinary `022` file creation permissions and
 check explicitly restricted files separately. Published binaries require a

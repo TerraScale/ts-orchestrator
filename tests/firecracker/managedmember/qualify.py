@@ -765,7 +765,8 @@ class Lab:
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.source_paths = {
             "driver": Path(__file__).resolve(),
-            "driver_tests": Path(__file__).with_name("test_qualify.py").resolve(),
+            "driver_tests": Path(__file__).with_name("qualify_test.go").resolve(),
+            "driver_test_support": REPO / "internal/testutil/script/script.go",
             "readme": Path(__file__).with_name("README.md").resolve(),
             "guest_test": REPO / "internal/host/managed_member_firecracker_test.go",
         }

@@ -1,0 +1,46 @@
+# Go testing
+
+All first-party tests use Go's standard `testing` package. Keep cases,
+fixtures, assertions, and lifecycle management alongside the feature in
+`*_test.go`; store inert inputs and golden observations in `testdata`.
+
+```sh
+umask 022
+mise exec -- make test
+mise exec -- make verify
+mise exec -- go test ./tests/deploy -run TestImageInputs
+mise exec -- go test -race ./tests/runtime_priority
+```
+
+`make test` runs `go test ./...`. `make verify` checks Go formatting, runs
+`go vet ./...`, and runs the complete suite with the race detector. The race
+scheduler shards long product packages and runs every test, example, and
+fuzz seed once. Forgejo uses the same tests through `make ci-verify`, together
+with static release-binary checks.
+
+Deployment, OCI admission, CI, runtime-priority, and Firecracker driver
+contracts are ordinary Go packages. Some invoke existing Python or shell
+implementations. Their adapters return observations; expected results and
+assertions belong in Go. These implementations still require Python until
+they move into `ts-orch`. New tests must not use Python test frameworks or
+wrap a separate test runner.
+
+The shared script helper records repository source inputs for Go's test
+cache, bounds subprocess lifetimes, and terminates their process group on
+cancellation. Use it for tests that invoke repository scripts. Use separate
+bounded cleanup contexts when cleanup runs after `t.Context()` is canceled.
+
+Environment-dependent tests use `t.Skip` with the missing prerequisite.
+The pinned Forgejo attachment contract runs through Go on every verified
+build or cache hit in `scripts/ci/prepare-fj-admission.sh`. It can also run
+against a supplied client:
+
+```sh
+TS_FJ_PROBE_BINARY=/absolute/path/to/fj mise exec -- go test ./scripts/ci \
+  -run '^TestFJAttachmentProbe$' -count=1
+```
+
+Offline driver contracts do not start Firecracker guests. Actual VM
+qualification still uses the explicit commands and prerequisites in the
+[Firecracker guide](../tests/firecracker/README.md) and
+[production guide](../tests/firecracker/production/README.md).

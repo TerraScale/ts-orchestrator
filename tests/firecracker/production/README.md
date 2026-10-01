@@ -87,7 +87,7 @@ new RSA session public key. Request logs redact unlisted URI details and
 contain no private key, federation body, JWT or signature header.
 
 The offline tests are `go test ./tests/firecracker/production/...`,
-`go test -tags fixturetest ./tests/firecracker/production/fixturegen`, and
-`python3 tests/firecracker/production/test_qualify.py`. They exercise packet,
+and `go test -tags fixturetest ./tests/firecracker/production/fixturegen`.
+They exercise packet,
 SDK, simulator and driver contracts. They do not prove a VM restart until a
 reviewed production packet and image are supplied and `--run` completes.

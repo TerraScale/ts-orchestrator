@@ -1237,7 +1237,10 @@ class Qualification:
         self.started_at = datetime.now(timezone.utc).isoformat()
         self.local_source_paths = {
             "driver": Path(__file__).resolve(),
-            "tests": Path(__file__).with_name("test_qualify.py").resolve(),
+            "tests": Path(__file__).with_name("qualify_test.go").resolve(),
+            "process_tests": Path(__file__).with_name("process_test.go").resolve(),
+            "memberstatus_probe_tests": Path(__file__).with_name("main_test.go").resolve(),
+            "native_test_support": REPO / "internal/testutil/script/script.go",
             "readme": REPO / "tests/firecracker/README.md",
             "memberstatus_probe_source": REPO / "tests/firecracker/memberstatus/main.go",
             "focused_go_test_source": (REPO / "internal/host/managed_runtime_firecracker_test.go"

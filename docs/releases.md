@@ -2,9 +2,10 @@
 
 The Forgejo verification workflow checks out the event's exact Git revision and
 requires a clean tree. Its single job runs `make verify`: Go formatting
-checks, the Python Firecracker harness contract tests, `go vet`, and
-race-enabled Go tests using Go 1.27.1. The `terrascale-builder` image supplies
-that exact Go version; `.mise.toml` pins the same version for local development.
+checks, `go vet`, and the complete Go test suite with race detection, including
+deployment and qualification driver contracts. The workflow uses Go 1.27.1;
+the `terrascale-builder` image supplies that exact version and `.mise.toml`
+pins the same version for local development.
 
 The same job then cross-compiles one static executable for Linux amd64 and one
 for Linux arm64 with cgo disabled. It checks the ELF machine type, absence of a
@@ -424,7 +425,7 @@ socket. The service's capability bounding set is `CAP_SYS_ADMIN CAP_CHOWN`. It
 also provisions `/var/lib/terrascale-orchestrator-volume-init` as root-owned
 mode `0700` for the helper's local format-attempt record. The helper has no
 private filesystem namespace, so its verified mount is visible in the host
-service's mount namespace. [`offline-guestfs.py`](../deploy/image/offline-guestfs.py), [image-builder tests](../tests/deploy/test_build_offline.py), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket).
+service's mount namespace. [`offline-guestfs.py`](../deploy/image/offline-guestfs.py), [image-builder tests](../tests/deploy/build_offline_test.go), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket).
 
 The controller unit runs as the pre-created `terrascale-orchestrator` user,
 reads `/etc/terrascale-orchestrator/controller.json`, and persists embedded

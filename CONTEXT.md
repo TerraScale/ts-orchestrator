@@ -13,6 +13,13 @@ or separate tools. CI calls these commands. Existing operational scripts are
 migration targets. See [contributing](CONTRIBUTING.md) and
 [CLI boundaries](docs/cli.md).
 
+**Go testing**
+
+All first-party tests use Go's standard `testing` package and `go test`.
+Keep test cases, fixtures and assertions in Go alongside each feature;
+existing Python tools may be invoked as implementations under test while
+their operational logic moves into the CLI. Do not add Python test runners.
+
 ## Product and regional control
 
 **TerraScale Orchestrator**
