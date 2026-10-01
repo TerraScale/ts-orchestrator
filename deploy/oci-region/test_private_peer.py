@@ -59,8 +59,8 @@ class PrivatePeerInspectionTests(unittest.TestCase):
         plan["netbird"] = None
         plan["public_api"] = None
         plan["network_security"]["nsg_rules"] = [
-            rule for rule in plan["network_security"]["nsg_rules"] if rule["source"] != "10.250.10.155/32"]
-        plan["network_security"]["seed_ssh_nsg_rules"] = []
+            rule for rule in plan["network_security"]["nsg_rules"]
+            if rule["source"] != "10.250.10.155/32" and rule["tcp_min"] != 22]
         plan["network_security"]["workload_nsg_rules"] = []
         plan["cell"] = cell
         plan["region"] = region
@@ -82,7 +82,6 @@ class PrivatePeerInspectionTests(unittest.TestCase):
             "vcn": f"ocid1.vcn.oc1.{region}.{cell.lower()}vcn",
             "subnet": f"ocid1.subnet.oc1.{region}.{cell.lower()}subnet",
             "network_security_group": f"ocid1.networksecuritygroup.oc1.{region}.{cell.lower()}nsg",
-            "seed_ssh_network_security_group": None,
             "security_list": f"ocid1.securitylist.oc1.{region}.{cell.lower()}sl",
             "route_table": f"ocid1.routetable.oc1.{region}.{cell.lower()}rt",
             "service_gateway": f"ocid1.servicegateway.oc1.{region}.{cell.lower()}sgw",
