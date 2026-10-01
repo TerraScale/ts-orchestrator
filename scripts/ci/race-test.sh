@@ -15,8 +15,8 @@ read -r -a go <<< "${GO:-go}"
 shards=${TS_RACE_SHARDS:-6}
 jobs=${TS_RACE_JOBS:-6}
 package_jobs=${TS_RACE_PACKAGE_JOBS:-4}
-test_jobs=${TS_RACE_TEST_JOBS:-4}
-sharded_packages=(./internal/app ./internal/bootstrapstart)
+test_jobs=${TS_RACE_TEST_JOBS:-2}
+sharded_packages=(./internal/app ./internal/bootstrapstart ./tests/deploy)
 # Longest first, so a slow lab cannot get stuck behind short unit shards.
 heavy_tests=(
 	TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss
@@ -24,6 +24,7 @@ heavy_tests=(
 	TestLabTLSHostSessionRecoversAfterBlackholedController
 	TestLabTLSHostSessionRecoversAfterControllerLoss
 	TestAuthenticatedOperatorToHostDeliveryWithControllerLoss
+	TestOfflineReadbackMismatchDiscardsCandidate
 )
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }
@@ -65,8 +66,9 @@ start() {
 
 module=$("${go[@]}" list -m)
 "${go[@]}" list ./... > "$logs/packages"
-mapfile -t other_packages < <(grep -v -x -F -e "$module/internal/app" -e "$module/internal/bootstrapstart" \
-	"$logs/packages")
+excluded=()
+for package in "${sharded_packages[@]}"; do excluded+=(-e "$module/${package#./}"); done
+mapfile -t other_packages < <(grep -v -x -F "${excluded[@]}" "$logs/packages")
 # Discover all shards before running tests: a failed listing must fail CI,
 # and no package has several cold compilers/linkers running simultaneously.
 for package in "${sharded_packages[@]}"; do
@@ -100,7 +102,7 @@ for package in "${sharded_packages[@]}"; do
 	for bucket in "${buckets[@]}"; do
 		[[ -n $bucket ]] || continue
 		covered=$((covered + $(tr '|' '\n' <<< "$bucket" | wc -l)))
-		start "${package##*/}-$shard" "${go[@]}" test -race -vet=off -run "^(${bucket})\$" "$package"
+		start "${package##*/}-$shard" "${go[@]}" test -race -vet=off -timeout=20m -parallel "$test_jobs" -run "^(${bucket})\$" "$package"
 		shard=$((shard + 1))
 	done
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }
