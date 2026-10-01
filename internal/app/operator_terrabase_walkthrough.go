@@ -81,6 +81,18 @@ func runTerraBaseWalkthrough(ctx context.Context, args []string, output io.Write
 	if err != nil {
 		return err
 	}
+	// A profile written by an earlier orchestrator has other members, so read
+	// its version before the strict decode below rejects them.
+	if data, err := state.readFile(deployClientFile); err == nil {
+		var probe struct {
+			Version int `json:"version"`
+		}
+		if json.Unmarshal(data, &probe) == nil && probe.Version != terrabaseClientProfileVersion {
+			return fmt.Errorf("client profile version %d is unsupported; this walkthrough reads version %d: "+
+				"walk through this state with the orchestrator revision that deployed it, or redeploy with a new "+
+				"--state and partition", probe.Version, terrabaseClientProfileVersion)
+		}
+	}
 	var credentials managedmaterial.CustomerMaterial
 	var profile terrabaseClientProfile
 	for name, value := range map[string]any{deployCredentialsFile: &credentials, deployClientFile: &profile} {
@@ -91,10 +103,6 @@ func runTerraBaseWalkthrough(ctx context.Context, args []string, output io.Write
 		if !exists {
 			return fmt.Errorf("deployment state lacks %s; run terrabase-deploy first", name)
 		}
-	}
-	if profile.Version != terrabaseClientProfileVersion {
-		return fmt.Errorf("client profile version %d is unsupported; this walkthrough reads version %d",
-			profile.Version, terrabaseClientProfileVersion)
 	}
 	if len(profile.Members) != 2 || len(profile.Collections) == 0 || len(profile.Collections[0].UTF8Fields) == 0 {
 		return errors.New("client profile needs two members and a collection with a UTF-8 field")
