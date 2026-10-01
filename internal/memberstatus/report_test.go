@@ -30,18 +30,24 @@ func TestServingProofReceivedPrefixesAreOrderedWhenPresent(t *testing.T) {
 		{"release without received prefixes", `"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`, true},
 		{"peer received behind durable", `"peer_received_sequence":11,"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_received_sequence":9,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`, false},
 		{"inbox received behind durable", `"peer_received_sequence":12,"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_received_sequence":8,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`, false},
+		{"only the peer received prefix", `"peer_received_sequence":12,"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`, false},
+		{"only the inbox received prefix", `"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_received_sequence":9,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`, false},
 	} {
-		var proof ServingProof
-		if err := decodeRequired(proofJSON(tc.replication), &proof, servingPaths...); err != nil {
+		proof, err := decodeServingProof(proofJSON(tc.replication))
+		if err != nil {
 			t.Fatalf("%s: decode: %v", tc.name, err)
 		}
-		err := VerifyReportedServing(proof, identity, survivor)
+		err = VerifyReportedServing(proof, identity, survivor)
 		if tc.serving && err != nil || !tc.serving && err != ErrNotServing {
 			t.Fatalf("%s: serving verification = %v", tc.name, err)
 		}
 	}
-	var proof ServingProof
-	if err := decodeRequired(proofJSON(`"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9,"peer_forwarded_sequence":12`), &proof, servingPaths...); err == nil {
-		t.Fatal("unknown replication field accepted")
+	for name, replication := range map[string]string{
+		"unknown replication field": `"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9,"peer_forwarded_sequence":12`,
+		"null received prefixes":    `"peer_received_sequence":null,"peer_durable_sequence":12,"peer_applied_sequence":12,"local_inbox_received_sequence":null,"local_inbox_durable_sequence":9,"local_inbox_applied_sequence":9`,
+	} {
+		if _, err := decodeServingProof(proofJSON(replication)); err == nil {
+			t.Fatalf("%s accepted", name)
+		}
 	}
 }

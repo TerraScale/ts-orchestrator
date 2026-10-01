@@ -97,9 +97,11 @@ type ReplicationProof struct {
 }
 
 // ordered reports whether each direction's prefixes satisfy
-// received >= durable >= applied; an omitted received prefix is not checked.
+// received >= durable >= applied. Both received prefixes are present, or both
+// are omitted by an older TerraBase release.
 func (r ReplicationProof) ordered() bool {
-	return r.PeerAppliedSequence <= r.PeerDurableSequence &&
+	return (r.PeerReceivedSequence == nil) == (r.LocalInboxReceivedSequence == nil) &&
+		r.PeerAppliedSequence <= r.PeerDurableSequence &&
 		(r.PeerReceivedSequence == nil || r.PeerDurableSequence <= *r.PeerReceivedSequence) &&
 		r.LocalInboxAppliedSequence <= r.LocalInboxDurableSequence &&
 		(r.LocalInboxReceivedSequence == nil || r.LocalInboxDurableSequence <= *r.LocalInboxReceivedSequence)
@@ -226,6 +228,32 @@ func decodeRequired(data []byte, into any, paths ...string) error {
 			if !ok || current == nil {
 				return fmt.Errorf("member evidence omits %s", path)
 			}
+		}
+	}
+	return nil
+}
+
+// rejectNull rejects an explicit JSON null at any present optional path.
+func rejectNull(data []byte, paths ...string) error {
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("decode member fields: %w", err)
+	}
+	for _, path := range paths {
+		current, present := any(root), true
+		for _, part := range splitPath(path) {
+			object, ok := current.(map[string]any)
+			if !ok {
+				present = false
+				break
+			}
+			if current, ok = object[part]; !ok {
+				present = false
+				break
+			}
+		}
+		if present && current == nil {
+			return fmt.Errorf("member evidence has null %s", path)
 		}
 	}
 	return nil
