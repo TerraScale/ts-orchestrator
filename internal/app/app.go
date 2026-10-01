@@ -1,4 +1,4 @@
-// Package app is the sole composition root for the one executable.
+// Package app composes the controller, host, and regional operator runtime.
 package app
 
 import (

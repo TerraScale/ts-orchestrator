@@ -7,7 +7,7 @@ controller, followed by the identity and authority handoff to
 controller A, and required credential/image prerequisites instead of leaving
 those provisioning steps to the user. Use the OCI CLI to get or create required
 Vault secrets where they are runbook inputs. Publish generated controller
-material through the documented `ts-bootstrap provision-controller-material`
+material through the documented `ts-orch bootstrap provision-controller-material`
 flow, which binds the material to authenticated readback and current cost
 admission. After the explicit controller-A handoff, `ts-orchestrator` alone
 owns B/C, the ARM workload hosts, and signed TerraBase deployment. The
@@ -91,11 +91,11 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    cost admission:
 
    ```sh
-   python3 deploy/oci-region/preview.py inventory \
+   ts-orch oci-region preview inventory \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --out /ABSOLUTE/PATH/manual-inventory.json
 
-   python3 deploy/oci-region/preview.py admit \
+   ts-orch oci-region preview admit \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --out /ABSOLUTE/PATH/cost-admission.json
@@ -189,7 +189,7 @@ subnet keeps no internet route, NAT gateway, or public IP. The cell's only inter
 path. LPGs have no separate charge, and the NetBird server adds no OCI resource
 to the cost admission.
 
-`preview.py` enforces this boundary. In the plan, `operator_gateway` must be a
+`ts-orch oci-region preview` enforces this boundary. In the plan, `operator_gateway` must be a
 private address inside its own VCN that does not overlap the cell. Every NSG
 and security-list ingress source must be inside the cell or exactly the gateway
 `/32` on the ports above, and a source that overlaps the public API subnet must
@@ -271,7 +271,7 @@ debug a server whose other path is broken:
   Bastion. The image keeps Noble's `ssh.socket` enabled and the image build
   fails without it. The operator's Ed25519 key (`owner_ssh_public_key` in the
   attempt configuration) travels in OCI's standard `ssh_authorized_keys` launch
-  metadata: `preview.py seed-launch` sets it on controller A, which forwards it
+  metadata: `ts-orch oci-region preview seed-launch` sets it on controller A, which forwards it
   with its other launch material to controllers B and C and to every managed
   host. cloud-init authorizes it for the `ubuntu` user (passwordless `sudo`);
   password login stays off.
@@ -341,7 +341,7 @@ ts-ops resource manifest and primary VNIC.
    done
    ```
 
-   Then run `preview.py inventory` and `admit` against the plan copy.
+   Then run `ts-orch oci-region preview inventory` and `admit` against the plan copy.
 2. Create and connect the LPGs. Do not pass `--route-table-id`: an LPG route
    table would let the peering carry traffic for other networks.
 
@@ -466,7 +466,7 @@ rules are not restored; nothing listens on those ports.
 
 ## Public TerraBase API
 
-`deploy/oci-region/public-api.py` exposes the members' TerraBase HTTPS API
+`ts-orch oci-region public-api` exposes the members' TerraBase HTTPS API
 through a public Network Load Balancer. It creates an internet gateway, the
 public subnet `10.251.0.128/26` with its own route table and security list, a
 TCP passthrough NLB on 443 to each member's client port, and the one
@@ -475,7 +475,7 @@ keep private addresses, and TerraBase terminates TLS and authenticates every
 request.
 
 The plan declares this as `public_api` (`subnet_cidr`, `listener_port`,
-`client_port`). After `public-api.py` runs, record `internet_gateway`,
+`client_port`). After `ts-orch oci-region public-api` runs, record `internet_gateway`,
 `public_subnet`, `public_route_table`, `public_security_list`, and
 `network_load_balancer` in the reviewed plan copy. `load_plan` requires the
 public subnet to be inside the VCN and outside the private subnet, and admits
@@ -502,7 +502,7 @@ or a private link a GRU acceptance condition, and do not append a DRG route to
 the GRU example.
 
 For a separately reviewed pair, the `inspect-private-peer` subcommand in
-`deploy/oci-region/preview.py` accepts `--pair-intent`, `--left-plan`,
+`ts-orch oci-region preview` accepts `--pair-intent`, `--left-plan`,
 `--left-inventory`, `--left-admission`, the corresponding `--right-*` paths,
 and `--out`. It makes read-only OCI CLI calls and writes a hash-bound
 configuration receipt. It checks disjoint RFC1918 VCN and subnet ranges,
@@ -574,16 +574,16 @@ and the intended network boundary.
    proceeding:
 
    ```sh
-   python3 deploy/oci-region/preview.py inventory \
+   ts-orch oci-region preview inventory \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --out /ABSOLUTE/PATH/manual-inventory.json
 
-   python3 deploy/oci-region/preview.py admit \
+   ts-orch oci-region preview admit \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --out /ABSOLUTE/PATH/cost-admission.json
 
-   python3 deploy/oci-region/preview.py inspect-foundation \
+   ts-orch oci-region preview inspect-foundation \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --admission /ABSOLUTE/PATH/cost-admission.json \
@@ -605,7 +605,7 @@ and the intended network boundary.
    Hash the reviewed config, then generate the source and public record:
 
    ```text
-   ts-bootstrap generate-controller-material \
+   ts-orch bootstrap generate-controller-material \
      --config /ABSOLUTE/PATH/controller-material.json \
      --config-sha256 CONTROLLER_MATERIAL_CONFIG_SHA256 \
      --directory /ABSOLUTE/PATH/controller-material \
@@ -620,7 +620,7 @@ and the intended network boundary.
    versioned Vault material and public reference record with:
 
    ```text
-   ts-bootstrap provision-controller-material \
+   ts-orch bootstrap provision-controller-material \
      --directory /ABSOLUTE/PATH/controller-material \
      --manual-readback /ABSOLUTE/PATH/foundation-readback.json \
      --manual-readback-sha256 MANUAL_READBACK_SHA256 \
@@ -655,17 +655,17 @@ and the intended network boundary.
    create an OCI instance:
 
    ```sh
-   python3 deploy/oci-region/preview.py seed-preflight \
+   ts-orch oci-region preview seed-preflight \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --inventory /ABSOLUTE/PATH/manual-inventory.json \
      --admission /ABSOLUTE/PATH/cost-admission.json \
-     --bootstrap-tool /ABSOLUTE/PATH/ts-bootstrap \
+     --bootstrap-tool /ABSOLUTE/PATH/ts-orch \
      --anchor /ABSOLUTE/PATH/anchor.signed.json \
      --manifest /ABSOLUTE/PATH/controller-a.manifest.json \
      --identity /ABSOLUTE/PATH/identity.json \
      --bootstrap-root /ABSOLUTE/PATH/bootstrap-root.pub \
      --image-ocid EXACT_IMAGE_OCID \
-     --release-tool /ABSOLUTE/PATH/ts-release \
+     --release-tool /ABSOLUTE/PATH/ts-orch \
      --image-receipt /ABSOLUTE/PATH/image-receipt.signed.json \
      --release-delegation /ABSOLUTE/PATH/release-delegation.signed.json \
      --release-root /ABSOLUTE/PATH/release-root.pub \
@@ -685,7 +685,7 @@ and the intended network boundary.
 7. Render the complete controller-A launch input from the reviewed seed plan:
 
    ```sh
-   python3 deploy/oci-region/preview.py seed-launch \
+   ts-orch oci-region preview seed-launch \
      --plan /ABSOLUTE/PATH/manual-region-plan.json \
      --reviewed-plan /ABSOLUTE/PATH/reviewed-seed-plan.json \
      --manifest /ABSOLUTE/PATH/controller-a.manifest.json \
@@ -712,7 +712,7 @@ and the intended network boundary.
    Use the create identity from the reviewed seed plan without changing it:
 
    ```text
-   ts-bootstrap sign-external-seed-reservation \
+   ts-orch bootstrap sign-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json \
@@ -724,7 +724,7 @@ and the intended network boundary.
      --ledger-signing-key MATERIAL_DIRECTORY/founder-ledger.key \
      --out seed-reservation.json
 
-   ts-bootstrap publish-external-seed-reservation \
+   ts-orch bootstrap publish-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json \
@@ -736,7 +736,7 @@ and the intended network boundary.
 
    Do not launch controller A until the exact signed reservation is published.
 9. Start only controller A with the rendered launch input. Import the image
-   with `deploy/oci-region/import-image.py` first: it applies the UEFI
+   with `ts-orch oci-region import-image` first: it applies the UEFI
    firmware, paravirtualized-device and A1-only shape contract that an ARM
    instance needs to boot. An imported image without that capability schema
    launches with BIOS firmware and never boots.
@@ -764,7 +764,7 @@ and the intended network boundary.
    Record the exact OCI instance OCID returned by the CLI. OCI accepting the
    launch request is not proof that the signed network profile was applied.
 10. Re-read controller A, its primary VNIC, and boot-volume sizing with
-    `ts-bootstrap observe-external-seed`, then compare them with the reviewed
+    `ts-orch bootstrap observe-external-seed`, then compare them with the reviewed
     plan before signing anything. Require the exact instance in `RUNNING`,
     the exact `BootstrapCreateKey`, signed image and shape, primary VNIC on
     the reviewed subnet and reserved private IP, both signed NSGs, and no
@@ -777,8 +777,8 @@ and the intended network boundary.
     instance.
 
     After observation succeeds, sign the resulting completion bundle offline
-    with `ts-bootstrap sign-external-seed-completion`, then publish it with
-    `ts-bootstrap publish-external-seed-completion`. Follow steps 4 and 5 in
+    with `ts-orch bootstrap sign-external-seed-completion`, then publish it with
+    `ts-orch bootstrap publish-external-seed-completion`. Follow steps 4 and 5 in
     [Initial founder authority](founder-genesis-cli.md#first-external-seed-transaction)
     for the exact flags. Do not hand off controller A until completion
     publication succeeds or its exact uncertain outcome is reconciled.

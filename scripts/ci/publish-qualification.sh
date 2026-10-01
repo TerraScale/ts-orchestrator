@@ -19,8 +19,8 @@ source_tree=$(git rev-parse 'HEAD^{tree}')
 go_version=$(go env GOVERSION)
 go_mod_sha256=$(sha256sum go.mod | awk '{print $1}')
 go_sum_sha256=$(sha256sum go.sum | awk '{print $1}')
-probe_name=terrascale-d15-qualify.py
-probe_source=tests/runtime_priority/qualify.py
+probe_name=terrascale-d15-qualify
+probe_source=dist/terrascale-orchestrator-linux-arm64
 probe_path="dist/$probe_name"
 [[ -s $probe_source && ! -L $probe_source ]] || { echo 'D15 probe source is missing or unsafe' >&2; exit 1; }
 cp -- "$probe_source" "$probe_path"
@@ -28,7 +28,7 @@ chmod 0644 "$probe_path"
 cmp -- "$probe_source" "$probe_path"
 probe_bytes=$(stat -c '%s' "$probe_path")
 probe_sha256=$(sha256sum "$probe_path" | awk '{print $1}')
-[[ $probe_bytes -gt 0 && $probe_bytes -le 262144 ]] || { echo 'D15 probe exceeds its bound' >&2; exit 1; }
+[[ $probe_bytes -gt 0 && $probe_bytes -le 536870912 ]] || { echo 'D15 probe exceeds its bound' >&2; exit 1; }
 artifacts='[]'
 for architecture in amd64 arm64; do
     name="terrascale-orchestrator-linux-${architecture}"

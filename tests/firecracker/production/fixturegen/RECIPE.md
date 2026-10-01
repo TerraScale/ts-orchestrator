@@ -73,7 +73,7 @@ packet bound to those bytes and the accepted image OCID. Emit it immediately
 before staging because the trusted-clock window is five minutes. Supply an
 independently SHA-256-pinned ext4 base image, kernel, Firecracker binary,
 fixturegen verifier, SSH client key, known-hosts file, and trusted root PEM to
-`tests/firecracker/production/qualify.py`. Its default mode prepares disposable
+`ts-orch qualification firecracker production`. Its default mode prepares disposable
 images; `--run` boots and sequentially reboots all three VMs, checks time,
 bootstrap, controller UID/GID and invocation evidence, then audits isolated
 simulator requests. A production pass requires that real VM run and its report.

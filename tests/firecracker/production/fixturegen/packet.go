@@ -28,6 +28,7 @@ const (
 	ManifestVersion = 1
 	maxPacketBytes  = 640 << 20
 	maxRouteBodies  = 32 << 20
+	maxSourcePins   = 256
 )
 
 type FileEntry struct {
@@ -334,7 +335,7 @@ func ValidatePacket(root string, roots trust.Keyring, runNow time.Time) (Verifie
 func (manifest Manifest) Validate() error {
 	if manifest.SchemaVersion != ManifestVersion || manifest.FixtureNow.IsZero() ||
 		manifest.DeploymentID == "" || manifest.Cell != "GRU" || manifest.Environment != "production" ||
-		len(manifest.Controllers) != 3 || len(manifest.SourcePins) < len(requiredSourcePaths) || len(manifest.SourcePins) > 128 ||
+		len(manifest.Controllers) != 3 || len(manifest.SourcePins) < len(requiredSourcePaths) || len(manifest.SourcePins) > maxSourcePins ||
 		len(manifest.Files) == 0 || len(manifest.Files) > 2048 || len(manifest.Routes) > 512 {
 		return errors.New("invalid packet version, clock, or inventory bound")
 	}

@@ -8,7 +8,7 @@
 # profile (XDG_DATA_HOME of FJ_READ_PROFILE) for readback. The QCOW2, kernel
 # and SHA256SUMS are uploaded and read back first; image-qualification.json
 # is the completion marker and goes last. The job then logs one
-# TS_IMAGE_QUALIFICATION_V1 marker that promote-image.py matches after the run
+# TS_IMAGE_QUALIFICATION_V1 marker that ts-orch image promote matches after the run
 # has succeeded.
 set -euo pipefail
 

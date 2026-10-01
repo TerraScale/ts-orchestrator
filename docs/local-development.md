@@ -25,9 +25,17 @@ mise exec -- make build
 mise exec -- make release-linux
 ```
 
-`make verify` checks formatting, runs the Python Firecracker harness contract
-tests, runs `go vet`, and runs all Go tests with the race detector. `make build`
-writes the current-platform binary to `dist/terrascale-orchestrator`.
+`make verify` checks formatting, runs `go vet`, and runs all Go tests with the
+race detector. Deployment and qualification driver contracts use Go's
+standard `testing` package and are included in `go test ./...`. Their operational
+implementations also use Go. Use `make test` for an
+ordinary full run or `mise exec -- go test ./tests/deploy -run TestName` for a
+focused contract. Actual VM qualification is run separately. `make build`
+writes the current-platform binary to `dist/ts-orch`, with a
+`dist/terrascale-orchestrator` compatibility symlink. Use `ts-orch` for operator
+tasks and implement new operational tooling as Go subcommands rather than
+Python scripts; see [contributing](../CONTRIBUTING.md). Run verification with
+`umask 022`, as the qualification tests check exact file modes.
 
 `make release-linux` builds Linux amd64 and arm64 binaries with cgo disabled.
 It is a cross-build target; it does not demonstrate execution on ARM64 or
@@ -78,10 +86,10 @@ read-only prerequisite check, then start the live qualification from the
 repository root:
 
 ```bash
-python3 tests/firecracker/qualify.py check \
+ts-orch qualification firecracker generic check \
   --kernel /tmp/vm-inputs/vmlinux \
   --rootfs /tmp/vm-inputs/rootfs.ext4
-python3 tests/firecracker/qualify.py run \
+ts-orch qualification firecracker generic run \
   --kernel /tmp/vm-inputs/vmlinux \
   --rootfs /tmp/vm-inputs/rootfs.ext4
 ```

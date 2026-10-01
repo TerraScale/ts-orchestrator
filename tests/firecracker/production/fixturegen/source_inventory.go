@@ -17,11 +17,14 @@ import (
 // consumed by the production restart recipe. Inventory is discovered from the
 // tree, so a new runtime Go file cannot silently escape packet source pins.
 var completedRecipeSourceDirs = []string{
+	"cmd/terrascale-orchestrator",
 	"deploy/image",
 	"deploy/systemd",
 	"internal/app",
 	"internal/bootstrap",
 	"internal/bootstrapstart",
+	"internal/cli",
+	"internal/commandio",
 	"internal/release",
 	"internal/trust",
 	"tests/firecracker/production",
@@ -138,7 +141,7 @@ func completedSourcePaths(root string) ([]string, error) {
 	}
 	slices.Sort(paths)
 	paths = slices.Compact(paths)
-	if len(paths) > 128 {
+	if len(paths) > maxSourcePins {
 		return nil, errors.New("completed source inventory exceeds packet pin bound")
 	}
 	for _, required := range requiredSourcePaths {

@@ -4,6 +4,22 @@ Use these names in code, issues, tests, and current documentation. The
 implementation is a greenfield Go replacement; prior C# commands, wire
 formats, and stores are not compatibility contracts.
 
+**ts-orch CLI**
+
+The preferred operational interface to the single Go executable. New
+deployment, provisioning, bootstrap, release, and inspection tooling belongs
+in Go subcommands in the relevant feature package, rather than Python scripts
+or separate tools. CI and thin shell wrappers call these commands.
+See [contributing](CONTRIBUTING.md) and
+[CLI boundaries](docs/cli.md).
+
+**Go testing**
+
+All first-party tests use Go's standard `testing` package and `go test`.
+Keep test cases, fixtures and assertions in Go alongside each feature.
+Operational tools and qualification drivers are native Go APIs exposed
+through `ts-orch`; tests exercise those APIs or the CLI. Do not add Python test runners.
+
 ## Product and regional control
 
 **TerraScale Orchestrator**

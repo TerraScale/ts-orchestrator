@@ -12,7 +12,7 @@ TerraBase main push ──► fast.yml: fast ∥ release ──► publish ─�
                                      (retained bytes)  (promotes, no rebuild)                ▼
                                                             image-<sha>-run-<id>-attempt-<n> release
                                                                                              │
-                                  deploy/image/promote-image.py (operator, one command) ◄────┘
+                                  ts-orch image promote (operator, one command) ◄────┘
                                   verify ─► OCI import ─► sign-image ─► verify-image ─► receipt
                                                                                              │
                                   launch / rollout through signed desired state ◄────────────┘
@@ -25,9 +25,9 @@ TerraBase main push ──► fast.yml: fast ∥ release ──► publish ─�
 Runs on every push to `main` or `develop` except documentation-only changes
 (`docs/**`, `**/*.md`). A newer push cancels a running check of the same
 branch; on `main` the newest revision contains every older one and is the
-candidate. The run stays one job because `ts-release` admission requires
+candidate. The run stays one job because `ts-orch release` admission requires
 exactly one job in the qualifying run, so parallelism is inside it:
-`make ci-verify` runs gofmt, every Python suite, `go vet`, the sharded race
+`make ci-verify` runs gofmt, `go vet`, all native Go driver contracts, the sharded race
 tests (`scripts/ci/race-test.sh`) and the static release build at once. The
 job then retains both binaries and `qualification.json` (the completion
 marker) on `ci-<sha>-run-<id>` and, on `main`, dispatches `image.yml` for the
@@ -62,13 +62,13 @@ skips itself once a newer main revision has passed `ci.yml`
 (`scripts/ci/image-superseded.sh`). `make image SOURCE=<sha>` runs the same
 build on a developer machine from the same retained release.
 
-### 4. Promotion (`deploy/image/promote-image.py`)
+### 4. Promotion (`ts-orch image promote`)
 
 One operator command per image: it verifies the image release (digests,
 successful image run and job attempt, log marker), the candidate binary and
 base image, and the signed binary receipt; imports the QCOW2 with
-`deploy/oci-region/import-image.py`; creates, signs and verifies the image
-receipt with `ts-release`; and writes `promotion-receipt.json`. `--dry-run`
+`ts-orch oci-region import-image`; creates, signs and verifies the image
+receipt with `ts-orch release`; and writes `promotion-receipt.json`. `--dry-run`
 runs every read-only gate without importing or signing.
 
 ### 5. Rollout
@@ -86,16 +86,16 @@ roll out through the managed update path and signed desired state.
 make image SOURCE=<full sha> [IMAGE_OUT=/tmp/ts-image-<sha>]
 
 # Every read-only promotion gate, no OCI writes and no signing.
-deploy/image/promote-image.py --image-release image-<sha>-run-<id>-attempt-<n> \
+ts-orch image promote --image-release image-<sha>-run-<id>-attempt-<n> \
   --out /tmp/promote-<sha> --delegation delegation.json --root-key root.pub --dry-run
 
 # Import (idempotent); stops and prints the sign-delegation command for the OCID.
-deploy/image/promote-image.py --image-release ... --out /tmp/promote-<sha>-import \
+ts-orch image promote --image-release ... --out /tmp/promote-<sha>-import \
   --delegation delegation.json --root-key root.pub \
   --compartment-id <ocid> --namespace <ns> --bucket <bucket>
 
 # Same command again with the image-scoped delegation and the leaf key signs it.
-deploy/image/promote-image.py ... --out /tmp/promote-<sha>-sign \
+ts-orch image promote ... --out /tmp/promote-<sha>-sign \
   --image-delegation image-delegation.json --signing-key leaf.pem
 
 # Pin a TerraBase release by hand (pinned fj on PATH).
@@ -117,7 +117,7 @@ promoted with `--image-dir`.
 | TerraBase checks, tested-bytes publication | push to TerraBase `main` | none |
 | TerraBase pin bump into the image inputs | end of TerraBase `publish` | `TS_PIN_BUMP_TOKEN` secret (decision 2) |
 | Local image build | `make image SOURCE=<sha>` | revision |
-| Verification, OCI import, image signing, receipt | `promote-image.py` | leaf signing key, root-signed delegation, OCI target |
+| Verification, OCI import, image signing, receipt | `ts-orch image promote` | leaf signing key, root-signed delegation, OCI target |
 
 ## Measured (Forgejo runs, 2026-09-29)
 

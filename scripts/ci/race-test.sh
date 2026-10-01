@@ -71,7 +71,9 @@ for package in "${sharded_packages[@]}"; do
 		exit 1
 	fi
 done
-start packages "${go[@]}" test -race -vet=off "${other_packages[@]}"
+# Script contract packages invoke thousands of bounded subprocesses. Under
+# race instrumentation their aggregate can exceed Go's default ten minutes.
+start packages "${go[@]}" test -race -vet=off -timeout=20m "${other_packages[@]}"
 
 for package in "${sharded_packages[@]}"; do
 	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/${package##*/}.list" | sort)

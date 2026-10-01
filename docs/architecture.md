@@ -1,11 +1,18 @@
 # Architecture and boundaries
 
-TerraScale Orchestrator is being rebuilt as one Go executable. The executable
-has controller bootstrap admission (`bootstrap-controller`), controller
-(`run`), `host`, `check`, and `operator` modes. It embeds a regional NATS server when
+TerraScale Orchestrator is distributed as one Go executable, `ts-orch`. The
+executable has controller bootstrap admission (`bootstrap-controller`),
+controller (`run`), `host`, `check`, `operator`, `bootstrap`, and `release`
+commands. It embeds a regional NATS server when
 running a controller; host processes connect to that regional cell. The
 separate roles share one binary but use role-specific JSON configuration and
 credentials.
+
+New operational tooling belongs in Go commands under `ts-orch`, with command
+logic and tests kept in the relevant feature package. CI invokes the CLI;
+new deployment, provisioning, or release features should not be introduced as
+Python scripts. Existing scripts migrate incrementally while preserving their
+contracts. See [CLI boundaries](cli.md) and [contributing](../CONTRIBUTING.md).
 
 ## Regional cells
 

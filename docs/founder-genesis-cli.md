@@ -37,7 +37,7 @@ After signing the anchor with the ledger delegation, sign the distinct peer
 receipt delegation for exactly `controller-b` and `controller-c`:
 
 ```text
-ts-bootstrap sign-peer-receipt-delegation \
+ts-orch bootstrap sign-peer-receipt-delegation \
   --identity identity.json --anchor anchor.json --root-key root.pub \
   --signing-key root.key --peer-public-key controller-material.json.peer.pem \
   --out peer-receipt-delegation.signed.json --valid-for 24h
@@ -53,7 +53,7 @@ three-slot inventory. Its `anchorSha256`, `seedManifestSha256`, and peer
 the offline root key:
 
 ```text
-ts-bootstrap sign-founder-plan \
+ts-orch bootstrap sign-founder-plan \
   --candidate founder-plan.candidate.json --identity identity.json \
   --anchor anchor.json --manifest controller-a.manifest.json \
   --manifest controller-b.manifest.json --manifest controller-c.manifest.json \
@@ -67,7 +67,7 @@ signed plan and anchor envelope digests, and three sorted slot and manifest
 envelope digest pins. Sign that exact candidate:
 
 ```text
-ts-bootstrap sign-initial-founder-selection \
+ts-orch bootstrap sign-initial-founder-selection \
   --candidate founder-selection.candidate.json --identity identity.json \
   --anchor anchor.json --plan founder-plan.signed.json \
   --manifest controller-a.manifest.json \
@@ -84,7 +84,7 @@ Once the reviewed foundation and storage buckets exist, publish the five
 immutable signed objects and the generation-one selector:
 
 ```text
-ts-bootstrap publish-initial-founder-selection \
+ts-orch bootstrap publish-initial-founder-selection \
   --selection founder-selection.signed.json --identity identity.json \
   --anchor anchor.json --plan founder-plan.signed.json \
   --manifest controller-a.manifest.json \
@@ -130,7 +130,7 @@ reservation and completion bundles.
    different value after preflight.
 
    ```text
-   ts-bootstrap sign-external-seed-reservation \
+   ts-orch bootstrap sign-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
@@ -147,7 +147,7 @@ reservation and completion bundles.
    slot is a conflict.
 
    ```text
-   ts-bootstrap publish-external-seed-reservation \
+   ts-orch bootstrap publish-external-seed-reservation \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
@@ -169,7 +169,7 @@ reservation and completion bundles.
    minutes old for a new first write.
 
    ```text
-   ts-bootstrap observe-external-seed \
+   ts-orch bootstrap observe-external-seed \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
@@ -180,7 +180,7 @@ reservation and completion bundles.
      --instance-ocid EXACT_MANUAL_INSTANCE_OCID \
      --oci-config oci-config --oci-profile DEFAULT --out seed-observation.json
 
-   ts-bootstrap sign-external-seed-completion \
+   ts-orch bootstrap sign-external-seed-completion \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \
@@ -203,7 +203,7 @@ reservation and completion bundles.
    for an uncertain response.
 
    ```text
-   ts-bootstrap publish-external-seed-completion \
+   ts-orch bootstrap publish-external-seed-completion \
      --identity identity.json --anchor anchor.json \
      --founder-plan founder-plan.signed.json --root-key root.pub \
      --manifest controller-a.manifest.json --manifest controller-b.manifest.json \

@@ -46,7 +46,7 @@ done
 }
 [[ -r ${FORGEJO_READ_TOKEN_FILE:-} ]] || { echo 'FORGEJO_READ_TOKEN_FILE must name a readable token file' >&2; exit 2; }
 test "$(go env GOVERSION)" = go1.27.1
-for tool in curl fj jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers python3; do
+for tool in curl fj jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers; do
 	command -v "$tool" >/dev/null || { echo "missing image build tool: $tool" >&2; exit 1; }
 done
 if ! fj actions run-detail --help >/dev/null 2>&1 || ! fj actions logs --help >/dev/null 2>&1; then
@@ -63,7 +63,9 @@ trap 'rm -rf -- "$work"' EXIT
 mkdir -m 0700 "$work/base" "$work/go" "$work/terrabase" "$work/tools" "$work/netbird"
 source_tree=$(git rev-parse 'HEAD^{tree}')
 inputs=deploy/image/image-inputs.json
-python3 deploy/image/image-inputs.py check
+go build -trimpath -buildvcs=true -o "$work/tools/ts-orch" ./cmd/terrascale-orchestrator
+export TS_ORCH_BIN="$work/tools/ts-orch"
+"$TS_ORCH_BIN" image inputs check
 input_json() { jq -r "$1" "$inputs"; }
 
 sha256() { sha256sum -- "$1" | cut -d ' ' -f 1; }
@@ -138,7 +140,7 @@ fj actions run-detail "$terrabase_run_number" -r TerraScale/TerraBase > "$work/t
 	exit 1
 }
 cp -- "$inputs" "$work/terrabase/inputs-check.json"
-python3 deploy/image/image-inputs.py --file "$work/terrabase/inputs-check.json" pin-terrabase \
+"$TS_ORCH_BIN" image inputs --file "$work/terrabase/inputs-check.json" pin-terrabase \
 	--qualification "$work/terrabase/qualification.json" --run-detail "$work/terrabase/run-detail.json" >/dev/null
 cmp -s -- "$inputs" "$work/terrabase/inputs-check.json" || {
 	echo "TerraBase release $terrabase_tag does not reproduce the pinned inputs" >&2
@@ -202,12 +204,12 @@ marker="TS_RELEASE_QUALIFICATION_V1 source_sha=$source_sha run_id=$go_run_id run
 }
 echo "orchestrator candidate verified tag=$go_tag binary_sha256=$(sha256 "$go_binary")"
 
-go build -trimpath -buildvcs=true -o "$work/tools/ts-release" ./cmd/ts-release
-build_info=$(go version -m "$work/tools/ts-release")
+
+build_info=$(go version -m "$work/tools/ts-orch")
 grep -Fq "vcs.revision=$source_sha" <<< "$build_info" && grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 kernel_release=$(input_json .base.kernel_release)
-python3 deploy/netbird/client.py fetch --architecture arm64 --out "$work/netbird/netbird"
+"$TS_ORCH_BIN" netbird client fetch --architecture arm64 --out "$work/netbird/netbird"
 roots=()
 while IFS= read -r root; do roots+=(--bootstrap-root "$root"); done < <(input_json '.trust_roots[].path')
 deploy/image/build-offline.sh \
@@ -221,7 +223,7 @@ deploy/image/build-offline.sh \
 	--netbird-binary "$work/netbird/netbird" \
 	--netbird-sha256 "$(input_json .netbird.archives.arm64.binary_sha256)" \
 	--netbird-config "$(input_json .netbird.enrollment_config.path)" \
-	--release-tool "$work/tools/ts-release" \
+	--release-tool "$work/tools/ts-orch" \
 	"${roots[@]}" \
 	--timesyncd-config "$(input_json .timesyncd_config.path)" \
 	--runtime-priority-profile-id "$(input_json .priority.profile_id)" \
@@ -256,7 +258,7 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
 	--arg go_qualification "$(sha256 "$qualification")" --arg go_binary "$(sha256 "$go_binary")" \
 	--argjson go_bytes "$(stat -c '%s' -- "$go_binary")" \
 	--arg terrabase_tag "$terrabase_tag" \
-	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$work/tools/ts-release")" \
+	--arg go_version "$(go env GOVERSION)" --arg ts_release "$(sha256 "$work/tools/ts-orch")" \
 	--arg qemu_img "$(qemu-img --version | head -n 1)" --arg guestfish "$(guestfish --version)" \
 	--arg gpgv "$(gpgv --version | head -n 1)" --arg tools "${TS_IMAGE_TOOLS_ID:-unrecorded}" \
 	--arg kernel_release "$kernel_release" --arg kernel "$(sha256 "$output/guest-kernel")" \
@@ -275,7 +277,7 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
      architecture:"arm64", bytes:$kernel_bytes, sha256:$kernel},
    image:{name:"terrascale-gru-arm64.qcow2", format:"qcow2", architecture:"arm64",
      bytes:$image_bytes, sha256:$image},
-   image_receipt_status:"requires OCI import and signing (deploy/image/promote-image.py)"}' \
+   image_receipt_status:"requires OCI import and signing (ts-orch image promote)"}' \
 	> "$output/image-qualification.json"
 chmod 0644 "$output/image-qualification.json"
 (cd "$output" && sha256sum terrascale-gru-arm64.qcow2 guest-kernel image-qualification.json > SHA256SUMS)

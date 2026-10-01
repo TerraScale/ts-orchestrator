@@ -23,6 +23,13 @@ cd "$repository_root"
 
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
+# Keep the tool outside the checkout while the retry loop advances main.
+if [[ -n ${TS_ORCH_BIN:-} ]]; then
+	cp -- "$(realpath -e -- "$TS_ORCH_BIN")" "$work/ts-orch"
+else
+	go build -trimpath -buildvcs=true -o "$work/ts-orch" ./cmd/terrascale-orchestrator
+fi
+pin_tool="$work/ts-orch"
 fj release asset download -r TerraScale/TerraBase "$tag" qualification.json -o "$work/qualification.json" >/dev/null
 fj release asset download -r TerraScale/TerraBase "$tag" tb-server-linux-arm64 -o "$work/tb-server-linux-arm64" >/dev/null
 run_number=$(jq -er .verification.run_number "$work/qualification.json")
@@ -34,7 +41,7 @@ jq -e --arg sha "$(sha256sum "$work/tb-server-linux-arm64" | cut -d ' ' -f 1)" \
 for attempt in 1 2 3 4 5; do
 	git fetch --quiet origin main
 	git checkout --quiet --detach origin/main
-	python3 deploy/image/image-inputs.py pin-terrabase \
+	"$pin_tool" image inputs pin-terrabase \
 		--qualification "$work/qualification.json" --run-detail "$work/run-detail.json"
 	if git diff --quiet -- deploy/image/image-inputs.json; then
 		echo "TerraBase $terrabase_sha is already pinned"

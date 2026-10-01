@@ -31,12 +31,12 @@ the step that would hold.
    `material/v2/<cell>/...`. The controller policy must grant
    `OBJECT_READ` and `OBJECT_CREATE` on `target.object.name='material/v2/*'`
    in the material bucket. The reviewed statement in
-   `deploy/oci-region/preview.py` still names `material/v1/*`.
+   `ts-orch oci-region preview` still names `material/v1/*`.
 3. **Retained-volume device naming.** Placement attaches the data volume
    paravirtualized with PV in-transit encryption, at the lowest free OCI device
    path (`/dev/oracleoci/oraclevdb` for the first data volume), and only to an
    instance that reports consistent volume naming. The image capability schema
-   written by `deploy/oci-region/import-image.py` enables both launch options.
+   written by `ts-orch oci-region import-image` enables both launch options.
    Inside the guest, `/etc/udev/rules.d/65-terrascale-oci-device-paths.rules`
    (from `deploy/udev/`) links each `ORACLE BlockVolume` disk on the
    virtio-scsi controller to `/dev/oracleoci/oraclevd<x>` by its LUN, as OCI
@@ -147,7 +147,7 @@ replication admission.
 
 ## Run
 
-Use the cell's own qualified operator CLI: `attempt.py operator` verifies it
+Use the cell's own qualified operator CLI: `ts-orch oci-region attempt operator` verifies it
 and prints its path. Signed command and artifact claims change between
 revisions, so a CLI from another revision is rejected by the controllers.
 

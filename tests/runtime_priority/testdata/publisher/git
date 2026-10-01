@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  'rev-parse HEAD') printf '%s\n' "$GITHUB_SHA" ;;
+  'rev-parse HEAD^{tree}') printf '%s\n' "$FIXTURE_TREE" ;;
+  *) exit 2 ;;
+esac

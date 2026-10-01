@@ -30,7 +30,7 @@ does not authorize overwriting a running installation. Replacement preserves
 that chain and the image's systemd, enrollment and volume-init environment.
 There is currently no supported running-cell replacement executor:
 
-- `attempt.py` signs new deployment manifests, founder plans and selections;
+- `ts-orch oci-region attempt` signs new deployment manifests, founder plans and selections;
   it is a bootstrap tool, not an upgrade tool.
 - Founder install continuity authorizes read-only restart of an **exact
   accepted install**. It cannot authorize another image, instance or manifest.
@@ -45,8 +45,8 @@ There is currently no supported running-cell replacement executor:
 | TerraBase publication | CI publishes tested binaries, `qualification.json` last, and must additionally publish the accepted `source-digest.json` bound to that qualification and server. Git tree SHA-1 is not the prepared-source SHA-256. |
 | TerraBase automation grants | Human authorizes new root-bound signed controller config: update actor with `can_place_terrabase`, `can_update_terrabase_runtime`, repository/role/environment limits; separate compatibility actor with `can_certify_terrabase_compatibility`. Installing this config is a separately reviewed operation. |
 | TerraBase per-seat Prepare | Online update key and independent compatibility key on the operator host, only after the approved compatibility policy has been satisfied. Existing `terrabase-update` signs both statements. |
-| Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-release sign-binary`. |
-| Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`promote-image.py`). |
+| Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-orch release sign-binary`. |
+| Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
 | Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Existing continuity does not supply this authority. Root private keys stay offline. |
 
 Forgejo has no authenticated protected-environment reviewer gate here

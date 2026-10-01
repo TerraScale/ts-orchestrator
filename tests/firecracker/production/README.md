@@ -1,6 +1,6 @@
 # Offline production restart qualification
 
-`qualify.py` prepares three disposable ext4 images for `controller-a`,
+`ts-orch qualification firecracker production` prepares three disposable ext4 images for `controller-a`,
 `controller-b`, and `seed-a`. It runs the shipped single orchestrator binary
 through the packaged bootstrap and controller systemd units. The default
 invocation stops after image staging; `--run` starts the private Firecracker
@@ -35,7 +35,7 @@ an existing `169.254.169.254` address.
 Example, with paths and hashes replaced by reviewed artifacts:
 
 ```sh
-python3 tests/firecracker/production/qualify.py \
+ts-orch qualification firecracker production \
   --packet /path/to/signed-packet --root-cert /path/to/root.pem \
   --root-cert-sha256 HASH --source-root /path/to/frozen-source \
   --image-ocid ocid1.image.oc1.sa-saopaulo-1.EXAMPLE \
@@ -86,8 +86,8 @@ The federation session is bound to the packet's instance certificate and a
 new RSA session public key. Request logs redact unlisted URI details and
 contain no private key, federation body, JWT or signature header.
 
-The offline tests are `go test ./tests/firecracker/production/...`,
-`go test -tags fixturetest ./tests/firecracker/production/fixturegen`, and
-`python3 tests/firecracker/production/test_qualify.py`. They exercise packet,
+The offline tests are `go test ./internal/qualification/firecracker ./tests/firecracker/production/...`,
+and `go test -tags fixturetest ./tests/firecracker/production/fixturegen`.
+They exercise packet,
 SDK, simulator and driver contracts. They do not prove a VM restart until a
 reviewed production packet and image are supplied and `--run` completes.

@@ -94,9 +94,9 @@ nice -n 19 go run ./tests/firecracker/managedmember/exporter \
   --s3-bucket managed-member-test \
   --s3-region sa-saopaulo-1 \
   --ephemeral-test-signer
-python3 tests/firecracker/managedmember/qualify.py check \
+go run ./cmd/terrascale-orchestrator qualification firecracker managedmember check \
   --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json
-python3 tests/firecracker/managedmember/qualify.py run \
+go run ./cmd/terrascale-orchestrator qualification firecracker managedmember run \
   --manifest /path/to/new/private-packet-directory/managed-member-serving-manifest.json \
   --run-dir /path/to/new/private-evidence-directory \
   --s3-access-key-file /absolute/private/s3-access-key-id \

@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+case $1 in
+  toolchain) printf 'toolchain\n' >> "$MOCK_BUILD_LOG" ;;
+  run)
+    printf 'compile\n' >> "$MOCK_BUILD_LOG"
+    mkdir -p "$CARGO_TARGET_DIR/release"
+    cp "$MOCK_BINARY" "$CARGO_TARGET_DIR/release/fj" ;;
+  *) exit 10 ;;
+esac

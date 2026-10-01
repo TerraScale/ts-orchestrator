@@ -17,7 +17,8 @@ nixpkgs_flake=github:NixOS/nixpkgs/e554fab72f81915600f3f449b786fd9af40439a5
 nixpkgs_nar_hash=sha256-ZKhUe/2IJUq1JhKxKMu8rbkgSGmPP2ZCqlIPn40aGCM=
 patch="$repo/scripts/ci/fj-run-detail.patch"
 
-for tool in fj git nix jq rustup sha256sum python3; do
+read -r -a go_command <<< "${GO:-go}"
+for tool in fj git nix jq rustup sha256sum "${go_command[0]}"; do
     command -v "$tool" >/dev/null || { echo "$tool is required to prepare fj admission" >&2; exit 1; }
 done
 [[ $(sha256sum "$patch" | awk '{print $1}') == "$extension_patch_sha256" ]] || {
@@ -28,6 +29,7 @@ done
 [[ ! -L "$output_dir" ]] || { echo 'fj admission output directory is a symlink' >&2; exit 1; }
 install -d -m 0700 "$output_dir"
 chmod 0700 "$output_dir"
+output_dir=$(cd "$output_dir" && pwd)
 rm -f -- "$output_dir/fj"
 
 binary_sha256() {
@@ -39,7 +41,8 @@ verify_binary() {
     "$output_dir/fj" actions run-detail --help >/dev/null &&
         "$output_dir/fj" actions logs --help >/dev/null &&
         "$output_dir/fj" actions job-logs --help >/dev/null &&
-        python3 "$repo/scripts/ci/test-fj-attachment-probe.py" "$output_dir/fj"
+        (cd "$repo" && TS_FJ_PROBE_BINARY="$output_dir/fj" "${go_command[@]}" test \
+            ./scripts/ci -run '^TestFJAttachmentProbe$' -count=1 -timeout=5m)
 }
 
 # The shared cache is untrusted. Its key is an identity filter; the fixed digest

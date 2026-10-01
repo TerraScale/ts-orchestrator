@@ -1,0 +1,3309 @@
+{
+  "test_during_pressure_peer_proof_must_finish_before_workers_end": [
+    {
+      "args": [
+        "host_status",
+        "after_write",
+        {},
+        {
+          "evidence": {},
+          "observed_at_utc": "2026-10-01T12:04:18.843Z"
+        }
+      ],
+      "kwargs": {},
+      "mocks": {
+        "validate_report_evidence": {
+          "members": {
+            "peer": {},
+            "source": {}
+          }
+        }
+      },
+      "operation": "_validate_role",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {},
+        "pressure_started_at": {
+          "$datetime": "2026-10-01T12:04:08.843879+00:00"
+        },
+        "run_id": "e79c4798-1852-4c72-a401-b3b5cac40a9b"
+      }
+    },
+    {
+      "args": [
+        "host_status",
+        "after_write",
+        {},
+        {
+          "evidence": {},
+          "observed_at_utc": "2026-10-01T12:05:09.843Z"
+        }
+      ],
+      "kwargs": {},
+      "mocks": {
+        "validate_report_evidence": {
+          "members": {
+            "peer": {},
+            "source": {}
+          }
+        }
+      },
+      "operation": "_validate_role",
+      "state": {
+        "baseline_host_rows": {
+          "peer": {},
+          "source": {}
+        },
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "host_snapshot": {
+          "members": {
+            "peer": {},
+            "source": {}
+          }
+        },
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {},
+        "pressure_started_at": {
+          "$datetime": "2026-10-01T12:04:08.843879+00:00"
+        },
+        "previous_host_rows": {
+          "peer": {},
+          "source": {}
+        },
+        "run_id": "e79c4798-1852-4c72-a401-b3b5cac40a9b"
+      }
+    }
+  ],
+  "test_external_systemd_scope_is_accepted_only_with_exact_effective_caps": [
+    {
+      "args": [
+        "pressure_start",
+        {
+          "handle": "terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+          "pressure_cgroup": {
+            "cgroup_procs_raw": "41\n42\n43\n44\n",
+            "cpu_max": "75000 100000",
+            "io_backing": {
+              "filesystem_device": "253:0"
+            },
+            "io_device": "253:0",
+            "io_weight": 1000,
+            "memory_low_bytes": 0,
+            "memory_max_bytes": 536870912,
+            "memory_min_bytes": 0,
+            "parent_path": "/sys/fs/cgroup/terrascale-workload.slice",
+            "path": "/sys/fs/cgroup/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+            "process_inventory_sha256": "998e862a5aa48253798e9b439f67eebadf17ae0fdc93f10048f3fe3f4bedb0ad",
+            "process_pids": [
+              41,
+              42,
+              43,
+              44
+            ],
+            "processes": [
+              {
+                "pid": 41,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "901",
+                "process_stat_raw": "41 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 901",
+                "role": "pressure_runner"
+              },
+              {
+                "pid": 42,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "902",
+                "process_stat_raw": "42 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 902",
+                "role": "memory_worker"
+              },
+              {
+                "pid": 43,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "903",
+                "process_stat_raw": "43 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 903",
+                "role": "cpu_worker"
+              },
+              {
+                "pid": 44,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "904",
+                "process_stat_raw": "44 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 904",
+                "role": "io_worker"
+              }
+            ],
+            "systemd_scope": {
+              "active_state": "active",
+              "cgroup_present": true,
+              "control_group": "/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+              "parent_control_group": "/terrascale-workload.slice",
+              "slice": "terrascale-workload.slice",
+              "systemctl_show_raw": "ActiveState=active\nControlGroup=/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\nSlice=terrascale-workload.slice\nCPUQuotaPerSecUSec=750000\nMemoryMax=536870912\nMemoryMin=0\nMemoryLow=0\nIOWeight=1000",
+              "unit": "terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope"
+            },
+            "worker_process_pids": [
+              42,
+              43,
+              44
+            ],
+            "worker_state_record": "{\"active_worker_pids\":[42,43,44],\"elapsed_monotonic_ns\":1000000000,\"finished_at_utc\":null,\"finished_monotonic_ns\":null,\"observed_at_utc\":\"2026-10-01T12:04:08.776Z\",\"run_id\":\"a5041f8e-9c5b-43d3-b01f-425f49c9f102\",\"schema\":\"terrascale.d15.pressure-worker-state/v2\",\"started_at_utc\":\"2026-10-01T12:04:06.826Z\",\"started_monotonic_ns\":100,\"status\":\"RUNNING\",\"worker_pids\":[42,43,44],\"worker_roles\":[{\"pid\":42,\"role\":\"memory_worker\"},{\"pid\":43,\"role\":\"cpu_worker\"},{\"pid\":44,\"role\":\"io_worker\"}]}",
+            "worker_state_sha256": "ae43ef078db9f635d05ff8fe164172e5e65de76e1ea5171889f06c1e4fbe2480"
+          },
+          "worker_harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad"
+        },
+        {
+          "observed_at_utc": "2026-10-01T12:04:08.826Z"
+        },
+        {}
+      ],
+      "kwargs": {},
+      "mocks": {
+        "validate_block_backing_evidence": {
+          "filesystem_device": "253:0"
+        }
+      },
+      "operation": "_validate_pressure",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "workload_cgroup": {
+              "io_device": "253:0"
+            }
+          }
+        },
+        "run_id": "a5041f8e-9c5b-43d3-b01f-425f49c9f102"
+      }
+    },
+    {
+      "args": [
+        "pressure_start",
+        {
+          "handle": "terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+          "pressure_cgroup": {
+            "cgroup_procs_raw": "41\n42\n43\n44\n",
+            "cpu_max": "75000 100000",
+            "io_backing": {
+              "filesystem_device": "253:0"
+            },
+            "io_device": "253:0",
+            "io_weight": 1000,
+            "memory_low_bytes": 4096,
+            "memory_max_bytes": 536870912,
+            "memory_min_bytes": 0,
+            "parent_path": "/sys/fs/cgroup/terrascale-workload.slice",
+            "path": "/sys/fs/cgroup/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+            "process_inventory_sha256": "998e862a5aa48253798e9b439f67eebadf17ae0fdc93f10048f3fe3f4bedb0ad",
+            "process_pids": [
+              41,
+              42,
+              43,
+              44
+            ],
+            "processes": [
+              {
+                "pid": 41,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "901",
+                "process_stat_raw": "41 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 901",
+                "role": "pressure_runner"
+              },
+              {
+                "pid": 42,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "902",
+                "process_stat_raw": "42 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 902",
+                "role": "memory_worker"
+              },
+              {
+                "pid": 43,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "903",
+                "process_stat_raw": "43 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 903",
+                "role": "cpu_worker"
+              },
+              {
+                "pid": 44,
+                "process_cgroup_raw": "0::/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\n",
+                "process_start_time": "904",
+                "process_stat_raw": "44 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 904",
+                "role": "io_worker"
+              }
+            ],
+            "systemd_scope": {
+              "active_state": "active",
+              "cgroup_present": true,
+              "control_group": "/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope",
+              "parent_control_group": "/terrascale-workload.slice",
+              "slice": "terrascale-workload.slice",
+              "systemctl_show_raw": "ActiveState=active\nControlGroup=/terrascale-workload.slice/terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope\nSlice=terrascale-workload.slice\nCPUQuotaPerSecUSec=750000\nMemoryMax=536870912\nMemoryMin=0\nMemoryLow=0\nIOWeight=1000",
+              "unit": "terrascale-d15-a5041f8e-9c5b-43d3-b01f-425f49c9f102.scope"
+            },
+            "worker_process_pids": [
+              42,
+              43,
+              44
+            ],
+            "worker_state_record": "{\"active_worker_pids\":[42,43,44],\"elapsed_monotonic_ns\":1000000000,\"finished_at_utc\":null,\"finished_monotonic_ns\":null,\"observed_at_utc\":\"2026-10-01T12:04:08.776Z\",\"run_id\":\"a5041f8e-9c5b-43d3-b01f-425f49c9f102\",\"schema\":\"terrascale.d15.pressure-worker-state/v2\",\"started_at_utc\":\"2026-10-01T12:04:06.826Z\",\"started_monotonic_ns\":100,\"status\":\"RUNNING\",\"worker_pids\":[42,43,44],\"worker_roles\":[{\"pid\":42,\"role\":\"memory_worker\"},{\"pid\":43,\"role\":\"cpu_worker\"},{\"pid\":44,\"role\":\"io_worker\"}]}",
+            "worker_state_sha256": "ae43ef078db9f635d05ff8fe164172e5e65de76e1ea5171889f06c1e4fbe2480"
+          },
+          "worker_harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad"
+        },
+        {
+          "observed_at_utc": "2026-10-01T12:04:08.826Z"
+        },
+        {}
+      ],
+      "kwargs": {},
+      "mocks": {
+        "validate_block_backing_evidence": {
+          "filesystem_device": "253:0"
+        }
+      },
+      "operation": "_validate_pressure",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "workload_cgroup": {
+              "io_device": "253:0"
+            }
+          }
+        },
+        "run_id": "e86a4426-78fc-4708-9c01-bcb81149d513"
+      }
+    }
+  ],
+  "test_host_manager_recovery_allows_only_source_session_advance_with_restart_witness": [
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":52,\"process_start\":\"2000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":52,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:08.804Z\",\"role\":\"terrabase\",\"session_id\":\"session-source\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.804Z\",\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":53,\"process_start\":\"2001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":53,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:08.804Z\",\"role\":\"terrabase\",\"session_id\":\"session-peer\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.805Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "fc81ed2203608efd2e0eef2b3a5d8a293f7245cc4260e92683f63bc89adc534f",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 53,
+              "stat_raw": "53 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 52,
+              "stat_raw": "52 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2000"
+            }
+          }
+        },
+        {
+          "phase": "before",
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "2026-10-01T12:04:08.804Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {}
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    },
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":2,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":52,\"process_start\":\"2000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":52,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"session-source-after-restart\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.804Z\",\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":53,\"process_start\":\"2001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":53,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"session-peer\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.805Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "7595b6badadbd3b0cbb7bc98305790fc0be3e3f3ccb3b6d31519e8246d4e7ec6",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 53,
+              "stat_raw": "53 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 52,
+              "stat_raw": "52 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2000"
+            }
+          }
+        },
+        {
+          "phase": "post_recovery",
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "2026-10-01T12:04:09.806Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {
+          "peer": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer"
+                },
+                "node": "dry-run-peer"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                      "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                    "process_pid": 53,
+                    "process_start": "2001",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                        "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 53,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-peer",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-peer",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.805Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 53,
+              "start": "2001"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                "epoch": 1,
+                "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 53,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "cccccccccccccccccccccccccccccccc",
+                "member_id": "018f0000-0000-7000-8000-000000000004",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                  "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                "process_pid": 53,
+                "process_start": "2001",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                    "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 53,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-peer",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-peer",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.805000+00:00"
+            },
+            "session_id": "session-peer",
+            "verified": false
+          },
+          "source": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source"
+                },
+                "node": "dry-run-source"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                      "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                    "process_pid": 52,
+                    "process_start": "2000",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                        "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 52,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-source",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-source",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.804Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 52,
+              "start": "2000"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                "epoch": 1,
+                "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 52,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "member_id": "018f0000-0000-7000-8000-000000000003",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                  "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                "process_pid": 52,
+                "process_start": "2000",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 52,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-source",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-source",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.804000+00:00"
+            },
+            "session_id": "session-source",
+            "verified": false
+          }
+        }
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    },
+    {
+      "args": [
+        {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 20,
+            "n_restarts": 0,
+            "process_start": "200"
+          },
+          "terrascale-orchestrator-host.service": {
+            "control_group": "/source",
+            "main_pid": 11,
+            "n_restarts": 1,
+            "process_start": "101"
+          }
+        },
+        "post_recovery"
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_compare_services",
+      "state": {
+        "baseline_services": {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 20,
+            "n_restarts": 0,
+            "process_start": "200"
+          },
+          "terrascale-orchestrator-host.service": {
+            "control_group": "/source",
+            "main_pid": 10,
+            "n_restarts": 0,
+            "process_start": "100"
+          }
+        },
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "failure_observed": true,
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "previous_services": {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 20,
+            "n_restarts": 0,
+            "process_start": "200"
+          },
+          "terrascale-orchestrator-host.service": {
+            "control_group": "/source",
+            "main_pid": 10,
+            "n_restarts": 0,
+            "process_start": "100"
+          }
+        },
+        "run_id": "7f14d526-235f-4753-b9f0-387eba07c927"
+      }
+    },
+    {
+      "args": [
+        {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 21,
+            "n_restarts": 0,
+            "process_start": "200"
+          }
+        },
+        "post_recovery"
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_compare_services",
+      "state": {
+        "baseline_services": {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 20,
+            "n_restarts": 0,
+            "process_start": "200"
+          },
+          "terrascale-orchestrator-host.service": {
+            "control_group": "/source",
+            "main_pid": 10,
+            "n_restarts": 0,
+            "process_start": "100"
+          }
+        },
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "failure_observed": true,
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "previous_services": {
+          "terrascale-orchestrator-controller.service": {
+            "control_group": "/controller",
+            "main_pid": 20,
+            "n_restarts": 0,
+            "process_start": "200"
+          },
+          "terrascale-orchestrator-host.service": {
+            "control_group": "/source",
+            "main_pid": 10,
+            "n_restarts": 0,
+            "process_start": "100"
+          }
+        },
+        "run_id": "7f14d526-235f-4753-b9f0-387eba07c927"
+      }
+    },
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":2,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":52,\"process_start\":\"2000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":52,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"session-source-after-restart\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.804Z\",\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":53,\"process_start\":\"2001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":53,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"unexpected-peer-session\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.805Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "f14249c2cb90bd6d326c2a38e8a7cf47b7584c6e69911c57738d05ad75d6fa4e",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 53,
+              "stat_raw": "53 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 52,
+              "stat_raw": "52 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2000"
+            }
+          }
+        },
+        {
+          "phase": "post_recovery",
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "2026-10-01T12:04:09.806Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {
+          "peer": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer"
+                },
+                "node": "dry-run-peer"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                      "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                    "process_pid": 53,
+                    "process_start": "2001",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                        "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 53,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-peer",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-peer",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.805Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 53,
+              "start": "2001"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                "epoch": 1,
+                "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 53,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "cccccccccccccccccccccccccccccccc",
+                "member_id": "018f0000-0000-7000-8000-000000000004",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                  "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                "process_pid": 53,
+                "process_start": "2001",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                    "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 53,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-peer",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-peer",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.805000+00:00"
+            },
+            "session_id": "session-peer",
+            "verified": false
+          },
+          "source": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source"
+                },
+                "node": "dry-run-source"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                      "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                    "process_pid": 52,
+                    "process_start": "2000",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                        "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 52,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-source",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-source",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.804Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 52,
+              "start": "2000"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                "epoch": 1,
+                "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 52,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "member_id": "018f0000-0000-7000-8000-000000000003",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                  "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                "process_pid": 52,
+                "process_start": "2000",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 52,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-source",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-source",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.804000+00:00"
+            },
+            "session_id": "session-source",
+            "verified": false
+          }
+        }
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    },
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":2,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":52,\"process_start\":\"2000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":52,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"session-source-after-restart\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.804Z\",\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":2,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":53,\"process_start\":\"2001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":53,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:09.806Z\",\"role\":\"terrabase\",\"session_id\":\"session-peer\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.805Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "1c4390c74e3526a9964d963377c1388c3d7b8e62e73aed430a670fbb3d204b87",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 53,
+              "stat_raw": "53 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 52,
+              "stat_raw": "52 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2000"
+            }
+          }
+        },
+        {
+          "phase": "post_recovery",
+          "pressure": {
+            "scenario": "host_manager_sigkill"
+          }
+        },
+        "2026-10-01T12:04:09.806Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {
+          "peer": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer"
+                },
+                "node": "dry-run-peer"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                      "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                    "process_pid": 53,
+                    "process_start": "2001",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                        "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 53,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "cccccccccccccccccccccccccccccccc",
+                        "member_id": "018f0000-0000-7000-8000-000000000004",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-peer",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-peer",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.805Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 53,
+              "start": "2001"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                "epoch": 1,
+                "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 53,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "cccccccccccccccccccccccccccccccc",
+                "member_id": "018f0000-0000-7000-8000-000000000004",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                  "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/peer-runner/terrabase",
+                "process_pid": 53,
+                "process_start": "2001",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+                    "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 53,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "cccccccccccccccccccccccccccccccc",
+                    "member_id": "018f0000-0000-7000-8000-000000000004",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-peer",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-peer",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.805000+00:00"
+            },
+            "session_id": "session-peer",
+            "verified": false
+          },
+          "source": {
+            "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1,
+            "generation": 1,
+            "host": {
+              "registration": {
+                "cell": "gru",
+                "environment": "qualification",
+                "generation": 1,
+                "managed_member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "managed_oci": {
+                  "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source"
+                },
+                "node": "dry-run-source"
+              },
+              "reports": [
+                {
+                  "cell": "gru",
+                  "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+                  "environment": "qualification",
+                  "epoch": 1,
+                  "generation": 1,
+                  "managed": {
+                    "authority": {
+                      "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                      "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                      "epoch": 1,
+                      "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                    },
+                    "listener_ready": true,
+                    "member": {
+                      "host_attempt": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      }
+                    },
+                    "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                    "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                    "process_pid": 52,
+                    "process_start": "2000",
+                    "serving_proof": {
+                      "authority": {
+                        "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                        "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "epoch": 1,
+                        "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                      },
+                      "listeners": {
+                        "client": true,
+                        "replication": true
+                      },
+                      "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                      "object": {
+                        "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                        "local_source_sequence": 4,
+                        "native_commit_seq_at_recovery": 3,
+                        "remote_applied_sequence": 4,
+                        "remote_inbox_durable_sequence": 4,
+                        "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                        "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                      },
+                      "process": {
+                        "pid": 52,
+                        "start_nonce": "dddddddddddddddddddddddddddddddd"
+                      },
+                      "replication": {
+                        "current_authenticated": true,
+                        "local_inbox_applied_sequence": 4,
+                        "local_inbox_durable_sequence": 4,
+                        "local_source_sequence": 4,
+                        "peer_applied_sequence": 4,
+                        "peer_durable_sequence": 4,
+                        "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                        "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                      },
+                      "schema_version": 1,
+                      "scope": {
+                        "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "database_id": "018f0000-0000-7000-8000-000000000002",
+                        "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "member_id": "018f0000-0000-7000-8000-000000000003",
+                        "shard_id": 1,
+                        "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                      },
+                      "serving": true
+                    },
+                    "storage_recovered": true
+                  },
+                  "node": "dry-run-source",
+                  "observed_at": "2026-10-01T12:04:08.804Z",
+                  "role": "terrabase",
+                  "session_id": "session-source",
+                  "state": "running"
+                }
+              ],
+              "session_expires_at": "2026-10-01T12:06:08.804Z",
+              "verified": false
+            },
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "managed_identity": {
+              "cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+              "nonce": "dddddddddddddddddddddddddddddddd",
+              "pid": 52,
+              "start": "2000"
+            },
+            "proof": {
+              "authority": {
+                "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                "epoch": 1,
+                "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+              },
+              "listeners": {
+                "client": true,
+                "replication": true
+              },
+              "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+              "object": {
+                "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                "local_source_sequence": 4,
+                "native_commit_seq_at_recovery": 3,
+                "remote_applied_sequence": 4,
+                "remote_inbox_durable_sequence": 4,
+                "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+              },
+              "process": {
+                "pid": 52,
+                "start_nonce": "dddddddddddddddddddddddddddddddd"
+              },
+              "replication": {
+                "current_authenticated": true,
+                "local_inbox_applied_sequence": 4,
+                "local_inbox_durable_sequence": 4,
+                "local_source_sequence": 4,
+                "peer_applied_sequence": 4,
+                "peer_durable_sequence": 4,
+                "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+              },
+              "schema_version": 1,
+              "scope": {
+                "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "database_id": "018f0000-0000-7000-8000-000000000002",
+                "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "member_id": "018f0000-0000-7000-8000-000000000003",
+                "shard_id": 1,
+                "tenant_id": "018f0000-0000-7000-8000-000000000001"
+              },
+              "serving": true
+            },
+            "registration_generation": 1,
+            "report": {
+              "cell": "gru",
+              "digest": "4444444444444444444444444444444444444444444444444444444444444444",
+              "environment": "qualification",
+              "epoch": 1,
+              "generation": 1,
+              "managed": {
+                "authority": {
+                  "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                  "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                  "epoch": 1,
+                  "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                },
+                "listener_ready": true,
+                "member": {
+                  "host_attempt": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  }
+                },
+                "process_boot_id": "dddddddddddddddddddddddddddddddd",
+                "process_cgroup": "/terrascale-workload.slice/source-runner/terrabase",
+                "process_pid": 52,
+                "process_start": "2000",
+                "serving_proof": {
+                  "authority": {
+                    "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "epoch": 1,
+                    "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+                  },
+                  "listeners": {
+                    "client": true,
+                    "replication": true
+                  },
+                  "nonce": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                  "object": {
+                    "inbox_archive_sha256_at_recovery": "3333333333333333333333333333333333333333333333333333333333333333",
+                    "local_source_sequence": 4,
+                    "native_commit_seq_at_recovery": 3,
+                    "remote_applied_sequence": 4,
+                    "remote_inbox_durable_sequence": 4,
+                    "root_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "target_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+                  },
+                  "process": {
+                    "pid": 52,
+                    "start_nonce": "dddddddddddddddddddddddddddddddd"
+                  },
+                  "replication": {
+                    "current_authenticated": true,
+                    "local_inbox_applied_sequence": 4,
+                    "local_inbox_durable_sequence": 4,
+                    "local_source_sequence": 4,
+                    "peer_applied_sequence": 4,
+                    "peer_durable_sequence": 4,
+                    "peer_incarnation": "cccccccccccccccccccccccccccccccc",
+                    "peer_member_id": "018f0000-0000-7000-8000-000000000004"
+                  },
+                  "schema_version": 1,
+                  "scope": {
+                    "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "database_id": "018f0000-0000-7000-8000-000000000002",
+                    "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "member_id": "018f0000-0000-7000-8000-000000000003",
+                    "shard_id": 1,
+                    "tenant_id": "018f0000-0000-7000-8000-000000000001"
+                  },
+                  "serving": true
+                },
+                "storage_recovered": true
+              },
+              "node": "dry-run-source",
+              "observed_at": "2026-10-01T12:04:08.804Z",
+              "role": "terrabase",
+              "session_id": "session-source",
+              "state": "running"
+            },
+            "report_time": {
+              "$datetime": "2026-10-01T12:04:08.804000+00:00"
+            },
+            "session_expires_at": {
+              "$datetime": "2026-10-01T12:06:08.804000+00:00"
+            },
+            "session_id": "session-source",
+            "verified": false
+          }
+        }
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    }
+  ],
+  "test_host_status_uses_controller_admitted_read_only_reports_and_raw_process_witnesses": [
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":42,\"process_start\":\"1000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":42,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:08.815Z\",\"role\":\"terrabase\",\"session_id\":\"session-source\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.815Z\",\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":43,\"process_start\":\"1001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":43,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:08.815Z\",\"role\":\"terrabase\",\"session_id\":\"session-peer\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.815Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "8ce5407fb052fd24461e5ba18609e1f1bfcc496a939aee5329132f884da15f74",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 43,
+              "stat_raw": "43 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 42,
+              "stat_raw": "42 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1000"
+            }
+          }
+        },
+        {
+          "pressure": {
+            "scenario": "management_stability"
+          }
+        },
+        "2026-10-01T12:04:08.815Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {}
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    },
+    {
+      "args": [
+        {
+          "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\"},\"node\":\"dry-run-source\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/source-runner/terrabase\",\"process_pid\":42,\"process_start\":\"1000\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"configuration_id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"epoch\":1,\"tls_leaf_sha256\":\"3333333333333333333333333333333333333333333333333333333333333333\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":42,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-source\",\"observed_at\":\"2026-10-01T12:04:08.815Z\",\"role\":\"terrabase\",\"session_id\":\"session-source\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.815Z\",\"verified\":true},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"generation\":1,\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\"},\"node\":\"dry-run-peer\"},\"reports\":[{\"cell\":\"gru\",\"digest\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"environment\":\"qualification\",\"epoch\":1,\"generation\":1,\"managed\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listener_ready\":true,\"member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"process_boot_id\":\"dddddddddddddddddddddddddddddddd\",\"process_cgroup\":\"/terrascale-workload.slice/peer-runner/terrabase\",\"process_pid\":43,\"process_start\":\"1001\",\"serving_proof\":{\"authority\":{\"certificate_sha256\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"configuration_id\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"epoch\":1,\"tls_leaf_sha256\":\"6666666666666666666666666666666666666666666666666666666666666666\"},\"listeners\":{\"client\":true,\"replication\":true},\"nonce\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"object\":{\"inbox_archive_sha256_at_recovery\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"local_source_sequence\":4,\"native_commit_seq_at_recovery\":3,\"remote_applied_sequence\":4,\"remote_inbox_durable_sequence\":4,\"root_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"},\"process\":{\"pid\":43,\"start_nonce\":\"dddddddddddddddddddddddddddddddd\"},\"replication\":{\"current_authenticated\":true,\"local_inbox_applied_sequence\":4,\"local_inbox_durable_sequence\":4,\"local_source_sequence\":4,\"peer_applied_sequence\":4,\"peer_durable_sequence\":4,\"peer_incarnation\":\"cccccccccccccccccccccccccccccccc\",\"peer_member_id\":\"018f0000-0000-7000-8000-000000000004\"},\"schema_version\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"},\"serving\":true},\"storage_recovered\":true},\"node\":\"dry-run-peer\",\"observed_at\":\"2026-10-01T12:04:08.815Z\",\"role\":\"terrabase\",\"session_id\":\"session-peer\",\"state\":\"running\"}],\"session_expires_at\":\"2026-10-01T12:06:08.815Z\",\"verified\":false}]",
+          "operator_hosts_sha256": "98752372a2f1d3cf75c08ffcd15b7a1d8744b831479c6c5e2106de9972e2b64e",
+          "process_witnesses": {
+            "peer": {
+              "cgroup_raw": "0::/terrascale-workload.slice/peer-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 43,
+              "stat_raw": "43 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1001"
+            },
+            "source": {
+              "cgroup_raw": "0::/terrascale-workload.slice/source-runner/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "pid": 42,
+              "stat_raw": "42 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1000"
+            }
+          }
+        },
+        {
+          "pressure": {
+            "scenario": "management_stability"
+          }
+        },
+        "2026-10-01T12:04:08.815Z",
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        },
+        {}
+      ],
+      "kwargs": {},
+      "operation": "validate_report_evidence"
+    }
+  ],
+  "test_live_oci_image_metadata_is_matched_to_controller_host_and_manifest_pins": [
+    {
+      "args": [
+        "target_identity",
+        "preflight",
+        {
+          "request_id": "fixture-request"
+        },
+        {
+          "evidence": {
+            "architecture_by_member": {
+              "controller": "aarch64",
+              "peer": "aarch64",
+              "source": "aarch64"
+            },
+            "controller_oci_metadata": {
+              "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.A1.Flex"
+            },
+            "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\",\"region\":\"GRU\"},\"node\":\"dry-run-source\"},\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\",\"region\":\"GRU\"},\"node\":\"dry-run-peer\"},\"verified\":false}]",
+            "operator_hosts_sha256": "c7bd5f65e5a1d01a0accdc73799f441ca89b2727c8cceb7ef4cf396c71514c14",
+            "source_oci_metadata": {
+              "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-import",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.E5.Flex"
+            }
+          },
+          "observed_at_utc": "2026-10-01T12:04:08.818Z"
+        }
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_role",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {},
+        "run_id": "69fef423-ce47-4ec0-8588-bf50a058db21"
+      }
+    },
+    {
+      "args": [
+        "target_identity",
+        "preflight",
+        {
+          "request_id": "fixture-request"
+        },
+        {
+          "evidence": {
+            "architecture_by_member": {
+              "controller": "aarch64",
+              "peer": "aarch64",
+              "source": "aarch64"
+            },
+            "controller_oci_metadata": {
+              "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.A1.Flex"
+            },
+            "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\",\"region\":\"GRU\"},\"node\":\"dry-run-source\"},\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\",\"region\":\"GRU\"},\"node\":\"dry-run-peer\"},\"verified\":false}]",
+            "operator_hosts_sha256": "c7bd5f65e5a1d01a0accdc73799f441ca89b2727c8cceb7ef4cf396c71514c14",
+            "source_oci_metadata": {
+              "image_id": "ocid1.image.other-region.not-the-imported-image",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.E5.Flex"
+            }
+          },
+          "observed_at_utc": "2026-10-01T12:04:08.818Z"
+        }
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_role",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {},
+        "run_id": "69fef423-ce47-4ec0-8588-bf50a058db21"
+      }
+    },
+    {
+      "args": [
+        "target_identity",
+        "preflight",
+        {
+          "request_id": "fixture-request"
+        },
+        {
+          "evidence": {
+            "architecture_by_member": {
+              "controller": "aarch64",
+              "peer": "aarch64",
+              "source": "aarch64"
+            },
+            "controller_oci_metadata": {
+              "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-controller",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.A1.Flex"
+            },
+            "operator_hosts_json": "[{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"member_id\":\"018f0000-0000-7000-8000-000000000003\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source\",\"region\":\"GRU\"},\"node\":\"dry-run-source\"},\"verified\":false},{\"registration\":{\"cell\":\"gru\",\"environment\":\"qualification\",\"managed_member\":{\"host_attempt\":1,\"scope\":{\"cluster_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"database_id\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"cccccccccccccccccccccccccccccccc\",\"member_id\":\"018f0000-0000-7000-8000-000000000004\",\"shard_id\":1,\"tenant_id\":\"018f0000-0000-7000-8000-000000000001\"}},\"managed_oci\":{\"instance_id\":\"ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-peer\",\"region\":\"GRU\"},\"node\":\"dry-run-peer\"},\"verified\":false}]",
+            "operator_hosts_sha256": "c7bd5f65e5a1d01a0accdc73799f441ca89b2727c8cceb7ef4cf396c71514c14",
+            "source_oci_metadata": {
+              "image_id": "ocid1.image.oc1.sa-saopaulo-1.dry-run-placeholder-import",
+              "instance_id": "ocid1.instance.oc1.sa-saopaulo-1.dry-run-placeholder-source",
+              "region": "sa-saopaulo-1",
+              "shape": "VM.Standard.E5.Flex"
+            }
+          },
+          "observed_at_utc": "2026-10-01T12:04:08.818Z"
+        }
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_role",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {},
+        "run_id": "69fef423-ce47-4ec0-8588-bf50a058db21"
+      }
+    }
+  ],
+  "test_object_durable_receipt_sequence_is_bound_to_exact_peer_read": [
+    {
+      "args": [
+        {
+          "document_id": "018f0000-0000-7000-8000-000000000006",
+          "peer_read_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/collections/018f0000-0000-7000-8000-000000000005/documents/018f0000-0000-7000-8000-000000000006",
+          "peer_read_raw": "{\"siblings\":[{\"document\":{\"title\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
+          "peer_read_sha256": "3179992b9e278796f41511b8a12df21c5eeb4199c331d8a3968710c0b4f10128",
+          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"title\":\"17\"},\"kind\":\"live\"}}]}",
+          "transaction_request_sha256": "ec68abc8972977afe7357aefcb62cbda2a1f7c79cd863f49feae0ce35f603939",
+          "write_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/transactions",
+          "write_receipt_raw": "{\"commit_sequence\":\"507\",\"durability\":\"object_durable\",\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1}",
+          "write_receipt_sha256": "b566aa34ec32bdf6a55100e691174b4641400de097dc69a6fa6fe99a9bc02a8e"
+        },
+        {
+          "document_id": "018f0000-0000-7000-8000-000000000006",
+          "transaction_id": {
+            "expires_at_unix_ms": "1893456000000",
+            "nonce": "ffffffffffffffffffffffffffffffff"
+          },
+          "value": 17
+        },
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        }
+      ],
+      "kwargs": {},
+      "operation": "validate_database_wire"
+    },
+    {
+      "args": [
+        {
+          "document_id": "018f0000-0000-7000-8000-000000000006",
+          "peer_read_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/collections/018f0000-0000-7000-8000-000000000005/documents/018f0000-0000-7000-8000-000000000006",
+          "peer_read_raw": "{\"siblings\":[{\"document\":{\"title\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"20\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
+          "peer_read_sha256": "d44466ea0f267841c285e9a2f4024b39db079b84c4ebc4adf0d2c3fed219f13a",
+          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"title\":\"17\"},\"kind\":\"live\"}}]}",
+          "transaction_request_sha256": "ec68abc8972977afe7357aefcb62cbda2a1f7c79cd863f49feae0ce35f603939",
+          "write_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/transactions",
+          "write_receipt_raw": "{\"commit_sequence\":\"507\",\"durability\":\"object_durable\",\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1}",
+          "write_receipt_sha256": "b566aa34ec32bdf6a55100e691174b4641400de097dc69a6fa6fe99a9bc02a8e"
+        },
+        {
+          "document_id": "018f0000-0000-7000-8000-000000000006",
+          "transaction_id": {
+            "expires_at_unix_ms": "1893456000000",
+            "nonce": "ffffffffffffffffffffffffffffffff"
+          },
+          "value": 17
+        },
+        {
+          "acknowledgment_profile": "object_durable",
+          "document": {
+            "collection_id": "018f0000-0000-7000-8000-000000000005",
+            "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
+            "schema_generation": 1,
+            "utf8_field": "title"
+          },
+          "peer": {
+            "authority": {
+              "certificate_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+              "configuration_id": "4444444444444444444444444444444444444444444444444444444444444444",
+              "epoch": 1,
+              "tls_leaf_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-peer",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "cccccccccccccccccccccccccccccccc",
+              "member_id": "018f0000-0000-7000-8000-000000000004",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          },
+          "source": {
+            "authority": {
+              "certificate_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "configuration_id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "epoch": 1,
+              "tls_leaf_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+            },
+            "cell": "gru",
+            "environment": "qualification",
+            "node": "dry-run-source",
+            "role": "terrabase",
+            "scope": {
+              "cluster_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "database_id": "018f0000-0000-7000-8000-000000000002",
+              "incarnation": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "member_id": "018f0000-0000-7000-8000-000000000003",
+              "shard_id": 1,
+              "tenant_id": "018f0000-0000-7000-8000-000000000001"
+            }
+          }
+        }
+      ],
+      "kwargs": {},
+      "operation": "validate_database_wire"
+    }
+  ],
+  "test_oom_cgroups_must_be_rooted_and_the_database_role_must_be_direct_child": [
+    {
+      "args": [
+        "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1",
+        "/system.slice/terrascale-host.service/supervisor/terrascale-host-1/terrabase"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    },
+    {
+      "args": [
+        "/tmp/runner",
+        "/system.slice/terrabase"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    },
+    {
+      "args": [
+        "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1",
+        "/system.slice/terrascale-host.service/supervisor/terrascale-host-1/terrabase/nested"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    },
+    {
+      "args": [
+        "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1",
+        "/system.slice/../terrabase"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    }
+  ],
+  "test_oom_event_and_receipt_bind_exact_role_and_restored_signed_cap": [
+    {
+      "args": [
+        {
+          "events": [],
+          "journal_watermark_raw_record": "{\"MESSAGE\":\"kernel startup record\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"before\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856238831500\"}",
+          "journal_watermark_raw_record_sha256": "a10da4beaf3288a4e72c9fb1fbe73f71144e242cc19c1428c9bf9794f74de467",
+          "oom_restore_intent": {
+            "cgroup_inode": 123,
+            "database_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase",
+            "native_runner_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host",
+            "prior_memory_max_bytes": 1073741824,
+            "target": {
+              "cgroup": "/system.slice/terrascale-host/terrabase",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "kind": "terrabase",
+              "pid": 4242,
+              "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "process_start": "98765"
+            },
+            "temporary_memory_max_bytes": 268435456
+          }
+        },
+        {
+          "oom_target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "node": "dry-run-source",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765",
+            "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+          },
+          "phase": "before"
+        },
+        "2026-10-01T12:04:08.831Z"
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_oom",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "database_cgroup_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase"
+        },
+        "evidence_dir": {
+          "$path": "/tmp/tmpv8xt24n5"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "host_snapshot": {
+          "members": {
+            "source": {
+              "managed_identity": {},
+              "report": {
+                "managed": {
+                  "process_boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "process_cgroup": "/system.slice/terrascale-host/terrabase",
+                  "process_pid": 4242,
+                  "process_start": "98765"
+                }
+              },
+              "report_time": {
+                "$datetime": "2026-10-01T12:04:08.731500+00:00"
+              }
+            }
+          },
+          "process_witnesses": {
+            "source": {
+              "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+            }
+          }
+        },
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "oom_fault": {
+              "deadline_seconds": 10,
+              "target_memory_max_bytes": 268435456
+            },
+            "scenario": "terrabase_oom",
+            "scenario_event_after_seconds": 2,
+            "workload_cgroup": {
+              "io_device": "253:0"
+            }
+          }
+        },
+        "native_runner_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host"
+        },
+        "pressure_started_at": {
+          "$datetime": "2026-10-01T12:04:03.831500+00:00"
+        },
+        "run_id": "b69c4d03-cb89-4cd2-8704-b65697fb3787"
+      }
+    },
+    {
+      "args": [
+        "/sys/fs/cgroup/system.slice/terrascale-host",
+        "/system.slice/terrascale-host/terrabase"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    },
+    {
+      "args": [
+        {
+          "events": [
+            {
+              "raw_record": "{\"MESSAGE\":\"oom-kill: memory.oom=1,task_memcg=/system.slice/terrascale-host/terrabase,pid=4242\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"oom-event\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856246831500\"}",
+              "raw_record_sha256": "bd7f6f5f3d6d2cbdbfbf551d6454496d888570c9f5825976dce66166cea57744",
+              "source": "kernel"
+            }
+          ],
+          "memory_limit_receipt": {
+            "observed_memory_current_bytes": 314572800,
+            "prior_memory_max_bytes": 1073741824,
+            "restore_method": "same_cgroup_fd",
+            "restore_verified": true,
+            "restored_memory_max_bytes": 1073741824,
+            "target": {
+              "cgroup": "/system.slice/terrascale-host/terrabase",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "kind": "terrabase",
+              "pid": 4242,
+              "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "process_start": "98765"
+            },
+            "target_cgroup_inode_before": 123,
+            "target_cgroup_members_before": [
+              4242
+            ],
+            "target_child_cgroups_before": [],
+            "temporary_memory_max_bytes": 268435456
+          }
+        },
+        {
+          "journal_watermark": {
+            "boot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cursor": "before",
+            "raw_record": "{\"MESSAGE\":\"kernel startup record\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"before\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856238831500\"}",
+            "raw_record_sha256": "a10da4beaf3288a4e72c9fb1fbe73f71144e242cc19c1428c9bf9794f74de467"
+          },
+          "oom_restore_intent": {
+            "cgroup_inode": 123,
+            "database_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase",
+            "native_runner_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host",
+            "prior_memory_max_bytes": 1073741824,
+            "target": {
+              "cgroup": "/system.slice/terrascale-host/terrabase",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "kind": "terrabase",
+              "pid": 4242,
+              "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "process_start": "98765"
+            },
+            "temporary_memory_max_bytes": 268435456
+          },
+          "oom_target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "node": "dry-run-source",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765",
+            "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+          },
+          "phase": "during",
+          "sent_at_utc": "2026-10-01T12:04:08.781Z",
+          "target_report_observed_at_utc": "2026-10-01T12:04:08.731Z",
+          "wait_for_event": true
+        },
+        "2026-10-01T12:04:08.831Z"
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_oom",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "database_cgroup_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase"
+        },
+        "evidence_dir": {
+          "$path": "/tmp/tmpv8xt24n5"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "host_snapshot": {
+          "members": {
+            "source": {
+              "managed_identity": {},
+              "report": {
+                "managed": {
+                  "process_boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "process_cgroup": "/system.slice/terrascale-host/terrabase",
+                  "process_pid": 4242,
+                  "process_start": "98765"
+                }
+              },
+              "report_time": {
+                "$datetime": "2026-10-01T12:04:08.731500+00:00"
+              }
+            }
+          },
+          "process_witnesses": {
+            "source": {
+              "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+            }
+          }
+        },
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "oom_fault": {
+              "deadline_seconds": 10,
+              "target_memory_max_bytes": 268435456
+            },
+            "scenario": "terrabase_oom",
+            "scenario_event_after_seconds": 2,
+            "workload_cgroup": {
+              "io_device": "253:0"
+            }
+          }
+        },
+        "native_runner_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host"
+        },
+        "oom_restore_intent": {
+          "cgroup_inode": 123,
+          "database_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase",
+          "native_runner_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host",
+          "prior_memory_max_bytes": 1073741824,
+          "target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765"
+          },
+          "temporary_memory_max_bytes": 268435456
+        },
+        "oom_target": {
+          "cgroup": "/system.slice/terrascale-host/terrabase",
+          "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+          "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "kind": "terrabase",
+          "node": "dry-run-source",
+          "pid": 4242,
+          "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "process_start": "98765",
+          "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+        },
+        "oom_watermark": {
+          "boot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "cursor": "before",
+          "raw_record": "{\"MESSAGE\":\"kernel startup record\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"before\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856238831500\"}",
+          "raw_record_sha256": "a10da4beaf3288a4e72c9fb1fbe73f71144e242cc19c1428c9bf9794f74de467"
+        },
+        "pressure_started_at": {
+          "$datetime": "2026-10-01T12:04:03.831500+00:00"
+        },
+        "run_id": "b69c4d03-cb89-4cd2-8704-b65697fb3787"
+      }
+    },
+    {
+      "args": [
+        {
+          "events": [
+            {
+              "raw_record": "{\"MESSAGE\":\"oom-kill: memory.oom=1,task_memcg=/system.slice/terrascale-host/terrabase,pid=4242\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"oom-event\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856246831500\"}",
+              "raw_record_sha256": "bd7f6f5f3d6d2cbdbfbf551d6454496d888570c9f5825976dce66166cea57744",
+              "source": "kernel"
+            }
+          ],
+          "memory_limit_receipt": {
+            "observed_memory_current_bytes": 314572800,
+            "prior_memory_max_bytes": 1073741824,
+            "restore_method": "same_cgroup_fd",
+            "restore_verified": true,
+            "restored_memory_max_bytes": 1073737728,
+            "target": {
+              "cgroup": "/system.slice/terrascale-host/terrabase",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "kind": "terrabase",
+              "pid": 4242,
+              "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "process_start": "98765"
+            },
+            "target_cgroup_inode_before": 123,
+            "target_cgroup_members_before": [
+              4242
+            ],
+            "target_child_cgroups_before": [],
+            "temporary_memory_max_bytes": 268435456
+          }
+        },
+        {
+          "journal_watermark": {
+            "boot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "cursor": "before",
+            "raw_record": "{\"MESSAGE\":\"kernel startup record\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"before\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856238831500\"}",
+            "raw_record_sha256": "a10da4beaf3288a4e72c9fb1fbe73f71144e242cc19c1428c9bf9794f74de467"
+          },
+          "oom_restore_intent": {
+            "cgroup_inode": 123,
+            "database_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase",
+            "native_runner_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host",
+            "prior_memory_max_bytes": 1073741824,
+            "target": {
+              "cgroup": "/system.slice/terrascale-host/terrabase",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "kind": "terrabase",
+              "pid": 4242,
+              "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "process_start": "98765"
+            },
+            "temporary_memory_max_bytes": 268435456
+          },
+          "oom_target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "node": "dry-run-source",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765",
+            "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+          },
+          "phase": "during",
+          "sent_at_utc": "2026-10-01T12:04:08.781Z",
+          "target_report_observed_at_utc": "2026-10-01T12:04:08.731Z",
+          "wait_for_event": true
+        },
+        "2026-10-01T12:04:08.831Z"
+      ],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_validate_oom",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "database_cgroup_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase"
+        },
+        "evidence_dir": {
+          "$path": "/tmp/tmpv8xt24n5"
+        },
+        "failure_injection_at": {
+          "$datetime": "2026-10-01T12:04:06.831500+00:00"
+        },
+        "failure_observed": true,
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "host_snapshot": {
+          "members": {
+            "source": {
+              "managed_identity": {},
+              "report": {
+                "managed": {
+                  "process_boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "process_cgroup": "/system.slice/terrascale-host/terrabase",
+                  "process_pid": 4242,
+                  "process_start": "98765"
+                }
+              },
+              "report_time": {
+                "$datetime": "2026-10-01T12:04:08.731500+00:00"
+              }
+            }
+          },
+          "process_witnesses": {
+            "source": {
+              "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+            }
+          }
+        },
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "oom_fault": {
+              "deadline_seconds": 10,
+              "target_memory_max_bytes": 268435456
+            },
+            "scenario": "terrabase_oom",
+            "scenario_event_after_seconds": 2,
+            "workload_cgroup": {
+              "io_device": "253:0"
+            }
+          }
+        },
+        "native_runner_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host"
+        },
+        "oom_observed": true,
+        "oom_restore_intent": {
+          "cgroup_inode": 123,
+          "database_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host/terrabase",
+          "native_runner_cgroup_path": "/sys/fs/cgroup/system.slice/terrascale-host",
+          "prior_memory_max_bytes": 1073741824,
+          "target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765"
+          },
+          "temporary_memory_max_bytes": 268435456
+        },
+        "oom_restore_receipt": {
+          "observed_memory_current_bytes": 314572800,
+          "prior_memory_max_bytes": 1073741824,
+          "restore_method": "same_cgroup_fd",
+          "restore_verified": true,
+          "restored_memory_max_bytes": 1073737728,
+          "target": {
+            "cgroup": "/system.slice/terrascale-host/terrabase",
+            "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "kind": "terrabase",
+            "pid": 4242,
+            "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "process_start": "98765"
+          },
+          "target_cgroup_inode_before": 123,
+          "target_cgroup_members_before": [
+            4242
+          ],
+          "target_child_cgroups_before": [],
+          "temporary_memory_max_bytes": 268435456
+        },
+        "oom_target": {
+          "cgroup": "/system.slice/terrascale-host/terrabase",
+          "cgroup_raw": "0::/system.slice/terrascale-host/terrabase\n",
+          "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "kind": "terrabase",
+          "node": "dry-run-source",
+          "pid": 4242,
+          "process_nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "process_start": "98765",
+          "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+        },
+        "oom_watermark": {
+          "boot_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "cursor": "before",
+          "raw_record": "{\"MESSAGE\":\"kernel startup record\",\"_BOOT_ID\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"_CURSOR\":\"before\",\"_TRANSPORT\":\"kernel\",\"__REALTIME_TIMESTAMP\":\"1790856238831500\"}",
+          "raw_record_sha256": "a10da4beaf3288a4e72c9fb1fbe73f71144e242cc19c1428c9bf9794f74de467"
+        },
+        "pressure_started_at": {
+          "$datetime": "2026-10-01T12:04:03.831500+00:00"
+        },
+        "run_id": "b69c4d03-cb89-4cd2-8704-b65697fb3787"
+      }
+    }
+  ],
+  "test_terrabase_sigkill_rejects_report_cgroup_outside_qualified_role": [
+    {
+      "args": [],
+      "kwargs": {},
+      "mocks": {},
+      "operation": "_failure_target",
+      "state": {
+        "contract_id": "UNFROZEN-D15-INTERFACE",
+        "database_cgroup_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1/terrabase"
+        },
+        "evidence_dir": {
+          "$path": "/unused/evidence"
+        },
+        "harness_sha256": "f325dbd4fabcf1f02fd8a118d47112710505bb17ea70a140898bfa2aaa3b10ad",
+        "host_snapshot": {
+          "members": {
+            "source": {
+              "report": {
+                "managed": {
+                  "process_boot_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "process_cgroup": "/system.slice/terrascale-host.service/supervisor/terrascale-host-1/another-role",
+                  "process_pid": 4242,
+                  "process_start": "98765"
+                }
+              },
+              "report_time": {
+                "$datetime": "2026-10-01T12:04:08.823988+00:00"
+              }
+            }
+          },
+          "process_witnesses": {
+            "source": {
+              "cgroup_raw": "0::/system.slice/terrascale-host.service/supervisor/terrascale-host-1/another-role\n",
+              "host_boot_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+              "stat_raw": "4242 (d15 worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 98765"
+            }
+          }
+        },
+        "manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_patch": {
+          "pressure": {
+            "scenario": "terrabase_process"
+          }
+        },
+        "native_runner_path": {
+          "$path": "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1"
+        },
+        "run_id": "54c020e3-f353-4eb8-9f85-10ee3cb18f34"
+      }
+    },
+    {
+      "args": [
+        "/sys/fs/cgroup/system.slice/terrascale-host.service/supervisor/terrascale-host-1",
+        "/system.slice/terrascale-host.service/supervisor/terrascale-host-1/another-role"
+      ],
+      "kwargs": {},
+      "operation": "_qualified_role_cgroups"
+    }
+  ]
+}

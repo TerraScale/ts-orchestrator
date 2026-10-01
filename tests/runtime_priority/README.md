@@ -1,6 +1,6 @@
 # Runtime priority qualification
 
-`qualify.py` has two read-only/profile-staging commands. It does not start
+`ts-orch runtime-priority qualify` has read-only and profile-staging commands. It does not start
 load generators, restart systemd units, or write to a live target. Each
 `qualify --role` invocation inspects one guest. Controller and host units
 require systemd 255 or newer; the host keeps
@@ -17,7 +17,7 @@ For the selected 1 OCPU/6 GiB preview placement, use the managed-host profile's
 1 GiB `SystemReserveBytes`. The builder writes the reserve into a root-owned
 `/etc/terrascale-orchestrator/runtime-priority.json` profile and packages the
 renderer at
-`/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py`. The host
+`/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify`. The host
 checks that its current signed placement reserve matches the baked value
 before launching a workload. The reserve and the separate host, controller,
 and slice floors are configured allocations. The D15 target probe records
@@ -38,7 +38,7 @@ and fits the guest's reserve; it does not infer that both units run there.
 Run the renderer against an image staging root before packaging the image:
 
 ```sh
-python3 tests/runtime_priority/qualify.py render-drop-ins \
+ts-orch runtime-priority qualify render-drop-ins \
   --profile-id "$PROFILE_ID" \
   --service-memory-min-bytes "$HOST_SERVICE_MEMORY_MIN_BYTES" \
   --service-memory-low-bytes "$HOST_SERVICE_MEMORY_LOW_BYTES" \
@@ -70,10 +70,10 @@ ancestor `memory.max`.
 
 ## Verify each target guest
 
-For the unchanged cc9a ARM image, D15 uses the exact `qualify.py` bytes
+D15 uses the exact native ARM `qualify` binary bytes
 published by the successful source-matched `ci.yml` run. The image's baked
 probe does not establish this newer D15 contract. CI publishes
-`terrascale-d15-qualify.py` and `terrascale-d15-probe.json` alongside the two
+`terrascale-d15-qualify` and `terrascale-d15-probe.json` alongside the two
 binaries on `ci-${SOURCE_SHA}-run-${RUN_ID}`; the existing
 `qualification.json` keeps its strict two-binary schema. Download all three
 readback files into a new private directory and admit them against the live
@@ -83,8 +83,8 @@ Forgejo job record before staging on any guest:
 umask 077
 WORK=$(mktemp -d)
 TAG="ci-${SOURCE_SHA}-run-${RUN_ID}"
-fj release asset download "$TAG" terrascale-d15-qualify.py \
-  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-qualify.py"
+fj release asset download "$TAG" terrascale-d15-qualify \
+  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-qualify"
 fj release asset download "$TAG" terrascale-d15-probe.json \
   -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-probe.json"
 fj release asset download "$TAG" qualification.json \
@@ -95,16 +95,16 @@ JOB_ID=$(jq -er '.jobs | if length == 1 then .[0].id else error("expected one jo
   "$WORK/ci-run-detail.json")
 fj actions job-logs "$JOB_ID" -r TerraScale/ts-orchestrator \
   > "$WORK/ci-job.log"
-python3 tests/runtime_priority/probe_admission.py \
-  --probe "$WORK/terrascale-d15-qualify.py" \
+ts-orch runtime-priority probe-admission \
+  --probe "$WORK/terrascale-d15-qualify" \
   --publication "$WORK/terrascale-d15-probe.json" \
   --qualification "$WORK/qualification.json" \
   --run-detail "$WORK/ci-run-detail.json" --job-log "$WORK/ci-job.log" \
   --release-tag "$TAG" \
   --out "$WORK/probe-admission.json"
-PROBE_SHA256=$(sha256sum "$WORK/terrascale-d15-qualify.py" | awk '{print $1}')
+PROBE_SHA256=$(sha256sum "$WORK/terrascale-d15-qualify" | awk '{print $1}')
 RECEIPT_SHA256=$(sha256sum "$WORK/probe-admission.json" | awk '{print $1}')
-PROBE_PATH="/run/terrascale-d15/probes/${SOURCE_SHA}/${PROBE_SHA256}/qualify.py"
+PROBE_PATH="/run/terrascale-d15/probes/${SOURCE_SHA}/${PROBE_SHA256}/qualify"
 ```
 
 Use the pinned `fj` extension described in [release admission](../../docs/releases.md)
@@ -115,15 +115,16 @@ probe, publication and strict two-binary qualification files, source commit/tree
 release tag, run/job ID, job attempt, and log hash. Preserve those readback files and the receipt in
 the operator evidence. Set the live manifest's `repository_revision` to
 `SOURCE_SHA`, `transport.runtime.qualify_sha256` to `PROBE_SHA256`, and
-`transport.runtime.qualify_path` to `PROBE_PATH`. Set
+`transport.runtime.qualify_path` and `remote_executable_path` to `PROBE_PATH`. Set
 `probe_admission.receipt_path` to the local receipt and
 `probe_admission.receipt_sha256` to `RECEIPT_SHA256`. The manifest rejects a
-different path, probe digest, source, or receipt. All selected guests must
-receive the same admitted bytes at that path.
+different path, probe digest, source, or receipt. All source, peer, and controller guests must receive the same admitted native
+binary at that path. Every remote action verifies this executable against
+the admitted digest before accessing guest state.
 
 Stage each guest once under root-owned mode-0700
 `/run/terrascale-d15/probes/<source SHA>/<probe SHA>/` directories, with one
-root-owned regular mode-0444 `qualify.py` and no hard links or symlinks. Copy
+root-owned regular mode-0555 `qualify` and no hard links or symlinks. Copy
 from the admitted readback file, verify its SHA-256 on the guest, and check
 ownership and modes before the run. Stage a fresh path on a new source or
 probe digest; never replace the pinned file during a run. The adapter checks
@@ -131,27 +132,27 @@ the path, metadata, inode, bounded size, and digest before it executes the
 opened file descriptor. It also requires each summary to report that exact
 digest. The staging path is temporary and is lost on reboot.
 
-For each pinned controller or host SSH target, an operator can stage through a
+For each pinned source, peer, and controller SSH target, an operator can stage through a
 new guest temporary file, then promote it into the root-only path:
 
 ```sh
 : "${GUEST:?set the selected pinned SSH target}"
 GUEST_TMP=$(ssh "$GUEST" 'mktemp -p /tmp terrascale-d15.XXXXXXXX')
-scp "$WORK/terrascale-d15-qualify.py" "$GUEST:$GUEST_TMP"
+scp "$WORK/terrascale-d15-qualify" "$GUEST:$GUEST_TMP"
 ssh "$GUEST" "set -e; \
   sudo install -d -o root -g root -m 0700 \
     /run/terrascale-d15 /run/terrascale-d15/probes \
     /run/terrascale-d15/probes/$SOURCE_SHA \
     /run/terrascale-d15/probes/$SOURCE_SHA/$PROBE_SHA256; \
   sudo test ! -e '$PROBE_PATH'; sudo test ! -L '$PROBE_PATH'; \
-  sudo install -o root -g root -m 0444 '$GUEST_TMP' '$PROBE_PATH'"
+  sudo install -o root -g root -m 0555 '$GUEST_TMP' '$PROBE_PATH'"
 test "$(ssh "$GUEST" "sudo sha256sum '$PROBE_PATH'" | awk '{print $1}')" = \
   "$PROBE_SHA256"
 ssh "$GUEST" "rm -f '$GUEST_TMP'"
 ```
 
 Review `stat` on the guest for root ownership, `0700` on all four staging
-directories, `0444` and one link on the regular probe. The run requires the
+directories, `0555` and one link on the regular probe. The run requires the
 fixed sudo and SSH permissions in the manifest; an operator's staging session
 is separate from the qualification adapter.
 
@@ -169,7 +170,7 @@ On a workload guest, run the host probe before and after managed TerraBase
 launch. The second run includes the witnessed TerraBase PID and signed role cap:
 
 ```sh
-sudo /usr/bin/python3 "$PROBE_PATH" qualify \
+sudo "$PROBE_PATH" runtime-priority qualify qualify \
   --role host \
   --oci-instance-id "$HOST_OCI_INSTANCE_ID" \
   --image-id "$HOST_IMAGE_ID" \
@@ -191,7 +192,7 @@ Omit only `--database-pid` and `--database-memory-max-bytes` before the
 database process starts. On a controller guest, use its own values:
 
 ```sh
-sudo /usr/bin/python3 "$PROBE_PATH" qualify \
+sudo "$PROBE_PATH" runtime-priority qualify qualify \
   --role controller \
   --oci-instance-id "$CONTROLLER_OCI_INSTANCE_ID" \
   --image-id "$CONTROLLER_IMAGE_ID" \
@@ -249,10 +250,8 @@ kernel or host failure.
 
 ## Pressure runner and evidence adapters
 
-`pressure.py` provides the bounded D15 runner and its resource-only pressure
-worker. `alpha_runner.py` validates the source-backed HostStatus, service,
-ObjectDurable, systemd and kernel evidence. `alpha_adapter.py` supplies the
-fixed alpha transport: a pinned read-only `operator hosts --config FILE`
+The Go `internal/runtimepriority` feature provides the bounded D15 runner,
+resource workers, evidence validators, and fixed alpha transport: a pinned read-only `operator hosts --config FILE`
 query, strict SSH to the source and peer, and verified HTTPS transactions and
 point reads. The adapter does not accept arbitrary commands from a manifest.
 The raw `HostStatus.verified` value is retained and must be `false`, as emitted
@@ -275,7 +274,7 @@ and user data are never retained. Field names and the v2 header follow
 Use the checked-in manifest only to check the offline contract:
 
 ```sh
-python3 tests/runtime_priority/pressure.py dry-run \
+ts-orch runtime-priority pressure dry-run \
   --manifest tests/runtime_priority/example-dry-run.json
 ```
 
@@ -339,13 +338,13 @@ live fault until the owner supplies the frozen contract and the exact target
 handoff. A live invocation, after that handoff, is:
 
 ```sh
-python3 tests/runtime_priority/pressure.py run \
+ts-orch runtime-priority pressure run \
   --manifest "$D15_MANIFEST" \
   --evidence-dir "$NEW_EVIDENCE_DIR"
 ```
 
 The evidence directory must be new. Each adapter request, exact pinned
-interpreter command, stdout, stderr, parsed response and observation is
+native executable command, stdout, stderr, parsed response and observation is
 retained with checksums. Run evidence is capped at 64 MiB, with 16 MiB reserved
 for cleanup and final observations. Each adapter's combined output is capped
 at 1 MiB. Pressure is bounded to 900 seconds, 64 CPU workers, 32 I/O workers,
