@@ -83,7 +83,6 @@ func ppNew(t *testing.T) *ppFixture {
 		for key, kind := range map[string]string{"controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"} {
 			ids[key] = "ocid1." + kind + ".oc1.." + lower + strings.ReplaceAll(key, "_", "")
 		}
-		ids["seed_ssh_network_security_group"] = nil
 		ids["local_peering_gateway"] = nil
 		ids["instances"] = ppObject{"controller-a": nil}
 		ids["boot_volumes"] = ppObject{"controller-a": nil}
@@ -99,7 +98,6 @@ func ppNew(t *testing.T) *ppFixture {
 			}
 		}
 		sec["nsg_rules"] = rules
-		sec["seed_ssh_nsg_rules"] = []any{}
 		sec["workload_nsg_rules"] = []any{}
 		service := "all-" + lower + "-services-in-oracle-services-network"
 		sec["service_gateway_service_id"] = "ocid1.service.oc1." + region + "." + lower + "service"

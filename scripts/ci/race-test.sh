@@ -14,6 +14,8 @@ set -euo pipefail
 read -r -a go <<< "${GO:-go}"
 shards=${TS_RACE_SHARDS:-6}
 jobs=${TS_RACE_JOBS:-6}
+package_jobs=${TS_RACE_PACKAGE_JOBS:-4}
+test_jobs=${TS_RACE_TEST_JOBS:-4}
 sharded_packages=(./internal/app ./internal/bootstrapstart)
 # Longest first, so a slow lab cannot get stuck behind short unit shards.
 heavy_tests=(
@@ -25,6 +27,8 @@ heavy_tests=(
 )
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }
+[[ $package_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_PACKAGE_JOBS must be a positive integer' >&2; exit 2; }
+[[ $test_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_TEST_JOBS must be a positive integer' >&2; exit 2; }
 
 logs=$(mktemp -d "${TMPDIR:-/tmp}/race-test.XXXXXXXX")
 declare -A active=()
@@ -73,7 +77,7 @@ for package in "${sharded_packages[@]}"; do
 done
 # Script contract packages invoke thousands of bounded subprocesses. Under
 # race instrumentation their aggregate can exceed Go's default ten minutes.
-start packages "${go[@]}" test -race -vet=off -timeout=20m "${other_packages[@]}"
+start packages "${go[@]}" test -race -vet=off -timeout=20m -p "$package_jobs" -parallel "$test_jobs" "${other_packages[@]}"
 
 for package in "${sharded_packages[@]}"; do
 	mapfile -t tests < <(grep -E '^(Test|Example|Fuzz)[A-Za-z0-9_]*$' "$logs/${package##*/}.list" | sort)
