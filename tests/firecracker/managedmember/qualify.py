@@ -1206,7 +1206,7 @@ class Lab:
             if (status == 200 and set(read) == {"status", "body"} and read["status"] == 200 and
                     isinstance(body, dict) and body.get("version") == 1 and body.get("state") == "value" and
                     isinstance(siblings, list) and len(siblings) == 1 and isinstance(siblings[0], dict) and
-                    siblings[0].get("kind") == "live" and siblings[0].get("fields") == [] and
+                    siblings[0].get("kind") == "live" and siblings[0].get("document") == {} and
                     siblings[0].get("schema_generation") == str(binding["schema_generation"]) and
                     siblings[0].get("schema_digest") == binding["schema_digest"]):
                 self.note("https_peer_read", member="b", status=200, point=read["body"],

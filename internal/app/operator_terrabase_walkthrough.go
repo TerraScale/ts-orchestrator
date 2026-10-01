@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -91,8 +92,12 @@ func runTerraBaseWalkthrough(ctx context.Context, args []string, output io.Write
 			return fmt.Errorf("deployment state lacks %s; run terrabase-deploy first", name)
 		}
 	}
-	if len(profile.Members) != 2 || len(profile.Collections) == 0 {
-		return errors.New("client profile needs two members and a collection")
+	if profile.Version != terrabaseClientProfileVersion {
+		return fmt.Errorf("client profile version %d is unsupported; this walkthrough reads version %d",
+			profile.Version, terrabaseClientProfileVersion)
+	}
+	if len(profile.Members) != 2 || len(profile.Collections) == 0 || len(profile.Collections[0].UTF8Fields) == 0 {
+		return errors.New("client profile needs two members and a collection with a UTF-8 field")
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(credentials.HTTPSCAPEM)) {
@@ -136,27 +141,27 @@ func (client *walkthroughClient) run(ctx context.Context) error {
 	}
 	absent, err := client.read(ctx, b, point)
 	client.expect("absent-before-write", b, err == nil && absent.State == "absent", 0, err)
-	create := client.transaction(collection, document, "[]", "created by walkthrough")
+	create := client.transaction(collection, document, jsontext.Value("[]"), "created by walkthrough")
 	status, first, err := client.request(ctx, a, http.MethodPost, scope+"/transactions", create, "")
 	client.expect("create", a, err == nil && status == http.StatusOK && receiptSequence(first) != "", status, err)
 	status, retry, err := client.request(ctx, a, http.MethodPost, scope+"/transactions", create, "")
 	client.expect("exact-retry-same-receipt", a, err == nil && status == http.StatusOK &&
 		receiptSequence(retry) == receiptSequence(first), status, err)
-	created, err := client.await(ctx, b, point, "created by walkthrough")
+	created, err := client.await(ctx, b, point, collection, "created by walkthrough")
 	client.expect("replicated-read", b, err == nil, 0, err)
 	if err != nil {
 		return fmt.Errorf("%d walkthrough checks failed", client.failed)
 	}
-	update := client.transaction(collection, document, string(created.Context), "updated by walkthrough")
+	update := client.transaction(collection, document, created.Context, "updated by walkthrough")
 	status, _, err = client.request(ctx, b, http.MethodPost, scope+"/transactions", update, "")
 	client.expect("update", b, err == nil && status == http.StatusOK, status, err)
-	updated, err := client.await(ctx, a, point, "updated by walkthrough")
+	updated, err := client.await(ctx, a, point, collection, "updated by walkthrough")
 	client.expect("replicated-update", a, err == nil, 0, err)
 	if err == nil {
-		tombstone := client.transaction(collection, document, string(updated.Context), "")
+		tombstone := client.transaction(collection, document, updated.Context, "")
 		status, _, err = client.request(ctx, a, http.MethodPost, scope+"/transactions", tombstone, "")
 		client.expect("delete", a, err == nil && status == http.StatusOK, status, err)
-		_, err = client.await(ctx, b, point, "")
+		_, err = client.await(ctx, b, point, collection, "")
 		client.expect("replicated-delete", b, err == nil, 0, err)
 	}
 	if client.failed != 0 {
@@ -180,21 +185,52 @@ func (client *walkthroughClient) expect(check string, member terrabaseClientMemb
 	_ = printJSON(client.output, result)
 }
 
-// transaction builds one single-write transaction. An empty text writes a
-// tombstone; observed is the prior read context JSON.
-func (client *walkthroughClient) transaction(collection terrabaseClientCollection, document, observed, text string) []byte {
+type walkthroughTransaction struct {
+	Version       int                      `json:"version"`
+	TransactionID walkthroughTransactionID `json:"transaction_id"`
+	Writes        []walkthroughWrite       `json:"writes"`
+}
+
+type walkthroughTransactionID struct {
+	ExpiresAtUnixMS string `json:"expires_at_unix_ms"`
+	Nonce           string `json:"nonce"`
+}
+
+type walkthroughWrite struct {
+	Collection string           `json:"collection"`
+	Document   string           `json:"document"`
+	Observed   jsontext.Value   `json:"observed"`
+	Value      walkthroughValue `json:"value"`
+}
+
+// walkthroughValue is a complete named JSON document, or a tombstone when
+// Document is nil.
+type walkthroughValue struct {
+	Kind     string            `json:"kind"`
+	Document map[string]string `json:"document,omitzero"`
+}
+
+// transaction builds one single-write transaction that stores text in the
+// collection's first UTF-8 field. An empty text writes a tombstone; observed
+// is the prior read context.
+func (client *walkthroughClient) transaction(collection terrabaseClientCollection, document string,
+	observed jsontext.Value, text string,
+) []byte {
 	var nonce [16]byte
 	_, _ = rand.Read(nonce[:])
-	value := `{"kind":"tombstone"}`
+	value := walkthroughValue{Kind: "tombstone"}
 	if text != "" {
-		encoded, _ := json.Marshal(text)
-		value = fmt.Sprintf(`{"kind":"live","fields":[{"id":%d,"value":{"type":"utf8","value":%s}}]}`,
-			collection.Fields[0].ID, encoded)
+		value = walkthroughValue{Kind: "live", Document: map[string]string{collection.UTF8Fields[0]: text}}
 	}
-	return fmt.Appendf(nil, `{"version":1,"transaction_id":{"expires_at_unix_ms":"%d","nonce":"%s"},`+
-		`"writes":[{"collection":"%s","document":"%s","schema_generation":"%d","schema_digest":"%s",`+
-		`"observed":%s,"value":%s}]}`, time.Now().Add(10*time.Minute).UnixMilli(), hex.EncodeToString(nonce[:]),
-		collection.CollectionID, document, collection.SchemaGeneration, collection.SchemaDigest, observed, value)
+	wire, _ := json.Marshal(walkthroughTransaction{Version: 1,
+		TransactionID: walkthroughTransactionID{
+			ExpiresAtUnixMS: strconv.FormatInt(time.Now().Add(10*time.Minute).UnixMilli(), 10),
+			Nonce:           hex.EncodeToString(nonce[:]),
+		},
+		Writes: []walkthroughWrite{{Collection: collection.CollectionID, Document: document, Observed: observed,
+			Value: value}},
+	})
+	return wire
 }
 
 type walkthroughPoint struct {
@@ -205,14 +241,10 @@ type walkthroughPoint struct {
 }
 
 type walkthroughSibling struct {
-	Kind   string `json:"kind"`
-	Fields []struct {
-		ID    uint32 `json:"id"`
-		Value struct {
-			Type  string `json:"type"`
-			Value string `json:"value"`
-		} `json:"value"`
-	} `json:"fields"`
+	Kind             string            `json:"kind"`
+	SchemaGeneration string            `json:"schema_generation"`
+	SchemaDigest     string            `json:"schema_digest"`
+	Document         map[string]string `json:"document"`
 }
 
 func (client *walkthroughClient) read(ctx context.Context, member terrabaseClientMember, path string) (walkthroughPoint, error) {
@@ -232,11 +264,13 @@ func (client *walkthroughClient) read(ctx context.Context, member terrabaseClien
 
 // await polls one member until the document holds text, or is deleted when
 // text is empty, within the replication visibility window.
-func (client *walkthroughClient) await(ctx context.Context, member terrabaseClientMember, path, text string) (walkthroughPoint, error) {
+func (client *walkthroughClient) await(ctx context.Context, member terrabaseClientMember, path string,
+	collection terrabaseClientCollection, text string,
+) (walkthroughPoint, error) {
 	deadline := time.Now().Add(walkthroughReplicationWait)
 	for {
 		point, err := client.read(ctx, member, path)
-		if err == nil && point.matches(text) {
+		if err == nil && point.matches(collection, text) {
 			return point, nil
 		}
 		if !time.Now().Before(deadline) {
@@ -253,19 +287,20 @@ func (client *walkthroughClient) await(ctx context.Context, member terrabaseClie
 	}
 }
 
-func (point walkthroughPoint) matches(text string) bool {
+// matches requires one tombstone when text is empty, or else one live
+// version under the collection's catalog binding whose whole document is
+// text in the first UTF-8 field.
+func (point walkthroughPoint) matches(collection terrabaseClientCollection, text string) bool {
 	if text == "" {
 		return point.State == "deleted" && len(point.Siblings) == 1 && point.Siblings[0].Kind == "tombstone"
 	}
-	if point.State != "value" || len(point.Siblings) != 1 || point.Siblings[0].Kind != "live" {
+	if point.State != "value" || len(point.Siblings) != 1 {
 		return false
 	}
-	for _, field := range point.Siblings[0].Fields {
-		if field.Value.Type == "utf8" && field.Value.Value == text {
-			return true
-		}
-	}
-	return false
+	sibling := point.Siblings[0]
+	return sibling.Kind == "live" && sibling.SchemaDigest == collection.SchemaDigest &&
+		sibling.SchemaGeneration == strconv.FormatUint(collection.SchemaGeneration, 10) &&
+		maps.Equal(sibling.Document, map[string]string{collection.UTF8Fields[0]: text})
 }
 
 func receiptSequence(body []byte) string {

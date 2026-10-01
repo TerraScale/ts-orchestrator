@@ -344,14 +344,14 @@ def validate_managed_member(value: object) -> dict[str, Any]:
     if source["scope"]["member_id"] == peer["scope"]["member_id"] or source["scope"]["incarnation"] == peer["scope"]["incarnation"]:
         raise HarnessError("source and peer require distinct member IDs and incarnations")
     document = require_object(member.get("document"), "managed_member.document")
-    if set(document) != {"collection_id", "schema_generation", "schema_digest", "field_id"}:
+    if set(document) != {"collection_id", "schema_generation", "schema_digest", "utf8_field"}:
         raise HarnessError("managed_member.document does not match the alpha document transaction input")
     if not isinstance(document["collection_id"], str) or not UUID_RE.fullmatch(document["collection_id"]):
         raise HarnessError("managed_member.document.collection_id must be a canonical lowercase UUID")
     require_int(document.get("schema_generation"), "managed_member.document.schema_generation")
     if not HASH_RE.fullmatch(str(document.get("schema_digest", ""))):
         raise HarnessError("managed_member.document.schema_digest must be a lowercase SHA-256 digest")
-    require_int(document.get("field_id"), "managed_member.document.field_id")
+    require_text(document.get("utf8_field"), "managed_member.document.utf8_field")
     return {"source": source, "peer": peer, "document": document,
             "acknowledgment_profile": member["acknowledgment_profile"]}
 

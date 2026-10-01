@@ -1054,11 +1054,8 @@ def _database_progress(request: dict[str, Any]) -> dict[str, Any]:
                  f"/shards/{source_scope['shard_id']}/collections/{document['collection_id']}"
                  f"/documents/{document_id}")
     write_request = {"version": 1, "transaction_id": transaction, "writes": [{
-        "collection": document["collection_id"], "document": document_id,
-        "schema_generation": str(document["schema_generation"]),
-        "schema_digest": document["schema_digest"], "observed": [],
-        "value": {"kind": "live", "fields": [{"id": document["field_id"],
-                                                   "value": {"type": "i64", "value": str(value)}}]},
+        "collection": document["collection_id"], "document": document_id, "observed": [],
+        "value": {"kind": "live", "document": {document["utf8_field"]: str(value)}},
     }]}
     request_raw = json.dumps(write_request, separators=(",", ":"), sort_keys=True)
     started = time.monotonic()

@@ -437,8 +437,7 @@ def run(args: argparse.Namespace) -> dict:
         "transaction_id": {"expires_at_unix_ms": str(int(time.time() * 1000) + 3600000),
                            "nonce": secrets.token_hex(16)},
         "writes": [{"collection": args.collection_id, "document": doc_id,
-                    "schema_generation": str(generation), "schema_digest": schema_digest,
-                    "observed": [], "value": {"kind": "live", "fields": []}}]}
+                    "observed": [], "value": {"kind": "live", "document": {}}}]}
     receipt = request(target_a, https_routes[target_a], context, token,
                       "POST", prefix + "/transactions", transaction)
     require(receipt.get("durability") == "local_durable" and
@@ -450,7 +449,7 @@ def run(args: argparse.Namespace) -> dict:
         siblings = value.get("siblings")
         if (value.get("version") == 1 and value.get("state") == "value" and
                 isinstance(siblings, list) and len(siblings) == 1 and
-                siblings[0].get("kind") == "live" and siblings[0].get("fields") == [] and
+                siblings[0].get("kind") == "live" and siblings[0].get("document") == {} and
                 siblings[0].get("schema_generation") == str(generation) and
                 siblings[0].get("schema_digest") == schema_digest):
             break

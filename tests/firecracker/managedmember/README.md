@@ -7,9 +7,11 @@ TerraBase signed-v2 binary as UID/GID 65534. The driver requests a local,
 CA-verified HTTPS transaction on member A and a local, CA-verified point read
 on member B. Before the write, the driver requires B's read of the same
 fixture-unique document ID to return `state=absent` with no siblings. The
-signed generation-1 schema has no fields, so A writes a live document with an
-empty field list; after the write, B must return one live empty-field sibling
-with the exact signed schema generation and digest. The driver records both
+signed generation-1 schema declares no fields, so A writes the empty named
+JSON document `{}`; after the write, B must return one live sibling whose
+document is `{}`, with the exact signed schema generation and digest. The
+pinned TerraBase binary must accept named JSON writes (TerraBase `dfa00c40` or
+later). The driver records both
 read responses in its evidence. Their replication traffic crosses the private
 VM bridge. A
 `local_durable` write receipt alone is insufficient: the driver also requires

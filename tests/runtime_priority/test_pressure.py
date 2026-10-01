@@ -1270,12 +1270,7 @@ class AlphaHostAndDatabaseEvidenceTests(unittest.TestCase):
             "version": 1, "transaction_id": request["transaction_id"],
             "writes": [{
                 "collection": document["collection_id"], "document": request["document_id"],
-                "schema_generation": str(document["schema_generation"]),
-                "schema_digest": document["schema_digest"], "observed": [],
-                "value": {"kind": "live", "fields": [{
-                    "id": document["field_id"],
-                    "value": {"type": "i64", "value": "17"},
-                }]},
+                "observed": [], "value": {"kind": "live", "document": {document["utf8_field"]: "17"}},
             }],
         }
         receipt = {"version": 1, "durability": "object_durable",
@@ -1285,8 +1280,7 @@ class AlphaHostAndDatabaseEvidenceTests(unittest.TestCase):
             "event": event, "kind": "live",
             "schema_generation": str(document["schema_generation"]),
             "schema_digest": document["schema_digest"],
-            "fields": [{"id": document["field_id"],
-                        "value": {"type": "i64", "value": "17"}}],
+            "document": {document["utf8_field"]: "17"},
         }]}
         transaction_raw, transaction_hash = sealed_json(transaction)
         receipt_raw, receipt_hash = sealed_json(receipt)
