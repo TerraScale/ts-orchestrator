@@ -14,17 +14,17 @@ signing, provider operations, retry policy, and durable progress belong in Go.
 Thin wrappers may select tools or pass arguments, but must not duplicate the
 command's operational logic.
 
-Existing Python and shell operational tools are migration targets, not the
-template for new features. Migrate them feature by feature, preserving their
-admission, ownership, resume, and verification contracts. External image tools
-such as QEMU/libguestfs remain build prerequisites.
+Keep operational tools and qualification drivers in the Go feature packages.
+Preserve their admission, ownership, resume, and verification contracts when
+changing them. External image tools such as QEMU/libguestfs remain build
+prerequisites.
 
 Write all first-party tests in Go with the standard `testing` package. Keep
 cases, fixtures, assertions, and test lifecycle in Go; use `t.TempDir`,
-`t.Context`, and `httptest` where appropriate. Test existing Python and shell
-tools through their command interfaces or small implementation observation
-adapters until those tools move into `ts-orch`. Do not add Python test suites
-or separate test runners. Store inert fixture data under feature-local
+`t.Context`, and `httptest` where appropriate. Test native feature APIs or
+the `ts-orch` command interface, using injected provider and process boundaries
+for offline contracts. Do not add Python test suites or separate test runners.
+Store inert fixture data under feature-local
 `testdata` directories.
 
 ## Keep features together
@@ -61,8 +61,7 @@ dist/ts-orch --help
 
 `make test` runs `go test ./...`; `make verify` checks formatting, runs `go vet`,
 and runs every Go suite with the race detector. Use `go test ./path -run Name`
-for focused checks. Some contract tests invoke existing Python tooling, so
-Python remains a prerequisite for those implementations. Actual Firecracker
+for focused checks. First-party tooling and tests require no Python. Actual Firecracker
 VM qualification remains an explicit environment-dependent command.
 
 The qualification tests expect ordinary `022` file creation permissions and

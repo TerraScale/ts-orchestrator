@@ -1,15 +1,18 @@
 package runtimepriority
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -46,7 +49,7 @@ func assertContains(t *testing.T, got, want string) {
 	}
 }
 
-const probeAsset = "terrascale-d15-qualify.py"
+const probeAsset = "terrascale-d15-qualify"
 const producerJob = "verify/go + artifact/linux-amd64-arm64"
 
 var sourceRevision = strings.Repeat("a", 40)
@@ -78,7 +81,14 @@ func (f *admissionFixture) admit(t *testing.T) script.Result {
 		script.Write(t, filepath.Join(f.root, name), jsonWire(t, value), 0600)
 	}
 	script.Write(t, filepath.Join(f.root, "job.log"), f.log, 0600)
-	return script.Run(t, script.Root(t), nil, "python3", "tests/runtime_priority/probe_admission.py", "--probe", filepath.Join(f.root, probeAsset), "--publication", filepath.Join(f.root, "publication.json"), "--qualification", filepath.Join(f.root, "qualification.json"), "--run-detail", filepath.Join(f.root, "run-detail.json"), "--job-log", filepath.Join(f.root, "job.log"), "--release-tag", "ci-"+sourceRevision+"-run-123", "--out", filepath.Join(f.root, "receipt.json"))
+	var out bytes.Buffer
+	err := rp.Run(t.Context(), []string{"probe-admission", "--probe", filepath.Join(f.root, probeAsset), "--publication", filepath.Join(f.root, "publication.json"), "--qualification", filepath.Join(f.root, "qualification.json"), "--run-detail", filepath.Join(f.root, "run-detail.json"), "--job-log", filepath.Join(f.root, "job.log"), "--release-tag", "ci-" + sourceRevision + "-run-123", "--out", filepath.Join(f.root, "receipt.json")}, &out)
+	result := script.Result{Stdout: out.String()}
+	if err != nil {
+		result.Code = 1
+		result.Stderr = err.Error()
+	}
+	return result
 }
 func TestProbeAdmissionExactPublication(t *testing.T) {
 	f := newAdmissionFixture(t)
@@ -140,37 +150,12 @@ func TestProbeAdmissionRejectsUnboundEvidence(t *testing.T) {
 	}
 }
 
-// This adapter extracts the production embedded opener, substitutes ownership
-// metadata, and returns the opened bytes or error. All file cases live in Go.
-const pinnedProbeObservation = `
-import ast, hashlib, os, re, stat, types
-from pathlib import Path
-from unittest import mock
-module = ast.parse(m.REMOTE_ACTIONS)
-function = next(node for node in module.body if isinstance(node, ast.FunctionDef) and node.name == "open_pinned_probe")
-namespace = {"req": {"probe_source_revision": a["source"]}, "runtime": a["runtime"], "re": re, "Path": Path, "stat": stat, "os": os, "hashlib": hashlib}
-exec(compile(ast.Module(body=[function], type_ignores=[]), "<embedded probe opener>", "exec"), namespace)
-original = Path.lstat
-def root_owned(path):
-    meta = original(path)
-    return types.SimpleNamespace(st_mode=meta.st_mode, st_uid=0, st_gid=0, st_dev=meta.st_dev, st_ino=meta.st_ino, st_size=meta.st_size, st_nlink=meta.st_nlink)
-try:
-    with mock.patch.object(Path, "lstat", autospec=True, side_effect=root_owned):
-        fd = namespace["open_pinned_probe"](base=Path(a["base"]))
-    try:
-        result = {"bytes": os.read(fd, a["length"]).decode()}
-    finally:
-        os.close(fd)
-except Exception as error:
-    result = {"error": str(error)}
-`
-
 func TestRemotePinnedProbe(t *testing.T) {
-	for _, tc := range []struct{ name, reason string }{{"exact", ""}, {"mode", "root-owned regular mode-0444"}, {"bytes", "bytes differ from the exact CI digest"}, {"symlink", "root-owned regular mode-0444"}} {
+	for _, tc := range []struct{ name, reason string }{{"exact", ""}, {"mode", "root-owned regular mode-0555"}, {"bytes", "bytes differ from the exact CI digest"}, {"symlink", "root-owned regular mode-0555"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			base := filepath.Join(t.TempDir(), "terrascale-d15")
-			path := filepath.Join(base, "probes", sourceRevision, digest(probeBytes), "qualify.py")
-			script.Write(t, path, probeBytes, 0444)
+			path := filepath.Join(base, "probes", sourceRevision, digest(probeBytes), "qualify")
+			script.Write(t, path, probeBytes, 0555)
 			for dir := filepath.Dir(path); ; dir = filepath.Dir(dir) {
 				if err := os.Chmod(dir, 0700); err != nil {
 					t.Fatal(err)
@@ -188,7 +173,7 @@ func TestRemotePinnedProbe(t *testing.T) {
 				if err := os.Chmod(path, 0600); err != nil {
 					t.Fatal(err)
 				}
-				script.Write(t, path, []byte("changed probe with same size!!!!!!!\n"), 0444)
+				script.Write(t, path, []byte("changed probe with same size!!!!!!!\n"), 0555)
 			case "symlink":
 				if err := os.Remove(path); err != nil {
 					t.Fatal(err)
@@ -199,7 +184,18 @@ func TestRemotePinnedProbe(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", object{"source": sourceRevision, "base": base, "runtime": object{"qualify_path": path, "qualify_sha256": digest(probeBytes)}, "length": len(probeBytes)}, pinnedProbeObservation))
+			file, err := rp.OpenPinnedProbe(base, sourceRevision, digest(probeBytes), path, uint32(os.Getuid()))
+			got := object{}
+			if err != nil {
+				got["error"] = err.Error()
+			} else {
+				defer file.Close()
+				wire, err := io.ReadAll(file)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got["bytes"] = string(wire)
+			}
 			if tc.reason == "" {
 				assertEqual(t, got["bytes"], string(probeBytes))
 			} else {

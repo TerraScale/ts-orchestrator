@@ -26,7 +26,7 @@ if [[ "$1 $2 $3" == 'release asset download' ]]; then
   count=$((count + 1))
   printf '%s\n' "$count" > "$count_file"
   [[ $FAKE_FJ_HTTP_FAILURE != yes ]] || exit 22
-  if [[ $FAKE_FJ_PERMANENT == yes || ( $name == terrascale-d15-qualify.py && $count == 1 ) ]]; then
+  if [[ $FAKE_FJ_PERMANENT == yes || ( $name == terrascale-d15-qualify && $count == 1 ) ]]; then
     printf 'transient wrong attachment body\n' > "$output"
   else
     cp -- "$FAKE_REPO/dist/$name" "$output"

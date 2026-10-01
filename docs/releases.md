@@ -27,7 +27,7 @@ successful conclusion. The manifest is uploaded after the binaries and is the
 CI release's completion marker. CI does not sign those artifacts.
 
 The same CI job also publishes the source-matched D15 diagnostic
-`terrascale-d15-qualify.py` and its separate
+ARM64 executable `terrascale-d15-qualify` and its separate
 `terrascale-d15-probe.json` descriptor on that tag. CI downloads both back
 and compares their exact bytes before uploading `qualification.json`. The
 binary qualification manifest retains its strict two-binary schema; the
@@ -37,7 +37,7 @@ manifest with `fj release asset download`, saves
 `fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator`, then
 fetches that readback's one producing job log with
 `fj actions job-logs "$JOB_ID" -r TerraScale/ts-orchestrator`. The
-`tests/runtime_priority/probe_admission.py` check requires exact timestamped
+`ts-orch runtime-priority probe-admission` check requires exact timestamped
 probe and binary qualification digest markers in that job log and binds their
 exact hashes, source/tree, successful run, producing job ID, attempt, and job
 log hash in a pinned receipt.
@@ -183,7 +183,7 @@ main ref and pinned key identities.
 The signed receipt, delegation and root key may be published on the same CI
 tag (`canary-linux-arm64.receipt.json`, `canary-release-delegation.json`,
 `canary-release-root.pub`) with `fj release asset create`, reading each back
-with `fj release asset download` and `cmp`; `deploy/image/promote-image.py`
+with `fj release asset download` and `cmp`; `ts-orch image promote`
 uses a receipt found there. It can also sign the binary itself
 (`--sign-binary --signing-key`), after the same `binary-candidate` and
 Forgejo run checks. Any optional JSON copy of the review record is audit-only
@@ -212,7 +212,7 @@ runs locally) finds its candidate by source revision:
   checksum signature verified against the pinned signer, the QCOW2 against
   the signed checksum), the base OCID and kernel release, the trust root and
   timesyncd config checked in under `deploy/image/inputs`, the priority
-  profile, and the TerraBase artifact pin. `deploy/image/image-inputs.py`
+  profile, and the TerraBase artifact pin. `ts-orch image inputs`
   validates the file; its `pin-terrabase` command rewrites only the TerraBase
   pin from a published, Fast-qualified release, and the build re-derives that
   pin from the release to prove it.
@@ -240,7 +240,7 @@ passed.
 
 ### Image promotion
 
-`deploy/image/promote-image.py` turns a retained image release (or a local
+`ts-orch image promote` turns a retained image release (or a local
 `make image` directory) into a signed OCI image in one command and writes
 one `promotion-receipt.json`. It stops at the first failed gate:
 
@@ -425,7 +425,7 @@ socket. The service's capability bounding set is `CAP_SYS_ADMIN CAP_CHOWN`. It
 also provisions `/var/lib/terrascale-orchestrator-volume-init` as root-owned
 mode `0700` for the helper's local format-attempt record. The helper has no
 private filesystem namespace, so its verified mount is visible in the host
-service's mount namespace. [`offline-guestfs.py`](../deploy/image/offline-guestfs.py), [image-builder tests](../tests/deploy/build_offline_test.go), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket).
+service's mount namespace. [`guestfs`](../internal/image/guest.go), [image-builder tests](../tests/deploy/build_offline_test.go), [initializer service](../deploy/systemd/terrascale-orchestrator-host-volume-init.service), [initializer socket](../deploy/systemd/terrascale-orchestrator-host-volume-init.socket).
 
 The controller unit runs as the pre-created `terrascale-orchestrator` user,
 reads `/etc/terrascale-orchestrator/controller.json`, and persists embedded

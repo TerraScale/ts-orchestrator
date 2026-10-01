@@ -1,6 +1,7 @@
 package ci_test
 
 import (
+	"bytes"
 	"encoding/json/v2"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	imagecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -99,9 +101,9 @@ func TestWorkflowContracts(t *testing.T) {
 	})
 	t.Run("image_inputs", func(t *testing.T) {
 		root := script.Root(t)
-		r := script.Run(t, root, nil, "python3", filepath.Join(root, "deploy/image/image-inputs.py"), "check")
-		if r.Code != 0 {
-			t.Fatal(r.Stderr)
+		var stdout, stderr bytes.Buffer
+		if code := imagecli.Run(t.Context(), root, []string{"inputs", "check"}, &stdout, &stderr); code != 0 {
+			t.Fatal(stderr.String())
 		}
 		var manifest struct {
 			TrustRoots []struct {

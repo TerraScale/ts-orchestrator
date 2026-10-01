@@ -1,6 +1,8 @@
 package runtimepriority
 
 import (
+	"bytes"
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -10,10 +12,10 @@ import (
 	"testing"
 	"time"
 
+	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
-const pressureModule = "tests/runtime_priority/pressure.py"
 const hostServicePath = "/sys/fs/cgroup/system.slice/terrascale-orchestrator-host.service"
 const controllerServicePath = "/sys/fs/cgroup/system.slice/terrascale-orchestrator-controller.service"
 const sampleBoot = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -24,13 +26,23 @@ func exampleManifest(t *testing.T) object {
 	return decodeObject(t, script.Read(t, filepath.Join(script.Root(t), "tests/runtime_priority/example-dry-run.json")))
 }
 func cloneObject(t *testing.T, o object) object { t.Helper(); return decodeObject(t, jsonWire(t, o)) }
-func observePressure(t *testing.T, args any, body string) object {
+func errorObservation(err error) object {
+	if err == nil {
+		return object{}
+	}
+	return object{"error": err.Error(), "error_type": rp.ErrorType(err)}
+}
+func normalize(t *testing.T, value any) object {
 	t.Helper()
-	return decodeObject(t, script.Python(t, pressureModule, args, body))
+	return decodeObject(t, jsonWire(t, value))
 }
 func validateManifest(t *testing.T, m object, dry, allocations bool) object {
 	t.Helper()
-	return observePressure(t, object{"manifest": m, "dry": dry, "allocations": allocations}, `result = {"reasons": m.validate_manifest(a["manifest"], dry_run=a["dry"], allow_allocations=a["allocations"])}`)
+	reasons, err := rp.ValidateManifest(m, dry, allocations)
+	if err != nil {
+		return errorObservation(err)
+	}
+	return normalize(t, object{"reasons": reasons})
 }
 func reasonsText(o object) string { return fmt.Sprint(o["reasons"]) }
 func TestPressureDryRunAndUnqualifiedEvidence(t *testing.T) {
@@ -40,34 +52,32 @@ func TestPressureDryRunAndUnqualifiedEvidence(t *testing.T) {
 		assertContains(t, reasonsText(got), reason)
 	}
 	manifestPath := filepath.Join(script.Root(t), "tests/runtime_priority/example-dry-run.json")
-	got = observePressure(t, object{"path": manifestPath}, `import contextlib, hashlib, io, json
-from pathlib import Path
-manifest, wire = m.load_json(Path(a["path"]))
-output = io.StringIO()
-with contextlib.redirect_stdout(output):
-    status = m.dry_run(manifest, hashlib.sha256(wire).hexdigest())
-result = {"status": status, "plan": json.loads(output.getvalue())}`)
-	assertEqual(t, got["status"], 0)
-	plan := field(got, "plan")
+	wire := script.Read(t, manifestPath)
+	plan, err := rp.DryRun(manifest, digest(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertEqual(t, plan["schema"], manifest["schema"])
 	assertEqual(t, plan["qualification_status"], "UNQUALIFIED")
 	assertEqual(t, plan["commands_executed"], false)
 	assertEqual(t, plan["pressure_started"], false)
 	evidence := filepath.Join(t.TempDir(), "evidence")
-	got = observePressure(t, object{"path": manifestPath, "evidence": evidence}, `import hashlib
-from pathlib import Path
-from unittest import mock
-manifest, wire = m.load_json(Path(a["path"]))
-with mock.patch.object(m.subprocess, "Popen") as spawn:
-    status = m.run_qualification(manifest, wire, hashlib.sha256(wire).hexdigest(), Path(a["evidence"]))
-result = {"status": status, "spawns": spawn.call_count}`)
-	assertEqual(t, got["status"], 1)
-	assertEqual(t, got["spawns"], 0)
+	spawns := 0
+	var out bytes.Buffer
+	status, err := rp.RunQualification(t.Context(), manifest, wire, digest(wire), evidence, func(context.Context, rp.Object) (rp.Object, error) {
+		spawns++
+		return nil, fmt.Errorf("unexpected adapter")
+	}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, status, 1)
+	assertEqual(t, spawns, 0)
 	summary := decodeObject(t, script.Read(t, filepath.Join(evidence, "summary.json")))
 	assertEqual(t, summary["qualification_status"], "UNQUALIFIED")
 	assertEqual(t, summary["commands_executed"], false)
 	assertEqual(t, summary["pressure_started"], false)
-	assertEqual(t, string(script.Read(t, filepath.Join(evidence, "manifest.json"))), string(script.Read(t, manifestPath)))
+	assertEqual(t, string(script.Read(t, filepath.Join(evidence, "manifest.json"))), string(wire))
 	if _, err := os.Stat(filepath.Join(evidence, "checksums.sha256")); err != nil {
 		t.Fatal(err)
 	}
@@ -115,27 +125,22 @@ func fullyPinnedAllocationManifest(t *testing.T) object {
 	t.Helper()
 	manifest := exampleManifest(t)
 	root := t.TempDir()
-	suite := filepath.Join(script.Root(t), "tests/runtime_priority")
 	auth := field(manifest, "authorization")
 	auth["live_stress_authorized"] = true
 	pinnedFile(t, auth, "owner_handoff_path", "owner_handoff_sha256", filepath.Join(root, "owner-handoff.json"), []byte("owner-authorized qualification handoff\n"), 0600)
-	adapterPath := filepath.Join(suite, "alpha_adapter.py")
+	adapterPath, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
 	adapterHash := digest(script.Read(t, adapterPath))
 	contract := field(manifest, "adapter_contract")
 	contract["id"] = "frozen-alpha-d15-test"
 	contract["frozen"] = true
 	contract["source_path"] = adapterPath
 	contract["source_sha256"] = adapterHash
-	python := script.Run(t, script.Root(t), nil, "python3", "-c", "import sys; print(sys.executable)")
-	if python.Code != 0 {
-		t.Fatal(python.Stderr)
-	}
-	pythonPath := strings.TrimSpace(python.Stdout)
 	adapter := field(manifest, "adapter")
-	adapter["python_path"] = pythonPath
-	adapter["python_sha256"] = digest(script.Read(t, pythonPath))
-	adapter["source_path"] = adapterPath
-	adapter["source_sha256"] = adapterHash
+	adapter["executable_path"] = adapterPath
+	adapter["executable_sha256"] = adapterHash
 	for _, key := range []string{"memory_floor_evidence", "controller_memory_floor_evidence"} {
 		for scope, e := range field(manifest, key) {
 			pinnedFile(t, e.(map[string]any), "source_path", "source_sha256", filepath.Join(root, key+"-"+scope+".json"), jsonWire(t, object{"scope": scope, "basis": "allocation"}), 0600)
@@ -158,10 +163,11 @@ func fullyPinnedAllocationManifest(t *testing.T) object {
 		pinnedFile(t, https, label+"_credential_file", "", filepath.Join(root, label+"-token"), []byte("fixture-token\n"), 0600)
 	}
 	runtime := field(transport, "runtime")
-	runtime["stress_launcher_sha256"] = digest(script.Read(t, filepath.Join(suite, "pressure.py")))
-	qualifier := script.Read(t, filepath.Join(suite, "qualify.py"))
+	runtime["stress_launcher_sha256"] = adapterHash
+	qualifier := script.Read(t, adapterPath)
 	runtime["qualify_sha256"] = digest(qualifier)
-	runtime["qualify_path"] = fmt.Sprintf("/run/terrascale-d15/probes/%s/%s/qualify.py", manifest["repository_revision"], digest(qualifier))
+	runtime["qualify_path"] = fmt.Sprintf("/run/terrascale-d15/probes/%s/%s/qualify", manifest["repository_revision"], digest(qualifier))
+	runtime["remote_executable_path"] = runtime["qualify_path"]
 	receipt := object{"schema": "terrascale.d15.probe-admission/v1", "repository": "TerraScale/ts-orchestrator", "source_revision": manifest["repository_revision"], "source_tree": strings.Repeat("a", 40), "release_tag": fmt.Sprintf("ci-%s-run-1", manifest["repository_revision"]), "run_id": 1, "run_number": 1, "workflow": "ci.yml", "job": producerJob, "job_id": 1, "attempt": 1, "probe_asset": probeAsset, "probe_bytes": len(qualifier), "probe_sha256": digest(qualifier), "publication_sha256": strings.Repeat("b", 64), "qualification_sha256": strings.Repeat("c", 64), "run_detail_sha256": strings.Repeat("d", 64), "job_log_sha256": strings.Repeat("e", 64)}
 	pinnedFile(t, field(manifest, "probe_admission"), "receipt_path", "receipt_sha256", filepath.Join(root, "probe-admission.json"), jsonWire(t, receipt), 0600)
 	field(field(manifest, "pressure"), "workload_cgroup")["io_device"] = "8:1"
@@ -184,19 +190,16 @@ func TestAllocationProfilePreflight(t *testing.T) {
 	}
 	evidence := filepath.Join(t.TempDir(), "evidence")
 	wire := jsonWire(t, manifest)
-	got = decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_runner.py", object{"manifest": manifest, "wire": string(wire), "hash": digest(wire), "evidence": evidence, "runner_state": object{"harness_sha256": strings.Repeat("a", 64), "run_id": "allocation-preflight-test", "results": []any{}, "memory_usage_samples": []any{}, "pressure_completed": false, "failure_observed": false, "recovery_observed": false, "oom_observed": false, "oom_restore_intent": nil, "oom_restore_unresolved_reason": nil, "oom_restore_cleanup_verified": false}}, `from pathlib import Path
-from unittest import mock
-roles = []
-class StopAtFirstAdapter:
-    def __init__(self, *_args):
-        for key, value in a["runner_state"].items():
-            setattr(self, key, value)
-    def call(self, role, *_args, **_kwargs):
-        roles.append(role)
-        raise m.HarnessError("test stop after run preflight")
-with mock.patch.object(m, "AdapterRunner", StopAtFirstAdapter):
-    status = m.run_qualification(a["manifest"], a["wire"].encode(), a["hash"], Path(a["evidence"]))
-result = {"roles": roles, "status": status}`))
+	roles := []string{}
+	var out bytes.Buffer
+	status, err := rp.RunQualification(t.Context(), manifest, wire, digest(wire), evidence, func(_ context.Context, request rp.Object) (rp.Object, error) {
+		roles = append(roles, request["role"].(string))
+		return nil, fmt.Errorf("test stop after run preflight")
+	}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = normalize(t, object{"roles": roles, "status": status})
 	assertEqual(t, got["roles"], []string{"target_identity"})
 	assertEqual(t, got["status"], 1)
 	summary := decodeObject(t, script.Read(t, filepath.Join(evidence, "summary.json")))
@@ -221,8 +224,8 @@ func TestAllocationRunStatusRequiresCompletionRecoveryAndSamples(t *testing.T) {
 		phases                         []string
 	}{{"complete", "PASS", "", "terrabase_oom", true, true, phases}, {"unfinished", "FAIL", "full configured duration", "terrabase_oom", false, true, phases}, {"unrecovered", "FAIL", "recovery evidence", "terrabase_oom", true, false, phases}, {"missing_controller_before", "UNQUALIFIED", "before", "management_stability", true, false, append(append([]string{}, phases[:3]...), phases[4:]...)}} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_runner.py", object{"complete": tc.complete, "recovery": tc.recovery, "scenario": tc.scenario, "phases": tc.phases}, `status, reasons = m.evaluate_run_status([], pressure_started=True, pressure_completed=a["complete"], scenario=a["scenario"], recovery_observed=a["recovery"], memory_sample_phases=set(a["phases"]))
-result = {"status": status, "reasons": reasons}`))
+			status, reasons := rp.EvaluateRunStatus(nil, true, tc.complete, tc.scenario, tc.recovery, tc.phases)
+			got := normalize(t, object{"status": status, "reasons": reasons})
 			assertEqual(t, got["status"], tc.status)
 			if tc.reason == "" {
 				assertEqual(t, got["reasons"], []any{})
@@ -263,7 +266,11 @@ func newMemorySample(t *testing.T, manifest object, started, finished time.Time)
 }
 func validateMemorySample(t *testing.T, sample, identity object, role, path string, started, finished time.Time) object {
 	t.Helper()
-	return observePressure(t, object{"sample": sample, "identity": identity, "role": role, "path": path, "before": sampleTimestamp(started.Add(-time.Second)), "after": sampleTimestamp(finished.Add(time.Second)), "boot": sampleBoot, "systemd": sampleSystemd}, `result = m.validate_memory_usage_sample(a["sample"], identity=a["identity"], guest_role=a["role"], expected_service_cgroup=a["path"], expected_boot_id=a["boot"], expected_systemd_version=a["systemd"], not_before=m.parse_timestamp(a["before"], "before"), not_after=m.parse_timestamp(a["after"], "after"))`)
+	value, err := rp.ValidateMemorySample(sample, rp.MemoryValidation{Identity: identity, GuestRole: role, ServiceCgroup: path, BootID: sampleBoot, SystemdVersion: sampleSystemd, NotBefore: started.Add(-time.Second), NotAfter: finished.Add(time.Second)})
+	if err != nil {
+		return errorObservation(err)
+	}
+	return normalize(t, value)
 }
 func TestMemorySampleIdentityAndRawEvidence(t *testing.T) {
 	manifest := exampleManifest(t)
@@ -347,21 +354,6 @@ func TestMemorySampleIdentityAndRawEvidence(t *testing.T) {
 	assertPressureError(t, validateMemorySample(t, controller, controllerIdentity, "controller", controllerServicePath, started, finished), "oci_instance_id")
 }
 
-const runnerQualifierObservation = `
-from pathlib import Path
-runner = m.AdapterRunner(a["manifest"], a["hash"], Path(a["evidence_dir"]))
-runner.host_snapshot = a["host_snapshot"]
-runner.service_snapshot = a["service_snapshot"]
-observations = []
-for call in a["calls"]:
-    try:
-        runner._validate_qualifier(call["evidence"], a["request"], a["observed"], call["phase"])
-        observations.append({"samples": list(runner.memory_usage_samples)})
-    except Exception as error:
-        observations.append({"error": str(error), "error_type": type(error).__name__, "samples": list(runner.memory_usage_samples)})
-result = {"observations": observations}
-`
-
 func qualifierSummaryDigest(t *testing.T, summary object) string {
 	t.Helper()
 	raw, err := json.Marshal(summary, json.Deterministic(true), jsontext.WithIndent("  "))
@@ -392,7 +384,16 @@ func TestRunnerRetainsOnlyIdentityBoundMemorySamples(t *testing.T) {
 	sealSample(t, wrongSample)
 	field(wrong, "probe_evidence")["summary_sha256"] = qualifierSummaryDigest(t, field(wrong, "summary"))
 	args := object{"manifest": manifest, "hash": strings.Repeat("a", 64), "evidence_dir": t.TempDir(), "host_snapshot": object{"members": object{"source": object{"host_boot_id": sampleBoot, "managed_identity": object{"pid": 77, "cgroup": rolePath}}}}, "service_snapshot": object{unit: object{"main_pid": 70, "process_start": "700", "control_group": "/system.slice/" + unit, "host_boot_id": sampleBoot}}, "request": request, "observed": sampleTimestamp(time.Now()), "calls": []object{{"phase": "before", "evidence": evidence}, {"phase": "during", "evidence": wrong}}}
-	got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_runner.py", args, runnerQualifierObservation))
+	runner := rp.NewRunner(manifest, args["hash"].(string), args["evidence_dir"].(string))
+	runner.State["host_snapshot"], runner.State["service_snapshot"] = args["host_snapshot"], args["service_snapshot"]
+	observed := []object{}
+	for _, call := range args["calls"].([]object) {
+		err := runner.ValidateQualifier(field(call, "evidence"), request, args["observed"].(string), call["phase"].(string))
+		item := errorObservation(err)
+		item["samples"] = append([]any{}, runner.State["memory_usage_samples"].([]any)...)
+		observed = append(observed, item)
+	}
+	got := normalize(t, object{"observations": observed})
 	observations := got["observations"].([]any)
 	expected := []object{{"phase": "before", "guest_role": "host", "request_id": request["request_id"], "sample_sha256": sample["sample_sha256"]}}
 	first := observations[0].(map[string]any)
@@ -404,47 +405,6 @@ func TestRunnerRetainsOnlyIdentityBoundMemorySamples(t *testing.T) {
 	assertPressureError(t, second, "profile_id differs")
 	assertEqual(t, second["samples"], expected)
 }
-
-const qualifierCaptureObservation = `
-import os, types
-from pathlib import Path
-from unittest import mock
-import pressure
-root, proc = Path(a["root"]), Path(a["proc"])
-system_slice, host = root / "system.slice", root / "system.slice" / a["unit"]
-probe = m.Probe(types.SimpleNamespace(**a["identity"]))
-visited = []
-replaced = False
-original_iterdir, original_open = Path.iterdir, os.open
-def tracked_iterdir(path):
-    for child in original_iterdir(path):
-        if path == system_slice:
-            visited.append(str(child))
-        yield child
-def replace_after_open(path, flags, *args, **kwargs):
-    global replaced
-    fd = original_open(path, flags, *args, **kwargs)
-    if not replaced and isinstance(path, Path) and path == host and flags & os.O_DIRECTORY:
-        host.rename(system_slice / "replaced-host.service")
-        host.mkdir()
-        replaced = True
-    return fd
-patches = [mock.patch.object(m, "CGROUP_ROOT", root), mock.patch.object(m, "PROC_ROOT", proc), mock.patch.object(pressure, "CGROUP_ROOT", root)]
-if a["mode"] == "bound":
-    patches.append(mock.patch.object(Path, "iterdir", tracked_iterdir))
-if a["mode"] == "replacement":
-    patches.append(mock.patch.object(m.os, "open", replace_after_open))
-import contextlib
-with contextlib.ExitStack() as stack:
-    for patch in patches:
-        stack.enter_context(patch)
-    try:
-        sample = probe.memory_usage_sample({"host_service": host, "system_slice": system_slice}, a["systemd"])
-        result = {"sample": sample}
-    except Exception as error:
-        result = {"error": str(error), "error_type": type(error).__name__}
-result.update({"visited": len(visited), "replaced": replaced})
-`
 
 func TestPackagedQualifierCapturesBoundedStableCgroups(t *testing.T) {
 	for _, mode := range []string{"exact", "bound", "replacement"} {
@@ -476,7 +436,31 @@ func TestPackagedQualifierCapturesBoundedStableCgroups(t *testing.T) {
 				}
 			}
 			script.Write(t, filepath.Join(proc, "sys/kernel/random/boot_id"), []byte(sampleBoot+"\n"), 0600)
-			got := decodeObject(t, script.Python(t, "tests/runtime_priority/qualify.py", object{"root": root, "proc": proc, "unit": filepath.Base(host), "identity": identity, "systemd": sampleSystemd, "mode": mode}, qualifierCaptureObservation))
+			visited, replaced := 0, false
+			probe := rp.Qualifier{Args: identity, CgroupRoot: root, ProcRoot: proc}
+			if mode == "bound" {
+				probe.ChildVisited = func(string) { visited++ }
+			}
+			if mode == "replacement" {
+				probe.AfterDirectoryOpen = func(path string) {
+					if path == host && !replaced {
+						if err := os.Rename(host, filepath.Join(system, "replaced-host.service")); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Mkdir(host, 0700); err != nil {
+							t.Fatal(err)
+						}
+						replaced = true
+					}
+				}
+			}
+			sample, err := probe.CaptureMemorySample(map[string]string{"host_service": host, "system_slice": system}, sampleSystemd)
+			got := errorObservation(err)
+			if err == nil {
+				got["sample"] = sample
+			}
+			got["visited"], got["replaced"] = visited, replaced
+			got = normalize(t, got)
 			switch mode {
 			case "exact":
 				if got["error"] != nil {
@@ -491,9 +475,11 @@ func TestPackagedQualifierCapturesBoundedStableCgroups(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				validated := observePressure(t, object{"sample": sample, "root": root, "identity": identity, "path": host, "before": sampleTimestamp(started), "after": sampleTimestamp(finished), "boot": sampleBoot, "systemd": sampleSystemd}, `from pathlib import Path
-m.CGROUP_ROOT = Path(a["root"])
-result = m.validate_memory_usage_sample(a["sample"], identity=a["identity"], guest_role="host", expected_service_cgroup=a["path"], expected_boot_id=a["boot"], expected_systemd_version=a["systemd"], not_before=m.parse_timestamp(a["before"], "before"), not_after=m.parse_timestamp(a["after"], "after"))`)
+				value, err := rp.ValidateMemorySample(sample, rp.MemoryValidation{Identity: identity, GuestRole: "host", CgroupRoot: root, ServiceCgroup: host, BootID: sampleBoot, SystemdVersion: sampleSystemd, NotBefore: started, NotAfter: finished})
+				validated := errorObservation(err)
+				if err == nil {
+					validated = normalize(t, value)
+				}
 				if validated["error"] != nil {
 					t.Fatal(validated)
 				}

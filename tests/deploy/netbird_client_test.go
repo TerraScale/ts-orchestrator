@@ -4,15 +4,18 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 type netbirdArchive struct {
@@ -100,30 +103,40 @@ func (f *netbirdFixture) makeArchive(kind byte, duplicate bool) {
 	f.pin.Archives.Arm64.BinarySHA256 = digest(f.binary)
 }
 
-const netbirdAdapter = `
-from pathlib import Path
-import io
-calls=[]
-def download(request, **kwargs):
-    calls.append(request.full_url)
-    if a.get("forbid_download", False):
-        raise RuntimeError("unexpected download")
-    return io.BytesIO(Path(a["payload"]).read_bytes())
-m.urllib.request.urlopen=download
-error=None
-try:
-    if a["operation"] == "fetch":
-        m.fetch(a["pin"], a["architecture"], Path(a["output"]), Path(a["cache"]) if a.get("cache") else None)
-    else:
-        m.extract(Path(a["archive"]), Path(a["output"]), a["archive_pin"], a["architecture"])
-except Exception as e:
-    error={"type":type(e).__name__, "message":str(e)}
-result={"calls":calls, "error":error}
-`
+type roundTripper func(*http.Request) (*http.Response, error)
 
+func (r roundTripper) RoundTrip(request *http.Request) (*http.Response, error) { return r(request) }
 func (f *netbirdFixture) invoke(args map[string]any) map[string]any {
 	f.t.Helper()
-	return object(f.t, script.Python(f.t, "deploy/netbird/client.py", args, netbirdAdapter))
+	calls := []any{}
+	transport := roundTripper(func(request *http.Request) (*http.Response, error) {
+		calls = append(calls, request.URL.String())
+		if args["forbid_download"] == true {
+			return nil, errors.New("unexpected download")
+		}
+		payload := read(f.t, args["payload"].(string))
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(payload)), Header: make(http.Header)}, nil
+	})
+	var err error
+	if args["operation"] == "fetch" {
+		var pin client.Pin
+		if err = json.Unmarshal(jsonBytes(f.t, args["pin"]), &pin); err != nil {
+			f.t.Fatal(err)
+		}
+		cache, _ := args["cache"].(string)
+		err = client.Fetch(f.t.Context(), pin, args["architecture"].(string), args["output"].(string), cache, &http.Client{Transport: transport})
+	} else {
+		var pin client.Archive
+		if err = json.Unmarshal(jsonBytes(f.t, args["archive_pin"]), &pin); err != nil {
+			f.t.Fatal(err)
+		}
+		err = client.Extract(args["archive"].(string), args["output"].(string), pin, args["architecture"].(string))
+	}
+	result := map[string]any{"calls": calls, "error": nil}
+	if err != nil {
+		result["error"] = map[string]any{"message": err.Error()}
+	}
+	return result
 }
 func (f *netbirdFixture) fetch(payload string, cache bool, forbid bool) map[string]any {
 	args := map[string]any{"operation": "fetch", "pin": f.pin, "architecture": "arm64", "output": f.output, "payload": payload, "forbid_download": forbid}
@@ -139,7 +152,7 @@ func netbirdError(t *testing.T, r map[string]any, message string) {
 	if !ok {
 		t.Fatalf("expected ValueError, got %#v", r)
 	}
-	equal(t, e["type"], "ValueError")
+
 	contains(t, e["message"].(string), message)
 }
 func TestNetbirdFetchChecksArchiveAndInstallsOnlyBinary(t *testing.T) {
@@ -227,7 +240,7 @@ func TestNetbirdAdditiveInstallerPreservesOrchestrator(t *testing.T) {
 	write(t, inputs, jsonBytes(t, struct {
 		Netbird netbirdPin `json:"netbird"`
 	}{f.pin}), 0600)
-	successful(t, runPython(t, "deploy/netbird/install-client.py", "--root", stage, "--architecture", "arm64", "--inputs", inputs, "--client-binary", client, "--enroll-binary", enroll, "--enroll-sha256", digest(enrollment), "--config", config))
+	successful(t, runTool(t, "netbird", "install", "--root", stage, "--architecture", "arm64", "--inputs", inputs, "--client-binary", client, "--enroll-binary", enroll, "--enroll-sha256", digest(enrollment), "--config", config))
 	equal(t, read(t, oldBinary), []byte("currently running orchestrator"))
 	equal(t, read(t, oldConfig), []byte("existing controller configuration"))
 	equal(t, mode(t, filepath.Dir(oldConfig)), os.FileMode(0700))
@@ -262,15 +275,18 @@ func TestNetbirdPublicConfigRejectsForeignOriginAddressOrSecretRegion(t *testing
 			config := validNetbirdConfig()
 			config[tc.field] = tc.value
 			write(t, path, jsonBytes(t, config), 0600)
-			observation := object(t, script.Python(t, "deploy/netbird/client.py", map[string]any{"path": path}, `from pathlib import Path
-result = m.validate_config(Path(a["path"]))`))
-			equal(t, observation["error_type"], "ValueError")
+
+			_, err := client.ValidateConfig(path)
+			if err == nil {
+				t.Fatal("accepted invalid public enrollment configuration")
+			}
+
 			message := map[string]string{
 				"management_url":      "management_url must be https://netbird.terrascale.tech",
 				"management_ip":       "management_ip must be a private IPv4 or IPv6 address",
 				"setup_key_secret_id": "setup_key_secret_id must identify an OCI Vault secret in the configured region",
 			}[tc.field]
-			contains(t, observation["error"].(string), message)
+			contains(t, err.Error(), message)
 		})
 	}
 }
@@ -297,4 +313,25 @@ func TestNetbirdCacheSymlinkIsReplacedWithoutFollowingIt(t *testing.T) {
 	}
 	equal(t, info.Mode().IsRegular(), true)
 	equal(t, read(t, f.output), f.binary)
+}
+
+func TestNetbirdCancelledFetchPreservesExistingClient(t *testing.T) {
+	f := newNetbird(t)
+	write(t, f.output, []byte("existing client"), 0600)
+	var pin client.Pin
+	if err := json.Unmarshal(jsonBytes(t, f.pin), &pin); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	transport := roundTripper(func(*http.Request) (*http.Response, error) {
+		t.Fatal("cancelled fetch started a download")
+		return nil, nil
+	})
+	err := client.Fetch(ctx, pin, "arm64", f.output, f.cache, &http.Client{Transport: transport})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want cancellation", err)
+	}
+	equal(t, read(t, f.output), []byte("existing client"))
+	absent(t, f.cache)
 }

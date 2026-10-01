@@ -25,11 +25,11 @@ work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 # Keep the tool outside the checkout while the retry loop advances main.
 if [[ -n ${TS_ORCH_BIN:-} ]]; then
-	pin_tool=$(realpath -e -- "$TS_ORCH_BIN")
+	cp -- "$(realpath -e -- "$TS_ORCH_BIN")" "$work/ts-orch"
 else
 	go build -trimpath -buildvcs=true -o "$work/ts-orch" ./cmd/terrascale-orchestrator
-	pin_tool="$work/ts-orch"
 fi
+pin_tool="$work/ts-orch"
 fj release asset download -r TerraScale/TerraBase "$tag" qualification.json -o "$work/qualification.json" >/dev/null
 fj release asset download -r TerraScale/TerraBase "$tag" tb-server-linux-arm64 -o "$work/tb-server-linux-arm64" >/dev/null
 run_number=$(jq -er .verification.run_number "$work/qualification.json")

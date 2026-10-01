@@ -16,6 +16,27 @@ and systemd service commands therefore keep their existing names.
 | `terrascale-orchestrator run --config FILE` | `ts-orch run --config FILE` |
 | `terrascale-orchestrator host --config FILE` | `ts-orch host --config FILE` |
 | `terrascale-orchestrator operator ...` | `ts-orch operator ...` |
+| `python3 deploy/image/image-inputs.py ...` | `ts-orch image inputs ...` |
+| `python3 deploy/image/offline-guestfs.py ...` | `ts-orch image guestfs ...` |
+| `python3 deploy/image/promote-image.py ...` | `ts-orch image promote ...` |
+| `python3 deploy/netbird/client.py ...` | `ts-orch netbird client ...` |
+| `python3 deploy/netbird/install-client.py ...` | `ts-orch netbird install ...` |
+| `python3 deploy/oci-region/preview.py ...` | `ts-orch oci-region preview ...` |
+| `python3 deploy/oci-region/attempt.py ...` | `ts-orch oci-region attempt ...` |
+| `python3 deploy/oci-region/import-image.py ...` | `ts-orch oci-region import-image ...` |
+| `python3 deploy/oci-region/public-api.py ...` | `ts-orch oci-region public-api ...` |
+| `python3 tests/runtime_priority/qualify.py ...` | `ts-orch runtime-priority qualify ...` |
+| `python3 tests/runtime_priority/pressure.py ...` | `ts-orch runtime-priority pressure ...` |
+| `python3 tests/runtime_priority/alpha_runner.py ...` | `ts-orch runtime-priority pressure ...` |
+| `python3 tests/runtime_priority/alpha_adapter.py ...` | `ts-orch runtime-priority adapter ...` |
+| `python3 tests/runtime_priority/probe_admission.py ...` | `ts-orch runtime-priority probe-admission ...` |
+| `python3 tests/firecracker/qualify.py ...` | `ts-orch qualification firecracker generic ...` |
+| `python3 tests/firecracker/memberstatus/qualify.py ...` | `ts-orch qualification firecracker memberstatus ...` |
+| `python3 tests/firecracker/managedmember/qualify.py ...` | `ts-orch qualification firecracker managedmember ...` |
+| `python3 tests/firecracker/production/qualify.py ...` | `ts-orch qualification firecracker production ...` |
+| `python3 tests/firecracker/production/prepare_base.py ...` | `ts-orch qualification firecracker prepare-base ...` |
+| `python3 scripts/ci/m0_oci_real_caller.py ...` | `ts-orch qualification real-caller ...` |
+| `python3 scripts/ci/terrabase-source-digest-v1.py ...` | `ts-orch source-digest ...` |
 
 The standalone `cmd/ts-bootstrap` and `cmd/ts-release` entry points have been
 removed. Build operator tooling with `go build ./cmd/terrascale-orchestrator`
@@ -63,8 +84,8 @@ receive cancellation and output from the executable without changing global
 process output or starting NATS.
 
 Keep all first-party tests in Go using the standard `testing` package. Driver
-contracts for existing scripts also run through `go test`; Go owns their
-fixtures and assertions while small adapters invoke the code under test.
+contracts call native Go feature APIs or the unified CLI; Go owns their
+fixtures, provider substitutions, assertions, and lifecycle.
 See [Go testing](testing.md) for verification and feature-local fixtures.
 
 Bootstrap and release commands retain normal SIGINT/SIGTERM termination in the
@@ -76,14 +97,21 @@ and provisioning commands retain their explicit OCI credentials and reviewed
 input requirements. Offline root keys are supplied only to the commands that
 need them; controller and host startup do not load them.
 
-## Remaining script migrations
+## Operational dependencies
 
-This first migration consolidates the existing Go bootstrap and release tools
-and updates their image and regional deployment callers. Regional inventory,
-cost admission, bootstrap-attempt scheduling, image import, and image-build
-coordination still run through the existing Python and shell tools. Port these
-features separately, preserving their admission and resume contracts. Image
-building continues to need external QEMU/libguestfs tools.
+Regional inventory, cost admission, bootstrap attempts, image import, image
+coordination, runtime-pressure tools, and Firecracker qualification drivers
+are native Go features in the same executable. CI and image shell entry points
+invoke those commands. Image operations run from the source checkout when
+they need its manifests, unit files, or pinned build inputs. Image building
+still uses external QEMU/libguestfs tools; live qualification still needs its
+reviewed guest artifacts and host privileges.
+
+The runtime-priority probe is the source-matched ARM64 `ts-orch` executable,
+published as `terrascale-d15-qualify`; invoke its `runtime-priority qualify`
+namespace. Probe admission binds that executable's exact bytes to its
+publication evidence. Historical qualification records retain the paths,
+hashes, and interpreter commands actually used at their recorded revision.
 
 Operations against an established cell should use the authenticated operator
 path and controller-owned reconciliation. Initial bootstrap must support direct

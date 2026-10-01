@@ -8,55 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"context"
+	"fmt"
+	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"golang.org/x/sys/unix"
+	"os"
 )
 
-// Frozen observations contain only invocation arguments and dependency replies
-// captured from the former Python cases. Go owns selection and all expectations.
-const pressureEvidenceObservation = `
-import contextlib, datetime
-from pathlib import Path
-from unittest import mock
-def restore(value):
-    if isinstance(value, dict):
-        if set(value) == {"$datetime"}:
-            return datetime.datetime.fromisoformat(value["$datetime"])
-        if set(value) == {"$path"}:
-            return Path(value["$path"])
-        return {key: restore(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [restore(item) for item in value]
-    return value
-def wire(value):
-    if isinstance(value, datetime.datetime):
-        return {"$datetime": value.isoformat()}
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, dict):
-        return {key: wire(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [wire(item) for item in value]
-    return value
-args, kwargs = restore(a["args"]), restore(a["kwargs"])
-runner = None
-with contextlib.ExitStack() as stack:
-    for key, reply in a.get("mocks", {}).items():
-        stack.enter_context(mock.patch.object(m, key, return_value=restore(reply)))
-    if "state" in a:
-        state = restore(a["state"])
-        runner = m.AdapterRunner(state["manifest"], state["manifest_hash"], state["evidence_dir"])
-        runner.__dict__.update(state)
-        call = getattr(runner, a["operation"])
-    else:
-        call = getattr(m, a["operation"])
-    try:
-        result = {"value": wire(call(*args, **kwargs))}
-    except Exception as error:
-        result = {"error": str(error), "error_type": type(error).__name__}
-    if runner is not None:
-        result["state"] = {key: wire(getattr(runner, key)) for key in a["inspect"]}
-`
-
+// Frozen records contain input evidence only. Every decision is executed by the
+// production Go validators, and Go owns all expected outcomes.
 func shiftObservation(t *testing.T, value any, delta time.Duration) any {
 	t.Helper()
 	switch v := value.(type) {
@@ -133,6 +94,7 @@ func mergeObservation(target, patch object) {
 
 func replayPressureInput(t *testing.T, record object, inspect ...string) object {
 	t.Helper()
+	setupStarted := time.Now()
 	record["inspect"] = inspect
 	if state, ok := record["state"].(map[string]any); ok {
 		manifest := exampleManifest(t)
@@ -140,7 +102,11 @@ func replayPressureInput(t *testing.T, record object, inspect ...string) object 
 		delete(state, "manifest_patch")
 		state["manifest"] = manifest
 		if _, ok := state["harness_sha256"]; ok {
-			hash := digest(script.Read(t, filepath.Join(script.Root(t), "tests/runtime_priority/pressure.py")))
+			binary, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := digest(script.Read(t, binary))
 			state["harness_sha256"] = hash
 			for _, arg := range record["args"].([]any) {
 				if arg, ok := arg.(map[string]any); ok {
@@ -152,7 +118,61 @@ func replayPressureInput(t *testing.T, record object, inspect ...string) object 
 		}
 		state["evidence_dir"] = object{"$path": t.TempDir()}
 	}
-	return decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_runner.py", record, pressureEvidenceObservation))
+	if record["operation"] == "_validate_pressure" {
+		evidence := record["args"].([]any)[1].(map[string]any)
+		observed := field(evidence, "pressure_cgroup")
+		device := observed["io_device"].(string)
+		observed["io_backing"] = normalize(t, object{"filesystem_device": device, "mountpoint": "/var/tmp", "filesystem_type": "xfs", "block_leaf_devices": []string{"8:0"}, "block_device_chain": []object{{"device": device, "sysfs_path": "/sys/devices/virtual/block/dm-0", "subsystem": "block", "virtual": true, "pseudo": false, "partition_parent": nil, "slaves": []string{"8:0"}, "size_sectors": 100000}, {"device": "8:0", "sysfs_path": "/sys/devices/pci/block/sda", "subsystem": "block", "virtual": false, "pseudo": false, "partition_parent": nil, "slaves": []string{}, "size_sectors": 100000}}})
+	}
+	record = restoreRecord(record).(map[string]any)
+	args := record["args"].([]any)
+	operation := record["operation"].(string)
+	var value any
+	var err error
+	var runner *rp.Runner
+	if state, ok := record["state"].(map[string]any); ok {
+		runner = rp.NewRunner(field(state, "manifest"), state["manifest_hash"].(string), state["evidence_dir"].(string))
+		for key, v := range state {
+			runner.State[key] = v
+		}
+	}
+	switch operation {
+	case "_qualified_role_cgroups":
+		a, b, c, e := rp.QualifiedRoleCgroups(args[0].(string), args[1].(string))
+		value = []any{a, b, c}
+		err = e
+	case "validate_report_evidence":
+		value, err = rp.ValidateReportEvidence(args[0].(map[string]any), args[1].(map[string]any), args[2].(string), args[3].(map[string]any), args[4].(map[string]any))
+	case "validate_database_wire":
+		value, err = rp.ValidateDatabaseWire(args[0].(map[string]any), args[1].(map[string]any), args[2].(map[string]any))
+	case "_compare_services":
+		err = runner.CompareServices(args[0].(map[string]any), args[1].(string))
+	case "_failure_target":
+		// Native executable hashing can exceed the witness window under the
+		// race detector. Preserve the fixture's report age at validator entry.
+		runner.State = shiftObservation(t, runner.State, time.Since(setupStarted)).(map[string]any)
+		value, err = runner.FailureTarget()
+	case "_validate_role":
+		err = runner.ValidateRole(args[0].(string), args[1].(string), args[2].(map[string]any), args[3].(map[string]any))
+	case "_validate_pressure":
+		err = runner.ValidatePressure(args[0].(string), args[1].(map[string]any), args[2].(map[string]any), args[3].(map[string]any))
+	case "_validate_oom":
+		err = runner.ValidateOOM(args[0].(map[string]any), args[1].(map[string]any), args[2].(string))
+	default:
+		t.Fatalf("unhandled native validation %s", operation)
+	}
+	result := errorObservation(err)
+	if err == nil {
+		result["value"] = value
+	}
+	if runner != nil {
+		state := object{}
+		for _, key := range inspect {
+			state[key] = runner.State[key]
+		}
+		result["state"] = state
+	}
+	return normalize(t, result)
 }
 func TestPressureQualifiedRoleCgroups(t *testing.T) {
 	records := pressureInputs(t, "test_oom_cgroups_must_be_rooted_and_the_database_role_must_be_direct_child")
@@ -251,12 +271,15 @@ func TestPressureOOMRequiresExactRoleAndRestoredCap(t *testing.T) {
 	assertPressureError(t, replayPressureInput(t, records[3].(map[string]any)), "not safely lowered and restored")
 }
 func TestPressurePeerProofFinishesDuringWorkers(t *testing.T) {
-	records := pressureInputs(t, "test_during_pressure_peer_proof_must_finish_before_workers_end")
-	got := replayPressureInput(t, records[0].(map[string]any))
-	if got["error"] != nil {
-		t.Fatal(got)
+	manifest := exampleManifest(t)
+	runner := rp.NewRunner(manifest, strings.Repeat("a", 64), t.TempDir())
+	start := time.Now()
+	runner.State["pressure_started_at"] = start
+	if err := runner.ValidateActiveObservation("host_status", "after_write", sampleTimestamp(start.Add(10*time.Second))); err != nil {
+		t.Fatal(err)
 	}
-	assertPressureError(t, replayPressureInput(t, records[1].(map[string]any)), "did not complete during active pressure")
+	err := runner.ValidateActiveObservation("host_status", "after_write", sampleTimestamp(start.Add(61*time.Second)))
+	assertPressureError(t, errorObservation(err), "did not complete during active pressure")
 }
 
 func TestPressureRequiresDistinctPinnedController(t *testing.T) {
@@ -274,55 +297,122 @@ func TestPressureRequiresDistinctPinnedController(t *testing.T) {
 	}
 }
 func TestControllerOperationsUseControllerSSH(t *testing.T) {
-	for _, tc := range []struct {
-		name, operation string
-		request, reply  object
-	}{{"service", "_service_state", object{"guest_role": "controller"}, object{"guest_role": "controller", "units": object{}, "host_boot_id": "boot"}}, {"probe", "_qualify", object{"guest_role": "controller", "request_id": "request"}, object{"summary": object{}, "commands_log": "read-only\n"}}} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", object{"operation": tc.operation, "request": tc.request, "reply": tc.reply}, `from unittest import mock
-with mock.patch.object(m, "_ssh", return_value=a["reply"]) as ssh:
-    value = getattr(m, a["operation"])(a["request"])
-result = {"value": value, "calls": [[list(call.args), call.kwargs] for call in ssh.call_args_list]}`))
-			action := "service_state"
-			if tc.name == "probe" {
-				action = "qualify"
+	for _, operation := range []string{"service_state", "qualify"} {
+		t.Run(operation, func(t *testing.T) {
+			request := object{"role": operation, "guest_role": "controller", "request_id": "request"}
+			reply := object{"guest_role": "controller", "units": object{}, "host_boot_id": "boot"}
+			if operation == "qualify" {
+				reply = object{"summary": object{}, "commands_log": "read-only\n"}
 			}
-			assertEqual(t, got["calls"], []any{[]any{[]any{tc.request, "controller", action}, object{}}})
-			if tc.name == "service" {
-				assertEqual(t, got["value"], tc.reply)
+			calls := []any{}
+			adapter := rp.Adapter{SSH: func(_ context.Context, request rp.Object, label, action string, payload rp.Object) (rp.Object, error) {
+				calls = append(calls, []any{request, label, action})
+				return reply, nil
+			}}
+			value, err := adapter.Dispatch(t.Context(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertEqual(t, calls, []any{[]any{request, "controller", operation}})
+			if operation == "service_state" {
+				assertEqual(t, value, reply)
 			}
 		})
 	}
 }
-
-const controllerProbeObservation = `
-import types
-from pathlib import Path
-from unittest import mock
-probe = m.Probe(types.SimpleNamespace(**a["args"]))
-for key, reply in a["replies"].items():
-    setattr(probe, key, mock.Mock(return_value=reply))
-probe.source_identity = mock.Mock(return_value=(None, Path(a["units"])))
-with mock.patch.object(m, "normalize_cpu_max", return_value=a["cpu_max"]):
-    summary = probe.run()
-result = {"summary": summary, "unit_calls": [list(call.args) for call in probe.unit.call_args_list], "host_calls": probe.verify_host_runtime.call_count}
-`
-
 func TestControllerProbeAvoidsAbsentHostUnit(t *testing.T) {
-	unit := "terrascale-orchestrator-controller.service"
-	units := t.TempDir()
-	script.Write(t, filepath.Join(units, unit), []byte("[Service]\n"), 0600)
-	args := object{"role": "controller", "controller_unit": unit, "host_unit": "terrascale-orchestrator-host.service", "database_pid": nil, "oci_instance_id": "controller-ocid", "image_id": "image-ocid", "artifact_id": "artifact", "config_id": "config", "profile_id": "profile"}
-	replies := object{"command": "systemd 255", "unit": object{"ControlGroup": "/system.slice/" + unit}, "verify_baked_profile": object{}, "assert_unit_priority": 42, "assert_process": object{"pid": 42, "cgroup": "/sys/fs/cgroup/system.slice/" + unit}, "verify_priority_cgroup": object{"cpu_weight": 10000, "io_weight": 10000}, "verify_memory_budget": object{}, "verify_oomd_policy": object{}, "verify_host_runtime": object{}, "memory_usage_sample": object{}}
-	got := decodeObject(t, script.Python(t, "tests/runtime_priority/qualify.py", object{"args": args, "replies": replies, "units": units, "cpu_max": "max 100000"}, controllerProbeObservation))
-	if got["error"] != nil {
-		t.Fatal(got)
+	// Native qualifier integration is exercised with real isolated proc/cgroup
+	// files and an injected command runner; only the selected controller is read.
+	root := t.TempDir()
+	cg := filepath.Join(root, "cgroup")
+	proc := filepath.Join(root, "proc")
+	system := filepath.Join(cg, "system.slice")
+	service := filepath.Join(system, rp.ControllerUnit)
+	units := filepath.Join(root, "units")
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
-	summary := field(got, "summary")
+	args := object{"role": "controller", "profile_id": "profile", "system_reserve_bytes": int64(16384), "allocatable_memory_bytes": int64(32768), "expected_controller_memory_min_bytes": int64(4096), "expected_controller_memory_low_bytes": int64(8192), "expected_system_slice_memory_min_bytes": int64(4096), "expected_system_slice_memory_low_bytes": int64(8192)}
+	for _, path := range []string{cg, system, service} {
+		for name, raw := range map[string]string{"cpu.weight": "10000", "io.weight": "default 10000", "cpu.max": "max 100000", "memory.max": "max", "memory.min": "4096", "memory.low": "8192", "memory.current": "123", "memory.peak": "456", "memory.stat": "anon 123\n"} {
+			script.Write(t, filepath.Join(path, name), []byte(raw), 0600)
+		}
+	}
+	script.Write(t, filepath.Join(proc, "sys/kernel/random/boot_id"), []byte(sampleBoot), 0600)
+	script.Write(t, filepath.Join(proc, "meminfo"), []byte("MemTotal: 1024 kB\n"), 0600)
+	stat := fmt.Sprintf("42 (controller) S %s", strings.Repeat("0 ", 40))
+	fields := strings.Fields(strings.Split(stat, ")")[1])
+	fields[16] = "-20"
+	fields[19] = "700"
+	fields[38] = "0"
+	stat = "42 (controller) " + strings.Join(fields, " ")
+	for name, raw := range map[string]string{"stat": stat, "cgroup": "0::/system.slice/" + rp.ControllerUnit + "\n", "oom_score_adj": "-1000"} {
+		script.Write(t, filepath.Join(proc, "42", name), []byte(raw), 0600)
+	}
+	script.Write(t, filepath.Join(units, rp.ControllerUnit), []byte("[Service]\n"), 0600)
+	profile := filepath.Join(root, "profile.json")
+	script.Write(t, profile, []byte(`{"version":1,"profile_id":"profile","system_reserve_bytes":16384}`), 0644)
+	// Inject only the baked file's ownership observation; profile shape/reserve
+	// validation and the complete controller branch still execute in Go.
+	if err := syscallSetOmit(service); err != nil {
+		t.Skipf("filesystem lacks user xattrs: %v", err)
+	}
+	calls := []string{}
+	probe := rp.Qualifier{BakedProfile: func() (rp.Object, error) {
+		return rp.ValidateBakedProfile(script.Read(t, profile), 0644, 0, 0, 1, "profile", 16384)
+	}, Args: args, CgroupRoot: cg, ProcRoot: proc, ProfilePath: profile, UnitRoot: units, Executable: binary, Command: func(_ context.Context, argv []string) (string, error) {
+		calls = append(calls, strings.Join(argv, " "))
+		if argv[0] == "ionice" {
+			return "best-effort: prio 0", nil
+		}
+		if argv[1] == "--version" {
+			return "systemd 255", nil
+		}
+		if argv[2] != rp.ControllerUnit {
+			return "", fmt.Errorf("unexpected absent host unit")
+		}
+		return "ActiveState=active\nMainPID=42\nControlGroup=/system.slice/" + rp.ControllerUnit + "\nNice=-20\nOOMScoreAdjust=-1000\nCPUWeight=10000\nIOWeight=10000\nCPUSchedulingPolicy=other\nIOSchedulingClass=best-effort\nIOSchedulingPriority=0\nManagedOOMPreference=omit\nDelegate=no\nDelegateSubgroup=\nMemoryMin=4096\nMemoryLow=8192", nil
+	}}
+	summary, err := probe.Run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	assertEqual(t, summary["guest_role"], "controller")
 	hashes := field(summary, "unit_sha256")
 	assertEqual(t, len(hashes), 1)
-	assertEqual(t, hashes[unit], digest([]byte("[Service]\n")))
-	assertEqual(t, got["unit_calls"], [][]string{{unit}})
-	assertEqual(t, got["host_calls"], 0)
+	assertEqual(t, hashes[rp.ControllerUnit], digest([]byte("[Service]\n")))
+	for _, call := range calls {
+		if strings.Contains(call, rp.HostUnit) {
+			t.Fatalf("queried absent host unit: %s", call)
+		}
+	}
 }
+func restoreRecord(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		if len(v) == 1 {
+			if path, ok := v["$path"].(string); ok {
+				return path
+			}
+			if stamp, ok := v["$datetime"].(string); ok {
+				return stamp
+			}
+		}
+		out := object{}
+		for key, item := range v {
+			out[key] = restoreRecord(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = restoreRecord(item)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func syscallSetOmit(path string) error { return unix.Setxattr(path, "user.oomd_omit", []byte("1"), 0) }

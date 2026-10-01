@@ -2,6 +2,8 @@ package deploy_test
 
 import (
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
@@ -41,17 +44,8 @@ func bakedLimit(t *testing.T, name string) int {
 }
 func TestOfflineBuilderLimitsMatchBakedLoader(t *testing.T) {
 	root := deployRoot(t)
-	builder := string(read(t, filepath.Join(root, "deploy/image/build-offline.sh")))
-	helper := string(read(t, filepath.Join(root, "deploy/image/offline-guestfs.py")))
 	loader := string(read(t, filepath.Join(root, "internal/bootstrapstart/baked.go")))
-	equal(t, capture(t, helper, `(?m)^BOOTSTRAP = "([^"]+)"$`)[1], capture(t, loader, `BakedDirectory\s*=\s*"([^"]+)"`)[1])
-	for bash, goName := range map[string]string{"bootstrap_root_limit": "MaxRootFiles", "bootstrap_root_max_bytes": "MaxRootBytes", "bootstrap_roots_max_total_bytes": "MaxRootsTotal"} {
-		value, err := strconv.Atoi(capture(t, builder, `(?m)^`+bash+`=(\d+)$`)[1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		equal(t, value, bakedLimit(t, goName))
-	}
+	equal(t, image.Bootstrap, bootstrapstart.BakedDirectory)
 	pattern := capture(t, loader, "rootFilenameRE\\s*=\\s*regexp\\.MustCompile\\(`([^`]+)`\\)")[1]
 	reserved := capture(t, loader, `!rootFilenameRE\.MatchString\(name\)\s*\|\|\s*name\s*==\s*"([^"]+)"`)[1]
 	names := []string{"001.pem", "002.pem"}
@@ -65,49 +59,36 @@ func TestOfflineBuilderLimitsMatchBakedLoader(t *testing.T) {
 	}
 }
 
-const profileAdapter = `
-from pathlib import Path
-from types import SimpleNamespace
-m.RUNTIME_PRIORITY_PROFILE=Path(a["profile"])
-original_lstat=Path.lstat
-Path.lstat=lambda self: SimpleNamespace(**a["metadata"])
-try:
-    result=m.Probe(SimpleNamespace(**a["probe"])).verify_baked_profile()
-finally:
-    Path.lstat=original_lstat
-`
-
 func TestOfflineProbeVerifiesCanonicalBakedReserve(t *testing.T) {
 	for _, mismatch := range []bool{false, true} {
 		t.Run(fmt.Sprintf("mismatch=%t", mismatch), func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "runtime-priority.json")
 			wire := []byte(`{"version":1,"profile_id":"preview-1ocpu-6gib-v1","system_reserve_bytes":1073741824}`)
-			write(t, path, wire, 0644)
-			reserve := 1 << 30
+			reserve := int64(1 << 30)
 			if mismatch {
 				reserve += 4096
 			}
-			r := object(t, script.Python(t, "tests/runtime_priority/qualify.py", map[string]any{"profile": path, "metadata": map[string]any{"st_mode": 0100644, "st_uid": 0, "st_gid": 0, "st_nlink": 1}, "probe": map[string]any{"profile_id": profileID, "system_reserve_bytes": reserve}}, profileAdapter))
+			r, err := rp.ValidateBakedProfile(wire, 0644, 0, 0, 1, profileID, reserve)
 			if mismatch {
-				equal(t, r["error_type"], "QualificationError")
-				contains(t, r["error"].(string), "profile ID/reserve differs")
+				if err == nil {
+					t.Fatal("mismatched signed reserve admitted")
+				}
+				equal(t, rp.ErrorType(err), "QualificationError")
+				contains(t, err.Error(), "profile ID/reserve differs")
 			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
 				equal(t, r["sha256"], digest(wire))
 				equal(t, r["profile_id"], profileID)
-				equal(t, r["system_reserve_bytes"], float64(1<<30))
+				equal(t, r["system_reserve_bytes"], int64(1<<30))
 			}
 		})
 	}
 }
 func TestOfflinePackagedProbeWithoutGitCheckout(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py")
-	write(t, path, []byte("# packaged helper\n"), 0644)
-	r := object(t, script.Python(t, "tests/runtime_priority/qualify.py", map[string]any{"packaged": path}, `from types import SimpleNamespace
-m.__file__=a["packaged"]
-revision,unit_directory=m.Probe(SimpleNamespace()).source_identity()
-result={"revision":revision,"unit_directory":str(unit_directory)}`))
-	equal(t, r["revision"], nil)
-	equal(t, r["unit_directory"], "/etc/systemd/system")
+	revision, units := rp.PackagedSourceIdentity()
+	equal(t, revision, nil)
+	equal(t, units, "/etc/systemd/system")
 }
 func TestOfflineVolumeInitRootOnlyInHostNamespace(t *testing.T) {
 	socketSource := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd", volumeSocketUnit)))

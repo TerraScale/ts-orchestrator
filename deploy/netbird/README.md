@@ -2,7 +2,7 @@
 
 The shared GRU image installs NetBird 0.79.0 for every controller and managed
 host. `deploy/image/image-inputs.json` pins the upstream ARM64 and AMD64 archive
-sizes, SHA-256 checksums and extracted binary checksums. `client.py` verifies the
+sizes, SHA-256 checksums and extracted binary checksums. `ts-orch netbird client` verifies the
 archive before streaming only its regular root-level `netbird` executable; it
 does not extract archive paths or execute the upstream installation script.
 `TS_NETBIRD_CLIENT_CACHE` optionally reuses archives by digest, with verification
@@ -36,7 +36,7 @@ For an existing server, stage this repository's `deploy/netbird`,
 and its independently verified digest. Run:
 
 ```sh
-sudo python3 deploy/netbird/install-client.py \
+sudo ts-orch netbird install \
   --config deploy/image/inputs/netbird-gru.json \
   --enroll-binary /tmp/terrascale-orchestrator-linux-arm64 \
   --enroll-sha256 VERIFIED_ORCHESTRATOR_SHA256

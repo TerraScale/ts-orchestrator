@@ -31,7 +31,7 @@ const ociRuleGuest = "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules"
 const timesyncGuest = "/etc/systemd/timesyncd.conf.d/99-terrascale-orchestrator.conf"
 const timeWaitDropin = "/etc/systemd/system/systemd-time-wait-sync.service.d/terrascale-timeout.conf"
 const priorityProfileGuest = "/etc/terrascale-orchestrator/runtime-priority.json"
-const priorityHelperGuest = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify.py"
+const priorityHelperGuest = "/usr/local/lib/terrascale-orchestrator/runtime-priority/qualify"
 const verifierGuest = "/usr/local/lib/terrascale-orchestrator/managed-material/terrabase-server"
 const netbirdGuest = "/usr/local/bin/netbird"
 const netbirdConfigGuest = "/etc/terrascale-orchestrator/netbird.json"
@@ -384,7 +384,7 @@ func (f *offlineFixture) run(roots []string, replace, env map[string]string, ext
 	}
 	args = append(args, extra...)
 	args = append(args, "--out", f.output, "--kernel-out", f.kernelOutput)
-	environment := map[string]string{"PATH": f.shims + string(os.PathListSeparator) + os.Getenv("PATH"), "EVENTS_PATH": f.events, "RELEASE_ARGUMENTS_PATH": f.releaseArgs, "GUESTFISH_SESSION_PATH": filepath.Join(f.root, "guestfish-session"), "BASE_IMAGE_ROOT_PATH": f.guest, "FS_METADATA_PATH": f.metadata, "GUESTFISH_DEAD_MARKER_PATH": filepath.Join(f.root, "guestfish-dead")}
+	environment := map[string]string{"TS_ORCH_BIN": deployTool(f.t), "PATH": f.shims + string(os.PathListSeparator) + os.Getenv("PATH"), "EVENTS_PATH": f.events, "RELEASE_ARGUMENTS_PATH": f.releaseArgs, "GUESTFISH_SESSION_PATH": filepath.Join(f.root, "guestfish-session"), "BASE_IMAGE_ROOT_PATH": f.guest, "FS_METADATA_PATH": f.metadata, "GUESTFISH_DEAD_MARKER_PATH": filepath.Join(f.root, "guestfish-dead")}
 	for k, v := range env {
 		environment[k] = v
 	}
@@ -457,7 +457,7 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 	}
 	f.installed(bootstrapDir+"/trust-roots/001.pem", read(t, f.rootA), 0444, owner)
 	f.installed(bootstrapDir+"/trust-roots/002.pem", read(t, f.rootB), 0444, owner)
-	for path, source := range map[string]string{verifierGuest: f.verifier, netbirdGuest: f.netbird, "/usr/local/bin/terrascale-orchestrator": f.binary, priorityHelperGuest: filepath.Join(deployRoot(t), "tests/runtime_priority/qualify.py")} {
+	for path, source := range map[string]string{verifierGuest: f.verifier, netbirdGuest: f.netbird, "/usr/local/bin/terrascale-orchestrator": f.binary, priorityHelperGuest: f.binary} {
 		f.installed(path, read(t, source), 0755, owner)
 	}
 	f.installed(netbirdConfigGuest, read(t, f.netbirdConfig), 0644, owner)
@@ -980,4 +980,20 @@ func TestOfflineRootSetBoundsBeforeVerification(t *testing.T) {
 			f.noEffects()
 		})
 	}
+}
+
+func TestOfflineBuildAcceptsRelativeOutputPaths(t *testing.T) {
+	t.Parallel()
+	f := newOffline(t)
+	imageOutput, kernelOutput := f.output, f.kernelOutput
+	var err error
+	if f.output, err = filepath.Rel(deployRoot(t), imageOutput); err != nil {
+		t.Fatal(err)
+	}
+	if f.kernelOutput, err = filepath.Rel(deployRoot(t), kernelOutput); err != nil {
+		t.Fatal(err)
+	}
+	successful(t, f.run(nil, nil, nil))
+	equal(t, read(t, imageOutput), read(t, f.base))
+	equal(t, read(t, kernelOutput), f.kernel)
 }

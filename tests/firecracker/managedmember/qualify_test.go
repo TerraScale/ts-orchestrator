@@ -8,6 +8,8 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	fc "git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,8 +18,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 type mmObject = map[string]any
@@ -25,25 +25,17 @@ type mmObject = map[string]any
 func mmMap(v any) mmObject { return v.(map[string]any) }
 func mmJSON(t *testing.T, v any) []byte {
 	t.Helper()
-	b, e := json.Marshal(v)
+	b, e := json.Marshal(v, json.Deterministic(true))
 	if e != nil {
 		t.Fatal(e)
 	}
 	return b
 }
 func mmSHA(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
-func mmObserve(t *testing.T, args any, body string) mmObject {
+func mmReject(t *testing.T, err error, part string) {
 	t.Helper()
-	var v mmObject
-	if err := json.Unmarshal(script.Python(t, "tests/firecracker/managedmember/qualify.py", args, "from pathlib import Path\nfrom unittest import mock\n"+body), &v); err != nil {
-		t.Fatal(err)
-	}
-	return v
-}
-func mmReject(t *testing.T, out mmObject, message string) {
-	t.Helper()
-	if out["error_type"] != "QualificationError" || !strings.Contains(fmt.Sprint(out["error"]), message) {
-		t.Fatalf("want QualificationError containing %q: %v", message, out)
+	if err == nil || !strings.Contains(err.Error(), part) {
+		t.Fatalf("want error containing %q, got %v", part, err)
 	}
 }
 
@@ -71,471 +63,6 @@ func mmTarget(bucket string) string {
 		b = append(b, []byte(v)...)
 	}
 	return mmSHA(b)
-}
-func TestManagedMemberSupervisorReadBoundaryAndReservations(t *testing.T) {
-	out := mmObserve(t, nil, "result = {'setup': m.volume_setup_script('a'), 'unit': m.test_unit(), 'slice': m.system_slice_reservation()}\n")
-	setup := out["setup"].(string)
-	for _, want := range []string{`mkdir -m 0700 "$MOUNT/data" "$MOUNT/replication"`, `chown 65534:65534 "$MOUNT/data" "$MOUNT/replication"`, `$(/usr/sbin/blkid -s UUID`} {
-		if !strings.Contains(setup, want) {
-			t.Fatal(setup)
-		}
-	}
-	host := string(script.Read(t, filepath.Join(script.Root(t), "deploy/systemd/terrascale-orchestrator-host.service")))
-	for _, unit := range []string{host, out["unit"].(string)} {
-		directives := map[string]string{}
-		for line := range strings.SplitSeq(unit, "\n") {
-			if !strings.HasPrefix(line, "#") {
-				k, v, ok := strings.Cut(line, "=")
-				if ok {
-					directives[k] = v
-				}
-			}
-		}
-		for _, key := range []string{"User", "Group"} {
-			if _, ok := directives[key]; ok {
-				t.Fatalf("unexpected %s", key)
-			}
-		}
-		if directives["NoNewPrivileges"] != "yes" || directives["AmbientCapabilities"] != "" {
-			t.Fatal(directives)
-		}
-		bounds := strings.Fields(directives["CapabilityBoundingSet"])
-		slices.Sort(bounds)
-		required := []string{"CAP_CHOWN", "CAP_KILL", "CAP_SETGID", "CAP_SETUID", "CAP_SETPCAP", "CAP_DAC_READ_SEARCH"}
-		slices.Sort(required)
-		if !reflect.DeepEqual(bounds, required) {
-			t.Fatal(bounds)
-		}
-	}
-	for _, directive := range []string{"MemoryMin=1G", "MemoryLow=1G"} {
-		if !strings.Contains(out["unit"].(string), directive) || !strings.Contains(out["slice"].(string), directive) {
-			t.Fatal(out)
-		}
-	}
-	for _, directive := range []string{"CPUWeight=10000", "IOWeight=10000", "Nice=-20", "OOMScoreAdjust=-1000", "ManagedOOMPreference=omit", "IOSchedulingPriority=0"} {
-		if !strings.Contains(out["unit"].(string), directive) {
-			t.Fatal(out)
-		}
-	}
-}
-func TestManagedMemberFirecrackerResourceRoutesAndIDs(t *testing.T) {
-	for _, member := range []string{"a", "b"} {
-		t.Run(member, func(t *testing.T) {
-			out := mmObserve(t, member, `from types import SimpleNamespace
-lab = SimpleNamespace(socket_dir=Path('/tmp'), images=Path('/private/images'), taps={'a':'tap_a', 'b':'tap_b'})
-result = {'requests': m.VM(lab, a).resource_requests()}
-`)
-			rows := out["requests"].([]any)
-			routes := []string{"/drives/rootfs", "/drives/managed_volume", "/network-interfaces/eth0"}
-			if len(rows) != 3 {
-				t.Fatal(rows)
-			}
-			for i, row := range rows {
-				if row.([]any)[0] != routes[i] {
-					t.Fatal(row)
-				}
-			}
-			if mmMap(rows[0].([]any)[1])["drive_id"] != "rootfs" || mmMap(rows[1].([]any)[1])["drive_id"] != "managed_volume" || mmMap(rows[1].([]any)[1])["path_on_host"] != "/private/images/"+member+"-volume.ext4" {
-				t.Fatal(rows)
-			}
-			network := mmMap(rows[2].([]any)[1])
-			mac := "02:fc:77:39:00:01"
-			if member == "b" {
-				mac = "02:fc:77:39:00:02"
-			}
-			if network["iface_id"] != "eth0" || network["host_dev_name"] != "tap_"+member || network["guest_mac"] != mac {
-				t.Fatal(network)
-			}
-		})
-	}
-	for _, id := range []string{"managed-volume", "managed/volume", "", "volumé"} {
-		for _, kind := range []string{"drive", "network"} {
-			t.Run(kind+"/"+id, func(t *testing.T) {
-				body := "result = m.firecracker_drive_request(a, Path('/private/volume.ext4'), False)\n"
-				if kind == "network" {
-					body = "result = m.firecracker_network_request(a, 'tap_a', '02:fc:77:39:00:01')\n"
-				}
-				mmReject(t, mmObserve(t, id, body), "resource ID")
-			})
-		}
-	}
-	out := mmObserve(t, nil, `from types import SimpleNamespace
-vm = m.VM(SimpleNamespace(socket_dir=Path('/tmp'), images=Path('/private/images'), taps={'a':'tap_a','b':'tap_b'}), 'a')
-with mock.patch.object(vm, 'resource_requests', side_effect=m.QualificationError('invalid resource ID')), mock.patch.object(m.subprocess, 'Popen') as spawn:
-    try:
-        vm.start()
-    except m.QualificationError as e:
-        result = {'error': str(e), 'error_type': type(e).__name__, 'spawns': spawn.call_count}
-`)
-	mmReject(t, out, "resource ID")
-	if out["spawns"] != float64(0) {
-		t.Fatal(out)
-	}
-}
-func TestManagedMemberCanonicalGuestTools(t *testing.T) {
-	mount := t.TempDir()
-	tools := []string{"usr/lib/systemd/systemd", "usr/sbin/blkid", "usr/sbin/update-ca-certificates", "usr/bin/mount", "usr/bin/findmnt", "usr/bin/mountpoint", "usr/bin/readlink", "usr/bin/systemctl", "usr/bin/ip"}
-	for _, tool := range tools {
-		script.Write(t, filepath.Join(mount, tool), []byte("tool"), 0600)
-	}
-	body := "m.check_guest_tools(Path(a))\nresult = {'ok': True}\n"
-	if out := mmObserve(t, mount, body); out["ok"] != true {
-		t.Fatal(out)
-	}
-	if err := os.Remove(filepath.Join(mount, "usr/sbin/blkid")); err != nil {
-		t.Fatal(err)
-	}
-	script.Write(t, filepath.Join(mount, "usr/bin/blkid"), []byte("wrong location"), 0600)
-	mmReject(t, mmObserve(t, mount, body), "/usr/sbin/blkid")
-}
-func TestManagedMemberDistinctSignedRuntimeDirectories(t *testing.T) {
-	dirs := map[string]string{}
-	for _, member := range []string{"a", "b"} {
-		inc := "bb"
-		if member == "b" {
-			inc = "cc"
-		}
-		scope := mmObject{"cluster_id": strings.Repeat("aa", 16), "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": strings.Repeat(inc, 16)}
-		out := mmObserve(t, scope, "result = {'directory': str(m.member_directory(a, 1))}\n")
-		dirs[member] = out["directory"].(string)
-		if dirs[member] != mmDir(scope) {
-			t.Fatal(out)
-		}
-	}
-	if dirs["a"] == dirs["b"] {
-		t.Fatal(dirs)
-	}
-}
-func TestManagedMemberExactInputDirectFileAndHash(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "input")
-	payload := []byte("pinned bytes")
-	script.Write(t, path, payload, 0600)
-	record := mmObject{"path": path, "sha256": mmSHA(payload)}
-	body := "result = m.exact_input('test', a)\nresult['path'] = str(result['path'])\n"
-	if out := mmObserve(t, record, body); out["sha256"] != record["sha256"] {
-		t.Fatal(out)
-	}
-	alias := filepath.Join(dir, "alias")
-	if err := os.Symlink(path, alias); err != nil {
-		t.Fatal(err)
-	}
-	mmReject(t, mmObserve(t, mmObject{"path": alias, "sha256": record["sha256"]}, body), "regular, direct file")
-	script.Write(t, path, []byte("changed"), 0600)
-	mmReject(t, mmObserve(t, record, body), "SHA-256 mismatch")
-}
-func TestManagedMemberPrivateS3CredentialBoundary(t *testing.T) {
-	dir := t.TempDir()
-	access := filepath.Join(dir, "access")
-	secret := filepath.Join(dir, "secret")
-	script.Write(t, access, []byte("fixture_access_123"), 0600)
-	script.Write(t, secret, []byte("fixture_secret_456"), 0600)
-	body := "result = {'credentials': m.s3_credentials(tuple(Path(p) for p in a)), 'runner': m.runner_script('a')}\n"
-	out := mmObserve(t, []string{access, secret}, body)
-	if !reflect.DeepEqual(out["credentials"], []any{"fixture_access_123", "fixture_secret_456"}) {
-		t.Fatal(out)
-	}
-	runner := out["runner"].(string)
-	for _, want := range []string{"TS_FC_MANAGED_S3_ACCESS_KEY_FILE=/etc/ts-managed-member/s3-access-key-id", "TS_FC_MANAGED_S3_SECRET_KEY_FILE=/etc/ts-managed-member/s3-secret-access-key"} {
-		if !strings.Contains(runner, want) {
-			t.Fatal(runner)
-		}
-	}
-	if strings.Contains(runner, "fixture_access_123") {
-		t.Fatal("secret embedded in runner")
-	}
-	script.Write(t, secret, []byte("fixture_secret_456\n"), 0600)
-	mmReject(t, mmObserve(t, []string{access, secret}, body), "invalid bytes")
-	script.Write(t, secret, []byte("fixture_secret_456"), 0644)
-	mmReject(t, mmObserve(t, []string{access, secret}, body), "unsafe ownership, mode or size")
-	if err := os.Chmod(secret, 0600); err != nil {
-		t.Fatal(err)
-	}
-	alias := filepath.Join(dir, "alias")
-	if err := os.Symlink(secret, alias); err != nil {
-		t.Fatal(err)
-	}
-	out = mmObserve(t, []string{access, alias}, body)
-	if out["error_type"] != "OSError" {
-		t.Fatal(out)
-	}
-}
-func mmDirectories() [][2]any {
-	return [][2]any{{"/srv/ts-managed", 0750}, {"/srv/ts-managed/6efe9447512debbf02bcd921c78d666c", 0750}, {"/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/material", 0750}, {"/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/control", 0730}, {"/srv/ts-managed/6efe9447512debbf02bcd921c78d666c/volume", 0750}}
-}
-func TestManagedMemberMaterialStagingOrderAndFinalLayout(t *testing.T) {
-	for _, bad := range []bool{false, true} {
-		t.Run(fmt.Sprint(bad), func(t *testing.T) {
-			mount := t.TempDir()
-			inputs := mmObject{}
-			for _, pair := range mmMaterials {
-				inputs[pair[0]] = mmObject{"path": filepath.Join(mount, pair[0]), "sha256": strings.Repeat("a", 64)}
-			}
-			directories := mmDirectories()
-			records := []string{}
-			for _, d := range directories {
-				records = append(records, fmt.Sprintf("0:65534:%x", 0040000|d[1].(int)))
-			}
-			for i := range len(mmMaterials) {
-				gid := "65534"
-				if bad && i == 0 {
-					gid = "0"
-				}
-				records = append(records, "0:"+gid+":8120")
-			}
-			out := mmObserve(t, mmObject{"mount": mount, "inputs": inputs, "records": strings.Join(records, "\n") + "\n", "bad": bad}, `events = []
-lab = m.Lab.__new__(m.Lab)
-def install_dir(mount, destination, mode, group='root'):
-    events.append(['directory', str(destination), mode, group])
-def install(mount, source, destination, mode, group='root'):
-    events.append(['material', str(destination), mode, group])
-def staged_sha256(mount, destination):
-    events.append(['hash', str(destination)])
-    return '`+strings.Repeat("a", 64)+`'
-def run_cmd(label, argv, **kwargs):
-    events.append(['verify', label, argv, kwargs])
-    return a['records']
-lab.install_dir, lab.install, lab.staged_sha256, lab.run_cmd = install_dir, install, staged_sha256, run_cmd
-inputs = {k: {**v, 'path': Path(v['path'])} for k,v in a['inputs'].items()}
-try:
-    lab.stage_managed_material(Path(a['mount']), 'a', inputs)
-    result = {'events': events}
-except m.QualificationError as e:
-    result = {'events': events, 'error': str(e), 'error_type': type(e).__name__}
-`)
-			if bad {
-				mmReject(t, out, "unsafe final managed layout")
-				return
-			}
-			events := out["events"].([]any)
-			if len(events) != 2*len(directories)+2*len(mmMaterials)+1 {
-				t.Fatal(events)
-			}
-			for i, d := range directories {
-				if !reflect.DeepEqual(events[i], []any{"directory", d[0], "0755", "65534"}) {
-					t.Fatal(events[i])
-				}
-			}
-			for i, pair := range mmMaterials {
-				idx := len(directories) + 2*i
-				dest := directories[1][0].(string) + "/material/" + pair[1]
-				if !reflect.DeepEqual(events[idx], []any{"material", dest, "0440", "65534"}) || !reflect.DeepEqual(events[idx+1], []any{"hash", dest}) {
-					t.Fatal(events[idx : idx+2])
-				}
-			}
-			for i := range len(directories) {
-				d := directories[len(directories)-1-i]
-				if !reflect.DeepEqual(events[len(directories)+2*len(mmMaterials)+i], []any{"directory", d[0], fmt.Sprintf("%04o", d[1]), "65534"}) {
-					t.Fatal(events)
-				}
-			}
-			verify := events[len(events)-1].([]any)
-			if verify[0] != "verify" || verify[1] != "verify-a-managed-layout" || mmMap(verify[3])["sudo"] != true {
-				t.Fatal(verify)
-			}
-			argv := verify[2].([]any)
-			if !reflect.DeepEqual(argv[:4], []any{"stat", "-c", "%u:%g:%f", "--"}) {
-				t.Fatal(argv)
-			}
-		})
-	}
-}
-func mmSudo(t *testing.T, commands ...string) {
-	t.Helper()
-	if os.Geteuid() == 0 {
-		t.Skip("requires a nonroot host user and passwordless sudo")
-	}
-	for _, name := range append([]string{"sudo"}, commands...) {
-		if _, e := exec.LookPath(name); e != nil {
-			t.Skip("requires " + name)
-		}
-	}
-	out := script.Run(t, "", nil, "sudo", "-n", "true")
-	if out.Code != 0 {
-		t.Skip("passwordless sudo unavailable")
-	}
-}
-func TestManagedMemberRootSupervisorReadSearchPermission(t *testing.T) {
-	mmSudo(t, "setpriv")
-	base := t.TempDir()
-	if err := os.Chmod(base, 0755); err != nil {
-		t.Fatal(err)
-	}
-	replication := filepath.Join(base, "replication")
-	out := script.Run(t, "", nil, "sudo", "-n", "install", "-d", "-o", "65534", "-g", "65534", "-m", "0700", replication)
-	if out.Code != 0 {
-		t.Fatal(out)
-	}
-	t.Cleanup(func() { mmCleanupSudo(t, replication) })
-	for _, tc := range [][2]string{{"-dac_override,-dac_read_search", "Permission denied"}, {"-dac_override", "No such file or directory"}} {
-		out := script.Run(t, "", map[string]string{"LC_ALL": "C"}, "sudo", "-n", "setpriv", "--nnp", "--bounding-set="+tc[0], "stat", "--", filepath.Join(replication, "shard"))
-		if out.Code != 1 || !strings.Contains(out.Stderr, tc[1]) {
-			t.Fatal(out)
-		}
-	}
-}
-func TestManagedMemberRealProtectedMaterialStaging(t *testing.T) {
-	mmSudo(t)
-	base := t.TempDir()
-	mount := filepath.Join(base, "guest-root")
-	logs := filepath.Join(base, "logs")
-	if err := os.MkdirAll(mount, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(logs, 0755); err != nil {
-		t.Fatal(err)
-	}
-	inputs := mmObject{}
-	for _, pair := range mmMaterials {
-		payload := []byte("pinned-" + pair[0])
-		path := filepath.Join(base, pair[0])
-		script.Write(t, path, payload, 0600)
-		inputs[pair[0]] = mmObject{"path": path, "sha256": mmSHA(payload)}
-	}
-	t.Cleanup(func() { mmCleanupSudo(t, mount) })
-	out := mmObserve(t, mmObject{"mount": mount, "logs": logs, "inputs": inputs}, `events = []
-lab = m.Lab.__new__(m.Lab)
-lab.command_log = m.CommandLog(Path(a['logs']))
-lab.note = lambda kind, **fields: events.append([kind, fields])
-lab.stage_managed_material(Path(a['mount']), 'a', {k:{**v,'path':Path(v['path'])} for k,v in a['inputs'].items()})
-result = {'events': events}
-`)
-	if out["error"] != nil {
-		t.Fatal(out)
-	}
-	commands := []string{}
-	for _, v := range out["events"].([]any) {
-		event := v.([]any)
-		if event[0] == "command" {
-			commands = append(commands, mmMap(event[1])["label"].(string))
-		}
-	}
-	names := []string{"install-dir-ts-managed", "install-dir-6efe9447512debbf02bcd921c78d666c", "install-dir-material", "install-dir-control", "install-dir-volume"}
-	want := slices.Clone(names)
-	for _, pair := range mmMaterials {
-		want = append(want, "install-"+pair[1], "hash-"+pair[1])
-	}
-	slices.Reverse(names)
-	want = append(want, names...)
-	want = append(want, "verify-a-managed-layout")
-	if !reflect.DeepEqual(commands, want) {
-		t.Fatal(commands)
-	}
-	protected := filepath.Join(mount, "srv/ts-managed")
-	info, err := os.Stat(protected)
-	if err != nil || info.Mode().Perm() != 0750 {
-		t.Fatalf("protected parent: %v %v", info, err)
-	}
-	if _, err := os.Stat(filepath.Join(mount, strings.TrimPrefix(mmDirectories()[1][0].(string), "/"), "material", mmMaterials[0][1])); !os.IsPermission(err) {
-		t.Fatalf("want permission rejection: %v", err)
-	}
-	argv := []string{"-n", "stat", "-c", "%u:%g:%f", "--"}
-	records := []string{}
-	for _, d := range mmDirectories() {
-		argv = append(argv, filepath.Join(mount, strings.TrimPrefix(d[0].(string), "/")))
-		records = append(records, fmt.Sprintf("0:65534:%x", 0040000|d[1].(int)))
-	}
-	for _, pair := range mmMaterials {
-		argv = append(argv, filepath.Join(mount, strings.TrimPrefix(mmDirectories()[1][0].(string), "/"), "material", pair[1]))
-		records = append(records, "0:65534:8120")
-	}
-	stat := script.Run(t, "", nil, "sudo", argv...)
-	if stat.Code != 0 || strings.TrimSpace(stat.Stdout) != strings.Join(records, "\n") {
-		t.Fatal(stat)
-	}
-}
-
-const mmLabAdapter = `lab = m.Lab.__new__(m.Lab)
-lab.root = Path(a['root'])
-lab.logs = lab.root / 'logs'
-lab.manifest = a['manifest']
-lab.source_paths, lab.source_hashes = {}, {}
-lab.started_at = 'fixture-test'
-lab.events = []
-lab.failure = ''
-lab.cleanup_errors = []
-calls = []
-lab.prepare_dirs = lambda: lab.root.mkdir()
-`
-
-func TestManagedMemberS3StartsBeforeGuestsAndSIGTERMCleanup(t *testing.T) {
-	for _, signal := range []bool{false, true} {
-		t.Run(fmt.Sprint(signal), func(t *testing.T) {
-			args := mmObject{"root": filepath.Join(t.TempDir(), "run"), "manifest": mmObject{"sha256": strings.Repeat("a", 64), "source_commits": mmObject{}}, "signal": signal, "methods": []string{"recheck_inputs", "copy_images", "network", "start_rustfs", "start_vms", "exercise", "finish_guests", "collect_results", "cleanup"}}
-			out := mmObserve(t, args, mmLabAdapter+`for name in a['methods']:
-    setattr(lab, name, lambda name=name: calls.append(name))
-lab.stage_guest = lambda member: calls.append('stage_' + member)
-handlers = []
-if a['signal']:
-    lab.start_rustfs = lambda: handlers[-1](m.signal.SIGTERM, None)
-with mock.patch.object(m.signal, 'signal', side_effect=lambda number, handler: handlers.append(handler)), mock.patch('builtins.print'):
-    summary = lab.run()
-result = {'summary': summary, 'calls': calls}
-`)
-			summary := mmMap(out["summary"])
-			calls := out["calls"].([]any)
-			if signal {
-				if summary["outcome"] != "FAILED" || !strings.Contains(fmt.Sprint(summary["failure"]), "SIGTERM") || calls[len(calls)-1] != "cleanup" {
-					t.Fatal(out)
-				}
-			} else {
-				if summary["outcome"] != "PASS" || !reflect.DeepEqual(calls[:7], []any{"recheck_inputs", "copy_images", "network", "start_rustfs", "stage_a", "stage_b", "start_vms"}) {
-					t.Fatal(out)
-				}
-			}
-		})
-	}
-}
-func TestManagedMemberCommandSignalAndTimeoutReaping(t *testing.T) {
-	for _, timeout := range []bool{false, true} {
-		t.Run(fmt.Sprint(timeout), func(t *testing.T) {
-			out := mmObserve(t, mmObject{"root": t.TempDir(), "timeout": timeout, "pid": 12345}, `log = m.CommandLog(Path(a['root']))
-child = mock.Mock(pid=a['pid'])
-observed = []
-def wait(*, timeout):
-    if not observed:
-        observed.append(None)
-        if a['timeout']:
-            raise m.subprocess.TimeoutExpired(['unused'], 1)
-        raise m.QualificationError('signal')
-    observed.append(int(m.signal.getsignal(m.signal.SIGTERM)))
-    return 0
-child.wait.side_effect = wait
-previous = m.signal.getsignal(m.signal.SIGTERM)
-with mock.patch.object(m.subprocess, 'Popen', return_value=child), mock.patch.object(m.os, 'killpg') as killpg:
-    try:
-        log.run('active-child', ['unused'], timeout=1)
-    except m.QualificationError as e:
-        result = {'error': str(e), 'error_type': type(e).__name__, 'kills': [list(c.args) for c in killpg.call_args_list], 'waits': child.wait.call_count, 'reap_handler': observed[-1], 'ignored': int(m.signal.SIG_IGN), 'restored': m.signal.getsignal(m.signal.SIGTERM) == previous, 'sigkill': int(m.signal.SIGKILL)}
-`)
-			want := "signal"
-			if timeout {
-				want = "timed out"
-			}
-			mmReject(t, out, want)
-			if out["waits"] != float64(2) || !reflect.DeepEqual(out["kills"], []any{[]any{float64(12345), out["sigkill"]}}) || out["restored"] != true {
-				t.Fatal(out)
-			}
-			if !timeout && out["reap_handler"] != out["ignored"] {
-				t.Fatal(out)
-			}
-		})
-	}
-}
-func TestManagedMemberRejectsIncompleteManifestAndSubnetCollision(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "manifest.json")
-	script.Write(t, path, mmJSON(t, mmObject{"profile": "managed-member-serving-v1", "source_commits": mmObject{"orchestrator": strings.Repeat("a", 40), "terrabase": strings.Repeat("b", 40)}, "inputs": mmObject{}, "members": mmObject{"a": mmObject{}, "b": mmObject{}}}), 0600)
-	mmReject(t, mmObserve(t, path, "result = m.load_manifest(Path(a))\n"), "missing or extra")
-	out := mmObserve(t, `[{"dst":"10.77.39.0/24"}]`, `with mock.patch.object(m.subprocess, 'run', return_value=m.subprocess.CompletedProcess(['ip'], 0, stdout=a, stderr='')) as run:
-    try:
-        m.check_subnet_collision()
-    except m.QualificationError as e:
-        result = {'error': str(e), 'error_type': type(e).__name__, 'calls': run.call_count}
-`)
-	mmReject(t, out, "collides")
-	if out["calls"] != float64(1) {
-		t.Fatal(out)
-	}
 }
 
 type mmFixture struct {
@@ -584,7 +111,26 @@ func mmManifest(t *testing.T) *mmFixture {
 		}
 		inputs := mmObject{}
 		for _, name := range mmMemberNames {
-			inputs[name] = record(member+"-"+name, nil)
+			if name == "volume_ext4" {
+				path := filepath.Join(dir, member+"-"+name)
+				file, err := os.Create(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = file.Truncate(256 << 20); err != nil {
+					t.Fatal(err)
+				}
+				if err = file.Close(); err != nil {
+					t.Fatal(err)
+				}
+				hash, err := fc.DirectDigest(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				inputs[name] = mmObject{"path": path, "sha256": hash}
+			} else {
+				inputs[name] = record(member+"-"+name, nil)
+			}
 		}
 		inputs["authority_tbca"] = authority
 		inputs["signed_v2_s3_config"] = record(member+"-signed-v2-s3-config.json", mmJSON(t, s3))
@@ -599,20 +145,281 @@ func mmManifest(t *testing.T) *mmFixture {
 	}
 	return &mmFixture{manifest: mmObject{"profile": "managed-member-serving-v1", "source_commits": mmObject{"orchestrator": strings.Repeat("a", 40), "terrabase": strings.Repeat("b", 40)}, "inputs": common, "members": members}, dirs: dirs, path: filepath.Join(dir, "manifest.json")}
 }
-func (f *mmFixture) observe(t *testing.T, patchDirs bool) mmObject {
-	t.Helper()
-	script.Write(t, f.path, mmJSON(t, f.manifest), 0600)
-	dirs := f.dirs
-	if !patchDirs {
-		dirs = map[string]string{}
+func TestManagedMemberSupervisorReadBoundaryAndReservations(t *testing.T) {
+	setup := fc.ManagedVolumeSetupScript("a")
+	for _, want := range []string{`mkdir -m 0700 "$MOUNT/data" "$MOUNT/replication"`, `chown 65534:65534 "$MOUNT/data" "$MOUNT/replication"`, `$(/usr/sbin/blkid -s UUID`} {
+		if !strings.Contains(setup, want) {
+			t.Fatal(setup)
+		}
 	}
-	return mmObserve(t, mmObject{"path": f.path, "dirs": dirs, "volume_size": len("a-volume_ext4")}, `with mock.patch.object(m, 'VOLUME_BYTES', a['volume_size']), mock.patch.dict(m.MEMBER_DIRS, {k:Path(v) for k,v in a['dirs'].items()}), mock.patch.object(m.subprocess, 'run') as run:
-    try:
-        m.load_manifest(Path(a['path']))
-        result = {'ok': True, 'calls': run.call_count}
-    except m.QualificationError as e:
-        result = {'error': str(e), 'error_type': type(e).__name__, 'calls': run.call_count}
-`)
+	host := string(script.Read(t, filepath.Join(script.Root(t), "deploy/systemd/terrascale-orchestrator-host.service")))
+	for _, unit := range []string{host, fc.ManagedTestUnit} {
+		directives := map[string]string{}
+		for line := range strings.SplitSeq(unit, "\n") {
+			if !strings.HasPrefix(line, "#") {
+				if k, v, ok := strings.Cut(line, "="); ok {
+					directives[k] = v
+				}
+			}
+		}
+		for _, key := range []string{"User", "Group"} {
+			if _, ok := directives[key]; ok {
+				t.Fatal(key)
+			}
+		}
+		if directives["NoNewPrivileges"] != "yes" || directives["AmbientCapabilities"] != "" {
+			t.Fatal(directives)
+		}
+		bounds := strings.Fields(directives["CapabilityBoundingSet"])
+		slices.Sort(bounds)
+		required := []string{"CAP_CHOWN", "CAP_KILL", "CAP_SETGID", "CAP_SETUID", "CAP_SETPCAP", "CAP_DAC_READ_SEARCH"}
+		slices.Sort(required)
+		if !reflect.DeepEqual(bounds, required) {
+			t.Fatal(bounds)
+		}
+	}
+	for _, directive := range []string{"MemoryMin=1G", "MemoryLow=1G"} {
+		if !strings.Contains(fc.ManagedTestUnit, directive) || !strings.Contains(fc.ManagedSystemSliceReservation, directive) {
+			t.Fatal(directive)
+		}
+	}
+	for _, directive := range []string{"CPUWeight=10000", "IOWeight=10000", "Nice=-20", "OOMScoreAdjust=-1000", "ManagedOOMPreference=omit", "IOSchedulingPriority=0"} {
+		if !strings.Contains(fc.ManagedTestUnit, directive) {
+			t.Fatal(directive)
+		}
+	}
+}
+func TestManagedMemberFirecrackerResourceRoutesAndIDs(t *testing.T) {
+	for _, member := range []string{"a", "b"} {
+		lab := &fc.ManagedLab{Images: "/private/images", Taps: map[string]string{"a": "tap_a", "b": "tap_b"}}
+		vm := fc.ManagedVM{Lab: lab, Member: member, Socket: "/tmp/" + member + ".sock"}
+		rows, e := vm.ResourceRequests()
+		if e != nil {
+			t.Fatal(e)
+		}
+		routes := []string{"/drives/rootfs", "/drives/managed_volume", "/network-interfaces/eth0"}
+		if len(rows) != 3 {
+			t.Fatal(rows)
+		}
+		for i, row := range rows {
+			if row.Route != routes[i] {
+				t.Fatal(row)
+			}
+		}
+		if rows[0].Body["drive_id"] != "rootfs" || rows[1].Body["drive_id"] != "managed_volume" || rows[1].Body["path_on_host"] != "/private/images/"+member+"-volume.ext4" {
+			t.Fatal(rows)
+		}
+		network := rows[2].Body
+		if network["iface_id"] != "eth0" || network["host_dev_name"] != "tap_"+member || network["guest_mac"] != fc.ManagedGuestMACs[member] {
+			t.Fatal(network)
+		}
+	}
+	for _, id := range []string{"managed-volume", "managed/volume", "", "volumé"} {
+		_, _, e := fc.FirecrackerDriveRequest(id, "/private/volume.ext4", false)
+		mmReject(t, e, "resource ID")
+		_, _, e = fc.FirecrackerNetworkRequest(id, "tap_a", "02:fc:77:39:00:01")
+		mmReject(t, e, "resource ID")
+	}
+}
+func TestManagedMemberRejectsInvalidResourcesBeforeProcessStart(t *testing.T) {
+	vm := &fc.ManagedVM{Lab: &fc.ManagedLab{}, Member: "a", Socket: "/tmp/unused.sock", Resources: func() ([]fc.FirecrackerRequest, error) { return nil, fmt.Errorf("invalid resource ID") }}
+	err := vm.Start()
+	mmReject(t, err, "resource ID")
+	if vm.Process != nil {
+		t.Fatal("spawned process before resource validation")
+	}
+}
+func TestManagedMemberCanonicalGuestTools(t *testing.T) {
+	mount := t.TempDir()
+	tools := []string{"usr/lib/systemd/systemd", "usr/sbin/blkid", "usr/sbin/update-ca-certificates", "usr/bin/mount", "usr/bin/findmnt", "usr/bin/mountpoint", "usr/bin/readlink", "usr/bin/systemctl", "usr/bin/ip"}
+	for _, tool := range tools {
+		script.Write(t, filepath.Join(mount, tool), []byte("tool"), 0o600)
+	}
+	if e := fc.CheckManagedGuestTools(mount); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Remove(filepath.Join(mount, "usr/sbin/blkid")); e != nil {
+		t.Fatal(e)
+	}
+	script.Write(t, filepath.Join(mount, "usr/bin/blkid"), []byte("wrong location"), 0o600)
+	mmReject(t, fc.CheckManagedGuestTools(mount), "/usr/sbin/blkid")
+}
+func TestManagedMemberDistinctSignedRuntimeDirectories(t *testing.T) {
+	dirs := map[string]string{}
+	for _, member := range []string{"a", "b"} {
+		inc := "bb"
+		if member == "b" {
+			inc = "cc"
+		}
+		scope := mmObject{"cluster_id": strings.Repeat("aa", 16), "tenant_id": mmID("a"), "database_id": mmID("a"), "shard_id": 1, "member_id": mmID(member), "incarnation": strings.Repeat(inc, 16)}
+		dirs[member] = fc.ManagedMemberDirectory(scope, 1)
+		if dirs[member] != mmDir(scope) {
+			t.Fatal(dirs)
+		}
+	}
+	if dirs["a"] == dirs["b"] {
+		t.Fatal(dirs)
+	}
+}
+func TestManagedMemberExactInputDirectFileAndHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "input")
+	payload := []byte("pinned bytes")
+	script.Write(t, path, payload, 0o600)
+	record := mmObject{"path": path, "sha256": mmSHA(payload)}
+	input, e := fc.ExactManagedInput("test", record)
+	if e != nil || input.SHA256 != record["sha256"] {
+		t.Fatal(input, e)
+	}
+	alias := filepath.Join(dir, "alias")
+	if e = os.Symlink(path, alias); e != nil {
+		t.Fatal(e)
+	}
+	_, e = fc.ExactManagedInput("test", mmObject{"path": alias, "sha256": record["sha256"]})
+	mmReject(t, e, "regular, direct file")
+	script.Write(t, path, []byte("changed"), 0o600)
+	_, e = fc.ExactManagedInput("test", record)
+	mmReject(t, e, "SHA-256 mismatch")
+}
+func TestManagedMemberPrivateS3CredentialBoundary(t *testing.T) {
+	dir := t.TempDir()
+	access, secret := filepath.Join(dir, "access"), filepath.Join(dir, "secret")
+	script.Write(t, access, []byte("fixture_access_123"), 0o600)
+	script.Write(t, secret, []byte("fixture_secret_456"), 0o600)
+	credentials, e := fc.S3Credentials([2]string{access, secret})
+	if e != nil || credentials != [2]string{"fixture_access_123", "fixture_secret_456"} {
+		t.Fatal(credentials, e)
+	}
+	runner := fc.ManagedRunnerScript("a")
+	for _, want := range []string{"TS_FC_MANAGED_S3_ACCESS_KEY_FILE=/etc/ts-managed-member/s3-access-key-id", "TS_FC_MANAGED_S3_SECRET_KEY_FILE=/etc/ts-managed-member/s3-secret-access-key"} {
+		if !strings.Contains(runner, want) {
+			t.Fatal(runner)
+		}
+	}
+	if strings.Contains(runner, "fixture_access_123") {
+		t.Fatal("secret embedded in runner")
+	}
+	script.Write(t, secret, []byte("fixture_secret_456\n"), 0o600)
+	_, e = fc.S3Credentials([2]string{access, secret})
+	mmReject(t, e, "invalid bytes")
+	script.Write(t, secret, []byte("fixture_secret_456"), 0o644)
+	_, e = fc.S3Credentials([2]string{access, secret})
+	mmReject(t, e, "unsafe ownership, mode or size")
+	if e = os.Chmod(secret, 0o600); e != nil {
+		t.Fatal(e)
+	}
+	alias := filepath.Join(dir, "alias")
+	if e = os.Symlink(secret, alias); e != nil {
+		t.Fatal(e)
+	}
+	_, e = fc.S3Credentials([2]string{access, alias})
+	if e == nil {
+		t.Fatal("accepted symlink")
+	}
+}
+func TestManagedMemberMaterialStagingOrderAndFinalLayout(t *testing.T) {
+	for _, bad := range []bool{false, true} {
+		t.Run(fmt.Sprint(bad), func(t *testing.T) {
+			mount := t.TempDir()
+			inputs := map[string]fc.ManagedInput{}
+			for _, pair := range mmMaterials {
+				inputs[pair[0]] = fc.ManagedInput{Path: filepath.Join(mount, pair[0]), SHA256: strings.Repeat("a", 64)}
+			}
+			directories := fc.ManagedDirectories("a")
+			records := []string{}
+			for _, d := range directories {
+				records = append(records, fmt.Sprintf("0:65534:%x", 0o40000|d[1].(int)))
+			}
+			for i := range len(mmMaterials) {
+				gid := "65534"
+				if bad && i == 0 {
+					gid = "0"
+				}
+				records = append(records, "0:"+gid+":8120")
+			}
+			events := [][]string{}
+			lab := &fc.ManagedLab{Ctx: t.Context(), Commands: t.TempDir()}
+			lab.Command = func(_ context.Context, argv []string, _ fc.CommandOptions) (fc.CommandResult, error) {
+				args := argv[2:]
+				events = append(events, slices.Clone(args))
+				if args[0] == "sha256sum" {
+					return fc.CommandResult{Stdout: strings.Repeat("a", 64) + "  " + args[1] + "\n"}, nil
+				}
+				if args[0] == "stat" {
+					return fc.CommandResult{Stdout: strings.Join(records, "\n") + "\n"}, nil
+				}
+				return fc.CommandResult{}, nil
+			}
+			e := lab.StageManagedMaterial(mount, "a", inputs)
+			if bad {
+				mmReject(t, e, "unsafe final managed layout")
+				return
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			if len(events) != 2*len(directories)+2*len(mmMaterials)+1 {
+				t.Fatal(events)
+			}
+			for i, d := range directories {
+				want := []string{"install", "-d", "-o", "root", "-g", "65534", "-m", "0755", filepath.Join(mount, strings.TrimPrefix(d[0].(string), "/"))}
+				if !slices.Equal(events[i], want) {
+					t.Fatal(events[i])
+				}
+			}
+			for i, pair := range mmMaterials {
+				idx := len(directories) + 2*i
+				dest := filepath.Join(mount, strings.TrimPrefix(directories[1][0].(string), "/"), "material", pair[1])
+				want := []string{"install", "-D", "-o", "root", "-g", "65534", "-m", "0440", inputs[pair[0]].Path, dest}
+				if !slices.Equal(events[idx], want) || !slices.Equal(events[idx+1], []string{"sha256sum", dest}) {
+					t.Fatal(events[idx : idx+2])
+				}
+			}
+			for i := range len(directories) {
+				d := directories[len(directories)-1-i]
+				event := events[len(directories)+2*len(mmMaterials)+i]
+				if event[7] != fmt.Sprintf("%04o", d[1]) || event[8] != filepath.Join(mount, strings.TrimPrefix(d[0].(string), "/")) {
+					t.Fatal(event)
+				}
+			}
+			verify := events[len(events)-1]
+			if !slices.Equal(verify[:4], []string{"stat", "-c", "%u:%g:%f", "--"}) {
+				t.Fatal(verify)
+			}
+		})
+	}
+}
+func TestManagedMemberRejectsIncompleteManifestAndSubnetCollision(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	script.Write(t, path, mmJSON(t, mmObject{"profile": fc.ManagedMemberProfile, "source_commits": mmObject{"orchestrator": strings.Repeat("a", 40), "terrabase": strings.Repeat("b", 40)}, "inputs": mmObject{}, "members": mmObject{"a": mmObject{}, "b": mmObject{}}}), 0o600)
+	_, e := fc.LoadManagedManifest(path)
+	mmReject(t, e, "missing or extra")
+	calls := 0
+	e = fc.CheckManagedSubnetCollision(t.Context(), func(context.Context, []string, fc.CommandOptions) (fc.CommandResult, error) {
+		calls++
+		return fc.CommandResult{Stdout: `[{"dst":"10.77.39.0/24"}]`}, nil
+	})
+	mmReject(t, e, "collides")
+	if calls != 1 {
+		t.Fatal(calls)
+	}
+}
+func (f *mmFixture) load(t *testing.T, patchDirs bool) (fc.ManagedManifest, error) {
+	t.Helper()
+	script.Write(t, f.path, mmJSON(t, f.manifest), 0o600)
+	original := map[string]string{}
+	if patchDirs {
+		for member, dir := range f.dirs {
+			original[member] = fc.ManagedMemberDirs[member]
+			fc.ManagedMemberDirs[member] = dir
+		}
+		defer func() {
+			for member, dir := range original {
+				fc.ManagedMemberDirs[member] = dir
+			}
+		}()
+	}
+	return fc.LoadManagedManifest(f.path)
 }
 func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 	names := []string{"valid", "wrong_peer", "s3_config_hash", "s3_target_hash", "credential_version_2", "credential_version_bool", "credential_version_float", "credential_ocid", "s3_endpoint", "s3_region", "shard_zero", "shard_bool", "shard_negative", "shard_overflow", "uppercase_tenant", "runtime_directory"}
@@ -663,8 +470,7 @@ func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 			case "runtime_directory":
 				want = "runtime directory"
 			case "s3_endpoint", "s3_region":
-				inputs := mmMap(member["inputs"])
-				record := mmMap(inputs["signed_v2_s3_config"])
+				record := mmMap(mmMap(member["inputs"])["signed_v2_s3_config"])
 				s3 := mmObject{"version": 1, "ack_profile": "object_durable", "bucket": "tbmm-" + strings.Repeat("2", 32), "region": mmRegion, "endpoint": mmEndpoint}
 				if name == "s3_endpoint" {
 					s3["endpoint"] = "http://rustfs.terrabase.test:9000"
@@ -672,21 +478,18 @@ func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 					s3["region"] = "us-east-1"
 				}
 				payload := mmJSON(t, s3)
-				script.Write(t, record["path"].(string), payload, 0600)
+				script.Write(t, record["path"].(string), payload, 0o600)
 				record["sha256"] = mmSHA(payload)
 				runtime["live_s3_config_sha256"] = record["sha256"]
 				want = "signed S3 target"
 			}
-			out := f.observe(t, name != "runtime_directory")
+			_, e := f.load(t, name != "runtime_directory")
 			if name == "valid" {
-				if out["ok"] != true {
-					t.Fatal(out)
+				if e != nil {
+					t.Fatal(e)
 				}
 			} else {
-				mmReject(t, out, want)
-			}
-			if out["calls"] != float64(0) {
-				t.Fatalf("validation caused subprocess effect: %v", out)
+				mmReject(t, e, want)
 			}
 		})
 	}
@@ -694,35 +497,200 @@ func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
 func TestManagedMemberResultRequiresExactPassAndNativeEvidence(t *testing.T) {
 	output := "=== RUN   TestManagedMemberFirecrackerSignedServing\nTS_MANAGED_MEMBER_PHASE=PASS node=node-a\n--- PASS: TestManagedMemberFirecrackerSignedServing (0.01s)\nPASS\n"
 	marker := "[  42.1] ts-managed-member-test[100]: TS_MANAGED_MEMBER_QUALIFICATION_RESULT=PASS node=node-a\n"
-	cases := []struct{ name, output, marker string }{{"valid", output, marker}, {"skip", strings.ReplaceAll(output, "--- PASS:", "--- SKIP:"), marker}, {"wrong_node", strings.ReplaceAll(output, "node=node-a", "node=node-b"), marker}, {"duplicate_pass", output + "--- PASS: TestManagedMemberFirecrackerSignedServing (0.01s)\n", marker}, {"duplicate_terminal", output, marker + marker}}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			out := mmObserve(t, mmObject{"output": tc.output, "marker": tc.marker}, "m.Lab.parse_test_result('a', a['output'], a['marker'])\nresult = {'ok': True}\n")
-			if tc.name == "valid" {
-				if out["ok"] != true {
-					t.Fatal(out)
-				}
-			} else {
-				want := ""
-				if tc.name == "duplicate_terminal" {
-					want = "terminal"
-				}
-				mmReject(t, out, want)
+	for _, tc := range []struct{ name, output, marker string }{{"valid", output, marker}, {"skip", strings.ReplaceAll(output, "--- PASS:", "--- SKIP:"), marker}, {"wrong_node", strings.ReplaceAll(output, "node=node-a", "node=node-b"), marker}, {"duplicate_pass", output + "--- PASS: TestManagedMemberFirecrackerSignedServing (0.01s)\n", marker}, {"duplicate_terminal", output, marker + marker}} {
+		e := fc.ParseManagedTestResult("a", tc.output, tc.marker)
+		if tc.name == "valid" {
+			if e != nil {
+				t.Fatal(e)
 			}
-		})
+		} else {
+			mmReject(t, e, "")
+		}
 	}
 	evidence := mmObject{}
 	for _, field := range []string{"version", "node", "member_id", "process_pid", "process_uid", "process_gid", "process_cgroup", "memory_max_bytes", "filesystem_uuid", "mount_id", "claim_sha256", "storage_recovered", "listener_ready", "metrics"} {
 		evidence[field] = nil
 	}
-	mmReject(t, mmObserve(t, evidence, "lab = m.Lab.__new__(m.Lab)\nresult = lab.validate_evidence('a', a)\n"), "")
+	mmReject(t, fc.ValidateManagedEvidence("a", evidence), "incomplete or inconsistent")
 }
-
+func mmSudo(t *testing.T, commands ...string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("requires a nonroot host user and passwordless sudo")
+	}
+	for _, name := range append([]string{"sudo"}, commands...) {
+		if _, e := exec.LookPath(name); e != nil {
+			t.Skip("requires " + name)
+		}
+	}
+	if out := script.Run(t, "", nil, "sudo", "-n", "true"); out.Code != 0 {
+		t.Skip("passwordless sudo unavailable")
+	}
+}
 func mmCleanupSudo(t *testing.T, path string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "sudo", "-n", "rm", "-rf", "--", path).CombinedOutput(); err != nil {
-		t.Errorf("sudo cleanup: %v %s", err, out)
+	if out, e := exec.CommandContext(ctx, "sudo", "-n", "rm", "-rf", "--", path).CombinedOutput(); e != nil {
+		t.Errorf("sudo cleanup: %v %s", e, out)
+	}
+}
+func TestManagedMemberRootSupervisorReadSearchPermission(t *testing.T) {
+	mmSudo(t, "setpriv")
+	base := t.TempDir()
+	if e := os.Chmod(base, 0o755); e != nil {
+		t.Fatal(e)
+	}
+	replication := filepath.Join(base, "replication")
+	if out := script.Run(t, "", nil, "sudo", "-n", "install", "-d", "-o", "65534", "-g", "65534", "-m", "0700", replication); out.Code != 0 {
+		t.Fatal(out)
+	}
+	t.Cleanup(func() { mmCleanupSudo(t, replication) })
+	for _, tc := range [][2]string{{"-dac_override,-dac_read_search", "Permission denied"}, {"-dac_override", "No such file or directory"}} {
+		out := script.Run(t, "", map[string]string{"LC_ALL": "C"}, "sudo", "-n", "setpriv", "--nnp", "--bounding-set="+tc[0], "stat", "--", filepath.Join(replication, "shard"))
+		if out.Code != 1 || !strings.Contains(out.Stderr, tc[1]) {
+			t.Fatal(out)
+		}
+	}
+}
+func TestManagedMemberRealProtectedMaterialStaging(t *testing.T) {
+	mmSudo(t)
+	base := t.TempDir()
+	mount := filepath.Join(base, "guest-root")
+	logs := filepath.Join(base, "logs")
+	for _, dir := range []string{mount, logs} {
+		if e := os.Mkdir(dir, 0o755); e != nil {
+			t.Fatal(e)
+		}
+	}
+	inputs := map[string]fc.ManagedInput{}
+	for _, pair := range mmMaterials {
+		payload := []byte("pinned-" + pair[0])
+		path := filepath.Join(base, pair[0])
+		script.Write(t, path, payload, 0o600)
+		inputs[pair[0]] = fc.ManagedInput{Path: path, SHA256: mmSHA(payload), Size: int64(len(payload))}
+	}
+	t.Cleanup(func() { mmCleanupSudo(t, mount) })
+	lab := &fc.ManagedLab{Ctx: t.Context(), Commands: logs}
+	if e := lab.StageManagedMaterial(mount, "a", inputs); e != nil {
+		t.Fatal(e)
+	}
+	commands := []string{}
+	for _, event := range lab.Events {
+		if event["kind"] == "command" {
+			commands = append(commands, event["label"].(string))
+		}
+	}
+	names := []string{"install-dir-ts-managed", "install-dir-6efe9447512debbf02bcd921c78d666c", "install-dir-material", "install-dir-control", "install-dir-volume"}
+	want := slices.Clone(names)
+	for _, pair := range mmMaterials {
+		want = append(want, "install-"+pair[1], "hash-"+pair[1])
+	}
+	slices.Reverse(names)
+	want = append(want, names...)
+	want = append(want, "verify-a-managed-layout")
+	if !slices.Equal(commands, want) {
+		t.Fatal(commands)
+	}
+	protected := filepath.Join(mount, "srv/ts-managed")
+	info, e := os.Stat(protected)
+	if e != nil || info.Mode().Perm() != 0o750 {
+		t.Fatal(info, e)
+	}
+	if _, e = os.Stat(filepath.Join(mount, strings.TrimPrefix(fc.ManagedMemberDirs["a"], "/"), "material", mmMaterials[0][1])); !os.IsPermission(e) {
+		t.Fatal("want permission rejection", e)
+	}
+	argv := []string{"-n", "stat", "-c", "%u:%g:%f", "--"}
+	records := []string{}
+	for _, d := range fc.ManagedDirectories("a") {
+		argv = append(argv, filepath.Join(mount, strings.TrimPrefix(d[0].(string), "/")))
+		records = append(records, fmt.Sprintf("0:65534:%x", 0o40000|d[1].(int)))
+	}
+	for _, pair := range mmMaterials {
+		argv = append(argv, filepath.Join(mount, strings.TrimPrefix(fc.ManagedMemberDirs["a"], "/"), "material", pair[1]))
+		records = append(records, "0:65534:8120")
+	}
+	stat := script.Run(t, "", nil, "sudo", argv...)
+	if stat.Code != 0 || strings.TrimSpace(stat.Stdout) != strings.Join(records, "\n") {
+		t.Fatal(stat)
+	}
+}
+func TestManagedMemberS3StartsBeforeGuestsAndSIGTERMCleanup(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			root := filepath.Join(t.TempDir(), "run")
+			lab := &fc.ManagedLab{Ctx: ctx, Root: root, Logs: filepath.Join(root, "logs"), Commands: filepath.Join(root, "commands"), Images: filepath.Join(root, "images"), Mounts: filepath.Join(root, "mounts"), Stage: filepath.Join(root, "stage"), Fixture: filepath.Join(root, "rustfs"), Manifest: fc.ManagedManifest{Raw: []byte("{}"), SHA256: strings.Repeat("a", 64), Commits: mmObject{}}, VMs: map[string]*fc.ManagedVM{}, Mounted: map[string]bool{}, SourcePaths: map[string]string{}, SourceHashes: map[string]string{}}
+			calls := []string{}
+			lab.Step = func(label string, _ func() error) error {
+				calls = append(calls, label)
+				if cancelled && label == "start_rustfs" {
+					cancel()
+					return ctx.Err()
+				}
+				return nil
+			}
+			summary, e := lab.Run()
+			if cancelled {
+				if e == nil || summary["outcome"] != "FAILED" || !strings.Contains(summary["failure"].(string), "context canceled") {
+					t.Fatal(summary, e)
+				}
+				if _, e = os.Stat(lab.Fixture); !os.IsNotExist(e) {
+					t.Fatal("cleanup did not run", e)
+				}
+			} else {
+				if e != nil || summary["outcome"] != "PASS" {
+					t.Fatal(summary, e)
+				}
+				if !slices.Equal(calls[:7], []string{"recheck_inputs", "copy_images", "network", "start_rustfs", "stage_a", "stage_b", "start_vms"}) {
+					t.Fatal(calls)
+				}
+			}
+		})
+	}
+}
+func TestManagedMemberCommandSignalAndTimeoutReaping(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			dir := t.TempDir()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			duration := 100 * time.Millisecond
+			if cancelled {
+				duration = time.Minute
+				go func() { time.Sleep(100 * time.Millisecond); cancel() }()
+			}
+			r, e := fc.BoundedCommand(ctx, []string{"/bin/sh", "-c", `trap '' TERM; sleep 300 & wait`}, fc.CommandOptions{Timeout: duration, AllowFailure: true}, filepath.Join(dir, "child.log"), 32<<20)
+			if e == nil {
+				t.Fatal(r)
+			}
+			if cancelled {
+				if !strings.Contains(e.Error(), "context canceled") {
+					t.Fatal(e)
+				}
+			} else {
+				if !strings.Contains(e.Error(), "deadline exceeded") {
+					t.Fatal(e)
+				}
+			}
+		})
+	}
+}
+func TestManagedMemberSignedS3ConfigCanonicalEncoding(t *testing.T) {
+	base := `{"version":1,"ack_profile":"object_durable","bucket":"tbmm-22222222222222222222222222222222","region":"sa-saopaulo-1","endpoint":"https://rustfs.terrabase.test:9000"}`
+	for _, tc := range []struct{ name, raw, err string }{{"valid", base, ""}, {"whitespace", base + "\n", "canonical exporter"}, {"escaped_key", strings.Replace(base, `"bucket"`, `"\u0062ucket"`, 1), "canonical exporter"}, {"noninteger_version", strings.Replace(base, `"version":1`, `"version":1.0`, 1), "signed S3 target"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "s3.json")
+			script.Write(t, path, []byte(tc.raw), 0o600)
+			_, e := fc.SignedS3Config("a", fc.ManagedInput{Path: path, SHA256: mmSHA([]byte(tc.raw)), Size: int64(len(tc.raw))})
+			if tc.err == "" {
+				if e != nil {
+					t.Fatal(e)
+				}
+			} else {
+				mmReject(t, e, tc.err)
+			}
+		})
 	}
 }

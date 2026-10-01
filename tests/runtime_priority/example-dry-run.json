@@ -21,7 +21,7 @@
     "version": 5,
     "id": "UNFROZEN-D15-INTERFACE",
     "frozen": false,
-    "source_path": "/usr/local/lib/terrascale-d15/alpha_adapter.py",
+    "source_path": "/usr/local/lib/terrascale-d15/terrascale-orchestrator",
     "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "database_frontier_binding": "object_durable.event{database,shard,replica,incarnation,sequence};serving_proof.v1/same_scope/v1",
     "host_status_source": "operator-hosts-json/controller-admitted/read-only/v1",
@@ -176,9 +176,9 @@
         "controller": "terrascale-orchestrator-controller.service"
       },
       "sudo_path": "/usr/bin/sudo",
-      "remote_python_path": "/usr/bin/python3",
-      "qualify_path": "/run/terrascale-d15/probes/0000000000000000000000000000000000000000/0000000000000000000000000000000000000000000000000000000000000000/qualify.py",
-      "stress_launcher_path": "/usr/local/lib/terrascale-d15/pressure.py",
+      "remote_executable_path": "/run/terrascale-d15/probes/0000000000000000000000000000000000000000/0000000000000000000000000000000000000000000000000000000000000000/qualify",
+      "qualify_path": "/run/terrascale-d15/probes/0000000000000000000000000000000000000000/0000000000000000000000000000000000000000000000000000000000000000/qualify",
+      "stress_launcher_path": "/usr/local/lib/terrascale-d15/terrascale-orchestrator",
       "stress_launcher_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
       "stress_launcher_contract": "terrascale.d15.cgroup-launch/v1",
       "systemctl_path": "/usr/bin/systemctl",
@@ -189,10 +189,8 @@
     }
   },
   "adapter": {
-    "python_path": "/usr/bin/python3",
-    "python_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-    "source_path": "/usr/local/lib/terrascale-d15/alpha_adapter.py",
-    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "executable_path": "/usr/local/bin/terrascale-orchestrator",
+    "executable_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "deadlines_seconds": {
       "target_identity": 20,
       "qualify": 60,

@@ -2,6 +2,9 @@ package deploy_test
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,7 +32,7 @@ func (f *imageInputsFixture) runDetail(run, fast string) {
 	write(f.t, f.detail, jsonBytes(f.t, map[string]any{"run_id": 11711, "run_number": 1018, "head_sha": inputSource, "workflow": "fast.yml", "status": run, "jobs": []any{map[string]any{"id": 1, "run_id": 11711, "name": "fast", "status": fast, "attempt": 1}, map[string]any{"id": 2, "run_id": 11711, "name": "publish", "status": "running", "attempt": 1}}}), 0600)
 }
 func (f *imageInputsFixture) tool(args ...string) script.Result {
-	return runPython(f.t, "deploy/image/image-inputs.py", append([]string{"--file", f.manifest}, args...)...)
+	return runTool(f.t, append([]string{"image", "inputs", "--file", f.manifest}, args...)...)
 }
 func (f *imageInputsFixture) pin() script.Result {
 	return f.tool("pin-terrabase", "--qualification", f.qualification, "--run-detail", f.detail)
@@ -115,4 +118,38 @@ func TestImageInputsRequireOneArm64ServerArtifact(t *testing.T) {
 	r := f.pin()
 	equal(t, r.Code, 1)
 	contains(t, r.Stderr, "must list one tb-server-linux-arm64")
+}
+
+func TestImageInputsPinPreservesExistingBaseAssetOrder(t *testing.T) {
+	f := newImageInputs(t)
+	var fields map[string]jsontext.Value
+	if err := json.Unmarshal(read(t, f.manifest), &fields); err != nil {
+		t.Fatal(err)
+	}
+	var base map[string]jsontext.Value
+	if err := json.Unmarshal(fields["base"], &base); err != nil {
+		t.Fatal(err)
+	}
+	var assets map[string]jsontext.Value
+	if err := json.Unmarshal(base["assets"], &assets); err != nil {
+		t.Fatal(err)
+	}
+	reordered := []byte(fmt.Sprintf(`{"ubuntu-cloud-image-keyring.gpg":%s,"ubuntu-SHA256SUMS.gpg":%s,"ubuntu-SHA256SUMS":%s,"base-image.qcow2":%s}`, assets["ubuntu-cloud-image-keyring.gpg"], assets["ubuntu-SHA256SUMS.gpg"], assets["ubuntu-SHA256SUMS"], assets["base-image.qcow2"]))
+	raw := jsontext.Value(bytes.Replace(read(t, f.manifest), base["assets"], reordered, 1))
+	if err := raw.Indent(jsontext.WithIndent("  ")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, f.manifest, append(raw, '\n'), 0600)
+	successful(t, f.tool("check"))
+	var before map[string]jsontext.Value
+	if err := json.Unmarshal(read(t, f.manifest), &before); err != nil {
+		t.Fatal(err)
+	}
+	successful(t, f.pin())
+	var after map[string]jsontext.Value
+	if err := json.Unmarshal(read(t, f.manifest), &after); err != nil {
+		t.Fatal(err)
+	}
+	equal(t, after["base"], before["base"])
+	successful(t, f.tool("check"))
 }

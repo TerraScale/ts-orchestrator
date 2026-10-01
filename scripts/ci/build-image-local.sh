@@ -7,7 +7,7 @@
 # SOURCE_SHA must have a successful ci.yml run on main. The output directory
 # (default /tmp/ts-image-SOURCE) receives the QCOW2, guest kernel,
 # image-qualification.json (builder.kind "local") and SHA256SUMS; promote it
-# with deploy/image/promote-image.py --image-dir. The build runs at low
+# with ts-orch image promote --image-dir. The build runs at low
 # priority in a temporary worktree of this repository at SOURCE.
 #
 # fj must be the pinned build with `actions run-detail` and `actions logs`:

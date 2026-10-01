@@ -133,7 +133,7 @@ replication admission.
 
 ## Run
 
-Use the cell's own qualified operator CLI: `attempt.py operator` verifies it
+Use the cell's own qualified operator CLI: `ts-orch oci-region attempt operator` verifies it
 and prints its path. Signed command and artifact claims change between
 revisions, so a CLI from another revision is rejected by the controllers.
 

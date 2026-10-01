@@ -9,16 +9,16 @@ formats, and stores are not compatibility contracts.
 The preferred operational interface to the single Go executable. New
 deployment, provisioning, bootstrap, release, and inspection tooling belongs
 in Go subcommands in the relevant feature package, rather than Python scripts
-or separate tools. CI calls these commands. Existing operational scripts are
-migration targets. See [contributing](CONTRIBUTING.md) and
+or separate tools. CI and thin shell wrappers call these commands.
+See [contributing](CONTRIBUTING.md) and
 [CLI boundaries](docs/cli.md).
 
 **Go testing**
 
 All first-party tests use Go's standard `testing` package and `go test`.
-Keep test cases, fixtures and assertions in Go alongside each feature;
-existing Python tools may be invoked as implementations under test while
-their operational logic moves into the CLI. Do not add Python test runners.
+Keep test cases, fixtures and assertions in Go alongside each feature.
+Operational tools and qualification drivers are native Go APIs exposed
+through `ts-orch`; tests exercise those APIs or the CLI. Do not add Python test runners.
 
 ## Product and regional control
 

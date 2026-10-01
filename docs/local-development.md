@@ -26,8 +26,8 @@ mise exec -- make release-linux
 
 `make verify` checks formatting, runs `go vet`, and runs all Go tests with the
 race detector. Deployment and qualification driver contracts use Go's
-standard `testing` package and are included in `go test ./...`. Their existing
-Python implementations still require Python to run. Use `make test` for an
+standard `testing` package and are included in `go test ./...`. Their operational
+implementations also use Go. Use `make test` for an
 ordinary full run or `mise exec -- go test ./tests/deploy -run TestName` for a
 focused contract. Actual VM qualification is run separately. `make build`
 writes the current-platform binary to `dist/ts-orch`, with a
@@ -85,10 +85,10 @@ read-only prerequisite check, then start the live qualification from the
 repository root:
 
 ```bash
-python3 tests/firecracker/qualify.py check \
+ts-orch qualification firecracker generic check \
   --kernel /tmp/vm-inputs/vmlinux \
   --rootfs /tmp/vm-inputs/rootfs.ext4
-python3 tests/firecracker/qualify.py run \
+ts-orch qualification firecracker generic run \
   --kernel /tmp/vm-inputs/vmlinux \
   --rootfs /tmp/vm-inputs/rootfs.ext4
 ```

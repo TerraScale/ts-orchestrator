@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,21 +97,7 @@ func listenerObservation(t *testing.T, failure bool) map[string]any {
 			t.Logf("kill child: %v", err)
 		}
 	})
-	program := `import importlib.util,json,sys
-spec=importlib.util.spec_from_file_location("offline_guestfs",sys.argv[1])
-m=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(m)
-guest=m.Guest("unused.qcow2")
-error=None
-try:
-    if sys.argv[2] == "failure":
-        guest.kind("/")
-except RuntimeError as e:
-    error=str(e)
-finally:
-    guest.close(ignore_remote_error=sys.argv[2] == "failure")
-print(json.dumps({"closed":True,"error":error}))
-`
+
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	flag := "success"
@@ -119,7 +106,7 @@ print(json.dumps({"closed":True,"error":error}))
 		flag = "failure"
 		env = append(env, "OFFLINE_LISTENER_FAILURE=1")
 	}
-	cmd := exec.CommandContext(ctx, "python3", "-c", program, filepath.Join(deployRoot(t), "deploy/image/offline-guestfs.py"), flag)
+	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestNativeListenerObservation$", "--", flag)
 	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -148,4 +135,32 @@ func TestOfflineListenerFailureRetainsDaemonStderr(t *testing.T) {
 	contains(t, message, "/socket-999999: No such file or directory")
 	contains(t, message, "listener pid=999999 state=exited")
 	contains(t, message, "listener stderr: daemon startup failed")
+}
+
+func TestNativeListenerObservation(t *testing.T) {
+	i := slices.Index(os.Args, "--")
+	if i < 0 {
+		return
+	}
+	failure := os.Args[i+1] == "failure"
+	guest, err := image.NewGuest(t.Context(), "unused.qcow2", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var observation any
+	if failure {
+		_, err = guest.Kind("/")
+		if err != nil {
+			observation = err.Error()
+		}
+	}
+	if err := guest.Close(failure); err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(map[string]any{"closed": true, "error": observation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout.Write(append(b, '\n'))
+	os.Exit(0)
 }

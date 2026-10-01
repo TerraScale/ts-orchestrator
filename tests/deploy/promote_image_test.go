@@ -1,8 +1,11 @@
 package deploy_test
 
 import (
+	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"path/filepath"
 	"slices"
@@ -201,14 +204,14 @@ func (f *promotionFixture) promote(image []string, env map[string]string, extra 
 	if image == nil {
 		image = []string{"--image-release", imageTag}
 	}
-	args := append([]string{filepath.Join(deployRoot(f.t), "deploy/image/promote-image.py")}, image...)
+	args := append([]string{"image", "promote"}, image...)
 	args = append(args, "--out", f.out, "--delegation", filepath.Join(f.trust, "delegation.json"), "--root-key", filepath.Join(f.trust, "root.pub"), "--fj", f.fj, "--release-tool", f.tool)
 	args = append(args, extra...)
 	environment := map[string]string{"PATH": f.bin + string(os.PathListSeparator) + os.Getenv("PATH"), "PROMOTE_FIXTURE": f.fixture, "PROMOTE_IMPORTED_OCID": importedOCID}
 	for k, v := range env {
 		environment[k] = v
 	}
-	return script.Run(f.t, deployRoot(f.t), environment, "python3", args...)
+	return script.Run(f.t, deployRoot(f.t), environment, deployTool(f.t), args...)
 }
 func (f *promotionFixture) importArgs() []string {
 	return []string{"--compartment-id", "ocid1.compartment.oc1..c", "--namespace", "ns", "--bucket", "images"}
@@ -399,58 +402,56 @@ func TestPromotionRejectsUnpinnedForgejo(t *testing.T) {
 	contains(t, r.Stderr, "lacks the pinned `fj actions run-detail` extension")
 }
 
-// The adapter supplies subprocess observations to the Python internal method;
-// all selected commands, cleanup, metadata and resulting bytes are checked by Go.
-const promotionBuildAdapter = `
-from pathlib import Path
-from types import SimpleNamespace
-import subprocess
-p=m.Promotion.__new__(m.Promotion)
-p.args=SimpleNamespace(release_tool=None)
-p.work=Path(a["work"])
-p.receipt={"tools":{}}
-checkout=p.work/"source"
-calls=[]
-def run(command, **kwargs):
-    calls.append({"command":[str(x) for x in command],"cwd":str(kwargs.get("cwd", ""))})
-    if command[:2] == ["git", "-C"]:
-        if command[3:5] == ["worktree", "add"]:
-            marker=checkout/a["marker"]
-            marker.parent.mkdir(parents=True)
-            marker.write_text(a["marker_contents"])
-        elif command[3:5] == ["worktree", "remove"]:
-            import shutil
-            shutil.rmtree(checkout)
-    elif command[:3] == ["nice", "-n", "19"]:
-        if a["build_failure"]:
-            raise subprocess.CalledProcessError(1,command)
-        tool=Path(command[command.index("-o")+1])
-        tool.write_text(a["tool_contents"])
-        tool.chmod(a["tool_mode"])
-    elif command[:3] == ["go", "version", "-m"]:
-        return SimpleNamespace(stdout=a["metadata"])
-    else:
-        raise RuntimeError("unexpected command: "+str(command))
-    return SimpleNamespace(returncode=0)
-m.subprocess.run=run
-error=None
-tool=None
-try:
-    tool=str(p.release_tool(a["source"]))
-except Exception as e:
-    error={"type":type(e).__name__,"message":str(e)}
-result={"calls":calls,"tool":tool,"prefix":list(getattr(p,"release_prefix",())),"receipt":p.receipt,"error":error}
-`
-
 func promotionBuild(t *testing.T, unified bool, revision string, modified, failure bool) (string, map[string]any) {
 	t.Helper()
 	work := t.TempDir()
-	marker, toolContents := "cmd/ts-release/main.go", "#!/bin/sh\n[ \"$1\" = verify-binary ]\n"
+	calls := []any{}
+	marker, contents := "cmd/ts-release/main.go", "#!/bin/sh\n[ \"$1\" = verify-binary ]\n"
 	if unified {
 		marker = "internal/release/cli/run.go"
-		toolContents = "#!/bin/sh\n[ \"$1\" = release ] && [ \"$2\" = verify-binary ]\n"
+		contents = "#!/bin/sh\n[ \"$1\" = release ] && [ \"$2\" = verify-binary ]\n"
 	}
-	r := object(t, script.Python(t, "deploy/image/promote-image.py", map[string]any{"work": work, "source": promoteSource, "marker": marker, "marker_contents": "pinned source entry point", "tool_contents": toolContents, "tool_mode": 0755, "metadata": fmt.Sprintf("vcs.revision=%s\nvcs.modified=%t\n", revision, modified), "build_failure": failure}, promotionBuildAdapter))
+	runner := func(ctx context.Context, dir string, env []string, command ...string) (string, error) {
+		args := make([]any, len(command))
+		for i, a := range command {
+			args[i] = a
+		}
+		calls = append(calls, map[string]any{"command": args, "cwd": dir})
+		switch command[0] {
+		case "git":
+			if command[3] == "worktree" && command[4] == "add" {
+				write(t, filepath.Join(work, "source", marker), []byte("pinned source entry point"), 0644)
+			} else if command[3] == "worktree" && command[4] == "remove" {
+				if err := os.RemoveAll(filepath.Join(work, "source")); err != nil {
+					t.Fatal(err)
+				}
+			}
+		case "nice":
+			if failure {
+				return "", errors.New("build failed")
+			}
+			path := command[slices.Index(command, "-o")+1]
+			write(t, path, []byte(contents), 0755)
+		case "go":
+			return fmt.Sprintf("vcs.revision=%s\nvcs.modified=%t\n", revision, modified), nil
+		default:
+			return "", fmt.Errorf("unexpected command %q", command)
+		}
+		return "", nil
+	}
+	tool, prefix, record, err := image.BuildReleaseTool(t.Context(), deployRoot(t), work, promoteSource, "", runner)
+	p := make([]any, len(prefix))
+	for i, a := range prefix {
+		p[i] = a
+	}
+	tools := map[string]any{}
+	if record != nil {
+		tools["ts_release"] = record
+	}
+	r := map[string]any{"calls": calls, "tool": tool, "prefix": p, "receipt": map[string]any{"tools": tools}, "error": nil}
+	if err != nil {
+		r["error"] = map[string]any{"message": err.Error()}
+	}
 	absent(t, filepath.Join(work, "source"))
 	return work, r
 }
@@ -506,7 +507,7 @@ func TestPromotionAutomaticBuildRejectsDirtyOrWrongRevision(t *testing.T) {
 			t.Run(fmt.Sprintf("unified=%t/revision=%s/modified=%t", unified, tc.revision, tc.modified), func(t *testing.T) {
 				_, r := promotionBuild(t, unified, tc.revision, tc.modified, false)
 				e := r["error"].(map[string]any)
-				equal(t, e["type"], "PromotionError")
+
 				contains(t, e["message"].(string), "clean image source revision")
 				equal(t, r["receipt"].(map[string]any)["tools"], map[string]any{})
 			})
@@ -515,5 +516,5 @@ func TestPromotionAutomaticBuildRejectsDirtyOrWrongRevision(t *testing.T) {
 }
 func TestPromotionFailedBuildRemovesSourceWorktree(t *testing.T) {
 	_, r := promotionBuild(t, true, promoteSource, false, true)
-	equal(t, r["error"].(map[string]any)["type"], "CalledProcessError")
+	contains(t, r["error"].(map[string]any)["message"].(string), "build failed")
 }

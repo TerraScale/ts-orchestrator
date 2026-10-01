@@ -1,126 +1,93 @@
 package runtimepriority
 
 import (
+	"encoding/pem"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
+	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func TestAlphaTransportPinsAndRemoteCompile(t *testing.T) {
 	manifest := fullyPinnedAllocationManifest(t)
-	suite := filepath.Join(script.Root(t), "tests/runtime_priority")
-	path := filepath.Join(suite, "alpha_adapter.py")
-	request := object{"transport": manifest["transport"], "adapter_source_path": path, "adapter_source_sha256": digest(script.Read(t, path))}
-	got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", request, `m._verify_transport(a)
-compile(m.REMOTE_ACTIONS, "<alpha remote action>", "exec")
-result = {"verified": True}`))
-	assertEqual(t, got["verified"], true)
+	adapter := field(manifest, "adapter")
+	request := object{"transport": manifest["transport"], "adapter_source_path": adapter["executable_path"], "adapter_source_sha256": adapter["executable_sha256"]}
+	if err := rp.VerifyTransport(request); err != nil {
+		t.Fatal(err)
+	}
 	field(field(request, "transport"), "https")["ca_bundle_path"] = filepath.Join(t.TempDir(), "missing-ca.pem")
-	got = decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", request, `result = m._verify_transport(a)`))
-	assertPressureError(t, got, "TLS CA bundle pinned source file is unavailable")
+	assertPressureError(t, errorObservation(rp.VerifyTransport(request)), "TLS CA bundle pinned source file is unavailable")
 }
-
-const httpsPinObservation = `
-from unittest import mock
-events, requests, certificates = [], [], []
-class Socket:
-    def getpeercert(self, *, binary_form):
-        certificates.append(binary_form)
-        return a["certificate"].encode()
-class Connection:
-    sock = None
-    def connect(self):
-        events.append("connect")
-        self.sock = Socket()
-    def request(self, *args, **kwargs):
-        events.append("request")
-        requests.append([args, kwargs])
-    def close(self):
-        events.append("close")
-connection = Connection()
-with mock.patch.object(m.http.client, "HTTPSConnection", return_value=connection), mock.patch.object(m, "_credential_token") as credential, mock.patch.object(m.ssl, "create_default_context", return_value=mock.Mock()):
-    try:
-        m._https_request(a["request"], a["label"], a["method"], a["path"], a["body"].encode())
-        result = {}
-    except Exception as error:
-        result = {"error": str(error), "error_type": type(error).__name__}
-    result.update({"credential_calls": credential.call_count, "events": events, "requests": requests, "certificates": certificates})
-`
-
 func TestHTTPSLeafPinPrecedesSecretsAndBody(t *testing.T) {
-	request := object{"transport": object{"https": object{"source_base_url": "https://source.example.test", "ca_bundle_path": "/pinned/ca.pem", "source_credential_file": "/private/source-token"}}, "deadline_seconds": 10, "managed_member": object{"source": object{"authority": object{"tls_leaf_sha256": strings.Repeat("0", 64)}}}}
-	got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", object{"request": request, "certificate": "CA-valid but not the pinned leaf", "label": "source", "method": "POST", "path": "/transactions", "body": "sensitive transaction body"}, httpsPinObservation))
-	assertPressureError(t, got, "peer certificate differs")
-	assertEqual(t, got["events"], []string{"connect", "close"})
-	assertEqual(t, got["requests"], []any{})
-	assertEqual(t, got["credential_calls"], 0)
-	assertEqual(t, got["certificates"], []bool{true})
+	var requests atomic.Int64
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	script.Write(t, ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw}), 0600)
+	request := object{"transport": object{"https": object{"source_base_url": server.URL, "ca_bundle_path": ca, "source_credential_file": filepath.Join(t.TempDir(), "unreadable-secret")}}, "deadline_seconds": 10, "managed_member": object{"source": object{"authority": object{"tls_leaf_sha256": strings.Repeat("0", 64)}}}}
+	_, err := rp.HTTPSRequest(t.Context(), request, "source", "POST", "/transactions", []byte("sensitive transaction body"))
+	assertPressureError(t, errorObservation(err), "peer certificate differs")
+	assertEqual(t, requests.Load(), int64(0))
 }
-
-const remoteActionObservation = `
-import io, json, os, sys, textwrap
-from pathlib import Path
-from unittest import mock
-stubs = '''
-def safe_cgroup(report_path):
-    return Path("/sys/fs/cgroup") / report_path.lstrip("/")
-def safe_cgroup_absolute(path):
-    return Path(path)
-def expected_scope_path():
-    return Path(payload["pressure_path"])
-_original_native_role_cgroups = native_role_cgroups
-def native_role_cgroups(target, native_path, database_path):
-    reported, native, database = _original_native_role_cgroups(target, native_path, database_path)
-    if "fake_cgroup_root" not in payload:
-        return reported, native, database
-    root = Path(payload["fake_cgroup_root"])
-    return tuple(root / str(path).removeprefix("/sys/fs/cgroup/") for path in (reported, native, database))
-def process_witness(pid):
-    if payload.get("missing_process"):
-        raise FileNotFoundError(pid)
-    return payload["witness"]
-def pressure_module():
-    return None, None
-'''
-program = m.REMOTE_ACTIONS.replace("\ntry:\n    main()\n", textwrap.dedent(stubs) + "\ntry:\n    main()\n", 1)
-output, stderr = io.StringIO(), io.StringIO()
-original_open = os.open
-raced = False
-def race_open(path, flags, mode=0o777, *, dir_fd=None):
-    global raced
-    if a["race"] and not raced and path == "memory.max" and flags & os.O_WRONLY and dir_fd is not None:
-        database = Path(a["request"]["remote_payload"]["fake_database_path"])
-        database.rename(database.with_name("terrabase-original"))
-        database.mkdir()
-        for name, raw in a["replacement_files"].items():
-            (database / name).write_text(raw)
-        raced = True
-    return original_open(path, flags, mode, dir_fd=dir_fd)
-with mock.patch.object(sys, "stdin", io.StringIO(json.dumps(a["request"]))), mock.patch.object(sys, "stdout", output), mock.patch.object(sys, "stderr", stderr), mock.patch.object(sys, "argv", ["remote", a["action"]]), mock.patch.object(os, "kill") as kill, mock.patch.object(os, "open", race_open):
-    code = 0
-    try:
-        exec(program, {"__name__": "__main__"})
-    except SystemExit as error:
-        code = error.code
-result = {"code": code, "stderr": stderr.getvalue(), "kill_calls": kill.call_count, "raced": raced}
-if output.getvalue():
-    result["output"] = json.loads(output.getvalue())
-`
-
 func rawStat(pid, start int) string {
 	return fmt.Sprintf("%d (d15 worker) S %s%d", pid, strings.Repeat("0 ", 18), start)
 }
 func remoteAction(t *testing.T, request object, action string, race bool, replacements object) object {
 	t.Helper()
-	got := decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_adapter.py", object{"request": request, "action": action, "race": race, "replacement_files": replacements}, remoteActionObservation))
-	if got["error"] != nil {
-		t.Fatal(got)
+	payload := field(request, "remote_payload")
+	targetKey := "oom_target"
+	if action == "failure_inject" {
+		targetKey = "target_process"
+	}
+	target := field(request, targetKey)
+	killCalls, raced := 0, false
+	remote := rp.Remote{CgroupRoot: fmt.Sprint(payload["fake_cgroup_root"]), Witness: func(pid int64) (rp.Object, error) {
+		if payload["missing_process"] == true {
+			return nil, os.ErrNotExist
+		}
+		return field(payload, "witness"), nil
+	}, Signal: func(int64) error { killCalls++; return nil }}
+	if payload["fake_cgroup_root"] == nil {
+		remote.CgroupRoot = rp.CgroupRoot
+	}
+	if race {
+		remote.BeforeOpenFile = func(name string, writing bool) {
+			if name == "memory.max" && writing && !raced {
+				database := payload["fake_database_path"].(string)
+				if err := os.Rename(database, database+"-original"); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(database, 0700); err != nil {
+					t.Fatal(err)
+				}
+				for name, raw := range replacements {
+					script.Write(t, filepath.Join(database, name), []byte(raw.(string)), 0600)
+				}
+				raced = true
+			}
+		}
+	}
+	_ = target
+	reply, err := remote.Dispatch(t.Context(), request, action)
+	got := object{"code": 0, "stderr": "", "kill_calls": killCalls, "raced": raced}
+	if err != nil {
+		got["code"] = 2
+		got["stderr"] = rp.ErrorType(err) + ": " + err.Error()
+	} else {
+		got["output"] = reply
 	}
 	return got
 }
@@ -131,7 +98,7 @@ func TestRemoteSigkillRejectsChangedRoleBeforeKill(t *testing.T) {
 	request := object{"transport": object{"runtime": object{}}, "target_process": target, "native_runner_cgroup_path": native, "protected_database_cgroup_path": native + "/terrabase", "remote_payload": object{"witness": object{"stat_raw": rawStat(77, 9001), "cgroup_raw": "0::" + changed + "\n", "host_boot_id": sampleBoot}}}
 	got := remoteAction(t, request, "failure_inject", false, object{})
 	assertEqual(t, got["code"], 2)
-	assertContains(t, fmt.Sprint(got["stderr"]), "RuntimeError")
+	assertContains(t, fmt.Sprint(got["stderr"]), "HarnessError")
 	assertEqual(t, got["kill_calls"], 0)
 }
 func cgroupInode(t *testing.T, path string) uint64 {
@@ -155,22 +122,19 @@ func remoteCgroupFixture(t *testing.T) (object, string) {
 	script.Write(t, filepath.Join(database, "cgroup.procs"), []byte("77\n"), 0600)
 	target := object{"kind": "terrabase", "pid": 77, "process_start": "9001", "process_nonce": strings.Repeat("b", 32), "cgroup": report, "host_boot_id": sampleBoot}
 	intent := object{"target": target, "native_runner_cgroup_path": native, "database_cgroup_path": native + "/terrabase", "cgroup_inode": cgroupInode(t, database), "prior_memory_max_bytes": 1000, "temporary_memory_max_bytes": 500}
-	request := object{"transport": object{"runtime": object{}}, "run_id": "cleanup-test", "pressure": object{"io_directory": filepath.Join(temp, "io"), "oom_fault": object{"target_memory_max_bytes": 500, "deadline_seconds": 1}}, "qualification": object{"database_memory_max_bytes": 1000}, "oom_target": target, "oom_restore_intent": intent, "native_runner_cgroup_path": native, "protected_database_cgroup_path": native + "/terrabase", "journal_watermark": object{"cursor": "before"}, "remote_payload": object{"fake_cgroup_root": root, "fake_database_path": database, "pressure_path": filepath.Join(temp, "pressure.scope"), "witness": object{"stat_raw": rawStat(77, 9001), "cgroup_raw": "0::" + report + "\n", "host_boot_id": sampleBoot}}}
+	request := object{"transport": object{"runtime": object{}}, "run_id": "cleanup-test", "pressure": object{"workload_cgroup": object{"parent_path": "/sys/fs/cgroup/terrascale-workload.slice"}, "io_directory": filepath.Join(temp, "io"), "oom_fault": object{"target_memory_max_bytes": 500, "deadline_seconds": 1}}, "qualification": object{"database_memory_max_bytes": 1000}, "oom_target": target, "oom_restore_intent": intent, "native_runner_cgroup_path": native, "protected_database_cgroup_path": native + "/terrabase", "journal_watermark": object{"cursor": "before"}, "remote_payload": object{"fake_cgroup_root": root, "fake_database_path": database, "pressure_path": filepath.Join(temp, "pressure.scope"), "witness": object{"stat_raw": rawStat(77, 9001), "cgroup_raw": "0::" + report + "\n", "host_boot_id": sampleBoot}}}
 	return request, database
 }
 func validateRemoteCleanup(t *testing.T, request, cleanup object) object {
 	t.Helper()
 	manifest := exampleManifest(t)
 	field(manifest, "qualification")["database_memory_max_bytes"] = 1000
-	return decodeObject(t, script.Python(t, "tests/runtime_priority/alpha_runner.py", object{"manifest": manifest, "intent": request["oom_restore_intent"], "cleanup": cleanup, "observed": sampleTimestamp(time.Now()), "evidence": t.TempDir()}, `from pathlib import Path
-runner = m.AdapterRunner(a["manifest"], "a" * 64, Path(a["evidence"]))
-runner.oom_restore_intent = a["intent"]
-try:
-    runner._validate_role("cleanup_verify", "cleanup", {}, {"observed_at_utc": a["observed"], "evidence": {"cleanup": a["cleanup"]}})
-    result = {}
-except Exception as error:
-    result = {"error": str(error), "error_type": type(error).__name__}
-result.update({"verified": runner.oom_restore_cleanup_verified, "unresolved": runner.oom_restore_unresolved_reason})`))
+	runner := rp.NewRunner(manifest, strings.Repeat("a", 64), t.TempDir())
+	runner.State["oom_restore_intent"] = request["oom_restore_intent"]
+	err := runner.ValidateRole("cleanup_verify", "cleanup", object{}, object{"observed_at_utc": sampleTimestamp(time.Now()), "evidence": object{"cleanup": cleanup}})
+	result := errorObservation(err)
+	result["verified"], result["unresolved"] = runner.State["oom_restore_cleanup_verified"], runner.State["oom_restore_unresolved_reason"]
+	return normalize(t, result)
 }
 func TestRemoteCleanupRestoresOnlyExactKnownCgroup(t *testing.T) {
 	for _, tc := range []struct {
@@ -222,7 +186,7 @@ func TestRemoteOOMCannotLowerReplacementCgroup(t *testing.T) {
 	request, database := remoteCgroupFixture(t)
 	got := remoteAction(t, request, "oom_fault", true, object{"memory.max": "700\n", "memory.current": "800\n", "cgroup.procs": "77\n"})
 	assertEqual(t, got["code"], 2)
-	assertContains(t, fmt.Sprint(got["stderr"]), "RuntimeError")
+	assertContains(t, fmt.Sprint(got["stderr"]), "HarnessError")
 	assertEqual(t, got["raced"], true)
 	assertEqual(t, string(script.Read(t, filepath.Join(database, "memory.max"))), "700\n")
 	assertEqual(t, string(script.Read(t, filepath.Join(database+"-original", "memory.max"))), "1000\n")

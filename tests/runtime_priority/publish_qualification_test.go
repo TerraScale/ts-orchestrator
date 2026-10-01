@@ -21,7 +21,7 @@ func TestD15PublisherReadback(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			repo := script.Root(t)
-			for _, path := range []string{"scripts/ci/publish-qualification.sh", "tests/runtime_priority/qualify.py"} {
+			for _, path := range []string{"scripts/ci/publish-qualification.sh"} {
 				script.Write(t, filepath.Join(root, path), script.Read(t, filepath.Join(repo, path)), 0o644)
 			}
 			script.Write(t, filepath.Join(root, "go.mod"), []byte("module fixture\n"), 0o644)
@@ -46,7 +46,7 @@ func TestD15PublisherReadback(t *testing.T) {
 					t.Fatal("credential leaked")
 				}
 			}
-			if got := string(script.Read(t, filepath.Join(root, "terrascale-d15-qualify.py.count"))); got != tc.attempts {
+			if got := string(script.Read(t, filepath.Join(root, "terrascale-d15-qualify.count"))); got != tc.attempts {
 				t.Errorf("attempts %q want %q", got, tc.attempts)
 			}
 			if got := string(script.Read(t, filepath.Join(root, "events"))); got != tc.events {

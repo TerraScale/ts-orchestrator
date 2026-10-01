@@ -20,6 +20,12 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"--help"}, want: "Usage: ts-orch"},
 		{args: []string{"bootstrap", "--help"}, want: "sign-anchor"},
 		{args: []string{"release", "--help"}, want: "sign-binary"},
+		{args: []string{"image", "--help"}, want: "build-offline"},
+		{args: []string{"netbird", "--help"}, want: "install"},
+		{args: []string{"oci-region", "--help"}, want: "preview"},
+		{args: []string{"qualification", "--help"}, want: "firecracker"},
+		{args: []string{"qualification", "firecracker", "--help"}, want: "prepare-base"},
+		{args: []string{"runtime-priority", "--help"}, want: "probe-admission"},
 		{args: []string{"bootstrap", "verify-anchor"}, want: "verify-anchor requires", wantError: true},
 		{args: []string{"release", "publish"}, want: "publish requires", wantError: true},
 		{args: []string{"misspelled"}, want: "unknown command", wantError: true},
@@ -59,7 +65,7 @@ type brokenOutput struct{ err error }
 func (output brokenOutput) Write([]byte) (int, error) { return 0, output.err }
 
 func TestHelpPropagatesOutputFailure(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"bootstrap", "--help"}, {"release", "--help"}} {
+	for _, args := range [][]string{{"--help"}, {"bootstrap", "--help"}, {"release", "--help"}, {"image", "--help"}, {"netbird", "--help"}, {"oci-region", "--help"}, {"qualification", "--help"}, {"runtime-priority", "--help"}} {
 		for _, cause := range []error{io.ErrClosedPipe, nil} {
 			want := cause
 			if want == nil {

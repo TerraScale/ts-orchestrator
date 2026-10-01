@@ -19,11 +19,11 @@ fuzz seed once. Forgejo uses the same tests through `make ci-verify`, together
 with static release-binary checks.
 
 Deployment, OCI admission, CI, runtime-priority, and Firecracker driver
-contracts are ordinary Go packages. Some invoke existing Python or shell
-implementations. Their adapters return observations; expected results and
-assertions belong in Go. These implementations still require Python until
-they move into `ts-orch`. New tests must not use Python test frameworks or
-wrap a separate test runner.
+contracts are ordinary Go packages. They call native feature APIs or `ts-orch`
+and inject cloud, filesystem, transport, and process boundaries where needed.
+Expected results and assertions belong in Go. First-party tools and tests
+require no Python interpreter. New tests must not use Python test frameworks
+or wrap a separate test runner.
 
 The shared script helper records repository source inputs for Go's test
 cache, bounds subprocess lifetimes, and terminates their process group on

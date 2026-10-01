@@ -4,9 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -72,13 +75,47 @@ func symlink(t *testing.T, path string) {
 		t.Fatalf("%s is not a symlink", path)
 	}
 }
-func runPython(t *testing.T, path string, args ...string) script.Result {
-	t.Helper()
-	return script.Run(t, deployRoot(t), nil, "python3", append([]string{filepath.Join(deployRoot(t), path)}, args...)...)
-}
+
 func successful(t *testing.T, result script.Result) {
 	t.Helper()
 	if result.Code != 0 {
 		t.Fatalf("exit=%d\n%s\n%s", result.Code, result.Stdout, result.Stderr)
 	}
+}
+
+// TestDeployTool runs native commands as subprocesses with each test's isolated environment.
+func TestDeployTool(t *testing.T) {
+	i := slices.Index(os.Args, "--")
+	if i < 0 {
+		return
+	}
+	args := os.Args[i+1:]
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := 2
+	if len(args) > 0 {
+		switch args[0] {
+		case "image":
+			code = image.Run(t.Context(), root, args[1:], os.Stdout, os.Stderr)
+		case "netbird":
+			code = client.Run(t.Context(), root, args[1:], os.Stdout, os.Stderr)
+		}
+	}
+	os.Exit(code)
+}
+func deployTool(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ts-orch")
+	write(t, path, []byte("#!/bin/sh\nGORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestDeployTool$ -- \"$@\"\n"), 0755)
+	return path
+}
+func runTool(t *testing.T, args ...string) script.Result {
+	t.Helper()
+	return script.Run(t, deployRoot(t), nil, deployTool(t), args...)
 }
