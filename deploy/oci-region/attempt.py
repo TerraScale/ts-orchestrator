@@ -413,13 +413,10 @@ class Attempt:
         domain["nativeVerifierSha256"] = self.config["image"]["native_verifier_sha256"]
         profiles = []
         for slot in SLOTS:
-            nsgs = [plan["resource_ids"]["network_security_group"]]
-            if slot == "controller-a":
-                nsgs.append(plan["resource_ids"]["seed_ssh_network_security_group"])
             profiles.append({"slot": slot, "compartmentOcid": plan["resource_ids"]["control_compartment"],
                              "availabilityDomain": plan["availability_domain"],
                              "faultDomain": hosts[slot]["fault_domain"], "subnetOcid": plan["resource_ids"]["subnet"],
-                             "networkSecurityGroupOcids": sorted(nsgs), "shape": hosts[slot]["shape"]})
+                             "networkSecurityGroupOcids": [plan["resource_ids"]["network_security_group"]], "shape": hosts[slot]["shape"]})
         for slot in SLOTS:
             manifest = self.manifest(slot)
             if manifest.exists():

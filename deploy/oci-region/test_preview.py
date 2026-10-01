@@ -1058,6 +1058,10 @@ class PreviewAdmissionTests(unittest.TestCase):
                         "payload": {"schemaVersion": 2, "slot": "controller-a",
                                     "seedSlot": "controller-a", "cell": "GRU"}}
             paths = {name: root / f"{name}.json" for name in ("manifest", "identity", "anchor", "enrollment")}
+            paths["owner_key"] = root / "owner.pub"
+            owner_key = ("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl "
+                         "operator@terrascale")
+            paths["owner_key"].write_text(owner_key + "\n")
             paths["manifest"].write_text(json.dumps(envelope))
             paths["identity"].write_text('{"schemaVersion":1,"deploymentId":"ts-preview-gru-r6",'
                                          '"environment":"canary","cell":"GRU"}')
@@ -1074,7 +1078,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             reviewed_path = root / "reviewed.json"
             reviewed_path.write_text(json.dumps(reviewed))
             launch = preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                         paths["anchor"], paths["enrollment"], None)
+                                         paths["anchor"], paths["enrollment"], paths["owner_key"])
             metadata = launch["metadata"]
             self.assertEqual(metadata["terrascale-bootstrap"], '{"schemaVersion":1,"slot":"controller-a"}')
             self.assertEqual(metadata["terrascale-controller-manifest-v1"], paths["manifest"].read_text())
@@ -1084,20 +1088,27 @@ class PreviewAdmissionTests(unittest.TestCase):
             user_data = base64.b64decode(metadata["user_data"])
             self.assertTrue(user_data.startswith(b"#cloud-config\n"))
             self.assertNotIn(b"ssh_authorized_keys", user_data)
+            self.assertNotIn(b"allow_public_ssh_keys", user_data)
+            self.assertEqual(metadata["ssh_authorized_keys"], owner_key)
             self.assertEqual(launch["freeformTags"], {"BootstrapCreateKey": "seed-a-r6"})
             self.assertEqual(launch["displayName"], "ts-preview-gru-r6-controller-a")
             self.assertEqual(launch["privateIp"], "10.251.0.11")
 
+            paths["owner_key"].write_text("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 operator\n")
+            with self.assertRaisesRegex(ValueError, "one OpenSSH Ed25519 public key"):
+                preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
+            paths["owner_key"].write_text(owner_key + "\n")
             paths["anchor"].write_text('{"schemaVersion":1,"payload":{"other":1}}')
             with self.assertRaisesRegex(ValueError, "differs from the reviewed seed plan"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
             paths["anchor"].write_text('{"schemaVersion":1,"payload":{}}')
             envelope["scope"]["cell"] = "FRA"
             paths["manifest"].write_text(json.dumps(envelope))
             with self.assertRaisesRegex(ValueError, "not a controller-a seed envelope"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
             envelope["scope"]["cell"] = "GRU"
             paths["manifest"].write_text(json.dumps(envelope))
             paths["anchor"].write_text(json.dumps({"schemaVersion": 1, "signature": "s" * 32000}))
@@ -1105,7 +1116,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             reviewed_path.write_text(json.dumps(reviewed))
             with self.assertRaisesRegex(ValueError, "exceeds the OCI instance metadata limit"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
 
     def test_five_host_budget_includes_existing_resources_and_reserves(self):
         cost = preview.estimate(self.plan, self.inventory)

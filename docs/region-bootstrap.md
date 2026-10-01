@@ -280,7 +280,10 @@ member's SSH server. Add operator policies from the `operators` group to it:
 | Operator SSH | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
 | Operator internal tools | TCP 4222 (controllers), 9465 (members) and any other required tool port |
 
-Do not allow 6222 or 8443 to operators. From an enrolled operator device:
+HomeLab `ops/ts-ops/netbird/admin.py configure-cell` reconciles the SSH policy
+as `operators-ssh-to-ts-orch-servers`, next to the routed `operators-to-gru-cell`
+policy. Do not allow 6222 or 8443 to operators. From an enrolled operator
+device:
 
 ```sh
 netbird ssh root@SERVER_NETBIRD_NAME

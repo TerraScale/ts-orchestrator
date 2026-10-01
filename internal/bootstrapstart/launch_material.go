@@ -3,8 +3,11 @@ package bootstrapstart
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -24,9 +27,19 @@ const (
 	HostEnrollmentFilename = "host-enrollment-public.json"
 	identityFilename       = "identity.json"
 	anchorFilename         = "anchor.json"
+	// OperatorSSHKeyMetadataKey is OCI's standard launch metadata field.
+	// cloud-init authorizes it for the image's default user, so every server
+	// accepts the operator's OpenSSH key.
+	OperatorSSHKeyMetadataKey = "ssh_authorized_keys"
+	operatorSSHKeyFilename    = "operator-ssh-key.pub"
+	maxOperatorSSHKey         = 512
 )
 
-var ErrLaunchMaterial = errors.New("launch bootstrap material is invalid")
+var (
+	ErrLaunchMaterial        = errors.New("launch bootstrap material is invalid")
+	operatorSSHKeyCommentRE  = regexp.MustCompile(`^[A-Za-z0-9._@+-]{1,128}$`)
+	operatorSSHKeyBlobPrefix = []byte("\x00\x00\x00\x0bssh-ed25519\x00\x00\x00\x20")
+)
 
 // LaunchMaterial is the exact public deployment material a controller
 // receives at launch and forwards to the instances it launches.
@@ -34,6 +47,7 @@ type LaunchMaterial struct {
 	Identity       []byte
 	Anchor         []byte
 	HostEnrollment []byte
+	OperatorSSHKey []byte
 }
 
 // ControllerMetadata returns the launch metadata entries a controller needs.
@@ -42,19 +56,23 @@ func (material LaunchMaterial) ControllerMetadata() map[string]string {
 		IdentityMetadataKey:            string(material.Identity),
 		AnchorMetadataKey:              string(material.Anchor),
 		hostboot.EnrollmentMetadataKey: string(material.HostEnrollment),
+		OperatorSSHKeyMetadataKey:      string(material.OperatorSSHKey),
 	}
 }
 
-// HostMetadata returns the launch metadata entry a managed host needs.
+// HostMetadata returns the launch metadata entries a managed host needs.
 func (material LaunchMaterial) HostMetadata() map[string]string {
-	return map[string]string{hostboot.EnrollmentMetadataKey: string(material.HostEnrollment)}
+	return map[string]string{
+		hostboot.EnrollmentMetadataKey: string(material.HostEnrollment),
+		OperatorSSHKeyMetadataKey:      string(material.OperatorSSHKey),
+	}
 }
 
 // launchMaterialNames are the installed file names, in LaunchMaterial field order.
-var launchMaterialNames = [...]string{identityFilename, anchorFilename, HostEnrollmentFilename}
+var launchMaterialNames = [...]string{identityFilename, anchorFilename, HostEnrollmentFilename, operatorSSHKeyFilename}
 
 func (material LaunchMaterial) wires() [len(launchMaterialNames)][]byte {
-	return [...][]byte{material.Identity, material.Anchor, material.HostEnrollment}
+	return [...][]byte{material.Identity, material.Anchor, material.HostEnrollment, material.OperatorSSHKey}
 }
 
 // LoadLaunchMaterial reads the installed material this controller forwards.
@@ -76,14 +94,14 @@ func (store bakedStore) loadLaunchMaterial() (LaunchMaterial, error) {
 	}
 	defer unix.Close(dir)
 	limits := [len(launchMaterialNames)]int64{maxIdentity, bootstrap.MaxBootstrapAnchorBytes,
-		hostenroll.MaxPublicBundleBytes}
+		hostenroll.MaxPublicBundleBytes, maxOperatorSSHKey}
 	var wires [len(launchMaterialNames)][]byte
 	for index, name := range launchMaterialNames {
 		if wires[index], err = store.readFile(dir, name, limits[index]); err != nil {
 			return LaunchMaterial{}, fmt.Errorf("read installed %s: %w", name, err)
 		}
 	}
-	return LaunchMaterial{Identity: wires[0], Anchor: wires[1], HostEnrollment: wires[2]}, nil
+	return LaunchMaterial{Identity: wires[0], Anchor: wires[1], HostEnrollment: wires[2], OperatorSSHKey: wires[3]}, nil
 }
 
 func (store bakedStore) installLaunchMaterial(ctx context.Context,
@@ -149,6 +167,22 @@ func (store bakedStore) verifyLaunchMaterial(material LaunchMaterial, now time.T
 	if bundle.Cell != strings.ToLower(string(identity.Cell)) || bundle.Region != string(identity.Cell) ||
 		bundle.Environment != identity.Environment {
 		return fmt.Errorf("%w: host enrollment bundle belongs to another cell or environment", ErrLaunchMaterial)
+	}
+	return validateOperatorSSHKey(material.OperatorSSHKey)
+}
+
+// validateOperatorSSHKey accepts exactly one canonical OpenSSH Ed25519 public
+// key line without a trailing newline, the form preview.py renders.
+func validateOperatorSSHKey(wire []byte) error {
+	parts := strings.Split(string(wire), " ")
+	if len(wire) > maxOperatorSSHKey || len(parts) < 2 || len(parts) > 3 || parts[0] != "ssh-ed25519" ||
+		len(parts) == 3 && !operatorSSHKeyCommentRE.MatchString(parts[2]) {
+		return fmt.Errorf("%w: operator SSH key must be one OpenSSH Ed25519 public key line", ErrLaunchMaterial)
+	}
+	blob, err := base64.StdEncoding.Strict().DecodeString(parts[1])
+	if err != nil || len(blob) != len(operatorSSHKeyBlobPrefix)+ed25519.PublicKeySize ||
+		!bytes.HasPrefix(blob, operatorSSHKeyBlobPrefix) {
+		return fmt.Errorf("%w: operator SSH key is not a canonical Ed25519 public key", ErrLaunchMaterial)
 	}
 	return nil
 }
