@@ -19,10 +19,10 @@ root login, SFTP and local port forwarding, with identity-provider (JWT)
 authentication required and remote port forwarding off. An already connected
 server whose effective configuration differs is brought down once and up again
 with its saved identity. Because the daemon spawns `login` and `su` sessions,
-`netbird.service` runs unconfined like `ssh.service`, and `KillMode=process`
-keeps open sessions alive across daemon restarts. Manager policies decide who
-may connect; see "Operator SSH and internal tools" in
-`docs/region-bootstrap.md`.
+`netbird.service` runs unconfined like `ssh.service`. Sessions run in their own
+logind scopes, and `KillMode=process` lets a `systemctl restart netbird` issued
+from a session finish. Manager policies decide who may connect; see "Operator
+SSH and internal tools" in `docs/region-bootstrap.md`.
 
 The public `/etc/terrascale-orchestrator/netbird.json` identifies the management
 HTTPS origin, its private OCI IP, OCI region, and the setup-key secret OCID.
@@ -68,3 +68,12 @@ sudo netbird debug config | grep -i ssh
 architecture match the checked-in pin. `--root DIRECTORY` installs and enables
 the two services in an offline root without starting them, useful for verifying
 an additive rollout before applying it to a live server.
+
+On 2026-10-01 an isolated local NetBird 0.79.0 manager (embedded IdP) verified
+this configuration end to end. A systemd server peer ran this
+`netbird.service` and the enrollment flags. An `operators` peer completed the
+IdP device login, opened a root `netbird ssh` session (in its own logind
+scope), and reached a loopback-only HTTP tool through `-L`. A peer outside
+`operators` had no route to the server. After a `systemctl restart netbird`
+issued from a session, the daemon reconnected with its saved identity and
+accepted new sessions.

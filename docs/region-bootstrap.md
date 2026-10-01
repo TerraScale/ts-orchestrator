@@ -271,12 +271,13 @@ JWT validation (the image's timesyncd configuration provides this).
 
 Peer traffic to a server's NetBird address is filtered by that server's NetBird
 firewall, independently of the OCI NSGs, and the manager denies it unless a
-policy allows it. In the manager, keep the server setup key's auto-group (for
-example `gru-cell`) and add operator policies from the operators group to it:
+policy allows it. The server setup key auto-assigns `ts-orch-servers`; a
+`netbird-ssh` policy targeting that group also makes the manager enable each
+member's SSH server. Add operator policies from the `operators` group to it:
 
 | Policy | Protocol and ports |
 | --- | --- |
-| Operator SSH | NetBird SSH (the manager also opens its internal 22022) |
+| Operator SSH | `netbird-ssh` (port 22 is redirected to the SSH server's 22022) |
 | Operator internal tools | TCP 4222 (controllers), 9465 (members) and any other required tool port |
 
 Do not allow 6222 or 8443 to operators. From an enrolled operator device:

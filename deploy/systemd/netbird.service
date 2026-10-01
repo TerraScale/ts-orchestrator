@@ -14,7 +14,7 @@ StateDirectory=netbird
 StateDirectoryMode=0700
 # The daemon serves NetBird SSH. Like ssh.service it stays unconfined: login
 # and su sessions need root privileges, PAM, setuid helpers and the full
-# filesystem. Restarting the daemon leaves open sessions running.
+# filesystem. A restart issued from a session must not kill that command.
 KillMode=process
 LimitNOFILE=65536
 
