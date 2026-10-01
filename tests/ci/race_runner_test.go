@@ -112,7 +112,7 @@ func newScheduler(t *testing.T) schedulerFixture {
 	root := t.TempDir()
 	script.Write(t, filepath.Join(root, "go.mod"), []byte("module example.test/scheduler\n\ngo 1.27.0\n"), 0o644)
 	f := schedulerFixture{root: root, state: filepath.Join(root, "state.json"), record: filepath.Join(root, "tests.txt")}
-	for pkg, names := range map[string][]string{"app": append(slices.Clone(schedulerLabs), "TestOne", "TestTwo", "TestFail", "TestThree"), "bootstrapstart": {"TestStart", "TestRetry", "TestMaterial"}, "other": {"TestOrdinary"}} {
+	for pkg, names := range map[string][]string{"app": append(slices.Clone(schedulerLabs), "TestOne", "TestTwo", "TestFail", "TestThree"), "bootstrapstart": {"TestStart", "TestRetry", "TestMaterial"}, "other": {"TestOrdinary"}, "deploy": {"TestOfflineReadbackMismatchDiscardsCandidate", "TestOfflineOrdinary"}} {
 		source := `package fixture
 import("fmt";"os";"testing")
 func record(name string){f,err:=os.OpenFile(os.Getenv("TEST_RECORD"),os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600);if err!=nil{panic(err)};defer f.Close();if _,err:=fmt.Fprintln(f,name);err!=nil{panic(err)}}
@@ -134,7 +134,11 @@ func FuzzSeed(f *testing.F){f.Add(1);f.Fuzz(func(t *testing.T,n int){record("app
 `
 			f.expected = append(f.expected, "app/Example", "app/FuzzSeed")
 		}
-		script.Write(t, filepath.Join(root, "internal", pkg, "fixture_test.go"), []byte(source), 0o644)
+		parent := "internal"
+		if pkg == "deploy" {
+			parent = "tests"
+		}
+		script.Write(t, filepath.Join(root, parent, pkg, "fixture_test.go"), []byte(source), 0o644)
 	}
 	executable, err := os.Executable()
 	if err != nil {
@@ -197,10 +201,10 @@ func (f schedulerFixture) complete(t *testing.T) {
 			discovery++
 		}
 	}
-	if discovery != 2 || len(commands) < 2 || !slices.Contains(commands[0], "-list") || !slices.Contains(commands[1], "-list") {
+	if discovery != 3 || len(commands) < 3 || !slices.Contains(commands[0], "-list") || !slices.Contains(commands[1], "-list") || !slices.Contains(commands[2], "-list") {
 		t.Fatalf("discovery should precede all shards: %v", commands)
 	}
-	for _, lab := range schedulerLabs {
+	for _, lab := range append(slices.Clone(schedulerLabs), "TestOfflineReadbackMismatchDiscardsCandidate") {
 		var matching []string
 		for _, args := range commands {
 			if i := slices.Index(args, "-run"); i >= 0 {
@@ -244,7 +248,7 @@ func TestRaceScheduler(t *testing.T) {
 			}
 		})
 	}
-	for _, setting := range []string{"TS_RACE_SHARDS", "TS_RACE_JOBS"} {
+	for _, setting := range []string{"TS_RACE_SHARDS", "TS_RACE_JOBS", "TS_RACE_PACKAGE_JOBS", "TS_RACE_TEST_JOBS"} {
 		t.Run("invalid_"+setting, func(t *testing.T) {
 			f := newScheduler(t)
 			r := f.run(t, map[string]string{setting: "0"})

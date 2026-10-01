@@ -47,7 +47,6 @@ terrabase-walkthrough-process:
 build:
 	mkdir -p dist
 	CGO_ENABLED=0 $(GO) build $(BUILD_FLAGS) -o dist/ts-orch $(APP)
-	ln -sf ts-orch dist/terrascale-orchestrator
 
 build-linux: release-linux
 

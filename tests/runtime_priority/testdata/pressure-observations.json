@@ -325,7 +325,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -406,7 +406,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -1130,7 +1130,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -1730,7 +1730,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -2331,7 +2331,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -2411,7 +2411,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -2606,10 +2606,10 @@
         {
           "document_id": "018f0000-0000-7000-8000-000000000006",
           "peer_read_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/collections/018f0000-0000-7000-8000-000000000005/documents/018f0000-0000-7000-8000-000000000006",
-          "peer_read_raw": "{\"siblings\":[{\"document\":{\"title\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
-          "peer_read_sha256": "3179992b9e278796f41511b8a12df21c5eeb4199c331d8a3968710c0b4f10128",
-          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"title\":\"17\"},\"kind\":\"live\"}}]}",
-          "transaction_request_sha256": "ec68abc8972977afe7357aefcb62cbda2a1f7c79cd863f49feae0ce35f603939",
+          "peer_read_raw": "{\"siblings\":[{\"document\":{\"qualification_value\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
+          "peer_read_sha256": "220d48776293aa4b9f2b84462daa0a976e7a39fc68e14fdd1c8ba691b6a7f861",
+          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"qualification_value\":\"17\"},\"kind\":\"live\"}}]}",
+          "transaction_request_sha256": "15553186afd6720969787860e88b2d1c0857e626efd303445895bdb832109150",
           "write_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/transactions",
           "write_receipt_raw": "{\"commit_sequence\":\"507\",\"durability\":\"object_durable\",\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1}",
           "write_receipt_sha256": "b566aa34ec32bdf6a55100e691174b4641400de097dc69a6fa6fe99a9bc02a8e"
@@ -2628,7 +2628,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {
@@ -2680,10 +2680,10 @@
         {
           "document_id": "018f0000-0000-7000-8000-000000000006",
           "peer_read_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/collections/018f0000-0000-7000-8000-000000000005/documents/018f0000-0000-7000-8000-000000000006",
-          "peer_read_raw": "{\"siblings\":[{\"document\":{\"title\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"20\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
-          "peer_read_sha256": "d44466ea0f267841c285e9a2f4024b39db079b84c4ebc4adf0d2c3fed219f13a",
-          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"title\":\"17\"},\"kind\":\"live\"}}]}",
-          "transaction_request_sha256": "ec68abc8972977afe7357aefcb62cbda2a1f7c79cd863f49feae0ce35f603939",
+          "peer_read_raw": "{\"siblings\":[{\"document\":{\"qualification_value\":\"17\"},\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"20\",\"shard\":\"1\"},\"kind\":\"live\",\"schema_digest\":\"7777777777777777777777777777777777777777777777777777777777777777\",\"schema_generation\":\"1\"}],\"state\":\"value\",\"version\":1}",
+          "peer_read_sha256": "46467540d8196ed7bed8115b17d05685b820fefd095d82562945aace14e13ca1",
+          "transaction_request_raw": "{\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1,\"writes\":[{\"collection\":\"018f0000-0000-7000-8000-000000000005\",\"document\":\"018f0000-0000-7000-8000-000000000006\",\"observed\":[],\"value\":{\"document\":{\"qualification_value\":\"17\"},\"kind\":\"live\"}}]}",
+          "transaction_request_sha256": "15553186afd6720969787860e88b2d1c0857e626efd303445895bdb832109150",
           "write_path": "/v1/tenants/018f0000-0000-7000-8000-000000000001/databases/018f0000-0000-7000-8000-000000000002/shards/1/transactions",
           "write_receipt_raw": "{\"commit_sequence\":\"507\",\"durability\":\"object_durable\",\"event\":{\"database\":\"018f0000-0000-7000-8000-000000000002\",\"incarnation\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"replica\":\"018f0000-0000-7000-8000-000000000003\",\"sequence\":\"21\",\"shard\":\"1\"},\"transaction_id\":{\"expires_at_unix_ms\":\"1893456000000\",\"nonce\":\"ffffffffffffffffffffffffffffffff\"},\"version\":1}",
           "write_receipt_sha256": "b566aa34ec32bdf6a55100e691174b4641400de097dc69a6fa6fe99a9bc02a8e"
@@ -2702,7 +2702,7 @@
             "collection_id": "018f0000-0000-7000-8000-000000000005",
             "schema_digest": "7777777777777777777777777777777777777777777777777777777777777777",
             "schema_generation": 1,
-            "utf8_field": "title"
+            "utf8_field": "qualification_value"
           },
           "peer": {
             "authority": {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/nats-io/nats.go"
@@ -30,6 +31,8 @@ func TestControllerBootstrapRetriesOnlyTransientErrors(t *testing.T) {
 	}{
 		{context.DeadlineExceeded, true},
 		{nats.ErrNoResponders, true},
+		{fmt.Errorf("%w: %w", delivery.ErrStoreNotReady, jetstream.ErrStreamNotFound), true},
+		{jetstream.ErrStreamNotFound, false},
 		{&jetstream.APIError{Code: 400, ErrorCode: 10005, Description: "no suitable peers for placement"}, true},
 		{jetstream.ErrJetStreamNotEnabled, false},
 		{nats.ErrAuthorization, false},
