@@ -12,8 +12,17 @@ The image enables `netbird.service` and `terrascale-netbird-enroll.service`.
 The daemon stores its identity in root-owned `/var/lib/netbird` (0700). Enrollment
 runs as root, retries failures without a systemd start-rate limit, and invokes
 `terrascale-orchestrator netbird-enroll`. Neither service gates controller or
-managed-host startup. NetBird requires the host's TUN device and network
-namespace, so the daemon retains `CAP_NET_ADMIN` and `CAP_NET_RAW`.
+managed-host startup.
+
+Enrollment keeps servers off NetBird DNS and routes and enables NetBird SSH:
+root login, SFTP and local port forwarding, with identity-provider (JWT)
+authentication required and remote port forwarding off. An already connected
+server whose effective configuration differs is brought down once and up again
+with its saved identity. Because the daemon spawns `login` and `su` sessions,
+`netbird.service` runs unconfined like `ssh.service`, and `KillMode=process`
+keeps open sessions alive across daemon restarts. Manager policies decide who
+may connect; see "Operator SSH and internal tools" in
+`docs/region-bootstrap.md`.
 
 The public `/etc/terrascale-orchestrator/netbird.json` identifies the management
 HTTPS origin, its private OCI IP, OCI region, and the setup-key secret OCID.
@@ -52,6 +61,7 @@ enrollment asynchronously; check the result with:
 sudo systemctl status netbird terrascale-netbird-enroll
 sudo netbird status --json
 sudo journalctl -u terrascale-netbird-enroll --no-pager -n 30
+sudo netbird debug config | grep -i ssh
 ```
 
 `--client-binary FILE` accepts a predownloaded client only when its digest and

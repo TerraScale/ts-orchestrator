@@ -258,6 +258,38 @@ management and signal must be connected to the configured manager. Match its
 peer entry in the manager to the server's instance identity. Reboot one server
 and confirm that its existing peer identity reconnects.
 
+### Operator SSH and internal tools
+
+Every enrolled server serves NetBird SSH on its NetBird address. No OpenSSH key
+is distributed: a session requires the operator's NetBird identity provider
+login (JWT) and a manager policy allowing it. Enrollment enables root login,
+SFTP and local port forwarding, and keeps remote port forwarding and
+unauthenticated machine access off. It re-applies these settings whenever a
+server's effective NetBird configuration differs. `netbird.service` therefore
+runs unconfined, like `ssh.service`, and the server clock must stay in sync for
+JWT validation (the image's timesyncd configuration provides this).
+
+Peer traffic to a server's NetBird address is filtered by that server's NetBird
+firewall, independently of the OCI NSGs, and the manager denies it unless a
+policy allows it. In the manager, keep the server setup key's auto-group (for
+example `gru-cell`) and add operator policies from the operators group to it:
+
+| Policy | Protocol and ports |
+| --- | --- |
+| Operator SSH | NetBird SSH (the manager also opens its internal 22022) |
+| Operator internal tools | TCP 4222 (controllers), 9465 (members) and any other required tool port |
+
+Do not allow 6222 or 8443 to operators. From an enrolled operator device:
+
+```sh
+netbird ssh root@SERVER_NETBIRD_NAME
+netbird ssh -L 8080:127.0.0.1:8080 root@SERVER_NETBIRD_NAME   # loopback-only tool
+```
+
+Plain `ssh` also works through the NetBird client's OpenSSH drop-in. The
+routing-peer path to private IPs and controller A's seed OpenSSH key remain
+available; the OCI Bastion remains the break-glass path.
+
 ### Apply
 
 Start from a reviewed plan copy that declares `operator_gateway` with null LPG
@@ -372,7 +404,9 @@ Forgejo resource manifest and primary VNIC.
 6. From an enrolled NetBird operator device, check that TCP 4222 on the
    controllers, 22 on controller A, and 9465 on members connect, and that 8443
    and 6222 do not. `operator ... --config FILE` then dials the controllers'
-   private IPs directly, without `--nats-forward`.
+   private IPs directly, without `--nats-forward`. Then check that `netbird ssh`
+   opens a root session on every controller and member over its NetBird
+   address, and that a device outside the operators group is refused.
 
 ### Rollback
 

@@ -130,6 +130,12 @@ The cell admits it only on TCP 4222 (controllers), 22 (controller A), and 9465
 (members), never on 8443. The private subnet keeps no internet route, NAT, or
 public IP. The OCI Bastion remains the break-glass operator path.
 
+**Operator SSH**
+
+NetBird SSH served by every enrolled controller and managed host on its
+NetBird address. Sessions require the operator's NetBird identity-provider
+login and a manager policy; no OpenSSH keys are distributed.
+
 **Production readiness**
 
 Evidence that the actual Go binary and its caller preserve authority,

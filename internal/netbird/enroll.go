@@ -16,6 +16,16 @@ const (
 	commandLimit    = 40 * time.Second
 )
 
+// upSettings keep servers off NetBird DNS and routing while serving NetBird
+// SSH. Sessions require the operator's IdP identity (JWT) and a manager
+// policy; local forwarding reaches loopback-only tools, remote forwarding is
+// refused.
+var upSettings = []string{
+	"--disable-dns", "--disable-client-routes", "--disable-server-routes", "--disable-auto-connect=false",
+	"--allow-server-ssh=true", "--enable-ssh-root=true", "--enable-ssh-sftp=true",
+	"--enable-ssh-local-port-forwarding=true", "--enable-ssh-remote-port-forwarding=false", "--disable-ssh-auth=false",
+}
+
 type commandRunner func(context.Context, string, ...string) ([]byte, error)
 type keyReader func(context.Context, Config) ([]byte, error)
 
@@ -64,18 +74,18 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	}
 	managerMatches := current.managerMatches(cfg.ManagementURL)
 	if managerMatches && current.DaemonStatus == "Connected" {
-		safe, err := e.safeConfiguration(ctx, cfg.ManagementURL)
+		applied, err := e.settingsApplied(ctx, cfg.ManagementURL)
 		if err != nil {
 			return err
 		}
-		if safe && current.ready(cfg.ManagementURL) {
+		if applied && current.ready(cfg.ManagementURL) {
 			return nil
 		}
-		if !safe {
+		if !applied {
 			// NetBird's up command returns early while already connected. Bring
-			// the saved identity down once to apply management-only settings.
+			// the saved identity down once to apply the server settings.
 			if _, err := e.command(ctx, "down"); err != nil {
-				return errors.New("cannot apply management-only NetBird configuration")
+				return errors.New("cannot apply TerraScale NetBird server settings")
 			}
 		}
 	}
@@ -83,9 +93,8 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	if err != nil || hostname == "" || len(hostname) > 253 || strings.ContainsAny(hostname, "\x00\r\n\t ") {
 		return errors.New("cannot determine a valid server hostname for NetBird")
 	}
-	args := []string{"up", "--config", netbirdConfig, "--management-url", cfg.ManagementURL,
-		"--hostname", hostname, "--disable-dns", "--disable-client-routes", "--disable-server-routes",
-		"--disable-auto-connect=false", "--allow-server-ssh=false", "--no-browser"}
+	args := append([]string{"up", "--config", netbirdConfig, "--management-url", cfg.ManagementURL,
+		"--hostname", hostname, "--no-browser"}, upSettings...)
 	if managerMatches && !current.needsLogin() {
 		// Login with the saved WireGuard identity first. A network outage must
 		// not consume a new setup key or replace an existing registration.
@@ -184,12 +193,12 @@ func (e enroller) waitReady(ctx context.Context, manager string) error {
 			return err
 		}
 		if status.ready(manager) {
-			safe, err := e.safeConfiguration(readyCtx, manager)
+			applied, err := e.settingsApplied(readyCtx, manager)
 			if err != nil {
 				return err
 			}
-			if !safe {
-				return errors.New("NetBird management-only configuration was not applied")
+			if !applied {
+				return errors.New("NetBird server settings were not applied")
 			}
 			return nil
 		}
@@ -204,27 +213,48 @@ func (e enroller) waitReady(ctx context.Context, manager string) error {
 	}
 }
 
-func (e enroller) safeConfiguration(ctx context.Context, manager string) (bool, error) {
+// settingsApplied reports whether the daemon's effective configuration
+// matches upSettings for the TerraScale manager.
+func (e enroller) settingsApplied(ctx context.Context, manager string) (bool, error) {
 	wire, err := e.command(ctx, "debug", "config")
 	if err != nil {
 		return false, errors.New("cannot query effective NetBird configuration")
 	}
 	defer clear(wire)
 	var cfg struct {
-		ManagementURL       string `json:"managementUrl"`
-		DisableDNS          *bool  `json:"disableDns"`
-		DisableClientRoutes *bool  `json:"disableClientRoutes"`
-		DisableServerRoutes *bool  `json:"disableServerRoutes"`
-		DisableAutoConnect  *bool  `json:"disableAutoConnect"`
-		ServerSSHAllowed    *bool  `json:"serverSSHAllowed"`
+		ManagementURL                 string `json:"managementUrl"`
+		DisableDNS                    *bool  `json:"disableDns"`
+		DisableClientRoutes           *bool  `json:"disableClientRoutes"`
+		DisableServerRoutes           *bool  `json:"disableServerRoutes"`
+		DisableAutoConnect            *bool  `json:"disableAutoConnect"`
+		ServerSSHAllowed              *bool  `json:"serverSSHAllowed"`
+		EnableSSHRoot                 *bool  `json:"enableSSHRoot"`
+		EnableSSHSFTP                 *bool  `json:"enableSSHSFTP"`
+		EnableSSHLocalPortForwarding  *bool  `json:"enableSSHLocalPortForwarding"`
+		EnableSSHRemotePortForwarding *bool  `json:"enableSSHRemotePortForwarding"`
+		DisableSSHAuth                *bool  `json:"disableSSHAuth"`
 	}
-	if len(wire) > 1<<20 || json.Unmarshal(wire, &cfg) != nil || cfg.DisableDNS == nil || cfg.DisableClientRoutes == nil ||
-		cfg.DisableServerRoutes == nil || cfg.DisableAutoConnect == nil || cfg.ServerSSHAllowed == nil {
+	if len(wire) > 1<<20 || json.Unmarshal(wire, &cfg) != nil {
 		return false, errors.New("NetBird daemon returned invalid effective configuration")
 	}
+	expected := []struct {
+		value *bool
+		want  bool
+	}{
+		{cfg.DisableDNS, true}, {cfg.DisableClientRoutes, true}, {cfg.DisableServerRoutes, true},
+		{cfg.DisableAutoConnect, false}, {cfg.ServerSSHAllowed, true}, {cfg.EnableSSHRoot, true},
+		{cfg.EnableSSHSFTP, true}, {cfg.EnableSSHLocalPortForwarding, true},
+		{cfg.EnableSSHRemotePortForwarding, false}, {cfg.DisableSSHAuth, false},
+	}
+	applied := true
+	for _, setting := range expected {
+		if setting.value == nil {
+			return false, errors.New("NetBird daemon returned invalid effective configuration")
+		}
+		applied = applied && *setting.value == setting.want
+	}
 	configuredManager, err := normalizeManagerURL(cfg.ManagementURL)
-	return err == nil && configuredManager == manager && *cfg.DisableDNS && *cfg.DisableClientRoutes &&
-		*cfg.DisableServerRoutes && !*cfg.DisableAutoConnect && !*cfg.ServerSSHAllowed, nil
+	return applied && err == nil && configuredManager == manager, nil
 }
 
 func (e enroller) command(ctx context.Context, args ...string) ([]byte, error) {
