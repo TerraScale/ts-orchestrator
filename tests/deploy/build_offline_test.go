@@ -357,18 +357,15 @@ func newOffline(t *testing.T) *offlineFixture {
 			t.Fatal(err)
 		}
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	exe := fakeToolBinary(t)
 	for _, kind := range []string{"qemu-img", "guestfish", "systemd-sysusers", "systemctl", "release"} {
 		path := filepath.Join(f.shims, kind)
 		if kind == "release" {
 			path = f.tool
 		}
-		// These synchronous command fakes start no worker goroutines. Preserve
-		// race detection while avoiding its default one-second shutdown sleep
-		// on each of the builder's hundreds of command invocations.
+		// These synchronous command fakes start no worker goroutines. Should
+		// they run race-instrumented, skip the race runtime's one-second
+		// shutdown sleep on each of the builder's hundreds of invocations.
 		write(t, path, []byte("#!/bin/sh\nGORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestOfflineCommand$ -- "+kind+" \"$@\"\n"), 0755)
 	}
 	return f

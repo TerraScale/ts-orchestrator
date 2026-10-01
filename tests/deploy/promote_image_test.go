@@ -158,10 +158,7 @@ func newPromotion(t *testing.T) *promotionFixture {
 	t.Helper()
 	dir := t.TempDir()
 	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), fj: filepath.Join(dir, "fj"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("final qcow2 bytes"), kernel: []byte("arm64 kernel")}
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
+	exe := fakeToolBinary(t)
 	for path, kind := range map[string]string{f.fj: "fj", f.tool: "release", filepath.Join(f.bin, "oci"): "oci"} {
 		write(t, path, []byte("#!/bin/sh\nexec "+shellQuote(exe)+" -test.run=^TestPromotionCommand$ -- "+kind+" \"$@\"\n"), 0755)
 	}
