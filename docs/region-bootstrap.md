@@ -26,8 +26,8 @@ for current scope and evidence.
 `generate-controller-material`, the first-seed commands, and the preview
 helper validate only the three mappings listed above. The checked-in
 `deploy/oci-region/plan.json` remains populated for GRU, including its existing
-Forgejo resources and the [operator gateway](#operator-gateway-peering) that
-Forgejo VM hosts. For SFO or FRA, copy it to a separate reviewed plan and fill
+ts-ops resources and the [operator gateway](#operator-gateway-peering) that
+the ts-ops host runs. For SFO or FRA, copy it to a separate reviewed plan and fill
 the cell, region, tenancy, availability domain, compartments, network, Vault,
 key, buckets, IAM identities, host credential secret, resource inventory, and
 cell-specific host profiles. Changing only `cell` and `region` is not enough.
@@ -55,8 +55,8 @@ cell has been deployed.
 | Regional foundation, bootstrap material, and first controller A | Runbook operator; assistant for the currently authorized GRU qualification, until explicit identity, authority, and inventory handoff |
 | Controllers B and C in the admitted cell | `ts-orchestrator` founder after the handoff |
 | ARM managed workload hosts, persistent volumes, enrollment, and workload deployment | `ts-orchestrator` through its reviewed runtime path after the required cell-specific enrollment bundle is available |
-| Operator gateway peering: the LPG pair, the cell and Forgejo peering routes, and the gateway NSG rules | Runbook operator; `ts-orchestrator` never changes them |
-| NetBird server and routing peer on the Forgejo VM | Forgejo VM owner (HomeLab `ops/ts-forgejo-server/netbird/`) |
+| Operator gateway peering: the LPG pair, the cell and ts-ops peering routes, and the gateway NSG rules | Runbook operator; `ts-orchestrator` never changes them |
+| NetBird server and routing peer on the ts-ops host | ts-ops host owner (HomeLab `ops/ts-ops/netbird/`) |
 | Shared Email Delivery | `ts-infra` (four email resources) |
 
 The handoff is a real ownership boundary. Do not launch B or C manually, run a
@@ -161,10 +161,10 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
 
 ## Operator gateway peering
 
-Operators reach the private cell through a NetBird routing peer on the Forgejo
-VM (`ts-forgejo-server`, private IP `10.250.10.155` in `ts-forgejo-vcn`
+Operators reach the private cell through a NetBird routing peer on the ts-ops
+host (Forgejo and NetBird; private IP `10.250.10.155` in `ts-ops-vcn`
 `10.250.0.0/16`). The NetBird server and routing peer belong to that VM's owner
-and are documented in HomeLab `ops/ts-forgejo-server/netbird/`. This runbook
+and are documented in HomeLab `ops/ts-ops/netbird/`. This runbook
 owns the OCI peering and automatic server enrollment inputs: one local peering
 gateway (LPG) in each VCN, one route in each VCN's subnet route table, and the
 gateway rules in the cell NSGs. The routing peer masquerades, so every operator
@@ -180,7 +180,7 @@ also enroll as individual NetBird peers through their image's boot services.
 The gateway never reaches 8443: host enrollment accepts only the enrolling
 instance's own private IP. Servers initiate NetBird management, signal and
 WebSocket relay connections to the gateway `/32` on TCP 443, plus STUN on UDP
-3478. These two stateful egress rules and matching Forgejo NSG ingress from
+3478. These two stateful egress rules and matching ts-ops NSG ingress from
 the private subnet are required. Responses use the stateful rules. The private
 subnet keeps no internet route, NAT gateway, or public IP. The cell's only internet gateway serves the
 [public TerraBase API](#public-terrabase-api) subnet. The OCI Bastion and `operator --nats-forward` remain the break-glass
@@ -195,13 +195,13 @@ be exactly that subnet on the member client port. Egress may reach only the
 cell, NTP, Oracle services, and the gateway `/32` on TCP 443 and UDP 3478; both
 NetBird rules must be present. The private route table must hold only the
 service-gateway route and the `10.250.10.155/32` peering route. Inventory
-admits only Forgejo's internet gateway, the recorded public API gateway and
+admits only ts-ops's internet gateway, the recorded public API gateway and
 network load balancer, and the recorded LPG pair. `inspect-foundation`
 reads back both LPGs (`PEERED`, each other's peer, no LPG route table, exact
 advertised CIDRs), the member workload NSG, and the gateway VNIC (one primary
 VNIC at `10.250.10.155` with source/destination checks enabled). It discovers
 the gateway's attached NSGs and requires explicit stateful HTTPS and STUN
-ingress from the planned private subnet, while preserving Forgejo's unrelated
+ingress from the planned private subnet, while preserving ts-ops's unrelated
 public and owner-access rules.
 
 ### Automatic server enrollment
@@ -217,10 +217,10 @@ remain automatic. NetBird enrollment does not depend on a controller becoming
 healthy first.
 
 Set `plan.netbird.management_url` to `https://netbird.terrascale.tech` and
-`management_ip` to the Forgejo private gateway address. The enrollment command
+`management_ip` to the ts-ops private gateway address. The enrollment command
 maintains an `/etc/hosts` entry for that hostname and address, so TLS keeps the
 public certificate name while traffic follows the private LPG route. Public
-DNS resolves the same hostname to Forgejo's public address for operator
+DNS resolves the same hostname to ts-ops's public address for operator
 devices. The manager's signal and WebSocket relay endpoints must use that
 same hostname on 443; STUN uses 3478. Existing within-cell egress already
 permits direct peer traffic. Keep the server setup key restricted to the
@@ -263,21 +263,21 @@ and confirm that its existing peer identity reconnects.
 Start from a reviewed plan copy that declares `operator_gateway` with null LPG
 IDs. Set `NETWORK_COMPARTMENT`, `CELL_VCN`, `CELL_RT`, `CONTROL_NSG`,
 `SEED_SSH_NSG`, `WORKLOAD_NSG`, and `CELL_SL` from that plan, and
-`FORGEJO_COMPARTMENT`, `FORGEJO_VCN`, `FORGEJO_RT`, and `FORGEJO_NSG` from the
-Forgejo resource manifest and primary VNIC.
+`OPS_COMPARTMENT`, `OPS_VCN`, `OPS_RT`, and `OPS_NSG` from the
+ts-ops resource manifest and primary VNIC.
 
 1. Take a read-only snapshot. Save both route tables with their ETags and all
    three cell NSGs, and confirm that no LPG exists and that the only internet
-   gateways are Forgejo's and the public API's:
+   gateways are ts-ops's and the public API's:
 
    ```sh
    oci network route-table get --rt-id "$CELL_RT" > cell-rt-before.json
-   oci network route-table get --rt-id "$FORGEJO_RT" > forgejo-rt-before.json
+   oci network route-table get --rt-id "$OPS_RT" > ops-rt-before.json
    oci network security-list get --security-list-id "$CELL_SL" > cell-sl-before.json
-   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG" "$FORGEJO_NSG"; do
+   for nsg in "$CONTROL_NSG" "$SEED_SSH_NSG" "$WORKLOAD_NSG" "$OPS_NSG"; do
      oci network nsg rules list --nsg-id "$nsg" --all > "nsg-rules-$nsg-before.json"
    done
-   for compartment in "$NETWORK_COMPARTMENT" "$FORGEJO_COMPARTMENT"; do
+   for compartment in "$NETWORK_COMPARTMENT" "$OPS_COMPARTMENT"; do
      oci network local-peering-gateway list --compartment-id "$compartment" --all
      oci network internet-gateway list --compartment-id "$compartment" --all
    done
@@ -290,14 +290,14 @@ Forgejo resource manifest and primary VNIC.
    ```sh
    CELL_LPG=$(oci network local-peering-gateway create \
      --compartment-id "$NETWORK_COMPARTMENT" --vcn-id "$CELL_VCN" \
-     --display-name gru-ts-forgejo --wait-for-state AVAILABLE \
+     --display-name terrascale-gru-netbird --wait-for-state AVAILABLE \
      --query data.id --raw-output)
-   FORGEJO_LPG=$(oci network local-peering-gateway create \
-     --compartment-id "$FORGEJO_COMPARTMENT" --vcn-id "$FORGEJO_VCN" \
-     --display-name ts-forgejo-gru --wait-for-state AVAILABLE \
+   OPS_LPG=$(oci network local-peering-gateway create \
+     --compartment-id "$OPS_COMPARTMENT" --vcn-id "$OPS_VCN" \
+     --display-name ts-ops-netbird-gru --wait-for-state AVAILABLE \
      --query data.id --raw-output)
    oci network local-peering-gateway connect \
-     --local-peering-gateway-id "$CELL_LPG" --peer-id "$FORGEJO_LPG"
+     --local-peering-gateway-id "$CELL_LPG" --peer-id "$OPS_LPG"
    ```
 
    Both LPGs must read back `peering-status` `PEERED`, with the other VCN's CIDR
@@ -317,8 +317,8 @@ Forgejo resource manifest and primary VNIC.
    oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 4222)"
    oci network nsg rules add --nsg-id "$SEED_SSH_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 22)"
    oci network nsg rules add --nsg-id "$WORKLOAD_NSG" --security-rules "$(tcp_rule 10.250.10.155/32 9465)"
-   oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 443)"
-   oci network nsg rules add --nsg-id "$FORGEJO_NSG" --security-rules "$(udp_rule 10.251.0.0/25 3478)"
+   oci network nsg rules add --nsg-id "$OPS_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 443)"
+   oci network nsg rules add --nsg-id "$OPS_NSG" --security-rules "$(udp_rule 10.251.0.0/25 3478)"
    for port in 4222 6222 8443; do
      oci network nsg rules add --nsg-id "$CONTROL_NSG" --security-rules "$(tcp_rule 10.251.0.0/25 "$port")"
    done
@@ -331,13 +331,13 @@ Forgejo resource manifest and primary VNIC.
    readback. Add exactly two stateful rules with destination `10.250.10.155/32`:
    TCP 443 and UDP 3478. Preserve the existing cell, Oracle service, and NTP
    rules. Review the diff, use the saved security-list ETag with `--if-match`
-   on `oci network security-list update`, and read back the result. The Forgejo
+   on `oci network security-list update`, and read back the result. The ts-ops
    host firewall must allow these same private-subnet destinations and retain
    the public NetBird listener rules.
 4. Add the routes. `route-table update` replaces the whole rule list, so derive
    each list from the saved table, review the diff, and guard the write with
-   the saved ETag. The Forgejo table must keep its default route to the
-   internet gateway; losing it takes Forgejo offline.
+   the saved ETag. The ts-ops table must keep its default route to the
+   internet gateway; losing it takes Forgejo and NetBird offline.
 
    ```sh
    route_rules() {
@@ -347,26 +347,26 @@ Forgejo resource manifest and primary VNIC.
        | with_entries(select(.value != null))] + (if $extra then [$extra] else [] end)' "$1"
    }
    route_rules cell-rt-before.json > cell-rt-restore.json
-   route_rules forgejo-rt-before.json > forgejo-rt-restore.json
+   route_rules ops-rt-before.json > ops-rt-restore.json
    route_rules cell-rt-before.json \
      "{\"destination\":\"10.250.10.155/32\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$CELL_LPG\"}" \
      > cell-rt-rules.json
-   route_rules forgejo-rt-before.json \
-     "{\"destination\":\"10.251.0.0/25\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$FORGEJO_LPG\"}" \
-     > forgejo-rt-rules.json
+   route_rules ops-rt-before.json \
+     "{\"destination\":\"10.251.0.0/25\",\"destinationType\":\"CIDR_BLOCK\",\"networkEntityId\":\"$OPS_LPG\"}" \
+     > ops-rt-rules.json
    diff cell-rt-restore.json cell-rt-rules.json
-   diff forgejo-rt-restore.json forgejo-rt-rules.json
+   diff ops-rt-restore.json ops-rt-rules.json
    oci network route-table update --rt-id "$CELL_RT" --route-rules file://cell-rt-rules.json \
      --if-match "$(jq -r .etag cell-rt-before.json)" --force
-   oci network route-table update --rt-id "$FORGEJO_RT" --route-rules file://forgejo-rt-rules.json \
-     --if-match "$(jq -r .etag forgejo-rt-before.json)" --force
+   oci network route-table update --rt-id "$OPS_RT" --route-rules file://ops-rt-rules.json \
+     --if-match "$(jq -r .etag ops-rt-before.json)" --force
    ```
 
-   Each diff must add exactly one rule. Right after the Forgejo update, confirm
+   Each diff must add exactly one rule. Right after the ts-ops update, confirm
    `curl -fsS https://git.terrascale.tech/api/v1/version` and Git SSH still
-   work. If either fails, restore `forgejo-rt-restore.json` before anything
+   work. If either fails, restore `ops-rt-restore.json` before anything
    else.
-5. Record `CELL_LPG` as `resource_ids.local_peering_gateway` and `FORGEJO_LPG`
+5. Record `CELL_LPG` as `resource_ids.local_peering_gateway` and `OPS_LPG`
    as `operator_gateway.local_peering_gateway_id` in the reviewed plan copy.
    Then run `inventory`, `admit`, and `inspect-foundation`; all three must pass.
 6. From an enrolled NetBird operator device, check that TCP 4222 on the
@@ -379,7 +379,7 @@ Forgejo resource manifest and primary VNIC.
 Remove access in reverse order, so that no route outlives its target:
 
 1. Restore both route tables from `cell-rt-restore.json` and
-   `forgejo-rt-restore.json`, using the same ETag-guarded
+   `ops-rt-restore.json`, using the same ETag-guarded
    `route-table update` with a fresh `get`.
 2. Remove every NSG rule whose source is the gateway:
 
