@@ -136,6 +136,25 @@ func auditSystemd(g *Guest, work string, out io.Writer) error {
 	_, e = fmt.Fprintf(out, "offline unit enablement: guest systemd=%s host tool=%s\n", versions[0], strings.Split(host, "\n")[0])
 	return e
 }
+func auditSSHServer(g *Guest, work string, out io.Writer) error {
+	status, err := g.Read("/var/lib/dpkg/status", filepath.Join(work, "ssh-dpkg-status"))
+	if err != nil {
+		return err
+	}
+	installed := false
+	for _, p := range packages(status) {
+		installed = installed || p["Package"] == "openssh-server" && p["Status"] == "install ok installed"
+	}
+	if !installed {
+		return errors.New("base image must contain the installed openssh-server package")
+	}
+	if err := g.AssertAbsent("/etc/ssh/sshd_not_to_be_run", "OpenSSH disable marker"); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(out, "offline OpenSSH server verified package=openssh-server unit=%s\n", SSHUnit)
+	return err
+}
+
 func auditVolumeTools(g *Guest, work string, out io.Writer) error {
 	status, e := g.Read("/var/lib/dpkg/status", filepath.Join(work, "volume-tools-dpkg-status"))
 	if e != nil {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -90,12 +89,9 @@ func validateSSH(path string) string {
 	}
 	return strings.Join(parts, " ")
 }
-func seedUserData(owner string) []byte {
+func seedUserData() []byte {
 	console := `set -eu; IFS=' ' read -r key_type key_data key_comment < /etc/ssh/ssh_host_ed25519_key.pub; test "$key_type" = ssh-ed25519; test -n "$key_data"; printf '\nTERRASCALE_SEED_A_HOST_KEY_BEGIN\n%s %s\nTERRASCALE_SEED_A_HOST_KEY_END\n' "$key_type" "$key_data" > /dev/console`
-	wire := `{"allow_public_ssh_keys":false,"runcmd":[` + string(must(json.Marshal(console))) + `]`
-	if owner != "" {
-		wire += `,"ssh_authorized_keys":[` + string(must(json.Marshal(validateSSH(owner)))) + `]`
-	}
+	wire := `{"runcmd":[` + string(must(json.Marshal(console))) + `]`
 	return []byte("#cloud-config\n" + wire + "}\n")
 }
 func launchMaterial(path, label string) string {
@@ -130,7 +126,7 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 	if host == nil {
 		fail("plan has no controller-a host")
 	}
-	metadata := Object{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`, "terrascale-controller-manifest-v1": string(manifest), "terrascale-bootstrap-identity-v1": identity, "terrascale-bootstrap-anchor-v1": anchor, "terrascale-host-enrollment-v1": launchMaterial(enrollmentPath, "host enrollment bundle"), "user_data": base64.StdEncoding.EncodeToString(seedUserData(owner))}
+	metadata := Object{"terrascale-bootstrap": `{"schemaVersion":1,"slot":"controller-a"}`, "terrascale-controller-manifest-v1": string(manifest), "terrascale-bootstrap-identity-v1": identity, "terrascale-bootstrap-anchor-v1": anchor, "terrascale-host-enrollment-v1": launchMaterial(enrollmentPath, "host enrollment bundle"), "ssh_authorized_keys": validateSSH(owner), "user_data": base64.StdEncoding.EncodeToString(seedUserData())}
 	size := 0
 	for k, v := range metadata {
 		size += len(k) + len(str(v))
@@ -225,10 +221,6 @@ func (e *Engine) verifySeed(plan Object, inventoryPath, admissionPath string, an
 	}
 	profile := obj(manifest["profile"])
 	nsgIDs := []string{str(ids["network_security_group"])}
-	if truth(ids["seed_ssh_network_security_group"]) {
-		nsgIDs = append(nsgIDs, str(ids["seed_ssh_network_security_group"]))
-	}
-	slices.Sort(nsgIDs)
 	if !eq(manifest["schemaVersion"], 2) || manifest["cell"] != plan["cell"] || manifest["ociRegion"] != plan["region"] || manifest["slot"] != seed["slot"] || manifest["imageArchitecture"] != "linux-arm64" || profile["slot"] != seed["slot"] || profile["compartmentOcid"] != ids["control_compartment"] || profile["availabilityDomain"] != plan["availability_domain"] || profile["faultDomain"] != seed["fault_domain"] || profile["subnetOcid"] != ids["subnet"] || !eq(profile["networkSecurityGroupOcids"], nsgIDs) || profile["shape"] != seed["shape"] || !safeMatch(`[0-9a-f]{64}`, manifest["anchorSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["manifestSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["releaseReceiptSha256"]) {
 		fail("verified seed manifest differs from the recorded controller-a profile")
 	}

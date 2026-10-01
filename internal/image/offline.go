@@ -50,6 +50,9 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	if e = auditVolumeTools(g, o.Work, out); e != nil {
 		return e
 	}
+	if e = auditSSHServer(g, o.Work, out); e != nil {
+		return e
+	}
 	for _, p := range append([]string{Profile, Helper}, Dropins...) {
 		if e = g.AssertAbsent(p, "runtime-priority profile artifact"); e != nil {
 			return e
@@ -63,7 +66,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	if e = g.AssertAbsent(App+"/host-enrollment-public.json", "host enrollment public bundle"); e != nil {
 		return e
 	}
-	bootstrap := []string{Bootstrap + "/anchor.json", Bootstrap + "/identity.json", Bootstrap + "/host-enrollment-public.json"}
+	bootstrap := []string{Bootstrap + "/anchor.json", Bootstrap + "/identity.json", Bootstrap + "/host-enrollment-public.json", Bootstrap + "/operator-ssh-key.pub"}
 	for i := range o.BootstrapRoots {
 		bootstrap = append(bootstrap, fmt.Sprintf("%s/trust-roots/%03d.pem", Bootstrap, i+1))
 	}

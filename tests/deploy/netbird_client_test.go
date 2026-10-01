@@ -255,8 +255,13 @@ func TestNetbirdAdditiveInstallerPreservesOrchestrator(t *testing.T) {
 func TestNetbirdUnitsRetryWithoutGatingOrchestrator(t *testing.T) {
 	daemon := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/netbird.service")))
 	enrollment := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-netbird-enroll.service")))
-	for _, want := range []string{"service run --config /var/lib/netbird/config.json --log-file console", "CAP_NET_ADMIN", "DeviceAllow=/dev/net/tun rw", "StateDirectoryMode=0700"} {
+	for _, want := range []string{"service run --config /var/lib/netbird/config.json --log-file console", "StateDirectoryMode=0700", "KillMode=process"} {
 		contains(t, daemon, want)
+	}
+	for _, confinement := range []string{"CapabilityBoundingSet", "NoNewPrivileges", "ProtectSystem", "ProtectHome", "RestrictSUIDSGID", "DevicePolicy"} {
+		if strings.Contains(daemon, confinement) {
+			t.Errorf("NetBird SSH sessions need an unconfined daemon: %s", confinement)
+		}
 	}
 	for _, want := range []string{"Restart=on-failure", "StartLimitIntervalSec=0", "TimeoutStartSec=180s", "ConditionPathExists=/etc/terrascale-orchestrator/netbird.json", "UnsetEnvironment=OCI_GO_SDK_DEBUG"} {
 		contains(t, enrollment, want)

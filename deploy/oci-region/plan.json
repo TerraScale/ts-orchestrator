@@ -102,9 +102,7 @@
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
-            }
-        ],
-        "seed_ssh_nsg_rules": [
+            },
             {
                 "direction": "INGRESS",
                 "protocol": "6",
@@ -194,6 +192,32 @@
                 "destination_type": null,
                 "tcp_min": 9465,
                 "tcp_max": 9465,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.251.0.18/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 22,
+                "tcp_max": 22,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "INGRESS",
+                "protocol": "6",
+                "source": "10.250.10.155/32",
+                "source_type": "CIDR_BLOCK",
+                "destination": null,
+                "destination_type": null,
+                "tcp_min": 22,
+                "tcp_max": 22,
                 "udp_min": null,
                 "udp_max": null,
                 "stateless": false
@@ -402,7 +426,6 @@
         "vcn": null,
         "subnet": null,
         "network_security_group": null,
-        "seed_ssh_network_security_group": null,
         "workload_network_security_group": null,
         "security_list": null,
         "route_table": null,

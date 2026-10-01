@@ -18,7 +18,7 @@ RemainAfterExit=yes
 Restart=on-failure
 RestartSec=10s
 ExecStart=/usr/local/bin/terrascale-orchestrator bootstrap-controller --config /etc/terrascale-orchestrator/controller.json
-# Nodes without SSH report admission failures through the serial console.
+# Admission failures also reach the serial console, readable before any SSH path is up.
 StandardError=journal+console
 TimeoutStartSec=300s
 UMask=0077

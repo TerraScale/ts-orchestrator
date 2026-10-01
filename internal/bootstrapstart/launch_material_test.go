@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,8 @@ func launchMaterialFixture(t *testing.T) (bakedStore, LaunchMaterial) {
 	}
 	store := bakedStore{directory: directory, ownerUID: uint32(os.Getuid()),
 		ownerGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
-	return store, LaunchMaterial{Identity: identity, Anchor: anchorWire, HostEnrollment: hostEnrollmentFixture(t)}
+	return store, LaunchMaterial{Identity: identity, Anchor: anchorWire, HostEnrollment: hostEnrollmentFixture(t),
+		OperatorSSHKey: []byte(testOperatorSSHKey)}
 }
 
 func hostEnrollmentFixture(t *testing.T) []byte {
@@ -125,7 +127,8 @@ func TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles(t *testing.T) {
 	}
 	loaded, err := store.loadLaunchMaterial()
 	if err != nil || string(loaded.Identity) != string(material.Identity) ||
-		string(loaded.Anchor) != string(material.Anchor) || string(loaded.HostEnrollment) != string(material.HostEnrollment) {
+		string(loaded.Anchor) != string(material.Anchor) || string(loaded.HostEnrollment) != string(material.HostEnrollment) ||
+		string(loaded.OperatorSSHKey) != testOperatorSSHKey {
 		t.Fatalf("installed launch material differs: %v", err)
 	}
 	baked, err := store.load()
@@ -174,5 +177,35 @@ func TestInstallLaunchMaterialRejectsBundleOutsideImageLayout(t *testing.T) {
 	material.HostEnrollment = wire
 	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); !errors.Is(err, ErrLaunchMaterial) {
 		t.Fatalf("host bundle with a foreign managed root was accepted: %v", err)
+	}
+}
+
+func TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey(t *testing.T) {
+	_, blob, _ := strings.Cut(testOperatorSSHKey, " ")
+	blob, _, _ = strings.Cut(blob, " ")
+	rsa := "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 operator"
+	for _, key := range []string{"", testOperatorSSHKey + "\n", "ssh-ed25519  " + blob, "ssh-ed25519 " + blob + " a b",
+		"ssh-ed25519 " + blob + " bad;comment", "ssh-ed25519 " + blob[:len(blob)-4], rsa,
+		"ssh-ed25519 " + base64.StdEncoding.EncodeToString(append([]byte("\x00\x00\x00\x07ssh-rsa"), make([]byte, 36)...))} {
+		store, material := launchMaterialFixture(t)
+		material.OperatorSSHKey = []byte(key)
+		if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); !errors.Is(err, ErrLaunchMaterial) {
+			t.Fatalf("operator SSH key %q was accepted: %v", key, err)
+		}
+	}
+	store, material := launchMaterialFixture(t)
+	material.OperatorSSHKey = []byte("ssh-ed25519 " + blob)
+	if err := store.installLaunchMaterial(t.Context(), fetchOnce(t, material), time.Now().UTC()); err != nil {
+		t.Fatalf("operator SSH key without a comment was rejected: %v", err)
+	}
+}
+
+func TestLaunchMetadataForwardsOperatorSSHKey(t *testing.T) {
+	for name, metadata := range map[string]map[string]string{
+		"controller": testLaunchMaterial.ControllerMetadata(), "host": testLaunchMaterial.HostMetadata(),
+	} {
+		if metadata[OperatorSSHKeyMetadataKey] != testOperatorSSHKey {
+			t.Fatalf("%s launch metadata omits the operator SSH key: %v", name, metadata)
+		}
 	}
 }
