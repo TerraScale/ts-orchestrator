@@ -120,7 +120,7 @@ func TestEnrollmentKeyIsFileOnlyAndRemovedOnSuccessOrFailure(t *testing.T) {
 					t.Fatal("setup key exposed in process arguments")
 				}
 				if args[0] == "up" {
-					for _, flag := range append([]string{"--hostname", "--no-browser"}, upSettings...) {
+					for _, flag := range append([]string{"--hostname", "--no-browser"}, upSettings()...) {
 						if !slices.Contains(args, flag) {
 							t.Fatalf("missing enrollment flag %s", flag)
 						}

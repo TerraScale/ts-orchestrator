@@ -2,9 +2,11 @@ package netbird
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,14 +18,33 @@ const (
 	commandLimit    = 40 * time.Second
 )
 
-// upSettings keep servers off NetBird DNS and routing while serving NetBird
+// serverSettings keep servers off NetBird DNS and routing while serving NetBird
 // SSH. Sessions require the operator's IdP identity (JWT) and a manager
 // policy; local forwarding reaches loopback-only tools, remote forwarding is
 // refused.
-var upSettings = []string{
-	"--disable-dns", "--disable-client-routes", "--disable-server-routes", "--disable-auto-connect=false",
-	"--allow-server-ssh=true", "--enable-ssh-root=true", "--enable-ssh-sftp=true",
-	"--enable-ssh-local-port-forwarding=true", "--enable-ssh-remote-port-forwarding=false", "--disable-ssh-auth=false",
+var serverSettings = []struct {
+	flag string
+	key  string
+	want bool
+}{
+	{"--disable-dns", "disableDns", true},
+	{"--disable-client-routes", "disableClientRoutes", true},
+	{"--disable-server-routes", "disableServerRoutes", true},
+	{"--disable-auto-connect", "disableAutoConnect", false},
+	{"--allow-server-ssh", "serverSSHAllowed", true},
+	{"--enable-ssh-root", "enableSSHRoot", true},
+	{"--enable-ssh-sftp", "enableSSHSFTP", true},
+	{"--enable-ssh-local-port-forwarding", "enableSSHLocalPortForwarding", true},
+	{"--enable-ssh-remote-port-forwarding", "enableSSHRemotePortForwarding", false},
+	{"--disable-ssh-auth", "disableSSHAuth", false},
+}
+
+func upSettings() []string {
+	args := make([]string, 0, len(serverSettings))
+	for _, setting := range serverSettings {
+		args = append(args, setting.flag+"="+strconv.FormatBool(setting.want))
+	}
+	return args
 }
 
 type commandRunner func(context.Context, string, ...string) ([]byte, error)
@@ -94,7 +115,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 		return errors.New("cannot determine a valid server hostname for NetBird")
 	}
 	args := append([]string{"up", "--config", netbirdConfig, "--management-url", cfg.ManagementURL,
-		"--hostname", hostname, "--no-browser"}, upSettings...)
+		"--hostname", hostname, "--no-browser"}, upSettings()...)
 	if managerMatches && !current.needsLogin() {
 		// Login with the saved WireGuard identity first. A network outage must
 		// not consume a new setup key or replace an existing registration.
@@ -214,46 +235,30 @@ func (e enroller) waitReady(ctx context.Context, manager string) error {
 }
 
 // settingsApplied reports whether the daemon's effective configuration
-// matches upSettings for the TerraScale manager.
+// matches the same serverSettings used to construct the enrollment flags.
 func (e enroller) settingsApplied(ctx context.Context, manager string) (bool, error) {
 	wire, err := e.command(ctx, "debug", "config")
 	if err != nil {
 		return false, errors.New("cannot query effective NetBird configuration")
 	}
 	defer clear(wire)
-	var cfg struct {
-		ManagementURL                 string `json:"managementUrl"`
-		DisableDNS                    *bool  `json:"disableDns"`
-		DisableClientRoutes           *bool  `json:"disableClientRoutes"`
-		DisableServerRoutes           *bool  `json:"disableServerRoutes"`
-		DisableAutoConnect            *bool  `json:"disableAutoConnect"`
-		ServerSSHAllowed              *bool  `json:"serverSSHAllowed"`
-		EnableSSHRoot                 *bool  `json:"enableSSHRoot"`
-		EnableSSHSFTP                 *bool  `json:"enableSSHSFTP"`
-		EnableSSHLocalPortForwarding  *bool  `json:"enableSSHLocalPortForwarding"`
-		EnableSSHRemotePortForwarding *bool  `json:"enableSSHRemotePortForwarding"`
-		DisableSSHAuth                *bool  `json:"disableSSHAuth"`
-	}
+	var cfg map[string]jsontext.Value
 	if len(wire) > 1<<20 || json.Unmarshal(wire, &cfg) != nil {
 		return false, errors.New("NetBird daemon returned invalid effective configuration")
 	}
-	expected := []struct {
-		value *bool
-		want  bool
-	}{
-		{cfg.DisableDNS, true}, {cfg.DisableClientRoutes, true}, {cfg.DisableServerRoutes, true},
-		{cfg.DisableAutoConnect, false}, {cfg.ServerSSHAllowed, true}, {cfg.EnableSSHRoot, true},
-		{cfg.EnableSSHSFTP, true}, {cfg.EnableSSHLocalPortForwarding, true},
-		{cfg.EnableSSHRemotePortForwarding, false}, {cfg.DisableSSHAuth, false},
-	}
 	applied := true
-	for _, setting := range expected {
-		if setting.value == nil {
+	for _, setting := range serverSettings {
+		var value *bool
+		if json.Unmarshal(cfg[setting.key], &value) != nil || value == nil {
 			return false, errors.New("NetBird daemon returned invalid effective configuration")
 		}
-		applied = applied && *setting.value == setting.want
+		applied = applied && *value == setting.want
 	}
-	configuredManager, err := normalizeManagerURL(cfg.ManagementURL)
+	var managementURL string
+	if json.Unmarshal(cfg["managementUrl"], &managementURL) != nil {
+		return false, errors.New("NetBird daemon returned invalid effective configuration")
+	}
+	configuredManager, err := normalizeManagerURL(managementURL)
 	return applied && err == nil && configuredManager == manager, nil
 }
 
