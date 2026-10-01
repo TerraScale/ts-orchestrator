@@ -26,6 +26,7 @@ const (
 	identityMetadataEndpoint           = imdsBaseURL + "metadata/" + IdentityMetadataKey
 	anchorMetadataEndpoint             = imdsBaseURL + "metadata/" + AnchorMetadataKey
 	hostEnrollmentMetadataEndpoint     = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
+	operatorSSHKeyMetadataEndpoint     = imdsBaseURL + "metadata/" + OperatorSSHKeyMetadataKey
 	identityEndpoint                   = imdsBaseURL + "id"
 	maxDescriptorBytes                 = 4096
 	MaxControllerManifestMetadataBytes = 30 << 10
@@ -110,9 +111,10 @@ func (imds IMDSClient) FetchControllerManifest(ctx context.Context) ([]byte, err
 	return imds.fetch(ctx, controllerManifestEndpoint, MaxControllerManifestMetadataBytes)
 }
 
-// FetchLaunchMaterial reads the deployment identity, signed anchor and host
-// enrollment bundle delivered in launch metadata. The caller verifies the
-// anchor against the image's trust roots before installing any of them.
+// FetchLaunchMaterial reads the deployment identity, signed anchor, host
+// enrollment bundle and operator SSH key delivered in launch metadata. The
+// caller verifies the anchor against the image's trust roots before installing
+// any of them.
 func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial, error) {
 	identity, err := imds.fetch(ctx, identityMetadataEndpoint, maxIdentity)
 	if errors.Is(err, errMetadataAbsent) {
@@ -129,13 +131,19 @@ func (imds IMDSClient) FetchLaunchMaterial(ctx context.Context) (LaunchMaterial,
 	if err != nil {
 		return LaunchMaterial{}, fmt.Errorf("read launch host enrollment metadata: %w", err)
 	}
-	return LaunchMaterial{Identity: identity, Anchor: anchor, HostEnrollment: enrollment}, nil
+	operatorSSHKey, err := imds.fetch(ctx, operatorSSHKeyMetadataEndpoint, maxOperatorSSHKey)
+	if err != nil {
+		return LaunchMaterial{}, fmt.Errorf("read launch operator SSH key metadata: %w", err)
+	}
+	return LaunchMaterial{Identity: identity, Anchor: anchor, HostEnrollment: enrollment,
+		OperatorSSHKey: operatorSSHKey}, nil
 }
 
 func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64) ([]byte, error) {
 	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
 		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
-		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint {
+		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint &&
+		endpoint != operatorSSHKeyMetadataEndpoint {
 		return nil, ErrInvalidDescriptor
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)

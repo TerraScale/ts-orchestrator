@@ -458,9 +458,8 @@ func TestVMStartupRoutesAPICallsAndSeparatesBoundedLogs(t *testing.T) {
 	os.Mkdir(logs, 0700)
 	socket := filepath.Join(dir, "socket")
 	os.Mkdir(socket, 0700)
-	script.Write(t, filepath.Join(socket, "api.sock"), nil, 0600)
 	binary := filepath.Join(dir, "vmm")
-	script.Write(t, binary, []byte("#!/bin/sh\nprintf 'serial output\\n'\nprintf 'vmm output\\n' >&2\nsleep 20\n"), 0700)
+	script.Write(t, binary, []byte("#!/bin/sh\nprintf 'serial output\\n'\nprintf 'vmm output\\n' >&2\n: > \"$2\"\nsleep 20\n"), 0700)
 	vm := &VM{Firecracker: binary, Kernel: "kernel", Image: "rootfs", ManagedVolume: "managed-volume.ext4", SocketDir: socket, Logs: logs, Events: &EventLog{Path: filepath.Join(logs, "events.json")}}
 	var calls []APIRequest
 	vm.API = func(ctx context.Context, method, path string, payload Object) error {

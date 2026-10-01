@@ -99,7 +99,7 @@ func (e *Engine) run(argv []string) {
 	}
 	plan := e.loadPlan(path)
 	if command == "seed-launch" {
-		require("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment and --out", "reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "out")
+		require("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment, --owner-ssh-public-key and --out", "reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "owner_ssh_public_key", "out")
 		launch := e.seedLaunch(plan, get("reviewed_plan"), get("manifest"), get("identity"), get("anchor"), get("host_enrollment"), get("owner_ssh_public_key"))
 		wire := append(must(json.Marshal(launch, json.Deterministic(true), jsontext.Multiline(true))), '\n')
 		writeBytes(get("out"), wire, 0600)

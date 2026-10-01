@@ -608,10 +608,6 @@ func (a *Attempt) PhaseSign() {
 	var profiles []any
 	for _, slot := range Slots {
 		nsgs := []string{str(ids, "network_security_group")}
-		if slot == "controller-a" {
-			nsgs = append(nsgs, str(ids, "seed_ssh_network_security_group"))
-		}
-		slices.Sort(nsgs)
 		profiles = append(profiles, Object{"slot": slot, "compartmentOcid": ids["control_compartment"], "availabilityDomain": plan["availability_domain"], "faultDomain": hosts[slot]["fault_domain"], "subnetOcid": ids["subnet"], "networkSecurityGroupOcids": nsgs, "shape": hosts[slot]["shape"]})
 	}
 	for _, slot := range Slots {

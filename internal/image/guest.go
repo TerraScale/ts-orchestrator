@@ -32,7 +32,7 @@ const OCIDevicePaths = "/etc/udev/rules.d/65-terrascale-oci-device-paths.rules"
 
 var Dropins = []string{"/etc/systemd/system/system.slice.d/50-terrascale-memory-protection.conf", "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf", "/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf"}
 var NetBirdUnits = []string{"netbird.service", "terrascale-netbird-enroll.service"}
-var Units = []string{"systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service"}
+var Units = []string{"systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service", "ssh.socket"}
 var HostUnits = []string{"terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host-setup.timer", "terrascale-orchestrator-host-volume-init.socket"}
 var HostUnitFiles = append(append([]string{}, HostUnits...), "terrascale-orchestrator-host-volume-init.service")
 var VolumeTools = []string{"/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"}

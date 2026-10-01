@@ -260,6 +260,8 @@ func TestOfflineCommand(t *testing.T) {
 						switch key {
 						case "WantedBy":
 							link = filepath.Join(root, "etc/systemd/system", item+".wants", name)
+						case "RequiredBy":
+							link = filepath.Join(root, "etc/systemd/system", item+".requires", name)
 						case "Alias":
 							link = filepath.Join(root, "etc/systemd/system", item)
 						default:
@@ -331,7 +333,7 @@ func newOffline(t *testing.T) *offlineFixture {
 	if err := os.Symlink("vmlinuz-"+offlineKernelRelease, f.path("/boot/vmlinuz")); err != nil {
 		t.Fatal(err)
 	}
-	write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\nPackage: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\nPackage: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\n"), 0644)
+	write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\nPackage: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\nPackage: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\nPackage: openssh-server\nStatus: install ok installed\nVersion: 1:9.6p1-3ubuntu13.14\n\n"), 0644)
 	for _, path := range []string{"/usr/sbin/mkfs.ext4", "/usr/sbin/blkid", "/usr/sbin/wipefs", "/usr/bin/mount"} {
 		write(t, f.path(path), []byte("pinned base image volume tool fixture"), 0755)
 	}
@@ -345,6 +347,7 @@ func newOffline(t *testing.T) *offlineFixture {
 	for _, name := range []string{"systemd-timesyncd.service", "systemd-time-wait-sync.service"} {
 		write(t, f.path("/usr/lib/systemd/system/"+name), []byte("[Unit]\nDescription="+name+"\n[Install]\nWantedBy=sysinit.target\n"), 0644)
 	}
+	write(t, f.path("/usr/lib/systemd/system/ssh.socket"), []byte("[Unit]\nDescription=OpenBSD Secure Shell server socket\n[Install]\nWantedBy=sockets.target\nRequiredBy=ssh.service\n"), 0644)
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)

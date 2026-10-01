@@ -125,13 +125,10 @@ func (e *Engine) liveNetwork(plan, ids Object) {
 	if subnet["lifecycle-state"] != "AVAILABLE" || subnet["compartment-id"] != ids["network_compartment"] || subnet["vcn-id"] != ids["vcn"] || subnet["cidr-block"] != plan["subnet_cidr"] || subnet["prohibit-public-ip-on-vnic"] != true || subnet["prohibit-internet-ingress"] != true || !eq(subnet["security-list-ids"], []any{ids["security_list"]}) || subnet["route-table-id"] != ids["route_table"] {
 		fail("live subnet security, route, compartment, or CIDR differs from the plan")
 	}
-	for _, row := range []struct{ key, rules, label string }{{"network_security_group", "nsg_rules", "controller network security group"}, {"seed_ssh_network_security_group", "seed_ssh_nsg_rules", "seed-A SSH network security group"}, {"workload_network_security_group", "workload_nsg_rules", "member workload network security group"}} {
+	for _, row := range []struct{ key, rules, label string }{{"network_security_group", "nsg_rules", "controller network security group"}, {"workload_network_security_group", "workload_nsg_rules", "member workload network security group"}} {
 		id := ids[row.key]
 		if !truth(id) {
 			if truth(expected[row.rules]) {
-				if row.key == "seed_ssh_network_security_group" {
-					fail("plan declares a seed-A SSH exception without its exact network security group OCID")
-				}
 				fail("plan declares member workload rules without their exact network security group OCID")
 			}
 			continue

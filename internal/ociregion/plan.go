@@ -10,8 +10,8 @@ import (
 
 var cellRegions = map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}
-var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "seed_ssh_network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
-var ingressLists = []string{"nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules"}
+var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
+var ingressLists = []string{"nsg_rules", "workload_nsg_rules", "security_list_ingress_rules"}
 var ruleFields = []string{"direction", "protocol", "source", "source_type", "destination", "destination_type", "tcp_min", "tcp_max", "udp_min", "udp_max", "stateless"}
 
 func requireOCID(value any, kind, region string) string {
@@ -155,7 +155,7 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 	if gateway != nil {
 		source = text(gateway["private_ip"]) + "/32"
 	}
-	ports := map[string]int{"nsg_rules": 4222, "seed_ssh_nsg_rules": 22, "workload_nsg_rules": 9465}
+	ports := map[string]int{"nsg_rules": 4222, "workload_nsg_rules": 9465}
 	for _, key := range ingressLists {
 		for _, v := range arr(sec[key]) {
 			r := obj(v)
@@ -164,8 +164,8 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 			}
 			if source != "" && r["source"] == source {
 				port, ok := ports[key]
-				if !ok || r["protocol"] != "6" || !eq(r["tcp_min"], port) || !eq(r["tcp_max"], port) {
-					fail("manual plan " + key + " admits the operator gateway outside its single allowed port")
+				if !ok || r["protocol"] != "6" || !eq(r["tcp_min"], r["tcp_max"]) || (!eq(r["tcp_min"], 22) && !eq(r["tcp_min"], port)) {
+					fail("manual plan " + key + " admits the operator gateway outside its allowed ports")
 				}
 			} else if !within(r["source"], network) {
 				fail("manual plan " + key + " admits a source outside the private cell")
@@ -370,7 +370,7 @@ func (e *Engine) loadPlan(path string) Object {
 		}
 	}
 	sec := obj(p["network_security"])
-	if !exact(sec, "nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules", "security_list_egress_rules", "route_rules", "service_gateway_service_id", "service_gateway_cidr_block") {
+	if !exact(sec, "nsg_rules", "workload_nsg_rules", "security_list_ingress_rules", "security_list_egress_rules", "route_rules", "service_gateway_service_id", "service_gateway_cidr_block") {
 		fail("manual plan must declare exact network and security state")
 	}
 	for _, key := range append(append([]string{}, ingressLists...), "security_list_egress_rules") {
