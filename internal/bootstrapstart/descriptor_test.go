@@ -86,6 +86,25 @@ func TestFetchLaunchMaterialReportsNonControllerInstance(t *testing.T) {
 	}
 }
 
+func TestFetchLaunchMaterialReadsOperatorSSHKey(t *testing.T) {
+	bodies := map[string]string{
+		identityMetadataEndpoint: `{"identity":1}`, anchorMetadataEndpoint: `{"anchor":1}`,
+		hostEnrollmentMetadataEndpoint: `{"bundle":1}`, operatorSSHKeyMetadataEndpoint: testOperatorSSHKey,
+	}
+	client := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(request *http.Request) (*http.Response, error) {
+		body, ok := bodies[request.URL.String()]
+		if !ok {
+			t.Fatalf("unexpected launch material endpoint: %s", request.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}}
+	material, err := client.FetchLaunchMaterial(t.Context())
+	if err != nil || string(material.OperatorSSHKey) != testOperatorSSHKey ||
+		string(material.HostEnrollment) != `{"bundle":1}` {
+		t.Fatalf("launch material = %+v, %v", material, err)
+	}
+}
+
 func TestIMDSInstanceIDIsOnlyALocalLocator(t *testing.T) {
 	client := IMDSClient{client: &http.Client{Transport: imdsRoundTrip(func(request *http.Request) (*http.Response, error) {
 		if request.URL.String() != identityEndpoint || request.Header.Get("Authorization") != "Bearer Oracle" {

@@ -53,15 +53,16 @@ CELL_REGIONS = {"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankf
 FORGEJO_FIELDS = {"instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id",
                   "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb"}
 GATEWAY_FIELDS = {"private_ip", "vcn_cidr", "local_peering_gateway_id"}
-# The operator gateway reaches exactly one TCP port through each cell NSG.
-GATEWAY_PORTS = {"nsg_rules": 4222, "seed_ssh_nsg_rules": 22, "workload_nsg_rules": 9465}
+# The operator gateway reaches OpenSSH on every server and one service port
+# through each cell NSG.
+GATEWAY_PORTS = {"nsg_rules": {22, 4222}, "workload_nsg_rules": {22, 9465}}
 # Servers initiate management, signal and WebSocket relay connections over
 # HTTPS; STUN uses the same private gateway address. No internet egress is needed.
 NETBIRD_GATEWAY_PORTS = {("6", 443, 443, None, None), ("17", None, None, 3478, 3478)}
 NETBIRD_FIELDS = {"management_url", "management_ip", "secret_compartment_id", "setup_key_secret_id",
                   "policy_id", "policy_name"}
 NETBIRD_MANAGEMENT_URL = "https://netbird.terrascale.tech"
-INGRESS_RULE_LISTS = ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules")
+INGRESS_RULE_LISTS = ("nsg_rules", "workload_nsg_rules", "security_list_ingress_rules")
 ROUTE_TARGET_IDS = {"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 NTP_DESTINATION = "169.254.169.254/32"
 PUBLIC_API_FIELDS = {"subnet_cidr", "listener_port", "client_port"}
@@ -242,9 +243,9 @@ def validate_private_rule_boundary(network_security: dict, network: ipaddress.IP
                     rule["destination"] is not None or rule["destination_type"] is not None):
                 fail(f"manual plan {key} must hold stateful CIDR ingress rules only")
             if rule["source"] == gateway_source:
-                port = GATEWAY_PORTS.get(key)
-                if port is None or rule["protocol"] != "6" or rule["tcp_min"] != port or rule["tcp_max"] != port:
-                    fail(f"manual plan {key} admits the operator gateway outside its single allowed port")
+                if (rule["protocol"] != "6" or rule["tcp_min"] != rule["tcp_max"] or
+                        rule["tcp_min"] not in GATEWAY_PORTS.get(key, set())):
+                    fail(f"manual plan {key} admits the operator gateway outside its allowed ports")
             elif not cidr_within(rule["source"], network):
                 fail(f"manual plan {key} admits a source outside the private cell")
             elif public_subnet is not None and ipaddress.IPv4Network(rule["source"]).overlaps(public_subnet):
@@ -323,8 +324,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         fail("manual host addresses must be unique and inside the private subnet")
     ids = plan.get("resource_ids")
     id_keys = {"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn",
-               "subnet", "network_security_group", "seed_ssh_network_security_group",
-               "workload_network_security_group", "security_list", "route_table", "service_gateway",
+               "subnet", "network_security_group", "workload_network_security_group", "security_list", "route_table", "service_gateway",
                "local_peering_gateway", *PUBLIC_API_IDS, "controller_dynamic_group", "controller_policy",
                "objectstorage_key_policy", "host_dynamic_group", "host_policy",
                "instances", "boot_volumes", "data_volumes"}
@@ -333,7 +333,6 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
     for key, kind in (("control_compartment", "compartment"), ("network_compartment", "compartment"),
                       ("workload_compartment", "compartment"), ("vault", "vault"), ("key", "key"),
                       ("vcn", "vcn"), ("subnet", "subnet"), ("network_security_group", "networksecuritygroup"),
-                      ("seed_ssh_network_security_group", "networksecuritygroup"),
                       ("workload_network_security_group", "networksecuritygroup"), ("security_list", "securitylist"),
                       ("route_table", "routetable"), ("service_gateway", "servicegateway"),
                       ("local_peering_gateway", "localpeeringgateway"), *PUBLIC_API_IDS.items(),
@@ -343,7 +342,6 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         if ids[key] is not None:
             require_ocid(ids[key], kind, plan["region"] if key in {"vault", "key", "vcn", "subnet",
                                                                      "network_security_group",
-                                                                     "seed_ssh_network_security_group",
                                                                      "workload_network_security_group",
                                                                      "security_list", "route_table", "service_gateway",
                                                                      "local_peering_gateway", *PUBLIC_API_IDS} else None)
@@ -391,7 +389,7 @@ def load_plan(path: pathlib.Path = PLAN) -> dict:
         fail("manual public API resources require a declared public API")
     network_security = plan.get("network_security")
     if not isinstance(network_security, dict) or set(network_security) != {
-            "nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules", "security_list_ingress_rules",
+            "nsg_rules", "workload_nsg_rules", "security_list_ingress_rules",
             "security_list_egress_rules", "route_rules", "service_gateway_service_id", "service_gateway_cidr_block"}:
         fail("manual plan must declare exact network and security state")
     for key in (*INGRESS_RULE_LISTS, "security_list_egress_rules"):
@@ -1387,16 +1385,14 @@ def validate_ssh_ed25519_public_key(path: pathlib.Path) -> str:
     return " ".join(parts)
 
 
-def seed_user_data(owner_key_path: pathlib.Path | None) -> bytes:
+def seed_user_data() -> bytes:
     console_key = (
         "set -eu; IFS=' ' read -r key_type key_data key_comment < /etc/ssh/ssh_host_ed25519_key.pub; "
         "test \"$key_type\" = ssh-ed25519; test -n \"$key_data\"; "
         "printf '\\nTERRASCALE_SEED_A_HOST_KEY_BEGIN\\n%s %s\\nTERRASCALE_SEED_A_HOST_KEY_END\\n' "
         "\"$key_type\" \"$key_data\" > /dev/console"
     )
-    config: dict[str, object] = {"allow_public_ssh_keys": False, "runcmd": [console_key]}
-    if owner_key_path is not None:
-        config["ssh_authorized_keys"] = [validate_ssh_ed25519_public_key(owner_key_path)]
+    config = {"runcmd": [console_key]}
     return ("#cloud-config\n" + json.dumps(config, separators=(",", ":"), ensure_ascii=True) + "\n").encode("ascii")
 
 
@@ -1412,11 +1408,13 @@ def read_launch_material(path: pathlib.Path, label: str) -> str:
 
 def seed_launch(plan: dict, reviewed_path: pathlib.Path, manifest_path: pathlib.Path, identity_path: pathlib.Path,
                 anchor_path: pathlib.Path, host_enrollment_path: pathlib.Path,
-                owner_key_path: pathlib.Path | None) -> dict:
+                owner_key_path: pathlib.Path) -> dict:
     """Render the complete OCI CLI launch input for controller A.
 
     The image carries only trust roots; the signed manifest, deployment
-    identity, signed anchor and host enrollment bundle travel in metadata.
+    identity, signed anchor, host enrollment bundle and operator SSH key travel
+    in metadata. Controller A forwards the same material to every server it
+    launches, and cloud-init authorizes the key on each of them.
     """
     reviewed = read_json(reviewed_path, MAX_SEED_MANIFEST_BYTES, "reviewed seed plan")
     manifest_wire = validate_seed_manifest(manifest_path, plan["cell"])
@@ -1431,14 +1429,14 @@ def seed_launch(plan: dict, reviewed_path: pathlib.Path, manifest_path: pathlib.
     host_a = next((host for host in plan["hosts"] if host["slot"] == "controller-a"), None)
     if host_a is None:
         fail("plan has no controller-a host")
-    user_data = seed_user_data(owner_key_path)
     metadata = {
         "terrascale-bootstrap": json.dumps({"schemaVersion": 1, "slot": "controller-a"}, separators=(",", ":")),
         "terrascale-controller-manifest-v1": manifest_wire.decode("utf-8"),
         "terrascale-bootstrap-identity-v1": identity,
         "terrascale-bootstrap-anchor-v1": anchor,
         "terrascale-host-enrollment-v1": read_launch_material(host_enrollment_path, "host enrollment bundle"),
-        "user_data": base64.b64encode(user_data).decode("ascii"),
+        "ssh_authorized_keys": validate_ssh_ed25519_public_key(owner_key_path),
+        "user_data": base64.b64encode(seed_user_data()).decode("ascii"),
     }
     if sum(len(key) + len(value.encode("utf-8")) for key, value in metadata.items()) > MAX_INSTANCE_METADATA_BYTES:
         fail("controller-a launch metadata exceeds the OCI instance metadata limit")
@@ -1548,8 +1546,7 @@ def verify_seed_preflight(plan: dict, inventory_path: pathlib.Path, admission_pa
             profile.get("availabilityDomain") != plan["availability_domain"] or
             profile.get("faultDomain") != seed["fault_domain"] or
             profile.get("subnetOcid") != ids["subnet"] or
-            profile.get("networkSecurityGroupOcids") != sorted([ids["network_security_group"], *(
-                [ids["seed_ssh_network_security_group"]] if ids.get("seed_ssh_network_security_group") else [])]) or
+            profile.get("networkSecurityGroupOcids") != [ids["network_security_group"]] or
             profile.get("shape") != seed["shape"] or
             not re.fullmatch(r"[0-9a-f]{64}", manifest_summary.get("anchorSha256", "")) or
             not re.fullmatch(r"[0-9a-f]{64}", manifest_summary.get("manifestSha256", "")) or
@@ -1731,17 +1728,6 @@ def check_live_network(plan: dict, ids: dict) -> None:
     rules = oci("network", "nsg", "rules", "list", "--nsg-id",
                 ids["network_security_group"], region=region)
     compare_security_rules(rules, expected["nsg_rules"], "controller network security group")
-    seed_nsg_id = ids.get("seed_ssh_network_security_group")
-    if seed_nsg_id:
-        seed_nsg = require_live_id(oci("network", "nsg", "get", "--nsg-id", seed_nsg_id, region=region),
-                                   seed_nsg_id, "seed-A SSH network security group")
-        if seed_nsg.get("compartment-id") != ids["network_compartment"] or seed_nsg.get("vcn-id") != ids["vcn"]:
-            fail("live seed-A SSH network security group is attached to an unexpected compartment or VCN")
-        seed_rules = oci("network", "nsg", "rules", "list", "--nsg-id",
-                         seed_nsg_id, region=region)
-        compare_security_rules(seed_rules, expected["seed_ssh_nsg_rules"], "seed-A SSH network security group")
-    elif expected["seed_ssh_nsg_rules"]:
-        fail("plan declares a seed-A SSH exception without its exact network security group OCID")
     workload_nsg_id = ids.get("workload_network_security_group")
     if workload_nsg_id:
         workload_nsg = require_live_id(oci("network", "nsg", "get", "--nsg-id", workload_nsg_id, region=region),
@@ -2662,9 +2648,10 @@ def main() -> None:
     parser.add_argument("--previous-staged-versions", type=pathlib.Path)
     args = parser.parse_args()
     if args.command == "seed-launch":
-        required = ("reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "out")
+        required = ("reviewed_plan", "manifest", "identity", "anchor", "host_enrollment", "owner_ssh_public_key", "out")
         if any(getattr(args, key) is None for key in required):
-            fail("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment and --out")
+            fail("seed launch requires --reviewed-plan, --manifest, --identity, --anchor, --host-enrollment, "
+                 "--owner-ssh-public-key and --out")
         plan = load_plan(args.plan)
         launch = seed_launch(plan, args.reviewed_plan, args.manifest, args.identity, args.anchor,
                              args.host_enrollment, args.owner_ssh_public_key)

@@ -13,7 +13,8 @@ import (
 )
 
 const testSetupKey = "884b8bcf-16bc-4d2c-8a3f-ae5f8b6b3ba3"
-const safeConfigJSON = `{"managementUrl":"https://netbird.terrascale.tech","disableDns":true,"disableClientRoutes":true,"disableServerRoutes":true,"disableAutoConnect":false,"serverSSHAllowed":false}`
+const appliedConfigJSON = `{"managementUrl":"https://netbird.terrascale.tech","disableDns":true,"disableClientRoutes":true,"disableServerRoutes":true,"disableAutoConnect":false,` +
+	`"serverSSHAllowed":true,"enableSSHRoot":true,"enableSSHSFTP":true,"enableSSHLocalPortForwarding":true,"enableSSHRemotePortForwarding":false,"disableSSHAuth":false}`
 
 func testConfig() Config {
 	return Config{ManagementURL: DefaultManagementURL, ManagementIP: "10.250.10.155", Region: DefaultRegion,
@@ -48,7 +49,7 @@ func TestConnectedEnrollmentDoesNotReadVaultOrRunUp(t *testing.T) {
 	e.run = func(ctx context.Context, binary string, args ...string) ([]byte, error) {
 		commands = append(commands, args[0])
 		if args[0] == "debug" {
-			return []byte(safeConfigJSON), nil
+			return []byte(appliedConfigJSON), nil
 		}
 		if binary != netbirdBinary || args[0] != "status" || !slices.Contains(args, "--json") {
 			t.Fatalf("unexpected command: %s %v", binary, args)
@@ -77,7 +78,7 @@ func TestSavedIdentityReconnectDoesNotReadSetupKey(t *testing.T) {
 	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 		commands = append(commands, args[0])
 		if args[0] == "debug" {
-			return []byte(safeConfigJSON), nil
+			return []byte(appliedConfigJSON), nil
 		}
 		if args[0] == "up" {
 			if slices.Contains(args, "--setup-key-file") || slices.Contains(args, "--setup-key") {
@@ -113,13 +114,13 @@ func TestEnrollmentKeyIsFileOnlyAndRemovedOnSuccessOrFailure(t *testing.T) {
 			connected := false
 			e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
 				if args[0] == "debug" {
-					return []byte(safeConfigJSON), nil
+					return []byte(appliedConfigJSON), nil
 				}
 				if strings.Contains(strings.Join(args, " "), testSetupKey) {
 					t.Fatal("setup key exposed in process arguments")
 				}
 				if args[0] == "up" {
-					for _, flag := range []string{"--disable-dns", "--disable-client-routes", "--disable-server-routes", "--disable-auto-connect=false", "--allow-server-ssh=false", "--hostname", "--no-browser"} {
+					for _, flag := range append([]string{"--hostname", "--no-browser"}, upSettings()...) {
 						if !slices.Contains(args, flag) {
 							t.Fatalf("missing enrollment flag %s", flag)
 						}
@@ -182,35 +183,58 @@ func TestEnrollmentDoesNotConsumeKeyDuringNetworkOutage(t *testing.T) {
 	}
 }
 
-func TestConnectedIdentityAppliesUnsafeLegacyConfigurationWithoutVault(t *testing.T) {
+func TestConnectedIdentityAppliesServerSettingsWithoutVault(t *testing.T) {
+	for name, stale := range map[string]string{
+		"ssh disabled": strings.Replace(appliedConfigJSON, `"serverSSHAllowed":true`, `"serverSSHAllowed":false`, 1),
+		"dns enabled":  strings.Replace(appliedConfigJSON, `"disableDns":true`, `"disableDns":false`, 1),
+		"ssh auth off": strings.Replace(appliedConfigJSON, `"disableSSHAuth":false`, `"disableSSHAuth":true`, 1),
+		"remote forwarding": strings.Replace(appliedConfigJSON,
+			`"enableSSHRemotePortForwarding":false`, `"enableSSHRemotePortForwarding":true`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := testEnroller(t)
+			configured := false
+			var commands []string
+			e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+				commands = append(commands, args[0])
+				switch args[0] {
+				case "debug":
+					if configured {
+						return []byte(appliedConfigJSON), nil
+					}
+					return []byte(stale), nil
+				case "down":
+					return nil, nil
+				case "up":
+					if slices.Contains(args, "--setup-key-file") {
+						t.Fatal("applying server settings consumed a setup key")
+					}
+					configured = true
+					return nil, nil
+				default:
+					return statusJSON("Connected", DefaultManagementURL, true), nil
+				}
+			}
+			if err := e.enroll(t.Context(), testConfig()); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(commands, []string{"status", "debug", "down", "up", "status", "status", "debug"}) {
+				t.Fatalf("configuration was not applied to existing identity: %v", commands)
+			}
+		})
+	}
+}
+
+func TestEffectiveConfigurationWithoutSSHFieldsIsRejected(t *testing.T) {
 	e := testEnroller(t)
-	configured := false
-	var commands []string
 	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-		commands = append(commands, args[0])
-		switch args[0] {
-		case "debug":
-			if configured {
-				return []byte(safeConfigJSON), nil
-			}
-			return []byte(strings.Replace(safeConfigJSON, `"disableDns":true`, `"disableDns":false`, 1)), nil
-		case "down":
-			return nil, nil
-		case "up":
-			if slices.Contains(args, "--setup-key-file") {
-				t.Fatal("applying safe settings consumed a setup key")
-			}
-			configured = true
-			return nil, nil
-		default:
-			return statusJSON("Connected", DefaultManagementURL, true), nil
+		if args[0] == "debug" {
+			return []byte(strings.Replace(appliedConfigJSON, `"enableSSHRoot":true,`, "", 1)), nil
 		}
+		return statusJSON("Connected", DefaultManagementURL, true), nil
 	}
-	if err := e.enroll(t.Context(), testConfig()); err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(commands, []string{"status", "debug", "down", "up", "status", "status", "debug"}) {
-		t.Fatalf("configuration was not applied to existing identity: %v", commands)
+	if err := e.enroll(t.Context(), testConfig()); err == nil || !strings.Contains(err.Error(), "invalid effective configuration") {
+		t.Fatalf("missing SSH setting was accepted: %v", err)
 	}
 }
 
@@ -237,7 +261,7 @@ func TestDifferentManagerRequiresFreshEnrollmentAndVerification(t *testing.T) {
 		commands = append(commands, args[0])
 		switch args[0] {
 		case "debug":
-			return []byte(safeConfigJSON), nil
+			return []byte(appliedConfigJSON), nil
 		case "down":
 			if !keyRead {
 				t.Fatal("disconnected old manager before retrieving enrollment key")

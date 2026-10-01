@@ -152,9 +152,11 @@ class NetBirdClientTests(unittest.TestCase):
         daemon = (ROOT / "deploy/systemd/netbird.service").read_text()
         enrollment = (ROOT / "deploy/systemd/terrascale-netbird-enroll.service").read_text()
         self.assertIn("service run --config /var/lib/netbird/config.json --log-file console", daemon)
-        self.assertIn("CAP_NET_ADMIN", daemon)
-        self.assertIn("DeviceAllow=/dev/net/tun rw", daemon)
         self.assertIn("StateDirectoryMode=0700", daemon)
+        self.assertIn("KillMode=process", daemon)
+        for confinement in ("CapabilityBoundingSet", "NoNewPrivileges", "ProtectSystem", "ProtectHome",
+                            "RestrictSUIDSGID", "DevicePolicy"):
+            self.assertNotIn(confinement, daemon, "NetBird SSH sessions need an unconfined daemon")
         self.assertIn("Restart=on-failure", enrollment)
         self.assertIn("StartLimitIntervalSec=0", enrollment)
         self.assertIn("TimeoutStartSec=180s", enrollment)

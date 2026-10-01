@@ -117,7 +117,6 @@ class PreviewAdmissionTests(unittest.TestCase):
             "vcn": "ocid1.vcn.oc1.sa-saopaulo-1.testvcn",
             "subnet": "ocid1.subnet.oc1.sa-saopaulo-1.testsubnet",
             "network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testnsg",
-            "seed_ssh_network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testseednsg",
             "workload_network_security_group": "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.testworkloadnsg",
             "security_list": "ocid1.securitylist.oc1.sa-saopaulo-1.testsecuritylist",
             "route_table": "ocid1.routetable.oc1.sa-saopaulo-1.testroute",
@@ -224,11 +223,12 @@ class PreviewAdmissionTests(unittest.TestCase):
         pinned = lambda key: {(rule["tcp_min"], rule["source"]) for rule in network_security[key]}
         gateway = "10.250.10.155/32"
         self.assertEqual(pinned("nsg_rules"), {(4222, "10.251.0.0/25"), (4222, gateway),
-                                               (6222, "10.251.0.0/25"), (8443, "10.251.0.0/25")})
-        self.assertEqual(pinned("seed_ssh_nsg_rules"), {(22, "10.251.0.18/32"), (22, gateway)})
+                                               (6222, "10.251.0.0/25"), (8443, "10.251.0.0/25"),
+                                               (22, "10.251.0.18/32"), (22, gateway)})
         self.assertEqual(pinned("workload_nsg_rules"), {(9443, "10.251.0.21/32"), (9443, "10.251.0.22/32"),
                                                         (9465, "10.251.0.18/32"), (9465, gateway),
-                                                        (9465, "10.251.0.128/26")})
+                                                        (9465, "10.251.0.128/26"),
+                                                        (22, "10.251.0.18/32"), (22, gateway)})
         self.assertEqual(plan["public_api"], {"subnet_cidr": "10.251.0.128/26", "listener_port": 443,
                                                    "client_port": 9465})
         self.assertEqual(network_security["security_list_ingress_rules"], [])
@@ -292,7 +292,7 @@ class PreviewAdmissionTests(unittest.TestCase):
                 ("controller NATS from the whole VCN", add("nsg_rules", rule(4222, "10.251.0.0/24"))),
                 ("controller enrollment from public subnet", add("nsg_rules", rule(8443, "10.251.0.128/26"))),
                 ("member replication from public subnet", add("workload_nsg_rules", rule(9443, "10.251.0.128/26"))),
-                ("SSH from part of public subnet", add("seed_ssh_nsg_rules", rule(22, "10.251.0.160/27")))):
+                ("SSH from part of public subnet", add("workload_nsg_rules", rule(22, "10.251.0.160/27")))):
             with self.subTest(case=name):
                 self.assert_plan_rejected(change, "public API subnet beyond the member client port")
 
@@ -312,11 +312,15 @@ class PreviewAdmissionTests(unittest.TestCase):
         for name, change, message in (
                 ("internet source", add("nsg_rules", rule(4222, "0.0.0.0/0")), "outside the private cell"),
                 ("whole gateway subnet", add("nsg_rules", rule(4222, "10.250.10.0/24")), "outside the private cell"),
-                ("gateway on enrollment", add("nsg_rules", rule(8443, "10.250.10.155/32")), "single allowed port"),
+                ("gateway on enrollment", add("nsg_rules", rule(8443, "10.250.10.155/32")), "its allowed ports"),
                 ("gateway on replication", add("workload_nsg_rules", rule(9443, "10.250.10.155/32")),
-                 "single allowed port"),
+                 "its allowed ports"),
                 ("gateway in security list", add("security_list_ingress_rules", rule(4222, "10.250.10.155/32")),
-                 "single allowed port"),
+                 "its allowed ports"),
+                ("gateway on an SSH port range", add("nsg_rules", rule(22, "10.250.10.155/32", tcp_max=4222)),
+                 "its allowed ports"),
+                ("gateway SSH in security list", add("security_list_ingress_rules", rule(22, "10.250.10.155/32")),
+                 "its allowed ports"),
                 ("stateless gateway rule", add("nsg_rules", rule(6222, "10.250.10.155/32", stateless=True)),
                  "stateful CIDR ingress"),
                 ("NSG egress", add("nsg_rules", rule(4222, None, direction="EGRESS", source_type=None,
@@ -350,7 +354,7 @@ class PreviewAdmissionTests(unittest.TestCase):
         def unplanned_cell_peering(plan):
             plan["operator_gateway"] = None
             plan["network_security"]["route_rules"] = plan["network_security"]["route_rules"][:1]
-            for key in ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules"):
+            for key in ("nsg_rules", "workload_nsg_rules"):
                 plan["network_security"][key] = [rule for rule in plan["network_security"][key]
                                                  if rule["source"] != "10.250.10.155/32"]
             plan["resource_ids"]["local_peering_gateway"] = "ocid1.localpeeringgateway.oc1.sa-saopaulo-1.x"
@@ -740,7 +744,6 @@ class PreviewAdmissionTests(unittest.TestCase):
         existing = plan["existing_forgejo"]
         gateway_nsg_id = f"ocid1.networksecuritygroup.oc1.{plan['region']}.netbirdgateway"
         rule_roles = {ids["network_security_group"]: "nsg_rules",
-                      ids["seed_ssh_network_security_group"]: "seed_ssh_nsg_rules",
                       ids["workload_network_security_group"]: "workload_nsg_rules"}
         peerings = {
             ids["local_peering_gateway"]: {
@@ -870,8 +873,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             with mock.patch.object(preview, "oci", side_effect=self.live_network_oci(plan, ids, {}, rule_commands)):
                 preview.check_live_network(plan, ids)
             self.assertEqual({command[command.index("--nsg-id") + 1] for command in rule_commands},
-                             {ids["network_security_group"], ids["seed_ssh_network_security_group"],
-                              ids["workload_network_security_group"],
+                             {ids["network_security_group"], ids["workload_network_security_group"],
                               f"ocid1.networksecuritygroup.oc1.{plan['region']}.netbirdgateway"})
 
             def widen_port(rules):
@@ -962,7 +964,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             plan["operator_gateway"] = None
             plan["network_security"]["route_rules"] = plan["network_security"]["route_rules"][:1]
             ids = dict(plan["resource_ids"], local_peering_gateway=None)
-            for key in ("nsg_rules", "seed_ssh_nsg_rules", "workload_nsg_rules"):
+            for key in ("nsg_rules", "workload_nsg_rules"):
                 plan["network_security"][key] = [rule for rule in plan["network_security"][key]
                                                  if rule["source"] != "10.250.10.155/32"]
             commands = []
@@ -1058,6 +1060,10 @@ class PreviewAdmissionTests(unittest.TestCase):
                         "payload": {"schemaVersion": 2, "slot": "controller-a",
                                     "seedSlot": "controller-a", "cell": "GRU"}}
             paths = {name: root / f"{name}.json" for name in ("manifest", "identity", "anchor", "enrollment")}
+            paths["owner_key"] = root / "owner.pub"
+            owner_key = ("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl "
+                         "operator@terrascale")
+            paths["owner_key"].write_text(owner_key + "\n")
             paths["manifest"].write_text(json.dumps(envelope))
             paths["identity"].write_text('{"schemaVersion":1,"deploymentId":"ts-preview-gru-r6",'
                                          '"environment":"canary","cell":"GRU"}')
@@ -1074,7 +1080,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             reviewed_path = root / "reviewed.json"
             reviewed_path.write_text(json.dumps(reviewed))
             launch = preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                         paths["anchor"], paths["enrollment"], None)
+                                         paths["anchor"], paths["enrollment"], paths["owner_key"])
             metadata = launch["metadata"]
             self.assertEqual(metadata["terrascale-bootstrap"], '{"schemaVersion":1,"slot":"controller-a"}')
             self.assertEqual(metadata["terrascale-controller-manifest-v1"], paths["manifest"].read_text())
@@ -1084,20 +1090,27 @@ class PreviewAdmissionTests(unittest.TestCase):
             user_data = base64.b64decode(metadata["user_data"])
             self.assertTrue(user_data.startswith(b"#cloud-config\n"))
             self.assertNotIn(b"ssh_authorized_keys", user_data)
+            self.assertNotIn(b"allow_public_ssh_keys", user_data)
+            self.assertEqual(metadata["ssh_authorized_keys"], owner_key)
             self.assertEqual(launch["freeformTags"], {"BootstrapCreateKey": "seed-a-r6"})
             self.assertEqual(launch["displayName"], "ts-preview-gru-r6-controller-a")
             self.assertEqual(launch["privateIp"], "10.251.0.11")
 
+            paths["owner_key"].write_text("ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC7 operator\n")
+            with self.assertRaisesRegex(ValueError, "one OpenSSH Ed25519 public key"):
+                preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
+            paths["owner_key"].write_text(owner_key + "\n")
             paths["anchor"].write_text('{"schemaVersion":1,"payload":{"other":1}}')
             with self.assertRaisesRegex(ValueError, "differs from the reviewed seed plan"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
             paths["anchor"].write_text('{"schemaVersion":1,"payload":{}}')
             envelope["scope"]["cell"] = "FRA"
             paths["manifest"].write_text(json.dumps(envelope))
             with self.assertRaisesRegex(ValueError, "not a controller-a seed envelope"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
             envelope["scope"]["cell"] = "GRU"
             paths["manifest"].write_text(json.dumps(envelope))
             paths["anchor"].write_text(json.dumps({"schemaVersion": 1, "signature": "s" * 32000}))
@@ -1105,7 +1118,7 @@ class PreviewAdmissionTests(unittest.TestCase):
             reviewed_path.write_text(json.dumps(reviewed))
             with self.assertRaisesRegex(ValueError, "exceeds the OCI instance metadata limit"):
                 preview.seed_launch(self.plan, reviewed_path, paths["manifest"], paths["identity"],
-                                    paths["anchor"], paths["enrollment"], None)
+                                    paths["anchor"], paths["enrollment"], paths["owner_key"])
 
     def test_five_host_budget_includes_existing_resources_and_reserves(self):
         cost = preview.estimate(self.plan, self.inventory)

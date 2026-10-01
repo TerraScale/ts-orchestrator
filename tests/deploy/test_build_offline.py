@@ -157,7 +157,8 @@ esac
         (self.base_image_root / "var/lib/dpkg/status").write_text(
             "Package: systemd\nStatus: install ok installed\nVersion: 255.4-1ubuntu8.12\n\n"
             "Package: e2fsprogs\nStatus: install ok installed\nVersion: 1.47.0-2.4~exp1ubuntu4.1\n\n"
-            "Package: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\n",
+            "Package: util-linux\nStatus: install ok installed\nVersion: 2.39.3-9ubuntu6.6\n\n"
+            "Package: openssh-server\nStatus: install ok installed\nVersion: 1:9.6p1-3ubuntu13.14\n\n",
             encoding="utf-8",
         )
         for directory in ("/usr/bin", "/usr/sbin"):
@@ -179,6 +180,15 @@ esac
             (self.base_image_root / "usr/lib/systemd/system" / name).write_text(
                 f"[Unit]\nDescription={name}\n[Install]\nWantedBy=sysinit.target\n", encoding="utf-8"
             )
+        # Noble ships OpenSSH socket activation enabled.
+        (self.base_image_root / "usr/lib/systemd/system/ssh.socket").write_text(
+            "[Unit]\nDescription=OpenBSD Secure Shell server socket\n"
+            "[Install]\nWantedBy=sockets.target\nRequiredBy=ssh.service\n", encoding="utf-8"
+        )
+        for directory in ("sockets.target.wants", "ssh.service.requires"):
+            link = self.base_image_root / "etc/systemd/system" / directory / "ssh.socket"
+            link.parent.mkdir(parents=True)
+            link.symlink_to("/usr/lib/systemd/system/ssh.socket")
         self.fs_metadata = self.root / "fs-metadata.json"
         write_executable(
             self.shims / "guestfish",
@@ -310,6 +320,8 @@ if command == "enable":
             for item in value.split():
                 if key == "WantedBy":
                     link = root / "etc/systemd/system" / (item + ".wants") / name
+                elif key == "RequiredBy":
+                    link = root / "etc/systemd/system" / (item + ".requires") / name
                 elif key == "Alias":
                     link = root / "etc/systemd/system" / item
                 else:
@@ -552,6 +564,8 @@ fi
             link = root / "etc/systemd/system/multi-user.target.wants" / unit
             self.assertTrue(link.is_symlink(), unit)
         self.assertFalse((root / "etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-bootstrap.service").exists())
+        for link in ("sockets.target.wants/ssh.socket", "ssh.service.requires/ssh.socket"):
+            self.assertTrue((root / "etc/systemd/system" / link).is_symlink(), link)
         self.assertNotIn("--run-command", BUILDER.read_text())
         self.assertFalse((root / self.qualification.name).exists())
 
@@ -732,6 +746,10 @@ fi
         paths = (
             "/etc/sysusers.d", "/etc/systemd/system", "/etc/systemd", "/usr/local/bin",
         )
+        # Without /etc/systemd/system the base has no OpenSSH enablement links;
+        # the builder must create them.
+        for directory in ("sockets.target.wants", "ssh.service.requires"):
+            shutil.rmtree(self.base_image_root / "etc/systemd/system" / directory)
         for path in paths:
             (self.base_image_root / path.lstrip("/")).rmdir()
         result = self.run_builder()
@@ -743,6 +761,8 @@ fi
             self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o755, path)
             self.assertEqual(tuple(metadata[path]), (0, 0), path)
         self.assertTrue((self.base_image_root / "etc/sysusers.d/terrascale-orchestrator.conf").is_file())
+        for link in ("sockets.target.wants/ssh.socket", "ssh.service.requires/ssh.socket"):
+            self.assertTrue((self.base_image_root / "etc/systemd/system" / link).is_symlink(), link)
         self.assertTrue(self.output.exists())
 
     def test_unsafe_existing_native_verifier_parents_fail_closed(self) -> None:
@@ -1045,6 +1065,33 @@ fi
                     tool.write_bytes(b"pinned base image volume tool fixture")
                     tool.chmod(0o755)
                 status_path.write_text(original_status, encoding="utf-8")
+
+    def test_every_image_requires_enabled_openssh_server(self) -> None:
+        status_path = self.base_image_root / "var/lib/dpkg/status"
+        original_status = status_path.read_text(encoding="utf-8")
+        status_path.write_text(original_status.replace("Package: openssh-server", "Package: openssh-client"),
+                               encoding="utf-8")
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("installed openssh-server package", result.stderr)
+        self.assertFalse(self.output.exists())
+        status_path.write_text(original_status, encoding="utf-8")
+
+        marker = self.base_image_root / "etc/ssh/sshd_not_to_be_run"
+        marker.parent.mkdir(parents=True)
+        marker.write_text("", encoding="utf-8")
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("OpenSSH disable marker", result.stderr)
+        self.assertFalse(self.output.exists())
+        marker.unlink()
+
+        masked = self.base_image_root / "etc/systemd/system/ssh.socket"
+        masked.symlink_to("/dev/null")
+        result = self.run_builder()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("required systemd unit is masked: ssh.socket", result.stderr)
+        self.assertFalse(self.output.exists())
 
     def test_shipped_host_sandbox_allows_only_its_writable_managed_path(self) -> None:
         if os.geteuid() == 0 or any(shutil.which(command) is None for command in

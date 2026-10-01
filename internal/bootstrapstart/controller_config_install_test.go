@@ -81,14 +81,15 @@ func TestFounderLaunchMetadataReachesControllerConfigInstall(t *testing.T) {
 			BootVolumeGB: 50, BootVolumeTier: bootstrap.FounderBootVolumeTierBalanced},
 	}
 	material := LaunchMaterial{Identity: []byte(`{"identity":1}`), Anchor: gate.AnchorWire,
-		HostEnrollment: []byte(`{"bundle":1}`)}
+		HostEnrollment: []byte(`{"bundle":1}`), OperatorSSHKey: []byte(testOperatorSSHKey)}
 	sdk, err := founderLaunchSDKRequest(request, material)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if sdk.Metadata[AnchorMetadataKey] != string(gate.AnchorWire) ||
 		sdk.Metadata[IdentityMetadataKey] != string(material.Identity) ||
-		sdk.Metadata[hostboot.EnrollmentMetadataKey] != string(material.HostEnrollment) {
+		sdk.Metadata[hostboot.EnrollmentMetadataKey] != string(material.HostEnrollment) ||
+		sdk.Metadata[OperatorSSHKeyMetadataKey] != testOperatorSSHKey {
 		t.Fatal("OCI launch did not carry the controller launch material")
 	}
 	if _, err := founderLaunchSDKRequest(request, LaunchMaterial{}); !errors.Is(err, ErrFounderOCI) {
