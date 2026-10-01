@@ -14,6 +14,14 @@ on:
         description: Full SHA of a main revision with a successful ci.yml run
         required: true
         type: string
+      source_ci_run_id:
+        description: Dispatching ci.yml run ID for automatic builds
+        required: false
+        type: string
+      source_ci_run_number:
+        description: Dispatching ci.yml run number for automatic builds
+        required: false
+        type: string
       trigger:
         description: "ci for the automatic build, manual otherwise"
         required: false
@@ -29,9 +37,11 @@ jobs:
     if: ${{ forgejo.ref == 'refs/heads/main' }}
     name: build/qualified-gru-arm64-image
     runs-on: terrascale-builder
-    timeout-minutes: 60
+    timeout-minutes: 165
     env:
       SOURCE_SHA: ${{ inputs.source_revision }}
+      SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
+      SOURCE_CI_RUN_NUMBER: ${{ inputs.source_ci_run_number }}
     steps:
       - name: Check out the named source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -84,7 +94,7 @@ jobs:
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: |
           FORGEJO_READ_TOKEN_FILE="${RUNNER_TEMP}/forgejo/read-token" \
-            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" 1800
+            bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000
 
       - name: Build the image from the qualified candidate
         if: ${{ steps.gate.outputs.skip != 'true' }}

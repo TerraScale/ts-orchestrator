@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Isolated Actions transport fixture; never contacts a server.
+set -euo pipefail
+if [[ $* == *'dispatches'* ]]; then
+	while (($#)); do
+		if [[ $1 == --data ]]; then printf '%s' "$2" > "$MOCK_ROOT/payload"; break; fi
+		shift
+	done
+	printf '204'
+	exit 0
+fi
+printf '%s\n' "$*" >> "$MOCK_ROOT/requests"
+count=0
+if [[ -r $MOCK_ROOT/count ]]; then read -r count < "$MOCK_ROOT/count"; fi
+((count += 1))
+printf '%s\n' "$count" > "$MOCK_ROOT/count"
+case $MOCK_MODE:$count in
+	transient:1|persistent:*|supersession-transient:2) exit 22 ;;
+	null:1) printf '{"workflow_runs":null}'; exit 0 ;;
+	malformed:1) printf '{'; exit 0 ;;
+esac
+if [[ $* == *'status=success'* ]]; then
+	latest=$MOCK_SOURCE
+	id=42
+	if [[ $MOCK_MODE == newer ]]; then latest=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; id=100; fi
+	jq -cn --arg source "$latest" --argjson id "$id" \
+		'{workflow_runs:[{id:$id,workflow_id:"ci.yml",prettyref:"main",commit_sha:$source,status:"success"}]}'
+else
+	id=42
+	if [[ $MOCK_MODE == wrong-id ]]; then id=41; fi
+	# A newer same-SHA run is cancelled; the dispatching run must win.
+	jq -cn --arg source "$MOCK_SOURCE" --arg status "$MOCK_STATUS" --argjson id "$id" \
+		'{workflow_runs:[{id:$id,workflow_id:"ci.yml",prettyref:"main",commit_sha:$source,status:$status},
+		  {id:99,workflow_id:"ci.yml",prettyref:"main",commit_sha:$source,status:"cancelled"}]}'
+fi
