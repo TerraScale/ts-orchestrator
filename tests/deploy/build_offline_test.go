@@ -437,6 +437,7 @@ func (f *offlineFixture) cleanTemp() {
 	equal(f.t, len(matches), 0)
 }
 func TestOfflineVerifiedInputsInstalled(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	r := f.run(nil, nil, nil)
 	successful(t, r)
@@ -501,6 +502,7 @@ func TestOfflineVerifiedInputsInstalled(t *testing.T) {
 }
 
 func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, message string
 		prepare       func(*offlineFixture)
@@ -534,6 +536,7 @@ func TestOfflineRejectsBadPublicInputsBeforeImageEffects(t *testing.T) {
 	}
 }
 func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
+	t.Parallel()
 	for _, guest := range []string{netbirdGuest, netbirdConfigGuest, "/usr/local/bin/terrascale-orchestrator", verifierGuest, ociRuleGuest, kernelGuest} {
 		t.Run(guest, func(t *testing.T) {
 			f := newOffline(t)
@@ -545,6 +548,7 @@ func TestOfflineReadbackMismatchDiscardsCandidate(t *testing.T) {
 	}
 }
 func TestOfflineRejectsBaseArtifacts(t *testing.T) {
+	t.Parallel()
 	paths := append([]string{ociRuleGuest}, deploymentPaths...)
 	paths = append(paths, priorityProfileGuest)
 	paths = append(paths, priorityDropins...)
@@ -575,6 +579,7 @@ func TestOfflineRejectsBaseArtifacts(t *testing.T) {
 	}
 }
 func TestOfflineDeploymentMaterialNeverBaked(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
 	for _, path := range deploymentPaths {
@@ -595,6 +600,7 @@ func TestOfflineDeploymentMaterialNeverBaked(t *testing.T) {
 	equal(t, names(f.path(bootstrapDir+"/trust-roots")), []string{"001.pem", "002.pem"})
 }
 func TestOfflineRejectsDeploymentFlagsBeforeImageEffects(t *testing.T) {
+	t.Parallel()
 	for _, flag := range []string{"--bootstrap-tool", "--bootstrap-anchor", "--bootstrap-identity", "--host-enrollment-public", "--host-enrollment-public-sha256", "--receipt", "--delegation", "--root-key", "--environment"} {
 		t.Run(flag, func(t *testing.T) {
 			f := newOffline(t)
@@ -609,6 +615,7 @@ func TestOfflineRejectsDeploymentFlagsBeforeImageEffects(t *testing.T) {
 	}
 }
 func TestOfflineValidatesRevisionAndKernelReleaseBeforeEffects(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ flag, value string }{{"--source-revision", "HEAD"}, {"--source-revision", strings.ToUpper(offlineSource)}, {"--kernel-release", "../vmlinuz"}} {
 		t.Run(tc.flag+"="+tc.value, func(t *testing.T) {
 			f := newOffline(t)
@@ -619,6 +626,7 @@ func TestOfflineValidatesRevisionAndKernelReleaseBeforeEffects(t *testing.T) {
 	}
 }
 func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, message string
 		prepare       func(*offlineFixture)
@@ -659,6 +667,7 @@ func TestOfflineBaseKernelMustBeOneARM64ImageWithModules(t *testing.T) {
 	})
 }
 func TestOfflineCreatesMissingUploadParents(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		paths []string
@@ -697,6 +706,7 @@ func TestOfflineCreatesMissingUploadParents(t *testing.T) {
 	}
 }
 func TestOfflineRejectsUnsafeNativeVerifierParents(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, message string
 		prepare       func(*offlineFixture)
@@ -749,6 +759,7 @@ func TestOfflineRejectsUnsafeNativeVerifierParents(t *testing.T) {
 	}
 }
 func TestOfflineRejectsReservedWorkloadIdentityBeforeInstall(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	p := f.path("/etc/passwd")
 	write(t, p, append(read(t, p), []byte("base-user:x:2000:2000:Existing:/var/empty:/usr/sbin/nologin\n")...), 0644)
@@ -756,6 +767,7 @@ func TestOfflineRejectsReservedWorkloadIdentityBeforeInstall(t *testing.T) {
 	absent(t, f.path(verifierGuest))
 }
 func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
+	t.Parallel()
 	for _, guest := range []string{"/etc/sysusers.d", "/usr/local/bin"} {
 		t.Run(guest, func(t *testing.T) {
 			f := newOffline(t)
@@ -771,6 +783,7 @@ func TestOfflineRejectsSymlinkedUploadParents(t *testing.T) {
 	}
 }
 func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
+	t.Parallel()
 	t.Run("version", func(t *testing.T) {
 		f := newOffline(t)
 		write(t, f.path("/var/lib/dpkg/status"), []byte("Package: systemd\nStatus: install ok installed\nVersion: 256.1\n\n"), 0644)
@@ -784,6 +797,7 @@ func TestOfflineRequiresAuditedSystemdAndInstallDirectives(t *testing.T) {
 }
 
 func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	host := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host.service")))
 	contains(t, host, "ProtectSystem=strict\n")
@@ -812,6 +826,7 @@ func TestOfflineManagedRootAndVolumeInitUnits(t *testing.T) {
 	}
 }
 func TestOfflineRequiresPinnedVolumeTools(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, message string
 		missingTool   bool
@@ -832,6 +847,7 @@ func TestOfflineRequiresPinnedVolumeTools(t *testing.T) {
 	}
 }
 func TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		data []byte
@@ -863,6 +879,7 @@ func TestOfflineTimesyncConfigRequiredExplicitAndExcludesLabRange(t *testing.T) 
 	})
 }
 func TestOfflineRejectsCompetingTimesyncConfiguration(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ name, path, contents string }{{"endpoint", "/etc/systemd/timesyncd.conf.d/20-base.conf", "[Time]\nNTP=base.example\n"}, {"poll", "/etc/systemd/timesyncd.conf.d/zz-base.conf", "[Time]\nPollIntervalMaxSec=2048\n"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newOffline(t)
@@ -877,6 +894,7 @@ func TestOfflineRejectsCompetingTimesyncConfiguration(t *testing.T) {
 	}
 }
 func TestOfflineTimesyncSectionsAndMaskPrecedence(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	write(t, f.path("/usr/lib/systemd/timesyncd.conf.d/20-base.conf"), []byte("[Time]\nNTP=hidden.example\n"), 0644)
 	mask := f.path("/etc/systemd/timesyncd.conf.d/20-base.conf")
@@ -893,6 +911,7 @@ func TestOfflineTimesyncSectionsAndMaskPrecedence(t *testing.T) {
 	}
 }
 func TestOfflineMissingTimeSyncUnitsAbortImage(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	f.reject(f.run(nil, nil, map[string]string{"VIRT_FAIL_TIME_UNITS": "1"}), "missing a required systemd time unit")
 	contains(t, f.eventText(), "guestfish-listen")
@@ -919,6 +938,7 @@ func unitDirectives(source, selectedSection string) map[string]string {
 	return out
 }
 func TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex(t *testing.T) {
+	t.Parallel()
 	f := newOffline(t)
 	successful(t, f.run(nil, nil, nil))
 	for _, unit := range []string{"terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"} {
@@ -941,6 +961,7 @@ func TestOfflineClockProbeUnitsKeepReadOnlyAdjtimex(t *testing.T) {
 	}
 }
 func TestOfflineRootSetBoundsBeforeVerification(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name        string
 		count, size int
