@@ -35,12 +35,16 @@ DROPINS = (
     "/etc/systemd/system/terrascale-orchestrator-host.service.d/50-terrascale-memory-protection.conf",
     "/etc/systemd/system/terrascale-orchestrator-controller.service.d/50-terrascale-memory-protection.conf",
 )
+# Operators reach every server through OpenSSH as well as NetBird SSH. Noble
+# serves OpenSSH through socket activation.
+SSH_UNIT = "ssh.socket"
 UNITS = (
     "systemd-timesyncd.service",
     "systemd-time-wait-sync.service",
     "terrascale-orchestrator-controller.service",
     "terrascale-orchestrator-host.service",
     *NETBIRD_UNITS,
+    SSH_UNIT,
 )
 HOST_UNITS = (
     "terrascale-orchestrator-host-setup.service",
@@ -336,6 +340,17 @@ def audit_host_volume_tools(guest: Guest, work: Path) -> None:
     print("offline host volume tools verified packages=e2fsprogs,util-linux tools=" + ",".join(HOST_VOLUME_TOOLS))
 
 
+def audit_ssh_server(guest: Guest, work: Path) -> None:
+    status = guest.read("/var/lib/dpkg/status", work / "ssh-dpkg-status").decode("utf-8")
+    packages = [dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+                for block in status.split("\n\n")]
+    if not any(package.get("Package") == "openssh-server" and package.get("Status") == "install ok installed"
+               for package in packages):
+        raise RuntimeError("base image must contain the installed openssh-server package")
+    guest.assert_absent("/etc/ssh/sshd_not_to_be_run", "OpenSSH disable marker")
+    print("offline OpenSSH server verified package=openssh-server unit=" + SSH_UNIT)
+
+
 def active_time_setting(data: bytes) -> bool:
     try:
         lines = data.decode("utf-8").splitlines()
@@ -561,6 +576,7 @@ def build(args: argparse.Namespace) -> None:
         audit_systemd_version(guest, work)
         audit_time_config(guest, work)
         audit_host_volume_tools(guest, work)
+        audit_ssh_server(guest, work)
         for path in (PROFILE, HELPER, *DROPINS):
             guest.assert_absent(path, "runtime-priority profile artifact")
         for path in (NETBIRD, NETBIRD_CONFIG, "/var/lib/netbird"):
@@ -569,6 +585,7 @@ def build(args: argparse.Namespace) -> None:
         guest.assert_absent(APP + "/host-enrollment-public.json", "host enrollment public bundle")
         for path in (
             BOOTSTRAP + "/anchor.json", BOOTSTRAP + "/identity.json", BOOTSTRAP + "/host-enrollment-public.json",
+            BOOTSTRAP + "/operator-ssh-key.pub",
             *(f"{BOOTSTRAP}/trust-roots/{index:03d}.pem" for index in range(1, len(args.bootstrap_root) + 1)),
         ):
             guest.assert_absent(path, "bootstrap artifact")
