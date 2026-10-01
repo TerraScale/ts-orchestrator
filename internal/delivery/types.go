@@ -20,6 +20,7 @@ const (
 )
 
 var (
+	ErrStoreNotReady     = errors.New("new delivery store is not yet visible")
 	ErrInvalid           = errors.New("invalid delivery input")
 	ErrConflict          = errors.New("delivery operation conflicts with its durable identity")
 	ErrPending           = errors.New("delivery operation has no terminal receipt")

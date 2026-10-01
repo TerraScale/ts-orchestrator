@@ -366,7 +366,7 @@ func newOffline(t *testing.T) *offlineFixture {
 		// These synchronous command fakes start no worker goroutines. Should
 		// they run race-instrumented, skip the race runtime's one-second
 		// shutdown sleep on each of the builder's hundreds of invocations.
-		write(t, path, []byte("#!/bin/sh\nGORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestOfflineCommand$ -- "+kind+" \"$@\"\n"), 0755)
+		write(t, path, []byte("#!/bin/sh\nGOMAXPROCS=2 GORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestOfflineCommand$ -- "+kind+" \"$@\"\n"), 0755)
 	}
 	return f
 }

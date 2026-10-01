@@ -112,7 +112,7 @@ func deployTool(t *testing.T) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "ts-orch")
-	write(t, path, []byte("#!/bin/sh\nGORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestDeployTool$ -- \"$@\"\n"), 0755)
+	write(t, path, []byte("#!/bin/sh\nGOMAXPROCS=2 GORACE=\"${GORACE:+$GORACE }atexit_sleep_ms=0\" exec "+shellQuote(exe)+" -test.run=^TestDeployTool$ -- \"$@\"\n"), 0755)
 	return path
 }
 func runTool(t *testing.T, args ...string) script.Result {

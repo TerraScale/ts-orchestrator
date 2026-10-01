@@ -48,8 +48,7 @@ Go suites with the race detector, including deployment and qualification
 driver contracts. Their operational implementations also use Go; Python is
 not a prerequisite for first-party tooling or tests.
 See [Go testing](docs/testing.md) for focused suites and external prerequisites.
-`make build` creates `dist/ts-orch` for the current host, with a
-`dist/terrascale-orchestrator` compatibility symlink. The same executable runs
+`make build` creates `dist/ts-orch` for the current host. The same executable runs
 the controller, host agent, and operator tooling:
 
 ```bash

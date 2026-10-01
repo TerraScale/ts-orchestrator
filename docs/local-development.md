@@ -31,8 +31,7 @@ standard `testing` package and are included in `go test ./...`. Their operationa
 implementations also use Go. Use `make test` for an
 ordinary full run or `mise exec -- go test ./tests/deploy -run TestName` for a
 focused contract. Actual VM qualification is run separately. `make build`
-writes the current-platform binary to `dist/ts-orch`, with a
-`dist/terrascale-orchestrator` compatibility symlink. Use `ts-orch` for operator
+writes the current-platform binary to `dist/ts-orch`. Use `ts-orch` for operator
 tasks and implement new operational tooling as Go subcommands rather than
 Python scripts; see [contributing](../CONTRIBUTING.md). Run verification with
 `umask 022`, as the qualification tests check exact file modes.

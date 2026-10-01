@@ -152,6 +152,11 @@ func TestOwnedProcessGroupCleanup(t *testing.T) {
 				mode = "leader"
 			}
 			p := processFixture(t, mode, ready, progress)
+			stopTimeout := time.Second
+			if mode == "graceful" {
+				// Race-instrumented Go processes pause for one second at exit.
+				stopTimeout = 3 * time.Second
+			}
 			if kind == "already_reaped" {
 				if e := p.Cmd.Wait(); e != nil {
 					t.Fatal(e)
@@ -194,7 +199,7 @@ func TestOwnedProcessGroupCleanup(t *testing.T) {
 				}
 				return
 			}
-			if e := p.Stop(time.Second, false); e != nil {
+			if e := p.Stop(stopTimeout, false); e != nil {
 				t.Fatal(e)
 			}
 			if !p.Reaped {
