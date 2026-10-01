@@ -904,7 +904,7 @@ func (l *ManagedLab) Exercise() error {
 		if status == 200 && exactFields(read, []string{"status", "body"}) && integer(read["status"]) == 200 && integer(body["version"]) == 1 && body["state"] == "value" && len(siblings) == 1 {
 			value := object(siblings[0])
 			generation, _ := integerExact(binding["schema_generation"])
-			if value["kind"] == "live" && jsonEqual(value["fields"], []any{}) && value["schema_generation"] == strconv.FormatUint(generation, 10) && value["schema_digest"] == binding["schema_digest"] {
+			if value["kind"] == "live" && jsonEqual(value["document"], Object{}) && value["schema_generation"] == strconv.FormatUint(generation, 10) && value["schema_digest"] == binding["schema_digest"] {
 				l.Note("https_peer_read", Object{"member": "b", "status": 200, "point": body, "document_id": binding["document_id"]})
 				readReady = true
 				break

@@ -11,7 +11,7 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify ci-verify format-check test vet race-test build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
 
 verify: format-check vet race-test
 
@@ -35,6 +35,14 @@ vet:
 
 race-test:
 	GO="$(GO)" bash scripts/ci/race-test.sh
+
+# Walk through two local tb-server members built from the paired TerraBase
+# revision, in a finite memory cgroup as tb-server requires:
+# make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>
+terrabase-walkthrough-process:
+	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
+	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
+		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
 
 build:
 	mkdir -p dist

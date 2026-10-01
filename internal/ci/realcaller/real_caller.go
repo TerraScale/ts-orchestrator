@@ -746,7 +746,7 @@ func Scenario(ctx context.Context, o Options, run Runner) (Object, error) {
 	if _, e = rand.Read(nonce[:]); e != nil {
 		return nil, e
 	}
-	transaction := Object{"version": 1, "transaction_id": Object{"expires_at_unix_ms": strconv.FormatInt(time.Now().UnixMilli()+3600000, 10), "nonce": hex.EncodeToString(nonce[:])}, "writes": []any{Object{"collection": o.CollectionID, "document": docID, "schema_generation": strconv.FormatUint(generation, 10), "schema_digest": schemaDigest, "observed": []any{}, "value": Object{"kind": "live", "fields": []any{}}}}}
+	transaction := Object{"version": 1, "transaction_id": Object{"expires_at_unix_ms": strconv.FormatInt(time.Now().UnixMilli()+3600000, 10), "nonce": hex.EncodeToString(nonce[:])}, "writes": []any{Object{"collection": o.CollectionID, "document": docID, "observed": []any{}, "value": Object{"kind": "live", "document": Object{}}}}}
 	receipt, e := Request(ctx, targetA, httpsRoutes[targetA], tlsConfig, token, "POST", prefix+"/transactions", transaction)
 	if e != nil {
 		return nil, e
@@ -769,7 +769,7 @@ func Scenario(ctx context.Context, o Options, run Runner) (Object, error) {
 		siblings := array(value["siblings"])
 		if number(value["version"]) == 1 && value["state"] == "value" && len(siblings) == 1 {
 			v := obj(siblings[0])
-			if v["kind"] == "live" && equal(v["fields"], []any{}) && v["schema_generation"] == strconv.FormatUint(generation, 10) && v["schema_digest"] == schemaDigest {
+			if v["kind"] == "live" && equal(v["document"], Object{}) && v["schema_generation"] == strconv.FormatUint(generation, 10) && v["schema_digest"] == schemaDigest {
 				break
 			}
 		}

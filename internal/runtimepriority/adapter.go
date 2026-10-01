@@ -345,7 +345,7 @@ func (a *Adapter) Dispatch(ctx context.Context, request Object) (result Object, 
 		prefix := fmt.Sprintf("/v1/tenants/%s/databases/%s/shards/%d", str(scope, "tenant_id"), str(scope, "database_id"), n(scope, "shard_id"))
 		writePath := prefix + "/transactions"
 		readPath := fmt.Sprintf("%s/collections/%s/documents/%s", prefix, str(document, "collection_id"), str(request, "document_id"))
-		write := Object{"version": 1, "transaction_id": request["transaction_id"], "writes": []Object{{"collection": document["collection_id"], "document": request["document_id"], "schema_generation": strconv.FormatInt(n(document, "schema_generation"), 10), "schema_digest": document["schema_digest"], "observed": []any{}, "value": Object{"kind": "live", "fields": []Object{{"id": document["field_id"], "value": Object{"type": "i64", "value": strconv.FormatInt(n(request, "value"), 10)}}}}}}}
+		write := Object{"version": 1, "transaction_id": request["transaction_id"], "writes": []Object{{"collection": document["collection_id"], "document": request["document_id"], "observed": []any{}, "value": Object{"kind": "live", "document": Object{str(document, "utf8_field"): strconv.FormatInt(n(request, "value"), 10)}}}}}
 		raw := Canonical(write)
 		started := time.Now()
 		receipt, e := a.https(ctx, request, "source", "POST", writePath, raw)

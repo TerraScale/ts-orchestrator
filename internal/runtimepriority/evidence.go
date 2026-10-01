@@ -101,12 +101,12 @@ func ValidateDatabaseWire(evidence, request, member Object) (result Object, err 
 	transaction := obj(rawJSON(text(evidence["transaction_request_raw"], "transaction request"), "database transaction request", str(evidence, "transaction_request_sha256"), 65536), "transaction request")
 	writes, ok := transaction["writes"].([]any)
 	if !exact(transaction, "version", "transaction_id", "writes") || n(transaction, "version") != 1 || !same(transaction["transaction_id"], request["transaction_id"]) || !ok || len(writes) != 1 {
-		fail("transaction request does not match alpha v1 typed write request")
+		fail("transaction request does not match alpha v1 document write request")
 	}
-	fields := []Object{{"id": document["field_id"], "value": Object{"type": "i64", "value": strconv.FormatInt(n(request, "value"), 10)}}}
-	expected := Object{"collection": document["collection_id"], "document": request["document_id"], "schema_generation": strconv.FormatInt(n(document, "schema_generation"), 10), "schema_digest": document["schema_digest"], "observed": []any{}, "value": Object{"kind": "live", "fields": fields}}
+	expectedDocument := Object{str(document, "utf8_field"): strconv.FormatInt(n(request, "value"), 10)}
+	expected := Object{"collection": document["collection_id"], "document": request["document_id"], "observed": []any{}, "value": Object{"kind": "live", "document": expectedDocument}}
 	if !same(writes[0], expected) {
-		fail("transaction request bytes do not bind exact scoped schema/document/value")
+		fail("transaction request bytes do not bind exact scoped document and value")
 	}
 	receipt := obj(rawJSON(text(evidence["write_receipt_raw"], "write receipt"), "database write receipt", str(evidence, "write_receipt_sha256"), 65536), "write receipt")
 	if !exact(receipt, "version", "durability", "transaction_id", "event", "commit_sequence") {
@@ -146,7 +146,7 @@ func ValidateDatabaseWire(evidence, request, member Object) (result Object, err 
 		if !ok || !same(s["event"], event) {
 			continue
 		}
-		if str(s, "kind") != "live" || str(s, "schema_generation") != strconv.FormatInt(n(document, "schema_generation"), 10) || s["schema_digest"] != document["schema_digest"] || !same(s["fields"], fields) {
+		if str(s, "kind") != "live" || str(s, "schema_generation") != strconv.FormatInt(n(document, "schema_generation"), 10) || s["schema_digest"] != document["schema_digest"] || !same(s["document"], expectedDocument) {
 			fail("peer read event matches receipt but document schema/value does not")
 		}
 		matches++
