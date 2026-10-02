@@ -12,7 +12,10 @@ const resumeSource = "5ff44290b67a91c3b27373c6661d778fe6ef8ffc"
 
 func TestReuseReleaseToolRequiresRecordedDigestAndCleanSource(t *testing.T) {
 	dir := t.TempDir()
-	tool := filepath.Join(dir, "ts-orch")
+	tool := filepath.Join(dir, "build-1", "ts-orch")
+	if err := os.Mkdir(filepath.Dir(tool), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(tool, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}

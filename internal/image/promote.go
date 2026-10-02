@@ -423,7 +423,8 @@ func reuseReleaseTool(ctx context.Context, dir, source string, run Exec) (string
 		Prefix         []string `json:"prefix"`
 	}
 	if readJSON(filepath.Join(dir, releaseToolRecord), &recorded) != nil || recorded.Schema != releaseToolRecordV1 ||
-		recorded.SourceRevision != source || filepath.Dir(recorded.Path) != dir {
+		recorded.SourceRevision != source || filepath.Dir(filepath.Dir(recorded.Path)) != dir ||
+		!strings.HasPrefix(filepath.Base(filepath.Dir(recorded.Path)), "build-") {
 		return "", nil, nil, false
 	}
 	digest, e := fileHash(recorded.Path)
@@ -602,12 +603,19 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		tool, prefix, record, reused = reuseReleaseTool(ctx, toolDir, p.manifest.SourceRevision, nil)
 	}
 	if !reused {
+		buildDir := toolDir
 		if o.ReleaseTool == "" {
 			if e = os.MkdirAll(toolDir, 0755); e != nil {
 				return e
 			}
+			// A fresh build directory per attempt: an interrupted earlier
+			// run may have left its source worktree behind, and git refuses
+			// to add a worktree at an existing path.
+			if buildDir, e = os.MkdirTemp(toolDir, "build-"); e != nil {
+				return e
+			}
 		}
-		if tool, prefix, record, e = BuildReleaseTool(ctx, root, toolDir, p.manifest.SourceRevision, o.ReleaseTool, nil); e != nil {
+		if tool, prefix, record, e = BuildReleaseTool(ctx, root, buildDir, p.manifest.SourceRevision, o.ReleaseTool, nil); e != nil {
 			return e
 		}
 		if o.ReleaseTool == "" {
