@@ -11,7 +11,7 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify ci-verify format-check generate generate-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test dashboard-preview vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test
 
@@ -41,6 +41,12 @@ generate-check:
 
 test:
 	$(GO) test ./...
+
+# Preview the operator dashboard over a fake three-region world on
+# 127.0.0.1:8099. Development only: the dashboardpreview tag keeps the fake
+# data provider out of the orchestrator binary.
+dashboard-preview:
+	$(GO) run -tags dashboardpreview ./cmd/ts-dashboard-preview $(PREVIEW_FLAGS)
 
 vet:
 	$(GO) vet ./...

@@ -431,11 +431,11 @@ TsTopology.prototype.option = async function (spec, t) {
     series: [{
       type: "graph", layout: "force", roam: true, draggable: true, top: 28,
       categories: kinds.map((k) => ({ name: k, symbol: kindShape[k] || "circle", itemStyle: { color: t.ink3 } })),
-      force: { repulsion: 150, edgeLength: [28, 90], gravity: 0.3, friction: 0.25, layoutAnimation: true },
+      force: { repulsion: [90, 900], edgeLength: [26, 120], gravity: 0.1, friction: 0.25, layoutAnimation: true },
       label: { show: true, position: "right", color: t.ink2, fontSize: 10, formatter: (p) => p.data.node.kind === "seat" ? "" : p.data.name },
       emphasis: { focus: "adjacency", lineStyle: { width: 3 } },
       data: (spec.nodes || []).map((n) => ({
-        id: n.id, name: n.name, node: n, category: kinds.indexOf(n.kind),
+        id: n.id, name: n.name, node: n, category: kinds.indexOf(n.kind), value: kindSize[n.kind] || 14,
         symbol: kindShape[n.kind] || "circle", symbolSize: kindSize[n.kind] || 14,
         itemStyle: { color: t.status[n.state] || t.status.idle, borderColor: t.surface, borderWidth: 2 },
       })),

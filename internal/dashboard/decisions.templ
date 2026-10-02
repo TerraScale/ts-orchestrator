@@ -173,7 +173,7 @@ templ decisionStep(current view, decision decisionlog.Decision) {
 			<br/>
 			<small class="muted">
 				@ago(decision.Time)
-				· { upper(decision.Region) } · { kindLabel(decision.Kind) } by { decision.Actor.Slice }
+				{ " · " + upper(decision.Region) } · { kindLabel(decision.Kind) } by { decision.Actor.Slice }
 				if decision.Actor.Member != "" {
 					on { decision.Actor.Member }
 				}

@@ -149,7 +149,7 @@ article > footer { margin: 0.75rem -1rem -0.85rem; }
 .cols { display: grid; gap: var(--pico-spacing); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
 .cols-2 { display: grid; gap: var(--pico-spacing); grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .cols-3 { display: grid; gap: var(--pico-spacing); grid-template-columns: repeat(3, minmax(0, 1fr)); }
-@media (max-width: 1100px) { .cols-2, .cols-3 { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .cols-2, .cols-3 { grid-template-columns: minmax(0, 1fr); } }
 .cols > article, .cols-2 > article, .cols-3 > article { margin: 0; }
 .stack > * + * { margin-top: var(--pico-spacing); }
 .grid.stats { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--pico-spacing); }
@@ -228,7 +228,7 @@ ts-chart:not(:defined), ts-topology:not(:defined), ts-map:not(:defined), ts-time
 .legend-note { font-size: 0.78rem; color: var(--ts-ink-3); }
 
 /* ---- region cards ---- */
-.regions { display: grid; gap: var(--pico-spacing); grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); }
+.regions { display: grid; gap: var(--pico-spacing); margin-block-end: var(--pico-spacing); grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); }
 .region-card { margin: 0; display: flex; flex-direction: column; gap: 0.55rem; }
 .region-card.current { box-shadow: 0 0 0 2px var(--ts-info), var(--ts-shadow); }
 .region-card header { display: flex; justify-content: space-between; align-items: center; margin: 0; padding: 0; }
