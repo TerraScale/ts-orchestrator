@@ -11,14 +11,14 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
 
-verify: format-check vet race-test
+verify: format-check generate-check vet race-test
 
 # CI runs the independent checks and the release build at once. The race
 # scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check vet race-test release-check
+	$(MAKE) --jobs --keep-going --output-sync=none format-check generate-check vet race-test release-check
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -26,6 +26,18 @@ format-check:
 		printf 'Go files need gofmt:\n%s\n' "$$unformatted" >&2; \
 		exit 1; \
 	fi
+
+# Regenerate the committed templ Go files with the generator pinned by the
+# go.mod tool directive, so a plain go build never needs the templ tool.
+generate:
+	$(GO) tool templ fmt internal
+	$(GO) tool templ generate
+
+# Fail when a committed *_templ.go file differs from its .templ source or a
+# source is not templ-formatted. It generates into a scratch copy, so it is
+# safe beside the other ci-verify jobs.
+generate-check:
+	GO="$(GO)" bash scripts/ci/check-templ.sh
 
 test:
 	$(GO) test ./...
