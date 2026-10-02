@@ -1,0 +1,63 @@
+package dashboard
+
+templ rolloutsBody(current view) {
+	<div id="content">
+		<h1>Deploys and rollouts</h1>
+		@notes(current)
+		<article>
+			<h2>Managed runtime updates</h2>
+			if current.placement() == nil {
+				@unavailable("No placement view is available, so rollout progress cannot be shown.")
+			} else if rollouts := current.rollouts(); len(rollouts) == 0 {
+				@unavailable("No managed runtime update is in progress.")
+			} else {
+				<div class="table-scroll">
+					<table class="striped">
+						<thead>
+							<tr><th>Database</th><th>Partition</th><th>Operation</th><th>Artifact</th><th>Progress</th><th>Seats</th><th>Phases</th></tr>
+						</thead>
+						<tbody>
+							for _, database := range rollouts {
+								<tr>
+									<td>{ database.DatabaseID }</td>
+									<td>{ database.PartitionID }</td>
+									<td><code>{ short(database.Rollout.OperationID, 16) }</code></td>
+									<td><code>{ short(orDash(database.Rollout.ArtifactDigest), 19) }</code></td>
+									<td>
+										@ratioBar(database.Rollout.Progress())
+									</td>
+									<td>{ itoa(database.Rollout.Completed) } / { itoa(database.Rollout.Seats) }</td>
+									<td>{ counts(database.Rollout.Phases) }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			}
+		</article>
+		<article>
+			<h2>Delivery intents</h2>
+			{{ reported := 0 }}
+			<table class="striped">
+				<thead><tr><th>Member</th><th>Acknowledged</th><th>Deferred</th><th>Transport retries</th><th>Last acknowledged</th></tr></thead>
+				<tbody>
+					for _, member := range current.members() {
+						if delivery := member.Delivery; delivery != nil {
+							{{ reported++ }}
+							<tr>
+								<td>{ member.Member }</td>
+								<td>{ itoa(delivery.Acknowledged) }</td>
+								<td class={ templ.KV("warn", delivery.Deferred > 0) }>{ itoa(delivery.Deferred) }</td>
+								<td>{ itoa(delivery.TransportRetries) }</td>
+								<td>{ formatTime(delivery.LastAckAt) }</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+			if reported == 0 {
+				@unavailable("No member reported delivery intent counters.")
+			}
+		</article>
+	</div>
+}

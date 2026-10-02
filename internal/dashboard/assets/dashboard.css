@@ -1,0 +1,36 @@
+/* Density overrides for Pico CSS v2 and the dashboard's few own classes.
+   Pico already follows prefers-color-scheme; [data-theme] on <html> pins
+   light or dark when the operator toggles it. */
+:root {
+  --pico-font-size: 87.5%;
+  --pico-line-height: 1.4;
+  --pico-spacing: 0.75rem;
+  --pico-typography-spacing-vertical: 0.75rem;
+  --pico-block-spacing-vertical: 0.75rem;
+  --pico-block-spacing-horizontal: 1rem;
+  --pico-form-element-spacing-vertical: 0.4rem;
+  --pico-form-element-spacing-horizontal: 0.6rem;
+  --ts-ok: #2e7d32;
+  --ts-warn: #b26a00;
+  --ts-bad: #c62828;
+}
+[data-theme="dark"] { --ts-ok: #66bb6a; --ts-warn: #ffb74d; --ts-bad: #ef5350; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --ts-ok: #66bb6a; --ts-warn: #ffb74d; --ts-bad: #ef5350; }
+}
+body > header, body > main, body > footer { padding-block: 0.5rem; }
+nav ul li { padding-block: 0.25rem; }
+nav a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+h1 { font-size: 1.5rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1.05rem; }
+article { margin-block-end: var(--pico-spacing); padding: 0.75rem 1rem; }
+table { font-size: 0.9em; margin-block-end: 0.5rem; }
+th, td { padding: 0.3rem 0.5rem; white-space: nowrap; }
+td.wrap { white-space: normal; word-break: break-word; }
+.grid.stats { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.stat { margin: 0; }
+.stat strong { display: block; font-size: 1.4rem; }
+.ok { color: var(--ts-ok); } .warn { color: var(--ts-warn); } .bad { color: var(--ts-bad); }
+.muted { color: var(--pico-muted-color); }
+progress { margin-block-end: 0; }
+.table-scroll { overflow-x: auto; }
+.narrow { max-width: 28rem; }

@@ -1,0 +1,111 @@
+package dashboard
+
+// themeToggle flips Pico's light and dark palettes and remembers the choice
+// in this browser; without a stored choice Pico follows the system setting.
+const themeToggle = "document.documentElement.dataset.theme = (document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); localStorage.setItem('ts-orch-theme', document.documentElement.dataset.theme)"
+
+const themeRestore = "localStorage.getItem('ts-orch-theme') && (document.documentElement.dataset.theme = localStorage.getItem('ts-orch-theme'))"
+
+templ shell(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="light dark"/>
+			<title>{ title } · TerraScale orchestrator</title>
+			<link rel="stylesheet" href={ assetURL("pico.min.css") }/>
+			<link rel="stylesheet" href={ assetURL("dashboard.css") }/>
+			<script type="module" src={ assetURL("datastar.js") }></script>
+		</head>
+		<body data-init={ themeRestore }>
+			{ children... }
+		</body>
+	</html>
+}
+
+// layout renders a full page. The initial response carries the same content
+// the stream patches later, so every page is readable without JavaScript.
+templ layout(current view) {
+	@shell(current.Page.title) {
+		<header class="container-fluid">
+			<nav>
+				<ul>
+					<li><strong>ts-orch</strong></li>
+					<li><small class="muted">cell { current.cell() } · member { current.memberName() }</small></li>
+				</ul>
+				<ul>
+					for _, entry := range pages {
+						<li>
+							if entry.slug == current.Page.slug {
+								<a href={ templ.SafeURL(entry.href()) } aria-current="page">{ entry.title }</a>
+							} else {
+								<a href={ templ.SafeURL(entry.href()) }>{ entry.title }</a>
+							}
+						</li>
+					}
+					<li>
+						<button type="button" class="outline secondary" data-on:click={ themeToggle } aria-label="Toggle theme">◐</button>
+					</li>
+					if current.SignOut {
+						<li>
+							<form method="post" action="/logout"><button type="submit" class="outline secondary">Sign out</button></form>
+						</li>
+					}
+				</ul>
+			</nav>
+		</header>
+		<main class="container-fluid" data-init={ current.streamAction() }>
+			@current.Page.body(current)
+		</main>
+		<footer class="container-fluid"><small class="muted">Read-only view. Live updates every few seconds while this tab is open.</small></footer>
+	}
+}
+
+// notes renders the view's missing-data notes and readiness banner.
+templ notes(current view) {
+	if !current.Ready {
+		<p class="warn" role="status">
+			This member is not ready:
+			for _, check := range current.Checks {
+				if !check.OK {
+					<span>{ check.Name }: { orDash(check.Detail) }.</span>
+				}
+			}
+		</p>
+	}
+	for _, note := range current.Notes {
+		<p class="muted" role="status">{ note }</p>
+	}
+}
+
+templ unavailable(message string) {
+	<p class="muted"><em>{ message }</em></p>
+}
+
+templ ratioBar(value float64) {
+	<progress class={ ratioClass(value) } value={ progressValue(value) } max="1000"></progress>
+	<small>{ percent(value) }</small>
+}
+
+templ login(failed bool, next string) {
+	@shell("Sign in") {
+		<main class="container narrow">
+			<article>
+				<h1>Sign in</h1>
+				<p class="muted">Enter this listener's observability bearer token. The session lasts 12 hours or until the orchestrator restarts.</p>
+				if failed {
+					<p class="bad" role="alert">That token was not accepted.</p>
+				}
+				<form method="post" action="/login">
+					<input type="hidden" name="next" value={ next }/>
+					<label>
+						Token
+						<input type="password" name="token" autocomplete="current-password" required autofocus/>
+					</label>
+					<button type="submit">Sign in</button>
+				</form>
+			</article>
+		</main>
+	}
+}

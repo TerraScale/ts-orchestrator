@@ -110,6 +110,13 @@ func (server *Server) Handle(pattern string, handler http.Handler) {
 	server.mux.Handle(pattern, server.authenticate(handler))
 }
 
+// HandleStatic mounts an unauthenticated route for public embedded files,
+// such as the dashboard's stylesheet the login form needs. It must never
+// serve cell state.
+func (server *Server) HandleStatic(pattern string, handler http.Handler) {
+	server.mux.Handle(pattern, handler)
+}
+
 // ServeHTTP lets tests and an embedding mux exercise the routes directly.
 func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	// A proxy hop would make the bind address meaningless as an access
