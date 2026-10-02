@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -401,6 +402,8 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 		}
 		return false, stageDeliveryError("receipt", err)
 	}
+	recordIntentDecision(ctx, intent, decisionlog.KindDeliveryApplied, decisionlog.StatusSucceeded, len(op.Plan),
+		"admitted artifact verified and every planned host target written under the intent's authority epoch")
 	return true, nil
 }
 
@@ -412,6 +415,7 @@ func (s *Service) hold(ctx context.Context, key string, op operation, revision u
 		return false, err
 	}
 	if _, err := s.operations.Update(ctx, key, b, revision); err == nil {
+		recordIntentDecision(ctx, i, decisionlog.KindDeliveryHeld, decisionlog.StatusFailed, len(op.Plan), reason)
 		return true, nil
 	}
 	if errors.Is(err, jetstream.ErrKeyRevisionMismatch) {
@@ -513,9 +517,13 @@ func (s *Service) reject(ctx context.Context, wire []byte, reason string) (bool,
 	if err != nil {
 		return false, err
 	}
-	if _, err := s.operations.Create(ctx, key, b); err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
-		return false, fmt.Errorf("record rejected delivery: %w", err)
+	if _, err := s.operations.Create(ctx, key, b); err != nil {
+		if !errors.Is(err, jetstream.ErrKeyExists) {
+			return false, fmt.Errorf("record rejected delivery: %w", err)
+		}
+		return true, nil
 	}
+	recordRejectedWire(ctx, hex.EncodeToString(sum[:]), reason)
 	return true, nil
 }
 
@@ -532,6 +540,7 @@ func (s *Service) rejectIntent(ctx context.Context, wire []byte, intent Intent, 
 	}
 	key := operationKey(intent.OperationID)
 	if _, err := s.operations.Create(ctx, key, b); err == nil {
+		recordIntentDecision(ctx, intent, decisionlog.KindDeliveryRejected, decisionlog.StatusFailed, 0, reason)
 		return true, nil
 	} else if !errors.Is(err, jetstream.ErrKeyExists) {
 		return false, fmt.Errorf("record rejected intent: %w", err)
