@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -56,6 +57,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		}
 		return
 	}
+	tier.Integration(t)
 	// Each startup and shutdown has its own budget. A deadline shared by
 	// both boots can kill a healthy child during its graceful shutdown.
 	ctx, cancel := context.WithCancel(t.Context())

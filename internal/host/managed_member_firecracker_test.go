@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 const (
@@ -88,10 +89,8 @@ type managedMemberFirecrackerEvidence struct {
 }
 
 func TestManagedMemberFirecrackerSignedServing(t *testing.T) {
-	configPath := os.Getenv("TS_FC_MANAGED_MEMBER_CONFIG")
-	if configPath == "" {
-		t.Skip("requires the pinned two-VM Firecracker fixture")
-	}
+	// Requires the pinned two-VM Firecracker fixture.
+	configPath := tier.Qualification(t, "TS_FC_MANAGED_MEMBER_CONFIG")[0]
 	if os.Geteuid() != 0 {
 		t.Fatal("managed-member Firecracker test requires root supervisor")
 	}

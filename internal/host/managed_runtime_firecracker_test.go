@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 const (
@@ -41,10 +43,8 @@ const (
 )
 
 func TestManagedRuntimeFirecrackerMountedVolume(t *testing.T) {
-	volumeUUID := os.Getenv("TS_FC_VOLUME_UUID")
-	if volumeUUID == "" {
-		t.Skip("requires the pinned Firecracker managed-volume fixture")
-	}
+	// Requires the pinned Firecracker managed-volume fixture.
+	volumeUUID := tier.Qualification(t, "TS_FC_VOLUME_UUID")[0]
 	if volumeUUID != managedVolumeFirecrackerUUID {
 		t.Fatalf("TS_FC_VOLUME_UUID = %q, want fixture UUID %q", volumeUUID, managedVolumeFirecrackerUUID)
 	}

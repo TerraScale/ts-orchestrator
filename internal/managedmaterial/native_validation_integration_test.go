@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 const (
@@ -25,7 +26,7 @@ func TestPrepareInitialUsesAdmittedPackagedNativeValidator(t *testing.T) {
 	pinnedSHA256, hasSHA256 := os.LookupEnv(nativeVerifierSHA256Environment)
 	sourceCommit, hasSourceCommit := os.LookupEnv(nativeVerifierSourceCommitEnvironment)
 	if !hasSHA256 && !hasSourceCommit {
-		t.Skip("admitted packaged native validator fixture was not requested")
+		tier.Unavailable(t, "admitted packaged native validator fixture was not requested")
 	}
 	if !hasSHA256 || !hasSourceCommit || pinnedSHA256 == "" || sourceCommit == "" {
 		t.Fatalf("native validator opt-in requires %s and %s together",

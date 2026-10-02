@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 func initialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey, *ecdh.PrivateKey) {
@@ -551,10 +552,8 @@ type sqlProcessPacketManifest struct {
 // Run with TB_SQL_PROCESS_PACKET_DIR set to a private, nonexistent absolute
 // directory. The token appears only in the exported mode-0600 pgpass file.
 func TestExportSQLProcessPacket(t *testing.T) {
-	packetDirectory := os.Getenv("TB_SQL_PROCESS_PACKET_DIR")
-	if packetDirectory == "" {
-		t.Skip("set TB_SQL_PROCESS_PACKET_DIR for the cross-language SQL process oracle")
-	}
+	// TB_SQL_PROCESS_PACKET_DIR feeds the cross-language SQL process oracle.
+	packetDirectory := tier.Qualification(t, "TB_SQL_PROCESS_PACKET_DIR")[0]
 	if !filepath.IsAbs(packetDirectory) || filepath.Clean(packetDirectory) != packetDirectory || packetDirectory == "/" {
 		t.Fatal("SQL process packet directory must be a clean absolute path")
 	}
@@ -772,10 +771,8 @@ func TestInitialSQLSpecRejectsInvalidIdentityNamesGrantsAndPorts(t *testing.T) {
 // Run with TB_MANAGED_AUTHORITY_EXPORT_DIR set to a private disposable absolute
 // directory, then pass manifest.json to the TerraBase process oracle.
 func TestExportManagedAuthorityPacket(t *testing.T) {
-	directory := os.Getenv("TB_MANAGED_AUTHORITY_EXPORT_DIR")
-	if directory == "" {
-		t.Skip("set TB_MANAGED_AUTHORITY_EXPORT_DIR for the cross-language decoder oracle")
-	}
+	// TB_MANAGED_AUTHORITY_EXPORT_DIR feeds the cross-language decoder oracle.
+	directory := tier.Qualification(t, "TB_MANAGED_AUTHORITY_EXPORT_DIR")[0]
 	if !filepath.IsAbs(directory) {
 		t.Fatal("export directory must be absolute")
 	}

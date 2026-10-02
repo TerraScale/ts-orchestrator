@@ -19,6 +19,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // walkthroughNamespaceEnv marks the re-executed test process that runs in a
@@ -37,10 +38,7 @@ const walkthroughNamespaceEnv = "TS_TERRABASE_WALKTHROUGH_NAMESPACE"
 // member-control socket or material pin manifest; the client listener,
 // credentials, catalogs and replication use the generated material unchanged.
 func TestTerraBaseWalkthroughAgainstRealMembers(t *testing.T) {
-	server := os.Getenv("TS_TERRABASE_SERVER")
-	if server == "" {
-		t.Skip("set TS_TERRABASE_SERVER to a paired tb-server to walk through real members")
-	}
+	server := tier.Qualification(t, "TS_TERRABASE_SERVER")[0]
 	if os.Getenv(walkthroughNamespaceEnv) == "" {
 		requireFiniteMemoryCgroup(t)
 		runInMemberNamespace(t)
