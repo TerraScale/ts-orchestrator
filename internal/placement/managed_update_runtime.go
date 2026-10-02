@@ -168,7 +168,8 @@ func (controller *Controller) reconcileManagedUpdate(ctx context.Context, epoch 
 		controller.hold(fmt.Sprintf("managed update %s baseline changed before its canary write: %v", record.OperationID, err))
 		return false, nil
 	}
-	if state.Stage != StageServing && !managedUpdateRollsBackHeld(update, state) || state.DesiredGeneration == 0 ||
+	rollsBackHeld := managedUpdateRollsBackHeld(update, state)
+	if state.Stage != StageServing && !rollsBackHeld || state.DesiredGeneration == 0 ||
 		state.DesiredGeneration == ^uint64(0) || record.CanaryDesiredGeneration != state.DesiredGeneration+1 {
 		controller.hold(fmt.Sprintf("member %s is not at the exact signed canary predecessor", state.MemberID))
 		return false, nil
@@ -187,7 +188,7 @@ func (controller *Controller) reconcileManagedUpdate(ctx context.Context, epoch 
 		PreviousArtifactDigest:    state.EffectiveRuntimeManifest().ArtifactDigest, PreviousSourceDigest: previousSource,
 		DesiredGeneration: record.CanaryDesiredGeneration, ArtifactDigest: record.CandidateArtifactDigest,
 		ManifestDigest: record.CandidateManifestDigest, SourceDigest: record.CandidateSourceDigest,
-		Phase: ManagedUpdateSeatPrepared,
+		Phase: ManagedUpdateSeatPrepared, RollbackOfHeld: rollsBackHeld,
 	}
 	state.DesiredGeneration = record.CanaryDesiredGeneration
 	state.Stage = StagePreparedDesired

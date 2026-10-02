@@ -810,6 +810,10 @@ type ManagedRuntimeTarget struct {
 	SourceDigest              string                 `json:"source_digest"`
 	Phase                     ManagedUpdateSeatPhase `json:"phase"`
 	Outcome                   string                 `json:"outcome,omitempty"`
+	// RollbackOfHeld marks a target that returned a held seat to its
+	// predecessor. If it is held too, its own predecessor is the candidate
+	// that already failed, so it is never a rollback destination.
+	RollbackOfHeld bool `json:"rollback_of_held,omitzero"`
 }
 
 func (state MemberState) EffectiveRuntimeManifest() RuntimeManifest {
