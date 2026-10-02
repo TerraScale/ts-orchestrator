@@ -47,7 +47,20 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 	quorum := observation.Meta.Leader != "" && onlineSlots >= topology.quorum()
 	replacing := false
 	for _, slot := range slots {
-		if status, ok := previous.Slots[slot]; ok && status.Phase == PhaseReplacing {
+		status, ok := next.Slots[slot]
+		if (!ok || status.Phase != PhaseReplacing) && slot != topology.SelfSlot && slot != topology.SeedSlot {
+			if pending, inFlight := inFlightSuccessor(slot, observation); inFlight {
+				// A new term, or a restarted leader, has no memory of a
+				// replacement an earlier term admitted. The ledger does: its
+				// incomplete successor HEAD is bound to this exact evidence, so
+				// resume it instead of holding the slot as ledger-incomplete
+				// and letting another slot start a concurrent replacement.
+				status.Slot, status.Phase, status.PendingAttempt = slot, PhaseReplacing, pending
+				next.Slots[slot] = status
+				ok = true
+			}
+		}
+		if ok && status.Phase == PhaseReplacing {
 			replacing = true
 		}
 	}
@@ -155,6 +168,19 @@ func decideReplacing(cfg Config, status SlotStatus, ledger LedgerSlot, evidence 
 			PriorInstanceOCID: evidence.PriorInstanceOCID, Retirement: evidence, Reason: "resume replacement"})
 	}
 	return status, actions
+}
+
+// inFlightSuccessor reports an admitted but incomplete successor attempt whose
+// HEAD was advanced with the retirement evidence currently on hand.
+func inFlightSuccessor(slot string, observation Observation) (uint64, bool) {
+	ledger := observation.Ledger[slot]
+	evidence, ok := observation.Evidence[slot]
+	if !ok || ledger.Complete || ledger.Attempt < 2 || ledger.Retirement == "" ||
+		evidence.Slot != slot || evidence.Digest != ledger.Retirement ||
+		evidence.PreviousAttempt+1 != ledger.Attempt || len(evidence.Wire) == 0 {
+		return 0, false
+	}
+	return ledger.Attempt, true
 }
 
 func healthy(status SlotStatus, reason string) SlotStatus {

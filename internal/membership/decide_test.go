@@ -295,6 +295,41 @@ func TestDecideReplacingHoldsWithoutQuorum(t *testing.T) {
 	}
 }
 
+// A new authority term has no memory of a replacement an earlier term
+// admitted. The incomplete successor HEAD bound to the on-hand evidence must
+// be resumed, and must still block a second concurrent replacement.
+func TestDecideNewTermResumesAdmittedSuccessor(t *testing.T) {
+	topology := testTopology()
+	topology.Slots = append(topology.Slots, "controller-d", "controller-e")
+	observation := lostB(testEpoch)
+	withEvidenceB(&observation)
+	observation.Ledger["controller-b"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}
+	delete(observation.Lifecycle, "controller-b")
+	observation = withPeer(observation, "gru-controller-c", false)
+	observation.Lifecycle["controller-c"] = LifecycleTerminated
+	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
+	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-controller-d", Online: true},
+		Peer{Name: "gru-controller-e", Online: true})
+	state, actions := Decide(testConfig(), topology, State{}, observation)
+	if len(actions) != 1 || actions[0].Slot != "controller-b" || actions[0].PreviousAttempt != 1 ||
+		actions[0].Reason != "resume replacement" {
+		t.Fatalf("new term actions = %+v", actions)
+	}
+	if status := state.Slots["controller-b"]; status.Phase != PhaseReplacing || status.PendingAttempt != 2 {
+		t.Fatalf("adopted successor = %+v", status)
+	}
+	if status := state.Slots["controller-c"]; status.Phase != PhaseHeld || status.Reason != ReasonOtherReplacement {
+		t.Fatalf("second slot = %+v", status)
+	}
+	// Evidence that did not advance this HEAD is never adopted.
+	observation.Evidence["controller-b"] = Evidence{Slot: "controller-b", PreviousAttempt: 1,
+		PriorInstanceOCID: instanceB, Digest: strings.Repeat("3", 64), Wire: []byte("other")}
+	state, _ = Decide(testConfig(), topology, State{}, observation)
+	if state.Slots["controller-b"].Phase == PhaseReplacing {
+		t.Fatalf("foreign evidence adopted = %+v", state.Slots["controller-b"])
+	}
+}
+
 func TestConfigValidation(t *testing.T) {
 	for _, test := range []struct {
 		cfg Config
