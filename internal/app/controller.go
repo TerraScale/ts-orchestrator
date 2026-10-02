@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -212,6 +213,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var materialService *managedmaterial.PreparationService
 	var backupRuntime *backupOperationRuntime
 	var materialAdmission placementMaterialAdmission
+	var ociReconcile *ociresource.Runner
 	managedRuntimeVerifier := managedRuntimeTargetVerifier(func(ctx context.Context, desired host.Desired,
 		registration host.Registration,
 	) (bool, error) {
@@ -294,6 +296,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			}, nil)
 		if err != nil {
 			return err
+		}
+		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
+			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
+				func(attempt context.Context) (*ociresource.Runner, error) {
+					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
+						cfg.NATS.Replicas, control, fleet)
+				}, nil)
+			if err != nil {
+				return err
+			}
 		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
@@ -509,7 +521,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 6)
+	workerErrors := make(chan error, 7)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -521,6 +533,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if terminalRuntime != nil {
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if ociReconcile != nil {
+		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

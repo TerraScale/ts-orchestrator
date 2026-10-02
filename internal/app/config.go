@@ -42,6 +42,9 @@ type ControllerConfig struct {
 	// member host's boot volume and VNIC verification while its instance ETag
 	// is unchanged, for at most this many seconds (0 disables, max 60).
 	OciObserveVerifyCacheSeconds int `json:"oci_observe_verify_cache_seconds,omitzero"`
+	// OciReconcile enables the declarative OCI resource reconcilers; nil or
+	// disabled keeps them off.
+	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
 }
 
 type WorkloadProfile struct {
