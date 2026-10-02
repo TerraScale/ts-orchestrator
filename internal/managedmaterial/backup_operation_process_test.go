@@ -22,6 +22,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -77,10 +78,7 @@ type backupProcessResult struct {
 // Cut verifier and process-bound Unix client. The full host Agent/desired path
 // has a separate integration gate and is not implied by this test.
 func TestBackupGoRustProcessBridge(t *testing.T) {
-	packetPath := os.Getenv("TS_D10_PROCESS_PACKET")
-	if packetPath == "" {
-		t.Skip("Rust live-process packet was not supplied")
-	}
+	packetPath := tier.Qualification(t, "TS_D10_PROCESS_PACKET")[0]
 	resultPath := os.Getenv("TS_D10_PROCESS_RESULT")
 	if resultPath == "" {
 		t.Fatal("Rust live-process result path was not supplied")

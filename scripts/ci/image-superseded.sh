@@ -4,9 +4,10 @@
 #
 # usage: image-superseded.sh SOURCE_SHA CI_RUN_ID CI_RUN_NUMBER [WAIT_SECONDS]
 #
-# ci.yml dispatches the image build as it starts, so the image job prepares
-# its tools while the checks run. A revision whose ci.yml run fails or is
-# cancelled (a newer push to main supersedes it) is skipped, not failed.
+# ci.yml dispatches the image build as its last step, after the release is
+# retained, so the run is normally about to end when this starts. A revision
+# whose ci.yml run fails or is cancelled (a newer push to main supersedes it)
+# is skipped, not failed.
 # Automatic image runs queue instead of cancelling each other, so a build in
 # progress always finishes; a queued build that a newer qualified revision
 # has overtaken skips itself. A revision whose successor is still in ci.yml

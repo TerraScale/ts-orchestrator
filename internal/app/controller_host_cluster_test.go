@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -48,7 +49,12 @@ func TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, true)
 }
 
+// The controller-loss labs run three controller processes and a host
+// against real lease and session timers, so they belong to the integration
+// tier. Their fencing invariants stay in the fast tier as single-process
+// tests in internal/host and internal/natscell.
 func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, production, blackhole, forceRestart bool) {
+	tier.Integration(t)
 	// Controller startup and shutdown must not consume the host scenario's
 	// deadline or cause CommandContext to kill a gracefully stopping child.
 	controllerCtx, cancel := context.WithCancel(t.Context())

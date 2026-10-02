@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // OfflinePacketInput binds the local test-authority receipt to actual frozen
@@ -107,10 +108,8 @@ func TestOfflineIssuerRejectsChangedBuildIdentity(t *testing.T) {
 // TestEmitOfflineProductionPacket is an opt-in local packet issuer. No packet
 // or signer is created by the normal test suite.
 func TestEmitOfflineProductionPacket(t *testing.T) {
-	inputPath := os.Getenv("TS_PRODUCTION_PACKET_INPUT")
-	if inputPath == "" {
-		t.Skip("set TS_PRODUCTION_PACKET_INPUT to the frozen offline packet input JSON")
-	}
+	// TS_PRODUCTION_PACKET_INPUT names the frozen offline packet input JSON.
+	inputPath := tier.Qualification(t, "TS_PRODUCTION_PACKET_INPUT")[0]
 	wire, err := os.ReadFile(inputPath)
 	if err != nil {
 		t.Fatal(err)

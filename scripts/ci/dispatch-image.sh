@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Start image.yml for the revision this ci.yml run is checking. Called as the
-# first ci.yml step on main, so the image job prepares its tools meanwhile;
-# it waits for this run to retain the release and skips itself if the run
-# fails or is cancelled.
+# last ci.yml step on main, after the release is retained, so the image job
+# never holds a builder slot while the checks run; it still confirms this
+# run succeeded and skips itself if the run fails or is cancelled.
 set -euo pipefail
 
 : "${FORGEJO_TOKEN:?Forgejo Actions token is required}"

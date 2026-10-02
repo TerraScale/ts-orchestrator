@@ -42,6 +42,12 @@ jobs:
       GOFLAGS: -p=4
       GOMAXPROCS: '2'
       TS_RACE_JOBS: '6'
+      # Timer-bound controller labs run in their own pool beside the CPU jobs.
+      TS_RACE_IDLE_JOBS: '5'
+      # Pull requests run the fast tier (go test -short); pushes run every
+      # tier-gated test and the fixturetest build. Images are built only
+      # from main pushes, so the full tier still gates every image.
+      TS_TEST_TIER: ${{ forgejo.event_name == 'pull_request' && 'pr' || 'full' }}
     steps:
       - name: Check out the exact source revision
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -50,19 +56,6 @@ jobs:
           ref: ${{ forgejo.sha }}
           fetch-depth: 1
           persist-credentials: false
-
-      # First, so the image job prepares its tools while these checks run; it
-      # waits for this run to succeed and skips itself if it does not. The
-      # run's own result never depends on it: a failed dispatch is visible
-      # here and is repaired by dispatching image.yml for this revision by hand.
-      - name: Start the image build for this revision
-        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' }}
-        continue-on-error: true
-        shell: bash
-        env:
-          FORGEJO_TOKEN: ${{ github.token }}
-          FORGEJO_SERVER_URL: ${{ github.server_url }}
-        run: bash scripts/ci/dispatch-image.sh
 
       - name: Verify the source revision and Go toolchain
         shell: bash
@@ -93,7 +86,9 @@ jobs:
         shell: bash
         run: make ci-verify GO=go GOFMT=gofmt
 
+      # Only the retain step uses the admission client; pull requests skip both.
       - name: Prepare pinned Forgejo admission client
+        if: ${{ forgejo.event_name != 'pull_request' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -109,4 +104,18 @@ jobs:
           FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
           FORGEJO_SERVER_URL: ${{ github.server_url }}
         run: bash scripts/ci/publish-qualification.sh
+
+      # Last, after the release is retained, so the image job never holds a
+      # builder slot while it waits for these checks; it still confirms this
+      # run succeeded and skips itself if it did not. The run's own result
+      # never depends on it: a failed dispatch is visible here and is
+      # repaired by dispatching image.yml for this revision by hand.
+      - name: Start the image build for this revision
+        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          FORGEJO_TOKEN: ${{ github.token }}
+          FORGEJO_SERVER_URL: ${{ github.server_url }}
+        run: bash scripts/ci/dispatch-image.sh
 
