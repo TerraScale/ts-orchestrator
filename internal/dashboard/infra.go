@@ -137,7 +137,7 @@ func (current view) storageForecasts() ([]forecast, chartSpec) {
 	if current.Journal == nil || current.Journal.History == nil {
 		return nil, chartSpec{Kind: "line", Empty: "No storage history yet."}
 	}
-	window := max(current.State.Range.Duration, 6*time.Hour)
+	window := max(current.State.Range.Duration, 24*time.Hour)
 	result := current.Journal.History.Range(observability.HistoryQuery{Metric: observability.HistFSRatio,
 		Start: current.Now.Add(-window), End: current.Now})
 	var forecasts []forecast

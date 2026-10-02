@@ -113,10 +113,11 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 			Members: []observability.MemberSnapshot{snapshot, other}, Missing: []string{"ctl-3"}}}})
 	handler := dashboard.Handler()
 	for path, wants := range map[string][]string{
-		"/":          {"Cluster overview", "ctl-1", "epoch 7", "placement held", "1 missing", "ctl-1: placement timeout"},
+		"/region":    {"Region FRA", "ctl-1", "epoch 7", "placement held", "1 missing", "ctl-1: placement timeout"},
+		"/":          {"All regions", "Meta leader", "ctl-1", "appears once this controller"},
 		"/members":   {"ctl-2", "ctl-3", "did not answer", "host-a", "FD-1", "leader", "75.0%"},
 		"/nats":      {"TS_DELIVERY", "placement", "this server", "ctl-3", "512.0 MiB / 1.0 GiB"},
-		"/oci":       {"GET /instances/{id}", "429", "500ms", "not exported by the OCI slice yet"},
+		"/oci":       {"GET /instances/{id}", "429", "500ms", "OCI inventory provider is attached"},
 		"/storage":   {"/var/lib/ts/nats", "95.0%", "50.0%", "900 / 1000"},
 		"/terrabase": {"orders", "p0", "joining 1, serving 2", "s3: joining on host-a"},
 		"/rollouts":  {"op-rollout-1", "sha256:feedface", "1 / 3", "done 1, pending 2", "33.3%"},
@@ -421,7 +422,7 @@ func TestStreamsAreCapped(t *testing.T) {
 	t.Parallel()
 	dashboard := newTestDashboard(Options{MaxStreams: 1, Interval: time.Hour})
 	server := newStreamServer(t, dashboard)
-	reader, _ := openStream(t, server, "/overview/stream")
+	reader, _ := openStream(t, server, "/global/stream")
 	reader.next()
 	response, err := server.Client().Get(server.URL + "/nats/stream")
 	if err != nil {

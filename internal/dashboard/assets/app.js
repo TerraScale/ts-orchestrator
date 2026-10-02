@@ -302,7 +302,7 @@ EChartElement.prototype.option = async function (spec, t) {
     case "heatmap": {
       const values = (spec.heat || []).map((c) => c[2]);
       const hi = spec.max ?? Math.max(...values, 0);
-      const step = Math.max(10000, ((spec.end - spec.start) / 120) | 0);
+      const step = spec.step || Math.max(10000, ((spec.end - spec.start) / 90) | 0);
       return {
         textStyle: baseText(t),
         grid: { left: 8, right: 12, top: 8, bottom: 36, containLabel: true },

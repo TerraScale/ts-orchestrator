@@ -48,7 +48,7 @@ templ terrabaseBody(current view) {
 		{{ forecasts, forecastChart := current.storageForecasts() }}
 		<div class="cols-2">
 			<article>
-				<h2>Storage growth and time to full <small>linear trend over at least 6h</small></h2>
+				<h2>Storage growth and time to full <small>linear trend over at least 24h</small></h2>
 				@chart("", forecastChart)
 			</article>
 			<article>
@@ -71,7 +71,7 @@ templ terrabaseBody(current view) {
 		<div class="cols-2">
 			<article>
 				<div class="chart-title">
-					<h2>Scaling and placement decisions <small>{ current.State.Range.Key }</small></h2>
+					<h2>Scaling and placement decisions <small>24h at least</small></h2>
 					<a href={ safe(current.State.link("/decisions", "actor", "autoscale,placement")) }>Journal →</a>
 				</div>
 				@timeline("", current.decisionTimeline(current.decisions(), true))

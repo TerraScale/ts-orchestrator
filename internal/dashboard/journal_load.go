@@ -212,7 +212,7 @@ func natsDecisions(current view) *decisionlog.Query {
 }
 
 func terrabaseDecisions(current view) *decisionlog.Query {
-	return &decisionlog.Query{Regions: []string{current.region()}, Since: current.since(0), Limit: 300,
+	return &decisionlog.Query{Regions: []string{current.region()}, Since: current.since(24 * time.Hour), Limit: 300,
 		Kinds: []decisionlog.Kind{decisionlog.KindScaleUp, decisionlog.KindScaleDown, decisionlog.KindStageChanged,
 			decisionlog.KindMemberReplaced, decisionlog.KindHostLaunched, decisionlog.KindHostReclaimed,
 			decisionlog.KindHeld}}

@@ -95,10 +95,10 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	telemetry.markStarted()
-	_, _, page := browse("/members")
-	if !strings.Contains(page, "<td>one</td>") || !strings.Contains(page, "<td>two</td>") ||
+	status, _, page := browse("/members")
+	if !strings.Contains(page, ">one</a></td>") || !strings.Contains(page, "<td>two</td>") ||
 		!strings.Contains(page, "did not answer") {
-		t.Fatalf("/members after attach lacks the cell view:\n%s", page)
+		t.Fatalf("/members after attach = %d, lacks the cell view:\n%s", status, page)
 	}
 	if _, _, page := browse("/"); !strings.Contains(page, "epoch 3") {
 		t.Fatalf("overview lacks the authority lease:\n%s", page)

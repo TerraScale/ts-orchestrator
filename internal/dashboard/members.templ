@@ -27,7 +27,7 @@ templ membersBody(current view) {
 			<article>
 				<div class="chart-title">
 					<h2>CPU</h2>
-					<span class="legend-note">click a point for events then</span>
+					<span class="legend-note">click a point to see the events at that time</span>
 				</div>
 				@chart("", current.memberChart(observability.HistCPUUtilization, "percent", false, "No CPU history yet."))
 			</article>

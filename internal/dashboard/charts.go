@@ -45,6 +45,8 @@ type chartSpec struct {
 	// Start and End bound the time axis in ms.
 	Start int64 `json:"start,omitempty"`
 	End   int64 `json:"end,omitempty"`
+	// Step is a heatmap column's width in ms.
+	Step int64 `json:"step,omitempty"`
 	// Click is a link prefix; a clicked time point appends its RFC 3339
 	// time, a clicked timeline item opens its own href.
 	Click string `json:"click,omitempty"`
@@ -213,15 +215,31 @@ func eventsAtSeparator(link string) string {
 	return "?at="
 }
 
+// heatColumns is how many time columns a heatmap has.
+const heatColumns = 90
+
 // heatmap builds a rows x time heatmap from per-row series.
 func (current view) heatmap(unit string, series []chartSeries, empty string) chartSpec {
 	spec := chartSpec{Kind: "heatmap", Unit: unit, Start: current.Now.Add(-current.State.Range.Duration).UnixMilli(),
 		End: current.Now.UnixMilli()}
+	// Average each row into heatColumns equal columns across the range, so
+	// cells tile without gaps whatever the history tier's resolution.
+	spec.Step = max((spec.End-spec.Start)/heatColumns, 1)
 	for row, one := range series {
 		spec.Categories = append(spec.Categories, one.Name)
-		step := max(1, len(one.Points)/120)
-		for index := 0; index < len(one.Points); index += step {
-			spec.Heat = append(spec.Heat, [3]float64{one.Points[index][0], float64(row), one.Points[index][1]})
+		sums := map[int64]float64{}
+		counts := map[int64]float64{}
+		for _, point := range one.Points {
+			column := (int64(point[0]) - spec.Start) / spec.Step
+			if column < 0 || column >= heatColumns {
+				continue
+			}
+			sums[column] += point[1]
+			counts[column]++
+		}
+		for _, column := range slices.Sorted(maps.Keys(sums)) {
+			spec.Heat = append(spec.Heat, [3]float64{float64(spec.Start + column*spec.Step), float64(row),
+				round(sums[column] / counts[column])})
 		}
 	}
 	if len(spec.Heat) == 0 {

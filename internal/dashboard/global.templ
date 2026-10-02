@@ -88,7 +88,9 @@ templ kpiTiles(tiles []kpi) {
 }
 
 templ timeline(class string, spec chartSpec) {
-	<ts-timeline class={ class } data-spec={ spec.JSON() } role="img" aria-label="Decision timeline"></ts-timeline>
+	if spec.Empty == "" {
+		<ts-timeline class={ class } data-spec={ spec.JSON() } role="img" aria-label="Decision timeline"></ts-timeline>
+	}
 }
 
 // regionCard is one region on the global page.
