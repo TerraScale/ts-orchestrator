@@ -1,0 +1,83 @@
+package dashboard
+
+templ overviewBody(current view) {
+	<div id="content">
+		<h1>Cluster overview</h1>
+		@notes(current)
+		<div class="grid stats">
+			<article class="stat">
+				<small class="muted">Readiness</small>
+				<strong class={ okClass(current.Ready) }>
+					if current.Ready {
+						ready
+					} else {
+						not ready
+					}
+				</strong>
+			</article>
+			<article class="stat">
+				<small class="muted">Members answering</small>
+				<strong>{ itoa(len(current.members())) }</strong>
+				if missing := current.missing(); len(missing) > 0 {
+					<small class="bad">{ itoa(len(missing)) } missing</small>
+				}
+			</article>
+			<article class="stat">
+				<small class="muted">Authority lease</small>
+				if lease := current.authority(); lease != nil {
+					<strong>{ orDash(lease.OwnerID) }</strong>
+					<small>epoch { itoa(lease.Epoch) } · revision { itoa(lease.Revision) }</small>
+				} else {
+					<strong class="muted">-</strong>
+				}
+			</article>
+			<article class="stat">
+				<small class="muted">JetStream meta leader</small>
+				<strong>{ orDash(current.metaLeader()) }</strong>
+			</article>
+			<article class="stat">
+				<small class="muted">TerraBase partitions</small>
+				if placement := current.placement(); placement != nil {
+					<strong>{ itoa(len(placement.Databases)) }</strong>
+					<small>{ counts(placement.StageCounts) }</small>
+				} else {
+					<strong class="muted">-</strong>
+				}
+			</article>
+		</div>
+		<article>
+			<h2>Readiness checks</h2>
+			if len(current.Checks) == 0 {
+				@unavailable("No readiness checks are registered yet.")
+			} else {
+				<table class="striped">
+					<thead><tr><th>Check</th><th>State</th><th>Detail</th></tr></thead>
+					<tbody>
+						for _, check := range current.Checks {
+							<tr>
+								<td>{ check.Name }</td>
+								<td class={ okClass(check.OK) }>{ yesNo(check.OK) }</td>
+								<td class="wrap">{ orDash(check.Detail) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			}
+		</article>
+		if errors := current.sectionErrors(); len(errors) > 0 {
+			<article>
+				<h2>Collection errors</h2>
+				<ul>
+					for _, entry := range errors {
+						<li class="warn">{ entry }</li>
+					}
+				</ul>
+			</article>
+		}
+		<article>
+			<h2>Recent events</h2>
+			@eventTable(current.Events, "overview-events")
+			<p><a href="/events">All events</a></p>
+		</article>
+	</div>
+}

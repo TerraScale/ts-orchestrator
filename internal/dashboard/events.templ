@@ -1,0 +1,68 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
+templ eventsBody(current view) {
+	<div id="content">
+		<h1>Events</h1>
+		@notes(current)
+		<form method="get" action="/events" class="grid">
+			<label>
+				Minimum level
+				<select name="level">
+					<option value="" selected?={ current.Filter.Level == "" }>any</option>
+					for _, level := range levelNames {
+						<option value={ level } selected?={ current.Filter.Level == level }>{ level }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Component
+				<select name="component">
+					<option value="" selected?={ current.Filter.Component == "" }>any</option>
+					for _, component := range current.eventComponents() {
+						<option value={ component } selected?={ current.Filter.Component == component }>{ component }</option>
+					}
+				</select>
+			</label>
+			<label>
+				&nbsp;
+				<button type="submit" class="secondary">Filter</button>
+			</label>
+		</form>
+		<p class="muted"><small>Warnings, errors and notable records from this member, newest first. New events appear live.</small></p>
+		@eventTable(current.Events, "events-rows")
+	</div>
+}
+
+// eventTable lists events newest first. The events stream prepends new rows
+// to the tbody with id rowsID.
+templ eventTable(events []observability.Event, rowsID string) {
+	<div class="table-scroll">
+		<table class="striped">
+			<thead><tr><th>Time</th><th>Level</th><th>Component</th><th>Message</th><th>Attributes</th></tr></thead>
+			@eventRows(events, rowsID)
+		</table>
+	</div>
+}
+
+templ eventRows(events []observability.Event, rowsID string) {
+	<tbody id={ rowsID }>
+		for _, event := range events {
+			@eventRow(event)
+		}
+		if len(events) == 0 {
+			<tr id={ rowsID + "-empty" }><td colspan="5" class="muted"><em>No events recorded yet.</em></td></tr>
+		}
+	</tbody>
+}
+
+templ eventRow(event observability.Event) {
+	<tr id={ "event-" + itoa(event.Sequence) }>
+		<td>{ formatTime(event.Time) }</td>
+		<td class={ levelClass(event.Level) }>{ event.Level }</td>
+		<td>{ orDash(event.Component) }</td>
+		<td class="wrap">{ event.Message }</td>
+		<td class="wrap"><small>{ eventAttrs(event.Attrs) }</small></td>
+	</tr>
+}

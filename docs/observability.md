@@ -19,7 +19,8 @@ exact bytes.
   "tls_key_file": "",
   "log_format": "json",
   "log_level": "info",
-  "cluster_aggregation": false
+  "cluster_aggregation": false,
+  "dashboard": false
 }
 ```
 
@@ -31,6 +32,7 @@ exact bytes.
 | `log_format` | `json` | `json` or `logfmt`. |
 | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
 | `cluster_aggregation` | `false` | Answer and issue `ts.orch.v1.<cell>.obs.snapshot`. See below. |
+| `dashboard` | `false` | Serve the read-only operator dashboard on this listener. See below. |
 
 A signed controller config may bind only loopback or its own signed broker
 address, and any token or TLS file must live under
@@ -92,10 +94,63 @@ Production controller credentials do not yet carry the subscribe grant
 bootstrap issuer does not add it; adding it is a trust decision for the next
 credential rotation. Until then leave `cluster_aggregation` off in production.
 
+## Dashboard
+
+`internal/dashboard` is a read-only operator dashboard served on the same
+private listener as `/metrics` when `dashboard` is `true`. It is built with
+templ (generated `*_templ.go` files are committed), Datastar and Pico CSS;
+every asset is embedded in the binary and nothing is loaded from a CDN.
+
+| Route | Content |
+| --- | --- |
+| `GET /` | Cluster overview: readiness, members answering and missing, authority lease, JetStream meta leader, partitions, collection errors, recent events. |
+| `GET /members` | Controllers (role, build, uptime, lease, routes, CPU, load, memory, PSI) and the hosts that carry TerraBase seats. |
+| `GET /nats` | Servers, meta group peers, streams and consumers. |
+| `GET /oci` | OCI API calls per templated operation: errors, throttling, latency. |
+| `GET /storage` | JetStream store usage and filesystem capacity per member. |
+| `GET /terrabase` | Placement partitions, desired and serving seats, seat stages per host. |
+| `GET /rollouts` | Managed runtime update progress and delivery intent counters. |
+| `GET /events[?level=&component=]` | The event ring, newest first, filtered by minimum level and component. |
+| `GET /<page>/stream` (`/overview/stream` for `/`) | Datastar SSE stream for the page. |
+| `GET /assets/<hash>/<file>` | Embedded CSS and JS, content-addressed and cached as immutable. Unauthenticated: they hold no cell state. |
+| `GET /login`, `POST /login`, `POST /logout` | Browser sign-in. |
+
+Each page renders completely on the first request, so it is readable without
+JavaScript. The page then opens its stream, which re-renders the page content
+every two seconds and patches it only when the HTML changed; the events page
+instead follows the event bus and prepends new rows. One listener serves at
+most 16 concurrent streams. The cell-wide view is fetched at most once every
+two seconds whatever the number of open pages. A missing or failing provider
+renders as a short note; raw upstream error text is never shown.
+
+Access control follows the listener:
+
+- With `bearer_token_file`, every page and stream requires either the
+  `Authorization: Bearer` header or a session cookie. `POST /login` exchanges
+  the token for a session cookie (`HttpOnly`, `SameSite=Strict`, `Secure` with
+  TLS) valid for 12 hours. The cookie is MACed with a random per-process key,
+  so a restart signs every browser out, and it grants exactly the read-only
+  access of the token. Login and logout refuse cross-site form posts
+  (`Sec-Fetch-Site`, `Origin`). A browser navigation without credentials is
+  redirected to `/login`; other clients get `401`.
+- Without a token the listener is loopback only (enforced at config load
+  and in `Start`), and the dashboard additionally refuses any `Host` header
+  that is not an IP literal or `localhost`, so a web page cannot reach it
+  through DNS rebinding.
+
+Session cookies are accepted only when `dashboard` is on; otherwise the
+listener accepts the bearer header alone, exactly as before. Responses carry
+a `Content-Security-Policy` of `'self'` only (plus `'unsafe-eval'` for
+Datastar expressions), `X-Frame-Options: DENY` and `no-store`.
+
+Regenerate templates with `make generate`; `make generate-check` (part of
+`verify` and `ci-verify`) fails when a committed `*_templ.go` file is stale.
+
 ## Dashboard contract
 
 A dashboard consumes these interfaces only (`internal/observability/providers.go`):
 `SnapshotSource` (`*Collector`), `ClusterSource` (`*Aggregator`),
 `EventSource` (`*EventBus`) and `ReadinessSource` (`*Health`). Additional
 read-only routes mount on the same listener with `Server.Handle`, which applies
-the bearer token.
+the bearer token (or a dashboard session); `Server.HandleStatic` is only for
+public embedded files.

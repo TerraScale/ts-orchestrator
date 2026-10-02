@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -27,7 +28,10 @@ type runtimeObservability struct {
 	health   *observability.Health
 	events   *observability.EventBus
 	server   *observability.Server
-	started  atomic.Bool
+	// dashboard is set when the listener serves the operator dashboard; the
+	// role attaches its snapshot providers once they exist.
+	dashboard *dashboard.Dashboard
+	started   atomic.Bool
 }
 
 // startRuntimeObservability installs the structured default logger and
@@ -63,14 +67,22 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	if err != nil {
 		return nil, err
 	}
+	var board *dashboard.Dashboard
+	if settings.Dashboard {
+		// A token-protected listener issues browser sessions; a tokenless
+		// one is loopback only and refuses DNS names against rebinding.
+		board = dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events,
+			SignOut: settings.BearerTokenFile != "", RequireLiteralHost: settings.BearerTokenFile == ""})
+		board.Mount(server)
+	}
 	if _, err := server.Start(ctx, settings); err != nil {
 		slog.Warn("observability listener unavailable; continuing without it",
 			observability.ComponentKey, "observability", "address", settings.Address(), "error", err)
 		return runtime, nil
 	}
-	runtime.server = server
+	runtime.server, runtime.dashboard = server, board
 	slog.Info("observability listener ready", observability.ComponentKey, "observability",
-		"address", server.Addr().String())
+		"address", server.Addr().String(), "dashboard", board != nil)
 	return runtime, nil
 }
 
@@ -132,9 +144,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	if err != nil {
 		return err
 	}
-	if runtime.server != nil {
-		runtime.server.HandleSnapshots(collector)
-	}
+	runtime.attachSnapshots(collector)
 	if !runtime.config.ClusterAggregation {
 		return nil
 	}
@@ -148,6 +158,9 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	}
 	if runtime.server != nil {
 		runtime.server.HandleCluster(aggregator)
+	}
+	if runtime.dashboard != nil {
+		runtime.dashboard.SetCluster(aggregator)
 	}
 	return nil
 }
@@ -168,10 +181,18 @@ func (runtime *runtimeObservability) attachHost(nats *natscell.Runtime, filesyst
 	if err != nil {
 		return err
 	}
+	runtime.attachSnapshots(collector)
+	return nil
+}
+
+// attachSnapshots serves this member's snapshot as JSON and to the dashboard.
+func (runtime *runtimeObservability) attachSnapshots(collector *observability.Collector) {
 	if runtime.server != nil {
 		runtime.server.HandleSnapshots(collector)
 	}
-	return nil
+	if runtime.dashboard != nil {
+		runtime.dashboard.SetSnapshots(collector)
+	}
 }
 
 // close stops the private listener when the role returns, so a runtime that

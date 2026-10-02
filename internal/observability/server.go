@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -26,11 +27,16 @@ type ServerDeps struct {
 // Server is the private observability listener. Additional read-only routes,
 // such as the dashboard, are mounted with Handle before or after Start.
 type Server struct {
-	mux    *http.ServeMux
-	token  []byte
-	deps   ServerDeps
-	http   *http.Server
-	listen net.Listener
+	mux      *http.ServeMux
+	token    []byte
+	deps     ServerDeps
+	http     *http.Server
+	listen   net.Listener
+	sessions *sessions
+	// loginMounted enables session cookies as an alternative to the bearer
+	// header. It is set only by HandleLogin, so a listener without the
+	// dashboard keeps accepting the bearer header alone.
+	loginMounted bool
 }
 
 // NewServer validates config, reads the bearer token and builds the routes.
@@ -42,7 +48,11 @@ func NewServer(config Config, deps ServerDeps) (*Server, error) {
 	if deps.Registry == nil || deps.Health == nil {
 		return nil, errors.New("observability server requires a registry and health checks")
 	}
-	server := &Server{mux: http.NewServeMux(), deps: deps}
+	manager, err := newSessions(config.TLSCertFile != "")
+	if err != nil {
+		return nil, err
+	}
+	server := &Server{mux: http.NewServeMux(), deps: deps, sessions: manager}
 	if config.BearerTokenFile != "" {
 		token, err := readBearerToken(config.BearerTokenFile)
 		if err != nil {
@@ -93,10 +103,18 @@ func (server *Server) HandleCluster(source ClusterSource) {
 }
 
 // Handle mounts an authenticated read-only route. With a configured bearer
-// token every request must present it; on a tokenless loopback listener the
-// loopback bind is the only control, as for the built-in routes.
+// token every request must present it, or a session cookie once HandleLogin
+// mounted the dashboard login; on a tokenless loopback listener the loopback
+// bind is the only control, as for the built-in routes.
 func (server *Server) Handle(pattern string, handler http.Handler) {
 	server.mux.Handle(pattern, server.authenticate(handler))
+}
+
+// HandleStatic mounts an unauthenticated route for public embedded files,
+// such as the dashboard's stylesheet the login form needs. It must never
+// serve cell state.
+func (server *Server) HandleStatic(pattern string, handler http.Handler) {
+	server.mux.Handle(pattern, handler)
 }
 
 // ServeHTTP lets tests and an embedding mux exercise the routes directly.
@@ -113,7 +131,13 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 
 func (server *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) {
+		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) &&
+			(!server.loginMounted || !server.sessions.authenticated(request)) {
+			if server.loginMounted && wantsLoginPage(request) {
+				http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
+					http.StatusSeeOther)
+				return
+			}
 			writer.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch"`)
 			writePlain(writer, http.StatusUnauthorized, "unauthorized\n")
 			return

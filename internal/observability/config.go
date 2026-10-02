@@ -46,6 +46,10 @@ type Config struct {
 	// on the controller credentials, which production issuers do not grant
 	// by default, so it is opt-in.
 	ClusterAggregation bool `json:"cluster_aggregation,omitzero"`
+	// Dashboard serves the read-only operator dashboard on this listener,
+	// with a browser login that exchanges the bearer token for a session
+	// cookie. Off by default: enabling it adds browser-facing routes.
+	Dashboard bool `json:"dashboard,omitzero"`
 }
 
 // Enabled reports whether the listener should start.

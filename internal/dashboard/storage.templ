@@ -1,0 +1,74 @@
+package dashboard
+
+templ storageBody(current view) {
+	<div id="content">
+		<h1>Storage</h1>
+		@notes(current)
+		<article>
+			<h2>JetStream store</h2>
+			if len(current.members()) == 0 {
+				@unavailable("No member has reported yet.")
+			} else {
+				<table class="striped">
+					<thead><tr><th>Member</th><th>Used</th><th>Limit</th><th>Usage</th></tr></thead>
+					<tbody>
+						for _, member := range current.members() {
+							if nats := member.NATS; nats != nil {
+								<tr>
+									<td>{ member.Member }</td>
+									<td>{ formatBytes(nats.StoreUsedBytes) }</td>
+									if nats.StoreLimitBytes > 0 {
+										<td>{ formatBytes(nats.StoreLimitBytes) }</td>
+										<td>
+											@ratioBar(storeUsed(nats))
+										</td>
+									} else {
+										<td>unlimited</td>
+										<td>-</td>
+									}
+								</tr>
+							} else {
+								<tr>
+									<td>{ member.Member }</td>
+									<td colspan="3" class="muted">no JetStream view on this member</td>
+								</tr>
+							}
+						}
+					</tbody>
+				</table>
+			}
+		</article>
+		<article>
+			<h2>Filesystems</h2>
+			{{ listed := 0 }}
+			<div class="table-scroll">
+				<table class="striped">
+					<thead><tr><th>Member</th><th>Role</th><th>Path</th><th>Size</th><th>Available</th><th>Usage</th><th>Inodes free</th></tr></thead>
+					<tbody>
+						for _, member := range current.members() {
+							if member.System != nil {
+								for _, filesystem := range member.System.Filesystems {
+									{{ listed++ }}
+									<tr>
+										<td>{ member.Member }</td>
+										<td>{ filesystem.Role }</td>
+										<td><code>{ filesystem.Path }</code></td>
+										<td>{ formatBytes(filesystem.SizeBytes) }</td>
+										<td>{ formatBytes(filesystem.AvailBytes) }</td>
+										<td>
+											@ratioBar(filesystemUsed(filesystem))
+										</td>
+										<td>{ itoa(filesystem.FilesFree) } / { itoa(filesystem.Files) }</td>
+									</tr>
+								}
+							}
+						}
+					</tbody>
+				</table>
+			</div>
+			if listed == 0 {
+				@unavailable("No filesystem was observed. The system section is collected on Linux only.")
+			}
+		</article>
+	</div>
+}

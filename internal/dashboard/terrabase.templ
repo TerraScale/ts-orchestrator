@@ -1,0 +1,57 @@
+package dashboard
+
+templ terrabaseBody(current view) {
+	<div id="content">
+		<h1>TerraBase instances</h1>
+		@notes(current)
+		if placement := current.placement(); placement == nil {
+			<article>
+				@unavailable("No placement view is available. This cell does not manage TerraBase placement, or the placement store is not open yet.")
+			</article>
+		} else {
+			<article>
+				<h2>Seat stages</h2>
+				<p>{ counts(placement.StageCounts) }</p>
+				if placement.Truncated {
+					<p class="warn"><small>The partition list is truncated at the view bound; stage totals cover the listed partitions only.</small></p>
+				}
+			</article>
+			<article>
+				<h2>Partitions</h2>
+				if len(placement.Databases) == 0 {
+					@unavailable("No TerraBase database is placed in this cell.")
+				} else {
+					<div class="table-scroll">
+						<table class="striped">
+							<thead>
+								<tr><th>Database</th><th>Partition</th><th>Generation</th><th>Desired</th><th>Serving</th><th>Stages</th><th>Seats</th></tr>
+							</thead>
+							<tbody>
+								for _, database := range placement.Databases {
+									<tr>
+										<td>
+											{ database.DatabaseID }
+											if database.Terminal {
+												<small class="muted">(terminal)</small>
+											}
+										</td>
+										<td>{ database.PartitionID }</td>
+										<td>{ itoa(database.Generation) }</td>
+										<td>{ itoa(database.DesiredSeats) }</td>
+										<td class={ templ.KV("warn", !database.Terminal && database.Serving < database.DesiredSeats) }>{ itoa(database.Serving) }</td>
+										<td>{ counts(database.Stages) }</td>
+										<td class="wrap">
+											for _, member := range database.Members {
+												<small title={ "updated " + formatTime(member.UpdatedAt) }>{ member.SeatID + ": " + member.Stage + " on " + orDash(member.HostNode) }</small>{ " " }
+											}
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</article>
+		}
+	</div>
+}

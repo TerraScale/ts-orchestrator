@@ -1,0 +1,62 @@
+package dashboard
+
+templ ociBody(current view) {
+	<div id="content">
+		<h1>OCI resources and API usage</h1>
+		@notes(current)
+		{{ reported := 0 }}
+		for _, member := range current.members() {
+			if member.OCI != nil {
+				{{ reported++ }}
+				<article>
+					<h2>API calls from { member.Member }</h2>
+					if len(member.OCI.Operations) == 0 {
+						@unavailable("No OCI API call since this process started.")
+					} else {
+						<div class="table-scroll">
+							<table class="striped">
+								<thead>
+									<tr>
+										<th>Service</th>
+										<th>Operation</th>
+										<th>Calls</th>
+										<th>Errors</th>
+										<th>Throttled</th>
+										<th>Mean</th>
+										<th>Max</th>
+										<th>Last status</th>
+										<th>Last error</th>
+									</tr>
+								</thead>
+								<tbody>
+									for _, operation := range member.OCI.Operations {
+										<tr>
+											<td>{ operation.Service }</td>
+											<td class="wrap"><code>{ operation.Operation }</code></td>
+											<td>{ itoa(operation.Calls) }</td>
+											<td class={ templ.KV("warn", operation.Errors > 0) }>{ itoa(operation.Errors) }</td>
+											<td class={ templ.KV("bad", operation.Throttled > 0) }>{ itoa(operation.Throttled) }</td>
+											<td>{ apiMean(operation) }</td>
+											<td>{ formatSeconds(operation.MaxSeconds) }</td>
+											<td>{ statusCode(operation.LastStatus) }</td>
+											<td>{ statusCode(operation.LastErrorCode) }</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+				</article>
+			}
+		}
+		if reported == 0 {
+			<article>
+				@unavailable("No member reported OCI API usage. Only controllers of a cell that manages TerraBase placement call OCI.")
+			</article>
+		}
+		<article>
+			<h2>Fleet inventory</h2>
+			<p class="muted">Instance, volume and attachment counts by lifecycle state are not exported by the OCI slice yet. Seat placement per host is on the <a href="/members">Members</a> page.</p>
+		</article>
+	</div>
+}
