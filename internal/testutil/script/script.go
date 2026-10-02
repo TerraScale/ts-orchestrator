@@ -85,6 +85,16 @@ func Read(t testing.TB, path string) []byte {
 func Run(t *testing.T, dir string, env map[string]string, name string, args ...string) Result {
 	t.Helper()
 	trackSources(t)
+	return Exec(t, dir, env, name, args...)
+}
+
+// Exec is Run without recording the repository tree. Use it only when the
+// command's every repository input is already part of the test's cache key,
+// for example embedded with go:embed: the tree's modification times then
+// cannot invalidate a cached result, so the test re-runs only when its own
+// package or those inputs change.
+func Exec(t *testing.T, dir string, env map[string]string, name string, args ...string) Result {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)

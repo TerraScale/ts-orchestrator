@@ -34,7 +34,7 @@ vet:
 	$(GO) vet ./...
 
 race-test:
-	GO="$(GO)" bash scripts/ci/race-test.sh
+	GO="$(GO)" bash scripts/ci/racetest/race-test.sh
 
 # Walk through two local tb-server members built from the paired TerraBase
 # revision, in a finite memory cgroup as tb-server requires:
