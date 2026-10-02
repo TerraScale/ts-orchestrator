@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -200,6 +201,7 @@ func runHostVolumeInit(ctx context.Context, args []string) error {
 		ControllerPublicKey: key, ManagedRuntimeRoot: cfg.Host.ManagedRuntimeRoot,
 		StateRoot:        "/var/lib/terrascale-orchestrator-volume-init",
 		WorkloadIdentity: host.WorkloadIdentity{UID: cfg.Host.WorkloadUID, GID: cfg.Host.WorkloadGID},
+		Grow:             hostvolume.GrowConfig{Enabled: cfg.Host.ManagedVolumeOnlineGrow},
 		ReadMetadata: func(ctx context.Context) (host.VolumeInitMetadata, error) {
 			metadata, err := hostenroll.ReadInstanceMetadata(ctx, hostenroll.NewIMDSClient())
 			if err != nil {

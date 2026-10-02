@@ -84,6 +84,10 @@ type HostConfig struct {
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
 	SessionTrace        bool     `json:"session_trace,omitzero"`
+	// ManagedVolumeOnlineGrow lets the root volume initializer grow a managed
+	// filesystem to its resized OCI volume. Off by default: ext4 growth needs
+	// CAP_SYS_RESOURCE added to the volume-init unit by the operator.
+	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
 }
 
 func LoadConfig(path string) (Config, error) {

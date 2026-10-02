@@ -108,6 +108,32 @@ func TestManagedVolumeInitEffectsFormatOnceAndAdoptWithoutFormatting(t *testing.
 	}
 }
 
+func TestManagedVolumeInitFormatsPinnedXFSAndRejectsUnsupportedPins(t *testing.T) {
+	blank := volumeFilesystemProbe{BlankSample: true}
+	for _, fsType := range []string{"xfs", "btrfs"} {
+		pins := ManagedRuntimePins{FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: fsType}
+		var calls []string
+		effects := volumeInitEffects{
+			Consume: func() error { calls = append(calls, "consume"); return nil },
+			Format:  func(context.Context) error { calls = append(calls, "format"); return nil },
+			Probe: func(context.Context) (volumeFilesystemProbe, error) {
+				return volumeFilesystemProbe{FSUUID: pins.FileSystemUUID, FSType: fsType, Signatures: true}, nil
+			},
+			Mount: func(context.Context, bool) error { calls = append(calls, "mount"); return nil },
+		}
+		err := executeVolumeInitAction(t.Context(), pins, blank, true, false, time.Now().Add(time.Minute), effects)
+		if fsType == "xfs" {
+			if err != nil || !slices.Equal(calls, []string{"consume", "format", "mount"}) {
+				t.Fatalf("pinned xfs did not format once: %v calls=%v", err, calls)
+			}
+			continue
+		}
+		if err == nil || len(calls) != 0 {
+			t.Fatalf("unsupported %s pin reached disk effects: %v calls=%v", fsType, err, calls)
+		}
+	}
+}
+
 func TestManagedVolumeInitFailuresNeverReachMountOrClaimReadiness(t *testing.T) {
 	pins := ManagedRuntimePins{FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4"}
 	blank := volumeFilesystemProbe{BlankSample: true}
