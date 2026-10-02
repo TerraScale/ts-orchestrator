@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -81,6 +82,25 @@ func TestLocalSummary(t *testing.T) {
 	// The quorum insight is scored from the snapshot, not twice.
 	if summary.Health.Score != 92 || summary.Health.Status != StatusHealthy {
 		t.Fatalf("health = %+v", summary.Health)
+	}
+}
+
+func TestLocalSummaryTopology(t *testing.T) {
+	leader := member("c2", "v1", true)
+	leader.Placement.Databases[0].Members = []observability.MemberView{
+		{SeatID: "db-1", HostNode: "h1", Stage: "serving"}, {SeatID: "db-2", HostNode: "h1", Stage: "draining"},
+		{SeatID: "db-3", HostNode: "h0", Stage: "serving"}, {SeatID: "db-4"}}
+	host := observability.MemberSnapshot{Member: "h0", Role: "host", Ready: false}
+	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(leader, member("c1", "v1", false), host)}}
+	summary := provider.Local(t.Context())
+	want := []Member{{Name: "c1", Role: "controller", Ready: true, Version: "v1"},
+		{Name: "c2", Role: "controller", Ready: true, Version: "v1"}, {Name: "h0", Role: "host"}}
+	if !slices.Equal(summary.Members, want) {
+		t.Fatalf("members = %+v", summary.Members)
+	}
+	hosts := []Host{{Name: "h0", Seats: 1, Serving: 1}, {Name: "h1", Seats: 2, Serving: 1}}
+	if !slices.Equal(summary.Hosts, hosts) {
+		t.Fatalf("hosts = %+v", summary.Hosts)
 	}
 }
 

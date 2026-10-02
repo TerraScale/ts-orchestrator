@@ -7,12 +7,15 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // topologyNode is one <ts-topology> node; clicking it opens a drill-down
 // panel with Details and a link to Href.
 type topologyNode struct {
-	ID         string            `json:"id"`
+	ID string `json:"id"`
+	// Region groups the node under its region for collapse and layout.
+	Region     string            `json:"region"`
 	Name       string            `json:"name"`
 	Kind       string            `json:"kind"`
 	State      string            `json:"state"`
@@ -53,39 +56,94 @@ func (current view) topology() topologySpec {
 	local := current.localRegion()
 	regions := current.Regions
 	if len(regions) == 0 {
-		addNode(topologyNode{ID: "region:" + local, Name: upper(local), Kind: "region", State: boolStatus(current.Ready),
+		addNode(topologyNode{ID: "region:" + local, Region: local, Name: upper(local), Kind: "region", State: boolStatus(current.Ready),
 			StateLabel: "this region", Href: current.State.link("/region")})
 	}
 	for _, summary := range regions {
 		status := regionStatus(summary.Health.Status)
-		addNode(topologyNode{ID: "region:" + summary.Region, Name: upper(summary.Region), Kind: "region", State: status,
+		addNode(topologyNode{ID: "region:" + summary.Region, Region: summary.Region, Name: upper(summary.Region), Kind: "region", State: status,
 			StateLabel: string(summary.Health.Status), Href: current.State.link("/region", "r", summary.Region),
 			Details: map[string]string{"health score": itoa(summary.Health.Score), "reach": reachLabel(summary.Reach),
 				"quorum":    itoa(summary.Quorum.Answering) + "/" + itoa(summary.Quorum.Expected),
 				"authority": orDash(summary.Leaders.Authority), "meta leader": orDash(summary.Leaders.MetaLeader),
 				"TerraBase": itoa(summary.TerraBase.Databases) + " databases", "versions": versionsText(summary)}})
-		if summary.Local {
-			continue
-		}
-		for _, version := range summary.Versions {
-			for _, member := range version.Members {
-				id := "member:" + summary.Region + ":" + member
-				addNode(topologyNode{ID: id, Name: member, Kind: "controller", State: "ok", StateLabel: "answering",
-					Href:    current.State.link("/region", "r", summary.Region),
-					Details: map[string]string{"region": upper(summary.Region), "version": version.Version}})
-				spec.Links = append(spec.Links, topologyLink{Source: "region:" + summary.Region, Target: id, Kind: "member"})
-			}
-		}
-		for _, missing := range summary.Quorum.Missing {
-			id := "member:" + summary.Region + ":" + missing
-			addNode(topologyNode{ID: id, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
-				Details: map[string]string{"region": upper(summary.Region)}})
-			spec.Links = append(spec.Links, topologyLink{Source: "region:" + summary.Region, Target: id, Kind: "member", State: "bad"})
+		if !summary.Local {
+			remoteTopology(&spec, addNode, summary, current.State)
 		}
 	}
 	current.localTopology(&spec, addNode)
 	current.regionLinks(&spec)
 	return spec
+}
+
+// remoteTopology adds another region's controllers and seat hosts from its
+// summary. Summaries from older regions carry only the build versions'
+// members, which are shown as controllers.
+func remoteTopology(spec *topologySpec, addNode func(topologyNode), summary regionview.Summary, state uiState) {
+	region := summary.Region
+	regionID := "region:" + region
+	href := state.link("/region", "r", region)
+	id := func(name string) string { return "member:" + region + ":" + name }
+	members := summary.Members
+	if len(members) == 0 {
+		for _, version := range summary.Versions {
+			for _, name := range version.Members {
+				members = append(members, regionview.Member{Name: name, Role: "controller", Ready: true, Version: version.Version})
+			}
+		}
+	}
+	var controllers []string
+	ready := map[string]bool{}
+	for _, member := range members {
+		kind, label := "controller", "answering"
+		if member.Role == "host" {
+			kind = "host"
+		}
+		if !member.Ready {
+			label = "not ready"
+		}
+		details := map[string]string{"region": upper(region), "role": orDash(member.Role), "build": orDash(member.Version)}
+		if member.Name == summary.Leaders.Authority {
+			details["authority"] = "leader, epoch " + itoa(summary.Leaders.Epoch)
+		}
+		if member.Name == summary.Leaders.MetaLeader {
+			details["JetStream"] = "meta leader"
+		}
+		addNode(topologyNode{ID: id(member.Name), Region: region, Name: member.Name, Kind: kind, State: boolStatus(member.Ready),
+			StateLabel: label, Href: href, Details: details})
+		if kind == "controller" {
+			controllers = append(controllers, member.Name)
+			ready[member.Name] = member.Ready
+			spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id(member.Name), Kind: "member"})
+		}
+	}
+	for _, missing := range summary.Quorum.Missing {
+		addNode(topologyNode{ID: id(missing), Region: region, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
+			Href: href, Details: map[string]string{"region": upper(region), "why": "did not answer its region's snapshot request"}})
+		controllers = append(controllers, missing)
+		spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id(missing), Kind: "member", State: "bad"})
+	}
+	slices.Sort(controllers)
+	for left := range controllers {
+		for right := left + 1; right < len(controllers); right++ {
+			state := "ok"
+			if !ready[controllers[left]] || !ready[controllers[right]] {
+				state = "bad"
+			}
+			spec.Links = append(spec.Links, topologyLink{Source: id(controllers[left]), Target: id(controllers[right]),
+				Kind: "route", State: state, Label: "NATS route"})
+		}
+	}
+	hub := regionID
+	if leader := summary.Leaders.MetaLeader; leader != "" && slices.Contains(controllers, leader) {
+		hub = id(leader)
+	}
+	for _, host := range summary.Hosts {
+		addNode(topologyNode{ID: id(host.Name), Region: region, Name: host.Name, Kind: "host", State: "ok",
+			StateLabel: "carries seats", Href: href,
+			Details: map[string]string{"region": upper(region), "seats": itoa(host.Seats), "serving": itoa(host.Serving)}})
+		spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id(host.Name), Kind: "leaf", Label: "NATS leaf / client"})
+	}
 }
 
 func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)) {
@@ -128,7 +186,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			details["memory used"] = percent(memoryUsed(member.System))
 			details["load 1m"] = formatFloat(member.System.Load1, 2)
 		}
-		addNode(topologyNode{ID: id, Name: member.Member, Kind: kind, State: state, StateLabel: label,
+		addNode(topologyNode{ID: id, Region: local, Name: member.Member, Kind: kind, State: state, StateLabel: label,
 			Href: current.State.link("/members", "host", member.Member), Details: details})
 		if kind == "controller" {
 			controllers = append(controllers, member.Member)
@@ -137,7 +195,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 	}
 	for _, missing := range current.missing() {
 		id := "member:" + local + ":" + missing
-		addNode(topologyNode{ID: id, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
+		addNode(topologyNode{ID: id, Region: local, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
 			Details: map[string]string{"why": "did not answer the cell-wide snapshot request"}})
 		controllers = append(controllers, missing)
 		spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id, Kind: "member", State: "bad"})
@@ -187,7 +245,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 				serving++
 			}
 		}
-		addNode(topologyNode{ID: id, Name: host, Kind: "host", State: "ok", StateLabel: "carries seats",
+		addNode(topologyNode{ID: id, Region: local, Name: host, Kind: "host", State: "ok", StateLabel: "carries seats",
 			Href:    current.State.link("/members", "host", host),
 			Details: map[string]string{"seats": itoa(len(hosts[host])), "serving": itoa(serving)}})
 		spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id, Kind: "leaf", Label: "NATS leaf / client"})
@@ -197,7 +255,7 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			}
 			seats++
 			seatID := "seat:" + local + ":" + seat.SeatID
-			addNode(topologyNode{ID: seatID, Name: seat.SeatID, Kind: "seat", State: stageStatus(seat.Stage),
+			addNode(topologyNode{ID: seatID, Region: local, Name: seat.SeatID, Kind: "seat", State: stageStatus(seat.Stage),
 				StateLabel: seat.Stage, Href: current.State.link("/terrabase", "host", host),
 				Details: map[string]string{"host": host, "failure domain": orDash(seat.FailureDomain),
 					"update phase": orDash(seat.UpdatePhase), "updated": formatTime(seat.UpdatedAt)}})

@@ -1,6 +1,9 @@
 package dashboard
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+import (
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+)
 
 // regionBody drills into one region. This member's own region shows its live
 // members, charts and events; another region shows the summary it answers
@@ -24,10 +27,13 @@ templ regionBody(current view) {
 			if summary := current.selectedSummary(); summary != nil {
 				<div class="cols-2">
 					@regionCard(current, *summary)
-					<article>
-						<h2>Needs attention in { upper(current.region()) }</h2>
-						@insightList(current, current.regionInsights(current.region()), 10, false)
-					</article>
+					<div class="stack">
+						<article>
+							<h2>Needs attention in { upper(current.region()) }</h2>
+							@insightList(current, current.regionInsights(current.region()), 10, false)
+						</article>
+						@remoteMembers(current, *summary)
+					</div>
 				</div>
 			} else {
 				@unavailable("This region is not configured or has not been summarized yet.")
@@ -96,4 +102,66 @@ templ regionBody(current view) {
 			</article>
 		}
 	</div>
+}
+
+// remoteMembers lists the members and seat hosts another region's summary
+// reports; older regions do not send them and the card is left out.
+templ remoteMembers(current view, summary regionview.Summary) {
+	if len(summary.Members) > 0 || len(summary.Hosts) > 0 {
+		<article>
+			<div class="chart-title">
+				<h2>Members and hosts</h2>
+				<a href={ safe(current.State.link("/topology")) }>Topology →</a>
+			</div>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Member</th><th>Role</th><th>Build</th><th>State</th></tr>
+					</thead>
+					<tbody>
+						for _, member := range summary.Members {
+							<tr>
+								<td>{ member.Name }</td>
+								<td>{ orDash(member.Role) }</td>
+								<td>{ orDash(member.Version) }</td>
+								<td>
+									if member.Ready {
+										@statusPill("ok", "ready")
+									} else {
+										@statusPill("bad", "not ready")
+									}
+								</td>
+							</tr>
+						}
+						for _, missing := range summary.Quorum.Missing {
+							<tr>
+								<td>{ missing }</td>
+								<td>controller</td>
+								<td>—</td>
+								<td>
+									@statusPill("bad", "missing")
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+				if len(summary.Hosts) > 0 {
+					<table>
+						<thead>
+							<tr><th>Seat host</th><th>Seats</th><th>Serving</th></tr>
+						</thead>
+						<tbody>
+							for _, host := range summary.Hosts {
+								<tr>
+									<td>{ host.Name }</td>
+									<td>{ itoa(host.Seats) }</td>
+									<td>{ itoa(host.Serving) }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				}
+			</div>
+		</article>
+	}
 }
