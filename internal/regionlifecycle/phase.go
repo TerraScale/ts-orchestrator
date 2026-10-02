@@ -180,8 +180,12 @@ func seedMayExist(p Phase) bool {
 	return !forward || rank >= forwardOrder[SeedLaunching]
 }
 
-// countsTowardMax reports whether a region in phase p occupies a region slot
-// for the policy's maximum region count.
-func countsTowardMax(p Phase) bool {
+// OccupiesSlot reports whether a region in phase p counts toward the policy's
+// maximum region count and committed spend. An unapproved proposal does not.
+func (p Phase) OccupiesSlot() bool {
 	return p != Proposed && p != Rejected && p != Retired
 }
+
+// Open reports whether a record in phase p still blocks a new proposal for
+// the same cell.
+func (p Phase) Open() bool { return !p.Terminal() }

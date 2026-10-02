@@ -131,17 +131,21 @@ type Hold struct {
 
 // Record is one region's lifecycle state, stored under its cell key.
 type Record struct {
-	Version        int                `json:"version"`
-	Cell           string             `json:"cell"`
-	Generation     uint64             `json:"generation"`
-	Phase          Phase              `json:"phase"`
-	Proposal       Proposal           `json:"proposal"`
-	Approval       *protocol.Envelope `json:"approval,omitempty"`
-	RetireApproval *protocol.Envelope `json:"retire_approval,omitempty"`
-	Admission      *CostAdmission     `json:"admission,omitempty"`
-	Pending        *StepIntent        `json:"pending,omitempty"`
-	Completed      []StepResult       `json:"completed,omitempty"`
-	Hold           *Hold              `json:"hold,omitempty"`
+	Version    int    `json:"version"`
+	Cell       string `json:"cell"`
+	Generation uint64 `json:"generation"`
+	// ProposalGeneration is the record generation at which the current
+	// proposal was made; approvals bind to it so they cannot be replayed
+	// against a later proposal for the same cell.
+	ProposalGeneration uint64             `json:"proposal_generation"`
+	Phase              Phase              `json:"phase"`
+	Proposal           Proposal           `json:"proposal"`
+	Approval           *protocol.Envelope `json:"approval,omitempty"`
+	RetireApproval     *protocol.Envelope `json:"retire_approval,omitempty"`
+	Admission          *CostAdmission     `json:"admission,omitempty"`
+	Pending            *StepIntent        `json:"pending,omitempty"`
+	Completed          []StepResult       `json:"completed,omitempty"`
+	Hold               *Hold              `json:"hold,omitempty"`
 	// RollbackFrom is the phase a cancel left; rollback removes what the
 	// completed steps created, in reverse.
 	RollbackFrom Phase     `json:"rollback_from,omitempty"`
@@ -180,6 +184,25 @@ type Fleet struct {
 	CommittedMonthlyCents uint64
 }
 
+// FleetOf summarizes every record except cell's for the admission guards.
+// Committed spend counts each slot-holding region's admitted estimate, or its
+// proposal estimate before admission.
+func FleetOf(records []Record, cell string) Fleet {
+	var fleet Fleet
+	for _, record := range records {
+		if record.Cell == cell || !record.Phase.OccupiesSlot() {
+			continue
+		}
+		fleet.Regions++
+		cents := record.Proposal.EstimatedMonthlyCents
+		if record.Admission != nil {
+			cents = record.Admission.EstimatedMonthlyCents
+		}
+		fleet.CommittedMonthlyCents += cents
+	}
+	return fleet
+}
+
 // Machine applies transitions. It has no I/O; Store persists its results.
 type Machine struct {
 	Policy Policy
@@ -199,8 +222,24 @@ func (m Machine) Propose(proposal Proposal, now time.Time) (Record, error) {
 	if err := proposal.Validate(); err != nil {
 		return Record{}, err
 	}
-	return Record{Version: recordVersion, Cell: proposal.Cell, Generation: 1, Phase: Proposed,
-		Proposal: proposal, UpdatedAt: now.UTC()}, nil
+	return Record{Version: recordVersion, Cell: proposal.Cell, Generation: 1, ProposalGeneration: 1,
+		Phase: Proposed, Proposal: proposal, UpdatedAt: now.UTC()}, nil
+}
+
+// Repropose starts a new proposal for a cell whose previous record is
+// terminal. Step keys derive from the new proposal ID, so nothing from the
+// previous attempt is reused; approvals and admissions are cleared.
+func (m Machine) Repropose(prior Record, proposal Proposal, now time.Time) (Record, error) {
+	if !prior.Phase.Terminal() || proposal.Cell != prior.Cell || proposal.ID == prior.Proposal.ID {
+		return Record{}, ErrInvalidTransition
+	}
+	next, err := m.Propose(proposal, now)
+	if err != nil {
+		return Record{}, err
+	}
+	next.Generation = prior.Generation + 1
+	next.ProposalGeneration = next.Generation
+	return next, nil
 }
 
 // Approve accepts a signed expansion approval for the exact proposal.
@@ -492,15 +531,15 @@ func (m Machine) requireRetireApproval(record Record, now time.Time) error {
 }
 
 // verifyApproval checks the approver key, exact scope, expiry and that the
-// payload binds this proposal. Generation is the proposal's first record
-// generation, so re-verifying later transitions stays valid.
+// payload binds this proposal. The envelope generation is the record's
+// ProposalGeneration, so re-verifying at later transitions stays valid.
 func (m Machine) verifyApproval(record Record, approval protocol.Envelope, kind string, now time.Time) error {
 	key, ok := m.Policy.Approvers[approval.Actor]
 	if !ok {
 		return ErrApprovalRequired
 	}
 	scope := protocol.EnvelopeScope{Region: record.Cell, Kind: kind, Actor: approval.Actor,
-		OperationID: record.Proposal.ID, Generation: 1, Epoch: 0}
+		OperationID: record.Proposal.ID, Generation: record.ProposalGeneration, Epoch: 0}
 	if err := protocol.VerifyEnvelope(approval, scope, key, now, protocol.VerifyPolicy{
 		MaxLifetime: m.Policy.ApprovalMaxLifetime, ClockSkew: m.Policy.ClockSkew,
 	}); err != nil {
@@ -561,6 +600,7 @@ func boundReason(reason string) string {
 // Validate checks a stored record's structural invariants.
 func (record Record) Validate() error {
 	if record.Version != recordVersion || !cellToken.MatchString(record.Cell) || record.Generation == 0 ||
+		record.ProposalGeneration == 0 || record.ProposalGeneration > record.Generation ||
 		!record.Phase.known() || record.Proposal.Validate() != nil || record.Proposal.Cell != record.Cell {
 		return errors.New("region lifecycle record is invalid")
 	}

@@ -119,7 +119,7 @@ func (s *Store) List(ctx context.Context) ([]Record, error) {
 // Create stores a new Proposed record; a second proposal for a cell that
 // already has a record is a conflict.
 func (s *Store) Create(ctx context.Context, epoch uint64, record Record) (uint64, error) {
-	if record.Phase != Proposed || record.Generation != 1 {
+	if record.Phase != Proposed || record.Generation != 1 || record.ProposalGeneration != 1 {
 		return 0, ErrInvalidTransition
 	}
 	data, err := encode(record)
@@ -141,9 +141,25 @@ func (s *Store) Create(ctx context.Context, epoch uint64, record Record) (uint64
 // Update replaces the record at revision. The new record must be the next
 // generation of the same region.
 func (s *Store) Update(ctx context.Context, epoch uint64, prior, next Record, revision uint64) (uint64, error) {
-	if next.Cell != prior.Cell || next.Generation != prior.Generation+1 || next.Proposal.ID != prior.Proposal.ID {
+	if next.Cell != prior.Cell || next.Generation != prior.Generation+1 || next.Proposal.ID != prior.Proposal.ID ||
+		next.ProposalGeneration != prior.ProposalGeneration {
 		return 0, ErrInvalidTransition
 	}
+	return s.write(ctx, epoch, next, revision)
+}
+
+// Repropose replaces a terminal record with a new Proposed record built by
+// Machine.Repropose.
+func (s *Store) Repropose(ctx context.Context, epoch uint64, prior, next Record, revision uint64) (uint64, error) {
+	if !prior.Phase.Terminal() || next.Phase != Proposed || next.Cell != prior.Cell ||
+		next.Generation != prior.Generation+1 || next.ProposalGeneration != next.Generation ||
+		next.Proposal.ID == prior.Proposal.ID {
+		return 0, ErrInvalidTransition
+	}
+	return s.write(ctx, epoch, next, revision)
+}
+
+func (s *Store) write(ctx context.Context, epoch uint64, next Record, revision uint64) (uint64, error) {
 	data, err := encode(next)
 	if err != nil {
 		return 0, err

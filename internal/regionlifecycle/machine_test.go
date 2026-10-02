@@ -53,7 +53,7 @@ func (f *fixture) sign(t *testing.T, record Record, kind string, maxCents uint64
 		t.Fatal(err)
 	}
 	envelope, err := protocol.SignEnvelope(payload, protocol.EnvelopeScope{Region: record.Cell, Kind: kind, Actor: approver,
-		OperationID: record.Proposal.ID, Generation: 1}, f.now, f.now.Add(lifetime), key)
+		OperationID: record.Proposal.ID, Generation: record.ProposalGeneration}, f.now, f.now.Add(lifetime), key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -431,6 +431,32 @@ func TestProposalsExpireAndRejectionIsTerminal(t *testing.T) {
 		t.Fatalf("expire = %+v, %v", expired, err)
 	}
 	assertTerminal(t, f, expired)
+	oldApproval := f.approval(t, proposed)
+	if _, err := f.machine.Repropose(expired, f.proposal(), f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("repropose with the same proposal ID = %v", err)
+	}
+	if _, err := f.machine.Repropose(proposed, f.proposal(), f.now); !errors.Is(err, ErrInvalidTransition) {
+		t.Fatalf("repropose over an open record = %v", err)
+	}
+	second := f.proposal()
+	second.ID = "sfo-capacity-2"
+	again, err := f.machine.Repropose(expired, second, f.now)
+	if err != nil || again.Phase != Proposed || again.Generation != expired.Generation+1 ||
+		again.ProposalGeneration != again.Generation || again.Approval != nil {
+		t.Fatalf("repropose = %+v, %v", again, err)
+	}
+	if err := again.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.machine.Approve(again, oldApproval, f.now); !errors.Is(err, ErrApprovalRequired) {
+		t.Fatalf("approval of the previous proposal replayed: %v", err)
+	}
+	if _, err := f.machine.Approve(again, f.approval(t, again), f.now); err != nil {
+		t.Fatalf("approval of the new proposal = %v", err)
+	}
+	if CreateKey("sfo", second.ID, StepSubscribe) == CreateKey("sfo", f.proposal().ID, StepSubscribe) {
+		t.Fatal("a new proposal reuses the previous attempt's create keys")
+	}
 	rejected, err := f.machine.Reject(proposed, "", f.now)
 	if err != nil || rejected.Outcome != "unspecified" {
 		t.Fatalf("reject = %+v, %v", rejected, err)
@@ -495,6 +521,24 @@ func TestEveryPhaseHasExactlyItsTableTransitions(t *testing.T) {
 	}
 	if Phase("bogus").known() {
 		t.Fatal("unknown phase reported known")
+	}
+}
+
+func TestFleetCountsOnlySlotHoldingOtherRegions(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	admitted := f.admitted(t)
+	gru := admitted
+	gru.Cell, gru.Phase = "gru", Active
+	fra := admitted
+	fra.Cell, fra.Phase, fra.Admission = "fra", Held, nil
+	proposed := admitted
+	proposed.Cell, proposed.Phase = "iad", Proposed
+	retired := admitted
+	retired.Cell, retired.Phase = "lhr", Retired
+	fleet := FleetOf([]Record{admitted, gru, fra, proposed, retired}, "sfo")
+	if fleet.Regions != 2 || fleet.CommittedMonthlyCents != 18_000 {
+		t.Fatalf("fleet = %+v", fleet)
 	}
 }
 

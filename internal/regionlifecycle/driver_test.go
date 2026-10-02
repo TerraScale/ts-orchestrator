@@ -108,7 +108,7 @@ func TestStoreAndDriverJournalIntentBeforeEffect(t *testing.T) {
 		t.Fatalf("stored record = %+v, %v", read, err)
 	}
 	if err := protocol.VerifyEnvelope(*read.Approval, protocol.EnvelopeScope{Region: "sfo", Kind: ApproveExpansionKind,
-		Actor: approver, OperationID: read.Proposal.ID, Generation: 1}, f.machine.Policy.Approvers[approver], f.now,
+		Actor: approver, OperationID: read.Proposal.ID, Generation: read.ProposalGeneration}, f.machine.Policy.Approvers[approver], f.now,
 		protocol.VerifyPolicy{MaxLifetime: 72 * time.Hour}); err != nil {
 		t.Fatalf("approval did not survive storage byte for byte: %v", err)
 	}
