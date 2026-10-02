@@ -2,6 +2,8 @@ package regionview
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -166,4 +168,20 @@ func TestRegionsAcrossLinks(t *testing.T) {
 		group.Go(func() { _ = local.Regions(ctx) })
 	}
 	group.Wait()
+}
+
+func TestHandler(t *testing.T) {
+	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}}
+	handler := Handler(provider)
+	for path, want := range map[string]int{
+		"/v1/regions":     http.StatusOK,
+		"/v1/regions/GRU": http.StatusOK,
+		"/v1/regions/sfo": http.StatusNotFound,
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != want {
+			t.Fatalf("%s = %d %s", path, recorder.Code, recorder.Body)
+		}
+	}
 }

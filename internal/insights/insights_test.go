@@ -3,6 +3,8 @@ package insights
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -402,4 +404,23 @@ func TestEngineConcurrentUse(t *testing.T) {
 		})
 	}
 	group.Wait()
+}
+
+func TestHandler(t *testing.T) {
+	engine := NewEngine(Config{Region: "gru", Cluster: &fakeCluster{snapshot: healthy()}})
+	engine.Evaluate(t.Context())
+	handler := Handler(engine, Summarizer{Insights: engine, Scope: "GRU"})
+	for path, want := range map[string]int{
+		"/v1/insights":             http.StatusOK,
+		"/v1/summary":              http.StatusOK,
+		"/v1/summary?window=24h":   http.StatusOK,
+		"/v1/summary?window=1s":    http.StatusBadRequest,
+		"/v1/summary?window=never": http.StatusBadRequest,
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != want {
+			t.Fatalf("%s = %d %s", path, recorder.Code, recorder.Body)
+		}
+	}
 }

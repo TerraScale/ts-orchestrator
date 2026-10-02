@@ -321,6 +321,7 @@ func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 			return err
 		}
 		instanceID, err := caller.retryLaunch(ctx, attempt, slot)
+		recordFounderLaunch(ctx, caller.accepted.Cell, caller.accepted.DeploymentID, slot, attempt, instanceID, err)
 		if err != nil {
 			return err
 		}

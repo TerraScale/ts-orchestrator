@@ -65,10 +65,13 @@ func Enroll(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("netbird-enroll must run as root")
 	}
-	return (enroller{
+	e := enroller{
 		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname,
 		hostsPath: "/etc/hosts", runtimePath: "/run/terrascale-netbird", poll: time.Second,
-	}).enroll(ctx, cfg)
+	}
+	err := e.enroll(ctx, cfg)
+	recordEnrollment(ctx, cfg, e.hostname, err)
+	return err
 }
 
 func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
