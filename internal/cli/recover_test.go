@@ -113,7 +113,37 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	if _, err := run("re-found gru/controller-a\n", survivor...); err == nil {
 		t.Fatal("refound relaunched the local survivor")
 	}
-	if out, err := run("", "runbook", "--config", config); err != nil || !strings.Contains(out, "verify-backup") {
+	if out, err := run("", "runbook", "--config", config); err != nil || !strings.Contains(out, "verify-backup") ||
+		!strings.Contains(out, "render-retirement") {
 		t.Fatalf("runbook = %q, %v", out, err)
+	}
+}
+
+// Without quorum no reconciler renders a retirement request, so the
+// break-glass path must be able to render one itself.
+func TestRecoverQuorumRenderRetirement(t *testing.T) {
+	config, _, root := recoveryFixture(t)
+	previous := renderRetirement
+	t.Cleanup(func() { renderRetirement = previous })
+	var rendered []string
+	renderRetirement = func(_ context.Context, slot, dir string) (string, error) {
+		rendered = append(rendered, slot)
+		return filepath.Join(dir, slot+".retirement-request.json"), nil
+	}
+	run := func(args ...string) (string, error) {
+		var output bytes.Buffer
+		err := Run(t.Context(), append([]string{"cluster", "recover-quorum", "render-retirement"}, args...), &output)
+		return output.String(), err
+	}
+	if _, err := run("--config", config, "--slot", "controller-a", "--out", root); err == nil {
+		t.Fatal("rendered a retirement for the local survivor")
+	}
+	if _, err := run("--config", config, "--slot", "controller-b", "--out", "relative"); err == nil {
+		t.Fatal("rendered into a relative directory")
+	}
+	out, err := run("--config", config, "--slot", "controller-b", "--out", root)
+	if err != nil || len(rendered) != 1 || rendered[0] != "controller-b" ||
+		!strings.Contains(out, "sign-slot-retirement") {
+		t.Fatalf("render = %q, %v, %v", out, err, rendered)
 	}
 }

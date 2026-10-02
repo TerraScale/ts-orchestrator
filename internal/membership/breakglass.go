@@ -269,8 +269,11 @@ writes acknowledged only by lost controllers may be lost.
  4. On every survivor:  ts-orch cluster recover-quorum backup --config <controller.json> --out <dir>
     then:               ts-orch cluster recover-quorum verify-backup --dir <dir>
     Copy each backup off the host before continuing.
- 5. For each lost peer slot, let a survivor render or copy its
-    <slot>.retirement-request.json, and root-sign it offline with
+ 5. For each lost peer slot, render its retirement request on a survivor:
+    ts-orch cluster recover-quorum render-retirement --config <controller.json> \
+        --slot <slot> --out <dir>
+    (or copy a <slot>.retirement-request.json the leader rendered before
+    quorum was lost), then root-sign it offline with
     ts-orch bootstrap sign-slot-retirement.
  6. On the seed survivor, as the controller service account:
     ts-orch cluster recover-quorum refound --config <controller.json> --slot <slot> \

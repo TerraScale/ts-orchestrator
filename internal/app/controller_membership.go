@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -102,6 +103,9 @@ type ledgerRetirementRequests struct {
 	deploymentID string
 	cell         string
 	dir          string
+	// fencingAuthority overrides the authority-epoch binding for requests
+	// rendered outside a controller term (break-glass recovery).
+	fencingAuthority string
 }
 
 func (requests ledgerRetirementRequests) RequestRetirement(ctx context.Context, request membership.RetirementRequest) error {
@@ -119,9 +123,12 @@ func (requests ledgerRetirementRequests) RequestRetirement(ctx context.Context, 
 	if err != nil {
 		return err
 	}
+	fencing := requests.fencingAuthority
+	if fencing == "" {
+		fencing = fmt.Sprintf("authority-epoch-%d", request.Epoch)
+	}
 	candidate, err := bootstrapstart.RenderSlotRetirementCandidate(ctx, requests.ledger, requests.deploymentID,
-		requests.cell, request.Slot, controllerSHA256(observed), fmt.Sprintf("authority-epoch-%d", request.Epoch),
-		request.ObservedAt)
+		requests.cell, request.Slot, controllerSHA256(observed), fencing, request.ObservedAt)
 	if err != nil {
 		return err
 	}
@@ -163,6 +170,92 @@ func writeOwnerOnlyFile(dir, name string, data []byte) error {
 	return os.Rename(temporary.Name(), filepath.Join(dir, name))
 }
 
+// membershipLedger is the historically verified controller slot ledger and
+// exact-instance lifecycle observer of this admitted controller install.
+type membershipLedger struct {
+	baked    bootstrapstart.BakedInputs
+	accepted bootstrapstart.AcceptedInstall
+	anchor   bootstrap.HistoricalBootstrapAnchor
+	observer lifecycleObserver
+	ledger   bootstrapstart.SlotReader
+}
+
+func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
+	baked, err := bootstrapstart.LoadBakedInputs()
+	if err != nil {
+		return membershipLedger{}, fmt.Errorf("load baked controller inputs for membership: %w", err)
+	}
+	accepted, err := bootstrapstart.NewMarkerStore().Read()
+	if err != nil {
+		return membershipLedger{}, fmt.Errorf("read accepted controller install for membership: %w", err)
+	}
+	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+	if err != nil {
+		return membershipLedger{}, err
+	}
+	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots,
+		baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		return membershipLedger{}, fmt.Errorf("verify accepted anchor for membership: %w", err)
+	}
+	if anchor.Digest() != accepted.AnchorSHA256 {
+		return membershipLedger{}, errors.New("verify accepted anchor for membership: digest differs from the accepted install")
+	}
+	instances, ledgers, err := bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
+	if err != nil {
+		return membershipLedger{}, err
+	}
+	observer, ok := instances.(lifecycleObserver)
+	if !ok {
+		return membershipLedger{}, errors.New("OCI instance observer cannot read lifecycle state")
+	}
+	ledger, err := ledgers.OpenHistoricalLedger(ctx, anchor, baked.Roots)
+	if err != nil {
+		return membershipLedger{}, err
+	}
+	return membershipLedger{baked: baked, accepted: accepted, anchor: anchor, observer: observer, ledger: ledger}, nil
+}
+
+// RenderBreakGlassRetirementRequest writes <slot>.retirement-request.json for
+// a lost peer slot while metadata quorum, and with it controller authority, is
+// lost, so no reconciler can render one. It re-checks the exact ledger-pinned
+// instance is TERMINATED in OCI and never signs anything.
+func RenderBreakGlassRetirementRequest(ctx context.Context, slot, dir string, now time.Time) (string, error) {
+	opened, err := openMembershipLedger(ctx)
+	if err != nil {
+		return "", err
+	}
+	accepted := opened.accepted
+	if !slices.Contains(opened.anchor.Anchor().ControllerSlots, slot) || slot == accepted.Slot ||
+		slot == accepted.SeedSlot {
+		return "", errors.New("only a lost anchored non-seed peer slot other than this controller can be retired")
+	}
+	summaries, err := bootstrapstart.SummarizeControllerSlots(ctx, opened.ledger, accepted.DeploymentID,
+		accepted.Cell, []string{slot})
+	if err != nil {
+		return "", err
+	}
+	summary := summaries[slot]
+	if !summary.Complete || summary.InstanceOCID == "" {
+		return "", errors.New("slot has no completed ledger attempt to retire")
+	}
+	lifecycle, err := opened.observer.ObserveLifecycle(ctx, summary.InstanceOCID)
+	if err != nil {
+		return "", fmt.Errorf("observe pinned instance %s: %w", summary.InstanceOCID, err)
+	}
+	if lifecycle != membership.LifecycleTerminated {
+		return "", fmt.Errorf("pinned instance %s is %s; terminate it before retiring the slot", summary.InstanceOCID, lifecycle)
+	}
+	requests := ledgerRetirementRequests{ledger: opened.ledger, deploymentID: accepted.DeploymentID,
+		cell: accepted.Cell, dir: dir, fencingAuthority: "break-glass-quorum-loss"}
+	at := now.UTC().Truncate(time.Second)
+	if err := requests.RequestRetirement(ctx, membership.RetirementRequest{Slot: slot, Attempt: summary.Attempt,
+		InstanceOCID: summary.InstanceOCID, Lifecycle: lifecycle, ObservedAt: at}); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, slot+RetirementRequestSuffix), nil
+}
+
 // startControllerMembership builds the reconciler for a production controller
 // whose signed config enables supervision. It returns nil when disabled.
 func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
@@ -178,35 +271,12 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 	if cfg.NATS.Lab {
 		return nil, errors.New("controller membership supervision requires a production controller")
 	}
-	baked, err := bootstrapstart.LoadBakedInputs()
-	if err != nil {
-		return nil, fmt.Errorf("load baked controller inputs for membership: %w", err)
-	}
-	accepted, err := bootstrapstart.NewMarkerStore().Read()
-	if err != nil {
-		return nil, fmt.Errorf("read accepted controller install for membership: %w", err)
-	}
-	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
+	opened, err := openMembershipLedger(ctx)
 	if err != nil {
 		return nil, err
 	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil || anchor.Digest() != accepted.AnchorSHA256 {
-		return nil, fmt.Errorf("verify accepted anchor for membership: %v", err)
-	}
-	instances, ledgers, err := bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
-	if err != nil {
-		return nil, err
-	}
-	observer, ok := instances.(lifecycleObserver)
-	if !ok {
-		return nil, errors.New("OCI instance observer cannot read lifecycle state")
-	}
-	ledger, err := ledgers.OpenHistoricalLedger(ctx, anchor, baked.Roots)
-	if err != nil {
-		return nil, err
-	}
+	baked, accepted, anchor, observer, ledger := opened.baked, opened.accepted, opened.anchor, opened.observer,
+		opened.ledger
 	topology := membership.Topology{Cell: cfg.NATS.Cell, Slots: anchor.Anchor().ControllerSlots,
 		SeedSlot: accepted.SeedSlot, SelfSlot: accepted.Slot}
 	var replacer membership.Replacer

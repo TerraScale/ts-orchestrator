@@ -8,7 +8,9 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -25,11 +27,20 @@ is stopped. Every changing step asks for a typed confirmation.
   preflight      Check the broker is stopped and inventory its store
   backup         Copy the stopped survivor store with a SHA-256 manifest
   verify-backup  Recompute a backup's manifest
+  render-retirement
+                 Render <slot>.retirement-request.json for a lost peer whose
+                 pinned instance OCI reports TERMINATED (no quorum needed)
   refound        Relaunch one lost peer slot from root-signed retirement
 `
 
 // recoveryInput is the operator's terminal; tests replace it.
 var recoveryInput io.Reader = os.Stdin
+
+// renderRetirement renders a lost slot's unsigned retirement request from the
+// ledger and OCI; tests replace it.
+var renderRetirement = func(ctx context.Context, slot, dir string) (string, error) {
+	return app.RenderBreakGlassRetirementRequest(ctx, slot, dir, time.Now())
+}
 
 // refoundReplacer opens the seed founder replacer; tests replace it.
 var refoundReplacer = func(ctx context.Context) (interface {
@@ -66,7 +77,7 @@ func runCluster(ctx context.Context, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("recover-quorum "+command, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	configPath := flags.String("config", "", "survivor controller.json")
-	destination := flags.String("out", "", "new absolute backup directory")
+	destination := flags.String("out", "", "new absolute backup directory, or render-retirement output directory")
 	backupDir := flags.String("dir", "", "backup directory to verify")
 	slot := flags.String("slot", "", "lost peer slot to re-found")
 	retirement := flags.String("retirement", "", "root-signed <slot>.retirement envelope")
@@ -104,6 +115,19 @@ func runCluster(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	case "backup":
 		return membership.Backup(ctx, target, *destination, recoveryInput, out)
+	case "render-retirement":
+		if *slot == "" || *destination == "" || !filepath.IsAbs(*destination) {
+			return errors.New("render-retirement requires --slot and an absolute --out directory")
+		}
+		if *slot == target.Slot {
+			return errors.New("render-retirement cannot retire the local survivor slot")
+		}
+		path, err := renderRetirement(ctx, *slot, *destination)
+		if err != nil {
+			return fmt.Errorf("render %s retirement request: %w", *slot, err)
+		}
+		_, err = fmt.Fprintf(out, "wrote %s; root-sign it offline with ts-orch bootstrap sign-slot-retirement\n", path)
+		return err
 	case "refound":
 		return refound(ctx, target, *slot, *retirement, *backup, out)
 	default:
