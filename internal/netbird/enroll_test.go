@@ -330,9 +330,10 @@ func TestEnrollmentWaitsForDaemonSocketInsteadOfFailing(t *testing.T) {
 	})
 	unreachable := 2
 	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
-		select {
-		case <-listening:
-		default:
+		// Check the socket file itself: the listener goroutine closes
+		// listening only after net.Listen has already created it, so the
+		// channel would race a poll that lands in between.
+		if info, err := os.Lstat(e.socketPath); err != nil || info.Mode().Type() != os.ModeSocket {
 			t.Fatal("daemon was queried before its control socket existed")
 		}
 		if args[0] == "debug" {
