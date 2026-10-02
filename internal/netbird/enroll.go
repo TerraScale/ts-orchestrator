@@ -14,9 +14,19 @@ import (
 const (
 	netbirdBinary   = "/usr/local/bin/netbird"
 	netbirdConfig   = "/var/lib/netbird/config.json"
+	netbirdSocket   = "/var/run/netbird.sock"
 	enrollmentLimit = 2 * time.Minute
 	commandLimit    = 40 * time.Second
+	// daemonLimit bounds the wait for netbird.service's control socket.
+	daemonLimit = 15 * time.Second
+	// pendingLimit bounds the wait for a boot-time saved-identity reconnect.
+	pendingLimit = 15 * time.Second
+	readyLimit   = 45 * time.Second
+	// Polls start at enroller.poll and double up to maxPoll.
+	maxPoll = time.Second
 )
+
+var errDaemonUnreachable = errors.New("cannot query NetBird daemon status")
 
 // serverSettings keep servers off NetBird DNS and routing while serving NetBird
 // SSH. Sessions require the operator's IdP identity (JWT) and a manager
@@ -56,7 +66,10 @@ type enroller struct {
 	hostname    func() (string, error)
 	hostsPath   string
 	runtimePath string
-	poll        time.Duration
+	// socketPath is the daemon control socket; empty skips the socket probe.
+	socketPath string
+	poll       time.Duration
+	pending    time.Duration
 }
 
 // Enroll connects the persistent daemon identity and verifies management and
@@ -67,7 +80,8 @@ func Enroll(ctx context.Context, cfg Config) error {
 	}
 	return (enroller{
 		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname,
-		hostsPath: "/etc/hosts", runtimePath: "/run/terrascale-netbird", poll: time.Second,
+		hostsPath: "/etc/hosts", runtimePath: "/run/terrascale-netbird", socketPath: netbirdSocket,
+		poll: 100 * time.Millisecond, pending: pendingLimit,
 	}).enroll(ctx, cfg)
 }
 
@@ -89,9 +103,19 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	if err := updateHosts(e.hostsPath, cfg.ManagementIP); err != nil {
 		return err
 	}
-	current, err := e.status(ctx)
+	current, err := e.awaitDaemon(ctx)
 	if err != nil {
 		return err
+	}
+	if current.managerMatches(cfg.ManagementURL) && current.DaemonStatus == "Connecting" {
+		// At boot the daemon is already reconnecting its saved identity. A
+		// second up cannot speed that up; let it settle before deciding.
+		current, _, err = e.observe(ctx, e.pending, nil, func(status daemonStatus) bool {
+			return status.DaemonStatus != "Connecting"
+		})
+		if err != nil {
+			return err
+		}
 	}
 	managerMatches := current.managerMatches(cfg.ManagementURL)
 	if managerMatches && current.DaemonStatus == "Connected" {
@@ -128,7 +152,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 			if upErr != nil && !current.Management.Connected {
 				return errors.New("NetBird could not reconnect its saved identity")
 			}
-			return e.waitReady(ctx, cfg.ManagementURL)
+			return e.waitReady(ctx, cfg.ManagementURL, &current)
 		}
 	}
 	key, err := e.readKey(ctx, cfg)
@@ -150,7 +174,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 			result = errors.Join(result, err)
 		}
 	}()
-	if !managerMatches && current.Management.URL != "" {
+	if !managerMatches && current.Management.URL != "" && current.engineActive() {
 		if _, err := e.command(ctx, "down"); err != nil {
 			return errors.New("cannot disconnect NetBird from its previous manager")
 		}
@@ -158,7 +182,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	if _, err := e.command(ctx, append(args, "--setup-key-file", path)...); err != nil {
 		return errors.New("NetBird setup-key enrollment failed")
 	}
-	return e.waitReady(ctx, cfg.ManagementURL)
+	return e.waitReady(ctx, cfg.ManagementURL, nil)
 }
 
 type daemonStatus struct {
@@ -187,10 +211,50 @@ func (status daemonStatus) needsLogin() bool {
 	return status.DaemonStatus == "NeedsLogin" || status.DaemonStatus == "SessionExpired"
 }
 
+// engineActive reports whether the daemon may hold a running or retrying
+// client. A fresh daemon (NeedsLogin: v0.79 does not connect a just-created
+// configuration) or a stopped one (Idle) has nothing to bring down, so the
+// first enrollment skips the extra down.
+func (status daemonStatus) engineActive() bool {
+	return status.DaemonStatus != "NeedsLogin" && status.DaemonStatus != "Idle"
+}
+
+// awaitDaemon returns the first daemon status. netbird.service is Type=simple,
+// so this unit can start before the control socket exists; a bounded wait
+// replaces a failed start and the unit's restart delay. Only an unreachable
+// daemon is retried; an invalid answer fails at once.
+func (e enroller) awaitDaemon(ctx context.Context) (daemonStatus, error) {
+	waitCtx, cancel := context.WithTimeout(ctx, daemonLimit)
+	defer cancel()
+	delay := e.poll
+	for {
+		if e.socketReady() {
+			status, err := e.status(waitCtx)
+			if !errors.Is(err, errDaemonUnreachable) {
+				return status, err
+			}
+		}
+		select {
+		case <-waitCtx.Done():
+			return daemonStatus{}, errDaemonUnreachable
+		case <-time.After(delay):
+		}
+		delay = min(2*delay, maxPoll/2)
+	}
+}
+
+func (e enroller) socketReady() bool {
+	if e.socketPath == "" {
+		return true
+	}
+	info, err := os.Lstat(e.socketPath)
+	return err == nil && info.Mode().Type() == os.ModeSocket
+}
+
 func (e enroller) status(ctx context.Context) (daemonStatus, error) {
 	wire, err := e.command(ctx, "status", "--json", "--config", netbirdConfig)
 	if err != nil {
-		return daemonStatus{}, errors.New("cannot query NetBird daemon status")
+		return daemonStatus{}, errDaemonUnreachable
 	}
 	defer clear(wire)
 	var status daemonStatus
@@ -205,32 +269,62 @@ func (e enroller) status(ctx context.Context) (daemonStatus, error) {
 	}
 }
 
-func (e enroller) waitReady(ctx context.Context, manager string) error {
-	readyCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-	defer cancel()
+// waitReady polls until management and signal are connected, then checks the
+// effective server settings once. first, when set, is a status observed just
+// before the call and saves one daemon query.
+func (e enroller) waitReady(ctx context.Context, manager string, first *daemonStatus) error {
+	status, done, err := e.observe(ctx, readyLimit, first, func(status daemonStatus) bool {
+		return status.ready(manager) || status.needsLogin()
+	})
+	if err != nil {
+		return err
+	}
+	if !done {
+		return errors.New("NetBird management and signal connectivity did not become ready")
+	}
+	if status.needsLogin() {
+		return errors.New("NetBird enrollment still requires authentication")
+	}
+	applied, err := e.settingsApplied(ctx, manager)
+	if err != nil {
+		return err
+	}
+	if !applied {
+		return errors.New("NetBird server settings were not applied")
+	}
+	return nil
+}
+
+// observe polls daemon status with exponential backoff from e.poll to maxPoll
+// until done holds or limit elapses, and returns the last observation. Each
+// poll forks the NetBird CLI once, so the backoff keeps a slow connect cheap
+// while a fast one is seen within e.poll.
+func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemonStatus, done func(daemonStatus) bool) (daemonStatus, bool, error) {
+	deadline := time.Now().Add(limit)
+	delay := e.poll
 	for {
-		status, err := e.status(readyCtx)
-		if err != nil {
-			return err
-		}
-		if status.ready(manager) {
-			applied, err := e.settingsApplied(readyCtx, manager)
-			if err != nil {
-				return err
+		var status daemonStatus
+		if first != nil {
+			status, first = *first, nil
+		} else {
+			var err error
+			if status, err = e.status(ctx); err != nil {
+				return daemonStatus{}, false, err
 			}
-			if !applied {
-				return errors.New("NetBird server settings were not applied")
-			}
-			return nil
 		}
-		if status.needsLogin() {
-			return errors.New("NetBird enrollment still requires authentication")
+		if done(status) {
+			return status, true, nil
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return status, false, nil
 		}
 		select {
-		case <-readyCtx.Done():
-			return errors.New("NetBird management and signal connectivity did not become ready")
-		case <-time.After(e.poll):
+		case <-ctx.Done():
+			return status, false, nil
+		case <-time.After(min(delay, remaining)):
 		}
+		delay = min(2*delay, maxPoll)
 	}
 }
 

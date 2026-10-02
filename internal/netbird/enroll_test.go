@@ -3,7 +3,9 @@ package netbird
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,7 +30,7 @@ func testEnroller(t *testing.T) enroller {
 	if err := os.WriteFile(hosts, []byte("127.0.0.1 localhost\n# keep this entry\n10.250.1.2 git.terrascale.tech\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return enroller{hostsPath: hosts, runtimePath: filepath.Join(directory, "run"), poll: time.Millisecond,
+	return enroller{hostsPath: hosts, runtimePath: filepath.Join(directory, "run"), poll: time.Millisecond, pending: 50 * time.Millisecond,
 		hostname: func() (string, error) { return "ts-gru-server-1", nil },
 		readKey: func(context.Context, Config) ([]byte, error) {
 			t.Fatal("unexpected OCI secret retrieval")
@@ -218,7 +220,7 @@ func TestConnectedIdentityAppliesServerSettingsWithoutVault(t *testing.T) {
 			if err := e.enroll(t.Context(), testConfig()); err != nil {
 				t.Fatal(err)
 			}
-			if !slices.Equal(commands, []string{"status", "debug", "down", "up", "status", "status", "debug"}) {
+			if !slices.Equal(commands, []string{"status", "debug", "down", "up", "status", "debug"}) {
 				t.Fatalf("configuration was not applied to existing identity: %v", commands)
 			}
 		})
@@ -294,5 +296,167 @@ func TestSubprocessEnvironmentCannotOverrideFlags(t *testing.T) {
 	}
 	if bytes.Contains(output, []byte("NB_SETUP_KEY")) || bytes.Contains(output, []byte("WT_MANAGEMENT_URL")) {
 		t.Fatal("NetBird environment overrides reached the subprocess")
+	}
+}
+
+func TestEnrollmentWaitsForDaemonSocketInsteadOfFailing(t *testing.T) {
+	e := testEnroller(t)
+	// Unix socket paths are short; t.TempDir can exceed the limit.
+	directory, err := os.MkdirTemp("", "nb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(directory) })
+	e.socketPath = filepath.Join(directory, "netbird.sock")
+	listening := make(chan struct{})
+	listener := make(chan net.Listener, 1)
+	go func() {
+		defer close(listening)
+		time.Sleep(20 * time.Millisecond)
+		socket, err := net.Listen("unix", e.socketPath)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		listener <- socket
+	}()
+	t.Cleanup(func() {
+		<-listening
+		select {
+		case socket := <-listener:
+			socket.Close()
+		default:
+		}
+	})
+	unreachable := 2
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		select {
+		case <-listening:
+		default:
+			t.Fatal("daemon was queried before its control socket existed")
+		}
+		if args[0] == "debug" {
+			return []byte(appliedConfigJSON), nil
+		}
+		if unreachable > 0 {
+			// The socket can exist a moment before the daemon serves it.
+			unreachable--
+			return nil, errors.New("connection refused")
+		}
+		return statusJSON("Connected", DefaultManagementURL, true), nil
+	}
+	if err := e.enroll(t.Context(), testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if unreachable != 0 {
+		t.Fatal("unreachable daemon was not retried")
+	}
+}
+
+func TestFreshDaemonEnrollsWithoutRedundantDown(t *testing.T) {
+	e := testEnroller(t)
+	e.readKey = func(context.Context, Config) ([]byte, error) { return []byte(testSetupKey), nil }
+	connected := false
+	var commands []string
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		commands = append(commands, args[0])
+		switch args[0] {
+		case "debug":
+			return []byte(appliedConfigJSON), nil
+		case "down":
+			t.Fatal("a fresh daemon has no client to bring down")
+		case "up":
+			connected = true
+			return nil, nil
+		}
+		if connected {
+			return statusJSON("Connected", DefaultManagementURL, true), nil
+		}
+		// NetBird 0.79 creates a default-manager config and waits in NeedsLogin.
+		return statusJSON("NeedsLogin", "https://api.netbird.io:443", false), nil
+	}
+	if err := e.enroll(t.Context(), testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(commands, []string{"status", "up", "status", "debug"}) {
+		t.Fatalf("commands = %v", commands)
+	}
+}
+
+func TestBootReconnectInProgressIsAwaitedWithoutUp(t *testing.T) {
+	e := testEnroller(t)
+	polls := 0
+	var commands []string
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		commands = append(commands, args[0])
+		switch args[0] {
+		case "debug":
+			return []byte(appliedConfigJSON), nil
+		case "up", "down":
+			t.Fatalf("daemon reconnecting its saved identity received %s", args[0])
+		}
+		polls++
+		if polls < 3 {
+			return statusJSON("Connecting", DefaultManagementURL, false), nil
+		}
+		return statusJSON("Connected", DefaultManagementURL, true), nil
+	}
+	if err := e.enroll(t.Context(), testConfig()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(commands, []string{"status", "status", "status", "debug"}) {
+		t.Fatalf("commands = %v", commands)
+	}
+}
+
+func TestObserveBacksOffExponentiallyWithinLimit(t *testing.T) {
+	e := testEnroller(t)
+	e.poll = 2 * time.Millisecond
+	var times []time.Time
+	e.run = func(context.Context, string, ...string) ([]byte, error) {
+		times = append(times, time.Now())
+		return statusJSON("Connecting", DefaultManagementURL, false), nil
+	}
+	started := time.Now()
+	status, done, err := e.observe(t.Context(), 100*time.Millisecond, nil, func(daemonStatus) bool { return false })
+	if err != nil || done || status.DaemonStatus != "Connecting" {
+		t.Fatalf("observe = %v %t %v", status, done, err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("observe overran its limit: %v", elapsed)
+	}
+	// 2+4+8+16+32+64 ms exceeds the limit, so at most seven queries fit;
+	// fixed 2 ms polling would need about fifty. Scheduler delay under load
+	// only lowers the count.
+	if len(times) < 2 || len(times) > 7 {
+		t.Fatalf("status queries = %d", len(times))
+	}
+}
+
+// The pinned client's effective configuration must keep every key the
+// settings check reads. Bumping NetBird fails here until the fixture is
+// refreshed from the new release's `netbird debug config`.
+func TestPinnedClientDebugConfigFixtureSatisfiesServerSettings(t *testing.T) {
+	inputs, err := os.ReadFile("../../deploy/image/image-inputs.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pin struct {
+		NetBird struct {
+			Version string `json:"version"`
+		} `json:"netbird"`
+	}
+	if err := json.Unmarshal(inputs, &pin); err != nil {
+		t.Fatal(err)
+	}
+	fixture, err := os.ReadFile(filepath.Join("testdata", "debug-config-"+pin.NetBird.Version+".json"))
+	if err != nil {
+		t.Fatalf("no debug config fixture for pinned NetBird %s: %v", pin.NetBird.Version, err)
+	}
+	e := testEnroller(t)
+	e.run = func(context.Context, string, ...string) ([]byte, error) { return bytes.Clone(fixture), nil }
+	applied, err := e.settingsApplied(t.Context(), DefaultManagementURL)
+	if err != nil || !applied {
+		t.Fatalf("pinned client fixture rejected: applied=%t error=%v", applied, err)
 	}
 }
