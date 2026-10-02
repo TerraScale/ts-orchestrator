@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
@@ -23,6 +24,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 type Object = map[string]any
@@ -443,6 +446,9 @@ func (e *Engine) process(command []string) Object {
 	return Object{"args": arr(command), "returncode": code, "stdout": stdout.String(), "stderr": stderr.String()}
 }
 func (e *Engine) realOCI(args []any, kwargs Object) any {
+	if v, ok := e.sdkOCI(args, kwargs); ok {
+		return v
+	}
 	cmd := []string{"oci"}
 	for _, x := range args {
 		cmd = append(cmd, str(x))
@@ -481,6 +487,44 @@ func (e *Engine) realOCI(args []any, kwargs Object) any {
 	}
 	return d
 }
+
+// sdkOCI serves a read in-binary through the OCI Go SDK. It reports false
+// only when the CLI backend is selected, or when the auto backend meets a
+// command the SDK reader does not serve yet.
+func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
+	backend := must(sdkcli.SelectedBackend())
+	if backend == sdkcli.BackendCLI {
+		return nil, false
+	}
+	words := make([]string, len(args))
+	operation := []string{}
+	for i, x := range args {
+		words[i] = str(x)
+		if i < 3 {
+			operation = append(operation, words[i])
+		}
+	}
+	client := must(sdkcli.ForRegion(text(kwargs["region"])))
+	data, handled, err := client.Call(e.ctx(), words)
+	if !handled {
+		if backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
+			return nil, false
+		}
+		fail(fmt.Sprintf("OCI read is not served in-binary: %s", strings.Join(operation, " ")))
+	}
+	if err != nil {
+		if ctxErr := e.ctx().Err(); ctxErr != nil {
+			panic(ctxErr)
+		}
+		fail(fmt.Sprintf("OCI read failed: %s", strings.Join(operation, " ")))
+	}
+	v, err := decodeJSON(data)
+	if err != nil {
+		fail("invalid OCI response for " + strings.Join(operation, " "))
+	}
+	return v, true
+}
+
 func capture[T any](fn func() T) (v T, err error) {
 	defer func() {
 		if r := recover(); r != nil {
