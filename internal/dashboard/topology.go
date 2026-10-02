@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -78,7 +77,10 @@ func (current view) topology() topologySpec {
 
 // remoteTopology adds another region's controllers and seat hosts from its
 // summary. Summaries from older regions carry only the build versions'
-// members, which are shown as controllers.
+// members, which are shown as controllers. A summary says who answered,
+// not which routes are up, so routes between ready controllers are drawn
+// as expected (idle) and only routes to a not-ready or missing controller
+// as broken.
 func remoteTopology(spec *topologySpec, addNode func(topologyNode), summary regionview.Summary, state uiState) {
 	region := summary.Region
 	regionID := "region:" + region
@@ -92,9 +94,16 @@ func remoteTopology(spec *topologySpec, addNode func(topologyNode), summary regi
 			}
 		}
 	}
-	var controllers []string
+	var controllers, hosts []string
+	seen := map[string]bool{}
 	ready := map[string]bool{}
+	hostReady := map[string]bool{}
+	hub := regionID
 	for _, member := range members {
+		if member.Name == "" || seen[member.Name] {
+			continue
+		}
+		seen[member.Name] = true
 		kind, label := "controller", "answering"
 		if member.Role == "host" {
 			kind = "host"
@@ -106,18 +115,28 @@ func remoteTopology(spec *topologySpec, addNode func(topologyNode), summary regi
 		if member.Name == summary.Leaders.Authority {
 			details["authority"] = "leader, epoch " + itoa(summary.Leaders.Epoch)
 		}
-		if member.Name == summary.Leaders.MetaLeader {
+		if member.MetaLeader || member.Name == summary.Leaders.MetaLeader {
 			details["JetStream"] = "meta leader"
+			if kind == "controller" {
+				hub = id(member.Name)
+			}
 		}
 		addNode(topologyNode{ID: id(member.Name), Region: region, Name: member.Name, Kind: kind, State: boolStatus(member.Ready),
 			StateLabel: label, Href: href, Details: details})
-		if kind == "controller" {
-			controllers = append(controllers, member.Name)
-			ready[member.Name] = member.Ready
-			spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id(member.Name), Kind: "member"})
+		if kind == "host" {
+			hostReady[member.Name] = member.Ready
+			hosts = append(hosts, member.Name)
+			continue
 		}
+		controllers = append(controllers, member.Name)
+		ready[member.Name] = member.Ready
+		spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id(member.Name), Kind: "member"})
 	}
 	for _, missing := range summary.Quorum.Missing {
+		if missing == "" || seen[missing] {
+			continue
+		}
+		seen[missing] = true
 		addNode(topologyNode{ID: id(missing), Region: region, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
 			Href: href, Details: map[string]string{"region": upper(region), "why": "did not answer its region's snapshot request"}})
 		controllers = append(controllers, missing)
@@ -126,43 +145,95 @@ func remoteTopology(spec *topologySpec, addNode func(topologyNode), summary regi
 	slices.Sort(controllers)
 	for left := range controllers {
 		for right := left + 1; right < len(controllers); right++ {
-			state := "ok"
+			state := "idle"
 			if !ready[controllers[left]] || !ready[controllers[right]] {
 				state = "bad"
 			}
 			spec.Links = append(spec.Links, topologyLink{Source: id(controllers[left]), Target: id(controllers[right]),
-				Kind: "route", State: state, Label: "NATS route"})
+				Kind: "route", State: state, Label: "NATS route (expected)"})
 		}
 	}
-	hub := regionID
-	if leader := summary.Leaders.MetaLeader; leader != "" && slices.Contains(controllers, leader) {
-		hub = id(leader)
-	}
 	for _, host := range summary.Hosts {
-		addNode(topologyNode{ID: id(host.Name), Region: region, Name: host.Name, Kind: "host", State: "ok",
+		if host.Name == "" {
+			continue
+		}
+		if !seen[host.Name] {
+			seen[host.Name] = true
+			hosts = append(hosts, host.Name)
+		} else if _, isHost := hostReady[host.Name]; !isHost {
+			continue // a controller of the same name already holds this node
+		}
+		// Placement says where seats are, not that the host is alive.
+		hostState := "idle"
+		if ready, ok := hostReady[host.Name]; ok {
+			hostState = boolStatus(ready)
+		}
+		addNode(topologyNode{ID: id(host.Name), Region: region, Name: host.Name, Kind: "host", State: hostState,
 			StateLabel: "carries seats", Href: href,
 			Details: map[string]string{"region": upper(region), "seats": itoa(host.Seats), "serving": itoa(host.Serving)}})
-		spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id(host.Name), Kind: "leaf", Label: "NATS leaf / client"})
 	}
+	for _, host := range hosts {
+		spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id(host), Kind: "leaf", Label: "NATS leaf / client"})
+	}
+}
+
+// topologySeat is one placed TerraBase seat. Seat IDs repeat across
+// databases and partitions, so the node ID carries both.
+type topologySeat struct {
+	database, partition string
+	observability.MemberView
 }
 
 func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)) {
 	local := current.localRegion()
 	regionID := "region:" + local
 	members := current.members()
-	var controllers []string
-	offline := map[string]bool{}
+	memberID := func(name string) string { return "member:" + local + ":" + name }
+	// NATS names peers and the meta leader by server name; members are
+	// keyed by member name.
+	serverMember := map[string]string{}
+	answering := 0
 	for _, member := range members {
-		if member.NATS != nil {
-			for _, peer := range member.NATS.MetaPeers {
-				if peer.Offline {
-					offline[peer.Name] = true
-				}
-			}
+		if member.NATS != nil && member.NATS.ServerName != "" {
+			serverMember[member.NATS.ServerName] = member.Member
+		}
+		if member.Role != "host" {
+			answering++
 		}
 	}
+	memberOf := func(server string) string {
+		if name, ok := serverMember[server]; ok {
+			return name
+		}
+		return server
+	}
+	offline := map[string]bool{}
+	routes := map[string]int{}
+	snapshot := map[string]*observability.MemberSnapshot{}
+	hub := regionID
+	for index, member := range members {
+		snapshot[member.Member] = &members[index]
+		if member.NATS == nil || member.Role == "host" {
+			continue
+		}
+		routes[member.Member] = member.NATS.Routes
+		for _, peer := range member.NATS.MetaPeers {
+			if peer.Offline {
+				offline[memberOf(peer.Name)] = true
+			}
+		}
+		if member.NATS.IsMetaLeader {
+			hub = memberID(member.Member)
+		}
+	}
+	if leader := current.metaLeader(); hub == regionID && leader != "" {
+		if member := snapshot[memberOf(leader)]; member != nil && member.Role != "host" {
+			hub = memberID(member.Member)
+		}
+	}
+	var controllers []string
 	for _, member := range members {
-		id := "member:" + local + ":" + member.Member
+		id := memberID(member.Member)
 		kind := "controller"
 		if member.Role == "host" {
 			kind = "host"
@@ -193,38 +264,48 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 			spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id, Kind: "member"})
 		}
 	}
-	for _, missing := range current.missing() {
-		id := "member:" + local + ":" + missing
-		addNode(topologyNode{ID: id, Region: local, Name: missing, Kind: "controller", State: "bad", StateLabel: "missing",
+	missing := current.missing()
+	for _, name := range missing {
+		if snapshot[name] != nil || slices.Contains(controllers, name) {
+			continue
+		}
+		id := memberID(name)
+		addNode(topologyNode{ID: id, Region: local, Name: name, Kind: "controller", State: "bad", StateLabel: "missing",
 			Details: map[string]string{"why": "did not answer the cell-wide snapshot request"}})
-		controllers = append(controllers, missing)
+		controllers = append(controllers, name)
 		spec.Links = append(spec.Links, topologyLink{Source: regionID, Target: id, Kind: "member", State: "bad"})
 	}
-	// NATS routes form a full mesh between the region's controllers.
+	// NATS routes form a full mesh between the region's controllers. The
+	// snapshot carries route counts, not route peers: a route is healthy
+	// only when both ends report a full mesh, broken when an end is
+	// missing or offline, and expected (idle) otherwise.
 	slices.Sort(controllers)
+	full := func(name string) bool {
+		count, ok := routes[name]
+		return ok && count >= answering-1
+	}
 	for left := range controllers {
 		for right := left + 1; right < len(controllers); right++ {
-			state := "ok"
-			if offline[controllers[left]] || offline[controllers[right]] || slices.Contains(current.missing(), controllers[left]) ||
-				slices.Contains(current.missing(), controllers[right]) {
-				state = "bad"
+			a, b := controllers[left], controllers[right]
+			state, label := "idle", "NATS route (expected)"
+			switch {
+			case offline[a] || offline[b] || slices.Contains(missing, a) || slices.Contains(missing, b):
+				state, label = "bad", "NATS route"
+			case full(a) && full(b):
+				state, label = "ok", "NATS route"
 			}
-			spec.Links = append(spec.Links, topologyLink{Source: "member:" + local + ":" + controllers[left],
-				Target: "member:" + local + ":" + controllers[right], Kind: "route", State: state, Label: "NATS route"})
+			spec.Links = append(spec.Links, topologyLink{Source: memberID(a), Target: memberID(b), Kind: "route", State: state,
+				Label: label})
 		}
 	}
-	leader := current.metaLeader()
-	hub := regionID
-	if leader != "" && slices.Contains(controllers, leader) {
-		hub = "member:" + local + ":" + leader
-	}
 	placement := current.placement()
-	hosts := map[string][]observability.MemberView{}
+	hosts := map[string][]topologySeat{}
 	if placement != nil {
 		for _, database := range placement.Databases {
 			for _, member := range database.Members {
 				if member.HostNode != "" {
-					hosts[member.HostNode] = append(hosts[member.HostNode], member)
+					hosts[member.HostNode] = append(hosts[member.HostNode],
+						topologySeat{database: database.DatabaseID, partition: database.PartitionID, MemberView: member})
 				}
 			}
 		}
@@ -238,27 +319,36 @@ func (current view) localTopology(spec *topologySpec, addNode func(topologyNode)
 	}
 	seats := 0
 	for _, host := range slices.Sorted(maps.Keys(hosts)) {
-		id := "member:" + local + ":" + host
+		id := memberID(host)
 		serving := 0
 		for _, seat := range hosts[host] {
 			if seat.Stage == "serving" {
 				serving++
 			}
 		}
-		addNode(topologyNode{ID: id, Region: local, Name: host, Kind: "host", State: "ok", StateLabel: "carries seats",
+		// Placement says where seats are, not that the host is alive; only
+		// a member's own snapshot shows its readiness.
+		state := "idle"
+		if member := snapshot[host]; member != nil {
+			state = boolStatus(member.Ready)
+		}
+		addNode(topologyNode{ID: id, Region: local, Name: host, Kind: "host", State: state, StateLabel: "carries seats",
 			Href:    current.State.link("/members", "host", host),
 			Details: map[string]string{"seats": itoa(len(hosts[host])), "serving": itoa(serving)}})
-		spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id, Kind: "leaf", Label: "NATS leaf / client"})
+		if id != hub {
+			spec.Links = append(spec.Links, topologyLink{Source: hub, Target: id, Kind: "leaf", Label: "NATS leaf / client"})
+		}
 		for _, seat := range hosts[host] {
 			if seats >= maxTopologySeats {
 				break
 			}
 			seats++
-			seatID := "seat:" + local + ":" + seat.SeatID
+			seatID := "seat:" + local + ":" + seat.database + "/" + seat.partition + "/" + seat.SeatID
 			addNode(topologyNode{ID: seatID, Region: local, Name: seat.SeatID, Kind: "seat", State: stageStatus(seat.Stage),
 				StateLabel: seat.Stage, Href: current.State.link("/terrabase", "host", host),
-				Details: map[string]string{"host": host, "failure domain": orDash(seat.FailureDomain),
-					"update phase": orDash(seat.UpdatePhase), "updated": formatTime(seat.UpdatedAt)}})
+				Details: map[string]string{"host": host, "database": orDash(seat.database), "partition": orDash(seat.partition),
+					"failure domain": orDash(seat.FailureDomain), "update phase": orDash(seat.UpdatePhase),
+					"updated": formatTime(seat.UpdatedAt)}})
 			spec.Links = append(spec.Links, topologyLink{Source: id, Target: seatID, Kind: "seat"})
 		}
 	}
@@ -279,9 +369,9 @@ func (current view) regionLinks(spec *topologySpec) {
 				state = reachStatus(reach[to])
 			case to == local:
 				state = reachStatus(reach[from])
-			case reach[from] == decisionlog.RegionOK && reach[to] == decisionlog.RegionOK:
-				state = "ok"
 			}
+			// Both regions answering this one says nothing about the link
+			// between them, so a remote-to-remote edge stays unknown.
 			spec.Links = append(spec.Links, topologyLink{Source: "region:" + from, Target: "region:" + to, Kind: "region",
 				State: state, Label: upper(from) + " ↔ " + upper(to)})
 		}

@@ -115,6 +115,9 @@ type Member struct {
 	Role    string `json:"role,omitempty"`
 	Ready   bool   `json:"ready"`
 	Version string `json:"version,omitempty"`
+	// MetaLeader marks the JetStream meta leader. The NATS meta leader name
+	// is a server name, not a member name, so it is carried per member.
+	MetaLeader bool `json:"meta_leader,omitempty"`
 }
 
 // Host is a host that carries TerraBase seats.
@@ -261,7 +264,7 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 		}
 		if len(summary.Members) < maxTopologyMembers {
 			summary.Members = append(summary.Members, Member{Name: member.Member, Role: member.Role, Ready: member.Ready,
-				Version: member.BuildVersion})
+				Version: member.BuildVersion, MetaLeader: member.NATS != nil && member.NATS.IsMetaLeader})
 		}
 		if member.BuildVersion != "" {
 			versions[member.BuildVersion] = append(versions[member.BuildVersion], member.Member)
@@ -475,11 +478,27 @@ func (provider *Provider) remote(ctx context.Context, region string) Summary {
 	}
 	summary.Local = false
 	summary.Reach = decisionlog.RegionOK
+	summary.boundTopology()
 	// Never trust a region to speak for another one.
 	summary.Decisions = slices.DeleteFunc(summary.Decisions, func(decision decisionlog.Decision) bool {
 		return decision.Region != region
 	})
 	return summary
+}
+
+// boundTopology caps the lists another region controls before the
+// dashboard draws them: the topology meshes every controller pair, so an
+// unbounded member or missing list from a peer would cost quadratic work on
+// every stream tick.
+func (summary *Summary) boundTopology() {
+	summary.Members = summary.Members[:min(len(summary.Members), maxTopologyMembers)]
+	summary.Hosts = summary.Hosts[:min(len(summary.Hosts), maxTopologyHosts)]
+	summary.Quorum.Missing = summary.Quorum.Missing[:min(len(summary.Quorum.Missing), maxTopologyMembers)]
+	summary.Versions = summary.Versions[:min(len(summary.Versions), maxTopologyMembers)]
+	for index := range summary.Versions {
+		members := summary.Versions[index].Members
+		summary.Versions[index].Members = members[:min(len(members), maxTopologyMembers)]
+	}
 }
 
 // Region returns one region's summary.
