@@ -15,13 +15,28 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-// accountResolver admits exactly the two configured accounts. In particular,
-// routed account-claim gossip cannot cause an unrelated account to be fetched.
+// accountResolver admits exactly the configured system and cell accounts, plus
+// the interregion account when leafnodes are enabled. In particular, routed
+// account-claim gossip cannot cause an unrelated account to be fetched.
 type accountResolver struct {
 	mu     sync.RWMutex
 	system string
 	cell   string
 	claims map[string]string
+	// contract, when set, binds every cell claim replacement to the
+	// interregion subject contract and the cell leafnode prohibition.
+	contract    *InterRegionContract
+	interregion string
+	links       int
+}
+
+// admitInterRegion is called once during server option construction, before
+// the server starts, after the interregion claim has been verified.
+func (r *accountResolver) admitInterRegion(account, raw string, contract InterRegionContract, links int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.claims[account] = raw
+	r.interregion, r.contract, r.links = account, &contract, links
 }
 
 func newAccountResolver(system, systemJWT, cell, cellJWT string) *accountResolver {
@@ -47,6 +62,15 @@ func (r *accountResolver) Store(name, raw string) error {
 		return errors.New("replacement broker account JWT is invalid")
 	}
 	r.mu.Lock()
+	if r.contract != nil {
+		system, systemErr := jwt.DecodeAccountClaims(r.claims[r.system])
+		interregion, interregionErr := jwt.DecodeAccountClaims(r.claims[r.interregion])
+		if systemErr != nil || interregionErr != nil ||
+			r.contract.verify(system, claim, interregion, r.links) != nil {
+			r.mu.Unlock()
+			return errors.New("replacement cell account JWT widens the interregion contract")
+		}
+	}
 	if prior := r.claims[name]; prior != raw {
 		old, oldErr := jwt.DecodeAccountClaims(prior)
 		if oldErr != nil || claim.IssuedAt <= old.IssuedAt {

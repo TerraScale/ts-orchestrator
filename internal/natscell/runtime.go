@@ -66,6 +66,9 @@ type Embedded struct {
 	SystemCredentialsFile string      `json:"system_credentials_file,omitempty"`
 	TicketPublicKeyFile   string      `json:"ticket_public_key_file,omitempty"`
 	BrokerIDs             []string    `json:"broker_ids,omitempty"`
+	// InterRegion links this region to peers by leafnode. Nil or disabled
+	// keeps the region fully standalone.
+	InterRegion *InterRegion `json:"interregion,omitempty"`
 }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
@@ -527,6 +530,9 @@ func (cfg Config) validate() error {
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
+		if err := e.InterRegion.validate(cfg); err != nil {
+			return err
+		}
 		if !cfg.Lab {
 			seen := make(map[string]struct{}, len(e.BrokerIDs))
 			for _, id := range e.BrokerIDs {
@@ -598,6 +604,11 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		options.AccountResolver = resolver
 		options.DontListen = true
 		options.Cluster.NoAdvertise = true
+		if e.InterRegion.active() {
+			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if cfg.Replicas > 1 {
 		for _, raw := range e.Routes {
