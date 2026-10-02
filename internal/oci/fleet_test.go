@@ -1701,6 +1701,16 @@ func (j *fakeJournal) RecordResult(_ context.Context, result OperationResult) er
 	case actionVolumeAttach:
 		identity := attachmentIdentityFromResult(result)
 		j.attachments[identity.ID] = identity
+	case actionVolumeResize:
+		identity.ID = result.Intent.VolumeID
+		identity.AvailabilityDomain = result.Intent.AvailabilityDomain
+		previous := identity
+		previous.SizeGB = result.Intent.PreviousSizeGB
+		identity.SizeGB = result.Intent.SizeGB
+		if current := j.volumes[identity.ID]; current != previous && current != identity {
+			return errors.New("resize predecessor ownership mismatch")
+		}
+		j.volumes[identity.ID] = identity
 	}
 	return nil
 }
