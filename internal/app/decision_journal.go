@@ -17,7 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -104,8 +104,19 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	go runHistorySampler(ctx, observed, runtime.member, history, observability.ClusterCollect(cluster, collector))
 	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: history,
 		Decisions: journal, Links: links}
-	engine := insights.NewEngine(insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
-		History: history, Decisions: journal, Reachability: regions, Holds: observed.holds})
+	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
+		History: history, Decisions: journal, Reachability: regions, Holds: observed.holds}
+	// Optional providers of the other slices: each stays nil, and its rules
+	// silent, unless that slice runs on this controller.
+	var volumes insights.VolumeProvider
+	if observed.placements != nil {
+		volumes = placementVolumes{store: observed.placements}
+		insightConfig.Volumes = volumes
+	}
+	if observed.autoscalers != nil {
+		insightConfig.Autoscalers = workloadAutoscalers{reconciler: observed.autoscalers}
+	}
+	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()
 	if runtime.config.ClusterAggregation {
@@ -120,18 +131,18 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	runtime.providers.Store(&providers)
 	mountJournalAPI(runtime.server, providers)
 	if runtime.dashboard != nil {
-		// Rollout, volume, version, qualification and inventory providers
-		// stay nil until their slices land; the pages say so.
+		// Rollout, version, qualification and inventory providers stay nil
+		// until a controller runs their slices; the pages say so.
 		runtime.dashboard.SetJournal(dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions})
+			Regions: providers.Regions, Volumes: volumes})
 	}
 }
 
 // configuredRegions lists the product regions a product cell can link to.
 // A lab or test cell sees only itself.
 func configuredRegions(cell string) []string {
-	all := []string{string(oci.RegionGRU), string(oci.RegionSFO), string(oci.RegionFRA)}
+	all := catalog.Names()
 	if !slices.ContainsFunc(all, func(region string) bool { return strings.EqualFold(region, cell) }) {
 		return nil
 	}

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
 // maxJournaledSeats bounds the remembered seat states. A regional cell has
@@ -187,4 +188,31 @@ func stageDecision(state MemberState) (decisionlog.Kind, decisionlog.Status, str
 		return decisionlog.KindStageChanged, decisionlog.StatusInProgress,
 			fmt.Sprintf("Seat %s moved to %s", seat, state.Stage)
 	}
+}
+
+// recordVolumeResize journals a grow-only retained volume resize once per
+// volume and target size; the fleet's resize is journaled and idempotent on
+// the same pair.
+func recordVolumeResize(ctx context.Context, cell string, epoch uint64, intent Intent, before, after oci.RetainedVolume) {
+	if after.SizeGB <= before.SizeGB {
+		return
+	}
+	key := fmt.Sprintf("volume_resize:%s:%d", after.ID, after.SizeGB)
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  cell,
+		Actor:   decisionlog.Actor{Slice: "storage"},
+		Kind:    decisionlog.KindVolumeResized,
+		Subject: decisionlog.Subject{Kind: "volume", ID: after.ID, Name: intent.DatabaseID + "/" + intent.PartitionID},
+		Summary: fmt.Sprintf("Grew volume %s from %d to %d GB", after.ID, before.SizeGB, after.SizeGB),
+		Reason:  "The member's resource profile needs a larger retained volume than it was created with.",
+		Rule:    "placement.auto_grow_volumes",
+		Signals: []decisionlog.Signal{{Name: "size_gb", Value: float64(before.SizeGB), Unit: "GB", Comparison: ">=",
+			Threshold: decisionlog.Threshold(float64(after.SizeGB)), Passed: decisionlog.Passed(false)}},
+		Status: decisionlog.StatusSucceeded,
+		Epoch:  epoch,
+	})
+	decisionlog.Correlate(key, id)
 }

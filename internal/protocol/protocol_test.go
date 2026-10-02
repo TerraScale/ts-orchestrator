@@ -289,9 +289,11 @@ func TestSubjectBuildersUseVersionedRegionalAndHashedAgentScopes(t *testing.T) {
 	if err != nil || observability != "ts.orch.v1.gru.obs.snapshot" {
 		t.Fatalf("ObservabilitySubject() = %q, %v", observability, err)
 	}
-	wildcard, err := ObservabilityWildcard("gru")
-	if err != nil || wildcard != "ts.orch.v1.gru.obs.>" {
-		t.Fatalf("ObservabilityWildcard() = %q, %v", wildcard, err)
+	if wildcard := ObservabilityGrant("gru"); wildcard != "ts.orch.v1.gru.obs.>" {
+		t.Fatalf("ObservabilityGrant() = %q", wildcard)
+	}
+	if wildcard := ObservabilityGrant("global"); wildcard != "" {
+		t.Fatalf("ObservabilityGrant(global) = %q, want empty", wildcard)
 	}
 	if _, err := ObservabilitySubject("GRU", "snap.*"); !errors.Is(err, ErrInvalidSubjectToken) {
 		t.Fatalf("ObservabilitySubject(injected token) error = %v, want ErrInvalidSubjectToken", err)

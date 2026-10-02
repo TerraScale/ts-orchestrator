@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
 
@@ -235,6 +236,9 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 	case StepAttach:
 		attached, err := reattacher.Volumes.AttachReplacement(ctx, request, proof)
 		step.Attachment = attached
+		if err == nil {
+			recordReattach(ctx, epoch, request, proof, attached)
+		}
 		return step, err
 	case StepGrantMount:
 		return step, reattacher.Permits.GrantMountExisting(ctx, request, step.Attachment)
@@ -248,4 +252,27 @@ func (reattacher Reattacher) guard(ctx context.Context, epoch uint64) error {
 		return authority.ErrFenced
 	}
 	return reattacher.Fencer.Guard(ctx, epoch)
+}
+
+// recordReattach journals the replacement attach once per attach key: the
+// attach is idempotent on that key, so a retried step does not duplicate it.
+func recordReattach(ctx context.Context, epoch uint64, request Request, proof FenceProof, attached Attachment) {
+	key := "reattach:" + request.AttachKey
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Actor:   decisionlog.Actor{Slice: "storage"},
+		Kind:    decisionlog.KindVolumeReattached,
+		Subject: decisionlog.Subject{Kind: "volume", ID: request.VolumeID},
+		Summary: "Reattached volume " + request.VolumeID + " to replacement instance " + request.ReplacementInstanceID,
+		Reason:  "The previous writer instance was proven fenced (" + proof.State + ").",
+		Rule:    "storage.reattach_on_host_loss",
+		Signals: []decisionlog.Signal{{Name: "old_instance_state", Text: proof.State}},
+		Status:  decisionlog.StatusInProgress,
+		Epoch:   epoch,
+		Attrs: map[string]string{"database": request.DatabaseID, "partition": request.PartitionID,
+			"old_instance": request.OldInstanceID, "attachment": attached.ID},
+	})
+	decisionlog.Correlate(key, id)
 }

@@ -125,7 +125,7 @@ func TestHoldJournalDeduplicatesReasons(t *testing.T) {
 }
 
 func TestConfiguredRegions(t *testing.T) {
-	if got := configuredRegions("gru"); !slices.Equal(got, []string{"GRU", "SFO", "FRA"}) {
+	if got := configuredRegions("gru"); !slices.Equal(got, []string{"gru", "sfo", "fra"}) {
 		t.Fatalf("gru = %v", got)
 	}
 	if got := configuredRegions("lab"); got != nil {

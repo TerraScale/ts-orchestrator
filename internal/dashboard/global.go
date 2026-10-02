@@ -255,7 +255,7 @@ func (current view) mapJSON() string {
 	reach := map[string]string{}
 	local := ""
 	for _, summary := range current.Regions {
-		geo, ok := regionGeo[summary.Region]
+		geo, ok := regionGeo(summary.Region)
 		if !ok {
 			continue
 		}

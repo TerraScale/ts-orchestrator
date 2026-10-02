@@ -1035,9 +1035,13 @@ func (controller *Controller) growVolume(ctx context.Context, epoch uint64, inte
 	if err := controller.guard(ctx, epoch); err != nil {
 		return volume, err
 	}
-	return resizer.ResizeRetainedVolume(ctx, oci.VolumeResizeRequest{
+	grown, err := resizer.ResizeRetainedVolume(ctx, oci.VolumeResizeRequest{
 		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, VolumeID: volume.ID, SizeGB: sizeGB,
 	})
+	if err == nil {
+		recordVolumeResize(ctx, controller.config.Cell, epoch, intent, volume, grown)
+	}
+	return grown, err
 }
 
 // holdStuckAttachment reports an attachment that stayed ATTACHING past its

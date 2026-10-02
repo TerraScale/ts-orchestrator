@@ -80,23 +80,13 @@ func startVolumeBackups(ctx context.Context, cfg Config, managed *managedControl
 
 // placementVolumeIDs lists the retained volumes of every placed member.
 func placementVolumeIDs(ctx context.Context, store placement.Store) ([]string, error) {
-	intents, err := store.ListIntents(ctx)
+	members, err := placedVolumeMembers(ctx, store)
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[string]bool)
-	var volumes []string
-	for _, intent := range intents {
-		members, err := store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
-		if err != nil {
-			return nil, err
-		}
-		for _, member := range members {
-			if id := member.State.VolumeID; id != "" && member.State.Stage != placement.StageRemoved && !seen[id] {
-				seen[id] = true
-				volumes = append(volumes, id)
-			}
-		}
+	volumes := make([]string, 0, len(members))
+	for _, member := range members {
+		volumes = append(volumes, member.VolumeID)
 	}
 	return volumes, nil
 }

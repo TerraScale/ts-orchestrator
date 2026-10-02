@@ -232,8 +232,9 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 	}
 	target := min(max(goal, bounds.Min), bounds.Max)
 	result.Reason = "self-heal"
+	var readings []autoscale.Reading
 	if spec.Scaling != nil && release.Converged() {
-		readings := autoscale.Collect(ctx, r.config.Signals,
+		readings = autoscale.Collect(ctx, r.config.Signals,
 			autoscale.Target{Cell: r.config.Cell, Environment: spec.Environment, Role: spec.Role}, *spec.Scaling, now)
 		decision := autoscale.Decide(*spec.Scaling, autoscale.Input{Current: goal, Bounds: bounds,
 			Readings: readings, Now: now}, history)
@@ -270,6 +271,9 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 	if len(step.Writes) > 0 {
 		r.config.Logf("workload %s: %d -> %d replicas (%s), generation %d, +%d -%d", spec.Role,
 			result.Replicas, target, result.Reason, step.Generation, step.Added, step.Withdrawn)
+		if result.Decision != nil {
+			recordScale(ctx, r.config.Cell, spec, epoch, *result.Decision, readings, step.Generation)
+		}
 	}
 	return result, nil
 }

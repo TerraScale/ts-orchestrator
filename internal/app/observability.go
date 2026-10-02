@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // runtimeObservability is one runtime role's metrics, health, event bus and
@@ -107,6 +108,8 @@ type controllerObservation struct {
 	managed    bool
 	// holds is the placement reconciler's hold log, read by the insights.
 	holds *placementHoldLog
+	// autoscalers is the workload reconciler, when autoscaling is enabled.
+	autoscalers *workload.Reconciler
 }
 
 // attachController registers controller metrics, readiness checks and the

@@ -7,6 +7,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -256,15 +257,17 @@ func (current view) paletteJSON() string {
 	return string(data)
 }
 
-// regionGeo places the product regions on the world map. A region that is
-// not listed is drawn without a position.
-var regionGeo = map[string]struct {
+// regionPlace is a region's map label and position.
+type regionPlace struct {
 	Name     string
 	Lon, Lat float64
-}{
-	"gru": {Name: "São Paulo", Lon: -46.47, Lat: -23.43},
-	"sfo": {Name: "San Jose", Lon: -121.89, Lat: 37.34},
-	"fra": {Name: "Frankfurt", Lon: 8.68, Lat: 50.11},
+}
+
+// regionGeo places a product region on the world map from the region
+// catalog. A region that is not catalogued is drawn without a position.
+func regionGeo(region string) (regionPlace, bool) {
+	entry, ok := catalog.LookupName(region)
+	return regionPlace{Name: entry.City, Lon: entry.Longitude, Lat: entry.Latitude}, ok
 }
 
 // chartLabel is a chart's accessible name: its series, or its empty state.
@@ -298,7 +301,7 @@ func joinWords(words []string) string {
 }
 
 func regionName(region string) string {
-	if geo, ok := regionGeo[region]; ok {
+	if geo, ok := regionGeo(region); ok {
 		return geo.Name
 	}
 	return ""

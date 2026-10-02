@@ -96,8 +96,25 @@ chain's status).
 | Authority leader changes | `leader_changed` (recorded by the new leader) | `app.watchControlPlane` |
 | Cluster health | `quorum_degraded`, `quorum_restored` (by the leader, or anyone while leaderless) | `app.watchControlPlane` |
 | NetBird enrollment | `peer_enrolled` (succeeded or failed) | `netbird.Enroll` |
+| Staged rollouts | `release_admitted` (chain root, correlated on `release:<digest>`), `upgrade_started`, `canary_promoted`, `batch_promoted`, `rollout_completed`, `rollback`, `frozen`, `held` (aborted) | `rollout.Store.Begin` / `rollout.Store.Commit`, after the KV write |
+| Self-update activations | `upgrade_started` (activated, then succeeded when confirmed), `rollback` | `selfupdate.Activate`, `selfupdate.Watch` |
+| Workload autoscaling | `scale_up`, `scale_down` with every policy signal and its target | `workload.Reconciler`, after the desired-state writes succeeded |
+| Volume backups | `backup_taken` | `backup.Runner.RunOnce`, after OCI accepted the create |
+| Volume reattach on host loss | `volume_reattached` | `failover.Reattacher.Step`, after the replacement attach |
+| Volume auto-grow | `volume_resized` | `placement.Controller.growVolume`, after the journaled resize |
+| Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder accepted the replacement |
+| Region proposals | `region_proposed` | `regionplanner.Submit`, after the lifecycle record was stored |
 
-### For the parallel slices
+### Providers of the other slices
+
+| Provider | Implementation | Wired |
+| --- | --- | --- |
+| `insights.AutoscalerProvider` | `app.workloadAutoscalers` over `workload.Reconciler.Last` | when `controller.autoscale.enabled` |
+| `insights.VolumeProvider` (also the dashboard storage page) | `app.placementVolumes` over the placement member states | on managed controllers |
+| `insights.RolloutProvider` | `rollout.Store.Rollouts` | available; no controller opens the rollout store yet |
+| `insights.BudgetProvider` | `regionplanner.Budgets` | available; the planner is not scheduled yet |
+
+### Original contract for the parallel slices
 
 | Slice | Expected kinds | Notes |
 | --- | --- | --- |

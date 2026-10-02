@@ -202,6 +202,7 @@ func (s *Store) createRecord(ctx context.Context, spec Spec, state CellState, no
 	if err != nil {
 		return Record{}, 0, err
 	}
+	recordAdmitted(ctx, record)
 	return record, revision, nil
 }
 
@@ -244,6 +245,7 @@ func (s *Store) Commit(ctx context.Context, revision uint64, next Record) (uint6
 	if err != nil {
 		return 0, err
 	}
+	recordTransition(ctx, current, next)
 	if err := s.syncCell(ctx, next); err != nil {
 		return newRevision, fmt.Errorf("record committed; cell slot update pending: %w", err)
 	}

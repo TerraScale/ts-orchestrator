@@ -15,6 +15,10 @@ type Entry struct {
 	Cell string
 	// OCIRegion is the canonical OCI region identifier, for example sa-saopaulo-1.
 	OCIRegion string
+	// City, Latitude and Longitude are display metadata for operator views
+	// (the dashboard world map). They authorize nothing.
+	City                string
+	Latitude, Longitude float64
 }
 
 // Name is the lower-case cell token used in NATS subjects and host descriptors.
@@ -31,9 +35,9 @@ const (
 
 // entries is ordered: placement assigns permanent members in this order.
 var entries = [...]Entry{
-	{Cell: GRU, OCIRegion: "sa-saopaulo-1"},
-	{Cell: SFO, OCIRegion: "us-sanjose-1"},
-	{Cell: FRA, OCIRegion: "eu-frankfurt-1"},
+	{Cell: GRU, OCIRegion: "sa-saopaulo-1", City: "São Paulo", Latitude: -23.43, Longitude: -46.47},
+	{Cell: SFO, OCIRegion: "us-sanjose-1", City: "San Jose", Latitude: 37.34, Longitude: -121.89},
+	{Cell: FRA, OCIRegion: "eu-frankfurt-1", City: "Frankfurt", Latitude: 50.11, Longitude: 8.68},
 }
 
 // Len is the number of supported cells.
@@ -49,6 +53,25 @@ func Cells() []string {
 		cells = append(cells, entry.Cell)
 	}
 	return cells
+}
+
+// Names returns the ordered lower-case cell tokens used in NATS subjects.
+func Names() []string {
+	names := make([]string, 0, Len)
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
+// LookupName returns the entry whose lower-case token is name.
+func LookupName(name string) (Entry, bool) {
+	for _, entry := range entries {
+		if entry.Name() == name {
+			return entry, true
+		}
+	}
+	return Entry{}, false
 }
 
 // Lookup returns the entry for an exact upper-case cell code.

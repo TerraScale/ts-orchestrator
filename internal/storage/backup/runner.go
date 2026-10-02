@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
 )
@@ -86,6 +88,7 @@ func (runner Runner) RunOnce(ctx context.Context) (Report, error) {
 					continue
 				}
 				report.Created = append(report.Created, created.ID)
+				recordBackup(ctx, runner.Scope, epoch, volumeID, action, created.ID)
 			case ActionDelete:
 				deleted, err := runner.prune(ctx, epoch, volumeID, action.BackupID)
 				if err != nil {
@@ -159,4 +162,27 @@ func (runner Runner) Run(ctx context.Context) error {
 func retryToken(scope Scope, key string) string {
 	sum := sha256.Sum256([]byte(scope.Owner + "\x00" + string(scope.Region) + "\x00" + key))
 	return hex.EncodeToString(sum[:])
+}
+
+// recordBackup journals one backup OCI accepted. The create replays the same
+// retry token within an interval slot, so a retried create returns the same
+// backup and the decision is keyed on it.
+func recordBackup(ctx context.Context, scope Scope, epoch uint64, volumeID string, action Action, backupID string) {
+	key := "backup:" + backupID
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  string(scope.Region),
+		Actor:   decisionlog.Actor{Slice: "storage"},
+		Kind:    decisionlog.KindBackupTaken,
+		Subject: decisionlog.Subject{Kind: "volume", ID: volumeID},
+		Summary: "Started a " + strings.ToLower(action.Type) + " backup of volume " + volumeID,
+		Reason:  "The volume backup policy interval elapsed without a backup.",
+		Rule:    "storage.volume_backup",
+		Status:  decisionlog.StatusInProgress,
+		Epoch:   epoch,
+		Attrs:   map[string]string{"backup_id": backupID, "type": action.Type},
+	})
+	decisionlog.Correlate(key, id)
 }

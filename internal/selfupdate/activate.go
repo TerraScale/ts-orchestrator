@@ -123,7 +123,11 @@ func Activate(layout Layout, digest, unit string, now time.Time, window time.Dur
 	if err := writeFileAtomic(layout.activationPath(), encoded, 0o644); err != nil {
 		return Activation{}, err
 	}
-	return activation, layout.flipCurrent(digest)
+	if err := layout.flipCurrent(digest); err != nil {
+		return activation, err
+	}
+	recordActivation(activation)
+	return activation, nil
 }
 
 type knownBadState struct {

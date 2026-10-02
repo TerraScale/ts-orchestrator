@@ -44,6 +44,7 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 				if err := os.Remove(layout.activationPath()); err != nil {
 					return OutcomePending, activation, err
 				}
+				recordResolution(activation, OutcomeConfirmed)
 				return OutcomeConfirmed, activation, syncDir(layout.Root)
 			} else {
 				slog.Warn("self-update version proof rejected", "activation", activation.ActivationID, "error", err)
@@ -55,7 +56,11 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	if targetErr == nil && now.Before(activation.Deadline) {
 		return OutcomePending, activation, nil
 	}
-	return OutcomeRolledBack, activation, layout.rollback(activation)
+	if err := layout.rollback(activation); err != nil {
+		return OutcomeRolledBack, activation, err
+	}
+	recordResolution(activation, OutcomeRolledBack)
+	return OutcomeRolledBack, activation, nil
 }
 
 // rollback marks the target known bad first, then restores the previous

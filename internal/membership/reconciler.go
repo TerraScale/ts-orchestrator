@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // Leadership is the authority view the reconciler is fenced by.
@@ -266,7 +267,33 @@ func (r *Reconciler) execute(ctx context.Context, epoch uint64, action Action, s
 		return fail(err)
 	}
 	status.LastFailure, status.LastError = timeZero, ""
+	r.recordReplacement(ctx, epoch, action)
 	return status
+}
+
+// recordReplacement journals a replacement the founder accepted. Replace is
+// idempotent for a replayed action, so the decision is keyed on the slot and
+// prior attempt and recorded once per process; the journal never changes
+// the replacement path.
+func (r *Reconciler) recordReplacement(ctx context.Context, epoch uint64, action Action) {
+	key := fmt.Sprintf("membership:%s:%d", action.Slot, action.PreviousAttempt)
+	if decisionlog.Correlated(key) != "" {
+		return
+	}
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Region:  r.topology.Cell,
+		Actor:   decisionlog.Actor{Slice: "membership"},
+		Kind:    decisionlog.KindControllerReplaced,
+		Subject: decisionlog.Subject{Kind: "member", ID: r.topology.ServerName(action.Slot), Name: action.Slot},
+		Summary: fmt.Sprintf("Replacing controller slot %s as attempt %d", action.Slot, action.PreviousAttempt+1),
+		Reason:  "The slot was lost and root-signed retirement evidence names its exact prior instance.",
+		Rule:    "membership." + action.Reason,
+		Signals: []decisionlog.Signal{{Name: "prior_attempt", Value: float64(action.PreviousAttempt)}},
+		Status:  decisionlog.StatusInProgress,
+		Epoch:   epoch,
+		Attrs:   map[string]string{"prior_instance": action.PriorInstanceOCID, "retirement": action.Retirement.Digest},
+	})
+	decisionlog.Correlate(key, id)
 }
 
 func (r *Reconciler) commit(epoch uint64, previous, next State) {

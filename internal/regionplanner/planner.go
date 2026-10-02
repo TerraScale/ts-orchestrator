@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 )
 
@@ -86,6 +87,12 @@ func (p Policy) validate() error {
 	for cell, entry := range p.Catalog {
 		if cell != entry.Cell || !cellToken.MatchString(cell) || entry.OCIRegion == "" || entry.EstimatedMonthlyCents == 0 {
 			return fmt.Errorf("region catalog entry %q is invalid", cell)
+		}
+		// A product cell must keep the OCI region the product catalog binds it
+		// to; only cells outside that catalog may name a new region.
+		if product, ok := catalog.Lookup(strings.ToUpper(cell)); ok && product.OCIRegion != entry.OCIRegion {
+			return fmt.Errorf("region catalog entry %q names %s, but the product catalog binds it to %s",
+				cell, entry.OCIRegion, product.OCIRegion)
 		}
 		if entry.Overflow != "" {
 			if _, ok := p.Catalog[entry.Overflow]; !ok || entry.Overflow == cell {
@@ -254,6 +261,7 @@ func Submit(ctx context.Context, store *regionlifecycle.Store, machine regionlif
 		if err != nil {
 			return submitted, err
 		}
+		recordProposal(ctx, epoch, proposal)
 		submitted = append(submitted, proposal.Cell)
 	}
 	return submitted, nil

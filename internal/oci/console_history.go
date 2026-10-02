@@ -112,6 +112,8 @@ func NewInstancePrincipalConsoleHistoryProvider(config RegionConfig, intent Regi
 		return nil, err
 	}
 	ociclient.PinHost(&client.BaseClient, config.Endpoint)
+	// Console-history calls share the fleet's Compute API metrics.
+	client.HTTPClient = instrument(client.HTTPClient, "compute")
 	return NewConsoleHistoryProvider(config, intent, journal, client)
 }
 
