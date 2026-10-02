@@ -57,8 +57,11 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 			if err != nil {
 				return d.hold(ctx, epoch, record, revision, "observed result is invalid", err)
 			}
-			_, err = d.Store.Update(ctx, epoch, record, next, revision)
-			return next, err
+			if _, err := d.Store.Update(ctx, epoch, record, next, revision); err != nil {
+				// The observed result is not durable; report the stored record.
+				return record, err
+			}
+			return next, nil
 		}
 		return d.execute(ctx, epoch, record, revision, *record.Pending)
 	}
