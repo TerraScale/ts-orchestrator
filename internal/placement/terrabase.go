@@ -651,7 +651,7 @@ type Seat struct {
 	Kind          MemberKind
 }
 
-// DesiredSeats returns the fixed two-member topology for every selected region.
+// DesiredSeats returns the SeatsPerRegion-member topology for every selected region.
 // It never returns seats in a region absent from the admitted intent. Each seat
 // in a region gets a distinct configured OCI failure domain.
 func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, error) {
@@ -663,21 +663,16 @@ func DesiredSeats(intent Intent, faultDomains map[oci.Region][]string) ([]Seat, 
 		selected[region] = struct{}{}
 	}
 
-	seats := make([]Seat, 0, len(selected)*2)
+	seats := make([]Seat, 0, len(selected)*SeatsPerRegion)
 	for _, region := range regionsInOrder {
 		if _, active := selected[region]; !active {
 			continue
 		}
-		domains := faultDomains[region]
-		if len(domains) < 2 || !validFailureDomain(domains[0]) ||
-			!validFailureDomain(domains[1]) || domains[0] == domains[1] {
-			return nil, fmt.Errorf("%w: region %s needs two distinct configured fault domains", ErrInvalidIntent, region)
+		regionSeats, err := RegionSeats(region, faultDomains[region], SeatsPerRegion)
+		if err != nil {
+			return nil, err
 		}
-		permanentID := permanentMember(region)
-		seats = append(seats,
-			Seat{MemberID: permanentID, Region: region, FailureDomain: domains[0], Kind: MemberPermanent},
-			Seat{MemberID: elasticMember(region), Region: region, FailureDomain: domains[1], Kind: MemberElastic},
-		)
+		seats = append(seats, regionSeats...)
 	}
 	return seats, nil
 }

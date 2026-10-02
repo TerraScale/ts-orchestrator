@@ -755,14 +755,7 @@ func (controller *Controller) localSeats(intent Intent) ([]Seat, error) {
 	if !slices.Contains(intent.ActiveRegions, controller.config.Region) {
 		return nil, nil
 	}
-	domains := controller.config.FaultDomains
-	if len(domains) < 2 || domains[0] == domains[1] {
-		return nil, fmt.Errorf("%w: region %s has fewer than two anti-affine fault domains", ErrInvalidIntent, controller.config.Region)
-	}
-	return []Seat{
-		{MemberID: permanentMember(controller.config.Region), Region: controller.config.Region, FailureDomain: domains[0], Kind: MemberPermanent},
-		{MemberID: elasticMember(controller.config.Region), Region: controller.config.Region, FailureDomain: domains[1], Kind: MemberElastic},
-	}, nil
+	return RegionSeats(controller.config.Region, controller.config.FaultDomains, SeatsPerRegion)
 }
 
 func (controller *Controller) initialState(intent Intent, seat Seat, row CanonicalRosterRow, rosterDigest string, profile ManagedHostProfile, profileDigest string, manifest RuntimeManifest, manifestDigest string, attempt uint64) MemberState {
