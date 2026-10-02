@@ -86,6 +86,12 @@ func TestShouldRetryNeverReplaysUnsafeMutations(t *testing.T) {
 	if ShouldRetry(attempt(http.MethodPost, 0, "", io.ErrUnexpectedEOF)) {
 		t.Fatal("transport error on an untokened post was retried")
 	}
+	parts := IdempotentPutRetryPolicy(RetryOptions{})
+	if !parts.ShouldRetryOperation(attempt(http.MethodPut, 503, "", nil)) ||
+		parts.ShouldRetryOperation(attempt(http.MethodDelete, 503, "", nil)) ||
+		parts.ShouldRetryOperation(attempt(http.MethodPost, 503, "", nil)) {
+		t.Fatal("idempotent PUT policy classified a method incorrectly")
+	}
 }
 
 func TestBackoffIsExponentialJitteredAndHonorsRetryAfter(t *testing.T) {

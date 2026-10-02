@@ -70,8 +70,27 @@ func RetryPolicy(options RetryOptions) common.RetryPolicy {
 	})
 }
 
+// IdempotentPutRetryPolicy is RetryPolicy that also replays PUT on 5xx. Use
+// it only for request-level policies on writes the caller has made idempotent,
+// such as content-addressed multipart part uploads whose commit refuses to
+// overwrite (If-None-Match: *).
+func IdempotentPutRetryPolicy(options RetryOptions) common.RetryPolicy {
+	options = options.normalized()
+	return common.NewRetryPolicy(options.MaxAttempts, func(response common.OCIOperationResponse) bool {
+		return shouldRetry(response, func(request *http.Request) bool {
+			return request != nil && request.Method == http.MethodPut || replayable(request)
+		})
+	}, func(response common.OCIOperationResponse) time.Duration {
+		return nextDelay(options, response)
+	})
+}
+
 // ShouldRetry classifies one attempt under the policy documented on RetryPolicy.
 func ShouldRetry(response common.OCIOperationResponse) bool {
+	return shouldRetry(response, replayable)
+}
+
+func shouldRetry(response common.OCIOperationResponse, replayable func(*http.Request) bool) bool {
 	status, request := responseStatus(response)
 	if response.Error == nil {
 		return false
