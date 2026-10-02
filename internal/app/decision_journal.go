@@ -346,7 +346,8 @@ func (log *placementHoldLog) Holds(now time.Time) []insights.Hold {
 	var holds []insights.Hold
 	seen := map[string]bool{}
 	for _, record := range log.recent(now) {
-		if seen[record.Reason] {
+		// Reconciliation errors share the log but are not holds.
+		if seen[record.Reason] || strings.HasPrefix(record.Reason, "reconciliation error:") {
 			continue
 		}
 		seen[record.Reason] = true

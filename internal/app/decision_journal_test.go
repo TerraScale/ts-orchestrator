@@ -118,6 +118,7 @@ func TestHoldJournalDeduplicatesReasons(t *testing.T) {
 	log.record(reason)
 	log.record("other")
 	log.record(reason)
+	log.record("reconciliation error: transient")
 	if got := log.Holds(time.Now()); len(got) != 2 {
 		t.Fatalf("active holds = %+v", got)
 	}
