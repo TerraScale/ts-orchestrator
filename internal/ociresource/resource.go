@@ -96,6 +96,10 @@ type Target[S any] struct {
 	SpecDigest string
 	Ownership  Ownership
 	Spec       S
+	// Deleting is set when the desired record is tombstoned. A resource that
+	// is part of a larger object (rules of an NSG, backends of an NLB) reports
+	// found=false once none of its managed parts remain.
+	Deleting bool
 }
 
 // Resource is one reconcilable OCI resource kind.

@@ -110,7 +110,7 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 		return status, fmt.Errorf("decode OCI desired spec: %w", err)
 	}
 	target := Target[S]{Key: desired.Key, Generation: desired.Generation, SpecDigest: desired.SpecDigest,
-		Ownership: c.Ownership, Spec: spec}
+		Ownership: c.Ownership, Spec: spec, Deleting: desired.Tombstone != nil}
 	observed, found, err := c.Resource.Observe(ctx, target)
 	if errors.Is(err, ErrForeign) {
 		// Never adopt, mutate, or delete an object this controller cannot prove
