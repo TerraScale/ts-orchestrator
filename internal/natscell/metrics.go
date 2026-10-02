@@ -33,7 +33,9 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 		ServerName: varz.Name, Connections: varz.Connections, Routes: varz.Routes,
 		ClusterPeers: r.peerCount(), SlowConsumers: varz.SlowConsumers,
 		InMsgs: varz.InMsgs, OutMsgs: varz.OutMsgs, InBytes: varz.InBytes, OutBytes: varz.OutBytes,
-		StoreLimitBytes: varz.JetStream.Config.MaxStore,
+	}
+	if varz.JetStream.Config != nil {
+		view.StoreLimitBytes = varz.JetStream.Config.MaxStore
 	}
 	jsz, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true, Consumer: true})
 	if err != nil {
