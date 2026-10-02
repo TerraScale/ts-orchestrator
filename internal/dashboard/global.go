@@ -62,8 +62,12 @@ func (current view) globalKPIs() []kpi {
 	}
 	members := current.historyRange(observability.HistMembersAnswering, nil, "", false)
 	if expected > 0 {
+		status := "ok"
+		if answering < expected {
+			status = "warn"
+		}
 		tiles = append(tiles, kpi{Label: "Controllers up", Value: itoa(answering) + " / " + itoa(expected),
-			Sub: "across all regions", Status: boolStatus(answering == expected), Spark: sparkValues(members),
+			Sub: "across all regions", Status: status, Spark: sparkValues(members),
 			Href: current.State.link("/topology")})
 	} else if len(current.members()) > 0 {
 		tiles = append(tiles, kpi{Label: "Members up", Value: itoa(len(current.members())),
@@ -91,7 +95,7 @@ func (current view) globalKPIs() []kpi {
 		}
 		tiles = append(tiles, kpi{Label: "JetStream · " + upper(current.localRegion()),
 			Value: itoa(len(reporter.NATS.Streams)-degraded) + " / " + itoa(len(reporter.NATS.Streams)) + " healthy",
-			Sub: percent(storeUsed(reporter.NATS)) + " store used", Status: status,
+			Sub:   percent(storeUsed(reporter.NATS)) + " store used", Status: status,
 			Spark: sparkValues(sumSeries("store", current.historyRange(observability.HistJSStoreUsed, nil, "member", false))),
 			Href:  current.State.link("/nats")})
 	}

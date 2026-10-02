@@ -98,7 +98,7 @@ templ insightCard(current view, insight insights.Insight) {
 			<span class="tag">{ upper(insight.Region) }</span>
 			<h3>{ insight.Title }</h3>
 			<small class="muted">
-				open for
+				opened
 				<ts-time datetime={ rfc3339(insight.FirstSeen) }>{ formatTime(insight.FirstSeen) }</ts-time>
 			</small>
 		</header>
@@ -111,15 +111,13 @@ templ insightCard(current view, insight insights.Insight) {
 						<br/>
 						<strong>{ evidenceValue(evidence) }</strong>
 						if evidence.Threshold != nil {
-							<small class="muted">threshold { evidenceThreshold(evidence) }</small>
+							<small class="muted">expected { evidenceThreshold(evidence) }</small>
 						}
 					</div>
 				}
 			</div>
-			for _, evidence := range insight.Evidence {
-				if spec, ok := current.evidenceChart(insight, evidence); ok {
-					@chart("short", spec)
-				}
+			if spec, ok := current.insightChart(insight); ok {
+				@chart("short", spec)
 			}
 		}
 		<div class="actions">

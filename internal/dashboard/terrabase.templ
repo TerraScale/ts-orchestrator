@@ -4,6 +4,84 @@ templ terrabaseBody(current view) {
 	<div id="content">
 		<h1>TerraBase instances</h1>
 		@notes(current)
+		if placement := current.placement(); placement != nil && len(placement.Databases) > 0 {
+			<article>
+				<div class="chart-title">
+					<h2>Seats by database <small>one square per seat</small></h2>
+					<span class="legend">
+						for _, stage := range stageLegend {
+							<span><span class={ "seat", sClass(stageStatus(stage)) }></span>{ stage }</span>
+						}
+					</span>
+				</div>
+				<div class="cols">
+					for _, database := range placement.Databases {
+						<div>
+							<strong>{ database.DatabaseID }</strong>
+							<small class="muted">{ database.PartitionID } · { itoa(database.Serving) }/{ itoa(database.DesiredSeats) } serving</small>
+							<div class="seat-grid">
+								for _, member := range database.Members {
+									<span
+										class={ "seat", sClass(stageStatus(member.Stage)) }
+										title={ seatTitle(member) }
+										if current.State.param("host") != "" && current.State.param("host") != member.HostNode {
+											data-dim="true"
+										}
+									></span>
+								}
+							</div>
+						</div>
+					}
+				</div>
+			</article>
+		}
+		<div class="cols">
+			<article>
+				<h2>Seats by stage</h2>
+				@chart("", current.stageChart())
+			</article>
+			<article>
+				<h2>Seats serving vs desired</h2>
+				@chart("", current.seatsChart())
+			</article>
+		</div>
+		{{ forecasts, forecastChart := current.storageForecasts() }}
+		<div class="cols-2">
+			<article>
+				<h2>Storage growth and time to full <small>linear trend over at least 6h</small></h2>
+				@chart("", forecastChart)
+			</article>
+			<article>
+				<h2>Time to full</h2>
+				if len(forecasts) == 0 {
+					@unavailable("No filesystem history yet.")
+				} else {
+					<ul class="mini-list">
+						for _, entry := range forecasts[:min(8, len(forecasts))] {
+							<li>
+								@statusPill(entry.Status, forecastText(entry))
+								<span class="grow">{ entry.Name }</span>
+								<small class="muted">{ percent(entry.Used) } used</small>
+							</li>
+						}
+					</ul>
+				}
+			</article>
+		</div>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Scaling and placement decisions <small>{ current.State.Range.Key }</small></h2>
+					<a href={ safe(current.State.link("/decisions", "actor", "autoscale,placement")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), true))
+				@decisionList(current, current.decisions(), 6)
+			</article>
+			<article>
+				<h2>Replication lag and connections</h2>
+				@unavailable("TerraBase does not export per-seat replication lag or client connections to the orchestrator yet. JetStream replica lag is on the NATS page.")
+			</article>
+		</div>
 		if placement := current.placement(); placement == nil {
 			<article>
 				@unavailable("No placement view is available. This cell does not manage TerraBase placement, or the placement store is not open yet.")

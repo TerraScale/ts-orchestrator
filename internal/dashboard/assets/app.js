@@ -237,6 +237,7 @@ function timeAxis(spec, t) {
 function valueAxis(spec, t) {
   return {
     type: "value", min: spec.min ?? null, max: spec.max ?? null, splitNumber: 3,
+    minInterval: spec.unit === "count" ? 1 : undefined,
     axisLabel: { color: t.ink3, formatter: (v) => fmt(spec.unit)(v) },
     splitLine: { lineStyle: { color: t.hairline } },
   };
@@ -430,7 +431,7 @@ TsTopology.prototype.option = async function (spec, t) {
     series: [{
       type: "graph", layout: "force", roam: true, draggable: true, top: 28,
       categories: kinds.map((k) => ({ name: k, symbol: kindShape[k] || "circle", itemStyle: { color: t.ink3 } })),
-      force: { repulsion: 220, edgeLength: [40, 120], gravity: 0.08, friction: 0.2 },
+      force: { repulsion: 150, edgeLength: [28, 90], gravity: 0.3, friction: 0.25, layoutAnimation: true },
       label: { show: true, position: "right", color: t.ink2, fontSize: 10, formatter: (p) => p.data.node.kind === "seat" ? "" : p.data.name },
       emphasis: { focus: "adjacency", lineStyle: { width: 3 } },
       data: (spec.nodes || []).map((n) => ({

@@ -137,12 +137,13 @@ func rfc3339(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
-// attention returns the open insight counts for the badge.
+// attention returns the open insight counts across every region for the
+// badge.
 func (current view) attention() insights.Counts {
-	if current.Evaluation == nil {
+	if current.Evaluation == nil && len(current.Regions) == 0 {
 		return insights.Counts{}
 	}
-	return current.Evaluation.Counts
+	return current.globalCounts()
 }
 
 func (current view) attentionTitle() string {
@@ -187,8 +188,28 @@ func (current view) switchLink(region string) string {
 	return current.State.link(target, "r", region)
 }
 
+// globalScope reports pages that show every region at once unless a region
+// is selected.
+func (current view) globalScope() bool {
+	switch current.Page.slug {
+	case "", "insights", "decisions", "releases", "ci", "topology":
+		return current.State.Region == ""
+	}
+	return false
+}
+
+// allRegionsLink stays on a page that can show every region and otherwise
+// goes to the global landing page.
+func (current view) allRegionsLink() string {
+	switch current.Page.slug {
+	case "insights", "decisions", "releases", "ci", "topology":
+		return current.State.keep(current.Page.href(), "r", "")
+	}
+	return current.State.link("/", "r", "")
+}
+
 func (current view) selectedRegion(region string) bool {
-	return current.Page.slug != "" && current.region() == region
+	return !current.globalScope() && current.region() == region
 }
 
 // paletteItem is one command palette entry.

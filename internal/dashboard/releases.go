@@ -143,7 +143,7 @@ func (current view) releases() []releaseView {
 	out := make([]releaseView, 0, len(byID))
 	for id, release := range byID {
 		complete, rolledBack, running := 0, 0, 0
-		for _, region := range slices.Sorted(maps.Keys(lanes[id])) {
+		for _, region := range current.orderRegions(slices.Collect(maps.Keys(lanes[id]))) {
 			steps := lanes[id][region]
 			lane := releaseLane{Region: region}
 			for _, stage := range releaseStages {
@@ -177,6 +177,26 @@ func (current view) releases() []releaseView {
 	return out
 }
 
+// orderRegions sorts regions as the region summaries list them (this region
+// first), then by name.
+func (current view) orderRegions(regions []string) []string {
+	rank := map[string]int{}
+	for index, summary := range current.Regions {
+		rank[summary.Region] = index + 1
+	}
+	slices.SortFunc(regions, func(left, right string) int {
+		leftRank, rightRank := rank[left], rank[right]
+		if leftRank == 0 {
+			leftRank = len(rank) + 1
+		}
+		if rightRank == 0 {
+			rightRank = len(rank) + 1
+		}
+		return cmp.Or(cmp.Compare(leftRank, rightRank), cmp.Compare(left, right))
+	})
+	return regions
+}
+
 // knownBad lists releases rolled back anywhere, newest first.
 func (current view) knownBad() []releaseView {
 	var out []releaseView
@@ -206,13 +226,22 @@ var unitKinds = []string{"controller", "host", "seat"}
 
 var unitKindTitles = map[string]string{"controller": "Controllers", "host": "Hosts", "seat": "TerraBase seats"}
 
-// targetVersion is the version most units run, ties broken by the newest
-// name; units on any other version are drifted.
-func (current view) targetVersion() string {
+// targetVersion is the newest healthy release a unit of the kind runs, or
+// else the version most units of the kind run, ties broken by the newest
+// name; units of that kind on any other version are drifted. Kinds run
+// different software (orchestrator, TerraBase), so each has its own target.
+func (current view) targetVersion(kind string) string {
 	counts := map[string]int{}
 	for _, unit := range current.Versions {
-		if unit.Version != "" {
+		if unit.Version != "" && unit.Kind == kind {
 			counts[unit.Version]++
+		}
+	}
+	// The newest release that is rolling out or complete (not rolled back)
+	// is the target when units of this kind run it.
+	for _, release := range current.releases() {
+		if release.Status != "serious" && counts[release.Name] > 0 {
+			return release.Name
 		}
 	}
 	best := ""
@@ -256,7 +285,7 @@ func (current view) matrixKinds() []string {
 }
 
 func (current view) versionCell(region, kind string) versionCell {
-	target := current.targetVersion()
+	target := current.targetVersion(kind)
 	counts := map[string]int{}
 	cell := versionCell{}
 	for _, unit := range current.Versions {
@@ -277,10 +306,13 @@ func (current view) versionCell(region, kind string) versionCell {
 
 // driftedUnits lists units off the target version.
 func (current view) driftedUnits() []UnitVersion {
-	target := current.targetVersion()
+	targets := map[string]string{}
 	var out []UnitVersion
 	for _, unit := range current.Versions {
-		if unit.Version != target {
+		if _, ok := targets[unit.Kind]; !ok {
+			targets[unit.Kind] = current.targetVersion(unit.Kind)
+		}
+		if unit.Version != targets[unit.Kind] {
 			out = append(out, unit)
 		}
 	}

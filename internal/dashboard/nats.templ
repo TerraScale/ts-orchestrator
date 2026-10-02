@@ -1,9 +1,45 @@
 package dashboard
 
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
 templ natsBody(current view) {
 	<div id="content">
 		<h1>NATS and JetStream</h1>
 		@notes(current)
+		<div class="cols">
+			<article>
+				<h2>Messages per second <small>all servers</small></h2>
+				@chart("", current.natsRateChart(observability.HistNATSInMsgs, observability.HistNATSOutMsgs, "rate"))
+			</article>
+			<article>
+				<h2>Bytes per second <small>all servers</small></h2>
+				@chart("", current.natsRateChart(observability.HistNATSInBytes, observability.HistNATSOutBytes, "bytes_rate"))
+			</article>
+			<article>
+				<h2>Stream replica lag</h2>
+				@chart("", current.lineChart("line", "count", current.historyRange(observability.HistStreamLag, nil, "stream", false), "No replica lag history yet."))
+			</article>
+			<article>
+				<h2>Consumer backlog <small>pending messages</small></h2>
+				@chart("", current.lineChart("line", "count", current.historyRange(observability.HistConsumerPending, nil, "consumer", false), "No consumer history yet."))
+			</article>
+		</div>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Leadership and quorum timeline <small>24h at least</small></h2>
+					<a href={ safe(current.State.link("/decisions", "kind", "leader_changed,quorum_degraded,quorum_restored")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), true))
+				if leader := current.metaLeader(); leader != "" {
+					<small class="muted">Current JetStream meta leader: <strong>{ leader }</strong></small>
+				}
+			</article>
+			<article>
+				<h2>Route RTT <small>server × server</small></h2>
+				@unavailable("Route round-trip times are not sampled yet; the natscell slice exports them through Routez in a later change. Route counts per server are in the table below.")
+			</article>
+		</div>
 		<article>
 			<h2>Servers</h2>
 			if len(current.members()) == 0 {

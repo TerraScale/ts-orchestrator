@@ -131,8 +131,8 @@ templ chrome(current view) {
 templ regionSwitcher(current view) {
 	<nav id="region-switcher" class="segmented" aria-label="Region">
 		<a
-			href={ safe(current.State.link("/", "r", "")) }
-			if current.Page.slug == "" {
+			href={ safe(current.allRegionsLink()) }
+			if current.globalScope() {
 				aria-current="true"
 			}
 		>All regions</a>

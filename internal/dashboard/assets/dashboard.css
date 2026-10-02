@@ -214,7 +214,7 @@ ts-chart, ts-topology, ts-map, ts-timeline { display: block; width: 100%; height
 ts-chart.tall, ts-timeline.tall { height: 20rem; }
 ts-chart.short { height: 9rem; }
 ts-chart.gauge { height: 8.5rem; }
-ts-topology { height: 34rem; }
+ts-topology { height: 40rem; }
 ts-map { height: 22rem; }
 ts-timeline { height: 12rem; }
 ts-sparkline { display: block; height: 1.9rem; width: 100%; color: var(--ts-info); }
@@ -312,3 +312,6 @@ details.decision > summary { cursor: pointer; }
 .toast strong { display: block; }
 .toast a { font-size: 0.8rem; }
 @keyframes ts-in { from { transform: translateY(0.6rem); opacity: 0; } }
+.seat[data-dim] { opacity: 0.25; }
+.insight[aria-current] { box-shadow: 0 0 0 2px var(--ts-info), var(--ts-shadow); }
+.phase-row + .phase-row { margin-top: 0; }

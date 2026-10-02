@@ -61,7 +61,7 @@ func (current view) topology() topologySpec {
 		addNode(topologyNode{ID: "region:" + summary.Region, Name: upper(summary.Region), Kind: "region", State: status,
 			StateLabel: string(summary.Health.Status), Href: current.State.link("/region", "r", summary.Region),
 			Details: map[string]string{"health score": itoa(summary.Health.Score), "reach": reachLabel(summary.Reach),
-				"quorum": itoa(summary.Quorum.Answering) + "/" + itoa(summary.Quorum.Expected),
+				"quorum":    itoa(summary.Quorum.Answering) + "/" + itoa(summary.Quorum.Expected),
 				"authority": orDash(summary.Leaders.Authority), "meta leader": orDash(summary.Leaders.MetaLeader),
 				"TerraBase": itoa(summary.TerraBase.Databases) + " databases", "versions": versionsText(summary)}})
 		if summary.Local {

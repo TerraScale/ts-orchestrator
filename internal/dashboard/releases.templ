@@ -15,12 +15,10 @@ templ releasesBody(current view) {
 		<article>
 			<div class="chart-title">
 				<h2>Version matrix <small>regions × units</small></h2>
-				if target := current.targetVersion(); target != "" {
-					<span class="legend">
-						@statusPill("ok", "target "+short(target, 20))
-						@statusPill("warn", "drift or mixed")
-					</span>
-				}
+				<span class="legend">
+					@statusPill("ok", "on target")
+					@statusPill("warn", "drift or mixed")
+				</span>
 			</div>
 			@versionMatrix(current)
 		</article>
@@ -51,7 +49,7 @@ templ releaseCard(current view, release releaseView) {
 			<span>
 				@statusPill(release.Status, release.Label)
 				<small class="muted">
-					started
+					{ " started " }
 					@ago(release.First)
 				</small>
 			</span>
@@ -97,6 +95,7 @@ templ versionMatrix(current view) {
 				<thead>
 					<tr>
 						<th>Unit</th>
+						<th>Target</th>
 						for _, region := range current.matrixRegions() {
 							<th><a href={ safe(current.State.link("/region", "r", region)) }>{ upper(region) }</a></th>
 						}
@@ -106,6 +105,7 @@ templ versionMatrix(current view) {
 					for _, kind := range current.matrixKinds() {
 						<tr>
 							<th scope="row">{ unitKindTitle(kind) }</th>
+							<td><code>{ short(current.targetVersion(kind), 18) }</code></td>
 							for _, region := range current.matrixRegions() {
 								{{ cell := current.versionCell(region, kind) }}
 								<td class={ "cell", templ.KV("drift", cell.Drift) }>

@@ -6,6 +6,28 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 )
 
+// insightChart charts the insight's most telling evidence: the first
+// charted evidence with a threshold, else the first charted one.
+func (current view) insightChart(insight insights.Insight) (chartSpec, bool) {
+	var fallback *chartSpec
+	for _, evidence := range insight.Evidence {
+		spec, ok := current.evidenceChart(insight, evidence)
+		if !ok {
+			continue
+		}
+		if evidence.Threshold != nil {
+			return spec, true
+		}
+		if fallback == nil {
+			fallback = &spec
+		}
+	}
+	if fallback == nil {
+		return chartSpec{}, false
+	}
+	return *fallback, true
+}
+
 // evidenceChart charts an evidence metric over the view's range with its
 // threshold, when the metric is in the history store.
 func (current view) evidenceChart(insight insights.Insight, evidence insights.Evidence) (chartSpec, bool) {
@@ -67,6 +89,8 @@ func formatUnit(value float64, unit string) string {
 		return formatBytes(int64(value))
 	case "seconds", "s":
 		return formatSeconds(value)
+	case "bytes/h", "bytes/s":
+		return formatBytes(int64(value)) + unit[len("bytes"):]
 	case "":
 		return formatFloat(value, decimalsFor(value))
 	default:
@@ -130,5 +154,5 @@ func (current view) foreign(region string) string {
 	return region
 }
 
-var severityNames =[]string{string(insights.SeverityCritical), string(insights.SeverityWarning),
+var severityNames = []string{string(insights.SeverityCritical), string(insights.SeverityWarning),
 	string(insights.SeverityInfo)}

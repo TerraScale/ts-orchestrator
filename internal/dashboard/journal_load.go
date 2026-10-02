@@ -168,7 +168,11 @@ func regionDecisions(current view) *decisionlog.Query {
 
 // journalDecisions reads the decisions page filters.
 func journalDecisions(current view) *decisionlog.Query {
-	query := decisionlog.Query{Regions: current.State.list("region"), Actors: current.State.list("actor"),
+	regions := current.State.list("region")
+	if len(regions) == 0 && current.State.Region != "" {
+		regions = []string{current.State.Region}
+	}
+	query := decisionlog.Query{Regions: regions, Actors: current.State.list("actor"),
 		Subject: strings.ToLower(current.State.param("q")), Since: current.since(0), Limit: 500}
 	for _, kind := range current.State.list("kind") {
 		query.Kinds = append(query.Kinds, decisionlog.Kind(kind))
@@ -192,7 +196,7 @@ func releaseDecisions(current view) *decisionlog.Query {
 }
 
 func rolloutDecisions(current view) *decisionlog.Query {
-	return &decisionlog.Query{Kinds: releaseKinds, Regions: []string{current.region()},
+	return &decisionlog.Query{Kinds: releaseKinds,
 		Since: current.since(releaseHistory), Limit: 300}
 }
 
