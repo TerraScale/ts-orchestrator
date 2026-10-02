@@ -60,6 +60,19 @@ type Planner interface {
 	Plan(context.Context, Intent) ([]host.Desired, error)
 }
 
+// ShapedPlanner is an optional Planner extension for roles whose replica count
+// and host desired generation are owned by a continuous reconciler. The shape
+// is recorded with the operation so a resumed delivery validates the same plan.
+type ShapedPlanner interface {
+	PlanShaped(context.Context, Intent) (PlanShape, []host.Desired, error)
+}
+
+// PlanShape is the desired generation and active replica count of a plan.
+type PlanShape struct {
+	Generation uint64 `json:"generation"`
+	Replicas   int    `json:"replicas"`
+}
+
 type DesiredWriter interface {
 	ApplyDesired(context.Context, host.Desired) (host.Receipt, error)
 }
@@ -123,6 +136,7 @@ type operation struct {
 	Fingerprint string         `json:"fingerprint"`
 	Actor       string         `json:"actor"`
 	Plan        []host.Desired `json:"plan"`
+	Shape       *PlanShape     `json:"shape,omitempty"`
 	Receipt     *Receipt       `json:"receipt,omitempty"`
 }
 

@@ -103,6 +103,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
 		return err
 	}
+	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {
+		return err
+	}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		return err
@@ -380,6 +383,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	planner.hosts = hostController
+	workloadReconciler, capacityScaler, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
+		cfg.Controller.Workloads, hostController, control)
+	if err != nil {
+		return err
+	}
+	planner.workloads = workloadReconciler
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -558,7 +567,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
-	workerErrors := make(chan error, 8)
+	workerErrors := make(chan error, 10)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -576,6 +585,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if membershipReconciler != nil {
 		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
+	}
+	if workloadReconciler != nil {
+		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	}
+	if capacityScaler != nil {
+		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

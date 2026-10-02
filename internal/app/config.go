@@ -76,6 +76,7 @@ type ControllerConfig struct {
 	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
 	// Membership enables controller slot supervision; nil keeps it off.
 	Membership *membership.Config `json:"membership,omitempty"`
+	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
 }
 
 type WorkloadProfile struct {
