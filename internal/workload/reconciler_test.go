@@ -1,0 +1,457 @@
+package workload
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+)
+
+const (
+	testDigest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	newDigest  = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+)
+
+var (
+	testNow      = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	testProfile  = placement.Resources{CPU: 2, MemoryBytes: 2 << 30, DiskBytes: 10 << 30}
+	testProfiles = map[string]placement.Resources{"api": testProfile, "worker": testProfile}
+)
+
+// fakeCell emulates the host controller's per node/role generation rules.
+type fakeCell struct {
+	mu      sync.Mutex
+	hosts   map[string]host.HostStatus
+	desired map[string]host.Desired
+	writes  []host.Desired
+	failOn  string
+}
+
+func newFakeCell() *fakeCell {
+	return &fakeCell{hosts: make(map[string]host.HostStatus), desired: make(map[string]host.Desired)}
+}
+
+func (c *fakeCell) addHost(node, domain string, live bool, mutate ...func(*host.Registration)) {
+	registration := host.Registration{Cell: "gru", Node: node, FailureDomain: domain, Environment: "prod",
+		Roles: []string{"api", "worker"}, Capacity: host.Capacity{CPU: 8, MemoryBytes: 16 << 30, DiskBytes: 100 << 30}}
+	for _, change := range mutate {
+		change(&registration)
+	}
+	expires := testNow.Add(time.Minute)
+	if !live {
+		expires = testNow.Add(-time.Minute)
+	}
+	c.hosts[node] = host.HostStatus{Registration: registration, SessionExpiresAt: expires, Verified: true}
+}
+
+func (c *fakeCell) run(node, role, state string) {
+	status := c.hosts[node]
+	d := c.desired[node+"/"+role]
+	status.Reports = slices.DeleteFunc(status.Reports, func(r host.Report) bool { return r.Role == role })
+	status.Reports = append(status.Reports, host.Report{Node: node, Role: role, Digest: d.Digest, Generation: d.Generation, State: state})
+	c.hosts[node] = status
+}
+
+// runAll marks every active desired running, as a converged host would.
+func (c *fakeCell) runAll() {
+	for _, d := range c.desired {
+		if !d.Withdrawn {
+			c.run(d.Node, d.Role, "running")
+		}
+	}
+}
+
+func (c *fakeCell) seed(node, role, digest string, generation uint64) {
+	c.desired[node+"/"+role] = host.Desired{Cell: "gru", Node: node, Environment: "prod", Role: role, Digest: digest,
+		Generation: generation, AuthorityEpoch: 1, Args: []string{"--serve"}, Env: map[string]string{"A": "1"}}
+}
+
+func (c *fakeCell) ListHosts(context.Context) ([]host.HostStatus, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []host.HostStatus
+	for _, node := range sortedKeys(c.hosts) {
+		result = append(result, c.hosts[node])
+	}
+	return result, nil
+}
+
+func (c *fakeCell) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var result []host.Desired
+	for _, key := range sortedKeys(c.desired) {
+		if role == "" || c.desired[key].Role == role {
+			result = append(result, c.desired[key])
+		}
+	}
+	return result, nil
+}
+
+func (c *fakeCell) ApplyDesired(_ context.Context, d host.Desired) (host.Receipt, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d.Node == c.failOn {
+		return host.Receipt{}, errors.New("injected failure")
+	}
+	if current, exists := c.desired[d.Node+"/"+d.Role]; exists && d.Generation <= current.Generation {
+		return host.Receipt{}, fmt.Errorf("%w: generation did not advance", host.ErrDesiredConflict)
+	}
+	c.desired[d.Node+"/"+d.Role] = d
+	c.writes = append(c.writes, d)
+	return host.Receipt{Generation: d.Generation}, nil
+}
+
+func (c *fakeCell) active(role string) []string {
+	var nodes []string
+	for _, d := range c.desired {
+		if d.Role == role && !d.Withdrawn {
+			nodes = append(nodes, d.Node)
+		}
+	}
+	slices.Sort(nodes)
+	return nodes
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	return slices.Sorted(maps.Keys(m))
+}
+
+type fakeFencer struct {
+	leader bool
+	epoch  uint64
+	fenced bool
+}
+
+func (f *fakeFencer) Current() authority.Snapshot {
+	return authority.Snapshot{Leader: f.leader, Ready: true, Epoch: f.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+}
+
+func (f *fakeFencer) Guard(context.Context, uint64) error {
+	if f.fenced {
+		return authority.ErrFenced
+	}
+	return nil
+}
+
+type capacityRecorder struct{ requests []placement.WorkloadRequest }
+
+func (c *capacityRecorder) RequestCapacity(_ ServiceSpec, request placement.WorkloadRequest) {
+	c.requests = append(c.requests, request)
+}
+
+func statelessSpec(min, max int) ServiceSpec {
+	return ServiceSpec{Role: "api", Environment: "prod", Kind: KindStateless, Replicas: ReplicaBounds{Min: min, Max: max}}
+}
+
+func newTestReconciler(t *testing.T, cell *fakeCell, fencer *fakeFencer, spec ServiceSpec, mutate ...func(*Config)) *Reconciler {
+	t.Helper()
+	config := Config{Cell: "gru", Specs: []ServiceSpec{spec}, Profiles: testProfiles, Hosts: cell, Writer: cell,
+		Fencer: fencer, Now: func() time.Time { return testNow }}
+	for _, change := range mutate {
+		change(&config)
+	}
+	reconciler, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reconciler
+}
+
+func threeHostCell() *fakeCell {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-2", true)
+	cell.addHost("node-c", "fd-3", true)
+	cell.addHost("node-d", "fd-1", true)
+	return cell
+}
+
+func TestReconcilerReplacesReplicaOnLostHost(t *testing.T) {
+	cell := threeHostCell()
+	release, _ := ReleaseGeneration(3)
+	for _, node := range []string{"node-a", "node-b", "node-c"} {
+		cell.seed(node, "api", testDigest, release)
+	}
+	cell.runAll()
+	cell.addHost("node-b", "fd-2", false) // session expired: host lost
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 7}, statelessSpec(1, 5))
+
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-a", "node-c", "node-d"}) {
+		t.Fatalf("active = %v", got)
+	}
+	for _, write := range cell.writes {
+		if write.Generation != release+1 || write.AuthorityEpoch != 7 {
+			t.Fatalf("write generation/epoch = %d/%d", write.Generation, write.AuthorityEpoch)
+		}
+		if write.Node == "node-d" && (write.Digest != testDigest || !slices.Equal(write.Args, []string{"--serve"}) || write.Env["A"] != "1") {
+			t.Fatalf("replacement does not copy the release template: %#v", write)
+		}
+		if write.Node == "node-b" && !write.Withdrawn {
+			t.Fatalf("lost replica not withdrawn: %#v", write)
+		}
+	}
+	// Level-triggered: a second tick with the replacement still starting
+	// must not write again.
+	cell.writes = nil
+	if err := reconciler.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
+		t.Fatalf("second tick wrote %v (%v)", cell.writes, err)
+	}
+}
+
+func TestReconcilerConvergedServiceIsIdle(t *testing.T) {
+	cell := threeHostCell()
+	for _, node := range []string{"node-a", "node-b"} {
+		cell.seed(node, "api", testDigest, 4)
+	}
+	cell.runAll()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 5))
+	if err := reconciler.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
+		t.Fatalf("converged tick wrote %v (%v)", cell.writes, err)
+	}
+	if last := reconciler.Last()["api"]; last.Replicas != 2 || last.Target != 2 || last.Reason != "self-heal" {
+		t.Fatalf("result = %#v", last)
+	}
+}
+
+func TestReconcilerFollowerAndFencedLeaderDoNotWrite(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	follower := newTestReconciler(t, cell, &fakeFencer{leader: false, epoch: 1}, statelessSpec(3, 5))
+	if err := follower.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
+		t.Fatalf("follower wrote %v (%v)", cell.writes, err)
+	}
+	fenced := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1, fenced: true}, statelessSpec(3, 5))
+	if err := fenced.Tick(context.Background()); !errors.Is(err, authority.ErrFenced) || len(cell.writes) != 0 {
+		t.Fatalf("fenced leader wrote %v (%v)", cell.writes, err)
+	}
+}
+
+func TestReconcilerEnforcesBoundsWithinRolloutLimits(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(3, 5)
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, spec)
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) != 2 {
+		t.Fatalf("surge 1 should add one replica per step, active = %v", got)
+	}
+	cell.runAll()
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) != 3 {
+		t.Fatalf("active after second step = %v", got)
+	}
+
+	// Lower bound above the active count: scale down one ready replica per
+	// step and only once nothing is starting.
+	cell.runAll()
+	for _, node := range []string{"node-d"} {
+		cell.seed(node, "api", testDigest, 6)
+		cell.run(node, "api", "running")
+	}
+	cell.writes = nil
+	down := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 2))
+	if err := down.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) != 3 || len(cell.writes) != 1 || !cell.writes[0].Withdrawn {
+		t.Fatalf("scale-down step = %v, writes %v", got, cell.writes)
+	}
+}
+
+func TestReconcilerAutoscalesFromSignals(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.seed("node-b", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(1, 4)
+	spec.Scaling = &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.5}},
+		Tolerance: 0.1}
+	spec.Rollout.MaxSurge = 4
+	store := autoscale.NewWindowStore(time.Hour, 100)
+	target := autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}
+	store.Record(target, autoscale.SignalCPUUtilization, autoscale.Sample{At: testNow, Value: 0.9})
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, spec, func(c *Config) { c.Signals = store })
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) != 4 {
+		t.Fatalf("active = %v, last = %#v", got, reconciler.Last()["api"])
+	}
+	last := reconciler.Last()["api"]
+	if last.Decision == nil || last.Decision.Reason != autoscale.ReasonScaleUp || last.Target != 4 {
+		t.Fatalf("decision = %#v", last)
+	}
+	// Not converged: the decision core is not consulted while replicas start.
+	if err := reconciler.Tick(context.Background()); err != nil || reconciler.Last()["api"].Decision != nil {
+		t.Fatalf("autoscaled while unconverged: %#v (%v)", reconciler.Last()["api"], err)
+	}
+}
+
+func TestReconcilerAuthorityChangeResetsHistory(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.seed("node-b", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(1, 4)
+	spec.Scaling = &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.5}},
+		UpCooldownSeconds: 300}
+	store := autoscale.NewWindowStore(time.Hour, 100)
+	store.Record(autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}, autoscale.SignalCPUUtilization,
+		autoscale.Sample{At: testNow, Value: 0.9})
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 2}, spec, func(c *Config) { c.Signals = store })
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(cell.writes) != 0 || reconciler.Last()["api"].Reason != autoscale.ReasonScaleUpCooldown {
+		t.Fatalf("new authority term scaled before its cooldown: %#v", reconciler.Last()["api"])
+	}
+}
+
+func TestReconcilerNeverUsesDedicatedTerraBaseHosts(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("tb-1", "fd-2", true, func(r *host.Registration) {
+		r.ManagedPlacement = &host.ManagedPlacementBinding{DatabaseID: "db", PartitionID: "p", SeatID: "elastic-gru"}
+	})
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	capacity := &capacityRecorder{}
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2),
+		func(c *Config) { c.Capacity = capacity })
+	err := reconciler.Tick(context.Background())
+	if !errors.Is(err, placement.ErrInsufficientCapacity) || len(cell.writes) != 0 {
+		t.Fatalf("Tick = %v, writes %v", err, cell.writes)
+	}
+	if len(capacity.requests) != 1 || capacity.requests[0].Replicas != 2 {
+		t.Fatalf("capacity requests = %#v", capacity.requests)
+	}
+	for _, candidate := range capacity.requests[0].Hosts {
+		if candidate.Node == "tb-1" {
+			t.Fatal("dedicated TerraBase host offered as a candidate")
+		}
+	}
+}
+
+func TestReconcilerRetiresStaleReleaseAfterNewReleaseIsReady(t *testing.T) {
+	cell := threeHostCell()
+	oldRelease, _ := ReleaseGeneration(2)
+	newRelease, _ := ReleaseGeneration(3)
+	cell.seed("node-a", "api", testDigest, oldRelease)
+	cell.seed("node-b", "api", newDigest, newRelease)
+	cell.seed("node-c", "api", newDigest, newRelease)
+	cell.run("node-a", "api", "running")
+	cell.run("node-b", "api", "running")
+	cell.run("node-c", "api", "starting")
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 2))
+	if err := reconciler.Tick(context.Background()); err != nil || len(cell.writes) != 0 {
+		t.Fatalf("stale replica withdrawn before the new release is ready: %v (%v)", cell.writes, err)
+	}
+	cell.run("node-c", "api", "running")
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-b", "node-c"}) ||
+		cell.writes[0].Generation != newRelease+1 {
+		t.Fatalf("active = %v writes = %v", got, cell.writes)
+	}
+}
+
+func TestReconcilerWaitsForReleaseAndHoldsExhaustedGenerations(t *testing.T) {
+	cell := threeHostCell()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(2, 3))
+	if err := reconciler.Tick(context.Background()); err != nil || reconciler.Last()["api"].Reason != "awaiting-release" {
+		t.Fatalf("no release: %#v (%v)", reconciler.Last()["api"], err)
+	}
+	exhausted, _ := ReleaseGeneration(5)
+	exhausted += 1<<ReleaseShift - 1
+	cell.seed("node-a", "api", testDigest, exhausted)
+	cell.runAll()
+	if err := reconciler.Tick(context.Background()); !errors.Is(err, ErrGenerationSpace) || len(cell.writes) != 0 {
+		t.Fatalf("exhausted release = %v, writes %v", err, cell.writes)
+	}
+}
+
+func TestReconcilerDomainCapRequestsCapacity(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "fd-1", true)
+	cell.addHost("node-b", "fd-1", true)
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(2, 2)
+	spec.Placement.MaxPerFailureDomain = 1
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, spec)
+	if err := reconciler.Tick(context.Background()); !errors.Is(err, placement.ErrInsufficientCapacity) || len(cell.writes) != 0 {
+		t.Fatalf("domain cap = %v, writes %v", err, cell.writes)
+	}
+}
+
+func TestReleaseShapeKeepsCurrentScale(t *testing.T) {
+	spec := statelessSpec(2, 6)
+	generation, replicas, err := ReleaseShape(spec, 9, 1, Observation{})
+	if err != nil || generation != 9<<ReleaseShift || replicas != 2 {
+		t.Fatalf("first release = %d/%d (%v)", generation, replicas, err)
+	}
+	observation := Observation{Active: map[string]host.Desired{"a": {}, "b": {}, "c": {}, "d": {}}}
+	if _, replicas, _ := ReleaseShape(spec, 10, 2, observation); replicas != 4 {
+		t.Fatalf("later release replicas = %d", replicas)
+	}
+	if _, _, err := ReleaseShape(spec, maxRelease+1, 2, observation); !errors.Is(err, ErrGenerationSpace) {
+		t.Fatalf("oversized release accepted: %v", err)
+	}
+}
+
+func TestObserveExcludesDedicatedHostsAndSubtractsReserve(t *testing.T) {
+	cell := newFakeCell()
+	cell.addHost("node-a", "FD-1", true, func(r *host.Registration) { r.SystemReserveBytes = 4 << 30 })
+	cell.addHost("tb-1", "fd-2", true, func(r *host.Registration) {
+		r.ManagedMember = &host.ManagedMemberBinding{HostAttempt: 1}
+	})
+	cell.seed("node-a", "worker", testDigest, 1)
+	cell.seed("tb-1", "terrabase", testDigest, 1) // no profile, but on a dedicated host
+	hosts, _ := cell.ListHosts(context.Background())
+	desired, _ := cell.ListDesired(context.Background(), "")
+	observation, err := Observe(Snapshot{Cell: "gru", Environment: "prod", Role: "api", Hosts: hosts,
+		Desired: desired, Profiles: testProfiles, Now: testNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Candidates) != 1 {
+		t.Fatalf("candidates = %#v", observation.Candidates)
+	}
+	candidate := observation.Candidates[0]
+	if candidate.FailureDomain != "fd-1" || candidate.Capacity.MemoryBytes != 12<<30 || candidate.Allocated != testProfile {
+		t.Fatalf("candidate = %#v", candidate)
+	}
+	if observation.HighWater != 0 || len(observation.Statuses) != 2 {
+		t.Fatalf("observation = %#v", observation)
+	}
+
+	desired = append(desired, host.Desired{Cell: "fra", Node: "node-a", Role: "api"})
+	if _, err := Observe(Snapshot{Cell: "gru", Environment: "prod", Role: "api", Hosts: hosts, Desired: desired,
+		Profiles: testProfiles, Now: testNow}); err == nil {
+		t.Fatal("cross-cell allocation accepted")
+	}
+	hosts[0].Verified = false
+	if _, err := Observe(Snapshot{Cell: "gru", Environment: "prod", Role: "api", Hosts: hosts, Now: testNow}); err == nil {
+		t.Fatal("unverified host accepted")
+	}
+}

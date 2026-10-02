@@ -12,6 +12,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
 type regionalDeliveryPlanner struct {
@@ -21,6 +22,14 @@ type regionalDeliveryPlanner struct {
 
 func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host.Desired) (host.Receipt, error) {
 	return p.hosts.ApplyDesired(ctx, desired)
+}
+
+func (p *regionalDeliveryPlanner) resourceProfiles() map[string]placement.Resources {
+	resources := make(map[string]placement.Resources, len(p.profiles))
+	for role, profile := range p.profiles {
+		resources[role] = profile.Resources
+	}
+	return resources
 }
 
 func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
@@ -63,62 +72,15 @@ func (p *regionalDeliveryPlanner) Plan(ctx context.Context, intent delivery.Inte
 	if err != nil {
 		return nil, err
 	}
-	statusByNode := make(map[string]host.HostStatus, len(statuses))
-	candidates := make([]placement.WorkloadHost, 0, len(statuses))
-	now := time.Now()
-	for _, status := range statuses {
-		if !status.Verified {
-			return nil, errors.New("unverified host status cannot drive placement")
-		}
-		r := status.Registration
-		statusByNode[r.Node] = status
-		if r.Environment != intent.Environment {
-			continue
-		}
-		live := now.Before(status.SessionExpiresAt)
-		candidates = append(candidates, placement.WorkloadHost{
-			Cell: r.Cell, Node: r.Node, FailureDomain: strings.ToLower(r.FailureDomain), Roles: slices.Clone(r.Roles),
-			Capacity:       placement.Resources{CPU: r.Capacity.CPU, MemoryBytes: r.Capacity.MemoryBytes, DiskBytes: r.Capacity.DiskBytes},
-			CurrentSession: live, Admitted: true, Healthy: live,
-		})
+	observation, err := workload.Observe(workload.Snapshot{
+		Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role,
+		Hosts: statuses, Desired: allocations, Profiles: p.resourceProfiles(), Now: time.Now(),
+	})
+	if err != nil {
+		return nil, err
 	}
-	candidateByNode := make(map[string]*placement.WorkloadHost, len(candidates))
-	for index := range candidates {
-		candidateByNode[candidates[index].Node] = &candidates[index]
-	}
-	var previous []placement.Assignment
-	for _, desired := range allocations {
-		if desired.Withdrawn {
-			continue
-		}
-		if desired.Cell != intent.Cell {
-			return nil, errors.New("allocation belongs to another cell")
-		}
-		if desired.Role == intent.Role && desired.Environment == intent.Environment {
-			assignment := placement.Assignment{Node: desired.Node, Role: desired.Role, Ordinal: len(previous), Pending: true}
-			if status, exists := statusByNode[desired.Node]; exists {
-				for _, report := range status.Reports {
-					if report.Role == desired.Role && report.Generation == desired.Generation && report.Digest == desired.Digest {
-						assignment.Ready = report.State == "running"
-						assignment.Pending = report.State != "failed"
-					}
-				}
-			}
-			previous = append(previous, assignment)
-			continue
-		}
-		candidate := candidateByNode[desired.Node]
-		if candidate == nil {
-			continue
-		}
-		other, exists := p.profiles[desired.Role]
-		if !exists {
-			return nil, fmt.Errorf("active role %q lacks a resource profile", desired.Role)
-		}
-		candidate.Allocated.CPU += other.Resources.CPU
-		candidate.Allocated.MemoryBytes += other.Resources.MemoryBytes
-		candidate.Allocated.DiskBytes += other.Resources.DiskBytes
-	}
+	statusByNode := observation.Statuses
+	candidates, previous := observation.Candidates, observation.Assignments
 	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
 		Cell: intent.Cell, Role: intent.Role, Replicas: intent.DesiredReplicas,
 		Request: profile.Resources, Hosts: candidates, Previous: previous,
