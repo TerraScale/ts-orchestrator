@@ -102,6 +102,8 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 				return
 			}
 			_, _ = io.WriteString(w, `{"objects":[{"name":"b","size":2}]}`)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/networkLoadBalancers"):
+			_, _ = io.WriteString(w, `{"items":[{"id":"ocid1.networkloadbalancer.oc1..n","displayName":"public","lifecycleState":"ACTIVE"}]}`)
 		case r.Method == http.MethodHead:
 			w.Header().Set("Content-Length", "5")
 			w.Header().Set("version-id", "v1")
@@ -137,6 +139,16 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 	var headers map[string]any
 	if err := json.Unmarshal(data, &headers); err != nil || headers["version-id"] != "v1" || headers["last-modified"] == nil {
 		t.Fatalf("headers=%v err=%v", headers, err)
+	}
+
+	data, _, err = client.Call(ctx, []string{"nlb", "network-load-balancer", "list", "--compartment-id", "c", "--all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var collection map[string][]map[string]any
+	if err := json.Unmarshal(data, &collection); err != nil || len(collection["items"]) != 1 ||
+		collection["items"][0]["display-name"] != "public" {
+		t.Fatalf("collection=%v err=%v", collection, err)
 	}
 
 	if _, handled, err := client.Call(ctx, []string{"network", "subnet", "get", "--subnet-id", "missing"}); !handled || err == nil {
