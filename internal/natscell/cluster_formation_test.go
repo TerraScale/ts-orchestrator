@@ -66,6 +66,21 @@ func (cluster *labCluster) stop(index int) {
 	}
 }
 
+func TestObserveStandaloneBroker(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	runtime, err := Start(ctx, Config{Cell: "lab", Instance: "solo", Replicas: 1, Lab: true,
+		Embedded: &Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "solo")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+	observation, err := runtime.ObserveCluster()
+	if err != nil || !observation.Running || observation.MetaLeader != "lab-solo" || observation.MetaSize != 1 {
+		t.Fatalf("standalone observation = %+v, %v", observation, err)
+	}
+}
+
 func TestPeerRoutesOmitsOnlySelf(t *testing.T) {
 	routes := []string{"nats-route://10.0.0.1:6222", "nats-route://10.0.0.2:6222", "nats-route://10.0.0.3:6222"}
 	got := PeerRoutes(routes, routes[1])

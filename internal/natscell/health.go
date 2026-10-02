@@ -53,6 +53,10 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 		return observation, err
 	}
 	if info.Meta == nil {
+		if !r.server.JetStreamIsClustered() {
+			// A standalone broker is its own single-member metadata group.
+			observation.MetaLeader, observation.MetaSize, observation.MetaQuorum = r.serverName, 1, 1
+		}
 		return observation, nil
 	}
 	observation.MetaLeader = info.Meta.Leader
