@@ -11,6 +11,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const replacementObservedDigest = "1111111111111111111111111111111111111111111111111111111111111111"
@@ -154,6 +155,23 @@ func TestFounderReplacementRequiresRootSignedRetirement(t *testing.T) {
 	}
 	if fake.launches != launches {
 		t.Fatal("rejected retirement launched")
+	}
+}
+
+func TestObserveLifecycleReportsTerminatedWithoutVNIC(t *testing.T) {
+	const id = "ocid1.instance.oc1.sa-saopaulo-1.controller-b"
+	compute := &fakeComputeObservation{instance: core.GetInstanceResponse{Instance: core.Instance{
+		Id: new(id), LifecycleState: core.InstanceLifecycleStateTerminated}}}
+	observer := &OCIInstanceObserver{compute: compute, network: &fakeNetworkObservation{}}
+	state, err := observer.ObserveLifecycle(t.Context(), id)
+	if err != nil || state != "TERMINATED" {
+		t.Fatalf("lifecycle = %q, %v", state, err)
+	}
+	if _, err := observer.ObserveLifecycle(t.Context(), "ocid1.instance.oc1.sa-saopaulo-1.other"); err == nil {
+		t.Fatal("a different returned instance was accepted")
+	}
+	if _, err := observer.ObserveLifecycle(t.Context(), "not-an-ocid"); err == nil {
+		t.Fatal("malformed instance OCID was read")
 	}
 }
 
