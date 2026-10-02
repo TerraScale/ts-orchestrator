@@ -183,6 +183,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopAuthority()
 	defer control.Close()
+	global, err := startGlobalControl(ctx, cfg, runtime.JetStream(), candidateID, clockCheck, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start global control: %w", err)
+	}
+	defer global.close()
 	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)

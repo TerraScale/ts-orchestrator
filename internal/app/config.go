@@ -38,6 +38,9 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// Global enables the global control plane; nil or disabled keeps every
+	// region standalone, exactly as before.
+	Global *GlobalControlConfig `json:"global,omitempty"`
 }
 
 type WorkloadProfile struct {
