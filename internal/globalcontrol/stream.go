@@ -202,5 +202,5 @@ func OpenMirror(ctx context.Context, js jetstream.JetStream, home, cell string, 
 	if err != nil {
 		return nil, err
 	}
-	return &Reader{stream: stream}, nil
+	return &Reader{stream: stream, mirror: true}, nil
 }

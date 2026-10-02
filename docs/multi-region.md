@@ -65,6 +65,16 @@ peer's subjects (for example, forge another region's mirror feed). Regression te
 review probe from a peer cell and over a raw leafnode connection with a valid
 leaf credential.
 
+All children of a hub share its interregion account and so the same leaf
+permissions: a child can also reset or acknowledge a sibling's mirror
+consumer. NATS accepts a reset to any sequence, including one ahead of what
+the mirror stored, and the mirror then skips those home records for good. The
+home stream can never lose a record, so a mirror reader
+(`globalcontrol.OpenMirror`) checks on every read that the mirror holds a
+gap-free prefix of the home stream and otherwise fails closed with
+`globalcontrol.ErrMirrorGap`; recreate the mirror to recover. Per-peer leaf
+users would remove the sibling reach altogether and are a follow-up.
+
 Startup, and every later cell claim replacement, verify the installed account
 JWTs, including the default leaf permissions, against this contract exactly.
 Commands, agent traffic, control logs, inboxes and broker subjects never cross

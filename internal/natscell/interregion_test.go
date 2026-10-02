@@ -400,7 +400,8 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	// OpenMirror also verifies the server's view of the mirror config.
-	if _, err := globalcontrol.OpenMirror(ctx, sfoRuntime.JetStream(), "gru", "sfo", 1); err != nil {
+	mirrorReader, err := globalcontrol.OpenMirror(ctx, sfoRuntime.JetStream(), "gru", "sfo", 1)
+	if err != nil {
 		t.Fatalf("open global mirror: %v", err)
 	}
 	mirror, err := sfoRuntime.JetStream().Stream(ctx, globalcontrol.StreamName)
@@ -479,6 +480,7 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	proxy.Reopen(t)
 	awaitHealth(ctx, t, sfoRuntime.Conn(), healed, "after-heal")
 	waitStreamMessages(ctx, t, mirror, 2)
+	assertForwardResetFailsMirrorClosed(ctx, t, gru, gruRuntime.JetStream(), mirror, mirrorReader, proxy.Addr(), leafTLS)
 }
 
 func awaitHealth(ctx context.Context, t *testing.T, publisher *nats.Conn, received chan *nats.Msg, marker string) {

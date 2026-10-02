@@ -32,8 +32,9 @@ const (
 
 // JSConsumerResetSubject is the reset API subject of one named consumer under
 // an API prefix. It is the only JetStream API verb a durable-sourced mirror
-// sends: it rewinds that one consumer to its ack floor and cannot change where
-// the consumer delivers. Any empty part yields "", which NATS rejects.
+// sends: it moves that one consumer to its ack floor or to a requested
+// sequence (forward too) and cannot change where the consumer delivers. Any
+// empty part yields "", which NATS rejects.
 func JSConsumerResetSubject(apiPrefix, stream, consumer string) string {
 	if apiPrefix == "" || stream == "" || consumer == "" {
 		return ""

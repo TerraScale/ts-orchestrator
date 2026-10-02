@@ -95,6 +95,12 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && !slices.Contains(ir.Peers, ir.GlobalHome) {
 		return errors.New("interregion global home must be this region or a roster peer")
 	}
+	// The leaf tree is rooted at the global home. LeafPermissions relies on
+	// it: an accepted leaf never speaks for the home, so a home that dialed
+	// a parent would have its health, queries and mirror feeds refused there.
+	if ir.GlobalHome == cfg.Cell && len(ir.Remotes) != 0 {
+		return errors.New("the interregion global home is the leaf tree root and must not dial remotes")
+	}
 	if ir.Listen == nil && len(ir.Remotes) == 0 {
 		return errors.New("interregion needs a leaf listener or at least one remote")
 	}

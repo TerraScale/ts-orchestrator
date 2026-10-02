@@ -27,12 +27,20 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	}
 	remote := LeafRemote{Peer: "sfo", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
 		PeerAccount: region.interregionID, TLS: leafTLS}
+	// gru is the global home in this fixture and the home never dials, so the
+	// remote cases move the home to sfo to reach the remote checks themselves.
 	withRemote := func(mutate func(*LeafRemote)) func(*InterRegion, *Config) {
 		return func(ir *InterRegion, _ *Config) {
 			bad := remote
 			mutate(&bad)
 			ir.Remotes = []LeafRemote{bad}
+			ir.GlobalHome = "sfo"
 		}
+	}
+	dialing := *region.cfg.Embedded.InterRegion
+	dialing.Remotes, dialing.GlobalHome = []LeafRemote{remote}, "sfo"
+	if err := dialing.validate(region.cfg); err != nil {
+		t.Fatalf("valid remote of a non-home region rejected: %v", err)
 	}
 	cases := map[string]func(ir *InterRegion, cfg *Config){
 		"lab":                     func(_ *InterRegion, cfg *Config) { cfg.Lab = true },
@@ -48,7 +56,10 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		"remote URL userinfo":     withRemote(func(r *LeafRemote) { r.URLs = []string{"nats-leaf://u:p@10.0.0.1:7422"} }),
 		"remote unpinned account": withRemote(func(r *LeafRemote) { r.PeerAccount = "" }),
 		"remote without mTLS":     withRemote(func(r *LeafRemote) { r.TLS = TLSFiles{} }),
-		"remote repeated":         func(ir *InterRegion, _ *Config) { ir.Remotes = []LeafRemote{remote, remote} },
+		"remote repeated": func(ir *InterRegion, _ *Config) {
+			ir.Remotes, ir.GlobalHome = []LeafRemote{remote, remote}, "sfo"
+		},
+		"global home dials": func(ir *InterRegion, _ *Config) { ir.Remotes = []LeafRemote{remote} },
 	}
 	for name, mutate := range cases {
 		cfg := region.cfg

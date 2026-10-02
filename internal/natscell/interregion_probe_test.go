@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -294,3 +295,47 @@ func (l *rawLeaf) awaitClose(t *testing.T) string {
 }
 
 func (l *rawLeaf) close() { _ = l.conn.Close() }
+
+// assertForwardResetFailsMirrorClosed: the reset verb of a mirror consumer is
+// a contract subject every child of the hub may send, and NATS accepts a
+// reset to any sequence, including one ahead of what the mirror stored. The
+// mirror then skips those home records for good. Leaf permissions cannot tell
+// one child from another, so the mirror reader must notice the gap and fail
+// closed instead of serving a record that a skipped one may have superseded.
+func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru *testRegion, gruJS jetstream.JetStream,
+	mirror jetstream.Stream, reader *globalcontrol.Reader, addr string, leafTLS TLSFiles,
+) {
+	t.Helper()
+	if _, _, err := reader.Roster(ctx); errors.Is(err, globalcontrol.ErrMirrorGap) {
+		t.Fatalf("gap-free mirror reported a gap: %v", err)
+	}
+	info, err := mirror.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := info.State.LastSeq
+	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.leafCredentials(t, "sibling-leaf.creds"))
+	defer leaf.close()
+	reset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+		protocol.GlobalMirrorConsumer("sfo"))
+	leaf.publish(t, reset, "_R_.sibling", fmt.Appendf(nil, `{"seq":%d}`, stored+4))
+	time.Sleep(500 * time.Millisecond)
+	for index := range 6 {
+		if _, err := gruJS.Publish(ctx, protocol.GlobalState("roster", fmt.Sprintf("skip%d", index)), []byte("r")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for {
+		info, err := mirror.Info(ctx)
+		if err == nil && info.State.LastSeq == stored+6 {
+			break
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("mirror never caught up after the forward reset: %+v, %v", info, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, _, err := reader.Roster(ctx); !errors.Is(err, globalcontrol.ErrMirrorGap) {
+		t.Fatalf("mirror with skipped home records served a read: %v", err)
+	}
+}

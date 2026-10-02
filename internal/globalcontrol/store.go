@@ -20,6 +20,13 @@ var (
 	ErrNotHomeRegion  = errors.New("global state is writable only in the home region")
 	ErrRecordCorrupt  = errors.New("global record is corrupt")
 	ErrRosterRequired = errors.New("global directory writes require a region roster")
+	// ErrMirrorGap means a regional mirror is missing home records. The home
+	// stream never loses a record (no deletes, purges or limits), so a gap
+	// means the mirror's durable consumer was reset past records the mirror
+	// had not stored, for example by another child of the same hub sending a
+	// forward reset. The mirror fails closed rather than serve a record that
+	// a skipped one may have superseded; recreate the mirror to recover.
+	ErrMirrorGap = errors.New("global mirror is missing home records")
 )
 
 // record is the stored envelope. Epoch is the global authority epoch that
@@ -39,6 +46,9 @@ func subject(kind Kind, key string) string { return protocol.GlobalState(string(
 // Reader serves global records from the home stream or a regional mirror.
 type Reader struct {
 	stream jetstream.Stream
+	// mirror makes every read prove that the mirror holds a gap-free prefix
+	// of the home stream (see ErrMirrorGap).
+	mirror bool
 }
 
 // Roster returns the current region roster and its stream sequence.
@@ -81,6 +91,13 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 	readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 	message, err := r.stream.GetLastMsgForSubject(readCtx, subject(kind, key))
+	if r.mirror && (err == nil || errors.Is(err, jetstream.ErrMsgNotFound)) {
+		// Checked after the read: no gap up to the mirror's last sequence
+		// now means no newer record for this subject was skipped before it.
+		if gapErr := r.checkMirrorGapFree(readCtx); gapErr != nil {
+			return record{}, 0, gapErr
+		}
+	}
 	if errors.Is(err, jetstream.ErrMsgNotFound) {
 		return record{}, 0, ErrNotFound
 	}
@@ -94,6 +111,24 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 		return record{}, 0, ErrRecordCorrupt
 	}
 	return stored, message.Sequence, nil
+}
+
+// checkMirrorGapFree requires the mirror to hold every home sequence from 1
+// to its last one. Skipped sequences show up as deleted messages or as a
+// first sequence beyond 1.
+func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
+	info, err := r.stream.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("inspect global mirror: %w", err)
+	}
+	state := info.State
+	if state.LastSeq == 0 {
+		return nil
+	}
+	if state.NumDeleted != 0 || state.FirstSeq != 1 || state.Msgs != state.LastSeq {
+		return ErrMirrorGap
+	}
+	return nil
 }
 
 // Writer appends global records in the home region. Every write is guarded
