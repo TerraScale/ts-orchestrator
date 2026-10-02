@@ -67,6 +67,7 @@ type Dashboard struct {
 	streams   chan struct{}
 	clusters  observability.Cache[observability.ClusterSnapshot]
 	decisions *keyedCache[decisionlog.Result]
+	chains    *keyedCache[decisionlog.Chain]
 	summaries *keyedCache[insights.Summary]
 }
 
@@ -95,6 +96,7 @@ func New(options Options) *Dashboard {
 	}
 	dashboard := &Dashboard{options: options, streams: make(chan struct{}, options.MaxStreams),
 		decisions: newKeyedCache[decisionlog.Result](decisionCacheTTL, 64),
+		chains:    newKeyedCache[decisionlog.Chain](decisionCacheTTL, 64),
 		summaries: newKeyedCache[insights.Summary](summaryCacheTTL, 8)}
 	dashboard.clusters.TTL = clusterCacheTTL
 	dashboard.SetSnapshots(options.Snapshots)

@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -60,8 +61,16 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 		}
 	}
 	if id := current.State.param("id"); needs&needChain != 0 && id != "" && journal.Decisions != nil {
-		if chain, err := journal.Decisions.Chain(ctx, id); err == nil {
+		// Cached like the decision queries: a chain lookup may fan out to
+		// every linked region, and every open stream re-renders each tick.
+		chain, err := dashboard.chains.get(ctx, id, func(ctx context.Context) (decisionlog.Chain, error) {
+			return journal.Decisions.Chain(ctx, id)
+		})
+		switch {
+		case err == nil:
 			current.Chain = &chain
+		case !errors.Is(err, decisionlog.ErrNotFound):
+			current.Unavailable = append(current.Unavailable, "decision chain")
 		}
 	}
 	if needs&needVersions != 0 {

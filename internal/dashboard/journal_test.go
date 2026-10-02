@@ -25,7 +25,9 @@ import (
 type fakeDecisions struct {
 	decisions []decisionlog.Decision
 	queries   atomic.Int64
+	chains    atomic.Int64
 	err       error
+	chainErr  error
 }
 
 func (source *fakeDecisions) Query(_ context.Context, query decisionlog.Query) (decisionlog.Result, error) {
@@ -46,6 +48,10 @@ func (source *fakeDecisions) Query(_ context.Context, query decisionlog.Query) (
 }
 
 func (source *fakeDecisions) Chain(_ context.Context, id string) (decisionlog.Chain, error) {
+	source.chains.Add(1)
+	if source.chainErr != nil {
+		return decisionlog.Chain{}, source.chainErr
+	}
 	chain, ok := decisionlog.BuildChain(source.decisions, id)
 	if !ok {
 		return decisionlog.Chain{}, decisionlog.ErrNotFound
@@ -330,6 +336,49 @@ func TestDecisionQueriesAreSharedAcrossTicks(t *testing.T) {
 	}
 	if got := decisions.queries.Load(); got != 1 {
 		t.Fatalf("five renders issued %d decision queries, want 1", got)
+	}
+}
+
+func TestDecisionChainsAreSharedAndFailuresNamed(t *testing.T) {
+	t.Parallel()
+	dashboard, _, decisions := journalDashboard(Options{})
+	handler := dashboard.Handler()
+	for range 5 {
+		if body := get(t, handler, "/decisions?id=d2").Body.String(); !strings.Contains(body, "extend the canary") {
+			t.Fatal("the decisions page does not show the opened chain")
+		}
+	}
+	if got := decisions.chains.Load(); got != 1 {
+		t.Fatalf("five renders issued %d chain lookups, want 1", got)
+	}
+	if body := get(t, handler, "/decisions?id=missing").Body.String(); strings.Contains(body, "decision chain") {
+		t.Fatal("an unknown decision id is reported as an unavailable journal")
+	}
+	failing, _, broken := journalDashboard(Options{})
+	broken.chainErr = errors.New("nats: secret upstream detail")
+	body := get(t, failing.Handler(), "/decisions?id=d2").Body.String()
+	if !strings.Contains(body, "decision chain") || strings.Contains(body, "secret upstream") {
+		t.Fatal("a failing chain lookup is not explained safely")
+	}
+}
+
+// TestChartTooltipsEscapeProviderText keeps provider-supplied names (hosts,
+// volumes, decisions) out of ECharts' HTML tooltips unescaped: a custom
+// tooltip formatter returns markup, so every one must escape what it
+// interpolates.
+func TestChartTooltipsEscapeProviderText(t *testing.T) {
+	t.Parallel()
+	script := string(assets["app.js"].body)
+	for number, line := range strings.Split(script, "\n") {
+		if strings.Contains(line, "tooltip(t, {") && strings.Contains(line, "formatter:") &&
+			strings.Contains(line, "<br>") && !strings.Contains(line, "escapeHTML(") {
+			t.Errorf("app.js:%d formats a tooltip without escaping: %s", number+1, strings.TrimSpace(line))
+		}
+	}
+	for _, unescaped := range []string{"`${spec.categories[", "`${p.treePathInfo"} {
+		if strings.Contains(script, unescaped) {
+			t.Errorf("app.js interpolates %q into tooltip HTML unescaped", unescaped)
+		}
 	}
 }
 

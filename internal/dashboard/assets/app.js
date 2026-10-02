@@ -306,7 +306,7 @@ EChartElement.prototype.option = async function (spec, t) {
       return {
         textStyle: baseText(t),
         grid: { left: 8, right: 12, top: 8, bottom: 36, containLabel: true },
-        tooltip: tooltip(t, { formatter: (p) => `${spec.categories[p.value[1]]}<br>${absolute(new Date(p.value[0]))}<br><b>${f(p.value[2])}</b>` }),
+        tooltip: tooltip(t, { formatter: (p) => `${escapeHTML(spec.categories[p.value[1]])}<br>${absolute(new Date(p.value[0]))}<br><b>${f(p.value[2])}</b>` }),
         xAxis: timeAxis(spec, t),
         yAxis: { type: "category", data: spec.categories, axisLabel: { color: t.ink2 }, axisLine: { show: false }, axisTick: { show: false } },
         visualMap: { min: spec.min ?? 0, max: hi || 1, orient: "horizontal", left: "center", bottom: 0, itemHeight: 120, itemWidth: 10,
@@ -341,7 +341,7 @@ EChartElement.prototype.option = async function (spec, t) {
         itemStyle: color(node) ? { color: color(node) } : undefined,
         children: node.children ? node.children.map(map) : undefined });
       return {
-        tooltip: tooltip(t, { formatter: (p) => `${p.treePathInfo.map((x) => x.name).filter(Boolean).join(" / ")}<br><b>${f(p.value)}</b>` }),
+        tooltip: tooltip(t, { formatter: (p) => `${escapeHTML(p.treePathInfo.map((x) => x.name).filter(Boolean).join(" / "))}<br><b>${f(p.value)}</b>` }),
         series: [{
           type: "treemap", data: (spec.tree || []).map(map), roam: false, nodeClick: false, breadcrumb: { show: false },
           width: "100%", height: "100%", top: 0, left: 0, color: t.series,
