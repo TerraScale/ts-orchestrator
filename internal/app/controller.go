@@ -250,7 +250,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
+			launchMaterial.HostMetadata(), newManagedImageVerifier,
+			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}

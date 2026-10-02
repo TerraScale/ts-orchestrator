@@ -38,6 +38,10 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// OciObserveVerifyCacheSeconds lets placement's periodic Observe reuse a
+	// member host's boot volume and VNIC verification while its instance ETag
+	// is unchanged, for at most this many seconds (0 disables, max 60).
+	OciObserveVerifyCacheSeconds int `json:"oci_observe_verify_cache_seconds,omitzero"`
 }
 
 type WorkloadProfile struct {

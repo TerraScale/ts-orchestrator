@@ -21,6 +21,8 @@ type sdkProvider struct {
 	compute      core.ComputeClient
 	storage      core.BlockstorageClient
 	network      core.VirtualNetworkClient
+	// verified is the optional Observe verification cache; nil disables it.
+	verified *verificationCache
 }
 
 func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkProvider, error) {
@@ -88,10 +90,18 @@ func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudI
 	}
 	instance := cloudInstance(response.Instance, stringValue(response.Etag))
 	if instance.LifecycleState != "TERMINATED" && instance.LifecycleState != "TERMINATING" {
+		if privateIP, ok := provider.verified.lookup(ctx, instance.ID, instance.ETag); ok &&
+			instance.CompartmentID == provider.config.CompartmentID &&
+			instance.AvailabilityDomain == provider.config.AvailabilityDomain {
+			instance.PrivateIP = privateIP
+			return instance, nil
+		}
 		privateIP, err := provider.verifyInstanceStorageAndNetwork(ctx, instance)
 		if err != nil {
+			provider.verified.forget(instance.ID)
 			return CloudInstance{}, err
 		}
+		provider.verified.store(instance.ID, instance.ETag, privateIP)
 		instance.PrivateIP = privateIP
 	}
 	return instance, nil
