@@ -399,7 +399,11 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r1")); err != nil {
 		t.Fatal(err)
 	}
-	mirror, err := sfoRuntime.JetStream().CreateStream(ctx, globalcontrol.MirrorStreamConfig("gru", "sfo", 1))
+	// OpenMirror also verifies the server's view of the mirror config.
+	if _, err := globalcontrol.OpenMirror(ctx, sfoRuntime.JetStream(), "gru", "sfo", 1); err != nil {
+		t.Fatalf("open global mirror: %v", err)
+	}
+	mirror, err := sfoRuntime.JetStream().Stream(ctx, globalcontrol.StreamName)
 	if err != nil {
 		t.Fatal(err)
 	}
