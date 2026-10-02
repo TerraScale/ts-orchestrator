@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/lifecycle"
 )
 
 const (
@@ -60,6 +61,9 @@ type Config struct {
 	MemberRole      string
 	Resources       Resources
 	TickInterval    time.Duration
+	// VolumeDeadlines bound transitional retained-volume phases; zero fields
+	// use storage lifecycle defaults (ten minutes for ATTACHING).
+	VolumeDeadlines lifecycle.Deadlines
 	OnError         func(error)
 	OnHold          func(string)
 }
@@ -110,6 +114,9 @@ func (config Config) validate() error {
 		!positive(config.Resources) ||
 		config.Resources.CPU > 4096 || config.Resources.MemoryBytes > 1<<50 || config.Resources.DiskBytes > 1<<50 {
 		return errors.New("placement controller config has an invalid cell, region, owner, role, or resource profile")
+	}
+	if err := config.VolumeDeadlines.Validate(); err != nil {
+		return err
 	}
 	if config.TickInterval < 0 || config.TickInterval != 0 && (config.TickInterval < minTickInterval || config.TickInterval > maxTickInterval) {
 		return errors.New("placement tick interval must be zero or between 100ms and 5m")
@@ -567,6 +574,7 @@ func (controller *Controller) advanceMember(
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 				return true, err
 			case "ATTACHING":
+				controller.holdStuckAttachment(seat.MemberID, attachment.ID, state)
 				return false, nil
 			default:
 				controller.hold(fmt.Sprintf("member %s retained volume attachment is %s; desired state remains withheld", seat.MemberID, attachment.State))
@@ -980,6 +988,22 @@ func (controller *Controller) guard(ctx context.Context, epoch uint64) error {
 		return authority.ErrFenced
 	}
 	return controller.fencer.Guard(ctx, epoch)
+}
+
+// holdStuckAttachment reports an attachment that stayed ATTACHING past its
+// lifecycle deadline. The member's UpdatedAt is the phase start: it is written
+// on entering StageAwaitingAttach and left unchanged while waiting. The
+// remediation is reported, never executed here: every force detach or host
+// replacement needs its own fencing proof in the storage slice.
+func (controller *Controller) holdStuckAttachment(memberID, attachmentID string, state MemberState) {
+	phase := lifecycle.State{Phase: lifecycle.Attaching, Since: state.UpdatedAt}
+	stuck, expired := lifecycle.Check(phase, controller.currentTime(), controller.config.VolumeDeadlines)
+	if !expired {
+		return
+	}
+	controller.hold(fmt.Sprintf("member %s retained volume attachment %s is stuck ATTACHING since %s (%s); remediation %s is required",
+		memberID, attachmentID, state.UpdatedAt.UTC().Format(time.RFC3339), stuck.Reason,
+		lifecycle.Remediate(stuck, controller.config.VolumeDeadlines)))
 }
 
 func (controller *Controller) hold(reason string) {

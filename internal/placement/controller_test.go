@@ -300,6 +300,46 @@ func TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualificati
 	}
 }
 
+func TestControllerHoldsAttachmentStuckAttachingPastDeadline(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	for memberID, member := range store.members {
+		member.State.Stage = StageAwaitingAttach
+		member.State.UpdatedAt = time.Now().UTC().Add(-5 * time.Minute)
+		store.members[memberID] = member
+	}
+	instances := attachedInstances(t, intent)
+	for index := range instances {
+		instances[index].Attachments[0].State = "ATTACHING"
+	}
+	fleet := &placementTestFleet{instances: instances}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, hosts, func(reason string) { holds = append(holds, reason) })
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range holds {
+		if strings.Contains(reason, "stuck ATTACHING") {
+			t.Fatalf("attachment within its deadline was reported stuck: %s", reason)
+		}
+	}
+	controller.now = func() time.Time { return time.Now().Add(6 * time.Minute) }
+	holds = nil
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	stuck := false
+	for _, reason := range holds {
+		stuck = stuck || strings.Contains(reason, "stuck ATTACHING") && strings.Contains(reason, "force-detach-retry")
+	}
+	if !stuck || store.casCalls != 0 || hosts.desiredWrites != 0 || fleet.attachCalls != 0 {
+		t.Fatalf("stuck attachment was not held with remediation: holds=%q CAS=%d desired=%d attach=%d",
+			holds, store.casCalls, hosts.desiredWrites, fleet.attachCalls)
+	}
+}
+
 func TestControllerWaitsForOCIReferenceToBecomeAttached(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
