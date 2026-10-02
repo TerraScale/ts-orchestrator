@@ -84,30 +84,21 @@ func (replacer *FounderReplacer) Replace(ctx context.Context, slot string, retir
 	return replacer.caller.replacePeer(ctx, slot, retirementWire)
 }
 
-// ObserveInstanceLifecycle reads the exact pinned instance's lifecycle state.
-// It is read-only and never infers an instance from tags or display names.
-func (replacer *FounderReplacer) ObserveInstanceLifecycle(ctx context.Context, instanceID string) (string, error) {
-	if replacer == nil || replacer.caller.adapter == nil {
-		return "", ErrFounderReplacement
-	}
-	return replacer.caller.adapter.ObserveInstanceLifecycle(ctx, instanceID)
-}
-
-// ObserveInstanceLifecycle returns the OCI lifecycle state of one exact
-// instance OCID. A missing instance is reported as an error, not TERMINATED.
-func (adapter *FounderOCI) ObserveInstanceLifecycle(ctx context.Context, instanceID string) (string, error) {
-	if adapter == nil || adapter.compute == nil || !instanceIDRE.MatchString(instanceID) {
-		return "", ErrFounderOCI
+// ObserveLifecycle returns the OCI lifecycle state of one exact instance
+// OCID without requiring an attached VNIC, so a TERMINATED instance is still
+// observable. A missing instance is an error, never TERMINATED.
+func (observer *OCIInstanceObserver) ObserveLifecycle(ctx context.Context, instanceID string) (string, error) {
+	if observer == nil || observer.compute == nil || !instanceIDRE.MatchString(instanceID) {
+		return "", ErrInstanceObservation
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	response, err := adapter.compute.GetInstance(readCtx, core.GetInstanceRequest{
-		InstanceId: new(instanceID), RequestMetadata: noFounderSDKRetry()})
+	response, err := observer.compute.GetInstance(readCtx, core.GetInstanceRequest{InstanceId: new(instanceID)})
 	if err != nil {
 		return "", fmt.Errorf("GetInstance controller slot: %w", err)
 	}
 	if value(response.Id) != instanceID || response.LifecycleState == "" {
-		return "", ErrFounderOCI
+		return "", ErrInstanceObservation
 	}
 	return string(response.LifecycleState), nil
 }
