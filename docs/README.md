@@ -7,6 +7,7 @@ These pages describe the current greenfield Go implementation.
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
 | [Contributing](../CONTRIBUTING.md) | CLI-first Go feature development, automation boundaries, and verification |
+| [Multi-region foundation](multi-region.md) | Feature-flagged interregion leafnodes, global control stream, region lifecycle and planner |
 | [Manual regional bootstrap](region-bootstrap.md) | Operator-created regional foundation and controller A, followed by orchestrator-managed peers and workloads |
 | [Local development](local-development.md) | Toolchain, build, test, and Firecracker qualification |
 | [Build and release](releases.md) | Exact-source CI checks and static Linux binaries |
