@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -24,12 +25,14 @@ var errFounderObservationStale = errors.New("exact founder OCI observation must 
 func RunAdmittedFounder(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	serviceUID, serviceGID uint32,
 ) error {
-	return runAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID, nil, completedAdmittedFounder)
+	return runAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID, nil, completedAdmittedFounder,
+		NewIMDSClient().FetchPlacement)
 }
 
 func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	serviceUID, serviceGID uint32, floor *FounderSelectionFloorStore,
 	completed func(context.Context, BakedInputs, AcceptedInstall) (bool, error),
+	placement func(context.Context) (bootstrap.ControllerPlacement, error),
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -54,11 +57,16 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	if completed == nil {
 		return ErrFounderRuntime
 	}
+	// A durable local completion fact lets a seed restart without OCI.
+	if floor.PeersComplete(accepted) {
+		return nil
+	}
 	complete, err := completed(ctx, baked, accepted)
 	if err != nil {
 		return fmt.Errorf("%w: read historical peer completion: %v", ErrFounderRuntime, err)
 	}
 	if complete {
+		markFounderPeersComplete(floor, accepted)
 		return nil
 	}
 	reader, err := NewOCICurrentFounderAuthorityReader(baked, accepted, floor)
@@ -98,7 +106,19 @@ func runAdmittedFounder(ctx context.Context, baked BakedInputs, accepted Accepte
 	if err != nil {
 		return err
 	}
-	return runFounderPeers(ctx, reader, baked.Roots, accepted, signers, adapter, selected)
+	if err := runFounderPeers(ctx, reader, baked.Roots, accepted, signers, adapter, selected, placement); err != nil {
+		return err
+	}
+	markFounderPeersComplete(floor, accepted)
+	return nil
+}
+
+// markFounderPeersComplete is best effort: without the fact the next seed
+// restart repeats the read-only historical ledger check.
+func markFounderPeersComplete(floor *FounderSelectionFloorStore, accepted AcceptedInstall) {
+	if err := floor.MarkPeersComplete(accepted); err != nil {
+		slog.Warn("record local founder peer completion", "error", err)
+	}
 }
 
 func verifyExistingFounderFloor(floor *FounderSelectionFloorStore) error {
@@ -205,23 +225,40 @@ type founderCaller struct {
 	accepted   AcceptedInstall
 	signers    FounderSignerStore
 	adapter    *FounderOCI
+	placement  func(context.Context) (bootstrap.ControllerPlacement, error)
 	now        func() time.Time
 	openLedger func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error)
 }
 
 func runFounderPeers(ctx context.Context, reader *CurrentFounderAuthorityReader, roots trust.Keyring,
 	accepted AcceptedInstall, signers FounderSignerStore, adapter *FounderOCI, initial CurrentFounderAuthority,
+	placement func(context.Context) (bootstrap.ControllerPlacement, error),
 ) error {
 	if initial.Plan.Plan().SeedSlot != accepted.Slot {
 		return ErrFounderRuntime
 	}
-	caller := founderCaller{reader: reader, roots: roots, accepted: accepted, signers: signers, adapter: adapter}
+	caller := founderCaller{reader: reader, roots: roots, accepted: accepted, signers: signers, adapter: adapter,
+		placement: placement}
 	for _, row := range initial.Plan.Plan().Peers {
 		if err := caller.runPeer(ctx, row.Slot); err != nil {
-			return fmt.Errorf("%w: peer %q: %v", ErrFounderRuntime, row.Slot, err)
+			return fmt.Errorf("%w: peer %q: %w", ErrFounderRuntime, row.Slot, err)
 		}
 	}
 	return nil
+}
+
+// checkAntiAffinity refuses a new launch that would put two controllers in
+// one fault domain. It runs only before a first launch; a slot that already
+// has a candidate or result is recovered regardless of placement.
+func (caller founderCaller) checkAntiAffinity(ctx context.Context, plan bootstrap.FounderPlan) error {
+	if caller.placement == nil {
+		return fmt.Errorf("%w: seed placement source is unavailable", ErrFounderRuntime)
+	}
+	seed, err := caller.placement(ctx)
+	if err != nil {
+		return fmt.Errorf("read seed placement: %w", err)
+	}
+	return bootstrap.CheckControllerAntiAffinity(seed, plan.Peers)
 }
 
 func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnapshot, error) {
@@ -316,6 +353,9 @@ func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 	var observation FounderOCIObservation
 	switch snapshot.recovery.Phase() {
 	case bootstrap.ManagedPeerRecoveryClean, bootstrap.ManagedPeerRecoveryManifestOnly:
+		if err := caller.checkAntiAffinity(ctx, snapshot.selected.Plan.Plan()); err != nil {
+			return err
+		}
 		attempt, err := NewFounderOCIAttempt(snapshot.peer, snapshot.now)
 		if err != nil {
 			return err
