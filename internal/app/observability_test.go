@@ -14,8 +14,10 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
@@ -146,4 +148,66 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(body, "synthetic warning") {
 		t.Fatalf("/v1/events = %d %s", status, body)
 	}
+
+	// The decision journal records the lease this member holds, stores it
+	// in the regional stream and serves it with the other journal providers.
+	deadline := time.Now().Add(20 * time.Second)
+	var decisions decisionlog.Result
+	for {
+		status, body = get("/v1/decisions?kind=leader_changed&since=1h")
+		decisions = decisionlog.Result{}
+		_ = json.Unmarshal([]byte(body), &decisions)
+		if status == http.StatusOK && len(decisions.Decisions) == 1 && telemetry.journal.Stats().Published > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/v1/decisions = %d %s stats=%+v", status, body, telemetry.journal.Stats())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if leader := decisions.Decisions[0]; leader.Region != "lab" || leader.Epoch != 3 || leader.Actor.Member != "one" {
+		t.Fatalf("leader decision = %+v", leader)
+	}
+	if status, body = get("/v1/decisions/" + decisions.Decisions[0].ID); status != http.StatusOK ||
+		!strings.Contains(body, decisions.Decisions[0].ID) {
+		t.Fatalf("/v1/decisions/{id} = %d %s", status, body)
+	}
+	if status, _ = get("/v1/decisions?since=yesterday"); status != http.StatusBadRequest {
+		t.Fatalf("bad since = %d", status)
+	}
+	status, body = get("/v1/regions")
+	var regions []regionview.Summary
+	if err := json.Unmarshal([]byte(body), &regions); err != nil || status != http.StatusOK || len(regions) != 1 ||
+		regions[0].Region != "lab" || !regions[0].Local || regions[0].Leaders.Authority != "one" {
+		t.Fatalf("/v1/regions = %d %s (%v)", status, body, err)
+	}
+	if status, body = get("/v1/insights"); status != http.StatusOK || !strings.Contains(body, `"insights"`) {
+		t.Fatalf("/v1/insights = %d %s", status, body)
+	}
+	if status, body = get("/v1/summary?window=24h"); status != http.StatusOK ||
+		!strings.Contains(body, "leader change") {
+		t.Fatalf("/v1/summary = %d %s", status, body)
+	}
+	for {
+		status, body = get("/v1/history/metrics")
+		if status == http.StatusOK && strings.Contains(body, observability.HistMembersAnswering) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("/v1/history/metrics = %d %s", status, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if status, body = get("/v1/history?metric=" + observability.HistMembersAnswering + "&range=15m"); status != http.StatusOK ||
+		!strings.Contains(body, `"points"`) {
+		t.Fatalf("/v1/history = %d %s", status, body)
+	}
+	if !strings.Contains(metricsText(get), "ts_orch_decisions_recorded_total") {
+		t.Fatal("decision journal metrics are not registered")
+	}
+}
+
+func metricsText(get func(string) (int, string)) string {
+	_, body := get("/metrics")
+	return body
 }

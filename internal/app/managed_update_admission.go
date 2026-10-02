@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -236,6 +237,7 @@ func verifyAndPrepareManagedUpdate(ctx context.Context, wire []byte, cell string
 	if err != nil {
 		return managedUpdatePrepareResponse{}, err
 	}
+	recordManagedUpdateAdmission(ctx, cell, envelope.Actor, intent, sequence)
 	return managedUpdatePrepareResponse{DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
 		OperationID: intent.OperationID, Phase: string(authority.ManagedUpdatePrepared), Sequence: sequence}, nil
 }
@@ -268,4 +270,33 @@ func verifyManagedCompatibility(intent placement.ManagedUpdateIntent, update pro
 		return fmt.Errorf("verify independent managed compatibility evidence: %w", err)
 	}
 	return nil
+}
+
+// recordManagedUpdateAdmission journals the admitted update as the root of
+// its decision chain; the placement reconciler's canary phases link to it.
+func recordManagedUpdateAdmission(ctx context.Context, cell, actor string, intent placement.ManagedUpdateIntent,
+	sequence uint64,
+) {
+	id := decisionlog.Record(ctx, decisionlog.Decision{
+		Region: cell,
+		Actor:  decisionlog.Actor{Slice: "placement"},
+		Kind:   decisionlog.KindReleaseAdmitted,
+		Subject: decisionlog.Subject{Kind: "operation", ID: intent.OperationID,
+			Name: fmt.Sprintf("managed update of %s/%s", intent.DatabaseID, intent.PartitionID)},
+		Summary: fmt.Sprintf("Managed TerraBase update of %s/%s admitted for canary seat %s", intent.DatabaseID,
+			intent.PartitionID, intent.CanarySeatID),
+		Reason: "The signed request verified against a trusted key, the actor's grant, the current authority " +
+			"epoch and the admitted candidate artifact.",
+		Rule:   "managed update admission",
+		Status: decisionlog.StatusInProgress,
+		Epoch:  intent.AuthorityEpoch,
+		Signals: []decisionlog.Signal{
+			{Name: "placement_generation", Value: float64(intent.PlacementGeneration)},
+			{Name: "canary_desired_generation", Value: float64(intent.CanaryDesiredGeneration)},
+			{Name: "authority_sequence", Value: float64(sequence)},
+		},
+		Attrs: map[string]string{"signed_by": actor, "candidate_artifact_digest": intent.CandidateArtifactDigest,
+			"old_artifact_digest": intent.OldArtifactDigest, "canary_seat": intent.CanarySeatID},
+	})
+	decisionlog.Correlate(placement.ManagedUpdateCorrelation(intent.OperationID), id)
 }

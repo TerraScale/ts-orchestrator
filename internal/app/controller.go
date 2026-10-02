@@ -365,6 +365,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			policy: policy, responseKey: responseKey}
 	}
 	placementHolds := new(placementHoldLog)
+	holdDecisions := newHoldJournal(cfg.NATS.Cell)
 	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
@@ -376,8 +377,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 				changed := placementHolds.recordChange(reason)
 				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
 					"reason", reason, observability.EventKey, changed)
+				holdDecisions.record(ctx, reason, time.Now())
 			}),
-			placementStore, control, fleet, hostController, hostController,
+			placement.JournaledStore(placementStore, cfg.NATS.Cell), control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
 				record, err := service.ResolveAdmittedArtifact(ctx, digest, role, environment)
 				if err != nil {
@@ -527,7 +529,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		brokerIDs = cfg.NATS.Embedded.BrokerIDs
 	}
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
-		brokerIDs: brokerIDs, authority: control, placements: placementStore, managed: managed != nil},
+		brokerIDs: brokerIDs, authority: control, placements: placementStore, managed: managed != nil,
+		holds: placementHolds},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}

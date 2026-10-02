@@ -8,11 +8,14 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // runtimeObservability is one runtime role's metrics, health, event bus and
@@ -32,6 +35,10 @@ type runtimeObservability struct {
 	// role attaches its snapshot providers once they exist.
 	dashboard *dashboard.Dashboard
 	started   atomic.Bool
+	// journal is the controller's decision journal; providers holds the
+	// journal-derived dashboard providers once the controller attaches them.
+	journal   *decisionlog.Journal
+	providers atomic.Pointer[journalProviders]
 }
 
 // startRuntimeObservability installs the structured default logger and
@@ -59,6 +66,9 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		}
 		return false, "runtime is still starting"
 	}})
+	if role == "controller" {
+		runtime.startDecisionJournal(ctx)
+	}
 	if !settings.Enabled() {
 		return runtime, nil
 	}
@@ -95,6 +105,8 @@ type controllerObservation struct {
 	authority  authority.Fencer
 	placements placement.Store
 	managed    bool
+	// holds is the placement reconciler's hold log, read by the insights.
+	holds *placementHoldLog
 }
 
 // attachController registers controller metrics, readiness checks and the
@@ -146,6 +158,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	}
 	runtime.attachSnapshots(collector)
 	if !runtime.config.ClusterAggregation {
+		runtime.attachJournal(ctx, observed, collector, nil)
 		return nil
 	}
 	if _, err := observability.ServeSnapshots(ctx, observed.nats.Conn(), runtime.cell, collector); err != nil {
@@ -162,7 +175,25 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	if runtime.dashboard != nil {
 		runtime.dashboard.SetCluster(aggregator)
 	}
+	runtime.attachJournal(ctx, observed, collector, aggregator)
 	return nil
+}
+
+// mountJournalAPI serves the journal, history, insights, summary and region
+// providers as JSON on the authenticated private listener.
+func mountJournalAPI(server *observability.Server, providers journalProviders) {
+	decisions := decisionlog.Handler(providers.Decisions)
+	server.Handle("GET /v1/decisions", decisions)
+	server.Handle("GET /v1/decisions/{id}", decisions)
+	history := observability.HistoryHandler(providers.History)
+	server.Handle("GET /v1/history", history)
+	server.Handle("GET /v1/history/metrics", history)
+	insightAPI := insights.Handler(providers.Insights, providers.Summarizer)
+	server.Handle("GET /v1/insights", insightAPI)
+	server.Handle("GET /v1/summary", insightAPI)
+	regions := regionview.Handler(providers.Regions)
+	server.Handle("GET /v1/regions", regions)
+	server.Handle("GET /v1/regions/{region}", regions)
 }
 
 // attachHost registers host readiness and the snapshot provider. Hosts do
