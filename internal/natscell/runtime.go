@@ -28,6 +28,11 @@ import (
 
 var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+// ErrEmbeddedServerStopped reports that the in-process broker has exited while
+// its owning process is still alive. Callers must treat it as terminal so the
+// service manager restarts the whole controller instead of waiting forever.
+var ErrEmbeddedServerStopped = errors.New("embedded regional NATS server has stopped")
+
 // DefaultStoreMaxBytes bounds the embedded JetStream file store when the
 // operator does not specify a per-node limit.
 const DefaultStoreMaxBytes int64 = 8 << 30
@@ -123,6 +128,8 @@ type Runtime struct {
 	bridge          *Bridge
 	claimMu         sync.Mutex
 	appliedSequence uint64
+	serverName      string
+	brokerNames     []string
 	once            sync.Once
 }
 
@@ -256,6 +263,10 @@ func (r *Runtime) logHostConnection(state string, conn *nats.Conn, cause error) 
 	slog.Info("host regional NATS connection transition", "state", state, "endpoint", endpoint, "cause_class", class)
 }
 
+// Close shuts the runtime down in lame-duck order: stop accepting external
+// clients, drain the controller client, hand off JetStream leadership this
+// broker holds, and only then stop the embedded server. Every phase is bounded
+// so the whole sequence fits well inside the unit's stop timeout.
 func (r *Runtime) Close() error {
 	if r == nil {
 		return nil
@@ -268,12 +279,10 @@ func (r *Runtime) Close() error {
 			r.systemConn.Close()
 		}
 		if r.conn != nil {
-			r.conn.Drain()
-			r.conn.Close()
+			drainConnection(r.conn, closeDrainTimeout)
 		}
 		if r.server != nil {
-			r.server.Shutdown()
-			r.server.WaitForShutdown()
+			r.stopServer()
 		}
 	})
 	return nil
@@ -317,6 +326,10 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 			return nil, fmt.Errorf("create embedded NATS: %w", err)
 		}
 		r.server.ConfigureLogger()
+		r.serverName = options.ServerName
+		for _, id := range cfg.Embedded.BrokerIDs {
+			r.brokerNames = append(r.brokerNames, cfg.Cell+"-"+id)
+		}
 		go r.server.Start()
 		if !serverReady(ctx, r.server) {
 			return nil, errors.New("embedded NATS did not become ready")
@@ -428,6 +441,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 // JetStream API response. Routes alone can form before JetStream metadata can
 // elect a leader; an existing R3 stream may recover with one broker absent.
 // A caller must do this before provisioning replicated durable resources.
+// It returns ErrEmbeddedServerStopped as soon as the embedded broker exits.
 func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 	if replicas < 1 || replicas > 5 || replicas%2 == 0 {
 		return errors.New("regional replicas must be 1, 3, or 5")
@@ -436,6 +450,9 @@ func (r *Runtime) WaitForCluster(ctx context.Context, replicas int) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		if r.server != nil && !r.server.Running() {
+			return ErrEmbeddedServerStopped
+		}
 		if r.Ready() && (r.server == nil || r.peerCount() >= quorum && r.metadataReady(quorum)) {
 			probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			_, err := r.js.AccountInfo(probeCtx)
@@ -581,6 +598,8 @@ func serverOptions(cfg Config) (*server.Options, error) {
 			Host: e.RouteHost,
 			Port: e.RoutePort,
 		},
+		LameDuckDuration:    lameDuckDuration,
+		LameDuckGracePeriod: lameDuckGracePeriod,
 	}
 	if !cfg.Lab {
 		operator, systemJWT, cellJWT, systemID, cellID, err := loadOperatorAccounts(e)

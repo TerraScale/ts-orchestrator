@@ -293,7 +293,7 @@ func TestGeneratedFixtureReservesProductionR3StoresWithProductionJWTAndTLS(t *te
 			CredentialsFile: filepath.Join(secrets, brokerID+".creds"), TLS: tlsFiles,
 			Embedded: &natscell.Embedded{
 				Host: "127.0.0.1", Port: clientPorts[index],
-				RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: routes,
+				RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
 				RouteUser: "route", RoutePasswordFile: routePasswordFile,
 				StoreDir: filepath.Join(root, "store", brokerID), StoreMaxBytes: r3BrokerStoreMaxBytes,
 				TLS: tlsFiles, RouteTLS: tlsFiles,

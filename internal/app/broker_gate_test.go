@@ -123,7 +123,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		systemCreds = testBrokerJWTUserWithClaim(t, root, fmt.Sprintf("system-%d.creds", index), sysKey, systemClaim)
 		configs[index] = natscell.Config{Cell: "gru", Instance: id, Replicas: 3, CredentialsFile: controllerCreds, TLS: tlsFiles,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-				Routes: routes, StoreDir: filepath.Join(root, id), StoreMaxBytes: 2 << 30, TLS: tlsFiles, RouteTLS: tlsFiles,
+				Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, id), StoreMaxBytes: 2 << 30, TLS: tlsFiles, RouteTLS: tlsFiles,
 				RouteUser: "r3-test-route", RoutePasswordFile: routePassword,
 				OperatorJWTFile: opFile, SystemJWTFile: sysFile, CellJWTFile: cellFile, SystemCredentialsFile: systemCreds,
 				TicketPublicKeyFile: ticketPubFile, BrokerIDs: brokerIDs}}

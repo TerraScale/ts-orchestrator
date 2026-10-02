@@ -28,6 +28,8 @@ const (
 	hostEnrollmentMetadataEndpoint     = imdsBaseURL + "metadata/" + hostboot.EnrollmentMetadataKey
 	operatorSSHKeyMetadataEndpoint     = imdsBaseURL + "metadata/" + OperatorSSHKeyMetadataKey
 	identityEndpoint                   = imdsBaseURL + "id"
+	availabilityDomainEndpoint         = imdsBaseURL + "availabilityDomain"
+	faultDomainEndpoint                = imdsBaseURL + "faultDomain"
 	maxDescriptorBytes                 = 4096
 	MaxControllerManifestMetadataBytes = 30 << 10
 	imdsTimeout                        = 3 * time.Second
@@ -104,6 +106,24 @@ func (imds IMDSClient) FetchInstanceID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
+// FetchPlacement reads the local VM's availability and fault domain. It is
+// used only to refuse co-locating founder peers with the seed; it grants no
+// authority and a failure only defers peer launch.
+func (imds IMDSClient) FetchPlacement(ctx context.Context) (bootstrap.ControllerPlacement, error) {
+	var values [2]string
+	for index, endpoint := range []string{availabilityDomainEndpoint, faultDomainEndpoint} {
+		data, err := imds.fetch(ctx, endpoint, 255)
+		if err != nil {
+			return bootstrap.ControllerPlacement{}, err
+		}
+		values[index] = strings.TrimSpace(string(data))
+		if values[index] == "" || strings.ContainsAny(values[index], " \t\r\n") {
+			return bootstrap.ControllerPlacement{}, ErrInvalidDescriptor
+		}
+	}
+	return bootstrap.ControllerPlacement{AvailabilityDomain: values[0], FaultDomain: values[1]}, nil
+}
+
 // FetchControllerManifest reads only the fixed public transport field. The
 // caller must verify the signed envelope against baked roots and observed OCI
 // identity before using its configuration.
@@ -143,7 +163,8 @@ func (imds IMDSClient) fetch(ctx context.Context, endpoint string, maximum int64
 	if imds.client == nil || endpoint != descriptorEndpoint && endpoint != identityEndpoint &&
 		endpoint != controllerManifestEndpoint && endpoint != identityMetadataEndpoint &&
 		endpoint != anchorMetadataEndpoint && endpoint != hostEnrollmentMetadataEndpoint &&
-		endpoint != operatorSSHKeyMetadataEndpoint {
+		endpoint != operatorSSHKeyMetadataEndpoint && endpoint != availabilityDomainEndpoint &&
+		endpoint != faultDomainEndpoint {
 		return nil, ErrInvalidDescriptor
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
