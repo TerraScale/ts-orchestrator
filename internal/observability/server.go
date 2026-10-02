@@ -56,15 +56,40 @@ func NewServer(config Config, deps ServerDeps) (*Server, error) {
 	server.mux.HandleFunc("GET /readyz", server.readyz)
 	server.Handle("GET /metrics", http.HandlerFunc(server.metrics))
 	if deps.Snapshots != nil {
-		server.Handle("GET /v1/snapshot", http.HandlerFunc(server.snapshot))
+		server.HandleSnapshots(deps.Snapshots)
 	}
 	if deps.Cluster != nil {
-		server.Handle("GET /v1/cluster", http.HandlerFunc(server.cluster))
+		server.HandleCluster(deps.Cluster)
 	}
 	if deps.Events != nil {
 		server.Handle("GET /v1/events", http.HandlerFunc(server.events))
 	}
 	return server, nil
+}
+
+// HandleSnapshots mounts GET /v1/snapshot once a runtime finished wiring
+// its providers. A listener started earlier serves health meanwhile.
+func (server *Server) HandleSnapshots(source SnapshotSource) {
+	server.Handle("GET /v1/snapshot", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		snapshot, err := source.Snapshot(request.Context(), request.URL.Query().Get("metrics") == "1")
+		if err != nil {
+			writePlain(writer, http.StatusServiceUnavailable, "snapshot unavailable\n")
+			return
+		}
+		writeJSON(writer, snapshot)
+	}))
+}
+
+// HandleCluster mounts GET /v1/cluster for a cell-wide aggregator.
+func (server *Server) HandleCluster(source ClusterSource) {
+	server.Handle("GET /v1/cluster", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		snapshot, err := source.Cluster(request.Context(), request.URL.Query().Get("metrics") == "1")
+		if err != nil {
+			writePlain(writer, http.StatusServiceUnavailable, "cluster snapshot unavailable\n")
+			return
+		}
+		writeJSON(writer, snapshot)
+	}))
 }
 
 // Handle mounts an authenticated read-only route. With a configured bearer
@@ -179,24 +204,6 @@ func (server *Server) metrics(writer http.ResponseWriter, _ *http.Request) {
 	writer.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	writer.Header().Set("Cache-Control", "no-store")
 	server.deps.Registry.WritePrometheus(writer)
-}
-
-func (server *Server) snapshot(writer http.ResponseWriter, request *http.Request) {
-	snapshot, err := server.deps.Snapshots.Snapshot(request.Context(), request.URL.Query().Get("metrics") == "1")
-	if err != nil {
-		writePlain(writer, http.StatusServiceUnavailable, "snapshot unavailable\n")
-		return
-	}
-	writeJSON(writer, snapshot)
-}
-
-func (server *Server) cluster(writer http.ResponseWriter, request *http.Request) {
-	snapshot, err := server.deps.Cluster.Cluster(request.Context(), request.URL.Query().Get("metrics") == "1")
-	if err != nil {
-		writePlain(writer, http.StatusServiceUnavailable, "cluster snapshot unavailable\n")
-		return
-	}
-	writeJSON(writer, snapshot)
 }
 
 func (server *Server) events(writer http.ResponseWriter, request *http.Request) {

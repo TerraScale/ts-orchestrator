@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
@@ -19,6 +20,9 @@ type Config struct {
 	Controller ControllerConfig `json:"controller"`
 	Host       HostConfig       `json:"host"`
 	Operator   OperatorConfig   `json:"operator"`
+	// Observability is omitted when zero, so configs signed before it
+	// existed keep their exact canonical bytes.
+	Observability observability.Config `json:"observability,omitzero"`
 }
 
 type ControllerConfig struct {
@@ -104,6 +108,9 @@ func LoadConfig(path string) (Config, error) {
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg, json.RejectUnknownMembers(true)); err != nil {
 		return Config{}, fmt.Errorf("parse config: %w", err)
+	}
+	if err := cfg.Observability.Validate(); err != nil {
+		return Config{}, fmt.Errorf("observability config: %w", err)
 	}
 	return cfg, nil
 }

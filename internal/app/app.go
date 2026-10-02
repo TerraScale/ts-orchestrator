@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 )
 
@@ -101,6 +102,10 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		return errors.New("host role cannot start the regional NATS server")
 	}
 	cfg.NATS.ClientRole = "host"
+	telemetry, err := startRuntimeObservability(ctx, cfg, "host", cfg.Host.Node)
+	if err != nil {
+		return fmt.Errorf("start host observability: %w", err)
+	}
 	key, err := readPrivateKey(cfg.Host.IdentityKeyFile)
 	if err != nil {
 		return err
@@ -173,6 +178,15 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	filesystems := []observability.FilesystemRole{{Role: "state", Path: cfg.Host.StateRoot},
+		{Role: "install", Path: cfg.Host.InstallRoot}}
+	if cfg.Host.ManagedRuntimeRoot != "" {
+		filesystems = append(filesystems, observability.FilesystemRole{Role: "managed_runtime", Path: cfg.Host.ManagedRuntimeRoot})
+	}
+	if err := telemetry.attachHost(runtime, filesystems); err != nil {
+		return fmt.Errorf("attach host observability: %w", err)
+	}
+	telemetry.markStarted()
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
 	return hostRunResult(ctx, agent.Run(ctx))
 }

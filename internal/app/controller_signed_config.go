@@ -79,6 +79,9 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 	if cfg.Controller.HostEnrollmentListenAddress != cfg.NATS.Embedded.Host+":8443" {
 		return Config{}, errors.New("host enrollment listener differs from the signed controller address")
 	}
+	if err := validateSignedObservability(cfg); err != nil {
+		return Config{}, err
+	}
 	if _, err := buildSignerPolicy(cfg); err != nil {
 		return Config{}, fmt.Errorf("signed controller operator grant: %w", err)
 	}
@@ -144,6 +147,29 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		return Config{}, errors.New("controller placement config differs from signed environment")
 	}
 	return cfg, nil
+}
+
+// validateSignedObservability keeps a signed controller's telemetry listener
+// on loopback or on its own signed private broker address, never on another
+// interface, and keeps any token or TLS file under the signed config root.
+func validateSignedObservability(cfg Config) error {
+	settings := cfg.Observability
+	if err := settings.Validate(); err != nil {
+		return fmt.Errorf("signed controller observability: %w", err)
+	}
+	if settings.Enabled() {
+		address, err := netip.ParseAddrPort(settings.Address())
+		if err != nil || !address.Addr().IsLoopback() && address.Addr().String() != cfg.NATS.Embedded.Host {
+			return errors.New("signed observability listener must bind loopback or the signed broker address")
+		}
+	}
+	for _, path := range []string{settings.BearerTokenFile, settings.TLSCertFile, settings.TLSKeyFile} {
+		if path != "" && (filepath.Clean(path) != path ||
+			!strings.HasPrefix(path, controllerConfigDirectory+"/")) {
+			return errors.New("signed observability files must live under the controller config directory")
+		}
+	}
+	return nil
 }
 
 func controllerSidecarPath(name string) string {
