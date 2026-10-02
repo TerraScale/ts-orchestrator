@@ -41,6 +41,11 @@ func validateAutoscaleConfig(config *AutoscaleConfig, profiles map[string]Worklo
 		if spec.Kind != workload.KindStateless {
 			continue
 		}
+		if spec.Role == "terrabase" {
+			// TerraBase members are owned by placement, never by the
+			// stateless reconciler or release shaping.
+			return fmt.Errorf("autoscale service %q is a managed TerraBase role", spec.Role)
+		}
 		profile, exists := profiles[spec.Role]
 		if !exists {
 			return fmt.Errorf("autoscale service %q has no workload profile", spec.Role)

@@ -455,3 +455,73 @@ func TestObserveExcludesDedicatedHostsAndSubtractsReserve(t *testing.T) {
 		t.Fatal("unverified host accepted")
 	}
 }
+
+func TestReconcilerKeepsScaleDuringPartialRollout(t *testing.T) {
+	cell := threeHostCell()
+	oldRelease, _ := ReleaseGeneration(2)
+	newRelease, _ := ReleaseGeneration(3)
+	// A release interrupted after its first write: one new replica is ready
+	// and two old replicas still serve.
+	cell.seed("node-a", "api", newDigest, newRelease)
+	cell.seed("node-b", "api", testDigest, oldRelease)
+	cell.seed("node-c", "api", testDigest, oldRelease)
+	cell.runAll()
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, statelessSpec(1, 3))
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); len(got) < 3 {
+		t.Fatalf("partial rollout shrank the service to %v (writes %v)", got, cell.writes)
+	}
+	if last := reconciler.Last()["api"]; last.Replicas != 3 || last.Target != 3 {
+		t.Fatalf("result = %#v", last)
+	}
+	// Surge replicas must not raise the goal: the rollout converges back to
+	// three replicas of the new release.
+	for range 10 {
+		cell.runAll()
+		if err := reconciler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if got := cell.active("api"); len(got) < 3 {
+			t.Fatalf("rollout shrank the service to %v", got)
+		}
+	}
+	got := cell.active("api")
+	if len(got) != 3 {
+		t.Fatalf("rollout settled at %v", got)
+	}
+	for _, node := range got {
+		if cell.desired[node+"/api"].Digest != newDigest {
+			t.Fatalf("stale replica left on %s", node)
+		}
+	}
+}
+
+func TestReconcilerScaleUpIsNotTruncatedBySurge(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.seed("node-b", "api", testDigest, 4)
+	cell.runAll()
+	spec := statelessSpec(1, 4)
+	spec.Scaling = &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.5}},
+		UpCooldownSeconds: 600}
+	store := autoscale.NewWindowStore(time.Hour, 100)
+	store.Record(autoscale.Target{Cell: "gru", Environment: "prod", Role: "api"}, autoscale.SignalCPUUtilization,
+		autoscale.Sample{At: testNow, Value: 0.9})
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 1}, spec, func(c *Config) { c.Signals = store })
+	// The first tick only seeds the authority term's cooldown.
+	reconciler.mu.Lock()
+	reconciler.epoch = 1
+	reconciler.history["api"] = autoscale.History{}
+	reconciler.mu.Unlock()
+	for range 4 {
+		if err := reconciler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		cell.runAll()
+	}
+	if got := cell.active("api"); len(got) != 4 {
+		t.Fatalf("scale-up to 4 with surge 1 stopped at %v (last %#v)", got, reconciler.Last()["api"])
+	}
+}

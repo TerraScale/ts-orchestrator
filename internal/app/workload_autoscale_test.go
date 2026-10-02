@@ -11,7 +11,8 @@ import (
 )
 
 func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
-	profiles := map[string]WorkloadProfile{"api": {Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}}}
+	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
+	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
 	reconciler, scaler, err := startWorkloadAutoscale("gru", nil, profiles, nil, nil)
 	if err != nil || reconciler != nil || scaler != nil {
 		t.Fatalf("absent autoscale config started workers: %v %v %v", reconciler, scaler, err)
@@ -36,6 +37,8 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
 			Replicas: workload.ReplicaBounds{Max: 1}, Resources: placement.Resources{CPU: 9, MemoryBytes: 1, DiskBytes: 1}}}},
 		"invalid pool": {NodePools: []capacity.NodePool{{Name: "general"}}},
+		"terrabase role": {Services: []workload.ServiceSpec{{Role: "terrabase", Environment: "prod",
+			Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Max: 1}}}},
 	}
 	for name, config := range invalid {
 		if err := validateAutoscaleConfig(config, profiles); err == nil {

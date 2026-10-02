@@ -71,7 +71,11 @@ type Reconciler struct {
 	mu      sync.Mutex
 	epoch   uint64
 	history map[string]autoscale.History
-	last    map[string]Result
+	// goal is the replica count each service converges toward. It is kept
+	// while a rollout or scaling step is in flight, so that surge replicas
+	// and partly applied releases neither shrink nor inflate the target.
+	goal map[string]int
+	last map[string]Result
 }
 
 // New validates the specs and returns a reconciler for stateless services.
@@ -107,7 +111,7 @@ func New(config Config) (*Reconciler, error) {
 		config.Logf = func(string, ...any) {}
 	}
 	return &Reconciler{config: config, specs: specs, history: make(map[string]autoscale.History),
-		last: make(map[string]Result)}, nil
+		goal: make(map[string]int), last: make(map[string]Result)}, nil
 }
 
 // Owns reports whether the role is reconciled here, which changes how the
@@ -157,6 +161,8 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	r.mu.Lock()
 	if r.epoch != snapshot.Epoch {
 		r.epoch = snapshot.Epoch
+		// A new term re-derives goals from the observed replica count.
+		clear(r.goal)
 		for _, spec := range r.specs {
 			r.history[spec.Role] = autoscale.Reset(now)
 		}
@@ -201,24 +207,35 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 	}
 	release, err := CurrentRelease(observation)
 	if errors.Is(err, ErrNoRelease) {
-		// Nothing to template new replicas from until delivery admits a release.
+		// Nothing to template new replicas from until delivery admits a release;
+		// that first release starts from its own replica count.
+		r.mu.Lock()
+		delete(r.goal, spec.Role)
+		r.mu.Unlock()
 		result.Reason = "awaiting-release"
 		return result, nil
 	}
 	if err != nil {
 		return result, err
 	}
-	result.Replicas = len(release.Current)
+	// Replicas counts every active replica, stale ones included. Without a
+	// remembered goal, for example on a new authority term, the goal starts
+	// from that count so a partly applied release never shrinks the service.
+	result.Replicas = len(observation.Active)
 	bounds := spec.Replicas.bounds()
-	target := min(max(result.Replicas, bounds.Min), bounds.Max)
+	r.mu.Lock()
+	goal, known := r.goal[spec.Role]
+	history := r.history[spec.Role]
+	r.mu.Unlock()
+	if !known {
+		goal = result.Replicas
+	}
+	target := min(max(goal, bounds.Min), bounds.Max)
 	result.Reason = "self-heal"
 	if spec.Scaling != nil && release.Converged() {
-		r.mu.Lock()
-		history := r.history[spec.Role]
-		r.mu.Unlock()
 		readings := autoscale.Collect(ctx, r.config.Signals,
 			autoscale.Target{Cell: r.config.Cell, Environment: spec.Environment, Role: spec.Role}, *spec.Scaling, now)
-		decision := autoscale.Decide(*spec.Scaling, autoscale.Input{Current: result.Replicas, Bounds: bounds,
+		decision := autoscale.Decide(*spec.Scaling, autoscale.Input{Current: goal, Bounds: bounds,
 			Readings: readings, Now: now}, history)
 		r.mu.Lock()
 		r.history[spec.Role] = decision.History
@@ -226,6 +243,9 @@ func (r *Reconciler) reconcile(ctx context.Context, spec ServiceSpec, epoch uint
 		result.Decision = &decision
 		target, result.Reason = decision.To, decision.Reason
 	}
+	r.mu.Lock()
+	r.goal[spec.Role] = target
+	r.mu.Unlock()
 	result.Target = target
 	step, err := PlanStep(StepInput{Cell: r.config.Cell, Spec: spec, Resources: resources,
 		Observation: observation, Release: release, Replicas: target, Epoch: epoch})
