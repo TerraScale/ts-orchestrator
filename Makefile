@@ -15,7 +15,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check generate generate-check test test-fast vet fixturetest-check race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test
 
@@ -50,6 +50,12 @@ test:
 # The fast tier without the race detector, for local iteration.
 test-fast:
 	$(GO) test -short ./...
+
+# Preview the operator dashboard over a fake three-region world on
+# 127.0.0.1:8099. Development only: the dashboardpreview tag keeps the fake
+# data provider out of the orchestrator binary.
+dashboard-preview:
+	$(GO) run -tags dashboardpreview ./cmd/ts-dashboard-preview $(PREVIEW_FLAGS)
 
 vet:
 	$(GO) vet ./...

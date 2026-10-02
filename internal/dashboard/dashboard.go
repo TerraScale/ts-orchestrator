@@ -5,9 +5,12 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"sync/atomic"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -21,7 +24,11 @@ const (
 	// clusterCacheTTL shares one cell-wide scatter-gather between every open
 	// page stream instead of issuing one NATS request per browser tick.
 	clusterCacheTTL = 2 * time.Second
-	recentEvents    = 200
+	// decisionCacheTTL shares one (possibly cross-region) decision query
+	// between page streams; summaryCacheTTL one summary per window.
+	decisionCacheTTL = 5 * time.Second
+	summaryCacheTTL  = 15 * time.Second
+	recentEvents     = 200
 )
 
 // Options wires the read-only providers the dashboard renders. Snapshots and
@@ -33,6 +40,8 @@ type Options struct {
 	Events    observability.EventSource
 	Snapshots observability.SnapshotSource
 	Cluster   observability.ClusterSource
+	// Journal may also be attached later with SetJournal.
+	Journal *Journal
 	// Interval and MaxStreams default to DefaultInterval and
 	// DefaultMaxStreams.
 	Interval   time.Duration
@@ -54,8 +63,12 @@ type Dashboard struct {
 	options   Options
 	snapshots atomic.Pointer[snapshotHolder]
 	cluster   atomic.Pointer[clusterHolder]
+	journal   atomic.Pointer[Journal]
 	streams   chan struct{}
 	clusters  observability.Cache[observability.ClusterSnapshot]
+	decisions *keyedCache[decisionlog.Result]
+	chains    *keyedCache[decisionlog.Chain]
+	summaries *keyedCache[insights.Summary]
 }
 
 type snapshotHolder struct{ source observability.SnapshotSource }
@@ -81,11 +94,23 @@ func New(options Options) *Dashboard {
 	if options.Now == nil {
 		options.Now = time.Now
 	}
-	dashboard := &Dashboard{options: options, streams: make(chan struct{}, options.MaxStreams)}
+	dashboard := &Dashboard{options: options, streams: make(chan struct{}, options.MaxStreams),
+		decisions: newKeyedCache[decisionlog.Result](decisionCacheTTL, 64),
+		chains:    newKeyedCache[decisionlog.Chain](decisionCacheTTL, 64),
+		summaries: newKeyedCache[insights.Summary](summaryCacheTTL, 8)}
 	dashboard.clusters.TTL = clusterCacheTTL
 	dashboard.SetSnapshots(options.Snapshots)
 	dashboard.SetCluster(options.Cluster)
+	if options.Journal != nil {
+		dashboard.SetJournal(*options.Journal)
+	}
 	return dashboard
+}
+
+// SetJournal attaches the decision journal, history, insight, summary and
+// region providers.
+func (dashboard *Dashboard) SetJournal(journal Journal) {
+	dashboard.journal.Store(&journal)
 }
 
 // SetSnapshots attaches this member's snapshot provider.
@@ -132,9 +157,13 @@ func (mounter muxMounter) HandleLogin(page http.Handler) { mounter.mux.Handle("G
 
 // contentSecurityPolicy allows only this listener's own files. Datastar
 // evaluates its data-* expressions with Function, which needs unsafe-eval;
-// there are no inline scripts or styles.
+// there are no inline scripts and no inline style elements. ECharts writes
+// its tooltip markup with style attributes, so style-src-attr alone allows
+// inline style attributes; templ escapes every server value, so no request
+// data can reach an attribute unescaped.
 const contentSecurityPolicy = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; " +
-	"img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+	"style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; " +
+	"form-action 'self'; frame-ancestors 'none'"
 
 // guard applies the browser hardening headers and the Host check.
 func (dashboard *Dashboard) guard(next http.Handler) http.Handler {
@@ -168,9 +197,9 @@ func literalHost(host string) bool {
 
 // load gathers the view every page renders from. Missing providers and
 // failing sections become notes on the view, never a failed request.
-func (dashboard *Dashboard) load(ctx context.Context, page page, filter eventFilter) view {
+func (dashboard *Dashboard) load(ctx context.Context, page page, query url.Values) view {
 	current := view{Page: page, Now: dashboard.options.Now().UTC(), SignOut: dashboard.options.SignOut,
-		Filter: filter}
+		Filter: parseEventFilter(query), State: parseState(query)}
 	if health := dashboard.options.Health; health != nil {
 		current.Ready, current.Checks = health.Evaluate(ctx)
 	}
@@ -195,7 +224,8 @@ func (dashboard *Dashboard) load(ctx context.Context, page page, filter eventFil
 		}
 	}
 	if page.events > 0 && dashboard.options.Events != nil {
-		current.Events = filter.apply(dashboard.options.Events.Recent(0), page.events)
+		current.Events = current.Filter.apply(dashboard.options.Events.Recent(0), page.events)
 	}
+	dashboard.loadJournal(ctx, &current)
 	return current
 }

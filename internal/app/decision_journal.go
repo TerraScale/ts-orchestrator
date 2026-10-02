@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
@@ -118,6 +119,13 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		Regions:    regions}
 	runtime.providers.Store(&providers)
 	mountJournalAPI(runtime.server, providers)
+	if runtime.dashboard != nil {
+		// Rollout, volume, version, qualification and inventory providers
+		// stay nil until their slices land; the pages say so.
+		runtime.dashboard.SetJournal(dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
+			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
+			Regions: providers.Regions})
+	}
 }
 
 // configuredRegions lists the product regions a product cell can link to.

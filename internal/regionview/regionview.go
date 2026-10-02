@@ -40,6 +40,10 @@ const (
 	DefaultLatestDecisions = 5
 	// DefaultTopInsights is how many insights a summary carries.
 	DefaultTopInsights = 5
+	// maxTopologyMembers and maxTopologyHosts bound the topology a summary
+	// carries over the region link.
+	maxTopologyMembers = 64
+	maxTopologyHosts   = 256
 	cacheTTL           = 3 * time.Second
 	maxRequestBytes    = 256
 )
@@ -105,6 +109,24 @@ type TerraBase struct {
 	ServingSeats int `json:"serving_seats"`
 }
 
+// Member is one answering member, for other regions' topology views.
+type Member struct {
+	Name    string `json:"name"`
+	Role    string `json:"role,omitempty"`
+	Ready   bool   `json:"ready"`
+	Version string `json:"version,omitempty"`
+	// MetaLeader marks the JetStream meta leader. The NATS meta leader name
+	// is a server name, not a member name, so it is carried per member.
+	MetaLeader bool `json:"meta_leader,omitempty"`
+}
+
+// Host is a host that carries TerraBase seats.
+type Host struct {
+	Name    string `json:"name"`
+	Seats   int    `json:"seats"`
+	Serving int    `json:"serving"`
+}
+
 // Summary is one region's card on the global view.
 type Summary struct {
 	Version int    `json:"version"`
@@ -123,6 +145,10 @@ type Summary struct {
 	Decisions  []decisionlog.Decision      `json:"decisions,omitempty"`
 	Insights   []insights.Insight          `json:"insights,omitempty"`
 	Counts     insights.Counts             `json:"counts"`
+	// Members and Hosts are the region's answering members and seat hosts,
+	// bounded, for the topology view. Older regions omit them.
+	Members []Member `json:"members,omitempty"`
+	Hosts   []Host   `json:"hosts,omitempty"`
 }
 
 // MixedVersions reports whether members run more than one build.
@@ -236,6 +262,10 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 		if member.Ready {
 			quorum.Ready++
 		}
+		if len(summary.Members) < maxTopologyMembers {
+			summary.Members = append(summary.Members, Member{Name: member.Member, Role: member.Role, Ready: member.Ready,
+				Version: member.BuildVersion, MetaLeader: member.NATS != nil && member.NATS.IsMetaLeader})
+		}
 		if member.BuildVersion != "" {
 			versions[member.BuildVersion] = append(versions[member.BuildVersion], member.Member)
 		}
@@ -275,14 +305,36 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 			placement = member.Placement
 		}
 	}
+	slices.SortFunc(summary.Members, func(left, right Member) int { return strings.Compare(left.Name, right.Name) })
 	if placement != nil {
 		summary.TerraBase.Databases = len(placement.Databases)
+		hosts := map[string]*Host{}
 		for _, database := range placement.Databases {
+			for _, seat := range database.Members {
+				if seat.HostNode == "" {
+					continue
+				}
+				host := hosts[seat.HostNode]
+				if host == nil {
+					host = &Host{Name: seat.HostNode}
+					hosts[seat.HostNode] = host
+				}
+				host.Seats++
+				if seat.Stage == "serving" {
+					host.Serving++
+				}
+			}
 			summary.TerraBase.DesiredSeats += database.DesiredSeats
 			summary.TerraBase.ServingSeats += database.Serving
 			if rollout := database.Rollout; rollout != nil && rollout.Completed < rollout.Seats {
 				summary.Rollouts = append(summary.Rollouts, *rollout)
 			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(hosts)) {
+			if len(summary.Hosts) == maxTopologyHosts {
+				break
+			}
+			summary.Hosts = append(summary.Hosts, *hosts[name])
 		}
 	}
 }
@@ -426,11 +478,27 @@ func (provider *Provider) remote(ctx context.Context, region string) Summary {
 	}
 	summary.Local = false
 	summary.Reach = decisionlog.RegionOK
+	summary.boundTopology()
 	// Never trust a region to speak for another one.
 	summary.Decisions = slices.DeleteFunc(summary.Decisions, func(decision decisionlog.Decision) bool {
 		return decision.Region != region
 	})
 	return summary
+}
+
+// boundTopology caps the lists another region controls before the
+// dashboard draws them: the topology meshes every controller pair, so an
+// unbounded member or missing list from a peer would cost quadratic work on
+// every stream tick.
+func (summary *Summary) boundTopology() {
+	summary.Members = summary.Members[:min(len(summary.Members), maxTopologyMembers)]
+	summary.Hosts = summary.Hosts[:min(len(summary.Hosts), maxTopologyHosts)]
+	summary.Quorum.Missing = summary.Quorum.Missing[:min(len(summary.Quorum.Missing), maxTopologyMembers)]
+	summary.Versions = summary.Versions[:min(len(summary.Versions), maxTopologyMembers)]
+	for index := range summary.Versions {
+		members := summary.Versions[index].Members
+		summary.Versions[index].Members = members[:min(len(members), maxTopologyMembers)]
+	}
 }
 
 // Region returns one region's summary.

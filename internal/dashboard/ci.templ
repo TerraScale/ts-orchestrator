@@ -1,0 +1,60 @@
+package dashboard
+
+// ciBody shows the latest CI qualification runs and the qualification
+// evidence recorded on admitted releases.
+templ ciBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>CI qualification</h1>
+		</div>
+		@notes(current)
+		<article>
+			<h2>Latest qualification runs</h2>
+			if current.Journal == nil || current.Journal.Qualification == nil {
+				@unavailable("No qualification results are published to this controller yet. The CI slice provides them; until then admitted releases below carry their qualification evidence.")
+			} else if len(current.Qualifications) == 0 {
+				<p class="empty">No qualification run has been reported.</p>
+			} else {
+				for _, run := range current.Qualifications {
+					<section class={ "edge", sClass(qualificationStatus(run.Status)) }>
+						<div class="chart-title">
+							<h3>
+								<code>{ run.Release }</code>
+								if run.Commit != "" {
+									<small class="mono">{ short(run.Commit, 12) }</small>
+								}
+							</h3>
+							<span>
+								@statusPill(qualificationStatus(run.Status), run.Status)
+								<small class="muted">
+									@ago(run.Time)
+								</small>
+							</span>
+						</div>
+						if len(run.Suites) > 0 {
+							<table>
+								<thead><tr><th>Suite</th><th>Result</th><th>Duration</th><th>Detail</th></tr></thead>
+								<tbody>
+									for _, suite := range run.Suites {
+										<tr>
+											<td>{ suite.Name }</td>
+											<td>
+												@statusPill(qualificationStatus(suite.Status), suite.Status)
+											</td>
+											<td>{ formatDuration(suite.Duration) }</td>
+											<td class="wrap">{ suite.Detail }</td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						}
+					</section>
+				}
+			}
+		</article>
+		<article>
+			<h2>Admitted releases <small>qualification evidence on release_admitted decisions</small></h2>
+			@decisionTable(current, current.decisions())
+		</article>
+	</div>
+}

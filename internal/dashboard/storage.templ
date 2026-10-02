@@ -1,9 +1,74 @@
 package dashboard
 
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+
 templ storageBody(current view) {
 	<div id="content">
 		<h1>Storage</h1>
 		@notes(current)
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Block volumes</h2>
+					if len(current.Volumes) > 0 {
+						<small class="muted">{ current.volumeCounts() }</small>
+					}
+				</div>
+				if current.Journal == nil || current.Journal.Volumes == nil {
+					@unavailable("Volume lifecycle state appears once the storage slice reports volumes. Filesystems below come from each member's own view.")
+				} else if len(current.Volumes) == 0 {
+					<p class="empty">No block volume is attached in this region.</p>
+				} else {
+					<div class="table-scroll">
+						<table>
+							<thead><tr><th>Volume</th><th>Host</th><th>State</th><th>Since</th></tr></thead>
+							<tbody>
+								for _, volume := range current.Volumes {
+									<tr
+										if current.State.param("volume") == volume.ID {
+											class="drift"
+										}
+									>
+										<td><a href={ safe(current.State.keep("/storage", "volume", volume.ID)) }>{ volume.ID }</a></td>
+										<td>
+											if volume.Host != "" {
+												<a href={ safe(current.State.link("/members", "host", volume.Host)) }>{ volume.Host }</a>
+											} else {
+												<span class="muted">unattached</span>
+											}
+										</td>
+										<td>
+											@statusPill(volumeStatus(volume, current.Now), volume.State)
+										</td>
+										<td>
+											@ago(volume.StateSince)
+										</td>
+									</tr>
+								}
+							</tbody>
+						</table>
+					</div>
+				}
+			</article>
+			<article>
+				<h2>Capacity by member and filesystem</h2>
+				@chart("tall", current.filesystemTree())
+			</article>
+		</div>
+		<div class="cols-2">
+			<article>
+				<div class="chart-title">
+					<h2>Backups and volume changes <small>24h at least</small></h2>
+					<a href={ safe(current.State.link("/decisions", "kind", "backup_taken,volume_resized,volume_reattached")) }>Journal →</a>
+				</div>
+				@timeline("", current.decisionTimeline(current.decisions(), true))
+				@decisionList(current, current.decisions(), 6)
+			</article>
+			<article>
+				<h2>JetStream store used</h2>
+				@chart("", current.lineChart("area", "bytes", current.historyRange(observability.HistJSStoreUsed, nil, "member", false), "No JetStream store history yet."))
+			</article>
+		</div>
 		<article>
 			<h2>JetStream store</h2>
 			if len(current.members()) == 0 {

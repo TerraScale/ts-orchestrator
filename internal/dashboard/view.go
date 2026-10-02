@@ -12,7 +12,10 @@ import (
 
 	"github.com/a-h/templ"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // page is one dashboard route. Its body renders the element with id
@@ -20,10 +23,31 @@ import (
 type page struct {
 	slug  string
 	title string
+	// group is the sidebar section the page is listed under.
+	group string
 	// events is how many recent events the page lists; zero lists none.
 	events int
-	body   func(view) templ.Component
+	// needs names the journal providers the page reads.
+	needs needs
+	// decisions returns the decision query the page lists, or nil.
+	decisions func(current view) *decisionlog.Query
+	body      func(view) templ.Component
 }
+
+type needs uint16
+
+const (
+	needRegions needs = 1 << iota
+	needInsights
+	needSummaries
+	needVersions
+	needRollouts
+	needVolumes
+	needQualification
+	needInventory
+	// needChain loads the decision chain named by the id parameter.
+	needChain
+)
 
 func (page page) path() string {
 	if page.slug == "" {
@@ -36,20 +60,50 @@ func (page page) href() string { return "/" + page.slug }
 
 func (page page) streamPath() string {
 	if page.slug == "" {
-		return "/overview/stream"
+		return "/global/stream"
 	}
 	return "/" + page.slug + "/stream"
 }
 
+// pages is the sidebar, in order. The global multi-region view is the
+// landing page.
 var pages = []page{
-	{slug: "", title: "Overview", events: 10, body: overviewBody},
-	{slug: "members", title: "Members", body: membersBody},
-	{slug: "nats", title: "NATS", body: natsBody},
-	{slug: "oci", title: "OCI", body: ociBody},
-	{slug: "storage", title: "Storage", body: storageBody},
-	{slug: "terrabase", title: "TerraBase", body: terrabaseBody},
-	{slug: "rollouts", title: "Rollouts", body: rolloutsBody},
-	{slug: "events", title: "Events", events: recentEvents, body: eventsBody},
+	{slug: "", title: "Global", group: "Overview", needs: needRegions | needInsights | needSummaries,
+		decisions: globalDecisions, body: globalBody},
+	{slug: "region", title: "Region", group: "Overview", events: 10, needs: needRegions | needInsights,
+		decisions: regionDecisions, body: regionBody},
+	{slug: "insights", title: "Needs attention", group: "Overview",
+		needs: needRegions | needInsights | needSummaries, body: insightsBody},
+	{slug: "decisions", title: "Decisions", group: "Overview", needs: needRegions | needChain,
+		decisions: journalDecisions, body: decisionsBody},
+	{slug: "releases", title: "Releases", group: "Delivery", needs: needRegions | needVersions | needChain,
+		decisions: releaseDecisions, body: releasesBody},
+	{slug: "rollouts", title: "Rollouts", group: "Delivery", needs: needRollouts, decisions: rolloutDecisions,
+		body: rolloutsBody},
+	{slug: "ci", title: "Qualification", group: "Delivery", needs: needQualification,
+		decisions: qualificationDecisions, body: ciBody},
+	{slug: "topology", title: "Topology", group: "Infrastructure", needs: needRegions, body: topologyBody},
+	{slug: "members", title: "Hosts", group: "Infrastructure", body: membersBody},
+	{slug: "nats", title: "NATS", group: "Infrastructure", decisions: natsDecisions, body: natsBody},
+	{slug: "terrabase", title: "TerraBase", group: "Infrastructure", decisions: terrabaseDecisions,
+		body: terrabaseBody},
+	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes, decisions: storageDecisions,
+		body: storageBody},
+	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
+	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
+}
+
+// navGroups lists the sidebar sections in order.
+var navGroups = []string{"Overview", "Delivery", "Infrastructure", "Logs"}
+
+func pagesIn(group string) []page {
+	var out []page
+	for _, entry := range pages {
+		if entry.group == group {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 // view is everything one render of a page reads. Optional parts are nil when
@@ -64,7 +118,25 @@ type view struct {
 	Cluster *observability.ClusterSnapshot
 	Events  []observability.Event
 	Filter  eventFilter
+	State   uiState
 	Notes   []string
+
+	// Journal is nil until a controller attaches its providers.
+	Journal    *Journal
+	Regions    []regionview.Summary
+	Evaluation *insights.Evaluation
+	Summaries  []insights.Summary
+	Decisions  *decisionlog.Result
+	Chain      *decisionlog.Chain
+	Versions   []UnitVersion
+	// VersionsDerived reports that Versions came from region summaries.
+	VersionsDerived bool
+	Rollouts        []insights.Rollout
+	Volumes         []insights.Volume
+	Qualifications  []Qualification
+	Inventory       []InventoryItem
+	// Unavailable names providers that are attached but failed.
+	Unavailable []string
 }
 
 // members returns every answering member, or this member alone without
@@ -168,7 +240,7 @@ func (current view) sectionErrors() []string {
 
 func (current view) streamAction() string {
 	target := current.Page.streamPath()
-	if query := current.Filter.query(); query != "" {
+	if query := current.State.query(); query != "" {
 		target += "?" + query
 	}
 	return "@get('" + target + "')"
@@ -245,12 +317,20 @@ func (current view) eventComponents() []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// eventFilter selects events by minimum level and component. It comes from
-// the query string, so a filtered page is a plain link and works without JS.
+// eventFilter selects events by minimum level, component, a search text and
+// a time window around a point a chart click jumped to. It comes from the
+// query string, so a filtered page is a plain link and works without JS.
 type eventFilter struct {
 	Level     string
 	Component string
+	Search    string
+	// At centres the list on a moment: only events within eventWindow of
+	// it match.
+	At time.Time
 }
+
+// eventWindow is how far around a clicked chart point the events page looks.
+const eventWindow = 5 * time.Minute
 
 var levelNames = []string{"debug", "info", "warn", "error"}
 
@@ -262,7 +342,26 @@ func parseEventFilter(query url.Values) eventFilter {
 	if component := query.Get("component"); validComponent(component) {
 		filter.Component = component
 	}
+	if search := strings.TrimSpace(query.Get("q")); search != "" && validSearch(search) {
+		filter.Search = strings.ToLower(search)
+	}
+	if at, err := time.Parse(time.RFC3339, query.Get("at")); err == nil {
+		filter.At = at.UTC()
+	}
 	return filter
+}
+
+func eventContains(event observability.Event, lowerNeedle string) bool {
+	if strings.Contains(strings.ToLower(event.Message), lowerNeedle) ||
+		strings.Contains(strings.ToLower(event.Component), lowerNeedle) {
+		return true
+	}
+	for key, value := range event.Attrs {
+		if strings.Contains(strings.ToLower(key+"="+value), lowerNeedle) {
+			return true
+		}
+	}
+	return false
 }
 
 func validComponent(component string) bool {
@@ -277,19 +376,15 @@ func validComponent(component string) bool {
 	return true
 }
 
-func (filter eventFilter) query() string {
-	values := url.Values{}
-	if filter.Level != "" {
-		values.Set("level", filter.Level)
-	}
-	if filter.Component != "" {
-		values.Set("component", filter.Component)
-	}
-	return values.Encode()
-}
-
 func (filter eventFilter) matches(event observability.Event) bool {
 	if filter.Component != "" && event.Component != filter.Component {
+		return false
+	}
+	if !filter.At.IsZero() && (event.Time.Before(filter.At.Add(-eventWindow)) ||
+		event.Time.After(filter.At.Add(eventWindow))) {
+		return false
+	}
+	if filter.Search != "" && !eventContains(event, filter.Search) {
 		return false
 	}
 	if filter.Level == "" {

@@ -6,7 +6,11 @@ templ eventsBody(current view) {
 	<div id="content">
 		<h1>Events</h1>
 		@notes(current)
-		<form method="get" action="/events" class="grid">
+		<form method="get" action="/events" class="filters">
+			@stateFields(current.State)
+			if !current.Filter.At.IsZero() {
+				<input type="hidden" name="at" value={ rfc3339(current.Filter.At) }/>
+			}
 			<label>
 				Minimum level
 				<select name="level">
@@ -26,11 +30,19 @@ templ eventsBody(current view) {
 				</select>
 			</label>
 			<label>
-				&nbsp;
-				<button type="submit" class="secondary">Filter</button>
+				Search
+				<input type="search" name="q" value={ current.Filter.Search } placeholder="message, seat, region=fra…"/>
 			</label>
+			<button type="submit" class="secondary">Filter</button>
+			<a href={ safe(current.State.link("/events")) }>Clear</a>
 		</form>
-		<p class="muted"><small>Warnings, errors and notable records from this member, newest first. New events appear live.</small></p>
+		if !current.Filter.At.IsZero() {
+			<p class="note">
+				Showing events within 5 minutes of { formatTime(current.Filter.At) }, the point clicked on a chart.
+				<a href={ safe(current.State.keep("/events", "at", "")) }>Show all</a>
+			</p>
+		}
+		<p class="muted"><small>Warnings, errors and notable records from this member, newest first; the region, seat and other context are in the attributes. New events appear live.</small></p>
 		@eventTable(current.Events, "events-rows")
 	</div>
 }
@@ -59,7 +71,9 @@ templ eventRows(events []observability.Event, rowsID string) {
 
 templ eventRow(event observability.Event) {
 	<tr id={ "event-" + itoa(event.Sequence) }>
-		<td>{ formatTime(event.Time) }</td>
+		<td>
+			@ago(event.Time)
+		</td>
 		<td class={ levelClass(event.Level) }>{ event.Level }</td>
 		<td>{ orDash(event.Component) }</td>
 		<td class="wrap">{ event.Message }</td>
