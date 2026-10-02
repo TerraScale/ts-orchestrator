@@ -1,0 +1,252 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"log/slog"
+	"math/rand/v2"
+	"os"
+	"sync"
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+)
+
+// Backoff bounds for the supervised seed founder and for repeated full
+// restart admission in offline-first mode. Tests shorten them.
+var (
+	controllerFounderMinBackoff   = 5 * time.Second
+	controllerFounderMaxBackoff   = 5 * time.Minute
+	controllerAdmissionMinBackoff = 5 * time.Second
+	controllerAdmissionMaxBackoff = 2 * time.Minute
+)
+
+var controllerLocalAdmissionProduction = admitProductionControllerRestartLocal
+var controllerMarkerPresent = func() (bool, error) {
+	return acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().Read)
+}
+
+// controllerAdmission is the full restart-admission gate. In the default mode
+// it has already passed when runController sees it. In offline-first mode it
+// runs in the background after local admission, and wait blocks every
+// authority, broker-gate, founder, and mutation path until it passes.
+type controllerAdmission struct {
+	offline bool
+	done    chan struct{}
+	cancel  context.CancelFunc
+	stopped chan struct{}
+}
+
+func (admission *controllerAdmission) wait(ctx context.Context) error {
+	select {
+	case <-admission.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stop cancels a pending background admission and joins it, so its child
+// process group is killed before the controller returns.
+func (admission *controllerAdmission) stop() {
+	if admission.cancel != nil {
+		admission.cancel()
+		<-admission.stopped
+	}
+}
+
+// offlineRestartAdmission reports whether this start may use local admission
+// for route formation: only a production restart (accepted marker present)
+// whose signed config explicitly opts in. Initial admission never does.
+func offlineRestartAdmission(cfg Config) (bool, error) {
+	if cfg.NATS.Lab || !cfg.Controller.OfflineRestartAdmission {
+		return false, nil
+	}
+	present, err := controllerBakedInputsPresent()
+	if err != nil {
+		return false, fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
+	}
+	if !present {
+		return false, nil
+	}
+	return controllerMarkerPresent()
+}
+
+// startControllerAdmission runs restart admission. By default it is a
+// synchronous gate before NATS starts, exactly as before. With
+// offline_restart_admission it first passes the local, OCI-free subset, then
+// repeats full admission in the background with backoff; the same checks
+// still gate everything except broker route formation.
+func startControllerAdmission(ctx context.Context, cfg Config, clockCheck func() error) (*controllerAdmission, error) {
+	offline, err := offlineRestartAdmission(cfg)
+	if err != nil {
+		return nil, err
+	}
+	admission := &controllerAdmission{offline: offline, done: make(chan struct{})}
+	if !offline {
+		if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {
+			return nil, err
+		}
+		close(admission.done)
+		return admission, nil
+	}
+	if err := controllerLocalAdmissionProduction(ctx, cfg); err != nil {
+		return nil, fmt.Errorf("offline controller restart admission: %w", err)
+	}
+	log.Printf("controller %s passed local restart admission; starting broker routes before OCI re-verification", cfg.NATS.Instance)
+	runCtx, cancel := context.WithCancel(ctx)
+	admission.cancel, admission.stopped = cancel, make(chan struct{})
+	go func() {
+		defer close(admission.stopped)
+		backoff := controllerAdmissionMinBackoff
+		for attempt := 1; ; attempt++ {
+			err := admitControllerBootstrap(runCtx, cfg, clockCheck)
+			if err == nil {
+				log.Printf("controller %s passed full restart admission after %d attempt(s)", cfg.NATS.Instance, attempt)
+				close(admission.done)
+				return
+			}
+			if runCtx.Err() != nil {
+				return
+			}
+			delay := backoff + time.Duration(rand.Int64N(int64(backoff)/5+1))
+			log.Printf("full controller restart admission attempt %d: %v; authority held, broker routes stay up, retrying in %s",
+				attempt, err, delay.Round(time.Second))
+			backoff = min(backoff*2, controllerAdmissionMaxBackoff)
+			select {
+			case <-runCtx.Done():
+				return
+			case <-time.After(delay):
+			}
+		}
+	}()
+	return admission, nil
+}
+
+// admitProductionControllerRestartLocal runs in the service-account
+// controller itself: it makes no OCI SDK call, so it needs no child process.
+func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) error {
+	loadedWire, err := protocol.EncodeJSON(cfg)
+	if err != nil || len(loadedWire) == 0 || len(loadedWire) > maxConfigBytes {
+		return errors.New("loaded controller config is not bounded canonical JSON")
+	}
+	baked, err := bootstrapstart.LoadBakedInputs()
+	if err != nil {
+		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
+	}
+	serviceUID, serviceGID, err := controllerServiceIdentity()
+	if err != nil {
+		return err
+	}
+	if os.Geteuid() != int(serviceUID) || os.Getegid() != int(serviceGID) {
+		return errors.New("local controller restart admission requires the dedicated service account")
+	}
+	checker, err := bootstrapstart.NewLiveCredentialChecker(cfg.NATS, serviceUID, serviceGID,
+		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile,
+		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
+		cfg.Controller.HostTLSIssuerCertFile, func() error {
+			if _, err := readPrivateKey(cfg.Controller.ResponseKeyFile); err != nil {
+				return fmt.Errorf("controller response key: %w", err)
+			}
+			_, _, err := brokerTicketKeys(cfg)
+			return err
+		})
+	if err != nil {
+		return err
+	}
+	material, err := bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
+	if err != nil {
+		return err
+	}
+	manifest, err := readInstalledControllerFile(controllerConfigDirectory, controllerManifestFilename,
+		0, 0, 0o644, bootstrapstart.MaxControllerManifestMetadataBytes)
+	if err != nil {
+		return fmt.Errorf("read installed signed controller manifest: %w", err)
+	}
+	gate := bootstrapstart.Gate{
+		Roots: baked.Roots, AnchorWire: baked.AnchorWire, Expected: baked.Identity.AnchorExpectation(),
+		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
+		Descriptor:                   bootstrapstart.NewIMDSClient(),
+		Credentials:                  checker, Material: material, Markers: bootstrapstart.NewMarkerStore(),
+	}
+	_, err = gate.AdmitRestartLocal(ctx, manifest)
+	return err
+}
+
+// superviseFounderAndWaitCluster starts the seed founder as a supervised
+// background worker and waits for the regional NATS quorum. A founder error
+// never ends the wait or tears down the broker; only a cluster failure does.
+// The returned stop cancels the founder and joins it, so no founder OCI call
+// outlives the controller.
+func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers func(context.Context) error,
+) (*bootstrapstart.FounderSupervisor, func(), error) {
+	if foundPeers == nil {
+		return nil, func() {}, waitCluster(ctx)
+	}
+	founderCtx, cancel := context.WithCancel(ctx)
+	supervisor := &bootstrapstart.FounderSupervisor{Found: foundPeers,
+		MinBackoff: controllerFounderMinBackoff, MaxBackoff: controllerFounderMaxBackoff}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		supervisor.Supervise(founderCtx)
+	}()
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			cancel()
+			<-done
+		})
+	}
+	if err := waitCluster(ctx); err != nil {
+		stop()
+		return nil, func() {}, err
+	}
+	return supervisor, stop, nil
+}
+
+// startClusterHealth supervises the local broker's view of the regional
+// cluster until ctx ends. stopped is closed once the embedded broker is seen
+// dead, so the controller can exit and let the service manager restart it.
+func startClusterHealth(ctx context.Context, runtime *natscell.Runtime, reporter membership.Reporter,
+) (supervisor *membership.Supervisor, stopped <-chan struct{}, wait func()) {
+	brokerStopped := make(chan struct{})
+	var once sync.Once
+	supervisor = &membership.Supervisor{
+		Observe: func() (membership.Observation, error) {
+			observed, err := runtime.ObserveCluster()
+			return membershipObservation(observed), err
+		},
+		Logger: slog.Default(),
+		Reporter: membership.ReporterFunc(func(status membership.Status) {
+			if status.Phase == membership.PhaseStopped {
+				once.Do(func() { close(brokerStopped) })
+			}
+			if reporter != nil {
+				reporter.ReportClusterHealth(status)
+			}
+		}),
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = supervisor.Run(ctx)
+	}()
+	return supervisor, brokerStopped, func() { <-done }
+}
+
+func membershipObservation(observed natscell.ClusterObservation) membership.Observation {
+	peers := make([]membership.Peer, 0, len(observed.MetaPeers))
+	for _, peer := range observed.MetaPeers {
+		peers = append(peers, membership.Peer{Name: peer.Name, Current: peer.Current, Offline: peer.Offline,
+			Active: peer.Active, Lag: peer.Lag})
+	}
+	return membership.Observation{ServerName: observed.ServerName, Running: observed.Running,
+		Expected: observed.ExpectedPeers, Routes: observed.Routes, MetaLeader: observed.MetaLeader,
+		MetaSize: observed.MetaSize, MetaQuorum: observed.MetaQuorum, Peers: peers}
+}

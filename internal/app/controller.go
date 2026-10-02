@@ -56,43 +56,14 @@ func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 	}
 }
 
-// The seed must start peer founding while the embedded broker waits for its
-// regional quorum. Both paths must succeed before controller authority starts.
-func waitForFounderAndCluster(ctx context.Context, waitCluster,
-	foundPeers func(context.Context) error,
-) error {
-	if foundPeers == nil {
-		return waitCluster(ctx)
-	}
-	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	type startupResult struct {
-		name string
-		err  error
-	}
-	results := make(chan startupResult, 2)
-	go func() { results <- startupResult{name: "wait for regional NATS cluster", err: waitCluster(runCtx)} }()
-	go func() { results <- startupResult{name: "found admitted seed peers", err: foundPeers(runCtx)} }()
-	var firstErr error
-	for range 2 {
-		result := <-results
-		if result.err != nil && firstErr == nil {
-			firstErr = fmt.Errorf("%s: %w", result.name, result.err)
-			cancel()
-		}
-	}
-	if firstErr != nil {
-		return firstErr
-	}
-	return ctx.Err()
-}
-
 func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	clockProbe := controllerBrokerClockProbe()
 	clockCheck := controllerClockCheck(clockProbe)
-	if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {
+	admission, err := startControllerAdmission(ctx, cfg, clockCheck)
+	if err != nil {
 		return err
 	}
+	defer admission.stop()
 	if cfg.NATS.Embedded == nil {
 		return errors.New("controller run requires an embedded regional NATS server")
 	}
@@ -134,8 +105,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	if !cfg.NATS.Lab {
-		if err := clockCheck(); err != nil {
-			return fmt.Errorf("production broker NTP clock health: %w", err)
+		// Offline-first restarts form routes without NTP; raft needs no wall
+		// clock. The same check then gates authority below.
+		if !admission.offline {
+			if err := clockCheck(); err != nil {
+				return fmt.Errorf("production broker NTP clock health: %w", err)
+			}
 		}
 	} else {
 		clockCheck = nil
@@ -147,6 +122,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	defer runtime.Close()
+	healthCtx, stopHealth := context.WithCancel(ctx)
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
+	defer waitHealth()
+	defer stopHealth()
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
 		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
@@ -157,11 +136,28 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	var foundPeers func(context.Context) error
 	if !cfg.NATS.Lab {
-		foundPeers = controllerFounderProduction
+		// The founder makes OCI effects, so it waits for full admission.
+		foundPeers = func(founderCtx context.Context) error {
+			if err := admission.wait(founderCtx); err != nil {
+				return err
+			}
+			return controllerFounderProduction(founderCtx)
+		}
 	}
-	err = waitForFounderAndCluster(ctx, waitCluster, foundPeers)
+	_, stopFounder, err := superviseFounderAndWaitCluster(ctx, waitCluster, foundPeers)
 	if err != nil {
 		return err
+	}
+	defer stopFounder()
+	if admission.offline {
+		log.Printf("controller %s joined the regional NATS quorum; holding authority until full restart admission passes",
+			cfg.NATS.Instance)
+		if err := admission.wait(ctx); err != nil {
+			return err
+		}
+		if err := clockCheck(); err != nil {
+			return fmt.Errorf("production broker NTP clock health: %w", err)
+		}
 	}
 	candidateID := cfg.Controller.CandidateID
 	if candidateID == "" {
@@ -535,6 +531,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		stop()
 		workers.Wait()
 		return fmt.Errorf("host controller exited before readiness: %w", err)
+	case <-brokerStopped:
+		stop()
+		workers.Wait()
+		return natscell.ErrEmbeddedServerStopped
 	case <-ctx.Done():
 		stop()
 		workers.Wait()
@@ -546,6 +546,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		stop()
 		workers.Wait()
 		return nil
+	case <-brokerStopped:
+		stop()
+		workers.Wait()
+		return natscell.ErrEmbeddedServerStopped
 	case err := <-workerErrors:
 		stop()
 		workers.Wait()
@@ -609,6 +613,9 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 }
 
 func transientControllerBootstrapError(err error) bool {
+	if errors.Is(err, natscell.ErrEmbeddedServerStopped) {
+		return false
+	}
 	if errors.Is(err, authority.ErrFenced) || errors.Is(err, authority.ErrLeaseCorrupt) ||
 		errors.Is(err, authority.ErrOutcomeUnknown) {
 		return false

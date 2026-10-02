@@ -38,6 +38,13 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// OfflineRestartAdmission lets a restarted production controller form
+	// broker routes after local, OCI-free admission (root-owned marker, IMDS
+	// instance ID, signed manifest and config digest, installed materials).
+	// Full OCI restart admission and NTP still gate authority, the broker gate,
+	// the founder, and every mutation. It is part of the signed controller
+	// config, so enabling it is a signed operator decision. Default off.
+	OfflineRestartAdmission bool `json:"offline_restart_admission,omitzero"`
 }
 
 type WorkloadProfile struct {
