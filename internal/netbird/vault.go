@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"time"
@@ -57,14 +58,35 @@ func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
 	return readCurrentSetupKey(ctx, cfg.SetupKeySecretID, client)
 }
 
+// vaultBackoff bounds retries of a transient Vault failure. A first boot races
+// instance-principal federation and the service gateway; a short in-process
+// retry is far cheaper than the enrollment unit's restart delay.
+var vaultBackoff = []time.Duration{100 * time.Millisecond, 400 * time.Millisecond, time.Second}
+
 func readCurrentSetupKey(ctx context.Context, secretID string, client bundleClient) ([]byte, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	// The SDK retry policy stays off: the loop below shares one deadline and
+	// repeats only transport, throttling and server errors.
 	retry := common.NoRetryPolicy()
-	response, err := client.GetSecretBundle(requestCtx, secrets.GetSecretBundleRequest{
-		SecretId: new(secretID), Stage: secrets.GetSecretBundleStageCurrent,
-		RequestMetadata: common.RequestMetadata{RetryPolicy: &retry},
-	})
+	var response secrets.GetSecretBundleResponse
+	var err error
+	for attempt := 0; ; attempt++ {
+		response, err = client.GetSecretBundle(requestCtx, secrets.GetSecretBundleRequest{
+			SecretId: new(secretID), Stage: secrets.GetSecretBundleStageCurrent,
+			RequestMetadata: common.RequestMetadata{RetryPolicy: &retry},
+		})
+		if err == nil || attempt >= len(vaultBackoff) || !retryableVaultError(err) {
+			break
+		}
+		// Jitter in [d/2, d) spreads a fleet booting from one image.
+		delay := vaultBackoff[attempt]/2 + rand.N(vaultBackoff[attempt]/2+1)
+		select {
+		case <-requestCtx.Done():
+			return nil, errors.New("OCI Vault setup-key read failed")
+		case <-time.After(delay):
+		}
+	}
 	if err != nil || response.SecretId == nil || *response.SecretId != secretID || response.VersionNumber == nil || *response.VersionNumber < 1 {
 		return nil, errors.New("OCI Vault setup-key read failed")
 	}
@@ -90,6 +112,21 @@ func readCurrentSetupKey(ctx context.Context, secretID string, client bundleClie
 		return nil, errors.New("OCI Vault setup-key content is invalid")
 	}
 	return bytes.Clone(key), nil
+}
+
+// retryableVaultError admits transport failures, throttling and server errors.
+// Authorization and not-found answers are final: repeating them only delays
+// the unit's own retry.
+func retryableVaultError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	failure, ok := common.IsServiceError(err)
+	if !ok {
+		return true
+	}
+	status := failure.GetHTTPStatusCode()
+	return status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 // Preserve OCI's TLS refresh wrapper while bounding metadata/federation access.
