@@ -89,8 +89,9 @@ func (status Status) sameState(other Status) bool {
 		slices.EqualFunc(status.Lagging, other.Lagging, func(a, b LaggingPeer) bool { return a.Name == b.Name })
 }
 
-// Evaluate classifies one observation. A peer is lagging when it is online but
-// not current, or when its reported lag exceeds lagThreshold operations.
+// Evaluate classifies one observation. A peer is lagging when its reported lag
+// exceeds lagThreshold operations, or when this broker's Raft view shows it out
+// of contact (see peerLagging).
 //
 // Missing lists signed brokers absent from the metadata peer set entirely
 // (never joined or removed); Offline lists signed brokers the metadata group
@@ -124,7 +125,7 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 			offline = append(offline, peer.Name)
 		default:
 			online = append(online, peer.Name)
-			if !peer.Current || peer.Lag > lagThreshold {
+			if peerLagging(observation, peer, lagThreshold) {
 				status.Lagging = append(status.Lagging, LaggingPeer{Name: peer.Name, Lag: peer.Lag})
 			}
 		}
@@ -167,6 +168,26 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 		status.Phase = PhaseDegraded
 	}
 	return status
+}
+
+// peerLagging judges a peer only from facts this broker's Raft view actually
+// has. Only the metadata leader tracks follower progress: it reports a peer
+// current exactly when its lag is zero, or not current with zero lag when it
+// has not heard from the peer recently. A follower knows only whether it has
+// heard from the leader recently, and always reports other followers as not
+// current with zero lag, which carries no information about them.
+func peerLagging(observation Observation, peer Peer, lagThreshold uint64) bool {
+	if peer.Lag > lagThreshold {
+		return true
+	}
+	switch {
+	case observation.MetaLeader == observation.ServerName:
+		return !peer.Current && peer.Lag == 0
+	case peer.Name == observation.MetaLeader:
+		return !peer.Current
+	default:
+		return false
+	}
 }
 
 func sortedUnique(names []string) []string {

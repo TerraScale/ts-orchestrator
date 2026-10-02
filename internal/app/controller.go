@@ -152,8 +152,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if admission.offline {
 		log.Printf("controller %s joined the regional NATS quorum; holding authority until full restart admission passes",
 			cfg.NATS.Instance)
-		if err := admission.wait(ctx); err != nil {
-			return err
+		// Full admission may retry for a long time; a dead broker must still
+		// end the process so the service manager restarts it.
+		select {
+		case <-admission.done:
+		case <-brokerStopped:
+			return natscell.ErrEmbeddedServerStopped
+		case <-ctx.Done():
+			return ctx.Err()
 		}
 		if err := clockCheck(); err != nil {
 			return fmt.Errorf("production broker NTP clock health: %w", err)

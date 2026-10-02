@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -138,6 +139,10 @@ func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) erro
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
 		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
+	}
+	// Same cell and mode check as full admission, before routes can form.
+	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
+		return errors.New("controller config does not match baked production cell and mode")
 	}
 	serviceUID, serviceGID, err := controllerServiceIdentity()
 	if err != nil {

@@ -78,6 +78,31 @@ func TestEvaluateClassifiesClusterStates(t *testing.T) {
 				t.Fatalf("status = %+v", status)
 			}
 		}},
+		// A NATS follower always reports other followers as not current with
+		// zero lag; it has no progress data for them.
+		{"follower view of another follower", func(observation *Observation) {
+			observation.Peers[0] = Peer{Name: "cell-controller-c"}
+		}, func(t *testing.T, status Status) {
+			if status.Phase != PhaseHealthy || status.Lagging != nil {
+				t.Fatalf("status = %+v", status)
+			}
+		}},
+		{"leader view of a small in-flight lag", func(observation *Observation) {
+			observation.MetaLeader = "cell-controller-a"
+			observation.Peers = []Peer{{Name: "cell-controller-b", Lag: 3}, {Name: "cell-controller-c", Current: true}}
+		}, func(t *testing.T, status Status) {
+			if status.Phase != PhaseHealthy || status.Lagging != nil {
+				t.Fatalf("status = %+v", status)
+			}
+		}},
+		{"leader view of an unseen peer", func(observation *Observation) {
+			observation.MetaLeader = "cell-controller-a"
+			observation.Peers = []Peer{{Name: "cell-controller-b", Current: true}, {Name: "cell-controller-c"}}
+		}, func(t *testing.T, status Status) {
+			if status.Phase != PhaseDegraded || len(status.Lagging) != 1 || status.Lagging[0].Name != "cell-controller-c" {
+				t.Fatalf("status = %+v", status)
+			}
+		}},
 		{"size mismatch", func(observation *Observation) { observation.MetaSize = 2 }, func(t *testing.T, status Status) {
 			if status.Phase != PhaseDegraded {
 				t.Fatalf("status = %+v", status)
