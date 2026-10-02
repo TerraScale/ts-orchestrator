@@ -9,8 +9,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -29,27 +28,29 @@ func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkPr
 	if err != nil {
 		return nil, err
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	// The shared factory gives the fleet the process-wide per-service token
+	// buckets and the 429/5xx retry policy that never replays an unsafe write.
+	factory, err := ociclient.InstancePrincipal(ociRegion)
 	if err != nil {
-		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
+		return nil, err
 	}
-	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	compute, err := factory.Compute()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI Compute client: %w", err)
+		return nil, err
 	}
-	storage, err := core.NewBlockstorageClientWithConfigurationProvider(provider)
+	storage, err := factory.Blockstorage()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI Block Volume client: %w", err)
+		return nil, err
 	}
-	network, err := core.NewVirtualNetworkClientWithConfigurationProvider(provider)
+	network, err := factory.Network()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI network client: %w", err)
+		return nil, err
 	}
 	// Pin both service clients to the configured canonical endpoint. RegionConfig
 	// validation rejects realm aliases, ports, custom domains, and cross-region URLs.
-	compute.Host = strings.TrimSuffix(config.Endpoint, "/")
-	storage.Host = strings.TrimSuffix(config.Endpoint, "/")
-	network.Host = strings.TrimSuffix(config.Endpoint, "/")
+	ociclient.PinHost(&compute.BaseClient, config.Endpoint)
+	ociclient.PinHost(&storage.BaseClient, config.Endpoint)
+	ociclient.PinHost(&network.BaseClient, config.Endpoint)
 	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
 		compute: compute, storage: storage, network: network}, nil
 }

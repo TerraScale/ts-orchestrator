@@ -25,9 +25,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
@@ -157,11 +156,11 @@ func NewOCIRepository(config RepositoryConfig, fencer authority.Fencer) (*Reposi
 		return nil, err
 	}
 	region, _ := config.Region.OCIRegion()
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(region))
+	factory, err := ociclient.InstancePrincipal(region)
 	if err != nil {
 		return nil, fmt.Errorf("managed material OCI instance principal: %w", err)
 	}
-	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
+	client, err := factory.ObjectStorage()
 	if err != nil {
 		return nil, fmt.Errorf("managed material OCI client: %w", err)
 	}
