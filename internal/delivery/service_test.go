@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -88,13 +90,14 @@ type testStandbyFence struct{ leader atomic.Bool }
 
 type failingFetchConsumer struct {
 	jetstream.Consumer
-	err      error
-	batchErr bool
-	calls    atomic.Int32
+	err        error
+	batchErr   bool
+	failAlways bool
+	calls      atomic.Int32
 }
 
 func (c *failingFetchConsumer) Fetch(batch int, opts ...jetstream.FetchOpt) (jetstream.MessageBatch, error) {
-	if c.calls.Add(1) == 1 {
+	if c.calls.Add(1) == 1 || c.failAlways {
 		if c.batchErr {
 			messages := make(chan jetstream.Msg)
 			close(messages)
@@ -754,17 +757,91 @@ func TestDeliveryRunRecoversFromTransientFetchFailure(t *testing.T) {
 	}
 }
 
-func TestDeliveryRunRejectsPermanentFetchFailure(t *testing.T) {
+// A consumer failure that is not a transport blip must stay local to the
+// delivery worker: Run recreates its consumer instead of returning, which
+// would stop the controller and its embedded broker.
+func TestDeliveryRunRecreatesConsumerAfterPermanentFetchFailure(t *testing.T) {
+	saved := deliveryConsumerRecovery
+	deliveryConsumerRecovery.initial, deliveryConsumerRecovery.max = 10*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { deliveryConsumerRecovery = saved })
 	for _, permanent := range []error{jetstream.ErrInvalidOption, jetstream.ErrJetStreamNotEnabled,
 		jetstream.ErrJetStreamNotEnabledForAccount, jetstream.ErrConsumerDeleted,
 		nats.ErrPermissionViolation} {
 		t.Run(permanent.Error(), func(t *testing.T) {
 			service, ctx := testService(t, &testWriter{})
-			service.consumer = &failingFetchConsumer{Consumer: service.consumer, err: permanent}
-			if err := service.Run(ctx); !errors.Is(err, permanent) {
-				t.Fatalf("permanent consumer error was retried or hidden: %v", err)
+			intent := testIntent(t, service, ctx)
+			if err := service.Submit(ctx, intent); err != nil {
+				t.Fatal(err)
+			}
+			broken := &failingFetchConsumer{Consumer: service.consumer, err: permanent, failAlways: true}
+			service.consumer = broken
+			runCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() { done <- service.Run(runCtx) }()
+			defer cancel()
+			deadline := time.After(5 * time.Second)
+			for {
+				receipt, err := service.Status(ctx, intent.OperationID)
+				if err == nil {
+					if receipt.Status != "accepted" || broken.calls.Load() == 0 {
+						t.Fatalf("receipt=%+v broken fetches=%d", receipt, broken.calls.Load())
+					}
+					break
+				}
+				select {
+				case runErr := <-done:
+					t.Fatalf("delivery worker stopped on a consumer failure: %v", runErr)
+				case <-deadline:
+					t.Fatal("delivery did not recover its consumer")
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+			cancel()
+			if err := <-done; !errors.Is(err, context.Canceled) {
+				t.Fatalf("Run returned %v on cancellation", err)
 			}
 		})
+	}
+}
+
+func TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries(t *testing.T) {
+	service, ctx := testService(t, &testWriter{})
+	intent := testIntent(t, service, ctx)
+	service.config.MaxPlannerAttempts = 3
+	service.config.Planner = diagnosticPlanner{err: fmt.Errorf("no profile: %w", placement.ErrInvalidWorkload)}
+	wire := mustJSON(intent)
+	for delivered := uint64(1); delivered < 3; delivered++ {
+		if terminal, err := service.processDelivery(ctx, wire, delivered); terminal || err == nil {
+			t.Fatalf("delivery %d ended early: terminal=%t err=%v", delivered, terminal, err)
+		}
+	}
+	if terminal, err := service.processDelivery(ctx, wire, 3); !terminal || err != nil {
+		t.Fatalf("bounded delivery was not held: terminal=%t err=%v", terminal, err)
+	}
+	receipt, err := service.Status(ctx, intent.OperationID)
+	if err != nil || receipt.Status != "held" || !strings.Contains(receipt.Error, "invalid_workload") {
+		t.Fatalf("held receipt=%+v err=%v", receipt, err)
+	}
+	if terminal, err := service.processDelivery(ctx, wire, 4); !terminal || err != nil {
+		t.Fatalf("redelivery after the held receipt was not a replay: %t %v", terminal, err)
+	}
+
+	transient, ctx := testService(t, &testWriter{})
+	other := testIntent(t, transient, ctx)
+	transient.config.MaxPlannerAttempts = 1
+	transient.config.Planner = diagnosticPlanner{err: fmt.Errorf("read: %w", nats.ErrTimeout)}
+	if terminal, err := transient.processDelivery(ctx, mustJSON(other), 50); terminal || err == nil {
+		t.Fatalf("a transport failure counted toward the planner bound: %t %v", terminal, err)
+	}
+
+	// Redeliveries caused by leadership naks or transport errors raise the
+	// broker delivery count; a first planner refusal after them is not held.
+	inflated, ctx := testService(t, &testWriter{})
+	late := testIntent(t, inflated, ctx)
+	inflated.config.MaxPlannerAttempts = 3
+	inflated.config.Planner = diagnosticPlanner{err: fmt.Errorf("no profile: %w", placement.ErrInvalidWorkload)}
+	if terminal, err := inflated.processDelivery(ctx, mustJSON(late), 40); terminal || err == nil {
+		t.Fatalf("a first refusal after inflated redeliveries was held: %t %v", terminal, err)
 	}
 }
 

@@ -174,6 +174,40 @@ func TestManagedUpdateR3RollsReleasesAcrossSeatsAndRollsBackHeldCanary(t *testin
 			t.Fatalf("served target of %s is no longer current after later operations: %v", id, err)
 		}
 	}
+	if seat(permanent).ManagedRuntimeTarget.RollbackOfHeld != true {
+		t.Fatal("rollback of a held candidate was not marked")
+	}
+
+	// A rollback that is itself held must never be "rolled back" to the
+	// candidate that failed first.
+	r4 := AdmittedArtifact{Digest: strings.Repeat("4", 64), ManifestDigest: strings.Repeat("5", 64),
+		SourceDigest: strings.Repeat("3", 64)}
+	admitted[r4.Digest] = r4
+	prepare("release-4-permanent", permanent, r2, r4)
+	if seat(permanent).ManagedRuntimeTarget.RollbackOfHeld {
+		t.Fatal("a forward update was marked as a rollback")
+	}
+	timeout := func(operation string) {
+		t.Helper()
+		target := seat(permanent).ManagedRuntimeTarget
+		controller.now = func() time.Time { return target.PreparedAt.Add(managedUpdateCanaryProofTimeout) }
+		tick(operation + " proof timeout")
+		controller.now = nil
+		if seat(permanent).ManagedRuntimeTarget.Phase != ManagedUpdateSeatHeld {
+			t.Fatalf("%s was not held", operation)
+		}
+	}
+	timeout("release-4-permanent")
+	prepare("release-4-rollback", permanent, r4, r2)
+	timeout("release-4-rollback")
+	if !seat(permanent).ManagedRuntimeTarget.RollbackOfHeld {
+		t.Fatal("held rollback lost its rollback mark")
+	}
+	flip := rollingManagedUpdate(t, fixture, controller, placementSequence, epoch, "release-4-flip", permanent, r2, r4)
+	flipRecord, _ := signedManagedUpdatePreparedRecord(t, flip)
+	if _, err := controller.PrepareManagedUpdate(ctx, flipRecord); err == nil {
+		t.Fatal("a held rollback was returned to the known-bad candidate")
+	}
 }
 
 // rollingManagedUpdate signs the Prepare request for one seat from the

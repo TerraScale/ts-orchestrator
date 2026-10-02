@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 const (
@@ -26,7 +27,30 @@ const (
 	terrabaseSourceRepo  = "https://git.terrascale.tech/TerraScale/TerraBase"
 	cdActiveFile         = "cd-active.json"
 	cdBlockedFile        = "cd-blocked.json"
+	cdTransientFile      = "cd-transient.json"
 )
+
+// cdRetryPolicy bounds how a sync run treats transient rollout failures:
+// retry the pinned candidate with backoff inside the run, keep the pin
+// across runs, and block for review only once failures have persisted for
+// BlockAfter, so a pair is never left mixed-version silently.
+type cdRetryPolicy struct {
+	Backoff    staged.Backoff
+	BlockAfter time.Duration
+	sleep      func(context.Context, time.Duration) error
+}
+
+var defaultCDRetryPolicy = cdRetryPolicy{
+	Backoff:    staged.Backoff{Initial: 30 * time.Second, Max: 5 * time.Minute, Attempts: 4},
+	BlockAfter: 6 * time.Hour,
+}
+
+// cdTransientRecord is the first transient failure of the pinned candidate.
+type cdTransientRecord struct {
+	Candidate terrabaseCDCandidate `json:"candidate"`
+	FirstAt   time.Time            `json:"first_at"`
+	Reason    string               `json:"reason"`
+}
 
 var cdTagPattern = regexp.MustCompile(`^ci-([0-9a-f]{40})-run-([1-9][0-9]*)$`)
 var cdReceiptPattern = regexp.MustCompile(`^cd-complete-[0-9]{20}\.json$`)
@@ -53,6 +77,10 @@ func runTerraBaseSync(ctx context.Context, args []string, output io.Writer) erro
 	actor := flags.String("compatibility-actor", "", "trusted compatibility signer actor")
 	key := flags.String("compatibility-key", "", "owner-only compatibility signer key")
 	wait := flags.Duration("wait", defaultUpdateSeatWait, "outcome wait per seat")
+	soak := flags.Duration("soak", staged.DefaultSoak, "how long a promoted seat must keep serving before the next seat (0 disables)")
+	assumeCompatible := flags.Bool("assume-compatibility", false, "certify releases without a compatibility declaration as compatible (unverified)")
+	retries := flags.Int("transient-retries", defaultCDRetryPolicy.Backoff.Attempts, "in-run retries of a transient rollout failure")
+	blockAfter := flags.Duration("transient-block-after", defaultCDRetryPolicy.BlockAfter, "block for review once transient failures persist this long")
 	timeout := flags.Duration("timeout", time.Hour, "total scan/rollout deadline")
 	var forwards operatorForwardFlags
 	flags.Var(&forwards, "nats-forward", "PRIVATE_IP:4222=LOOPBACK_IP:PORT (repeatable)")
@@ -60,7 +88,7 @@ func runTerraBaseSync(ctx context.Context, args []string, output io.Writer) erro
 		return err
 	}
 	if flags.NArg() != 0 || *config == "" || *statePath == "" || !filepath.IsAbs(*checkout) ||
-		*actor == "" || *key == "" || *wait <= 0 || *timeout <= 0 {
+		*actor == "" || *key == "" || *wait <= 0 || *timeout <= 0 || *soak < 0 || *retries < 0 || *blockAfter <= 0 {
 		return errors.New("terrabase-sync requires --config, --state, --source-checkout, --compatibility-actor, --compatibility-key and positive deadlines")
 	}
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
@@ -68,13 +96,18 @@ func runTerraBaseSync(ctx context.Context, args []string, output io.Writer) erro
 	update := func(files terrabaseReleaseFiles) error {
 		updateArgs := []string{"terrabase-update", "--config", *config, "--state", *statePath,
 			"--qualification", files.Qualification, "--binary", files.Binary, "--source-digest", files.SourceDigest,
-			"--compatibility-actor", *actor, "--compatibility-key", *key, "--wait", wait.String()}
+			"--compatibility-actor", *actor, "--compatibility-key", *key, "--wait", wait.String(), "--soak", soak.String()}
+		if *assumeCompatible {
+			updateArgs = append(updateArgs, "--assume-compatibility")
+		}
 		for original, destination := range forwards {
 			updateArgs = append(updateArgs, "--nats-forward", original+"="+destination)
 		}
 		return runOperator(ctx, updateArgs, output)
 	}
-	return syncTerraBase(ctx, *statePath, *checkout, cdCommand, update, output)
+	policy := defaultCDRetryPolicy
+	policy.Backoff.Attempts, policy.BlockAfter = *retries, *blockAfter
+	return syncTerraBaseWithPolicy(ctx, *statePath, *checkout, cdCommand, update, output, policy)
 }
 
 type cdRunCommand func(context.Context, string, ...string) ([]byte, error)
@@ -108,6 +141,12 @@ func cdCommand(ctx context.Context, name string, args ...string) ([]byte, error)
 
 func syncTerraBase(ctx context.Context, statePath, checkout string, run cdRunCommand,
 	update func(terrabaseReleaseFiles) error, output io.Writer,
+) error {
+	return syncTerraBaseWithPolicy(ctx, statePath, checkout, run, update, output, defaultCDRetryPolicy)
+}
+
+func syncTerraBaseWithPolicy(ctx context.Context, statePath, checkout string, run cdRunCommand,
+	update func(terrabaseReleaseFiles) error, output io.Writer, policy cdRetryPolicy,
 ) error {
 	state, err := openDeployState(statePath)
 	if err != nil {
@@ -225,18 +264,101 @@ func syncTerraBase(ctx context.Context, statePath, checkout string, run cdRunCom
 	if _, err := state.ensureJSON(cdActiveFile, candidate); err != nil {
 		return err
 	}
-	if err := update(files); err != nil {
+	if err := updateWithRetries(ctx, policy, func() error { return update(files) }, output); err != nil {
 		if ctx.Err() != nil {
 			return err // interruption resumes the same pin next invocation
 		}
-		blocked.Candidate, blocked.Reason = candidate, err.Error()
+		reason := err.Error()
+		if staged.IsTransient(err) {
+			// Keep the pin and resume it next run; escalate only once the
+			// failure has outlived the bound.
+			first, persistErr := cdTransientSince(state, candidate, reason)
+			if persistErr != nil || time.Since(first) < policy.BlockAfter {
+				return errors.Join(err, persistErr)
+			}
+			reason = fmt.Sprintf("transient failures persisted since %s: %s", first.Format(time.RFC3339), reason)
+		}
+		blocked.Candidate, blocked.Reason = candidate, reason
 		_, persistErr := state.ensureJSON(cdBlockedFile, blocked)
+		if persistErr == nil {
+			// The stop marker carries the reason. Once a reviewer removes it,
+			// a later transient failure starts a fresh window instead of
+			// blocking again at once on this stale first failure.
+			if removeErr := os.Remove(filepath.Join(statePath, cdTransientFile)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				persistErr = removeErr
+			}
+		}
 		return errors.Join(err, persistErr)
+	}
+	if err := os.Remove(filepath.Join(statePath, cdTransientFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	if _, err := state.ensureJSON(cdReceiptName(candidate.Generation), candidate); err != nil {
 		return err
 	}
 	return os.Remove(filepath.Join(statePath, cdActiveFile))
+}
+
+// updateWithRetries reruns a transiently failed update of the same pinned
+// candidate with bounded backoff. Reruns resume from the controller's
+// durable seat state, so a retry never repeats a completed seat.
+func updateWithRetries(ctx context.Context, policy cdRetryPolicy, update func() error, output io.Writer) error {
+	sleep := policy.sleep
+	if sleep == nil {
+		sleep = sleepContext
+	}
+	for attempt := 1; ; attempt++ {
+		err := update()
+		if err == nil || ctx.Err() != nil || !staged.IsTransient(err) {
+			return err
+		}
+		delay, retry := policy.Backoff.Delay(attempt)
+		if !retry {
+			return err
+		}
+		if printErr := printJSON(output, terrabaseDeployStep{Step: "sync", Status: "retrying",
+			Detail: fmt.Sprintf("attempt %d after %s: %v", attempt+1, delay, err)}); printErr != nil {
+			return errors.Join(err, printErr)
+		}
+		if sleepErr := sleep(ctx, delay); sleepErr != nil {
+			return errors.Join(err, sleepErr)
+		}
+	}
+}
+
+func sleepContext(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// cdTransientSince returns when the pinned candidate first failed
+// transiently, recording now on its first failure. A record for another
+// candidate is replaced.
+func cdTransientSince(state deployState, candidate terrabaseCDCandidate, reason string) (time.Time, error) {
+	var record cdTransientRecord
+	exists, err := state.readJSON(cdTransientFile, &record)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if exists && record.Candidate == candidate {
+		return record.FirstAt, nil
+	}
+	if exists {
+		if err := os.Remove(filepath.Join(state.directory, cdTransientFile)); err != nil {
+			return time.Time{}, err
+		}
+	}
+	record = cdTransientRecord{Candidate: candidate, FirstAt: time.Now().UTC(), Reason: reason}
+	if _, err := state.readOrCreateJSON(cdTransientFile, record); err != nil {
+		return time.Time{}, err
+	}
+	return record.FirstAt, nil
 }
 
 func cdReceiptName(generation uint64) string {

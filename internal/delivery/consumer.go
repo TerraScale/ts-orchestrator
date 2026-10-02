@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -38,14 +39,44 @@ func ConfigDigestOf(args []string, env map[string]string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// deliveryConsumerRecovery paces recovery from a consumer failure that is
+// not a transport blip, such as a deleted durable consumer.
+var deliveryConsumerRecovery = struct{ initial, max time.Duration }{time.Second, 30 * time.Second}
+
 // Run processes durable intents until ctx is canceled. A message is acknowledged
 // only after its acceptance or rejection has a durable record. Transient errors
-// remain unacknowledged and are retried without a finite delivery cap.
+// remain unacknowledged and are retried; an intent the planner keeps refusing
+// is held with a durable receipt after MaxPlannerAttempts deliveries. Consumer
+// failures stay local to this worker: Run recreates its durable consumer with
+// backoff instead of returning, so a delivery fault never stops the
+// controller and its embedded broker.
 func (s *Service) Run(ctx context.Context) error {
 	if s == nil || s.consumer == nil || s.config.Verifier == nil || s.config.Authorize == nil || s.config.Fencer == nil || s.config.Planner == nil || s.config.Writer == nil {
 		return errors.New("delivery consumer ports are not configured")
 	}
 	var diagnostics deliveryRetryDiagnostics
+	recovery := deliveryConsumerRecovery.initial
+	recoverConsumer := func(stage string, err error) error {
+		slog.Error("delivery intent consumer failed; recreating it", "stage", stage, "error", err, "retry_in", recovery)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(recovery):
+		}
+		recovery = min(2*recovery, deliveryConsumerRecovery.max)
+		if s.js == nil {
+			return nil
+		}
+		createCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		consumer, createErr := s.js.CreateOrUpdateConsumer(createCtx, IntentStream, intentConsumerConfig(s.config.Cell))
+		if createErr != nil {
+			slog.Error("delivery intent consumer recreation failed", "error", createErr)
+			return nil
+		}
+		s.consumer = consumer
+		return nil
+	}
 	for ctx.Err() == nil {
 		if !s.config.Fencer.Current().CanMutate() {
 			select {
@@ -68,14 +99,21 @@ func (s *Service) Run(ctx context.Context) error {
 				}
 				continue
 			}
-			return fmt.Errorf("fetch delivery intent: %w", err)
+			if err := recoverConsumer("fetch", fmt.Errorf("fetch delivery intent: %w", err)); err != nil {
+				return err
+			}
+			continue
 		}
 		for msg := range batch.Messages() {
 			if !s.config.Fencer.Current().CanMutate() {
 				_ = msg.NakWithDelay(250 * time.Millisecond)
 				continue
 			}
-			terminal, processErr := s.process(ctx, msg.Data())
+			var delivered uint64
+			if metadata, err := msg.Metadata(); err == nil {
+				delivered = metadata.NumDelivered
+			}
+			terminal, processErr := s.processDelivery(ctx, msg.Data(), delivered)
 			if terminal {
 				if err := msg.Ack(); err != nil {
 					cancel()
@@ -90,7 +128,11 @@ func (s *Service) Run(ctx context.Context) error {
 						}
 						break
 					}
-					return fmt.Errorf("ack delivery intent: %w", err)
+					// The durable result makes redelivery a replay.
+					if err := recoverConsumer("ack", fmt.Errorf("ack delivery intent: %w", err)); err != nil {
+						return err
+					}
+					break
 				}
 			} else {
 				if processErr != nil {
@@ -124,8 +166,12 @@ func (s *Service) Run(ctx context.Context) error {
 				}
 				continue
 			}
-			return fmt.Errorf("fetch delivery batch: %w", fetchErr)
+			if err := recoverConsumer("fetch_batch", fmt.Errorf("fetch delivery batch: %w", fetchErr)); err != nil {
+				return err
+			}
+			continue
 		}
+		recovery = deliveryConsumerRecovery.initial
 	}
 	return ctx.Err()
 }
@@ -250,7 +296,53 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 	}
 }
 
+// plannerRefusalCounter counts planner refusals per intent observed by this
+// worker. An entry ends with the intent's held receipt; the map is bounded so
+// abandoned intents cannot grow it without limit.
+type plannerRefusalCounter struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+const maxTrackedPlannerRefusals = 4096
+
+func (c *plannerRefusalCounter) note(key string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.counts == nil {
+		c.counts = map[string]int{}
+	}
+	if _, tracked := c.counts[key]; !tracked && len(c.counts) >= maxTrackedPlannerRefusals {
+		clear(c.counts)
+	}
+	c.counts[key]++
+	return c.counts[key]
+}
+
+func (c *plannerRefusalCounter) forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.counts, key)
+}
+
 func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, processErr error) {
+	return s.processDelivery(ctx, wire, 0)
+}
+
+// plannerRefusal reports a planner error that redelivery alone may never
+// fix, as opposed to transport, leadership or snapshot races.
+func plannerRefusal(err error) bool {
+	switch class, _ := deliveryFailureClass(err); class {
+	case "not_leader", "authority_fenced", "timeout", "canceled", "disconnected", "no_responders",
+		"jetstream_api", "host_snapshot_changed":
+		return false
+	}
+	return true
+}
+
+// processDelivery processes one delivery; delivered is the broker delivery
+// count, or zero when unknown, which never holds an intent.
+func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered uint64) (terminal bool, processErr error) {
 	defer func() {
 		if processErr != nil {
 			if _, ok := errors.AsType[deliveryStageError](processErr); !ok {
@@ -322,6 +414,27 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 		}
 		plan, planErr := s.config.Planner.Plan(ctx, intent)
 		if planErr != nil {
+			limit := s.config.MaxPlannerAttempts
+			if limit <= 0 {
+				limit = DefaultMaxPlannerAttempts
+			}
+			if plannerRefusal(planErr) && ctx.Err() == nil {
+				// The broker delivery count also includes leadership naks,
+				// lost acks and failed writes, so the bound also counts the
+				// refusals this worker observed itself. A leader change
+				// restarts that count, which only delays the hold.
+				key := intent.OperationID + "\x00" + fingerprint
+				refusals := s.plannerRefusals.note(key)
+				if delivered >= uint64(limit) && refusals >= limit {
+					class, _ := deliveryFailureClass(planErr)
+					terminal, err := s.recordIntentReceipt(ctx, wire, intent, actor, "held",
+						fmt.Sprintf("placement planner refused the intent %d times (%s); reconcile with a new intent", refusals, class))
+					if terminal {
+						s.plannerRefusals.forget(key)
+					}
+					return terminal, err
+				}
+			}
 			return false, stageDeliveryError("planner", planErr)
 		}
 		if err := validatePlan(intent, plan); err != nil {
@@ -516,11 +629,16 @@ func (s *Service) reject(ctx context.Context, wire []byte, reason string) (bool,
 }
 
 func (s *Service) rejectIntent(ctx context.Context, wire []byte, intent Intent, actor, reason string) (bool, error) {
+	return s.recordIntentReceipt(ctx, wire, intent, actor, "rejected", reason)
+}
+
+// recordIntentReceipt durably ends an intent that never produced a plan.
+func (s *Service) recordIntentReceipt(ctx context.Context, wire []byte, intent Intent, actor, status, reason string) (bool, error) {
 	fingerprint, err := intent.fingerprint()
 	if err != nil {
 		return false, err
 	}
-	receipt := &Receipt{OperationID: intent.OperationID, Fingerprint: fingerprint, Status: "rejected", Error: reason, ArtifactDigest: intent.ArtifactDigest, ManifestDigest: intent.ManifestDigest, Cell: intent.Cell, Role: intent.Role, Environment: intent.Environment, Generation: intent.Generation, AuthorityEpoch: intent.AuthorityEpoch}
+	receipt := &Receipt{OperationID: intent.OperationID, Fingerprint: fingerprint, Status: status, Error: reason, ArtifactDigest: intent.ArtifactDigest, ManifestDigest: intent.ManifestDigest, Cell: intent.Cell, Role: intent.Role, Environment: intent.Environment, Generation: intent.Generation, AuthorityEpoch: intent.AuthorityEpoch}
 	op := operation{Intent: intent, Fingerprint: fingerprint, Actor: actor, Receipt: receipt}
 	b, err := json.Marshal(op)
 	if err != nil {
@@ -530,7 +648,7 @@ func (s *Service) rejectIntent(ctx context.Context, wire []byte, intent Intent, 
 	if _, err := s.operations.Create(ctx, key, b); err == nil {
 		return true, nil
 	} else if !errors.Is(err, jetstream.ErrKeyExists) {
-		return false, fmt.Errorf("record rejected intent: %w", err)
+		return false, fmt.Errorf("record %s intent: %w", status, err)
 	}
 	e, err := s.getOperation(ctx, key)
 	if err != nil {

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 const (
@@ -41,6 +43,9 @@ type terrabaseRelease struct {
 	Source              delivery.ArtifactSource
 	QualificationSHA256 string
 	CIRunID             uint64
+	// Compatibility is the release's own qualified compatibility declaration,
+	// absent for releases that do not publish one.
+	Compatibility *rollout.CompatibilityDeclaration
 }
 
 type terrabaseQualification struct {
@@ -57,6 +62,7 @@ type terrabaseQualification struct {
 		RunID      uint64 `json:"run_id"`
 		Workflow   string `json:"workflow"`
 	} `json:"verification"`
+	Compatibility *rollout.CompatibilityDeclaration `json:"compatibility,omitempty"`
 }
 
 type terrabaseSourceDigest struct {
@@ -110,7 +116,13 @@ func loadTerraBaseRelease(files terrabaseReleaseFiles) (terrabaseRelease, error)
 	release := terrabaseRelease{Binary: files.Binary, Digest: digest, Size: size,
 		Source: delivery.ArtifactSource{Repository: source.Repository, Commit: qualification.SourceRevision,
 			TreeDigest: source.SourceDigestSHA256},
-		QualificationSHA256: hex.EncodeToString(qualificationSum[:]), CIRunID: qualification.Verification.RunID}
+		QualificationSHA256: hex.EncodeToString(qualificationSum[:]), CIRunID: qualification.Verification.RunID,
+		Compatibility: qualification.Compatibility}
+	if release.Compatibility != nil {
+		if err := release.Compatibility.Validate(); err != nil {
+			return terrabaseRelease{}, fmt.Errorf("TerraBase qualification: %w", err)
+		}
+	}
 	if source.Schema != terrabaseSourceDigestSchema || source.SourceRevision != qualification.SourceRevision ||
 		source.QualificationSHA256 != release.QualificationSHA256 || source.ServerSHA256 != digest ||
 		!fingerprintPattern.MatchString(source.SourceDigestSHA256) {
@@ -135,4 +147,28 @@ func digestReleaseBinary(path string) (string, int64, error) {
 		return "", 0, errors.New("TerraBase server changed while it was hashed")
 	}
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
+
+// releaseCompatibilityName is the retained compatibility declaration of one
+// admitted release, kept so a later update or rollback can assess it.
+func releaseCompatibilityName(digest string) string {
+	return filepath.Join(deployReleaseDirectory, digest+".compatibility.json")
+}
+
+// retainReleaseCompatibility keeps the release's qualified declaration next
+// to its admitted artifact record. A release without one keeps nothing.
+func retainReleaseCompatibility(state deployState, release terrabaseRelease) error {
+	if release.Compatibility == nil {
+		return nil
+	}
+	_, err := state.ensureJSON(releaseCompatibilityName(release.Digest), *release.Compatibility)
+	return err
+}
+
+// releaseCompatibility loads a retained declaration; ok is false when the
+// release never published one.
+func releaseCompatibility(state deployState, digest string) (rollout.CompatibilityDeclaration, bool, error) {
+	var declaration rollout.CompatibilityDeclaration
+	exists, err := state.readJSON(releaseCompatibilityName(digest), &declaration)
+	return declaration, exists, err
 }

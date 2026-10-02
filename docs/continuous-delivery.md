@@ -98,12 +98,33 @@ leave the active pin for resume. Changed assets, bad provenance, unreachable
 Forgejo or unavailable forwarding never allow a different active candidate.
 Input failures before admission retry without creating a stop marker.
 
-The updater waits for a fresh serving proof from each seat before its peer.
-A candidate that fails or exceeds the controller's 15-minute proof deadline
-is held, then the existing updater returns that seat to its predecessor and
-fails. Any non-cancellation updater error writes `cd-blocked.json`; later
-ticks perform no rollout or discovery. Alert on nonzero exit and stale active
-pins. After diagnosis, the authorized operator may archive/remove the stop
+The updater waits for a fresh serving proof from each seat, then soaks it
+(`--soak`, default 5m): the seat must keep serving the candidate with the same
+process before its peer is updated. A candidate that fails, exceeds the
+controller's 15-minute proof deadline or fails its soak is recorded in
+`known-bad/<digest>.json` before any rollback; every seat running it is
+returned to its predecessor, the held seat first, and the updater fails. A
+known-bad digest is never prepared again, and a rollback that is itself held
+stays frozen rather than returning to the known-bad candidate (the controller
+enforces this too via `rollback_of_held`). Remove the known-bad record only
+after review.
+
+The signed compatibility evidence is derived from both releases'
+`compatibility` declaration in `qualification.json`
+(`terrascale.terrabase.compatibility.v1`: persistent format, replication and
+client-data versions with accepted ranges), retained per release in the state
+directory. A release without a declaration fails closed unless the operator
+passes `--assume-compatibility`, which restores the earlier unverified
+assertion; incompatible declarations are always refused.
+
+Transient updater failures (placement status or transport errors, leader
+changes, a briefly unserving peer, an outcome wait that ended while the seat
+was still prepared) are retried with backoff (`--transient-retries`) and keep
+the active pin; they write `cd-transient.json` and escalate to
+`cd-blocked.json` only after `--transient-block-after` (default 6h). Any
+other non-cancellation updater error writes `cd-blocked.json`; later ticks
+perform no rollout or discovery. Alert on nonzero exit, `cd-transient.json`
+and stale active pins. After diagnosis, the authorized operator may archive/remove the stop
 marker to resume the **same** active pin. A rejected candidate must be
 withdrawn deliberately by disabling the timer, reconciling controller state
 and archiving the active pin; never silently discard a pending operation.
@@ -160,7 +181,7 @@ host replacement and OCI fencing/volume handoff. None is implemented here;
    release asset, and authorize trusting that producer. It is absent today.
 4. Approve automatic rollout scope: cell/placement inventory, canary to
    production promotion, coalescing/skipping intermediate releases, one-minute
-   polling, soak time (currently serving proof only), maintenance windows,
+   polling, soak time (default 5m after the serving proof), maintenance windows,
    pause/alert owner and rollback policy. Install timers/forward supervision
    only after approval; no repository secret or CI-to-cell access is needed.
 5. Review the orchestrator replacement authorization schema, root/leaf owners,

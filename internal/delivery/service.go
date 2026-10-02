@@ -79,7 +79,16 @@ type Config struct {
 	Fencer                Fencer
 	Planner               Planner
 	Writer                DesiredWriter
+	// MaxPlannerAttempts bounds deliveries of an intent the planner keeps
+	// refusing, such as a missing profile or no eligible host, before it is
+	// held with a durable receipt. Zero uses DefaultMaxPlannerAttempts.
+	// Transport and leadership failures never count toward it.
+	MaxPlannerAttempts int
 }
+
+// DefaultMaxPlannerAttempts holds a planner-refused intent after roughly
+// half an hour of capped redelivery backoff.
+const DefaultMaxPlannerAttempts = 30
 
 type Service struct {
 	js         jetstream.JetStream
@@ -88,6 +97,8 @@ type Service struct {
 	operations jetstream.KeyValue
 	consumer   jetstream.Consumer
 	config     Config
+	// plannerRefusals bounds an intent the planner keeps refusing.
+	plannerRefusals plannerRefusalCounter
 }
 
 // Receipt is a durable admission outcome. "accepted" means each planned host
@@ -186,11 +197,18 @@ func Open(ctx context.Context, cfg Config) (*Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delivery intent stream: %w", err)
 	}
-	s.consumer, err = cfg.JS.CreateOrUpdateConsumer(ctx, IntentStream, jetstream.ConsumerConfig{Durable: IntentConsumer, FilterSubject: IntentSubject(cfg.Cell), AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 32, MaxRequestBatch: 1})
+	s.consumer, err = cfg.JS.CreateOrUpdateConsumer(ctx, IntentStream, intentConsumerConfig(cfg.Cell))
 	if err != nil {
 		return nil, fmt.Errorf("delivery intent consumer: %w", err)
 	}
 	return s, nil
+}
+
+// intentConsumerConfig keeps redelivery unbounded at the broker: a broker
+// MaxDeliver would drop an intent without a receipt. The consumer bounds
+// planner refusals itself and records a durable held receipt instead.
+func intentConsumerConfig(cell string) jetstream.ConsumerConfig {
+	return jetstream.ConsumerConfig{Durable: IntentConsumer, FilterSubject: IntentSubject(cell), AckPolicy: jetstream.AckExplicitPolicy, AckWait: 30 * time.Second, MaxDeliver: -1, MaxAckPending: 32, MaxRequestBatch: 1}
 }
 
 // Submit signs exact serialized intent bytes and waits for JetStream publish
