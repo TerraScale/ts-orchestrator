@@ -39,7 +39,7 @@ func topologyBody(current view) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<article><p class=\"muted\"><small>Regions, their controllers (NATS routes between them), hosts (leaf connections to the JetStream meta leader) and TerraBase seats. Drag to rearrange, scroll to zoom, click a node for details. Other regions show the members their summary reports.</small></p><ts-topology data-spec=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<article class=\"topology\"><p class=\"muted\"><small>Each region groups its controllers (inner ring, NATS routes), hosts (outer ring, leaf connections to the meta leader) and TerraBase seats; other regions show what their summary reports. Hover highlights neighbors, click opens details.</small></p><ts-topology data-spec=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

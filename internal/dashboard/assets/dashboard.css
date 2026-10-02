@@ -146,13 +146,22 @@ article {
 }
 article > header, article > footer { margin: -0.85rem -1rem 0.75rem; padding: 0.6rem 1rem; background: transparent; border-color: var(--ts-hairline); }
 article > footer { margin: 0.75rem -1rem -0.85rem; }
-.cols { display: grid; gap: var(--pico-spacing); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
+/* .cols wraps and stretches its last row, so four charts on a three-wide
+   screen never leave two empty slots beside the fourth. */
+.cols { display: flex; flex-wrap: wrap; gap: var(--pico-spacing); }
+.cols > * { flex: 1 1 22rem; min-width: 0; }
 .cols-2 { display: grid; gap: var(--pico-spacing); grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
 .cols-3 { display: grid; gap: var(--pico-spacing); grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 1100px) { .cols-2, .cols-3 { grid-template-columns: minmax(0, 1fr); } }
 .cols > article, .cols-2 > article, .cols-3 > article { margin: 0; }
 .stack > * + * { margin-top: var(--pico-spacing); }
-.grid.stats { grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--pico-spacing); }
+.stack > article { margin-block-end: 0; }
+.cols, .cols-2, .cols-3 { margin-block-end: var(--pico-spacing); }
+/* Tiles wrap and the last row stretches, so an uneven count never leaves a
+   half-empty row; every tile in a row has the same height. */
+.grid.stats { display: flex; flex-wrap: wrap; gap: var(--pico-spacing); margin-block-end: var(--pico-spacing); }
+.grid.stats > * { flex: 1 1 10.5rem; display: flex; min-width: 0; }
+.grid.stats > * > .stat { flex: 1; }
 .stat { margin: 0; padding: 0.7rem 0.85rem; display: flex; flex-direction: column; gap: 0.15rem; min-height: 6.2rem; }
 .stat > small:first-child { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ts-ink-3); }
 .stat strong { display: block; font-size: 1.45rem; line-height: 1.2; }
@@ -214,7 +223,9 @@ ts-chart, ts-topology, ts-map, ts-timeline { display: block; width: 100%; height
 ts-chart.tall, ts-timeline.tall { height: 20rem; }
 ts-chart.short { height: 9rem; }
 ts-chart.gauge { height: 8.5rem; }
-ts-topology { height: 40rem; }
+/* The topology uses most of the viewport at most and shrinks to its
+   fitted graph (app.js sets the height). */
+ts-topology { height: clamp(26rem, calc(100dvh - 11rem), 64rem); max-height: clamp(26rem, calc(100dvh - 11rem), 64rem); }
 ts-map { height: 22rem; }
 ts-timeline { height: 12rem; }
 ts-sparkline { display: block; height: 1.9rem; width: 100%; color: var(--ts-info); }
@@ -223,8 +234,9 @@ ts-chart:not(:defined), ts-topology:not(:defined), ts-map:not(:defined), ts-time
   background-size: 200% 100%; animation: ts-loading 1.4s linear infinite; border-radius: 0.4rem; opacity: 0.6;
 }
 @keyframes ts-loading { to { background-position: -200% 0; } }
-.chart-title { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.chart-title { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0.25rem 0.5rem; }
 .chart-title h3 { margin: 0; }
+.chart-title > span { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; justify-content: flex-end; }
 .legend-note { font-size: 0.78rem; color: var(--ts-ink-3); }
 
 /* ---- region cards ---- */
@@ -274,6 +286,7 @@ ts-chart:not(:defined), ts-topology:not(:defined), ts-map:not(:defined), ts-time
 .chain > li { list-style: none; position: relative; padding: 0 0 0.9rem 0.6rem; }
 .chain > li > .dot { position: absolute; left: -1.08rem; top: 0.35rem; width: 0.75rem; height: 0.75rem; box-shadow: 0 0 0 3px var(--ts-surface); }
 .chain > li.selected > div { outline: 2px solid var(--ts-info); outline-offset: 4px; border-radius: 0.3rem; }
+.chain > li > div > strong + .pill { margin-inline-start: 0.45rem; }
 .signals td.pass { color: var(--ts-ok-ink); } .signals td.fail { color: var(--ts-bad-ink); }
 details.decision > summary { cursor: pointer; }
 .filters { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; margin-block-end: 0.6rem; }
@@ -294,7 +307,7 @@ details.decision > summary { cursor: pointer; }
 .step small { display: block; color: var(--ts-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .matrix td.cell { min-width: 9rem; }
 .matrix td.cell.drift { background: color-mix(in srgb, var(--ts-warn) 14%, transparent) !important; }
-.matrix .vchip { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0.08rem 0.2rem 0.08rem 0; }
+.matrix .vchip { display: inline-flex; gap: 0.3rem; align-items: center; margin: 0.08rem 0.75rem 0.08rem 0; white-space: nowrap; }
 .phase-row { display: flex; gap: 3px; align-items: stretch; margin: 0.25rem 0 0.5rem; }
 .phase-row .phase { flex: 1; text-align: center; padding: 0.3rem 0.2rem; border-radius: 0.3rem; font-size: 0.78rem; background: color-mix(in srgb, var(--s, var(--ts-idle)) 15%, transparent); border-bottom: 3px solid var(--s, var(--ts-hairline)); }
 .seat-grid { display: flex; flex-wrap: wrap; gap: 3px; }
