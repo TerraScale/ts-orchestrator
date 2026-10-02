@@ -20,9 +20,15 @@ type fakeAPI struct {
 	rules  []ObservedRule
 	nextID int
 	calls  []string
+	gone   bool
 }
 
-func (f *fakeAPI) GetGroup(context.Context, string) (Group, error) { return f.group, nil }
+func (f *fakeAPI) GetGroup(context.Context, string) (Group, error) {
+	if f.gone {
+		return Group{}, fmt.Errorf("get OCI NSG: %w", ociresource.ErrGone)
+	}
+	return f.group, nil
+}
 func (f *fakeAPI) ListRules(context.Context, string) ([]ObservedRule, error) {
 	return slices.Clone(f.rules), nil
 }
@@ -151,6 +157,36 @@ func TestNSGTombstoneRemovesOnlyMarkedRules(t *testing.T) {
 	}
 	if _, err := store.Get(t.Context(), key); err == nil {
 		t.Fatal("tombstone was not purged after the rules were gone")
+	}
+}
+
+func TestNSGTombstonePurgesWhenTheNSGIsGone(t *testing.T) {
+	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
+	api := &fakeAPI{group: owned(owner)}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}
+	run(t, api, store, spec, ociresource.PolicyEnforce, 1)
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+		Ownership: owner, Authority: allow{}}
+
+	mutations := len(api.calls)
+	// A missing NSG is an error while the spec is live: nothing is assumed.
+	api.gone = true
+	if result, err := controller.Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
+		t.Fatalf("live spec over a missing NSG: result=%+v err=%v", result, err)
+	}
+	now := time.Now()
+	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := controller.Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 {
+		t.Fatalf("tombstone over a missing NSG: result=%+v err=%v", result, err)
+	}
+	if _, err := store.Get(t.Context(), key); err == nil {
+		t.Fatal("tombstone was not purged after the NSG was gone")
+	}
+	if len(api.calls) != mutations {
+		t.Fatalf("unexpected mutations: %v", api.calls)
 	}
 }
 

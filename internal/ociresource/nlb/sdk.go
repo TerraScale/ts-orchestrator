@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -56,6 +57,9 @@ func deref(value *string) string {
 func (a sdkAPI) GetLoadBalancer(ctx context.Context, id string) (LoadBalancer, error) {
 	response, err := a.client.GetNetworkLoadBalancer(ctx, networkloadbalancer.GetNetworkLoadBalancerRequest{NetworkLoadBalancerId: new(id)})
 	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return LoadBalancer{}, fmt.Errorf("get OCI NLB: %w: %w", ociresource.ErrGone, err)
+		}
 		return LoadBalancer{}, fmt.Errorf("get OCI NLB: %w", err)
 	}
 	return LoadBalancer{ID: deref(response.Id), ETag: deref(response.Etag),

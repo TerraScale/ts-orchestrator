@@ -122,4 +122,8 @@ var (
 	ErrForeign = errors.New("OCI resource is not owned by this controller")
 	// ErrFenced marks a mutation refused because authority was lost.
 	ErrFenced = errors.New("OCI resource mutation authority was fenced")
+	// ErrGone marks a cloud object that OCI reports as not found (404). A
+	// tombstoned record whose containing object is gone has nothing left to
+	// delete, so reconcilers report found=false and the record is purged.
+	ErrGone = errors.New("OCI resource does not exist")
 )

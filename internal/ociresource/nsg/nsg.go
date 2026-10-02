@@ -172,6 +172,10 @@ func (r Reconciler) Observe(ctx context.Context, target ociresource.Target[Spec]
 		return Observed{}, false, err
 	}
 	group, err := r.API.GetGroup(ctx, target.Spec.NSGID)
+	if target.Deleting && errors.Is(err, ociresource.ErrGone) {
+		// The NSG and therefore every managed rule is gone.
+		return Observed{}, false, nil
+	}
 	if err != nil {
 		return Observed{}, false, err
 	}

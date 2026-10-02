@@ -21,9 +21,13 @@ type fakeAPI struct {
 	pending  map[string]bool
 	failWR   bool
 	seq      int
+	gone     bool
 }
 
 func (f *fakeAPI) GetLoadBalancer(context.Context, string) (LoadBalancer, error) {
+	if f.gone {
+		return LoadBalancer{}, fmt.Errorf("get OCI NLB: %w", ociresource.ErrGone)
+	}
 	return f.balancer, nil
 }
 func (f *fakeAPI) ListBackends(context.Context, string, string) ([]Backend, error) {
@@ -215,6 +219,32 @@ func TestTombstoneDrainsBackendsThenPurges(t *testing.T) {
 	}
 	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
 		t.Fatalf("record survived: %v", err)
+	}
+}
+
+func TestTombstonePurgesWhenTheNLBIsGone(t *testing.T) {
+	api := &fakeAPI{balancer: LoadBalancer{ID: nlbID, Tags: owner.Stamp(key, 0, "")}}
+	store := ociresource.NewMemoryStore()
+	spec := Spec{NLBID: nlbID, BackendSet: "api", Backends: []Backend{{IP: "10.0.1.11", Port: 8443}}}
+	if _, err := Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err != nil {
+		t.Fatal(err)
+	}
+	api.gone = true
+	if result, err := controller(api, store).Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
+		t.Fatalf("live spec over a missing NLB: result=%+v err=%v", result, err)
+	}
+	now := time.Now()
+	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := controller(api, store).Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 {
+		t.Fatalf("tombstone over a missing NLB: result=%+v err=%v", result, err)
+	}
+	if _, err := store.Get(t.Context(), key); !errors.Is(err, ociresource.ErrNotFound) {
+		t.Fatalf("record survived: %v", err)
+	}
+	if len(api.calls) != 0 {
+		t.Fatalf("unexpected mutations: %v", api.calls)
 	}
 }
 

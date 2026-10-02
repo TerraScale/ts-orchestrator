@@ -122,6 +122,10 @@ func (r Reconciler) Observe(ctx context.Context, target ociresource.Target[Spec]
 		return Observed{}, false, err
 	}
 	balancer, err := r.API.GetLoadBalancer(ctx, target.Spec.NLBID)
+	if target.Deleting && errors.Is(err, ociresource.ErrGone) {
+		// The NLB and therefore every backend is gone.
+		return Observed{}, false, nil
+	}
 	if err != nil {
 		return Observed{}, false, err
 	}

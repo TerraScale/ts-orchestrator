@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
@@ -35,6 +37,9 @@ func deref(value *string) string {
 func (a sdkAPI) GetGroup(ctx context.Context, id string) (Group, error) {
 	response, err := a.network.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: new(id)})
 	if err != nil {
+		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
+			return Group{}, fmt.Errorf("get OCI NSG: %w: %w", ociresource.ErrGone, err)
+		}
 		return Group{}, fmt.Errorf("get OCI NSG: %w", err)
 	}
 	return Group{ID: deref(response.Id), ETag: deref(response.Etag),
