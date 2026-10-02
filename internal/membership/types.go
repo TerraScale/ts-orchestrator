@@ -90,11 +90,11 @@ type Evidence struct {
 // Observation is one complete snapshot. A reconciler that cannot read every
 // source never builds one, so Decide never acts on partial evidence.
 type Observation struct {
-	At       time.Time
-	Meta     Meta
-	Ledger   map[string]LedgerSlot
+	At        time.Time
+	Meta      Meta
+	Ledger    map[string]LedgerSlot
 	Lifecycle map[string]string
-	Evidence map[string]Evidence
+	Evidence  map[string]Evidence
 }
 
 // Phase is the per-slot supervision state.

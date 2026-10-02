@@ -147,6 +147,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	defer runtime.Close()
+	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
 		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
@@ -183,6 +184,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopAuthority()
 	defer control.Close()
+	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	if err != nil {
+		return fmt.Errorf("start controller membership supervision: %w", err)
+	}
 	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
@@ -508,7 +513,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 6)
+	workerErrors := make(chan error, 7)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -520,6 +525,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if terminalRuntime != nil {
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if membershipReconciler != nil {
+		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

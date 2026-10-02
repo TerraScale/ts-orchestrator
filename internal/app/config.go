@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
@@ -38,6 +39,8 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// Membership enables controller slot supervision; nil keeps it off.
+	Membership *membership.Config `json:"membership,omitempty"`
 }
 
 type WorkloadProfile struct {

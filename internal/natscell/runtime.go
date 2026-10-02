@@ -63,8 +63,11 @@ type Embedded struct {
 	SystemJWTFile         string      `json:"system_jwt_file,omitempty"`
 	CellJWTFile           string      `json:"cell_jwt_file,omitempty"`
 	SystemCredentialsFile string      `json:"system_credentials_file,omitempty"`
-	TicketPublicKeyFile   string      `json:"ticket_public_key_file,omitempty"`
-	BrokerIDs             []string    `json:"broker_ids,omitempty"`
+	// MembershipCredentialsFile is an optional system-account user limited to
+	// metadata peer remove and leader step-down; see OpenMembershipAdmin.
+	MembershipCredentialsFile string   `json:"membership_credentials_file,omitempty"`
+	TicketPublicKeyFile       string   `json:"ticket_public_key_file,omitempty"`
+	BrokerIDs                 []string `json:"broker_ids,omitempty"`
 }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.

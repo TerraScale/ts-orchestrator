@@ -87,7 +87,7 @@ func ValidateMembershipCredentials(path, cell, systemAccount string) error {
 	publishes := slices.Clone([]string(claim.Pub.Allow))
 	slices.Sort(publishes)
 	if credentialAccount(claim) != systemAccount ||
-		!slices.Equal(publishes, []string{MembershipServerRemoveSubject, MembershipMetaStepdownSubject}) ||
+		!slices.Equal(publishes, []string{MembershipMetaStepdownSubject, MembershipServerRemoveSubject}) ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Allow) != 1 ||
 		claim.Sub.Allow[0] != inboxPrefix(cell, public)+".>" || len(claim.Sub.Deny) != 0 ||
 		claim.Resp != nil {
