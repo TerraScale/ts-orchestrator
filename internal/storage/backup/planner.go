@@ -62,9 +62,16 @@ type Action struct {
 	BackupID string
 }
 
+// inProgress reports an OCI backup that is queued (REQUEST_RECEIVED) or
+// running (CREATING). OCI runs one backup per volume at a time, so a queued
+// request must block a new create exactly like a running one.
+func inProgress(state string) bool {
+	return state == "CREATING" || state == "REQUEST_RECEIVED"
+}
+
 // Plan decides the backup effects for one volume from its listed backups.
 // Only owned backups are considered. No create is planned while an owned
-// backup is CREATING; prune never touches non-AVAILABLE backups and never
+// backup is queued or CREATING; prune never touches non-AVAILABLE backups and never
 // deletes the newest Retain AVAILABLE ones.
 func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolumeBackup, now time.Time) []Action {
 	policy = policy.WithDefaults()
@@ -77,11 +84,11 @@ func Plan(policy Policy, scope Scope, volumeID string, backups []oci.CloudVolume
 	// Newest first.
 	slices.SortFunc(owned, func(a, b oci.CloudVolumeBackup) int { return b.CreatedAt.Compare(a.CreatedAt) })
 	var actions []Action
-	creating := slices.ContainsFunc(owned, func(backup oci.CloudVolumeBackup) bool { return backup.LifecycleState == "CREATING" })
+	creating := slices.ContainsFunc(owned, func(backup oci.CloudVolumeBackup) bool { return inProgress(backup.LifecycleState) })
 	var latest time.Time
 	sinceFull, sawFull := 0, false
 	for _, backup := range owned {
-		if backup.LifecycleState != "AVAILABLE" && backup.LifecycleState != "CREATING" {
+		if backup.LifecycleState != "AVAILABLE" && !inProgress(backup.LifecycleState) {
 			continue
 		}
 		if latest.IsZero() {

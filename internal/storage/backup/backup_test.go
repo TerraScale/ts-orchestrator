@@ -77,6 +77,10 @@ func TestPlanCreatesFirstFullThenIncrementalsOnInterval(t *testing.T) {
 	if actions := Plan(policy, scope, volume, inProgress, now); len(actions) != 0 {
 		t.Fatalf("plan created while a backup is in progress: %+v", actions)
 	}
+	queued := []oci.CloudVolumeBackup{owned("b2", "REQUEST_RECEIVED", TypeIncremental, 30*time.Hour), owned("b1", "AVAILABLE", TypeFull, 50*time.Hour)}
+	if actions := Plan(policy, scope, volume, queued, now); len(actions) != 0 {
+		t.Fatalf("plan created while a backup request is queued: %+v", actions)
+	}
 	foreign := owned("f1", "AVAILABLE", TypeFull, time.Hour)
 	foreign.FreeformTags = nil
 	if actions := Plan(policy, scope, volume, []oci.CloudVolumeBackup{foreign}, now); len(actions) != 1 || actions[0].Type != TypeFull {
