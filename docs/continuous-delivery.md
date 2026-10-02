@@ -1,8 +1,12 @@
 # Continuous delivery to running cells
 
 Status: the opt-in TerraBase automation entry point is implemented; no live
-timer, signing grant or rollout is enabled by this change. Orchestrator
-replacement is a proposed follow-up requiring runtime changes and review.
+timer, signing grant or rollout is enabled by this change. Binary-only
+orchestrator self-update, the scoped auto-sign delegation, the staged rollout
+state machine, resumable image promotion and independent managed-host image
+qualification exist as opt-in foundations (see
+[Binary-only self-update](#binary-only-self-update-opt-in)); each is off by
+default. Image-based orchestrator replacement is still a proposed follow-up.
 
 ## Mechanism and trust boundaries
 
@@ -28,7 +32,8 @@ existing trust chain qualifies the binary, then binds its signed receipt to
 an image, base, kernel, region and exact OCI image OCID. A binary receipt alone
 does not authorize overwriting a running installation. Replacement preserves
 that chain and the image's systemd, enrollment and volume-init environment.
-There is currently no supported running-cell replacement executor:
+There is currently no supported running-cell *replacement* executor (the
+binary-only self-update below replaces the executable, not the image):
 
 - `ts-orch oci-region attempt` signs new deployment manifests, founder plans and selections;
   it is a bootstrap tool, not an upgrade tool.
@@ -46,6 +51,7 @@ There is currently no supported running-cell replacement executor:
 | TerraBase automation grants | Human authorizes new root-bound signed controller config: update actor with `can_place_terrabase`, `can_update_terrabase_runtime`, repository/role/environment limits; separate compatibility actor with `can_certify_terrabase_compatibility`. Installing this config is a separately reviewed operation. |
 | TerraBase per-seat Prepare | Online update key and independent compatibility key on the operator host, only after the approved compatibility policy has been satisfied. Existing `terrabase-update` signs both statements. |
 | Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-orch release sign-binary`. |
+| Orchestrator binary update receipt (opt-in) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes accept these receipts only with `--allow-scoped-auto-sign`. |
 | Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
 | Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Existing continuity does not supply this authority. Root private keys stay offline. |
 
@@ -140,9 +146,130 @@ mixed-version support and a proven rollback window; otherwise halt for a
 reviewed migration. TerraBase and orchestrator rollouts must not overlap.
 
 This executor requires changes to bootstrap admission/founder state, controller
-host replacement and OCI fencing/volume handoff. None is implemented here;
-`internal/bootstrapstart`, `internal/oci`, `deploy/systemd` and
-`deploy/oci-region` are unchanged.
+host replacement and OCI fencing/volume handoff. None is implemented yet;
+`internal/bootstrapstart`, `internal/oci`, the image-installed
+`deploy/systemd` units and `deploy/oci-region` are unchanged. The ordering,
+soak and rollback logic it needs exists in `internal/rollout` (below).
+
+## Binary-only self-update (opt-in)
+
+Most orchestrator changes touch only the binary, so they do not need a new
+image, an OCI import or a re-bootstrap. `internal/selfupdate` replaces the
+executable on a running node with an A/B layout:
+
+```text
+/var/lib/terrascale-orchestrator/
+  releases/<sha256>/terrascale-orchestrator   read-only (0555), root-owned
+  releases/<sha256>/receipt.json, delegation.json (or "baked")
+  current -> releases/<sha256>                  what ExecStart runs
+  activation.json                               pending switch, if any
+  known-bad.json                                digests rolled back on this node
+```
+
+1. **Distribute.** The qualified binary (about 46 MB, under the 512 MiB
+   artifact bound) is uploaded through the existing signed delivery artifact
+   store. A controller fetches it by digest over NATS with per-chunk and
+   object digest checks (`selfupdate.StageFromArtifactStore`).
+2. **Stage.** `ts-orch selfupdate stage` verifies the release receipt
+   (`internal/release`) for the node's environment, cell and architecture
+   *before* keeping any byte, copies the binary while hashing it, requires the
+   exact signed size and SHA-256, and renames a fully written temporary
+   directory to `releases/<sha256>`. Every release path must be owned by root
+   and not group- or world-writable; the unprivileged controller can execute
+   but never replace its binary.
+3. **Activate.** `ts-orch selfupdate activate --release <sha256> --unit <unit>
+   --proof-window 5m --restart` writes `activation.json` (target, previous,
+   deadline) and only then flips `current` with an atomic rename.
+4. **Prove.** When `self_update_proof_file` is set, the new process signs a
+   version proof after it is ready (controller: after host-controller
+   readiness, with its response key; host: after start-up checks, with its
+   identity key). The proof names the activation, unit, the digest of
+   `/proc/self/exe` and the process ID, and is valid for 10 minutes.
+5. **Confirm or roll back.** `selfupdate prepare` (root `ExecStartPre=+`) and
+   the `terrascale-orchestrator-selfupdate-watchdog@<unit>.timer` (every 15 s)
+   confirm the activation from a fresh proof signed by the unit's key. A
+   missed deadline, or a target whose bytes no longer verify, records the
+   digest in `known-bad.json` first, restores `previous`, and restarts the
+   unit. A known-bad digest can never be staged or activated again on that
+   node. Crash loops and hangs both end in rollback at the deadline.
+
+The image is unchanged: `deploy/systemd/selfupdate/` holds the drop-ins and
+the watchdog timer, which an operator installs per node together with
+`/etc/terrascale-orchestrator/selfupdate-<unit>.env` (see
+`selfupdate.env.example`) and `self_update_proof_file`. On first start
+`prepare` seeds the image-baked `/usr/local/bin/terrascale-orchestrator` as the
+first release, so the baked binary always remains a valid rollback target.
+A node running both a controller and a host shares one `current` link; enable
+self-update for one unit per node until per-unit links exist.
+
+### Scoped auto-sign delegation
+
+The per-source binary delegation requires an offline root signature for
+every source revision. The scoped binary update delegation
+(`internal/release/update_delegation.go`) is a separate root-signed document:
+
+- one online leaf key, at most 31 days, one environment;
+- explicit cells and architectures;
+- only `TerraScale/ts-orchestrator`, `ci.yml`, `refs/heads/main`, and
+  descendants of a pinned, reviewed `lineage_base` revision.
+
+The leaf signs a `terrascale.release.binary-update.v1` receipt only after the
+qualification manifest matches the binary, the Forgejo run succeeded and git
+proves the source descends from the base and is on `origin/main`. Consumers
+verify the root signature, expiry, their own environment/cell/architecture,
+the lineage fields and the exact delegation digest the receipt names. The
+per-source verifier never accepts an update receipt. Nodes accept update
+receipts only with `selfupdate stage --allow-scoped-auto-sign`; the default is
+off. Rollout remains gated by version and health proofs.
+
+### Staged rollout state machine
+
+`internal/rollout` is the shared ordering core for TerraBase seats, workload
+waves, controllers and hosts. Its pure transition function moves a durable
+record through `pending → preflight → canary → canary-soak → batch(k) →
+batch-soak → … → complete`, or `rolling-back → rolled-back`, `frozen` and
+`aborted`:
+
+- waves are planned so no wave holds two units of one group (both seats of a
+  TerraBase pair, or two of three controllers), and the seed controller is
+  replaced last and alone;
+- a wave is promoted only after `min_healthy_reports` reports from one
+  process incarnation over the soak window; a restart, a wrong digest, a
+  failed or held unit, or a missed proof deadline starts a rollback;
+- the record marks the target digest known bad in the same write that first
+  orders a rollback, then returns every touched unit newest first, one at a
+  time, always to the predecessor digest; a held rollback freezes the
+  rollout and an operator resume only retries the rollback;
+- records live in the `TS_ROLLOUTS` JetStream KV bucket, written by CAS on
+  the revision after an authority `Guard` for the record's epoch; a cell slot
+  allows one active rollout, and the cell keeps the known-bad list and a
+  per-digest attempt budget.
+
+Executors derive their next step from `NextActions`, whose operation IDs are
+deterministic per rollout, unit, phase and attempt.
+
+### Resumable image promotion
+
+`ts-orch image promote --resume` continues in an existing `--out` directory
+that `promotion-state.json` pins to the same image release (or directory) and
+image digest. It always refreshes `SHA256SUMS` and small metadata, reuses the
+qcow2, kernel, manifest, binary, qualification and base image only when their
+SHA-256 matches the pinned digest, reuses the release tool built into `--out`
+when its recorded digest and clean `vcs.revision` still match, reuses the
+earlier signed binary receipt for `verify-binary`, and skips the upload and
+import when `oci-import.json` records this image digest. Rerunning after the
+image delegation is signed therefore no longer downloads or imports again.
+
+### Independent managed-host image
+
+By default the managed fleet's `image_id` must equal the controller's own
+accepted boot image. With `controller.managed_host_image_receipt_file` and
+`controller.managed_host_image_delegation_file`, the fleet instead qualifies
+its configured image from that image's own root-delegated receipt (baked
+roots, cell environment, exact OCID, region and shape architecture), plus the
+existing OCI readback on every use. Changing `image_id` still makes hosts
+launched from the previous image foreign to the fleet; an allow-list of
+current and previous qualified images is a follow-up.
 
 ## Human decisions needed
 
@@ -167,3 +294,10 @@ host replacement and OCI fencing/volume handoff. None is implemented here;
    source/image signing gates, budget, admission/fencing and seed-floor handoff,
    state-format compatibility and rollback criteria. Approve a separate runtime
    implementation PR before any running-cell orchestrator replacement.
+6. The scoped auto-sign policy is approved in principle. Before use, choose
+   the online leaf key owner and host, the reviewed `lineage_base`, the cells,
+   architectures and expiry of the first binary update delegation, and which
+   nodes install the self-update drop-ins with `--allow-scoped-auto-sign`.
+   Binary-only self-update requires the new release to read the persistent
+   NATS and authority state of its predecessor; halt for a reviewed migration
+   otherwise.
