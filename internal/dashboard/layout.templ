@@ -84,8 +84,10 @@ templ unavailable(message string) {
 }
 
 templ ratioBar(value float64) {
-	<progress class={ ratioClass(value) } value={ progressValue(value) } max="1000"></progress>
-	<small>{ percent(value) }</small>
+	<span class="ratio">
+		<progress class={ ratioClass(value) } value={ progressValue(value) } max="1000"></progress>
+		<small>{ percent(value) }</small>
+	</span>
 }
 
 templ login(failed bool, next string) {
