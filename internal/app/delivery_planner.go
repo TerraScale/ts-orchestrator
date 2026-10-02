@@ -16,8 +16,9 @@ import (
 )
 
 type regionalDeliveryPlanner struct {
-	hosts    *host.Controller
-	profiles map[string]WorkloadProfile
+	hosts     *host.Controller
+	profiles  map[string]WorkloadProfile
+	workloads *workload.Reconciler
 }
 
 func (p *regionalDeliveryPlanner) ApplyDesired(ctx context.Context, desired host.Desired) (host.Receipt, error) {
@@ -56,7 +57,17 @@ func validateWorkloadProfiles(profiles map[string]WorkloadProfile) error {
 	return nil
 }
 
+// Plan plans a release with the intent's own generation and replica count.
 func (p *regionalDeliveryPlanner) Plan(ctx context.Context, intent delivery.Intent) ([]host.Desired, error) {
+	var shape delivery.PlanShape
+	return p.plan(ctx, intent, func(workload.Observation) (delivery.PlanShape, error) {
+		return delivery.PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}, nil
+	}, &shape)
+}
+
+func (p *regionalDeliveryPlanner) plan(ctx context.Context, intent delivery.Intent,
+	shapeOf func(workload.Observation) (delivery.PlanShape, error), shape *delivery.PlanShape,
+) ([]host.Desired, error) {
 	profile, ok := p.profiles[intent.Role]
 	if !ok {
 		return nil, fmt.Errorf("no workload profile for role %q", intent.Role)
@@ -79,24 +90,25 @@ func (p *regionalDeliveryPlanner) Plan(ctx context.Context, intent delivery.Inte
 	if err != nil {
 		return nil, err
 	}
-	statusByNode := observation.Statuses
-	candidates, previous := observation.Candidates, observation.Assignments
+	if *shape, err = shapeOf(observation); err != nil {
+		return nil, err
+	}
 	assignments, err := placement.PlanWorkload(placement.WorkloadRequest{
-		Cell: intent.Cell, Role: intent.Role, Replicas: intent.DesiredReplicas,
-		Request: profile.Resources, Hosts: candidates, Previous: previous,
+		Cell: intent.Cell, Role: intent.Role, Replicas: shape.Replicas,
+		Request: profile.Resources, Hosts: observation.Candidates, Previous: observation.Assignments,
 	})
 	if err != nil {
 		return nil, err
 	}
 	result := make([]host.Desired, 0, len(assignments))
 	for _, assignment := range assignments {
-		status, exists := statusByNode[assignment.Node]
+		status, exists := observation.Statuses[assignment.Node]
 		if !exists {
 			return nil, errors.New("placement selected an unknown host")
 		}
 		desired := host.Desired{
 			Cell: intent.Cell, Node: assignment.Node, Environment: status.Registration.Environment,
-			Role: intent.Role, Generation: intent.Generation, AuthorityEpoch: intent.AuthorityEpoch,
+			Role: intent.Role, Generation: shape.Generation, AuthorityEpoch: intent.AuthorityEpoch,
 			Withdrawn: assignment.Withdrawn,
 		}
 		if !assignment.Withdrawn {

@@ -121,6 +121,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err := validateWorkloadProfiles(cfg.Controller.Workloads); err != nil {
 		return err
 	}
+	if err := validateAutoscaleConfig(cfg.Controller.Autoscale, cfg.Controller.Workloads); err != nil {
+		return err
+	}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		return err
@@ -344,6 +347,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	planner.hosts = hostController
+	workloadReconciler, capacityScaler, err := startWorkloadAutoscale(cfg.NATS.Cell, cfg.Controller.Autoscale,
+		cfg.Controller.Workloads, hostController, control)
+	if err != nil {
+		return err
+	}
+	planner.workloads = workloadReconciler
 	if materialService != nil && managed != nil {
 		backupRuntime = &backupOperationRuntime{cell: cfg.NATS.Cell,
 			memberRole: managed.placement.MemberRole, control: control,
@@ -508,7 +517,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	workerErrors := make(chan error, 6)
+	workerErrors := make(chan error, 8)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -520,6 +529,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if terminalRuntime != nil {
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if workloadReconciler != nil {
+		workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
+	}
+	if capacityScaler != nil {
+		workers.Go(func() { workerErrors <- capacityScaler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

@@ -38,6 +38,7 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	Autoscale                   *AutoscaleConfig           `json:"autoscale,omitempty"`
 }
 
 type WorkloadProfile struct {
