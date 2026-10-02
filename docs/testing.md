@@ -27,10 +27,20 @@ or wrap a separate test runner.
 
 The shared script helper records repository source inputs for Go's test
 cache, bounds subprocess lifetimes, and terminates their process group on
-cancellation. Use it for tests that invoke repository scripts. Use separate
-bounded cleanup contexts when cleanup runs after `t.Context()` is canceled.
+cancellation. Use it for tests that invoke repository scripts. Its `Run`
+records every repository file's modification time, so such tests re-run
+after any checkout. A test whose script inputs are embedded with `go:embed`,
+such as `scripts/ci/racetest`, uses `script.Exec` instead and stays cached
+until those inputs change. Use separate bounded cleanup contexts when cleanup
+runs after `t.Context()` is canceled.
 
-Environment-dependent tests use `t.Skip` with the missing prerequisite.
+Tests are tiered (see [CONTRIBUTING.md](../CONTRIBUTING.md#test-tiers)):
+pull requests run `go test -short`, which skips tests that call
+`tier.Integration`; pushes run everything. Tests that need real
+infrastructure call `tier.Qualification` with the variables that supply it:
+they skip while those are unset and fail in a `TS_TEST_TIER=qualification`
+run. Other environment-dependent tests, such as root or cgroup capability
+checks, use `t.Skip` with the missing prerequisite.
 The pinned Forgejo attachment contract runs through Go on every verified
 build or cache hit in `scripts/ci/prepare-fj-admission.sh`. It can also run
 against a supplied client:
