@@ -77,6 +77,9 @@ type ControllerConfig struct {
 	// Membership enables controller slot supervision; nil keeps it off.
 	Membership *membership.Config `json:"membership,omitempty"`
 	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
+	// Global enables the global control plane; nil or disabled keeps every
+	// region standalone, exactly as before.
+	Global *GlobalControlConfig `json:"global,omitempty"`
 }
 
 type WorkloadProfile struct {

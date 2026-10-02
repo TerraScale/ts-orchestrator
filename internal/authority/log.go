@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -19,7 +20,7 @@ const (
 	// ControlStreamName is the durable stream that orders lease barriers,
 	// operation journal entries, and host registration/desired state.
 	ControlStreamName    = controlStreamName
-	controlStreamSubject = "ts.control.*.>"
+	controlStreamSubject = protocol.ControlRoot + ".*.>"
 )
 
 type controlRecord struct {

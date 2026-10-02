@@ -9,18 +9,34 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nkeys"
 )
 
-// accountResolver admits exactly the two configured accounts. In particular,
-// routed account-claim gossip cannot cause an unrelated account to be fetched.
+// accountResolver admits exactly the configured system and cell accounts, plus
+// the interregion account when leafnodes are enabled. In particular, routed
+// account-claim gossip cannot cause an unrelated account to be fetched.
 type accountResolver struct {
 	mu     sync.RWMutex
 	system string
 	cell   string
 	claims map[string]string
+	// contract, when set, binds every cell claim replacement to the
+	// interregion subject contract and the cell leafnode prohibition.
+	contract    *InterRegionContract
+	interregion string
+	links       int
+}
+
+// admitInterRegion is called once during server option construction, before
+// the server starts, after the interregion claim has been verified.
+func (r *accountResolver) admitInterRegion(account, raw string, contract InterRegionContract, links int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.claims[account] = raw
+	r.interregion, r.contract, r.links = account, &contract, links
 }
 
 func newAccountResolver(system, systemJWT, cell, cellJWT string) *accountResolver {
@@ -46,6 +62,15 @@ func (r *accountResolver) Store(name, raw string) error {
 		return errors.New("replacement broker account JWT is invalid")
 	}
 	r.mu.Lock()
+	if r.contract != nil {
+		system, systemErr := jwt.DecodeAccountClaims(r.claims[r.system])
+		interregion, interregionErr := jwt.DecodeAccountClaims(r.claims[r.interregion])
+		if systemErr != nil || interregionErr != nil ||
+			r.contract.verify(system, claim, interregion, r.links) != nil {
+			r.mu.Unlock()
+			return errors.New("replacement cell account JWT widens the interregion contract")
+		}
+	}
 	if prior := r.claims[name]; prior != raw {
 		old, oldErr := jwt.DecodeAccountClaims(prior)
 		if oldErr != nil || claim.IssuedAt <= old.IssuedAt {
@@ -151,11 +176,11 @@ func credentialAccount(claim *jwt.UserClaims) string {
 // BrokerOperatorPublishPermissions is the exact operator publish surface used
 // by the embedded Lab broker, the production issuer, and credential validation.
 func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
-	root := "ts.orch.v1." + cell
 	return jwt.StringList{
-		root + ".delivery.intent", root + ".delivery.artifact.admit", root + ".host.register",
-		root + ".placement.apply", root + ".managed-update.prepare", root + ".material.prepare", root + ".backup.operation", root + ".broker.claim.apply",
-		root + ".terminal.plan", root + ".terminal.apply", root + ".terminal.status",
+		protocol.DeliveryIntentSubject(cell), protocol.DeliveryArtifactAdmitSubject(cell), protocol.HostRegisterSubject(cell),
+		protocol.PlacementApplySubject(cell), protocol.ManagedUpdatePrepareSubject(cell), protocol.MaterialPrepareSubject(cell),
+		protocol.BackupOperationSubject(cell), protocol.BrokerClaimApplySubject(cell),
+		protocol.TerminalSubject(cell, "plan"), protocol.TerminalSubject(cell, "apply"), protocol.TerminalSubject(cell, "status"),
 		"$JS.API.INFO", "$JS.API.STREAM.INFO.TS_DELIVERY_INTENTS",
 		"$JS.API.STREAM.INFO.OBJ_TS_ARTIFACTS",
 		"$JS.API.STREAM.INFO.KV_TS_DELIVERY_ADMISSIONS",
@@ -180,6 +205,17 @@ func BrokerOperatorPublishPermissions(cell string) jwt.StringList {
 	}
 }
 
+// ControllerSubscriptions is the exact regional request surface a controller
+// serves, in issuer order. Private inbox and broker grants are added by callers.
+func ControllerSubscriptions(cell string) []string {
+	return []string{
+		protocol.BrokerClaimApplySubject(cell), protocol.AgentObservation(cell, "*", "*"),
+		protocol.DeliveryArtifactAdmitSubject(cell), protocol.HostRegisterSubject(cell),
+		protocol.PlacementApplySubject(cell), protocol.ManagedUpdatePrepareSubject(cell),
+		protocol.BackupOperationSubject(cell), protocol.TerminalSubject(cell, ">"),
+	}
+}
+
 // ValidateBrokerControllerCredentials enforces the production issuer contract
 // for ephemeral ticket/fence RPCs and signed claim-apply admission. These
 // subjects are outside the durable control stream, and NATS grants one
@@ -193,39 +229,33 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 	if err != nil {
 		return fmt.Errorf("broker controller credentials: %w", err)
 	}
-	ticket := "ts.broker." + cell + ".ticket.>"
-	fencePublish := "ts.broker." + cell + ".fence.>"
-	fenceReceive := "ts.broker." + cell + ".fence." + broker
+	ticket := protocol.Broker(cell, "ticket", ">")
+	fencePublish := protocol.Broker(cell, "fence", ">")
+	fenceReceive := protocol.Broker(cell, "fence", broker)
 	if !slices.Contains(claim.Pub.Allow, ticket) || !slices.Contains(claim.Pub.Allow, fencePublish) ||
 		!slices.Contains(claim.Sub.Allow, ticket) || !slices.Contains(claim.Sub.Allow, fenceReceive) {
 		return errors.New("broker controller credentials lack ticket or instance-bound fence grants")
 	}
-	root := "ts.orch.v1." + cell
 	allowedSubscriptions := map[string]bool{
 		inboxPrefix(cell, public) + ".>": true,
 		ticket:                           true, fenceReceive: true,
-		root + ".broker.claim.apply":      true,
-		root + ".agent.*.observation.*":   true,
-		root + ".delivery.artifact.admit": true,
-		root + ".host.register":           true,
-		root + ".placement.apply":         true,
-		root + ".managed-update.prepare":  true,
-		root + ".backup.operation":        true,
-		root + ".terminal.>":              true,
-		// Optional read-only member telemetry (observability snapshots).
-		// The issuer does not grant it today; it is accepted, not required.
-		root + ".obs.>": true,
 	}
+	for _, subject := range ControllerSubscriptions(cell) {
+		allowedSubscriptions[subject] = true
+	}
+	// Optional read-only member telemetry (observability snapshots). The
+	// issuer does not grant it today; it is accepted, not required.
+	allowedSubscriptions[protocol.ObservabilityGrant(cell)] = true
 	for _, grant := range claim.Sub.Allow {
 		if !allowedSubscriptions[grant] {
 			return fmt.Errorf("broker controller credentials have unscoped subscription %q", grant)
 		}
 	}
 	if !slices.Contains(claim.Sub.Allow, inboxPrefix(cell, public)+".>") ||
-		!slices.Contains(claim.Sub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
-		!slices.Contains(claim.Sub.Allow, root+".managed-update.prepare") ||
-		!slices.Contains(claim.Sub.Allow, root+".backup.operation") ||
-		!slices.Contains(claim.Sub.Allow, root+".terminal.>") ||
+		!slices.Contains(claim.Sub.Allow, protocol.BrokerClaimApplySubject(cell)) ||
+		!slices.Contains(claim.Sub.Allow, protocol.ManagedUpdatePrepareSubject(cell)) ||
+		!slices.Contains(claim.Sub.Allow, protocol.BackupOperationSubject(cell)) ||
+		!slices.Contains(claim.Sub.Allow, protocol.TerminalSubject(cell, ">")) ||
 		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
 		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
 		claim.Resp.Expires <= 0 || claim.Resp.Expires > 5*time.Second {
@@ -253,11 +283,11 @@ func ValidateBrokerOperatorCredentials(path, cell string) error {
 			return fmt.Errorf("broker operator credentials have unscoped publish %q", grant)
 		}
 	}
-	if !slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".broker.claim.apply") ||
-		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".backup.operation") ||
-		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.plan") ||
-		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.apply") ||
-		!slices.Contains(claim.Pub.Allow, "ts.orch.v1."+cell+".terminal.status") ||
+	if !slices.Contains(claim.Pub.Allow, protocol.BrokerClaimApplySubject(cell)) ||
+		!slices.Contains(claim.Pub.Allow, protocol.BackupOperationSubject(cell)) ||
+		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "plan")) ||
+		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "apply")) ||
+		!slices.Contains(claim.Pub.Allow, protocol.TerminalSubject(cell, "status")) ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.INFO") ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.INFO.TS_CONTROL_LOG") ||
 		!slices.Contains(claim.Pub.Allow, "$JS.API.STREAM.MSG.GET.TS_CONTROL_LOG") ||

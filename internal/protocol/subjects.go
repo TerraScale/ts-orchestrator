@@ -87,11 +87,10 @@ func ObservabilitySubject(region, leaf string) (string, error) {
 // ObservabilityWildcard is the subscribe grant covering every
 // ObservabilitySubject leaf of one region.
 func ObservabilityWildcard(region string) (string, error) {
-	root, err := RegionalRoot(region)
-	if err != nil {
+	if _, err := RegionalRoot(region); err != nil {
 		return "", err
 	}
-	return root + ".obs.>", nil
+	return ObservabilityGrant(region), nil
 }
 
 func AgentCommandSubject(region, nodeID, command string) (string, error) {

@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -73,6 +74,9 @@ type Embedded struct {
 	MembershipCredentialsFile string   `json:"membership_credentials_file,omitempty"`
 	TicketPublicKeyFile       string   `json:"ticket_public_key_file,omitempty"`
 	BrokerIDs                 []string `json:"broker_ids,omitempty"`
+	// InterRegion links this region to peers by leafnode. Nil or disabled
+	// keeps the region fully standalone.
+	InterRegion *InterRegion `json:"interregion,omitempty"`
 }
 
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
@@ -89,6 +93,9 @@ type NKeyGrant struct {
 	PublicKey string `json:"public_key"`
 	Role      string `json:"role"`
 	Node      string `json:"node,omitempty"`
+	// Global adds GlobalControllerPublishes to a controller in the global
+	// home region. It is refused for every other role.
+	Global bool `json:"global,omitempty"`
 }
 
 // Config describes a single regional cell. Lab permits an unauthenticated local
@@ -550,6 +557,9 @@ func (cfg Config) validate() error {
 	}
 	if cfg.Embedded != nil {
 		e := cfg.Embedded
+		if err := e.InterRegion.validate(cfg); err != nil {
+			return err
+		}
 		if !cfg.Lab {
 			seen := make(map[string]struct{}, len(e.BrokerIDs))
 			for _, id := range e.BrokerIDs {
@@ -623,6 +633,11 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		options.AccountResolver = resolver
 		options.DontListen = true
 		options.Cluster.NoAdvertise = true
+		if e.InterRegion.active() {
+			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if cfg.Replicas > 1 {
 		for _, raw := range e.Routes {
@@ -773,31 +788,39 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 }
 
 func inboxPrefix(cell, publicKey string) string {
-	return "ts.orch.v1." + cell + ".inbox." + publicKey
+	return protocol.InboxPrefix(cell, publicKey)
 }
 
 func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 	inbox := inboxPrefix(cell, user.PublicKey) + ".>"
-	root := "ts.orch.v1." + cell
 	permissions := &server.Permissions{Subscribe: &server.SubjectPermission{Allow: []string{inbox}}}
+	if user.Global && user.Role != "controller" {
+		return nil, errors.New("only a controller NATS user may carry global home grants")
+	}
 	switch user.Role {
 	case "host":
 		if !cellName.MatchString(user.Node) {
 			return nil, errors.New("host NATS user needs a valid node identity")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".agent." + user.PublicKey + ".observation.*",
+			protocol.AgentObservation(cell, user.PublicKey, "*"),
 		}}
 	case "controller":
 		if user.Node != "" {
 			return nil, errors.New("controller NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".>", "ts.control." + cell + ".>", "$JS.API.>", "$KV.>", "$O.>",
+			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
+		if user.Global {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
+		}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>", root+".obs.>")
+			ControllerSubscriptions(cell)...)
+		// Read-only member telemetry: every controller answers observability
+		// snapshot requests for its cell.
+		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow, protocol.ObservabilityGrant(cell))
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")

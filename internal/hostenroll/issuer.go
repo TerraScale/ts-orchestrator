@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -111,10 +112,9 @@ func (issuer *Issuer) ValidateAccountScope(raw string) error {
 	}
 	bound, ok := account.SigningKeys.GetScope(public)
 	scope, scoped := bound.(*jwt.UserScope)
-	root := "ts.orch.v1." + issuer.Cell
 	if !ok || !scoped || scope.Role != "host" ||
-		!slices.Equal(scope.Template.Pub.Allow, jwt.StringList{root + ".agent.{{subject()}}.observation.*"}) ||
-		!slices.Equal(scope.Template.Sub.Allow, jwt.StringList{root + ".inbox.{{subject()}}.>"}) ||
+		!slices.Equal(scope.Template.Pub.Allow, jwt.StringList{protocol.AgentObservation(issuer.Cell, protocol.TemplateSubject, "*")}) ||
+		!slices.Equal(scope.Template.Sub.Allow, jwt.StringList{protocol.InboxGrant(issuer.Cell, protocol.TemplateSubject)}) ||
 		len(scope.Template.Pub.Deny) != 0 || len(scope.Template.Sub.Deny) != 0 ||
 		scope.Template.Resp != nil {
 		return errors.New("host NATS delegate lacks the exact user scope")

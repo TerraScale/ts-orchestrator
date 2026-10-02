@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -20,7 +21,7 @@ func (c *Controller) ListDesired(ctx context.Context, role string) ([]Desired, e
 			return nil, err
 		}
 	}
-	prefix := "ts.control." + c.cell + ".host.desired." + c.cell + "."
+	prefix := protocol.Control(c.cell, "host", "desired", c.cell) + "."
 	filter := prefix + ">"
 	if role != "" {
 		filter = prefix + "*." + role

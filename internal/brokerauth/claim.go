@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -80,14 +81,14 @@ func OpenStore(ctx context.Context, js jetstream.JetStream, cell string, fencer 
 		info.Config.MaxAge != 0 || info.Config.Discard != jetstream.DiscardOld ||
 		info.Config.DiscardNewPerSubject || info.Config.AllowRollup ||
 		info.Config.Metadata["terrascale-contract"] != "authority-log-v1" ||
-		len(info.Config.Subjects) != 1 || info.Config.Subjects[0] != "ts.control.*.>" {
+		len(info.Config.Subjects) != 1 || info.Config.Subjects[0] != protocol.ControlStreamSubject() {
 		return nil, errors.New("broker claim control log is not durable and leader-read")
 	}
 	return &Store{js: js, stream: stream, cell: cell, fencer: fencer}, nil
 }
 
 func claimSubject(cell, account string) string {
-	return "ts.control." + cell + ".broker.claim." + account
+	return protocol.Control(cell, "broker", "claim", account)
 }
 
 // DecodeAccountJWT verifies the NATS signature and validates the account key.
