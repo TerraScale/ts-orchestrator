@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
@@ -63,11 +64,14 @@ type Command struct {
 	Path  string
 	Flags map[string]string
 	All   bool
+	// used records the flags a handler read, so a flag no handler serves
+	// (for example a list filter) is never silently dropped.
+	used map[string]bool
 }
 
 // Parse splits CLI arguments into the command path and its flags.
 func Parse(args []string) (Command, error) {
-	command := Command{Flags: map[string]string{}}
+	command := Command{Flags: map[string]string{}, used: map[string]bool{}}
 	var path []string
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -96,8 +100,28 @@ func Parse(args []string) (Command, error) {
 	return command, nil
 }
 
+// value returns a flag's value, or "", and records that it was read.
+func (c Command) value(name string) string {
+	if c.used != nil {
+		c.used[name] = true
+	}
+	return c.Flags[name]
+}
+
+// unused lists the flags no handler read, in sorted order.
+func (c Command) unused() []string {
+	var names []string
+	for name := range c.Flags {
+		if !c.used[name] {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
 func (c Command) flag(name string) (string, error) {
-	value := c.Flags[name]
+	value := c.value(name)
 	if value == "" {
 		return "", fmt.Errorf("OCI %s requires --%s", c.Path, name)
 	}
@@ -106,7 +130,7 @@ func (c Command) flag(name string) (string, error) {
 
 // optional returns a pointer to a present flag value, or nil.
 func (c Command) optional(name string) *string {
-	if value := c.Flags[name]; value != "" {
+	if value := c.value(name); value != "" {
 		return &value
 	}
 	return nil
@@ -176,6 +200,11 @@ func (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, 
 	value, err := handler(ctx, c, command)
 	if err != nil {
 		return nil, true, fmt.Errorf("OCI read failed: %s: %w", command.Path, err)
+	}
+	if unused := command.unused(); len(unused) > 0 {
+		// The read ignored a flag, so its result may be wider than asked
+		// for. Report the command as unsupported rather than answer it.
+		return nil, false, fmt.Errorf("%w: %s with --%s", ErrUnsupported, command.Path, strings.Join(unused, ", --"))
 	}
 	data, err = Render(value)
 	return data, true, err

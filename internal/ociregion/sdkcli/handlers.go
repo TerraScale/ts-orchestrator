@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -266,7 +267,7 @@ func networkDrgAttachmentList(ctx context.Context, c *Client, command Command) (
 		return nil, err
 	}
 	request := core.ListDrgAttachmentsRequest{CompartmentId: &compartment, DrgId: command.optional("drg-id")}
-	if kind := command.Flags["attachment-type"]; kind != "" {
+	if kind := command.value("attachment-type"); kind != "" {
 		request.AttachmentType = core.ListDrgAttachmentsAttachmentTypeEnum(kind)
 	}
 	return pages(command.All, func(page *string) ([]core.DrgAttachment, *string, error) {
@@ -418,7 +419,7 @@ func kmsKeyGet(ctx context.Context, c *Client, command Command) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !strings.HasPrefix(endpoint, "https://") || !strings.Contains(endpoint, ".kms."+c.factory.Region()+".") {
+	if !kmsEndpointInRegion(endpoint, c.factory.Region()) {
 		return nil, fmt.Errorf("KMS management endpoint %q is outside region %s", endpoint, c.factory.Region())
 	}
 	client, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(c.factory.Provider(), endpoint)
@@ -429,6 +430,19 @@ func kmsKeyGet(ctx context.Context, c *Client, command Command) (any, error) {
 	c.pin(&client.BaseClient)
 	response, err := client.GetKey(ctx, keymanagement.GetKeyRequest{KeyId: &id})
 	return response.Key, err
+}
+
+// kmsEndpointInRegion accepts only a bare https origin on the OCI KMS
+// management domain of region, so signed requests never leave it.
+func kmsEndpointInRegion(endpoint, region string) bool {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Port() != "" ||
+		(parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return false
+	}
+	host := parsed.Hostname()
+	prefix, ok := strings.CutSuffix(host, ".kms."+region+".oraclecloud.com")
+	return ok && prefix != "" && !strings.Contains(prefix, ".")
 }
 
 func osNamespaceGet(ctx context.Context, c *Client, _ Command) (any, error) {
@@ -509,11 +523,34 @@ func osObjectVersionList(ctx context.Context, c *Client, command Command) (any, 
 	if err != nil {
 		return nil, err
 	}
+	// The SDK types ListObjectVersions fields as a single enum value and
+	// rejects the comma-separated list the CLI and the API accept, so the
+	// list is set on the query before the request is signed.
+	if fields := command.value("fields"); fields != "" {
+		setQuery(&client.BaseClient, "fields", fields)
+	}
 	return pages(command.All, func(page *string) ([]objectstorage.ObjectVersionSummary, *string, error) {
 		response, err := client.ListObjectVersions(ctx, objectstorage.ListObjectVersionsRequest{NamespaceName: &namespace,
-			BucketName: &bucket, Fields: objectstorage.ListObjectVersionsFieldsEnum(command.Flags["fields"]), Page: page})
+			BucketName: &bucket, Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
+}
+
+// setQuery sets one query parameter on every request the client sends. The
+// SDK runs the interceptor before signing, so the parameter is signed.
+func setQuery(client *common.BaseClient, name, value string) {
+	previous := client.Interceptor
+	client.Interceptor = func(request *http.Request) error {
+		if previous != nil {
+			if err := previous(request); err != nil {
+				return err
+			}
+		}
+		query := request.URL.Query()
+		query.Set(name, value)
+		request.URL.RawQuery = query.Encode()
+		return nil
+	}
 }
 
 // osObjectHead returns the CLI's object head document: the lower-cased

@@ -89,7 +89,7 @@ func init() {
 		"network public-ip list": listIn((*Client).network,
 			func(ctx context.Context, client core.VirtualNetworkClient, compartment string, command Command, page *string) ([]core.PublicIp, *string, error) {
 				response, err := client.ListPublicIps(ctx, core.ListPublicIpsRequest{CompartmentId: &compartment,
-					Scope: core.ListPublicIpsScopeEnum(command.Flags["scope"]), Page: page})
+					Scope: core.ListPublicIpsScopeEnum(command.value("scope")), Page: page})
 				return response.Items, response.OpcNextPage, err
 			}),
 		"lb load-balancer list": listIn((*Client).loadBalancer,
@@ -172,7 +172,7 @@ func osBucketList(ctx context.Context, c *Client, command Command) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	namespace := command.Flags["namespace-name"]
+	namespace := command.value("namespace-name")
 	if namespace == "" {
 		response, err := client.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
 		if err != nil || response.Value == nil {

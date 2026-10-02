@@ -157,11 +157,61 @@ func TestHandlersServeCLIShapedData(t *testing.T) {
 	if _, handled, err := client.Call(ctx, []string{"network", "vcn", "create", "--compartment-id", "c"}); handled || !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("mutation handled=%v err=%v", handled, err)
 	}
+	// A filter the handler does not apply must never widen the answer.
+	if _, handled, err := client.Call(ctx, []string{"network", "vcn", "get", "--vcn-id", "ocid1.vcn.oc1..v",
+		"--lifecycle-state", "AVAILABLE"}); handled || !errors.Is(err, ErrUnsupported) {
+		t.Fatalf("unserved flag handled=%v err=%v", handled, err)
+	}
 	if _, _, err := client.Call(ctx, []string{"network", "vcn", "get", "--vcn-id", "v", "--region", "us-ashburn-1"}); err == nil {
 		t.Fatal("accepted a caller-supplied region flag")
 	}
-	if _, _, err := client.Call(ctx, []string{"kms", "management", "key", "get", "--key-id", "k", "--endpoint", "https://evil.example"}); err == nil {
-		t.Fatal("accepted a KMS endpoint outside the region")
+	for _, endpoint := range []string{
+		"https://evil.example",
+		"https://evil.example/.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://x.kms.sa-saopaulo-1.oraclecloud.com.evil.example",
+		"https://a.b.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://x.kms.sa-saopaulo-1.oraclecloud.com:8443",
+		"http://x-management.kms.sa-saopaulo-1.oraclecloud.com",
+		"https://x-management.kms.eu-frankfurt-1.oraclecloud.com",
+	} {
+		if _, _, err := client.Call(ctx, []string{"kms", "management", "key", "get", "--key-id", "k", "--endpoint", endpoint}); err == nil {
+			t.Fatalf("accepted KMS endpoint %q outside the region", endpoint)
+		}
+	}
+	if !kmsEndpointInRegion("https://vault-management.kms.sa-saopaulo-1.oraclecloud.com", "sa-saopaulo-1") {
+		t.Fatal("rejected the regional KMS management endpoint")
+	}
+}
+
+func TestObjectVersionListSendsTheCLIFieldList(t *testing.T) {
+	var fields []string
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/objectversions") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"code":"NotAuthorizedOrNotFound","message":"missing"}`)
+			return
+		}
+		fields = append(fields, r.URL.Query().Get("fields"))
+		if r.URL.Query().Get("page") == "" {
+			w.Header().Set("opc-next-page", "p2")
+			_, _ = io.WriteString(w, `{"items":[{"name":"a","size":1,"versionId":"v1","storageTier":"Standard"}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"items":[{"name":"a","size":2,"versionId":"v2","isDeleteMarker":true}]}`)
+	})
+	data, handled, err := client.Call(t.Context(), []string{"os", "object", "list-object-versions", "--namespace-name", "n",
+		"--bucket-name", "b", "--fields", "name,size,storageTier,archivalState", "--all"})
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	var versions []map[string]any
+	if err := json.Unmarshal(data, &versions); err != nil || len(versions) != 2 || versions[0]["storage-tier"] != "Standard" ||
+		versions[1]["is-delete-marker"] != true {
+		t.Fatalf("versions=%v err=%v", versions, err)
+	}
+	if len(fields) != 2 || fields[0] != "name,size,storageTier,archivalState" || fields[1] != fields[0] {
+		t.Fatalf("fields query=%q", fields)
 	}
 }
 
