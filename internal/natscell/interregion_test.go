@@ -109,6 +109,17 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 		"import remapped": func(_, cell, _ *jwt.AccountClaims) {
 			cell.Imports[0].LocalSubject = jwt.RenamingSubject(protocol.PlacementApplySubject("gru"))
 		},
+		"import legacy prefix": func(_, cell, _ *jwt.AccountClaims) {
+			cell.Imports[0].To = jwt.Subject(protocol.PlacementApplySubject("gru"))
+		},
+		"cell maps query onto placement": func(_, cell, _ *jwt.AccountClaims) {
+			cell.Mappings = jwt.Mapping{jwt.Subject(protocol.Regional("gru", "query", "admin")): {
+				{Subject: jwt.Subject(protocol.PlacementApplySubject("gru")), Weight: 100},
+			}}
+		},
+		"interregion mapping": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.Mappings = jwt.Mapping{"peer.relay": {{Subject: "ts.orch.v1.sfo.health", Weight: 100}}}
+		},
 		"leaf defaults missing": func(_, _, interregion *jwt.AccountClaims) {
 			interregion.DefaultPermissions = jwt.Permissions{}
 		},

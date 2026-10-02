@@ -326,6 +326,12 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 	if len(system.Imports) != 0 || len(system.Exports) != 0 {
 		return errors.New("interregion requires a system account without imports or exports")
 	}
+	// Account subject mappings apply after a service import is selected, so
+	// a mapping could send contract traffic onto a subject the contract does
+	// not export (for example query.admin onto placement.apply).
+	if len(system.Mappings) != 0 || len(cell.Mappings) != 0 || len(interregion.Mappings) != 0 {
+		return errors.New("interregion requires accounts without subject mappings")
+	}
 	if !sameExports(cell.Exports, c.CellExports()) || !sameImports(cell.Imports, c.CellImports(interregion.Subject)) {
 		return errors.New("cell account interregion exports or imports differ from the contract")
 	}
@@ -386,7 +392,8 @@ func sameImports(actual, expected jwt.Imports) bool {
 	for index := range expected {
 		left, right := actual[index], expected[index]
 		if left == nil || left.Subject != right.Subject || left.Type != right.Type || left.Account != right.Account ||
-			left.LocalSubject != right.LocalSubject || left.Token != "" || left.Share || left.AllowTrace {
+			left.LocalSubject != right.LocalSubject || left.To != right.To || left.Token != "" || left.Share ||
+			left.AllowTrace {
 			return false
 		}
 	}
