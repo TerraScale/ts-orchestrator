@@ -342,7 +342,7 @@ func newRegionalCluster(t *testing.T, ctx context.Context) *regionalCluster {
 			Cell: "lab", Instance: instances[i], Replicas: regionalPeers, Lab: true,
 			Embedded: &natscell.Embedded{
 				Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1", RoutePort: ports[i],
-				Routes: routes, StoreDir: filepath.Join(storeRoot, fmt.Sprintf("node-%d", i)),
+				Routes: natscell.PeerRoutes(routes, routes[i]), StoreDir: filepath.Join(storeRoot, fmt.Sprintf("node-%d", i)),
 			},
 		}
 	}
