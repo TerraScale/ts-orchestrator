@@ -188,7 +188,7 @@ func TestRolloutCompletesThroughCanarySoakAndBatches(t *testing.T) {
 	// A single serving proof never promotes: the soak needs time and reports.
 	at = at.Add(time.Second)
 	record = apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at, 10), At: at})
-	at = at.Add(time.Hour)
+	at = at.Add(20 * time.Minute)
 	record = apply(t, record, Event{Kind: EventTick, At: at})
 	if record.Phase != PhaseCanarySoak {
 		t.Fatalf("one report promoted the canary: %s", record.Phase)
@@ -277,6 +277,14 @@ func TestDeadlinesRollBack(t *testing.T) {
 
 	record = apply(t, record, Event{Kind: EventPrepared, Unit: "ctrl-b", At: at})
 	requireRollingBack(t, apply(t, record, Event{Kind: EventTick, At: deadline}), "serving-proof deadline")
+
+	// One healthy report followed by silence must not stall the soak forever.
+	silent := apply(t, record, Event{Kind: EventHealthy, Unit: "ctrl-b", Health: health(at.Add(time.Second), 10), At: at.Add(time.Second)})
+	soakEnd := deadline.Add(silent.soakDuration())
+	if next := apply(t, silent, Event{Kind: EventTick, At: soakEnd.Add(-time.Second)}); next.Phase != PhaseCanarySoak {
+		t.Fatalf("tick before the soak deadline changed phase: %s", next.Phase)
+	}
+	requireRollingBack(t, apply(t, silent, Event{Kind: EventTick, At: soakEnd}), "soak did not complete")
 
 	record = newRecord(t, controllers(), testPolicy())
 	record = apply(t, record, Event{Kind: EventStart, At: at})

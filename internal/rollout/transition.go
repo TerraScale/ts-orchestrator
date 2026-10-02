@@ -372,7 +372,17 @@ func (record *Record) tick(at time.Time) {
 				}
 			}
 		}
+		wave := record.WaveIndex
 		record.advanceIfSoaked(at)
+		// Every unit that proved itself before the serving-proof deadline
+		// has finished its soak window by deadline+soak. A wave still
+		// soaking then has a unit that stopped reporting (for example a
+		// hung process after one healthy report); it must not hold the
+		// cell's rollout slot forever.
+		if record.Phase.soaking() && record.WaveIndex == wave &&
+			!at.Before(record.PhaseDeadline.Add(record.soakDuration())) {
+			record.startRollback(at, "soak did not complete before its deadline")
+		}
 	case record.Phase == PhaseRollingBack && !at.Before(record.PhaseDeadline):
 		head := record.rollbackHead()
 		if head != "" {

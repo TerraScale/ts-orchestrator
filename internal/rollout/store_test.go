@@ -111,6 +111,11 @@ func TestStoreCommitIsCASFencedAndRecordsKnownBad(t *testing.T) {
 	if _, err := store.Commit(ctx, newRevision, tampered); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("immutable target changed: %v", err)
 	}
+	moved := started.Clone()
+	moved.Cell = "sfo"
+	if _, err := store.Commit(ctx, newRevision, moved); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("immutable cell changed: %v", err)
+	}
 	rebound := started.Clone()
 	rebound.AuthorityEpoch = 8
 	if _, err := store.Commit(ctx, newRevision, rebound); !errors.Is(err, ErrFenced) {

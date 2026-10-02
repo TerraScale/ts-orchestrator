@@ -222,7 +222,7 @@ func (s *Store) Commit(ctx context.Context, revision uint64, next Record) (uint6
 	if current.AuthorityEpoch != next.AuthorityEpoch {
 		return 0, ErrFenced
 	}
-	if current.Kind != next.Kind || current.FromDigest != next.FromDigest || current.ToDigest != next.ToDigest ||
+	if current.Kind != next.Kind || current.Cell != next.Cell || current.FromDigest != next.FromDigest || current.ToDigest != next.ToDigest ||
 		current.PolicyDigest != next.PolicyDigest || !slices.EqualFunc(current.Waves, next.Waves, slices.Equal) ||
 		!current.StartedAt.Equal(next.StartedAt) {
 		return 0, fmt.Errorf("%w: immutable rollout fields changed", ErrInvalid)
