@@ -132,6 +132,11 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 	if err != nil {
 		return nil, err
 	}
+	// The token was read by NewServer from its own config; never let a
+	// different Start config widen a tokenless server onto a network address.
+	if !address.Addr().IsLoopback() && server.token == nil {
+		return nil, errors.New("a non-loopback observability listener requires bearer_token_file")
+	}
 	var tlsConfig *tls.Config
 	if config.TLSCertFile != "" {
 		certificate, err := tls.LoadX509KeyPair(config.TLSCertFile, config.TLSKeyFile)

@@ -106,6 +106,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("start host observability: %w", err)
 	}
+	defer telemetry.close()
 	key, err := readPrivateKey(cfg.Host.IdentityKeyFile)
 	if err != nil {
 		return err

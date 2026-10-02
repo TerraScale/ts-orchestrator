@@ -175,3 +175,18 @@ func TestServerStartServesOnLoopback(t *testing.T) {
 		t.Fatalf("serve result = %v", err)
 	}
 }
+
+// A server built without a token must not be widened onto a private address
+// by a different Start config.
+func TestServerStartRefusesTokenlessNetworkAddress(t *testing.T) {
+	t.Parallel()
+	server, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Start(t.Context(), Config{ListenAddress: "10.0.0.1:9464"}); err == nil ||
+		!strings.Contains(err.Error(), "bearer_token_file") {
+		_ = server.Close()
+		t.Fatalf("Start(tokenless private address) error = %v", err)
+	}
+}

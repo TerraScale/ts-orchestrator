@@ -93,6 +93,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("start controller observability: %w", err)
 	}
+	defer telemetry.close()
 	clockProbe := controllerBrokerClockProbe()
 	clockCheck := controllerClockCheck(clockProbe)
 	if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {

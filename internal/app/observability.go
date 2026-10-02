@@ -174,6 +174,15 @@ func (runtime *runtimeObservability) attachHost(nats *natscell.Runtime, filesyst
 	return nil
 }
 
+// close stops the private listener when the role returns, so a runtime that
+// fails after startup (or an in-process test member) does not keep the port
+// bound until its parent context ends.
+func (runtime *runtimeObservability) close() {
+	if runtime != nil && runtime.server != nil {
+		_ = runtime.server.Close()
+	}
+}
+
 // markStarted flips the startup readiness check once the role is serving.
 func (runtime *runtimeObservability) markStarted() {
 	if runtime != nil {
