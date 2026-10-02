@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -107,6 +109,21 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 		"import remapped": func(_, cell, _ *jwt.AccountClaims) {
 			cell.Imports[0].LocalSubject = jwt.RenamingSubject(protocol.PlacementApplySubject("gru"))
 		},
+		"leaf defaults missing": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.DefaultPermissions = jwt.Permissions{}
+		},
+		"leaf defaults widened": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.DefaultPermissions.Pub.Allow.Add(protocol.PlacementApplySubject("gru"))
+		},
+		"leaf defaults wildcard": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.DefaultPermissions.Sub.Allow.Add(">")
+		},
+		"leaf defaults with deny": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.DefaultPermissions.Pub.Deny.Add("x")
+		},
+		"leaf defaults with responses": func(_, _, interregion *jwt.AccountClaims) {
+			interregion.DefaultPermissions.Resp = &jwt.ResponsePermission{MaxMsgs: 100}
+		},
 	}
 	for name, mutate := range mutations {
 		system, cell, interregion := region.claims(contract, 2)
@@ -114,6 +131,139 @@ func TestInterRegionContractIsExplicitAndExact(t *testing.T) {
 		if err := contract.verify(system, cell, interregion, 2); err == nil {
 			t.Errorf("%s: widened contract verified", name)
 		}
+	}
+}
+
+// TestGlobalMirrorContractExportsNoConsumerCreation pins the home region's
+// JetStream surface: per peer, exactly one fixed delivery subject, the reset
+// verb of that peer's own consumer, and its flow-control replies. No consumer
+// create, stream, account or wildcard JetStream subject is ever exported, and
+// the leaf defaults are the same subjects and nothing else.
+func TestGlobalMirrorContractExportsNoConsumerCreation(t *testing.T) {
+	t.Parallel()
+
+	home := InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru"}
+	spoke := InterRegionContract{Cell: "sfo", Peers: []string{"fra", "gru"}, GlobalHome: "gru"}
+	var homeJS []string
+	for _, export := range home.CellExports() {
+		subject := string(export.Subject)
+		if strings.Contains(subject, "CREATE") || strings.Contains(subject, ".STREAM.") ||
+			strings.HasSuffix(subject, "$JS.API.>") || strings.Contains(subject, "INFO") {
+			t.Errorf("home exports JetStream API %q", subject)
+		}
+		if strings.HasPrefix(subject, "$JS.") {
+			homeJS = append(homeJS, subject)
+		}
+	}
+	wantJS := []string{
+		"$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
+		"$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-fra.*",
+		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
+	}
+	slices.Sort(homeJS)
+	if !slices.Equal(homeJS, wantJS) {
+		t.Fatalf("home JetStream exports = %v, want %v", homeJS, wantJS)
+	}
+	// Peers see the reset verb only under the link prefix.
+	var linked []string
+	for _, imported := range home.InterRegionImports("ACELL") {
+		if imported.LocalSubject != "" {
+			linked = append(linked, string(imported.LocalSubject))
+		}
+	}
+	slices.Sort(linked)
+	if !slices.Equal(linked, []string{
+		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-fra",
+		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+	}) {
+		t.Fatalf("home linked JetStream subjects = %v", linked)
+	}
+	// SFO imports only its own mirror's subjects, never another peer's.
+	var spokeImports []string
+	for _, imported := range spoke.CellImports("AINTER") {
+		spokeImports = append(spokeImports, string(imported.Subject))
+	}
+	for _, want := range []string{
+		"ts.interregion.v1.sfo.global",
+		"ts.interregion.v1.gru.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		"$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
+	} {
+		if !slices.Contains(spokeImports, want) {
+			t.Errorf("spoke lacks mirror import %q in %v", want, spokeImports)
+		}
+	}
+	for _, subject := range spokeImports {
+		if strings.Contains(subject, "global-mirror-fra") || strings.Contains(subject, "fra.global") ||
+			strings.Contains(subject, "CREATE") {
+			t.Errorf("spoke imports %q outside its own mirror", subject)
+		}
+	}
+	// Deny by default: the leaf permissions are link subjects of the roster's
+	// contracts (transit through a spoke included) plus the reply namespace.
+	fra := InterRegionContract{Cell: "fra", Peers: []string{"gru", "sfo"}, GlobalHome: "gru"}
+	var links []string
+	for _, contract := range []InterRegionContract{home, spoke, fra} {
+		for _, flow := range append(contract.inbound(), contract.outbound()...) {
+			links = append(links, flow.linkSubject)
+		}
+	}
+	for name, contract := range map[string]InterRegionContract{"home": home, "spoke": spoke} {
+		permissions := contract.LeafPermissions()
+		if len(permissions.Pub.Deny) != 0 || len(permissions.Sub.Deny) != 0 || permissions.Resp != nil {
+			t.Errorf("%s leaf defaults carry deny or response lists", name)
+		}
+		for _, grant := range append(append(jwt.StringList{}, permissions.Pub.Allow...), permissions.Sub.Allow...) {
+			if grant != leafReplyGrant && !slices.Contains(links, grant) {
+				t.Errorf("%s leaf default %q is not a contract subject", name, grant)
+			}
+			if grant == ">" || strings.HasPrefix(grant, "$JS.API") || strings.Contains(grant, "CREATE") {
+				t.Errorf("%s leaf default %q widens the contract", name, grant)
+			}
+		}
+	}
+	homeDefaults := home.LeafPermissions()
+	if !slices.Contains(homeDefaults.Sub.Allow, "ts.interregion.v1.sfo.global") ||
+		slices.Contains(homeDefaults.Pub.Allow, "ts.interregion.v1.sfo.global") {
+		t.Fatal("a peer may publish onto another peer's mirror feed")
+	}
+	if !slices.Contains(homeDefaults.Pub.Allow, protocol.RegionHealthSubject("sfo")) ||
+		slices.Contains(homeDefaults.Pub.Allow, protocol.RegionHealthSubject("gru")) {
+		t.Fatal("home leaf defaults let a peer impersonate the home health stream")
+	}
+	if slices.Contains(homeDefaults.Sub.Allow, protocol.Regional("gru", "query", ">")) ||
+		slices.Contains(homeDefaults.Sub.Allow, protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"),
+			protocol.GlobalControlStream, protocol.GlobalMirrorConsumer("sfo"))) {
+		t.Fatal("home leaf defaults let a peer take the home's own requests")
+	}
+	// A spoke with a child (FRA dialing SFO) relays FRA's traffic to and from
+	// GRU, but its child can never speak for SFO or GRU, nor feed a mirror.
+	spokeDefaults := spoke.LeafPermissions()
+	ownReset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+		protocol.GlobalMirrorConsumer("sfo"))
+	childReset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
+		protocol.GlobalMirrorConsumer("fra"))
+	for _, denied := range []string{
+		protocol.RegionHealthSubject("sfo"), protocol.RegionHealthSubject("gru"), ownReset,
+		protocol.InterRegionGlobalDeliverSubject("fra"), protocol.InterRegionGlobalDeliverSubject("sfo"),
+	} {
+		if slices.Contains(spokeDefaults.Pub.Allow, denied) {
+			t.Errorf("spoke child may publish %q", denied)
+		}
+	}
+	for _, relayed := range []string{protocol.RegionHealthSubject("fra"), childReset, protocol.Regional("gru", "query", ">")} {
+		if !slices.Contains(spokeDefaults.Pub.Allow, relayed) {
+			t.Errorf("spoke cannot relay %q up from its child", relayed)
+		}
+	}
+	for _, relayed := range []string{protocol.InterRegionGlobalDeliverSubject("fra"), protocol.RegionHealthSubject("gru"), protocol.Regional("fra", "query", ">")} {
+		if !slices.Contains(spokeDefaults.Sub.Allow, relayed) {
+			t.Errorf("spoke cannot relay %q down to its child", relayed)
+		}
+	}
+	if slices.Contains(spokeDefaults.Sub.Allow, protocol.InterRegionGlobalDeliverSubject("sfo")) ||
+		slices.Contains(spokeDefaults.Sub.Allow, protocol.Regional("sfo", "query", ">")) {
+		t.Error("spoke hands its own feed or requests to a child")
 	}
 }
 
@@ -237,24 +387,19 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	requestCancel()
 
 	// The home region's global stream is mirrored read-only into the spoke
-	// through the contract's consumer-create, flow-control and delivery
-	// subjects only.
-	home, err := gruRuntime.JetStream().CreateStream(ctx, jetstream.StreamConfig{
-		Name: protocol.GlobalControlStream, Subjects: []string{protocol.GlobalStateStreamSubject()},
-		Storage: jetstream.FileStorage, DenyDelete: true, DenyPurge: true,
-	})
+	// through the durable consumer GRU created for SFO: only its fixed
+	// delivery subject, its reset verb and its flow-control replies cross.
+	home, err := gruRuntime.JetStream().CreateStream(ctx, globalcontrol.HomeStreamConfig(1))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := home.CreatePushConsumer(ctx, globalcontrol.MirrorConsumerConfig("sfo", 1)); err != nil {
+		t.Fatalf("home mirror consumer: %v", err)
 	}
 	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r1")); err != nil {
 		t.Fatal(err)
 	}
-	mirror, err := sfoRuntime.JetStream().CreateStream(ctx, jetstream.StreamConfig{
-		Name: protocol.GlobalControlStream, Storage: jetstream.FileStorage, DenyDelete: true, DenyPurge: true,
-		Mirror: &jetstream.StreamSource{Name: protocol.GlobalControlStream, External: &jetstream.ExternalStream{
-			APIPrefix: protocol.InterRegionJSAPIPrefix("gru"), DeliverPrefix: protocol.InterRegionGlobalDeliverPrefix("sfo"),
-		}},
-	})
+	mirror, err := sfoRuntime.JetStream().CreateStream(ctx, globalcontrol.MirrorStreamConfig("gru", "sfo", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,20 +407,8 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	if _, err := sfoRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("forged")); err == nil {
 		t.Fatal("spoke wrote into the read-only global mirror")
 	}
-	// The linked API prefix serves only consumer creation on the global
-	// stream; stream info, publishing and every other home stream stay local.
-	linked, err := jetstream.NewWithAPIPrefix(sfoRuntime.Conn(), protocol.InterRegionJSAPIPrefix("gru"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	probeCtx, probeCancel := context.WithTimeout(ctx, time.Second)
-	if _, err := linked.Stream(probeCtx, protocol.GlobalControlStream); err == nil {
-		t.Fatal("spoke read home stream info through the linked API prefix")
-	}
-	if _, err := linked.AccountInfo(probeCtx); err == nil {
-		t.Fatal("spoke reached the home account API through the linked prefix")
-	}
-	probeCancel()
+	assertPeerCannotSteerHomeDelivery(ctx, t, sfoRuntime.Conn(), home, gruCommands)
+	assertRawLeafPeerIsDenyByDefault(ctx, t, gru, gruRuntime.Conn(), sfoRuntime.Conn(), home, proxy.Addr(), leafTLS, gruCommands)
 
 	// A leaf user of GRU's cell account is refused: the cell account allows
 	// no leafnode connections, so only the interregion account is linkable.
@@ -526,6 +659,34 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 func (region *testRegion) leafCredentials(t *testing.T, name string) string {
 	t.Helper()
 	return region.leafCredentialsFor(t, name, region.interregion, region.interregionID)
+}
+
+// leafCredentialsWith issues a leafnode-only user after mutate adjusts its
+// claims, so tests can prove permission-carrying leaf users are refused.
+func (region *testRegion) leafCredentialsWith(t *testing.T, name string, account nkeys.KeyPair, accountID string,
+	mutate func(*jwt.UserClaims),
+) string {
+	t.Helper()
+	user, _ := nkeys.CreateUser()
+	userID, _ := user.PublicKey()
+	claim := jwt.NewUserClaims(userID)
+	claim.IssuerAccount = accountID
+	claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
+	mutate(claim)
+	raw, err := claim.Encode(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, _ := user.Seed()
+	creds, err := jwt.FormatUserConfig(raw, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, creds, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // leafCredentialsFor issues a leafnode-only user of any account in this

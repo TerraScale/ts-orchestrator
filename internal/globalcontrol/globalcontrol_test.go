@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -97,7 +98,9 @@ func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 	config := MirrorStreamConfig("gru", "sfo", 3)
 	if len(config.Subjects) != 0 || config.Mirror == nil ||
 		config.Mirror.External.APIPrefix != "ts.interregion.v1.gru.jsapi" ||
-		config.Mirror.External.DeliverPrefix != "ts.interregion.v1.sfo.global" {
+		config.Mirror.External.DeliverPrefix != "" || config.Mirror.Consumer == nil ||
+		config.Mirror.Consumer.Name != "global-mirror-sfo" ||
+		config.Mirror.Consumer.DeliverSubject != "ts.interregion.v1.sfo.global" {
 		t.Fatalf("mirror config = %+v", config)
 	}
 	if err := verifyMirror(config, "gru", "sfo", 3); err != nil {
@@ -112,7 +115,14 @@ func TestMirrorConfigIsReadOnlyAndPinnedToHome(t *testing.T) {
 	tampered := []func(*jetstream.StreamConfig){
 		func(c *jetstream.StreamConfig) { c.Subjects = []string{protocol.GlobalStateStreamSubject()} },
 		func(c *jetstream.StreamConfig) { c.Mirror.External.APIPrefix = "$JS.gru.API" },
-		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.fra.global" },
+		func(c *jetstream.StreamConfig) { c.Mirror.External.DeliverPrefix = "ts.interregion.v1.sfo.global" },
+		func(c *jetstream.StreamConfig) { c.Mirror.Consumer = nil },
+		func(c *jetstream.StreamConfig) {
+			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-fra", DeliverSubject: "ts.interregion.v1.sfo.global"}
+		},
+		func(c *jetstream.StreamConfig) {
+			c.Mirror.Consumer = &jetstream.StreamConsumerSource{Name: "global-mirror-sfo", DeliverSubject: "ts.orch.v1.sfo.placement.apply"}
+		},
 		func(c *jetstream.StreamConfig) { c.Mirror.FilterSubject = "ts.global.v1.roster.>" },
 		func(c *jetstream.StreamConfig) { c.DenyPurge = false },
 		func(c *jetstream.StreamConfig) {
@@ -137,13 +147,23 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 	js := newTestJetStream(t)
 	global := startAuthority(ctx, t, js, protocol.GlobalScope)
 	regional := startAuthority(ctx, t, js, "gru")
-	if _, err := OpenHome(ctx, js, "gru", 1, regional); err == nil {
+	if _, err := OpenHome(ctx, js, "gru", nil, 1, regional); err == nil {
 		t.Fatal("regional authority opened the global writer")
 	}
-	writer, err := OpenHome(ctx, js, "gru", 1, global)
+	for _, peers := range [][]string{{"gru"}, {"global"}, {"S.FO"}} {
+		if _, err := OpenHome(ctx, js, "gru", peers, 1, global); err == nil {
+			t.Fatalf("home accepted mirror peers %v", peers)
+		}
+	}
+	writer, err := OpenHome(ctx, js, "gru", []string{"fra", "sfo"}, 1, global)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Reopening is idempotent and keeps exactly one contract consumer per peer.
+	if _, err := OpenHome(ctx, js, "gru", []string{"fra", "sfo"}, 1, global); err != nil {
+		t.Fatalf("reopen home: %v", err)
+	}
+	assertMirrorConsumers(ctx, t, js, []string{"fra", "sfo"})
 	epoch := global.Current().Epoch
 	entry := DirectoryEntry{DatabaseID: "db-1", PartitionID: "p0", HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
 	if _, err := writer.PutDirectory(ctx, epoch, entry); !errors.Is(err, ErrRosterRequired) {
@@ -205,6 +225,60 @@ func TestHomeWriterGuardsAndCompareAndSets(t *testing.T) {
 	}
 	if err := stream.Purge(ctx); err == nil {
 		t.Fatal("global stream allowed purge")
+	}
+}
+
+func assertMirrorConsumers(ctx context.Context, t *testing.T, js jetstream.JetStream, peers []string) {
+	t.Helper()
+	stream, err := js.Stream(ctx, StreamName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	lister := stream.ConsumerNames(ctx)
+	for name := range lister.Name() {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	var want []string
+	for _, peer := range peers {
+		want = append(want, protocol.GlobalMirrorConsumer(peer))
+		consumer, err := stream.PushConsumer(ctx, protocol.GlobalMirrorConsumer(peer))
+		if err != nil {
+			t.Fatal(err)
+		}
+		config := consumer.CachedInfo().Config
+		if config.DeliverSubject != protocol.InterRegionGlobalDeliverSubject(peer) ||
+			config.AckPolicy != jetstream.AckFlowControlPolicy || !config.FlowControl {
+			t.Fatalf("%s mirror consumer = %+v", peer, config)
+		}
+	}
+	if !slices.Equal(names, want) {
+		t.Fatalf("home consumers = %v, want %v", names, want)
+	}
+}
+
+// TestHomeRefusesADriftedMirrorConsumer: a consumer that already exists under
+// a peer's contract name but delivers elsewhere is never adopted.
+func TestHomeRefusesADriftedMirrorConsumer(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	js := newTestJetStream(t)
+	global := startAuthority(ctx, t, js, protocol.GlobalScope)
+	stream, err := js.CreateStream(ctx, HomeStreamConfig(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	drifted := MirrorConsumerConfig("sfo", 1)
+	drifted.DeliverSubject = protocol.PlacementApplySubject("gru")
+	if _, err := stream.CreatePushConsumer(ctx, drifted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenHome(ctx, js, "gru", []string{"sfo"}, 1, global); err == nil {
+		t.Fatal("home adopted a mirror consumer delivering outside the contract")
+	}
+	if err := verifyMirrorConsumer(MirrorConsumerConfig("sfo", 1), "fra", 1); err == nil {
+		t.Fatal("one peer's consumer verified as another's")
 	}
 }
 

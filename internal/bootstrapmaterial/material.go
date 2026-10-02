@@ -63,6 +63,12 @@ type Config struct {
 	SubnetCIDR    string `json:"subnetCidr"`
 	Slots         []Slot `json:"slots"`
 	ValidityHours int    `json:"validityHours"`
+	// GlobalHome issues the controller credentials of the global home region:
+	// they also publish the global authority and global state subjects
+	// (natscell.GlobalControllerPublishes). Every other region leaves it off.
+	// Material is immutable, so turning it on means issuing new material and
+	// rotating the controllers onto it before enabling controller.global.
+	GlobalHome bool `json:"globalHome,omitempty"`
 }
 
 type File struct {
@@ -272,7 +278,8 @@ func Load(directory string) (Record, error) {
 
 func sameConfig(a, b Config) bool {
 	return a.Environment == b.Environment && a.Region == b.Region && a.Cell == b.Cell && a.DeploymentID == b.DeploymentID && a.ClusterID == b.ClusterID &&
-		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots)
+		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots) &&
+		a.GlobalHome == b.GlobalHome
 }
 
 func expectedNames() []string {
@@ -454,6 +461,9 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim.IssuedAt, claim.Expires = now.Unix(), expires.Unix()
 		claim.Pub.Allow = jwt.StringList{protocol.Regional(cfg.Cell, ">"), protocol.Control(cfg.Cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", ">")}
+		if cfg.GlobalHome {
+			claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		}
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
 		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}

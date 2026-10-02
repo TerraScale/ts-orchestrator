@@ -106,11 +106,19 @@ type Writer struct {
 	js     jetstream.JetStream
 }
 
-// OpenHome creates or verifies the writable home stream. cell must equal the
-// roster home; fencer must be the global-scope authority runtime.
-func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, replicas int, fencer authority.Fencer) (*Writer, error) {
+// OpenHome creates or verifies the writable home stream and the durable
+// mirror consumer of every peer that mirrors it. cell must equal the roster
+// home; fencer must be the global-scope authority runtime.
+func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []string, replicas int,
+	fencer authority.Fencer,
+) (*Writer, error) {
 	if !cellToken.MatchString(cell) {
 		return nil, errors.New("global home cell is invalid")
+	}
+	for _, peer := range peers {
+		if !cellToken.MatchString(peer) || peer == protocol.GlobalScope || peer == cell {
+			return nil, fmt.Errorf("global mirror peer %q is invalid", peer)
+		}
 	}
 	if fencer == nil || fencer.Current().Scope != protocol.GlobalScope {
 		return nil, errors.New("global writes require the global-scope authority")
@@ -119,6 +127,9 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, replicas
 		return verifyHome(actual, replicas)
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := ensureMirrorConsumers(ctx, stream, peers, replicas); err != nil {
 		return nil, err
 	}
 	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js}, nil

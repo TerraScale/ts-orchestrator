@@ -20,8 +20,8 @@ const (
 	// TemplateSubject is the NATS JWT user-scope template for the
 	// authenticated user's public key.
 	TemplateSubject = "{{subject()}}"
-	// InterRegionRoot prefixes subjects that exist only to carry JetStream
-	// mirroring across an interregion leafnode.
+	// InterRegionRoot prefixes subjects that exist only to carry the global
+	// stream mirror across an interregion leafnode.
 	InterRegionRoot = "ts.interregion.v1"
 	// GlobalControlStream is the home region's global state stream and the
 	// name of its read-only mirror in every other region.
@@ -30,17 +30,29 @@ const (
 	JSLocalAPIPrefix = "$JS.API"
 )
 
-// JSConsumerCreateSubject is the consumer-create API subject for one stream
-// under an API prefix; the extended form appends ".<consumer>[.<filter>]".
-func JSConsumerCreateSubject(apiPrefix, stream string) string {
-	return apiPrefix + ".CONSUMER.CREATE." + stream
+// JSConsumerResetSubject is the reset API subject of one named consumer under
+// an API prefix. It is the only JetStream API verb a durable-sourced mirror
+// sends: it rewinds that one consumer to its ack floor and cannot change where
+// the consumer delivers. Any empty part yields "", which NATS rejects.
+func JSConsumerResetSubject(apiPrefix, stream, consumer string) string {
+	if apiPrefix == "" || stream == "" || consumer == "" {
+		return ""
+	}
+	return apiPrefix + ".CONSUMER.RESET." + stream + "." + consumer
 }
 
-// JSFlowControlSubject matches flow-control replies of consumers on stream.
-func JSFlowControlSubject(stream string) string { return "$JS.FC." + stream + ".>" }
+// JSFlowControlSubject matches the flow-control replies of one consumer on
+// stream; with the flow-control ack policy these replies are also its acks.
+func JSFlowControlSubject(stream, consumer string) string {
+	if stream == "" || consumer == "" {
+		return ""
+	}
+	return "$JS.FC." + stream + "." + consumer + ".*"
+}
 
 // InterRegionJSAPIPrefix is the external JetStream API prefix under which a
-// home region exposes its global stream to mirrors over a leafnode.
+// home region exposes the reset verb of its global mirror consumers to peers
+// over a leafnode. Nothing else is reachable beneath it.
 func InterRegionJSAPIPrefix(home string) string {
 	token, err := RegionToken(home)
 	if err != nil || token == GlobalScope {
@@ -49,14 +61,25 @@ func InterRegionJSAPIPrefix(home string) string {
 	return InterRegionRoot + "." + token + ".jsapi"
 }
 
-// InterRegionGlobalDeliverPrefix is the delivery prefix of cell's mirror of
-// the global stream; the home region publishes mirror messages beneath it.
-func InterRegionGlobalDeliverPrefix(cell string) string {
+// InterRegionGlobalDeliverSubject is the fixed delivery subject of cell's
+// durable mirror consumer on the home region's global stream. The home region
+// sets it when it creates the consumer; a peer can never choose it.
+func InterRegionGlobalDeliverSubject(cell string) string {
 	token, err := RegionToken(cell)
 	if err != nil || token == GlobalScope {
 		return ""
 	}
 	return InterRegionRoot + "." + token + ".global"
+}
+
+// GlobalMirrorConsumer is the durable consumer on the home region's global
+// stream that feeds cell's read-only mirror.
+func GlobalMirrorConsumer(cell string) string {
+	token, err := RegionToken(cell)
+	if err != nil || token == GlobalScope {
+		return ""
+	}
+	return "global-mirror-" + token
 }
 
 // Well-known regional verbs below the regional root.

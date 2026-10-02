@@ -81,6 +81,19 @@ func TestLeafCredentialsMustBeLeafOnlyPeerUsers(t *testing.T) {
 	if err := validateLeafCredentials(standard, region.interregionID); err == nil {
 		t.Fatal("non-leaf user accepted as leaf credentials")
 	}
+	// A leaf user with permissions of its own would override the peer
+	// account's deny-by-default contract permissions.
+	for name, mutate := range map[string]func(*jwt.UserClaims){
+		"publish allow":   func(claim *jwt.UserClaims) { claim.Pub.Allow.Add(">") },
+		"subscribe allow": func(claim *jwt.UserClaims) { claim.Sub.Allow.Add(">") },
+		"publish deny":    func(claim *jwt.UserClaims) { claim.Pub.Deny.Add("x") },
+		"responses":       func(claim *jwt.UserClaims) { claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1} },
+	} {
+		path := region.leafCredentialsWith(t, name+".creds", region.interregion, region.interregionID, mutate)
+		if err := validateLeafCredentials(path, region.interregionID); err == nil {
+			t.Errorf("%s: leaf credentials overriding the contract defaults accepted", name)
+		}
+	}
 }
 
 func TestResolverRefusesCellClaimThatWidensInterRegionContract(t *testing.T) {

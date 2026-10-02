@@ -85,6 +85,9 @@ type NKeyGrant struct {
 	PublicKey string `json:"public_key"`
 	Role      string `json:"role"`
 	Node      string `json:"node,omitempty"`
+	// Global adds GlobalControllerPublishes to a controller in the global
+	// home region. It is refused for every other role.
+	Global bool `json:"global,omitempty"`
 }
 
 // Config describes a single regional cell. Lab permits an unauthenticated local
@@ -752,6 +755,9 @@ func inboxPrefix(cell, publicKey string) string {
 func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 	inbox := inboxPrefix(cell, user.PublicKey) + ".>"
 	permissions := &server.Permissions{Subscribe: &server.SubjectPermission{Allow: []string{inbox}}}
+	if user.Global && user.Role != "controller" {
+		return nil, errors.New("only a controller NATS user may carry global home grants")
+	}
 	switch user.Role {
 	case "host":
 		if !cellName.MatchString(user.Node) {
@@ -768,6 +774,9 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
+		if user.Global {
+			permissions.Publish.Allow = append(permissions.Publish.Allow, GlobalControllerPublishes()...)
+		}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
 			ControllerSubscriptions(cell)...)
 	case "operator":

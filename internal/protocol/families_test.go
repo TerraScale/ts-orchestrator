@@ -46,6 +46,11 @@ func TestSubjectFamiliesKeepWireFormat(t *testing.T) {
 		GlobalState("directory", "db-1"):              "ts.global.v1.directory.db-1",
 		GlobalStateStreamSubject():                    "ts.global.v1.>",
 		GlobalControlRequest("directory-put"):         "ts.orch.v1.global.control.directory-put",
+		InterRegionJSAPIPrefix("gru"):                 "ts.interregion.v1.gru.jsapi",
+		InterRegionGlobalDeliverSubject("sfo"):        "ts.interregion.v1.sfo.global",
+		GlobalMirrorConsumer("SFO"):                   "global-mirror-sfo",
+		JSConsumerResetSubject(JSLocalAPIPrefix, GlobalControlStream, "global-mirror-sfo"): "$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-sfo",
+		JSFlowControlSubject(GlobalControlStream, "global-mirror-sfo"):                     "$JS.FC.TS_GLOBAL_CONTROL.global-mirror-sfo.*",
 	}
 	for got, want := range cases {
 		if got != want {
@@ -71,6 +76,13 @@ func TestSubjectFamiliesFailClosed(t *testing.T) {
 		"empty token":          TerminalSubject("gru", ""),
 		"empty inner token":    Regional("gru", "a..b"),
 		"bad global action":    GlobalControlRequest(">"),
+		"global mirror scope":  GlobalMirrorConsumer("global"),
+		"global deliver scope": InterRegionGlobalDeliverSubject("global"),
+		"bad deliver cell":     InterRegionGlobalDeliverSubject("s.fo"),
+		"bad api home":         InterRegionJSAPIPrefix("g>"),
+		"reset of no consumer": JSConsumerResetSubject(JSLocalAPIPrefix, GlobalControlStream, GlobalMirrorConsumer("x.y")),
+		"reset without prefix": JSConsumerResetSubject(InterRegionJSAPIPrefix("global"), GlobalControlStream, "c"),
+		"fc of no consumer":    JSFlowControlSubject(GlobalControlStream, ""),
 	} {
 		if subject != "" {
 			t.Errorf("%s: subject = %q, want fail-closed empty subject", name, subject)

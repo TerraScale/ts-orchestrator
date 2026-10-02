@@ -37,8 +37,9 @@ type InterRegion struct {
 	Listen         *LeafListen  `json:"listen,omitempty"`
 	Remotes        []LeafRemote `json:"remotes,omitempty"`
 	// GlobalHome is the region that owns TS_GLOBAL_CONTROL. When set, the
-	// contract carries that stream's mirror subjects and nothing else of
-	// JetStream. It must be this cell or a roster peer.
+	// contract carries the subjects of one home-created durable mirror
+	// consumer per peer and nothing else of JetStream. It must be this cell
+	// or a roster peer.
 	GlobalHome string `json:"global_home,omitempty"`
 }
 
@@ -60,6 +61,10 @@ type LeafRemote struct {
 	PeerAccount     string   `json:"peer_account"`
 	TLS             TLSFiles `json:"tls"`
 }
+
+// leafReplyGrant is the service-import reply namespace. NATS maps the reply
+// subject of every request that crosses an account service import into it.
+const leafReplyGrant = "_R_.>"
 
 // maxLeafConnectionsPerLink bounds leaf connections per linked region; every
 // broker of an R5 child cluster opens its own connection.
@@ -119,10 +124,17 @@ func (ir *InterRegion) validate(cfg Config) error {
 
 // InterRegionContract is the complete subject contract between a region's
 // cell account and its interregion account. Peers must exclude Cell.
-// GlobalHome, when set, adds the minimal JetStream subjects that let every
-// other region mirror the home region's TS_GLOBAL_CONTROL stream read-only:
-// consumer creation for that one stream, its flow control, and one
-// per-region delivery prefix. No other JetStream API crosses a link.
+//
+// GlobalHome, when set, adds what a read-only mirror of the home region's
+// TS_GLOBAL_CONTROL stream needs, and nothing more. The home region creates
+// one durable consumer per peer itself, with a fixed delivery subject under
+// that peer's contract prefix, and each peer mirrors through that consumer
+// (durable sourcing). Per peer only three subjects cross: the fixed delivery
+// subject, the reset verb of that one consumer (remapped under the link API
+// prefix), and that consumer's flow-control replies, which are also its acks.
+// No consumer-create, stream or account API is exported, so a peer can never
+// pick a delivery subject: the probe that made GRU deliver global records onto
+// its own placement subject has nothing to call.
 type InterRegionContract struct {
 	Cell       string
 	Peers      []string
@@ -131,8 +143,8 @@ type InterRegionContract struct {
 
 // contractFlow is one subject that crosses between the two accounts. The cell
 // side uses cellSubject; the interregion side uses linkSubject, which differs
-// only for the home region's JetStream API, remapped under a link prefix so
-// peers never address the raw JetStream API namespace.
+// only for the home region's consumer-reset verb, remapped under a link prefix
+// so peers never address the raw JetStream API namespace.
 type contractFlow struct {
 	kind        jwt.ExportType
 	cellSubject string
@@ -143,6 +155,20 @@ func sameFlow(kind jwt.ExportType, subject string) contractFlow {
 	return contractFlow{kind: kind, cellSubject: subject, linkSubject: subject}
 }
 
+// globalMirrorFlows are the home-side subjects of peer's global mirror.
+func globalMirrorFlows(home, peer string) []contractFlow {
+	consumer := protocol.GlobalMirrorConsumer(peer)
+	return []contractFlow{
+		sameFlow(jwt.Stream, protocol.InterRegionGlobalDeliverSubject(peer)),
+		{
+			kind:        jwt.Service,
+			cellSubject: protocol.JSConsumerResetSubject(protocol.JSLocalAPIPrefix, protocol.GlobalControlStream, consumer),
+			linkSubject: protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix(home), protocol.GlobalControlStream, consumer),
+		},
+		sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream, consumer)),
+	}
+}
+
 // outbound flows are exported by the cell account and imported by the
 // interregion account: what this region offers to its peers.
 func (c InterRegionContract) outbound() []contractFlow {
@@ -151,14 +177,8 @@ func (c InterRegionContract) outbound() []contractFlow {
 		sameFlow(jwt.Service, protocol.Regional(c.Cell, "query", ">")),
 	}
 	if c.GlobalHome == c.Cell {
-		create := protocol.JSConsumerCreateSubject(protocol.JSLocalAPIPrefix, protocol.GlobalControlStream)
-		linked := protocol.JSConsumerCreateSubject(protocol.InterRegionJSAPIPrefix(c.Cell), protocol.GlobalControlStream)
-		flows = append(flows,
-			contractFlow{kind: jwt.Service, cellSubject: create, linkSubject: linked},
-			contractFlow{kind: jwt.Service, cellSubject: create + ".>", linkSubject: linked + ".>"},
-			sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream)))
 		for _, peer := range c.Peers {
-			flows = append(flows, sameFlow(jwt.Stream, protocol.InterRegionGlobalDeliverPrefix(peer)+".>"))
+			flows = append(flows, globalMirrorFlows(c.Cell, peer)...)
 		}
 	}
 	return flows
@@ -174,13 +194,57 @@ func (c InterRegionContract) inbound() []contractFlow {
 			sameFlow(jwt.Service, protocol.Regional(peer, "query", ">")))
 	}
 	if c.GlobalHome != "" && c.GlobalHome != c.Cell {
-		create := protocol.JSConsumerCreateSubject(protocol.InterRegionJSAPIPrefix(c.GlobalHome), protocol.GlobalControlStream)
-		flows = append(flows,
-			sameFlow(jwt.Service, create), sameFlow(jwt.Service, create+".>"),
-			sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream)),
-			sameFlow(jwt.Stream, protocol.InterRegionGlobalDeliverPrefix(c.Cell)+".>"))
+		// A mirror addresses the home region only by the link subjects.
+		for _, flow := range globalMirrorFlows(c.GlobalHome, c.Cell) {
+			flows = append(flows, sameFlow(flow.kind, flow.linkSubject))
+		}
 	}
 	return flows
+}
+
+// LeafPermissions is the deny-by-default permission set of every leaf user of
+// this region's interregion account, installed as that account's default
+// permissions. NATS reads leaf user permissions from the remote's point of
+// view: Pub is what a connected peer may send into this region, Sub is what
+// this region may send to it.
+//
+// Only accepted leafs use these permissions, and in the leaf tree, rooted at
+// the global home which never dials, an accepted leaf is always a child of
+// this region. So each contract subject is allowed only in the direction it
+// legitimately travels from a child, including transit for regions further
+// down: a child may send its subtree's health, requests to any region's query
+// service, and its subtree's mirror resets and flow-control acks; it may
+// receive any health, requests for its subtree's query services, and its
+// subtree's mirror feeds. Neither this region nor the global home is ever in
+// a child's subtree, so a child can never speak for either, and it can never
+// send a mirror feed: that would forge another region's copy of global state.
+// Replies cross only on the service-import reply namespace "_R_", which NATS
+// creates per request for the contract's service imports and already exempts
+// from leaf publish checks. The hub closes a link that sends anything else.
+func (c InterRegionContract) LeafPermissions() jwt.Permissions {
+	var permissions jwt.Permissions
+	for _, region := range append([]string{c.Cell}, c.Peers...) {
+		permissions.Sub.Allow.Add(protocol.RegionHealthSubject(region))
+		permissions.Pub.Allow.Add(protocol.Regional(region, "query", ">"))
+		if region == c.Cell || region == c.GlobalHome {
+			continue
+		}
+		permissions.Pub.Allow.Add(protocol.RegionHealthSubject(region))
+		permissions.Sub.Allow.Add(protocol.Regional(region, "query", ">"))
+		if c.GlobalHome == "" {
+			continue
+		}
+		for _, flow := range globalMirrorFlows(c.GlobalHome, region) {
+			if flow.kind == jwt.Stream {
+				permissions.Sub.Allow.Add(flow.linkSubject)
+			} else {
+				permissions.Pub.Allow.Add(flow.linkSubject)
+			}
+		}
+	}
+	permissions.Pub.Allow.Add(leafReplyGrant)
+	permissions.Sub.Allow.Add(leafReplyGrant)
+	return permissions
 }
 
 // CellExports is what the cell account offers to its interregion account.
@@ -233,11 +297,13 @@ func (c InterRegionContract) ApplyCell(claim *jwt.AccountClaims, interregionAcco
 	claim.Limits.LeafNodeConn = 0
 }
 
-// ApplyInterRegion sets the interregion account's exports, imports and limits.
-// It never holds JetStream state of its own.
+// ApplyInterRegion sets the interregion account's exports, imports, its
+// deny-by-default leaf user permissions and limits. It never holds JetStream
+// state of its own.
 func (c InterRegionContract) ApplyInterRegion(claim *jwt.AccountClaims, cellAccount string, links int) {
 	claim.Exports = c.InterRegionExports()
 	claim.Imports = c.InterRegionImports(cellAccount)
+	claim.DefaultPermissions = c.LeafPermissions()
 	claim.Limits.LeafNodeConn = int64(links * maxLeafConnectionsPerLink)
 	claim.Limits.JetStreamLimits = jwt.JetStreamLimits{}
 	claim.Limits.JetStreamTieredLimits = nil
@@ -245,7 +311,8 @@ func (c InterRegionContract) ApplyInterRegion(claim *jwt.AccountClaims, cellAcco
 
 // verify requires the installed claims to match the contract exactly, the
 // system and cell accounts to refuse leafnodes, and the interregion account
-// to be JetStream-free. Any extra export or import is a widened boundary.
+// to be JetStream-free with deny-by-default leaf permissions. Any extra
+// export, import or permission is a widened boundary.
 func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims, links int) error {
 	if system.Limits.LeafNodeConn != 0 || cell.Limits.LeafNodeConn != 0 {
 		return errors.New("interregion requires the system and cell accounts to deny leafnode connections")
@@ -260,11 +327,24 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 		!sameImports(interregion.Imports, c.InterRegionImports(cell.Subject)) {
 		return errors.New("interregion account exports or imports differ from the contract")
 	}
+	if !samePermissions(interregion.DefaultPermissions, c.LeafPermissions()) {
+		return errors.New("interregion account default leaf permissions differ from the contract")
+	}
 	if interregion.Limits.LeafNodeConn <= 0 || interregion.Limits.LeafNodeConn > int64(links*maxLeafConnectionsPerLink) ||
 		interregion.Limits.IsJSEnabled() || len(interregion.SigningKeys) != 0 {
 		return errors.New("interregion account limits are not bounded to its leaf links")
 	}
 	return nil
+}
+
+// samePermissions compares allow lists as sets and requires no deny lists:
+// the allow lists already deny everything else.
+func samePermissions(actual, expected jwt.Permissions) bool {
+	sameSet := func(left, right jwt.StringList) bool {
+		return len(left) == len(right) && slices.Equal(slices.Sorted(slices.Values(left)), slices.Sorted(slices.Values(right)))
+	}
+	return sameSet(actual.Pub.Allow, expected.Pub.Allow) && sameSet(actual.Sub.Allow, expected.Sub.Allow) &&
+		len(actual.Pub.Deny) == 0 && len(actual.Sub.Deny) == 0 && actual.Resp == nil && expected.Resp == nil
 }
 
 // sameExports compares as sets; account JWT encoding sorts exports.
@@ -376,7 +456,9 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 }
 
 // validateLeafCredentials requires a leaf-only user of the pinned peer
-// interregion account. The peer's server verifies the operator chain.
+// interregion account without permissions of its own, so the peer account's
+// deny-by-default contract permissions are the ones that apply. The peer's
+// server verifies the operator chain.
 func validateLeafCredentials(path, peerAccount string) error {
 	data, err := readPrivateFile(path, 64<<10)
 	if err != nil {
@@ -394,6 +476,10 @@ func validateLeafCredentials(path, peerAccount string) error {
 	if credentialAccount(claim) != peerAccount || claim.BearerToken ||
 		len(claim.AllowedConnectionTypes) != 1 || !claim.AllowedConnectionTypes.Contains(jwt.ConnectionTypeLeafnode) {
 		return errors.New("leaf credentials must be a leafnode-only user of the pinned peer interregion account")
+	}
+	if len(claim.Pub.Allow) != 0 || len(claim.Pub.Deny) != 0 || len(claim.Sub.Allow) != 0 ||
+		len(claim.Sub.Deny) != 0 || claim.Resp != nil {
+		return errors.New("leaf credentials must not carry permissions that override the contract defaults")
 	}
 	return nil
 }

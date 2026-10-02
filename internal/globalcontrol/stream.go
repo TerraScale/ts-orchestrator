@@ -16,6 +16,11 @@ const (
 	StreamName = protocol.GlobalControlStream
 	contract   = "global-control-v1"
 	apiTimeout = 5 * time.Second
+	// mirrorHeartbeat is the only heartbeat the flow-control ack policy
+	// accepts; a mirror treats a longer silence as a stalled source.
+	mirrorHeartbeat = time.Second
+	// mirrorMaxAckPending bounds unacknowledged records in flight to a peer.
+	mirrorMaxAckPending = 1024
 )
 
 // HomeStreamConfig is the writable global stream in the home region. Like the
@@ -41,8 +46,10 @@ func HomeStreamConfig(replicas int) jetstream.StreamConfig {
 }
 
 // MirrorStreamConfig is cell's read-only mirror of the home region's stream.
-// It reaches the home region only through the interregion contract subjects:
-// the linked consumer-create prefix and the cell's own delivery prefix.
+// It sources through the durable consumer the home region created for cell
+// (MirrorConsumerConfig), so the mirror only ever resets that one consumer
+// through the link API prefix and receives on its fixed delivery subject. It
+// never asks the home region to create a consumer or pick a delivery subject.
 func MirrorStreamConfig(home, cell string, replicas int) jetstream.StreamConfig {
 	return jetstream.StreamConfig{
 		Name:         StreamName,
@@ -54,12 +61,72 @@ func MirrorStreamConfig(home, cell string, replicas int) jetstream.StreamConfig 
 		DenyDelete:  true,
 		DenyPurge:   true,
 		AllowDirect: false,
-		Mirror: &jetstream.StreamSource{Name: StreamName, External: &jetstream.ExternalStream{
-			APIPrefix:     protocol.InterRegionJSAPIPrefix(home),
-			DeliverPrefix: protocol.InterRegionGlobalDeliverPrefix(cell),
-		}},
+		Mirror: &jetstream.StreamSource{
+			Name:     StreamName,
+			External: &jetstream.ExternalStream{APIPrefix: protocol.InterRegionJSAPIPrefix(home)},
+			Consumer: &jetstream.StreamConsumerSource{
+				Name:           protocol.GlobalMirrorConsumer(cell),
+				DeliverSubject: protocol.InterRegionGlobalDeliverSubject(cell),
+			},
+		},
 		Metadata: map[string]string{"terrascale-contract": contract, "terrascale-role": "mirror", "terrascale-home": home},
 	}
+}
+
+// MirrorConsumerConfig is the durable push consumer the home region creates
+// on its global stream for one peer's mirror. The home region alone chooses
+// its delivery subject, the peer's fixed contract subject; acknowledgements
+// ride on flow-control replies, so the peer needs no ack subject either.
+func MirrorConsumerConfig(peer string, replicas int) jetstream.ConsumerConfig {
+	return jetstream.ConsumerConfig{
+		Durable:        protocol.GlobalMirrorConsumer(peer),
+		Description:    "Durable source of a peer region's read-only global mirror",
+		DeliverSubject: protocol.InterRegionGlobalDeliverSubject(peer),
+		DeliverPolicy:  jetstream.DeliverAllPolicy,
+		AckPolicy:      jetstream.AckFlowControlPolicy,
+		FlowControl:    true,
+		IdleHeartbeat:  mirrorHeartbeat,
+		MaxAckPending:  mirrorMaxAckPending,
+		Replicas:       replicas,
+		Metadata:       map[string]string{"terrascale-contract": contract, "terrascale-role": "mirror-source", "terrascale-peer": peer},
+	}
+}
+
+func verifyMirrorConsumer(actual jetstream.ConsumerConfig, peer string, replicas int) error {
+	expected := MirrorConsumerConfig(peer, replicas)
+	if actual.Durable != expected.Durable || actual.DeliverSubject != expected.DeliverSubject ||
+		actual.DeliverGroup != "" || actual.DeliverPolicy != expected.DeliverPolicy ||
+		actual.AckPolicy != expected.AckPolicy || !actual.FlowControl ||
+		actual.FilterSubject != "" || len(actual.FilterSubjects) != 0 || actual.Replicas != replicas ||
+		actual.Metadata["terrascale-contract"] != contract || actual.Metadata["terrascale-role"] != "mirror-source" ||
+		actual.Metadata["terrascale-peer"] != peer {
+		return fmt.Errorf("global mirror consumer for %q is not the home-created contract consumer", peer)
+	}
+	return nil
+}
+
+// ensureMirrorConsumers creates or verifies the durable mirror consumer of
+// every peer. A consumer whose delivery subject or policy drifted is an error,
+// never silently rewritten, because it would deliver outside the contract.
+func ensureMirrorConsumers(ctx context.Context, stream jetstream.Stream, peers []string, replicas int) error {
+	for _, peer := range peers {
+		config := MirrorConsumerConfig(peer, replicas)
+		createCtx, cancel := context.WithTimeout(ctx, apiTimeout)
+		consumer, err := stream.CreatePushConsumer(createCtx, config)
+		cancel()
+		if errors.Is(err, jetstream.ErrConsumerExists) {
+			lookupCtx, lookupCancel := context.WithTimeout(ctx, apiTimeout)
+			consumer, err = stream.PushConsumer(lookupCtx, config.Durable)
+			lookupCancel()
+		}
+		if err != nil {
+			return fmt.Errorf("create global mirror consumer for %q: %w", peer, err)
+		}
+		if err := verifyMirrorConsumer(consumer.CachedInfo().Config, peer, replicas); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func verifyHome(actual jetstream.StreamConfig, replicas int) error {
@@ -79,7 +146,8 @@ func verifyMirror(actual jetstream.StreamConfig, home, cell string, replicas int
 	if actual.Name != StreamName || len(actual.Subjects) != 0 || len(actual.Sources) != 0 ||
 		actual.Mirror == nil || actual.Mirror.Name != StreamName || actual.Mirror.External == nil ||
 		actual.Mirror.External.APIPrefix != expected.Mirror.External.APIPrefix ||
-		actual.Mirror.External.DeliverPrefix != expected.Mirror.External.DeliverPrefix ||
+		actual.Mirror.External.DeliverPrefix != "" || actual.Mirror.Consumer == nil ||
+		*actual.Mirror.Consumer != *expected.Mirror.Consumer ||
 		actual.Mirror.FilterSubject != "" || len(actual.Mirror.SubjectTransforms) != 0 ||
 		actual.Replicas != replicas || actual.Storage != jetstream.FileStorage ||
 		!actual.DenyDelete || !actual.DenyPurge || actual.AllowDirect || actual.AllowRollup || actual.MaxAge != 0 ||

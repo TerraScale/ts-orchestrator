@@ -19,7 +19,9 @@ Each region stays its own NATS/JetStream cluster with its own operator. When
   refuses a leaf user of either account.
 - A remote authenticates with a leaf-only user of the parent's interregion
   account, issued under the parent's operator. The remote pins that account
-  key (`peer_account`).
+  key (`peer_account`). The user carries no permissions of its own, so the
+  account's deny-by-default leaf permissions (below) apply; a remote refuses
+  credentials that would override them.
 
 ## Subject contract
 
@@ -32,15 +34,42 @@ exports and imports between the cell and interregion accounts:
 | out | `ts.orch.v1.<cell>.query.>` | service |
 | in, per peer | `ts.orch.v1.<peer>.region.health` | stream |
 | in, per peer | `ts.orch.v1.<peer>.query.>` | service |
-| home out | `$JS.API.CONSUMER.CREATE.TS_GLOBAL_CONTROL[.>]` as `ts.interregion.v1.<home>.jsapi.CONSUMER.CREATE.TS_GLOBAL_CONTROL[.>]` | service |
-| home out | `$JS.FC.TS_GLOBAL_CONTROL.>` | service |
-| home out, per peer | `ts.interregion.v1.<peer>.global.>` | stream |
-| spoke in | the three home subjects above, for its own delivery prefix | |
+| home out, per peer | `ts.interregion.v1.<peer>.global` (fixed delivery subject) | stream |
+| home out, per peer | `$JS.API.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-<peer>` as `ts.interregion.v1.<home>.jsapi.CONSUMER.RESET.TS_GLOBAL_CONTROL.global-mirror-<peer>` | service |
+| home out, per peer | `$JS.FC.TS_GLOBAL_CONTROL.global-mirror-<peer>.*` | service |
+| spoke in | the three home subjects above for its own mirror only | |
+
+No consumer-create, stream, account or wildcard JetStream API subject is ever
+exported. A JetStream consumer-create request carries its own
+`deliver_subject`, which the home region would resolve in its cell account, so
+exporting it would let a peer push home-stream records onto any hub-local
+subject (an earlier revision did, and a review probe delivered onto
+`ts.orch.v1.gru.placement.apply`). Instead the mirror uses durable sourcing:
+the home region itself creates one durable push consumer per peer
+(`globalcontrol.MirrorConsumerConfig`, ack policy flow control) whose delivery
+subject is that peer's fixed contract subject, and the peer's mirror
+(`Mirror.Consumer`) only resets that consumer and acknowledges through its
+flow-control replies. A peer can never choose where the home region delivers.
+
+The interregion account also carries deny-by-default leaf permissions
+(`InterRegionContract.LeafPermissions`, installed as the account's default
+permissions). Accepted leafs are always children in the tree, so each roster
+contract subject is allowed only in the direction it travels from a child,
+transit included: a child may send its subtree's health, query requests and
+mirror resets/acks, and receive health, its subtree's query requests and
+mirror feeds, plus the `_R_.>` service-reply namespace NATS creates for the
+contract's service imports. A child can never speak for the accepting region
+or the global home, and can never send a mirror feed. The hub closes any leaf
+link that publishes anything else, so one peer cannot relay onto another
+peer's subjects (for example, forge another region's mirror feed). Regression tests replay the
+review probe from a peer cell and over a raw leafnode connection with a valid
+leaf credential.
 
 Startup, and every later cell claim replacement, verify the installed account
-JWTs against this contract exactly. Commands, agent traffic, control logs,
-inboxes and broker subjects never cross a link. All subjects are built by
-`internal/protocol`; a test rejects `ts.` string literals elsewhere.
+JWTs, including the default leaf permissions, against this contract exactly.
+Commands, agent traffic, control logs, inboxes and broker subjects never cross
+a link. Subjects are built by `internal/protocol`; a test rejects `ts.` string
+literals elsewhere.
 
 ## Global state
 
@@ -51,9 +80,29 @@ inboxes and broker subjects never cross a link. All subjects are built by
   `globalcontrol.Writer` writes the region roster and database directory to
   `TS_GLOBAL_CONTROL` (`ts.global.v1.>`). Each write calls `Guard` right
   before a per-subject compare-and-set publish.
+- The home region also creates the durable mirror consumer of every
+  interregion peer. A pre-existing consumer under a peer's name that delivers
+  anywhere else is refused, never adopted.
 - Every other region opens a verified read-only mirror of that stream through
   the interregion contract. During a partition each region keeps serving
   from its mirror; only global changes stop.
+
+### Credentials
+
+Only the home region's controllers may publish the global subjects
+(`natscell.GlobalControllerPublishes`: `ts.control.global.>` and
+`ts.global.v1.>`). Bootstrap material issues them when its config sets
+`globalHome: true`; Lab NKey controller grants use `global: true`. Every other
+region's controller keeps its regional grants and reads the mirror through the
+JetStream API it already has.
+
+Before the global lease starts, the home controller checks its credentials
+(`natscell.ValidateGlobalControllerPermissions`) and refuses to start with
+`ErrMissingGlobalGrants` instead of retrying a denied publish forever.
+Material is immutable, so making a region the global home (or rotating an
+existing home onto the new grants) means generating new material with
+`globalHome: true`, rolling the controllers onto it, and only then enabling
+`controller.global`. Turning `globalHome` off again needs the same rotation.
 
 ## Region lifecycle
 

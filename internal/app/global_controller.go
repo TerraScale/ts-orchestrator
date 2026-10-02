@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -46,12 +47,32 @@ func validateGlobalControlConfig(global *GlobalControlConfig, nats natscell.Conf
 	if token, err := protocol.RegionToken(global.Home); err != nil || token != global.Home || token == protocol.GlobalScope {
 		return errors.New("global control home must be a lowercase regional cell")
 	}
+	link := interRegionLink(nats)
 	if global.Home == nats.Cell {
+		if link != nil && link.GlobalHome != global.Home {
+			return errors.New("the global home's interregion leafnodes must name it as global home")
+		}
 		return nil
 	}
-	if nats.Embedded == nil || nats.Embedded.InterRegion == nil || !nats.Embedded.InterRegion.Enabled ||
-		nats.Embedded.InterRegion.GlobalHome != global.Home {
+	if link == nil || link.GlobalHome != global.Home {
 		return errors.New("a global control mirror requires interregion leafnodes with the same global home")
+	}
+	return nil
+}
+
+// interRegionLink returns the enabled interregion block, or nil.
+func interRegionLink(nats natscell.Config) *natscell.InterRegion {
+	if nats.Embedded == nil || nats.Embedded.InterRegion == nil || !nats.Embedded.InterRegion.Enabled {
+		return nil
+	}
+	return nats.Embedded.InterRegion
+}
+
+// globalMirrorPeers are the regions whose durable mirror consumers the home
+// region creates: every interregion peer, or none for a standalone home.
+func globalMirrorPeers(nats natscell.Config) []string {
+	if link := interRegionLink(nats); link != nil {
+		return link.Peers
 	}
 	return nil
 }
@@ -78,6 +99,11 @@ func startGlobalControl(ctx context.Context, cfg Config, js jetstream.JetStream,
 		}
 		return &globalControl{reader: reader}, nil
 	}
+	// Fail fast on credentials issued before the global home grants: a
+	// denied publish would otherwise look like a timeout and retry forever.
+	if err := natscell.ValidateGlobalControllerPermissions(cfg.NATS); err != nil {
+		return nil, fmt.Errorf("global home controller: %w", err)
+	}
 	control, stop, err := retryControllerOpen(ctx, "start global authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, js, authority.Config{
@@ -93,7 +119,7 @@ func startGlobalControl(ctx context.Context, cfg Config, js jetstream.JetStream,
 	}
 	writer, _, err := retryControllerOpen(ctx, "open global control stream", fullClusterReady, false,
 		func(attempt context.Context) (*globalcontrol.Writer, error) {
-			return globalcontrol.OpenHome(attempt, js, cfg.NATS.Cell, cfg.NATS.Replicas, control)
+			return globalcontrol.OpenHome(attempt, js, cfg.NATS.Cell, globalMirrorPeers(cfg.NATS), cfg.NATS.Replicas, control)
 		}, nil)
 	if err != nil {
 		_ = control.Close()
