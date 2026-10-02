@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,6 +40,25 @@ type EvidenceSource interface {
 	Evidence(context.Context) (map[string]Evidence, error)
 }
 
+// RetirementRequest describes a lost slot whose exact prior instance needs
+// offline root-signed retirement evidence before it can be replaced.
+type RetirementRequest struct {
+	Slot         string
+	Attempt      uint64
+	InstanceOCID string
+	Lifecycle    string
+	MetaLeader   string
+	OfflineSince time.Time
+	ObservedAt   time.Time
+	Epoch        uint64
+}
+
+// RetirementRequester renders the unsigned retirement candidate an operator
+// reviews and signs. It must never sign anything itself.
+type RetirementRequester interface {
+	RequestRetirement(context.Context, RetirementRequest) error
+}
+
 // Replacer executes one replacement. It must be idempotent for a replayed
 // action with the same evidence.
 type Replacer interface {
@@ -58,6 +78,7 @@ type Dependencies struct {
 	Instances  InstanceSource
 	Evidence   EvidenceSource
 	Replacer   Replacer
+	Requests   RetirementRequester
 	Now        func() time.Time
 	Logger     *slog.Logger
 }
@@ -71,6 +92,8 @@ type Reconciler struct {
 	state    State
 	epoch    uint64
 	statuses []SlotStatus
+	// requested remembers, per term, the slot attempts already requested.
+	requested map[string]uint64
 }
 
 func New(config Config, topology Topology, deps Dependencies) (*Reconciler, error) {
@@ -91,7 +114,7 @@ func New(config Config, topology Topology, deps Dependencies) (*Reconciler, erro
 		deps.Logger = slog.Default()
 	}
 	return &Reconciler{config: config, topology: topology, deps: deps,
-		state: State{Slots: make(map[string]SlotStatus)}}, nil
+		state: State{Slots: make(map[string]SlotStatus)}, requested: make(map[string]uint64)}, nil
 }
 
 // Run evaluates membership until ctx ends. Errors in one pass are logged and
@@ -129,6 +152,7 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	if r.epoch != snapshot.Epoch {
 		// A new term starts every grace period from its own observations.
 		r.state, r.epoch = State{Slots: make(map[string]SlotStatus)}, snapshot.Epoch
+		r.requested = make(map[string]uint64)
 	}
 	previous := r.state.clone()
 	r.mu.Unlock()
@@ -140,8 +164,42 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	for _, action := range actions {
 		next.Slots[action.Slot] = r.execute(ctx, snapshot.Epoch, action, next.Slots[action.Slot], observation.At)
 	}
+	r.requestRetirements(ctx, snapshot.Epoch, next, observation)
 	r.commit(snapshot.Epoch, previous, next)
 	return nil
+}
+
+// requestRetirements asks for evidence once per lost slot attempt and term.
+// Decide only waits for evidence after OCI reported the instance TERMINATED.
+func (r *Reconciler) requestRetirements(ctx context.Context, epoch uint64, next State, observation Observation) {
+	if r.deps.Requests == nil {
+		return
+	}
+	for _, slot := range r.topology.Slots {
+		status := next.Slots[slot]
+		if status.Phase != PhaseHeld || status.Lifecycle != LifecycleTerminated ||
+			!strings.HasPrefix(status.Reason, ReasonAwaitingEvidence) {
+			continue
+		}
+		r.mu.Lock()
+		done := r.requested[slot] == status.Attempt
+		r.mu.Unlock()
+		if done {
+			continue
+		}
+		err := r.deps.Requests.RequestRetirement(ctx, RetirementRequest{Slot: slot, Attempt: status.Attempt,
+			InstanceOCID: status.InstanceOCID, Lifecycle: status.Lifecycle, MetaLeader: observation.Meta.Leader,
+			OfflineSince: status.OfflineSince, ObservedAt: observation.At, Epoch: epoch})
+		if err != nil {
+			r.deps.Logger.Warn("controller slot retirement request failed", "slot", slot, "error", err)
+			continue
+		}
+		r.deps.Logger.Info("controller slot retirement evidence requested", "slot", slot,
+			"attempt", status.Attempt, "instance", status.InstanceOCID)
+		r.mu.Lock()
+		r.requested[slot] = status.Attempt
+		r.mu.Unlock()
+	}
 }
 
 func (r *Reconciler) observe(ctx context.Context) (Observation, error) {
@@ -243,4 +301,5 @@ func (r *Reconciler) reset(epoch uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state, r.epoch, r.statuses = State{Slots: make(map[string]SlotStatus)}, epoch, nil
+	r.requested = make(map[string]uint64)
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -12,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -87,6 +90,79 @@ func (replacer founderMembershipReplacer) Replace(ctx context.Context, action me
 	return founder.Replace(ctx, action.Slot, action.Retirement.Wire)
 }
 
+// RetirementRequestSuffix names the unsigned candidate a controller writes
+// for the operator to review and sign with `bootstrap sign-slot-retirement`.
+const RetirementRequestSuffix = ".retirement-request.json"
+
+// ledgerRetirementRequests renders unsigned retirement candidates from the
+// exact ledger HEAD. It binds a digest of the observation that justified the
+// request; it never signs.
+type ledgerRetirementRequests struct {
+	ledger       bootstrapstart.SlotReader
+	deploymentID string
+	cell         string
+	dir          string
+}
+
+func (requests ledgerRetirementRequests) RequestRetirement(ctx context.Context, request membership.RetirementRequest) error {
+	observed, err := protocol.EncodeJSON(struct {
+		Slot         string    `json:"slot"`
+		Attempt      uint64    `json:"attempt"`
+		InstanceOCID string    `json:"instanceOcid"`
+		Lifecycle    string    `json:"lifecycle"`
+		MetaLeader   string    `json:"metaLeader"`
+		OfflineSince time.Time `json:"offlineSince"`
+		ObservedAt   time.Time `json:"observedAt"`
+		Epoch        uint64    `json:"epoch"`
+	}{request.Slot, request.Attempt, request.InstanceOCID, request.Lifecycle, request.MetaLeader,
+		request.OfflineSince, request.ObservedAt, request.Epoch})
+	if err != nil {
+		return err
+	}
+	candidate, err := bootstrapstart.RenderSlotRetirementCandidate(ctx, requests.ledger, requests.deploymentID,
+		requests.cell, request.Slot, controllerSHA256(observed), fmt.Sprintf("authority-epoch-%d", request.Epoch),
+		request.ObservedAt)
+	if err != nil {
+		return err
+	}
+	if candidate.PreviousAttempt != request.Attempt || candidate.PriorInstanceOCID != request.InstanceOCID {
+		return errors.New("controller slot ledger changed while rendering its retirement request")
+	}
+	wire, err := protocol.EncodeJSON(candidate)
+	if err != nil {
+		return err
+	}
+	return writeOwnerOnlyFile(requests.dir, request.Slot+RetirementRequestSuffix, wire)
+}
+
+// writeOwnerOnlyFile atomically replaces dir/name with data at mode 0600.
+func writeOwnerOnlyFile(dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	temporary, err := os.CreateTemp(dir, ".request-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), filepath.Join(dir, name))
+}
+
 // startControllerMembership builds the reconciler for a production controller
 // whose signed config enables supervision. It returns nil when disabled.
 func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
@@ -148,7 +224,9 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 		Ledger:    ledgerMembershipSlots{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell},
 		Instances: lifecycleInstances{observer: observer},
 		Evidence:  membership.FileEvidence{Dir: settings.EvidenceDir(), Slots: topology.Slots},
-		Replacer:  replacer, Logger: slog.Default().With("component", "membership"),
+		Requests: ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID,
+			cell: accepted.Cell, dir: settings.EvidenceDir()},
+		Replacer: replacer, Logger: slog.Default().With("component", "membership"),
 	})
 }
 

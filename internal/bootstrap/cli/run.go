@@ -38,6 +38,7 @@ Commands:
   publish-external-seed-completion
   sign-founder-selection
   publish-founder-selection
+  sign-slot-retirement
 `
 
 type command struct {

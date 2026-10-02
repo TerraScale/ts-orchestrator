@@ -277,3 +277,35 @@ func TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes(t *testing.T) {
 		t.Fatal("symlinked evidence accepted")
 	}
 }
+
+type recordingRequests struct{ requests []RetirementRequest }
+
+func (r *recordingRequests) RequestRetirement(_ context.Context, request RetirementRequest) error {
+	r.requests = append(r.requests, request)
+	return nil
+}
+
+func TestReconcilerRequestsRetirementOncePerTerminatedAttempt(t *testing.T) {
+	clock := testEpoch
+	leader := &fakeLeadership{snapshot: leaderSnapshot(6)}
+	cell := newFakeCell()
+	cell.evidence = map[string]Evidence{}
+	requests := &recordingRequests{}
+	reconciler, err := New(testConfig(), testTopology(), Dependencies{Leadership: leader, Peers: cell,
+		Ledger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,
+		Now: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 3 {
+		if err := reconciler.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(time.Minute)
+	}
+	if len(requests.requests) != 1 || requests.requests[0].Slot != "controller-b" ||
+		requests.requests[0].Attempt != 1 || requests.requests[0].InstanceOCID != instanceB ||
+		requests.requests[0].Epoch != 6 || len(cell.replaced) != 0 {
+		t.Fatalf("requests = %+v replaced=%d", requests.requests, len(cell.replaced))
+	}
+}
