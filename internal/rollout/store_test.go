@@ -3,6 +3,7 @@ package rollout
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -197,5 +198,40 @@ func TestStoreBeginEnforcesAttemptBudget(t *testing.T) {
 	wrongCell.Cell = "fra"
 	if _, _, err := store.Begin(ctx, wrongCell, testStart); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("foreign cell accepted: %v", err)
+	}
+}
+
+func TestStoreBeginRepairsInterruptedCellRelease(t *testing.T) {
+	store, _ := testStore(t)
+	ctx := t.Context()
+	record, revision, err := store.Begin(ctx, testSpec("r1"), testStart)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aborted, err := Apply(record, Event{Kind: EventAbort, At: testStart})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Commit(ctx, revision, aborted); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash between the terminal record write and the slot release.
+	cell, cellRevision, err := store.Cell(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cell.ActiveRolloutID = "r1"
+	if err := store.writeCell(ctx, 7, cell, cellRevision); err != nil {
+		t.Fatal(err)
+	}
+	next := testSpec("r2")
+	next.ToDigest = otherBad
+	if _, _, err := store.Begin(ctx, next, testStart); err != nil {
+		t.Fatalf("terminal rollout kept the cell slot: %v", err)
+	}
+	third := testSpec("r3")
+	third.ToDigest = strings.Repeat("d", 64)
+	if _, _, err := store.Begin(ctx, third, testStart); !errors.Is(err, ErrActiveRollout) {
+		t.Fatalf("live rollout lost the cell slot: %v", err)
 	}
 }

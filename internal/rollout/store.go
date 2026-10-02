@@ -132,7 +132,16 @@ func (s *Store) Begin(ctx context.Context, spec Spec, now time.Time) (Record, ui
 			return s.createRecord(ctx, spec, state, now)
 		}
 		if state.ActiveRolloutID != "" {
-			return Record{}, 0, ErrActiveRollout
+			// A terminal commit whose cell release was interrupted is
+			// repaired here; a live rollout keeps the slot.
+			active, _, err := s.Load(ctx, state.ActiveRolloutID)
+			if err != nil || !active.Phase.Terminal() {
+				return Record{}, 0, ErrActiveRollout
+			}
+			if err := s.syncCell(ctx, withEpoch(active, spec.AuthorityEpoch)); err != nil {
+				return Record{}, 0, err
+			}
+			continue
 		}
 		if slices.Contains(state.KnownBad, spec.ToDigest) {
 			return Record{}, 0, ErrKnownBad
@@ -326,4 +335,11 @@ func (s *Store) writeCell(ctx context.Context, epoch uint64, state CellState, re
 		return ErrConflict
 	}
 	return err
+}
+
+// withEpoch fences a cell repair with the caller's current epoch instead of
+// the finished record's possibly older one.
+func withEpoch(record Record, epoch uint64) Record {
+	record.AuthorityEpoch = epoch
+	return record
 }
