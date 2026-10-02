@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 const Prefix = "terrascale-gru-public"
@@ -49,7 +51,11 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if fs.NArg() != 0 {
 		return fmt.Errorf("unexpected arguments: %v", fs.Args())
 	}
-	r, err := (Provisioner{Client: command.CLI{}}).Provision(ctx, o)
+	client, err := newClient(o.Plan)
+	if err != nil {
+		return err
+	}
+	r, err := (Provisioner{Client: client}).Provision(ctx, o)
 	if err != nil {
 		return err
 	}
@@ -59,6 +65,36 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	_, err = fmt.Fprintln(out, string(b))
 	return err
+}
+
+// newClient selects the in-binary SDK client unless TS_OCI_BACKEND=cli. The
+// SDK client is pinned to the plan's catalog region; the CLI used the
+// profile's default region.
+func newClient(planPath string) (command.Client, error) {
+	backend, err := sdkcli.SelectedBackend()
+	if err != nil {
+		return nil, err
+	}
+	if backend == sdkcli.BackendCLI {
+		return command.CLI{}, nil
+	}
+	if planPath == "" {
+		return nil, errors.New("--plan is required")
+	}
+	b, err := os.ReadFile(planPath)
+	if err != nil {
+		return nil, err
+	}
+	var plan struct {
+		Region string `json:"region"`
+	}
+	if err := json.Unmarshal(b, &plan); err != nil {
+		return nil, err
+	}
+	if !catalog.IsOCIRegion(plan.Region) {
+		return nil, fmt.Errorf("plan region %q is not a catalog OCI region", plan.Region)
+	}
+	return NewSDKClient(plan.Region, backend)
 }
 
 func Named(rows []map[string]any, name string) (map[string]any, error) {

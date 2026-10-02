@@ -119,6 +119,9 @@ type Client struct {
 	endpoint string
 }
 
+// Factory is the shared rate-limited factory this client reads through.
+func (c *Client) Factory() *ociclient.Factory { return c.factory }
+
 func (c *Client) pin(client *common.BaseClient) {
 	if c.endpoint != "" {
 		client.Host = c.endpoint
