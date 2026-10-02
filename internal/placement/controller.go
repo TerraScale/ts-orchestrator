@@ -62,6 +62,11 @@ type Config struct {
 	TickInterval    time.Duration
 	OnError         func(error)
 	OnHold          func(string)
+	// LostMemberEvidence enables replacing a member whose OCI host is gone.
+	// Nil keeps such members held without replacement.
+	LostMemberEvidence LostMemberEvidence
+	// LostMemberGrace defaults to DefaultLostMemberGrace.
+	LostMemberGrace time.Duration
 }
 
 type Controller struct {
@@ -110,6 +115,9 @@ func (config Config) validate() error {
 		!positive(config.Resources) ||
 		config.Resources.CPU > 4096 || config.Resources.MemoryBytes > 1<<50 || config.Resources.DiskBytes > 1<<50 {
 		return errors.New("placement controller config has an invalid cell, region, owner, role, or resource profile")
+	}
+	if config.LostMemberGrace < 0 || config.LostMemberGrace > 7*24*time.Hour {
+		return errors.New("placement lost member grace must be between zero and seven days")
 	}
 	if config.TickInterval < 0 || config.TickInterval != 0 && (config.TickInterval < minTickInterval || config.TickInterval > maxTickInterval) {
 		return errors.New("placement tick interval must be zero or between 100ms and 5m")
@@ -344,7 +352,16 @@ intents:
 				}
 				return errors.Join(placementErrs...)
 			}
-			acted, err := controller.advanceMember(ctx, epoch, intent, seat, versioned, instanceByID, statusByNode)
+			acted, err := controller.replaceLostMember(ctx, epoch, intent, seat, versioned, seats, memberByID,
+				instanceByID, statusByNode)
+			if err != nil {
+				placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
+				continue intents
+			}
+			if acted {
+				return errors.Join(placementErrs...)
+			}
+			acted, err = controller.advanceMember(ctx, epoch, intent, seat, versioned, instanceByID, statusByNode)
 			if err != nil {
 				placementErrs = append(placementErrs, fmt.Errorf("%s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
 				continue intents
