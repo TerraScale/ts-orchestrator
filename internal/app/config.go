@@ -8,6 +8,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 const maxConfigBytes = 1 << 20
@@ -38,6 +39,9 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// StorageCapacity publishes this node's boot root and JetStream StoreDir
+	// usage to the regional TTL'd usage bucket. Off by default.
+	StorageCapacity capacity.Config `json:"storage_capacity,omitzero"`
 }
 
 type WorkloadProfile struct {
