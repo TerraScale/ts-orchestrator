@@ -100,6 +100,10 @@ type Config struct {
 	// OperatorForward is a transient CLI-only TCP route. Its keys remain the
 	// configured controller TLS identities; values are local Bastion forwards.
 	OperatorForward map[string]string `json:"-"`
+	// ReloadClientMaterial, when set, is consulted on every connect and
+	// reconnect so renewed credentials take effect without a process restart.
+	// It must keep the startup NATS user key; failures use the startup files.
+	ReloadClientMaterial func() (ClientMaterial, error) `json:"-"`
 }
 
 // Runtime keeps the broker and client alive together. Closing it drains the
@@ -663,6 +667,7 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		connectTimeout = 3 * time.Second
 	}
 	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout)}
+	var materials *clientMaterialSource
 	if cfg.CredentialsFile != "" {
 		data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
 		if err != nil {
@@ -679,16 +684,25 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return nil, err
 		}
 		options = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))
+		source := newClientMaterialSource(cfg, public)
+		// The JWT and its signature come from one resolved file per handshake.
+		var handshake ClientMaterial
 		options = append(options, nats.UserJWT(func() (string, error) {
-			data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
+			handshake = source.current()
+			data, err := readPrivateFile(handshake.CredentialsFile, 64<<10)
 			if err != nil {
 				return "", err
 			}
 			defer clear(data)
 			return nkeys.ParseDecoratedJWT(data)
 		}, func(nonce []byte) ([]byte, error) {
-			return signNKeyFile(cfg.CredentialsFile, nonce)
+			path := handshake.CredentialsFile
+			if path == "" {
+				path = cfg.CredentialsFile
+			}
+			return signNKeyFile(path, nonce)
 		}))
+		materials = source
 	}
 	if cfg.NKeySeedFile != "" {
 		data, err := readPrivateFile(cfg.NKeySeedFile, 4096)
@@ -719,6 +733,9 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			options = append(options, nats.Secure(tlsConfig))
 		} else {
 			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
+			if materials != nil && cfg.ReloadClientMaterial != nil {
+				dialer.reload = materials.tlsConfig
+			}
 			if len(cfg.OperatorForward) != 0 {
 				_, destinations, err := operatorForwarding(cfg)
 				if err != nil {

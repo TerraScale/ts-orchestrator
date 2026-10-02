@@ -86,7 +86,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	case "run":
 		return runController(ctx, cfg, output)
 	case "host":
-		return runHost(ctx, cfg, output)
+		return runHost(ctx, cfg, *configPath, output)
 	case "check":
 		return check(ctx, cfg, output)
 	default:
@@ -96,7 +96,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
-func runHost(ctx context.Context, cfg Config, output io.Writer) error {
+func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}
@@ -151,6 +151,9 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 	stopProbe()
 	if err != nil {
 		return fmt.Errorf("host native runtime probe: %w", err)
+	}
+	if configPath != "" {
+		cfg.NATS.ReloadClientMaterial = hostCredentialReloader(configPath, cfg, key)
 	}
 	runtime, err := natscell.Start(ctx, cfg.NATS)
 	if err != nil {
