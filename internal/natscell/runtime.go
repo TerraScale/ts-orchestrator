@@ -79,6 +79,12 @@ type Embedded struct {
 	InterRegion *InterRegion `json:"interregion,omitempty"`
 }
 
+// ServerName is the embedded NATS server name of a cell's controller
+// instance (a broker ID or controller slot). Cluster health, the controller
+// slot topology (membership.Topology.ServerName) and the JetStream metadata
+// peers all use this one shape, so a renamed slot reads as an unknown peer.
+func ServerName(cell, instance string) string { return cell + "-" + instance }
+
 // StoreLimitBytes returns the effective per-node JetStream file-store limit.
 func (e Embedded) StoreLimitBytes() int64 {
 	if e.StoreMaxBytes == 0 {
@@ -338,7 +344,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		r.server.ConfigureLogger()
 		r.serverName = options.ServerName
 		for _, id := range cfg.Embedded.BrokerIDs {
-			r.brokerNames = append(r.brokerNames, cfg.Cell+"-"+id)
+			r.brokerNames = append(r.brokerNames, ServerName(cfg.Cell, id))
 		}
 		go r.server.Start()
 		if !serverReady(ctx, r.server) {
@@ -597,7 +603,7 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		return nil, fmt.Errorf("create regional JetStream store: %w", err)
 	}
 	options := &server.Options{
-		ServerName:        cfg.Cell + "-" + cfg.Instance,
+		ServerName:        ServerName(cfg.Cell, cfg.Instance),
 		Host:              e.Host,
 		Port:              e.Port,
 		JetStream:         true,
