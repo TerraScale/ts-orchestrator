@@ -428,92 +428,126 @@ func TestManagedMemberRejectsIncompleteManifestAndSubnetCollision(t *testing.T) 
 func (f *mmFixture) load(t *testing.T, patchDirs bool) (fc.ManagedManifest, error) {
 	t.Helper()
 	script.Write(t, f.path, mmJSON(t, f.manifest), 0o600)
-	original := map[string]string{}
 	if patchDirs {
-		for member, dir := range f.dirs {
-			original[member] = fc.ManagedMemberDirs[member]
-			fc.ManagedMemberDirs[member] = dir
-		}
-		defer func() {
-			for member, dir := range original {
-				fc.ManagedMemberDirs[member] = dir
-			}
-		}()
+		defer mmPatchDirs(f.dirs)()
 	}
 	return fc.LoadManagedManifest(f.path)
 }
-func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
-	names := []string{"valid", "wrong_peer", "s3_config_hash", "s3_target_hash", "credential_version_2", "credential_version_bool", "credential_version_float", "credential_ocid", "s3_endpoint", "s3_region", "shard_zero", "shard_bool", "shard_negative", "shard_overflow", "uppercase_tenant", "runtime_directory"}
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			f := mmManifest(t)
-			member := mmMap(mmMap(f.manifest["members"])["a"])
-			config := mmMap(member["guest_config"])
-			runtime := mmMap(config["runtime"])
-			credential := mmMap(runtime["live_s3_credential"])
-			scope := mmMap(mmMap(config["member"])["scope"])
-			want := "runtime pins"
-			switch name {
-			case "wrong_peer":
-				b := mmMap(mmMap(mmMap(f.manifest["members"])["b"])["guest_config"])
-				mmMap(b["runtime"])["replication_peer_member_id"] = mmID("b")
-			case "s3_config_hash":
-				runtime["live_s3_config_sha256"] = strings.Repeat("0", 64)
-			case "s3_target_hash":
-				runtime["live_s3_target_sha256"] = strings.Repeat("0", 64)
-			case "credential_version_2":
-				credential["version_number"] = 2
-				want = "S3 credential reference"
-			case "credential_version_bool":
-				credential["version_number"] = true
-				want = "S3 credential reference"
-			case "credential_version_float":
-				credential["version_number"] = jsontext.Value(`1.0`)
-				want = "S3 credential reference"
-			case "credential_ocid":
-				credential["secret_ocid"] = mmSecret + "-other"
-				want = "S3 credential reference"
-			case "shard_zero":
-				scope["shard_id"] = 0
-				want = "scope"
-			case "shard_bool":
-				scope["shard_id"] = true
-				want = "scope"
-			case "shard_negative":
-				scope["shard_id"] = -1
-				want = "scope"
-			case "shard_overflow":
-				scope["shard_id"] = jsontext.Value(`18446744073709551616`)
-				want = "scope"
-			case "uppercase_tenant":
-				scope["tenant_id"] = strings.ToUpper(scope["tenant_id"].(string))
-				want = "scope"
-			case "runtime_directory":
-				want = "runtime directory"
-			case "s3_endpoint", "s3_region":
-				record := mmMap(mmMap(member["inputs"])["signed_v2_s3_config"])
-				s3 := mmObject{"version": 1, "ack_profile": "object_durable", "bucket": "tbmm-" + strings.Repeat("2", 32), "region": mmRegion, "endpoint": mmEndpoint}
-				if name == "s3_endpoint" {
-					s3["endpoint"] = "http://rustfs.terrabase.test:9000"
-				} else {
-					s3["region"] = "us-east-1"
-				}
-				payload := mmJSON(t, s3)
-				script.Write(t, record["path"].(string), payload, 0o600)
-				record["sha256"] = mmSHA(payload)
-				runtime["live_s3_config_sha256"] = record["sha256"]
-				want = "signed S3 target"
-			}
-			_, e := f.load(t, name != "runtime_directory")
-			if name == "valid" {
-				if e != nil {
-					t.Fatal(e)
-				}
-			} else {
-				mmReject(t, e, want)
-			}
-		})
+
+// mmPatchDirs points the validator's expected runtime directories at the
+// fixture's scope and returns the restore. No other test may load a
+// manifest while the directories are patched.
+func mmPatchDirs(dirs map[string]string) func() {
+	original := map[string]string{}
+	for member, dir := range dirs {
+		original[member] = fc.ManagedMemberDirs[member]
+		fc.ManagedMemberDirs[member] = dir
 	}
+	return func() {
+		for member, dir := range original {
+			fc.ManagedMemberDirs[member] = dir
+		}
+	}
+}
+
+// clone gives a case its own manifest over the shared input files. An input
+// a case rewrites goes to the case's own directory, so the shared files stay
+// unchanged while parallel cases hash them.
+func (f *mmFixture) clone(t *testing.T) *mmFixture {
+	t.Helper()
+	var manifest mmObject
+	if err := json.Unmarshal(mmJSON(t, f.manifest), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	return &mmFixture{manifest: manifest, dirs: f.dirs, path: filepath.Join(t.TempDir(), "manifest.json")}
+}
+
+// Every case still loads its manifest through the full validator, which
+// hashes both 256 MiB volumes again; only building the inputs is shared. The
+// cases that need the fixture's runtime directories run in parallel.
+func TestManagedMemberManifestSecurityMatrix(t *testing.T) {
+	base := mmManifest(t)
+	check := func(t *testing.T, name string, patchDirs bool) {
+		t.Helper()
+		f := base.clone(t)
+		member := mmMap(mmMap(f.manifest["members"])["a"])
+		config := mmMap(member["guest_config"])
+		runtime := mmMap(config["runtime"])
+		credential := mmMap(runtime["live_s3_credential"])
+		scope := mmMap(mmMap(config["member"])["scope"])
+		want := "runtime pins"
+		switch name {
+		case "wrong_peer":
+			b := mmMap(mmMap(mmMap(f.manifest["members"])["b"])["guest_config"])
+			mmMap(b["runtime"])["replication_peer_member_id"] = mmID("b")
+		case "s3_config_hash":
+			runtime["live_s3_config_sha256"] = strings.Repeat("0", 64)
+		case "s3_target_hash":
+			runtime["live_s3_target_sha256"] = strings.Repeat("0", 64)
+		case "credential_version_2":
+			credential["version_number"] = 2
+			want = "S3 credential reference"
+		case "credential_version_bool":
+			credential["version_number"] = true
+			want = "S3 credential reference"
+		case "credential_version_float":
+			credential["version_number"] = jsontext.Value(`1.0`)
+			want = "S3 credential reference"
+		case "credential_ocid":
+			credential["secret_ocid"] = mmSecret + "-other"
+			want = "S3 credential reference"
+		case "shard_zero":
+			scope["shard_id"] = 0
+			want = "scope"
+		case "shard_bool":
+			scope["shard_id"] = true
+			want = "scope"
+		case "shard_negative":
+			scope["shard_id"] = -1
+			want = "scope"
+		case "shard_overflow":
+			scope["shard_id"] = jsontext.Value(`18446744073709551616`)
+			want = "scope"
+		case "uppercase_tenant":
+			scope["tenant_id"] = strings.ToUpper(scope["tenant_id"].(string))
+			want = "scope"
+		case "runtime_directory":
+			want = "runtime directory"
+		case "s3_endpoint", "s3_region":
+			record := mmMap(mmMap(member["inputs"])["signed_v2_s3_config"])
+			s3 := mmObject{"version": 1, "ack_profile": "object_durable", "bucket": "tbmm-" + strings.Repeat("2", 32), "region": mmRegion, "endpoint": mmEndpoint}
+			if name == "s3_endpoint" {
+				s3["endpoint"] = "http://rustfs.terrabase.test:9000"
+			} else {
+				s3["region"] = "us-east-1"
+			}
+			payload := mmJSON(t, s3)
+			record["path"] = filepath.Join(t.TempDir(), "a-signed-v2-s3-config.json")
+			script.Write(t, record["path"].(string), payload, 0o600)
+			record["sha256"] = mmSHA(payload)
+			runtime["live_s3_config_sha256"] = record["sha256"]
+			want = "signed S3 target"
+		}
+		_, e := f.load(t, patchDirs)
+		if name == "valid" {
+			if e != nil {
+				t.Fatal(e)
+			}
+		} else {
+			mmReject(t, e, want)
+		}
+	}
+	// The production runtime directories must reject the fixture's scope.
+	t.Run("runtime_directory", func(t *testing.T) { check(t, "runtime_directory", false) })
+	t.Run("pinned", func(t *testing.T) {
+		t.Cleanup(mmPatchDirs(base.dirs))
+		for _, name := range []string{"valid", "wrong_peer", "s3_config_hash", "s3_target_hash", "credential_version_2", "credential_version_bool", "credential_version_float", "credential_ocid", "s3_endpoint", "s3_region", "shard_zero", "shard_bool", "shard_negative", "shard_overflow", "uppercase_tenant"} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				check(t, name, false)
+			})
+		}
+	})
 }
 func TestManagedMemberResultRequiresExactPassAndNativeEvidence(t *testing.T) {
 	output := "=== RUN   TestManagedMemberFirecrackerSignedServing\nTS_MANAGED_MEMBER_PHASE=PASS node=node-a\n--- PASS: TestManagedMemberFirecrackerSignedServing (0.01s)\nPASS\n"
