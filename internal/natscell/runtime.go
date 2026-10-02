@@ -758,7 +758,7 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>")
+			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>", root+".obs.>")
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")

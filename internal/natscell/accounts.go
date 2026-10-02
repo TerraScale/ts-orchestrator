@@ -212,6 +212,9 @@ func ValidateBrokerControllerCredentials(path, cell, broker string) error {
 		root + ".managed-update.prepare":  true,
 		root + ".backup.operation":        true,
 		root + ".terminal.>":              true,
+		// Optional read-only member telemetry (observability snapshots).
+		// The issuer does not grant it today; it is accepted, not required.
+		root + ".obs.>": true,
 	}
 	for _, grant := range claim.Sub.Allow {
 		if !allowedSubscriptions[grant] {
