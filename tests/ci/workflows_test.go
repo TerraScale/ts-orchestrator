@@ -268,7 +268,8 @@ esac
 		{"pass", "terrabase-walkthrough terrabase-successor", "pass", "qualification suite terrabase-successor passed", 0},
 		{"skip", "terrabase-walkthrough", "skip", "skipped a test; its fixture is incomplete", 1},
 		{"no_test", "native-validator", "none", "ran no test", 1},
-		{"fail", "terrabase-backup", "fail", "qualification suite terrabase-backup failed", 1},
+		{"fail", "rendered-sfo-enrollment", "fail", "qualification suite rendered-sfo-enrollment failed", 1},
+		{"backup_bridge_is_not_a_suite", "terrabase-backup", "pass", "unknown qualification suite: terrabase-backup", 2},
 		{"unknown", "terrabase-walkthrough firecracker", "pass", "unknown qualification suite: firecracker", 2},
 		{"none", " ", "pass", "names no qualification suite", 2},
 	} {

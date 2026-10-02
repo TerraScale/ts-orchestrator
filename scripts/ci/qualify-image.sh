@@ -18,11 +18,15 @@
 #   terrabase-successor      TS_D11_RUST_SERVER and/or TS_D11_PUBLIC_ARTIFACT_DIR.
 #   native-validator         TS_TEST_NATIVE_VERIFIER_SHA256 and
 #                            TS_TEST_NATIVE_VERIFIER_SOURCE_COMMIT.
-#   terrabase-backup         TS_D10_PROCESS_PACKET, TS_D10_PROCESS_RESULT and
-#                            TS_D10_FULL_MATERIAL_PACKET from the Rust fixture.
 #   rendered-sfo-enrollment  TS_TEST_RENDERED_HOST_BUNDLE,
 #                            TS_TEST_RENDERED_HOST_MATERIAL and
 #                            TS_TEST_RENDERED_HOST_BUNDLE_SHA256.
+#
+# The D10 backup bridges (TestBackupGoRust*ProcessBridge) are not a suite:
+# each is a child process that a TerraBase Rust parent test starts with its
+# own packet and result path while it drives live members, so it cannot run
+# from a static fixture here, and the operation and completion bridges
+# would write the one TS_D10_PROCESS_RESULT their parents each read.
 #
 # TS_TEST_TIER=qualification makes a missing fixture fail its test rather
 # than skip it, and a suite also fails if any selected test reports SKIP, so
@@ -38,14 +42,12 @@ declare -A packages=(
 	[terrabase-walkthrough]=./internal/app
 	[terrabase-successor]=./internal/managedmaterial
 	[native-validator]=./internal/managedmaterial
-	[terrabase-backup]=./internal/managedmaterial
 	[rendered-sfo-enrollment]=./internal/app
 )
 declare -A tests=(
 	[terrabase-walkthrough]='^TestTerraBaseWalkthroughAgainstRealMembers$'
 	[terrabase-successor]='^TestProduceSuccessorRustInterop$'
 	[native-validator]='^TestPrepareInitialUsesAdmittedPackagedNativeValidator$'
-	[terrabase-backup]='^(TestBackupGoRustProcessBridge|TestBackupGoRustFullProducerProcessBridge)$'
 	[rendered-sfo-enrollment]='^TestManagedPlacementEnrollmentFromRenderedSFOBundle$'
 )
 for suite in "${suites[@]}"; do
