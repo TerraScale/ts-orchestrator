@@ -24,6 +24,8 @@ import (
 	"syscall"
 
 	"github.com/nats-io/nkeys"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const MaxPublicBundleBytes = 16 << 10
@@ -242,7 +244,7 @@ func parseEndpoint(endpoint, port string) (netip.Addr, error) {
 }
 
 func validCellRegion(cell, region string) bool {
-	return cell == "gru" && region == "GRU" || cell == "sfo" && region == "SFO" || cell == "fra" && region == "FRA"
+	return catalog.MatchesName(cell, region)
 }
 
 func cleanRoot(path string) bool {

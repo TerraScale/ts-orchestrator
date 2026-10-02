@@ -13,6 +13,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -542,7 +544,7 @@ func (evidence RetirementEvidence) matches(scope BootstrapScope, environment str
 func validDigest(value string) bool { return sha256DigestPattern.MatchString(value) }
 
 func validOCIRegion(value string) bool {
-	return value == "sa-saopaulo-1" || value == "us-sanjose-1" || value == "eu-frankfurt-1"
+	return catalog.IsOCIRegion(value)
 }
 
 func (ledger *Ledger) now() time.Time {

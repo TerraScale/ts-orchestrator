@@ -18,6 +18,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -70,9 +72,7 @@ func NewInstancePrincipalClient(ctx context.Context, region string) (ObjectClien
 	if ctx == nil {
 		return nil, errors.New("native OCI root client context is missing")
 	}
-	switch region {
-	case "sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1":
-	default:
+	if !catalog.IsOCIRegion(region) {
 		return nil, errors.New("native OCI root region is invalid")
 	}
 	// The SDK's metadata region discovery sleeps between eight retries and has

@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const A1Shape = "VM.Standard.A1.Flex"
@@ -47,7 +49,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	var o Options
 	fs.StringVar(&o.QCOW2, "qcow2", "", "qualified QCOW2 file")
 	fs.StringVar(&o.SHA256, "sha256", "", "expected QCOW2 SHA-256")
-	fs.StringVar(&o.Region, "region", "sa-saopaulo-1", "OCI region")
+	fs.StringVar(&o.Region, "region", catalog.OCIRegion(catalog.Bootstrap), "OCI region")
 	fs.StringVar(&o.Compartment, "compartment-id", "", "image compartment")
 	fs.StringVar(&o.Namespace, "namespace", "", "object namespace")
 	fs.StringVar(&o.Bucket, "bucket", "", "object bucket")

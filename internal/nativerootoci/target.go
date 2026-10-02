@@ -9,6 +9,8 @@ import (
 	"errors"
 	"regexp"
 	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -50,9 +52,7 @@ func (target Target) valid() bool {
 		!lowerDigest.MatchString(target.PublicationDigest) || !lowerDigest.MatchString(target.Digest) {
 		return false
 	}
-	switch target.Region {
-	case "sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1":
-	default:
+	if !catalog.IsOCIRegion(target.Region) {
 		return false
 	}
 	return target.Endpoint == "https://"+target.Namespace+".compat.objectstorage."+

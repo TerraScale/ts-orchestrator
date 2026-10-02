@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const maxRegionIntentBytes = 16 << 10
@@ -20,15 +22,18 @@ const maxRegionConfigBytes = 64 << 10
 type Region string
 
 const (
-	RegionGRU Region = "GRU"
-	RegionSFO Region = "SFO"
-	RegionFRA Region = "FRA"
+	RegionGRU Region = catalog.GRU
+	RegionSFO Region = catalog.SFO
+	RegionFRA Region = catalog.FRA
 )
 
-var regionToOCI = map[Region]string{
-	RegionGRU: "sa-saopaulo-1",
-	RegionSFO: "us-sanjose-1",
-	RegionFRA: "eu-frankfurt-1",
+// Regions returns the supported product regions in catalog order.
+func Regions() []Region {
+	regions := make([]Region, 0, catalog.Len)
+	for _, cell := range catalog.Cells() {
+		regions = append(regions, Region(cell))
+	}
+	return regions
 }
 
 var (
@@ -107,14 +112,14 @@ func ParseRegionConfig(data []byte) (RegionConfig, error) {
 // Validate enforces the stable logical-to-OCI region mapping and requires GRU
 // to remain the bootstrap region until a separately reviewed migration exists.
 func (intent RegionIntent) Validate() error {
-	if intent.SchemaVersion != 1 || intent.Generation == 0 || intent.BootstrapRegion != RegionGRU ||
-		len(intent.Regions) == 0 || len(intent.Regions) > len(regionToOCI) {
+	if intent.SchemaVersion != 1 || intent.Generation == 0 || intent.BootstrapRegion != Region(catalog.Bootstrap) ||
+		len(intent.Regions) == 0 || len(intent.Regions) > catalog.Len {
 		return errors.New("OCI region intent has an unsupported version, generation, or region set")
 	}
 	seen := make(map[Region]struct{}, len(intent.Regions))
 	for _, mapping := range intent.Regions {
-		ociRegion, ok := regionToOCI[mapping.Cell]
-		if !ok || mapping.OCIRegion != ociRegion {
+		ociRegion := catalog.OCIRegion(string(mapping.Cell))
+		if ociRegion == "" || mapping.OCIRegion != ociRegion {
 			return fmt.Errorf("OCI region intent contains an unsupported mapping for %q", mapping.Cell)
 		}
 		if _, exists := seen[mapping.Cell]; exists {
@@ -130,8 +135,8 @@ func (intent RegionIntent) Validate() error {
 
 // OCIRegion returns the official OCI region key for a supported product cell.
 func (region Region) OCIRegion() (string, error) {
-	ociRegion, ok := regionToOCI[region]
-	if !ok {
+	ociRegion := catalog.OCIRegion(string(region))
+	if ociRegion == "" {
 		return "", fmt.Errorf("unsupported TerraScale region %q", region)
 	}
 	return ociRegion, nil

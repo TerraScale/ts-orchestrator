@@ -12,6 +12,8 @@ import (
 	"regexp"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -124,16 +126,7 @@ func (descriptor Descriptor) validateFields() error {
 }
 
 func validCellRegion(cell, region string) bool {
-	switch region {
-	case "GRU":
-		return cell == "gru"
-	case "SFO":
-		return cell == "sfo"
-	case "FRA":
-		return cell == "fra"
-	default:
-		return false
-	}
+	return catalog.MatchesName(cell, region)
 }
 
 func validCreateKey(value string) bool {
