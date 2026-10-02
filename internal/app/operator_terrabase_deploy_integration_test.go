@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go"
 )
 
@@ -442,10 +443,14 @@ func writeDeployTestRelease(t *testing.T, root, version string) terrabaseRelease
 	binarySum := sha256.Sum256(binary)
 	commitSum := sha256.Sum256([]byte("commit " + version))
 	commit := hex.EncodeToString(commitSum[:20])
-	qualification, err := json.Marshal(map[string]any{"schema": terrabaseQualificationSchema, "source_revision": commit,
+	fields := map[string]any{"schema": terrabaseQualificationSchema, "source_revision": commit,
 		"artifacts": []map[string]any{{"name": terrabaseServerArtifact, "bytes": len(binary),
 			"sha256": hex.EncodeToString(binarySum[:]), "target": terrabaseServerTarget}},
-		"verification": map[string]any{"conclusion": "success", "run_id": 11696, "workflow": "fast.yml"}})
+		"verification": map[string]any{"conclusion": "success", "run_id": 11696, "workflow": "fast.yml"}}
+	if compatibility := deployTestCompatibility(version); compatibility != nil {
+		fields["compatibility"] = compatibility
+	}
+	qualification, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,6 +464,23 @@ func writeDeployTestRelease(t *testing.T, root, version string) terrabaseRelease
 		"repository": deployTestRepository, "source_revision": commit, "source_digest_sha256": hex.EncodeToString(sourceSum[:]),
 		"qualification_sha256": hex.EncodeToString(qualificationSum[:]), "server_linux_arm64_sha256": hex.EncodeToString(binarySum[:])})
 	return terrabaseReleaseFiles{Qualification: qualificationPath, Binary: binaryPath, SourceDigest: sourcePath}
+}
+
+// deployTestCompatibility declares every test release mutually compatible
+// unless its version names an incompatible persistent format.
+func deployTestCompatibility(version string) map[string]any {
+	format := 1
+	if strings.HasPrefix(version, "format-break") {
+		format = 9
+	}
+	if strings.HasPrefix(version, "no-compat") {
+		return nil
+	}
+	capability := func(version int) map[string]any {
+		return map[string]any{"version": version, "accepts": map[string]any{"min": version, "max": version}}
+	}
+	return map[string]any{"schema": staged.CompatibilitySchema, "persistent_format": capability(format),
+		"replication": capability(1), "client_data": capability(1)}
 }
 
 func runDeployTestOperatorErr(ctx context.Context, cell *deployTestCellServices, operation string, args ...string) ([]byte, error) {

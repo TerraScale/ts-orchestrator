@@ -361,7 +361,7 @@ func TestTerraBaseSyncCompletesRealSignedRollingUpdateAndLatchesRollback(t *test
 	update := func(files terrabaseReleaseFiles) error {
 		_, err := runDeployTestOperatorErr(t.Context(), cell, "terrabase-update", "--state", state,
 			"--qualification", files.Qualification, "--binary", files.Binary, "--source-digest", files.SourceDigest,
-			"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key", "--wait", "30s")
+			"--compatibility-actor", "compatibility", "--compatibility-key", cell.root+"/compatibility.key", "--wait", "30s", "--soak", "1s")
 		return err
 	}
 	if err := syncTerraBase(t.Context(), state, cell.root, feed.run, update, io.Discard); err != nil {
