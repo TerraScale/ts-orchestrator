@@ -77,6 +77,23 @@ func ObservationSubject(region, observation string) (string, error) {
 	return regionalSubject(region, "observation", observation)
 }
 
+// ObservabilitySubject is a read-only member telemetry route inside one
+// regional cell, for example ts.orch.v1.gru.obs.snapshot. Every controller
+// answers it; it carries no signed state and never drives a mutation.
+func ObservabilitySubject(region, leaf string) (string, error) {
+	return regionalSubject(region, "obs", leaf)
+}
+
+// ObservabilityWildcard is the subscribe grant covering every
+// ObservabilitySubject leaf of one region.
+func ObservabilityWildcard(region string) (string, error) {
+	root, err := RegionalRoot(region)
+	if err != nil {
+		return "", err
+	}
+	return root + ".obs.>", nil
+}
+
 func AgentCommandSubject(region, nodeID, command string) (string, error) {
 	return agentSubject(region, nodeID, "command", command)
 }

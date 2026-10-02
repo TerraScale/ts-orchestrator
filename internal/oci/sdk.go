@@ -50,6 +50,12 @@ func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkPr
 	compute.Host = strings.TrimSuffix(config.Endpoint, "/")
 	storage.Host = strings.TrimSuffix(config.Endpoint, "/")
 	network.Host = strings.TrimSuffix(config.Endpoint, "/")
+	// Every OCI call of the managed fleet passes through these three
+	// dispatchers, so wrapping them measures calls, errors and latency by
+	// templated operation without touching signing or retry behavior.
+	compute.HTTPClient = instrument(compute.HTTPClient, "compute")
+	storage.HTTPClient = instrument(storage.HTTPClient, "blockstorage")
+	network.HTTPClient = instrument(network.HTTPClient, "network")
 	return &sdkProvider{config: config, hostMetadata: maps.Clone(hostMetadata),
 		compute: compute, storage: storage, network: network}, nil
 }

@@ -114,20 +114,27 @@ type placementHoldLog struct {
 }
 
 func (log *placementHoldLog) record(reason string) {
+	log.recordChange(reason)
+}
+
+// recordChange records reason and reports whether it differs from the
+// latest record, so a repeated hold is not re-announced as a new event.
+func (log *placementHoldLog) recordChange(reason string) bool {
 	if log == nil {
-		return
+		return false
 	}
 	log.mu.Lock()
 	defer log.mu.Unlock()
 	now := time.Now().UTC()
 	if count := len(log.records); count > 0 && log.records[count-1].Reason == reason {
 		log.records[count-1].At = now
-		return
+		return false
 	}
 	log.records = append(log.records, placementHoldRecord{At: now, Reason: reason})
 	if len(log.records) > maxPlacementHoldRecords {
 		log.records = slices.Delete(log.records, 0, len(log.records)-maxPlacementHoldRecords)
 	}
+	return true
 }
 
 func (log *placementHoldLog) recent(now time.Time) []placementHoldRecord {

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"strings"
 	"sync"
@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -61,6 +62,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	// Take the systemd notification socket before any child process starts.
 	notifier := sdnotify.FromEnvironment()
 	defer func() { _ = notifier.Stopping() }()
+	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", cfg.NATS.Instance)
+	if err != nil {
+		return fmt.Errorf("start controller observability: %w", err)
+	}
+	defer telemetry.close()
 	clockProbe := controllerBrokerClockProbe()
 	clockCheck := controllerClockCheck(clockProbe)
 	admission, err := startControllerAdmission(ctx, cfg, clockCheck)
@@ -154,8 +160,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopFounder()
 	if admission.offline {
-		log.Printf("controller %s joined the regional NATS quorum; holding authority until full restart admission passes",
-			cfg.NATS.Instance)
+		slog.Info("controller joined the regional NATS quorum; holding authority until full restart admission passes",
+			observability.ComponentKey, "controller", "instance", cfg.NATS.Instance)
 		// Full admission may retry for a long time; a dead broker must still
 		// end the process so the service manager restarts it.
 		select {
@@ -362,12 +368,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if managed != nil {
 		managedController, err = placement.StartController(ctx, managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
-				log.Printf("TerraBase placement reconciliation: %v", err)
-				placementHolds.record("reconciliation error: " + err.Error())
+				changed := placementHolds.recordChange("reconciliation error: " + err.Error())
+				slog.Warn("TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
+					"error", err, "repeated", !changed)
 			},
 			func(reason string) {
-				log.Printf("TerraBase placement held: %s", reason)
-				placementHolds.record(reason)
+				changed := placementHolds.recordChange(reason)
+				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
+					"reason", reason, observability.EventKey, changed)
 			}),
 			placementStore, control, fleet, hostController, hostController,
 			func(ctx context.Context, digest, role, environment string) (placement.AdmittedArtifact, error) {
@@ -514,6 +522,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
+	var brokerIDs []string
+	if cfg.NATS.Embedded != nil {
+		brokerIDs = cfg.NATS.Embedded.BrokerIDs
+	}
+	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
+		brokerIDs: brokerIDs, authority: control, placements: placementStore, managed: managed != nil},
+		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
+		return fmt.Errorf("attach controller observability: %w", err)
+	}
 	workerErrors := make(chan error, 6)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
@@ -550,9 +567,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		workers.Wait()
 		return ctx.Err()
 	}
+	telemetry.markStarted()
+	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
 	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
-		log.Printf("systemd readiness notification failed: %v", err)
+		slog.Warn("systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)
 	}
 	// Watchdog keepalives stop when the embedded broker or its in-process
 	// client is no longer usable, so WatchdogSec= restarts a wedged
@@ -618,7 +637,8 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 			noSuitable && noSuitableAttempts >= 10 && fullClusterReady() {
 			return zero, nil, fmt.Errorf("%s: %w", name, err)
 		}
-		log.Printf("%s: %v; retrying with embedded NATS running", name, err)
+		slog.Warn("controller startup step retrying with embedded NATS running",
+			observability.ComponentKey, "controller", "step", name, "attempt", attemptNumber, "error", err)
 		backoff := min(time.Duration(attemptNumber)*250*time.Millisecond, 2*time.Second)
 		backoff += time.Duration(rand.IntN(250)) * time.Millisecond
 		select {

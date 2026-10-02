@@ -5,12 +5,13 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"math"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
@@ -34,7 +35,7 @@ func (runtime *managedTerminalRuntime) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := runtime.reconcile(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("managed terminal reconciliation: %v", err)
+			slog.Warn("managed terminal reconciliation failed", observability.ComponentKey, "terminal", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -91,7 +92,8 @@ func (runtime *managedTerminalRuntime) reconcileIntent(ctx context.Context, inte
 ) error {
 	if runtime.hosts != nil {
 		if err := runtime.withdrawActiveDesired(ctx, intent); err != nil {
-			log.Printf("managed terminal optional desired withdrawal for %s/%s: %v", intent.DatabaseID, intent.PartitionID, err)
+			slog.Warn("managed terminal optional desired withdrawal failed", observability.ComponentKey, "terminal",
+				"database", intent.DatabaseID, "partition", intent.PartitionID, "error", err)
 		}
 	}
 	status, err := runtime.executor.ReconcileTerminal(ctx, intent, markerSequence)
