@@ -356,6 +356,11 @@ func TestSummaryIsDeterministic(t *testing.T) {
 		!strings.HasSuffix(day.Text, "Nothing needs attention right now.") {
 		t.Fatalf("day = %q", day.Text)
 	}
+	truncated := Summarize(SummaryInput{Now: now, Window: 24 * time.Hour, Scope: "GRU", Decisions: decisions,
+		DecisionsTruncated: true})
+	if !strings.HasPrefix(truncated.Text, "In the last 24 hours the orchestrator made at least 5 decisions") {
+		t.Fatalf("truncated = %q", truncated.Text)
+	}
 	empty := Summarize(SummaryInput{Now: now, Window: time.Hour})
 	if empty.Text != "In the last hour the orchestrator made no recorded decisions in the region. Nothing needs attention right now." {
 		t.Fatalf("empty = %q", empty.Text)

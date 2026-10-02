@@ -19,8 +19,11 @@ type SummaryInput struct {
 	// Scope names what is summarized, for example "GRU" or "all regions".
 	Scope     string
 	Decisions []decisionlog.Decision
-	Changes   []Change
-	Open      []Insight
+	// DecisionsTruncated reports that more decisions matched the window
+	// than Decisions holds, so counts are lower bounds.
+	DecisionsTruncated bool
+	Changes            []Change
+	Open               []Insight
 }
 
 // Summary is a deterministic plain-language account of a window.
@@ -151,8 +154,12 @@ func Summarize(input SummaryInput) Summary {
 		if len(decisions) == 1 {
 			noun = "decision"
 		}
-		sentences = append(sentences, fmt.Sprintf("In the last %s the orchestrator made %d %s in %s: %s.",
-			window, len(decisions), noun, scope, joinList(phrases)))
+		made := fmt.Sprintf("%d %s", len(decisions), noun)
+		if input.DecisionsTruncated {
+			made = "at least " + made
+		}
+		sentences = append(sentences, fmt.Sprintf("In the last %s the orchestrator made %s in %s: %s.",
+			window, made, scope, joinList(phrases)))
 		sentences = append(sentences, notable(decisions)...)
 	}
 	for _, change := range input.Changes {
@@ -329,6 +336,7 @@ func (summarizer Summarizer) Summary(ctx context.Context, window time.Duration) 
 			return Summary{}, err
 		}
 		input.Decisions = result.Decisions
+		input.DecisionsTruncated = result.Truncated
 	}
 	if summarizer.Insights != nil {
 		input.Changes = summarizer.Insights.Changes(now.Add(-window))

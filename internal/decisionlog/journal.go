@@ -19,6 +19,9 @@ const (
 	// maxArchiveScan bounds how many stored decisions one query reads from
 	// the durable stream beyond the in-memory window.
 	maxArchiveScan = 20000
+	// archiveFirstWindow is the first archive window a query searches
+	// back from the in-memory window.
+	archiveFirstWindow = time.Hour
 )
 
 // Sink durably stores published decisions. Stream implements it.
@@ -298,25 +301,8 @@ func (journal *Journal) Query(ctx context.Context, query Query) (Result, error) 
 		_, archive := journal.currentStorage()
 		if archive == nil {
 			result.Partial = true
-		} else {
-			since := query.Since
-			if since.IsZero() {
-				since = coveredFrom.Add(-30 * 24 * time.Hour)
-			}
-			complete, err := archive.Scan(ctx, since, maxArchiveScan, func(decision Decision) bool {
-				// Memory is complete only after coveredFrom.
-				if decision.Time.After(coveredFrom) {
-					return false
-				}
-				if _, dup := seen[decision.ID]; !dup && query.Matches(decision) {
-					seen[decision.ID] = struct{}{}
-					result.Decisions = append(result.Decisions, decision)
-				}
-				return true
-			})
-			if err != nil || !complete {
-				result.Partial = true
-			}
+		} else if !journal.scanArchive(ctx, archive, query, coveredFrom, seen, &result) {
+			result.Partial = true
 		}
 	}
 	SortNewestFirst(result.Decisions)
@@ -325,6 +311,51 @@ func (journal *Journal) Query(ctx context.Context, query Query) (Result, error) 
 		result.Truncated = true
 	}
 	return result, nil
+}
+
+// scanArchive adds matching archived decisions recorded at or before
+// coveredFrom to result. The archive is read oldest first from a start time,
+// so it is searched in windows reaching back from coveredFrom that widen
+// fourfold until the page is full or the query's start (or the retention)
+// is reached. A page is then the newest matches, not the oldest ones a
+// single scan from the start would return when the range holds more than
+// maxArchiveScan records. It reports whether the search was complete.
+func (journal *Journal) scanArchive(ctx context.Context, archive Archive, query Query, coveredFrom time.Time,
+	seen map[string]struct{}, result *Result,
+) bool {
+	floor := query.Since
+	if floor.IsZero() {
+		floor = coveredFrom.Add(-DefaultRetention)
+	}
+	budget := maxArchiveScan
+	for width := archiveFirstWindow; ; width *= 4 {
+		since := coveredFrom.Add(-width)
+		if !since.After(floor) {
+			since = floor
+		}
+		scanned := 0
+		complete, err := archive.Scan(ctx, since, budget, func(decision Decision) bool {
+			// Memory is complete only after coveredFrom.
+			if decision.Time.After(coveredFrom) {
+				return false
+			}
+			scanned++
+			if _, dup := seen[decision.ID]; !dup && query.Matches(decision) {
+				seen[decision.ID] = struct{}{}
+				result.Decisions = append(result.Decisions, decision)
+			}
+			return true
+		})
+		if err != nil || !complete {
+			return false
+		}
+		if len(result.Decisions) >= query.Limit || since.Equal(floor) {
+			return true
+		}
+		if budget -= max(scanned, 1); budget <= 0 {
+			return false
+		}
+	}
 }
 
 // Chain returns the decision chain containing id. When the chain reaches

@@ -228,6 +228,31 @@ func TestJournalQueryReadsArchiveBeyondWindow(t *testing.T) {
 	}
 }
 
+func TestJournalQueryArchiveReturnsNewestBeyondScanBound(t *testing.T) {
+	base := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	total := maxArchiveScan + maxArchiveScan/2
+	archive := &fakeArchive{complete: true}
+	for index := range total {
+		archive.decisions = append(archive.decisions, Decision{ID: fmt.Sprintf("d%05d", index), Region: "gru",
+			Kind: KindHeld, Time: base.Add(time.Duration(index) * time.Minute)})
+	}
+	journal := NewJournal(JournalConfig{Region: "gru", Capacity: 2, Archive: archive})
+	for _, decision := range archive.decisions[total-4:] {
+		journal.Ingest(decision)
+	}
+	// Memory holds the two newest; the page continues with the newest
+	// archived decisions, not the oldest a single forward scan would read.
+	result, err := journal.Query(t.Context(), Query{Limit: 10})
+	if err != nil || len(result.Decisions) != 10 || result.Partial {
+		t.Fatalf("result = %d decisions, partial %v, %v", len(result.Decisions), result.Partial, err)
+	}
+	for index, decision := range result.Decisions {
+		if want := fmt.Sprintf("d%05d", total-1-index); decision.ID != want {
+			t.Fatalf("order %d = %s, want %s", index, decision.ID, want)
+		}
+	}
+}
+
 func TestJournalChainAcrossArchive(t *testing.T) {
 	base := time.Now().Add(-time.Hour).UTC()
 	root := Decision{ID: newIDAt(base), Region: "gru", Kind: KindReleaseAdmitted, Time: base}
