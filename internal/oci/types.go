@@ -226,6 +226,8 @@ type ResourceIdentity struct {
 }
 
 // OperationIntent is durably written before an OCI mutation is attempted.
+// PreviousSizeGB is set only on volume-resize intents: it is the confirmed
+// size a grow-only resize starts from.
 type OperationIntent struct {
 	Action                         string    `json:"action"`
 	Key                            string    `json:"key"`
@@ -248,6 +250,7 @@ type OperationIntent struct {
 	VolumeID                       string    `json:"volume_id,omitempty"`
 	AvailabilityDomain             string    `json:"availability_domain,omitempty"`
 	SizeGB                         int64     `json:"size_gb,omitempty"`
+	PreviousSizeGB                 int64     `json:"previous_size_gb,omitzero"`
 	Device                         string    `json:"device,omitempty"`
 	IsReadOnly                     bool      `json:"is_read_only"`
 	IsShareable                    bool      `json:"is_shareable"`

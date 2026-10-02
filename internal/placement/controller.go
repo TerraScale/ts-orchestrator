@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/lifecycle"
 )
 
 const (
@@ -60,6 +61,13 @@ type Config struct {
 	MemberRole      string
 	Resources       Resources
 	TickInterval    time.Duration
+	// VolumeDeadlines bound transitional retained-volume phases; zero fields
+	// use storage lifecycle defaults (ten minutes for ATTACHING).
+	VolumeDeadlines lifecycle.Deadlines
+	// AutoGrowVolumes lets placement grow a retained volume created under a
+	// smaller resource profile through the fleet's grow-only resize. Off by
+	// default: a smaller volume stays an error for the operator instead.
+	AutoGrowVolumes bool
 	OnError         func(error)
 	OnHold          func(string)
 }
@@ -110,6 +118,9 @@ func (config Config) validate() error {
 		!positive(config.Resources) ||
 		config.Resources.CPU > 4096 || config.Resources.MemoryBytes > 1<<50 || config.Resources.DiskBytes > 1<<50 {
 		return errors.New("placement controller config has an invalid cell, region, owner, role, or resource profile")
+	}
+	if err := config.VolumeDeadlines.Validate(); err != nil {
+		return err
 	}
 	if config.TickInterval < 0 || config.TickInterval != 0 && (config.TickInterval < minTickInterval || config.TickInterval > maxTickInterval) {
 		return errors.New("placement tick interval must be zero or between 100ms and 5m")
@@ -480,8 +491,19 @@ func (controller *Controller) advanceMember(
 			return false, fmt.Errorf("create or recover retained member volume %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 		}
 		if volume.ID == "" || volume.CreateKey != volumeCreateKey(intent, seat) || volume.Region != controller.config.Region ||
-			volume.Owner != controller.config.ManagedOwner || volume.Generation != controller.config.FleetGeneration || volume.SizeGB < sizeGB {
+			volume.Owner != controller.config.ManagedOwner || volume.Generation != controller.config.FleetGeneration {
 			return false, errors.New("OCI fleet returned a retained volume with mismatched durable identity")
+		}
+		if volume.SizeGB < sizeGB {
+			// The volume was created under an earlier, smaller resource profile.
+			grown, err := controller.growVolume(ctx, epoch, intent, volume, sizeGB)
+			if err != nil {
+				return false, fmt.Errorf("retained member volume %s/%s is %d GiB, below the desired %d GiB: %w",
+					intent.DatabaseID, seat.MemberID, volume.SizeGB, sizeGB, err)
+			}
+			if grown.ID != volume.ID || grown.SizeGB < sizeGB {
+				return false, errors.New("OCI fleet returned a resized retained volume with mismatched durable identity")
+			}
 		}
 		state.VolumeID = volume.ID
 		state.Stage = StagePreparedAttach
@@ -572,6 +594,7 @@ func (controller *Controller) advanceMember(
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
 				return true, err
 			case "ATTACHING":
+				controller.holdStuckAttachment(seat.MemberID, attachment.ID, state)
 				return false, nil
 			default:
 				controller.hold(fmt.Sprintf("member %s retained volume attachment is %s; desired state remains withheld", seat.MemberID, attachment.State))
@@ -985,6 +1008,42 @@ func (controller *Controller) guard(ctx context.Context, epoch uint64) error {
 		return authority.ErrFenced
 	}
 	return controller.fencer.Guard(ctx, epoch)
+}
+
+var errVolumeAutoGrowDisabled = errors.New("volume auto-grow is disabled in placement config")
+
+// growVolume grows an owned retained volume through the fleet's journaled
+// resize seam when AutoGrowVolumes is enabled.
+func (controller *Controller) growVolume(ctx context.Context, epoch uint64, intent Intent, volume oci.RetainedVolume, sizeGB int64) (oci.RetainedVolume, error) {
+	if !controller.config.AutoGrowVolumes {
+		return volume, errVolumeAutoGrowDisabled
+	}
+	resizer, ok := controller.fleet.(oci.VolumeResizer)
+	if !ok {
+		return volume, oci.ErrVolumeResizeUnsupported
+	}
+	if err := controller.guard(ctx, epoch); err != nil {
+		return volume, err
+	}
+	return resizer.ResizeRetainedVolume(ctx, oci.VolumeResizeRequest{
+		DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID, VolumeID: volume.ID, SizeGB: sizeGB,
+	})
+}
+
+// holdStuckAttachment reports an attachment that stayed ATTACHING past its
+// lifecycle deadline. The member's UpdatedAt is the phase start: it is written
+// on entering StageAwaitingAttach and left unchanged while waiting. The
+// remediation is reported, never executed here: every force detach or host
+// replacement needs its own fencing proof in the storage slice.
+func (controller *Controller) holdStuckAttachment(memberID, attachmentID string, state MemberState) {
+	phase := lifecycle.State{Phase: lifecycle.Attaching, Since: state.UpdatedAt}
+	stuck, expired := lifecycle.Check(phase, controller.currentTime(), controller.config.VolumeDeadlines)
+	if !expired {
+		return
+	}
+	controller.hold(fmt.Sprintf("member %s retained volume attachment %s is stuck ATTACHING since %s (%s); remediation %s is required",
+		memberID, attachmentID, state.UpdatedAt.UTC().Format(time.RFC3339), stuck.Reason,
+		lifecycle.Remediate(stuck, controller.config.VolumeDeadlines)))
 }
 
 func (controller *Controller) hold(reason string) {

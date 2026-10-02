@@ -144,6 +144,19 @@ func TestInspectVolumeInitializationGrantsOneFirstFormat(t *testing.T) {
 	}
 }
 
+func TestInspectVolumeInitializationGrantsPinnedXFSFirstFormat(t *testing.T) {
+	fleet, _, _, pins, _ := newVolumeInitFixture(t)
+	pins.FileSystemType = "xfs"
+	proof, err := fleet.InspectVolumeInitialization(t.Context(), pins)
+	if err != nil || !proof.AllowFormat {
+		t.Fatalf("pinned xfs did not receive its one first-format grant: proof=%+v err=%v", proof, err)
+	}
+	pins.FileSystemType = "btrfs"
+	if proof, err := fleet.InspectVolumeInitialization(t.Context(), pins); err == nil || proof.AllowFormat {
+		t.Fatalf("unsupported filesystem pin was inspected: proof=%+v err=%v", proof, err)
+	}
+}
+
 func TestInspectVolumeInitializationDeniesPriorDetachHistory(t *testing.T) {
 	fleet, _, journal, pins, bootDigest := newVolumeInitFixture(t)
 	prior := fleet.intent(actionVolumeDetach, "prior-detach-history", pins.AttachmentID,

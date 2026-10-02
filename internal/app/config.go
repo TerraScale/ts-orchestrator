@@ -9,6 +9,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 const maxConfigBytes = 1 << 20
@@ -49,6 +51,12 @@ type ControllerConfig struct {
 	// the founder, and every mutation. It is part of the signed controller
 	// config, so enabling it is a signed operator decision. Default off.
 	OfflineRestartAdmission bool `json:"offline_restart_admission,omitzero"`
+	// StorageCapacity publishes this node's boot root and JetStream StoreDir
+	// usage to the regional TTL'd usage bucket. Off by default.
+	StorageCapacity capacity.Config `json:"storage_capacity,omitzero"`
+	// VolumeBackup applies the OCI volume backup policy to placed members'
+	// retained volumes on the authority leader. Off by default.
+	VolumeBackup backup.Policy `json:"volume_backup,omitzero"`
 }
 
 type WorkloadProfile struct {
@@ -95,6 +103,10 @@ type HostConfig struct {
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
 	SessionTrace        bool     `json:"session_trace,omitzero"`
+	// ManagedVolumeOnlineGrow lets the root volume initializer grow a managed
+	// filesystem to its resized OCI volume. Off by default: ext4 growth needs
+	// CAP_SYS_RESOURCE added to the volume-init unit by the operator.
+	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
 }
 
 func LoadConfig(path string) (Config, error) {

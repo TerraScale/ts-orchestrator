@@ -300,6 +300,46 @@ func TestControllerRecoveredAttachmentRequiresCurrentArtifactAndImageQualificati
 	}
 }
 
+func TestControllerHoldsAttachmentStuckAttachingPastDeadline(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	store := newPlacementMemoryStore(t, intent)
+	for memberID, member := range store.members {
+		member.State.Stage = StageAwaitingAttach
+		member.State.UpdatedAt = time.Now().UTC().Add(-5 * time.Minute)
+		store.members[memberID] = member
+	}
+	instances := attachedInstances(t, intent)
+	for index := range instances {
+		instances[index].Attachments[0].State = "ATTACHING"
+	}
+	fleet := &placementTestFleet{instances: instances}
+	hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+	var holds []string
+	controller := startTestPlacementController(t, store, fleet, hosts, func(reason string) { holds = append(holds, reason) })
+
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, reason := range holds {
+		if strings.Contains(reason, "stuck ATTACHING") {
+			t.Fatalf("attachment within its deadline was reported stuck: %s", reason)
+		}
+	}
+	controller.now = func() time.Time { return time.Now().Add(6 * time.Minute) }
+	holds = nil
+	if err := controller.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	stuck := false
+	for _, reason := range holds {
+		stuck = stuck || strings.Contains(reason, "stuck ATTACHING") && strings.Contains(reason, "force-detach-retry")
+	}
+	if !stuck || store.casCalls != 0 || hosts.desiredWrites != 0 || fleet.attachCalls != 0 {
+		t.Fatalf("stuck attachment was not held with remediation: holds=%q CAS=%d desired=%d attach=%d",
+			holds, store.casCalls, hosts.desiredWrites, fleet.attachCalls)
+	}
+}
+
 func TestControllerWaitsForOCIReferenceToBecomeAttached(t *testing.T) {
 	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
 	store := newPlacementMemoryStore(t, intent)
@@ -686,6 +726,39 @@ func TestControllerFailingPlacementDoesNotStarveLaterPlacement(t *testing.T) {
 	err := controller.Tick(t.Context())
 	if !errors.Is(err, launchErr) || fleet.ensureCalls != 1 || !reachedLater {
 		t.Fatalf("failing placement starved the later placement: err=%v ensures=%d reached=%v", err, fleet.ensureCalls, reachedLater)
+	}
+}
+
+func TestControllerGrowsUndersizedRetainedVolumeOnlyWhenEnabled(t *testing.T) {
+	intent := committedTestIntent(t, validIntent(oci.RegionGRU))
+	seat := Seat{MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU, FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent}
+	for _, enabled := range []bool{false, true} {
+		store := newPlacementMemoryStore(t, intent)
+		member := store.members[seat.MemberID]
+		member.State.Stage = StagePreparedVolume
+		member.State.VolumeID, member.State.AttachmentID = "", ""
+		store.members[seat.MemberID] = member
+		// The test controller desires 50 GiB (32 GiB rounded up to OCI's minimum);
+		// the volume was created under an earlier smaller profile.
+		fleet := &placementTestFleet{instances: attachedInstances(t, intent), volumeResult: &oci.RetainedVolume{
+			ID: "volume-created", CreateKey: volumeCreateKey(intent, seat), Region: oci.RegionGRU,
+			Owner: "owner-a", Generation: 1, SizeGB: 40,
+		}}
+		hosts := &placementTestHosts{statuses: admittedStatuses(t, intent)}
+		controller := startTestPlacementController(t, store, fleet, hosts, nil)
+		controller.config.AutoGrowVolumes = enabled
+		err := controller.Tick(t.Context())
+		state := store.members[seat.MemberID].State
+		if !enabled {
+			if err == nil || len(fleet.resizeRequests) != 0 || store.casCalls != 0 {
+				t.Fatalf("disabled auto-grow resized or advanced: err=%v resizes=%d CAS=%d", err, len(fleet.resizeRequests), store.casCalls)
+			}
+			continue
+		}
+		if err != nil || len(fleet.resizeRequests) != 1 || fleet.resizeRequests[0].SizeGB != 50 ||
+			fleet.resizeRequests[0].VolumeID != "volume-created" || state.Stage != StagePreparedAttach {
+			t.Fatalf("enabled auto-grow did not resize then advance: err=%v resizes=%+v stage=%s", err, fleet.resizeRequests, state.Stage)
+		}
 	}
 }
 
@@ -1188,6 +1261,7 @@ type placementTestFleet struct {
 	imageVerifyErr   error
 	cordonCalls      int
 	terminateCalls   int
+	resizeRequests   []oci.VolumeResizeRequest
 }
 
 func (fleet *placementTestFleet) Region() oci.Region { return oci.RegionGRU }
@@ -1218,6 +1292,15 @@ func (fleet *placementTestFleet) CreateRetainedVolume(context.Context, oci.Volum
 		return oci.RetainedVolume{}, errors.New("unexpected CreateRetainedVolume")
 	}
 	return *fleet.volumeResult, nil
+}
+func (fleet *placementTestFleet) ResizeRetainedVolume(_ context.Context, request oci.VolumeResizeRequest) (oci.RetainedVolume, error) {
+	fleet.resizeRequests = append(fleet.resizeRequests, request)
+	if fleet.volumeResult == nil || fleet.volumeResult.ID != request.VolumeID {
+		return oci.RetainedVolume{}, errors.New("unexpected ResizeRetainedVolume")
+	}
+	resized := *fleet.volumeResult
+	resized.SizeGB = request.SizeGB
+	return resized, nil
 }
 func (fleet *placementTestFleet) Cordon(context.Context, string, string) error {
 	fleet.cordonCalls++

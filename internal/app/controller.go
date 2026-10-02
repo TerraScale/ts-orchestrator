@@ -213,6 +213,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := startControllerStorageCapacity(ctx, cfg, runtime); err != nil {
+		return fmt.Errorf("start storage capacity collector: %w", err)
+	}
 	var managedController *placement.Controller
 	var registrationVerifier host.ManagedRegistrationVerifier
 	var materialProvider host.ManagedMaterialProvider
@@ -305,6 +308,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			}, nil)
 		if err != nil {
 			return err
+		}
+		if err := startVolumeBackups(ctx, cfg, managed, control, placementStore); err != nil {
+			return fmt.Errorf("start volume backup policy: %w", err)
 		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
