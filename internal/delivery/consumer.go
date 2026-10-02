@@ -320,14 +320,17 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 			}
 			return false, stageDeliveryError("initial_guard", err)
 		}
-		plan, planErr := s.config.Planner.Plan(ctx, intent)
+		shape, plan, planErr := s.plan(ctx, intent)
 		if planErr != nil {
 			return false, stageDeliveryError("planner", planErr)
 		}
-		if err := validatePlan(intent, plan); err != nil {
+		if err := validatePlan(intent, shape, plan); err != nil {
 			return s.rejectIntent(ctx, wire, intent, actor, "invalid desired placement plan")
 		}
 		op = operation{Intent: intent, Fingerprint: fingerprint, Actor: actor, Plan: plan}
+		if shape != defaultPlanShape(intent) {
+			op.Shape = &shape
+		}
 		b, marshalErr := json.Marshal(op)
 		if marshalErr != nil {
 			return false, stageDeliveryError("operation_create", marshalErr)
@@ -357,7 +360,7 @@ func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, proc
 	if op.Receipt != nil {
 		return true, nil
 	}
-	if err := validatePlan(intent, op.Plan); err != nil {
+	if err := validatePlan(intent, op.planShape(), op.Plan); err != nil {
 		return false, stageDeliveryError("validate_plan", err)
 	}
 	for _, desired := range op.Plan {
@@ -419,11 +422,36 @@ func (s *Service) hold(ctx context.Context, key string, op operation, revision u
 	return false, fmt.Errorf("record fenced delivery: %w", err)
 }
 
-func validatePlan(intent Intent, plan []host.Desired) error {
+// plan asks a ShapedPlanner for its shape, or plans the intent's own shape.
+func (s *Service) plan(ctx context.Context, intent Intent) (PlanShape, []host.Desired, error) {
+	if shaped, ok := s.config.Planner.(ShapedPlanner); ok {
+		return shaped.PlanShaped(ctx, intent)
+	}
+	plan, err := s.config.Planner.Plan(ctx, intent)
+	return defaultPlanShape(intent), plan, err
+}
+
+func defaultPlanShape(intent Intent) PlanShape {
+	return PlanShape{Generation: intent.Generation, Replicas: intent.DesiredReplicas}
+}
+
+func (op operation) planShape() PlanShape {
+	if op.Shape != nil {
+		return *op.Shape
+	}
+	return defaultPlanShape(op.Intent)
+}
+
+func validatePlan(intent Intent, shape PlanShape, plan []host.Desired) error {
+	// A shaped release may only move the desired generation forward and must
+	// stay within the intent's replica bound.
+	if shape.Generation < intent.Generation || shape.Replicas < 0 || shape.Replicas > 1024 {
+		return ErrInvalid
+	}
 	seen := make(map[string]struct{}, len(plan))
 	active := 0
 	for _, d := range plan {
-		if d.Cell != intent.Cell || d.Role != intent.Role || d.Environment != intent.Environment || d.Generation != intent.Generation || d.AuthorityEpoch != intent.AuthorityEpoch || !nameRE.MatchString(d.Node) {
+		if d.Cell != intent.Cell || d.Role != intent.Role || d.Environment != intent.Environment || d.Generation != shape.Generation || d.AuthorityEpoch != intent.AuthorityEpoch || !nameRE.MatchString(d.Node) {
 			return ErrInvalid
 		}
 		if _, ok := seen[d.Node]; ok {
@@ -441,7 +469,7 @@ func validatePlan(intent Intent, plan []host.Desired) error {
 		}
 		active++
 	}
-	if active != intent.DesiredReplicas || !slices.IsSortedFunc(plan, func(a, b host.Desired) int {
+	if active != shape.Replicas || !slices.IsSortedFunc(plan, func(a, b host.Desired) int {
 		if a.Node < b.Node {
 			return -1
 		}
