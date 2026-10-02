@@ -636,7 +636,13 @@ func newFounderPeerGate(t *testing.T, fixture *founderSignerFixture, reader *fou
 	row bootstrap.FounderPeerRow,
 ) (Gate, *countingMaterialChecker, *founderAdmissionCredentials) {
 	t.Helper()
-	instanceID := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot
+	return newFounderPeerGateForInstance(t, fixture, reader, row, "ocid1.instance.oc1.sa-saopaulo-1."+row.Slot)
+}
+
+func newFounderPeerGateForInstance(t *testing.T, fixture *founderSignerFixture, reader *founderAdmissionLedger,
+	row bootstrap.FounderPeerRow, instanceID string,
+) (Gate, *countingMaterialChecker, *founderAdmissionCredentials) {
+	t.Helper()
 	material := new(countingMaterialChecker)
 	credentials := new(founderAdmissionCredentials)
 	markerDirectory := filepath.Join(t.TempDir(), "marker")
@@ -1481,11 +1487,38 @@ type founderFakeOCI struct {
 
 func (fake *founderFakeOCI) rowForInstance(id string) (bootstrap.FounderPeerRow, bool) {
 	for slot, row := range fake.rows {
-		if id == "ocid1.instance.oc1.sa-saopaulo-1."+slot {
+		base := "ocid1.instance.oc1.sa-saopaulo-1." + slot
+		if id == base || strings.HasPrefix(id, base+"-a") && founderFakeReplacementSuffix(slot, id[len(base)+1:]) {
 			return row, true
 		}
 	}
 	return bootstrap.FounderPeerRow{}, false
+}
+
+// founderFakeAttempt returns the replacement attempt marker ("a2") from a
+// founder retry token; attempt one carries no marker.
+func founderFakeAttempt(slot, token string) string {
+	rest, ok := strings.CutPrefix(token, "founder-"+slot+"-")
+	if !ok {
+		return ""
+	}
+	marker, _, found := strings.Cut(rest, "-")
+	if !found || !founderFakeReplacementSuffix(slot, marker) {
+		return ""
+	}
+	return marker
+}
+
+func founderFakeReplacementSuffix(_ string, marker string) bool {
+	if len(marker) < 2 || marker[0] != 'a' {
+		return false
+	}
+	for _, digit := range marker[1:] {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (fake *founderFakeOCI) GetImage(_ context.Context, request core.GetImageRequest) (core.GetImageResponse, error) {
@@ -1511,8 +1544,12 @@ func (fake *founderFakeOCI) LaunchInstance(_ context.Context, request core.Launc
 		return core.LaunchInstanceResponse{}, errors.New("unknown founder slot")
 	}
 	fake.launches++
+	id := "ocid1.instance.oc1.sa-saopaulo-1." + row.Slot
+	if attempt := founderFakeAttempt(row.Slot, *request.OpcRetryToken); attempt != "" {
+		id += "-" + attempt
+	}
 	return core.LaunchInstanceResponse{Instance: core.Instance{
-		Id:            new("ocid1.instance.oc1.sa-saopaulo-1." + row.Slot),
+		Id:            new(id),
 		CompartmentId: new(row.CompartmentOCID), ImageId: new(row.ImageOCID)}}, nil
 }
 
