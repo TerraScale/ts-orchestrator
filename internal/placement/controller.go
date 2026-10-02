@@ -134,7 +134,12 @@ func (controller *Controller) Run(ctx context.Context) error {
 	ticker := time.NewTicker(controller.config.TickInterval)
 	defer ticker.Stop()
 	for {
-		if err := controller.Tick(ctx); err != nil && ctx.Err() == nil && controller.config.OnError != nil {
+		started, standby := time.Now(), !controller.fencer.Current().CanMutate()
+		err := controller.Tick(ctx)
+		if ctx.Err() == nil {
+			recordReconcile(started, standby, err)
+		}
+		if err != nil && ctx.Err() == nil && controller.config.OnError != nil {
 			controller.config.OnError(err)
 		}
 		select {

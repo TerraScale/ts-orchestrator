@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"slices"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -92,7 +92,9 @@ func (s *Service) Run(ctx context.Context) error {
 					}
 					return fmt.Errorf("ack delivery intent: %w", err)
 				}
+				recordAcknowledged()
 			} else {
+				intentsDeferred.Inc()
 				if processErr != nil {
 					diagnostics.report(slog.Default(), processErr)
 				}
@@ -240,7 +242,9 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 		return false, nil
 	}
 	if !quiet {
-		log.Printf("delivery intent transport temporarily unavailable: %v; retrying", err)
+		transportRetries.Inc()
+		slog.Warn("delivery intent transport temporarily unavailable; retrying",
+			observability.ComponentKey, "delivery", "error", err)
 	}
 	select {
 	case <-ctx.Done():
