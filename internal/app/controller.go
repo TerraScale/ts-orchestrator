@@ -137,6 +137,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
 	defer waitHealth()
 	defer stopHealth()
+	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
 		_, _, err := retryControllerOpen(waitCtx, "wait for regional NATS cluster", fullClusterReady, false,
@@ -196,6 +197,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	defer stopAuthority()
 	defer control.Close()
+	membershipReconciler, err := startControllerMembership(ctx, cfg, runtime, control)
+	if err != nil {
+		return fmt.Errorf("start controller membership supervision: %w", err)
+	}
 	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
@@ -553,7 +558,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
-	workerErrors := make(chan error, 7)
+	workerErrors := make(chan error, 8)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -568,6 +573,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if ociReconcile != nil {
 		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
+	}
+	if membershipReconciler != nil {
+		workers.Go(func() { workerErrors <- membershipReconciler.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

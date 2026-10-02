@@ -52,6 +52,7 @@ Operator tooling:
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   runtime-priority       Qualify runtime resources and run bounded pressure
+  cluster                Break-glass controller quorum-loss recovery
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
 `
@@ -95,6 +96,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return commandStatus(ctx, sourcedigest.Run(ctx, args[1:], commandio.NewWriter(output), &diagnostics), &diagnostics)
 	case "qualification":
 		return runQualification(ctx, args[1:], commandio.NewWriter(output))
+	case "cluster":
+		return runCluster(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")

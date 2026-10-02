@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -121,6 +122,20 @@ func ValidateSignedControllerConfig(manifest bootstrap.Manifest, observedPrivate
 		}
 		if _, exists := secretFiles[name]; !exists {
 			return Config{}, fmt.Errorf("controller credential %s is absent from signed material", name)
+		}
+	}
+	if path := cfg.NATS.Embedded.MembershipCredentialsFile; path != "" {
+		if _, signed := secretFiles["membership.creds"]; !signed ||
+			path != filepath.Join(bootstrapstart.MaterialDirectory, "membership.creds") {
+			return Config{}, errors.New("membership credentials are not the signed slot material")
+		}
+	}
+	if settings := cfg.Controller.Membership; settings != nil {
+		if err := settings.Validate(); err != nil {
+			return Config{}, fmt.Errorf("signed controller membership: %w", err)
+		}
+		if settings.RetirementEvidenceDir != "" && settings.RetirementEvidenceDir != membership.DefaultRetirementEvidenceDir {
+			return Config{}, errors.New("signed controller membership evidence directory must be the fixed path")
 		}
 	}
 	if cfg.Controller.ResponseKeyFile != filepath.Join(bootstrapstart.MaterialDirectory, manifest.Slot+"-response.key") ||

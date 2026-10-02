@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -218,18 +218,18 @@ func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers
 // startClusterHealth supervises the local broker's view of the regional
 // cluster until ctx ends. stopped is closed once the embedded broker is seen
 // dead, so the controller can exit and let the service manager restart it.
-func startClusterHealth(ctx context.Context, runtime *natscell.Runtime, reporter membership.Reporter,
-) (supervisor *membership.Supervisor, stopped <-chan struct{}, wait func()) {
+func startClusterHealth(ctx context.Context, runtime *natscell.Runtime, reporter clusterhealth.Reporter,
+) (supervisor *clusterhealth.Supervisor, stopped <-chan struct{}, wait func()) {
 	brokerStopped := make(chan struct{})
 	var once sync.Once
-	supervisor = &membership.Supervisor{
-		Observe: func() (membership.Observation, error) {
+	supervisor = &clusterhealth.Supervisor{
+		Observe: func() (clusterhealth.Observation, error) {
 			observed, err := runtime.ObserveCluster()
-			return membershipObservation(observed), err
+			return clusterHealthObservation(observed), err
 		},
 		Logger: slog.Default(),
-		Reporter: membership.ReporterFunc(func(status membership.Status) {
-			if status.Phase == membership.PhaseStopped {
+		Reporter: clusterhealth.ReporterFunc(func(status clusterhealth.Status) {
+			if status.Phase == clusterhealth.PhaseStopped {
 				once.Do(func() { close(brokerStopped) })
 			}
 			if reporter != nil {
@@ -245,13 +245,13 @@ func startClusterHealth(ctx context.Context, runtime *natscell.Runtime, reporter
 	return supervisor, brokerStopped, func() { <-done }
 }
 
-func membershipObservation(observed natscell.ClusterObservation) membership.Observation {
-	peers := make([]membership.Peer, 0, len(observed.MetaPeers))
+func clusterHealthObservation(observed natscell.ClusterObservation) clusterhealth.Observation {
+	peers := make([]clusterhealth.Peer, 0, len(observed.MetaPeers))
 	for _, peer := range observed.MetaPeers {
-		peers = append(peers, membership.Peer{Name: peer.Name, Current: peer.Current, Offline: peer.Offline,
+		peers = append(peers, clusterhealth.Peer{Name: peer.Name, Current: peer.Current, Offline: peer.Offline,
 			Active: peer.Active, Lag: peer.Lag})
 	}
-	return membership.Observation{ServerName: observed.ServerName, Running: observed.Running,
+	return clusterhealth.Observation{ServerName: observed.ServerName, Running: observed.Running,
 		Expected: observed.ExpectedPeers, Routes: observed.Routes, MetaLeader: observed.MetaLeader,
 		MetaSize: observed.MetaSize, MetaQuorum: observed.MetaQuorum, Peers: peers}
 }

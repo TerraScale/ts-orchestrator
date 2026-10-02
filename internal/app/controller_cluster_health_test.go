@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 )
 
@@ -50,13 +50,13 @@ func TestClusterHealthIsHealthyOnEveryFormedBroker(t *testing.T) {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	evaluate := func(runtime *natscell.Runtime) (string, membership.Status) {
+	evaluate := func(runtime *natscell.Runtime) (string, clusterhealth.Status) {
 		observed, err := runtime.ObserveCluster()
 		if err != nil {
 			t.Fatal(err)
 		}
-		return observed.ServerName, membership.Evaluate(membershipObservation(observed),
-			membership.DefaultLagThreshold, time.Now())
+		return observed.ServerName, clusterhealth.Evaluate(clusterHealthObservation(observed),
+			clusterhealth.DefaultLagThreshold, time.Now())
 	}
 	for _, runtime := range runtimes {
 		for {

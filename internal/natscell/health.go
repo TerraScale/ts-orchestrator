@@ -3,17 +3,7 @@ package natscell
 import (
 	"errors"
 	"slices"
-	"time"
 )
-
-// ClusterPeer is one remote JetStream metadata peer as seen by this broker.
-type ClusterPeer struct {
-	Name    string
-	Current bool
-	Offline bool
-	Active  time.Duration
-	Lag     uint64
-}
 
 // ClusterObservation is a point-in-time, read-only view of this broker's
 // routes and JetStream metadata group. ExpectedPeers are the signed broker
@@ -26,7 +16,7 @@ type ClusterObservation struct {
 	MetaLeader    string
 	MetaSize      int
 	MetaQuorum    int
-	MetaPeers     []ClusterPeer
+	MetaPeers     []MetaReplica
 }
 
 // ObserveCluster reads Routez and Jsz from the embedded server. It never
@@ -62,22 +52,7 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 	observation.MetaLeader = info.Meta.Leader
 	observation.MetaSize = info.Meta.Size
 	observation.MetaQuorum = info.Meta.QuorumNeeded
-	for _, peer := range info.Meta.Replicas {
-		if peer == nil {
-			continue
-		}
-		observation.MetaPeers = append(observation.MetaPeers, ClusterPeer{Name: peer.Name,
-			Current: peer.Current, Offline: peer.Offline, Active: peer.Active, Lag: peer.Lag})
-	}
-	slices.SortFunc(observation.MetaPeers, func(a, b ClusterPeer) int {
-		switch {
-		case a.Name < b.Name:
-			return -1
-		case a.Name > b.Name:
-			return 1
-		}
-		return 0
-	})
+	observation.MetaPeers = metaReplicas(info.Meta.Replicas)
 	return observation, nil
 }
 

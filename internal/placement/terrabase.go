@@ -1053,6 +1053,16 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if allowed, reason := retirementTopologySafe(intent, candidate, survivors); !allowed {
 		return false, reason
 	}
+	if allowed, reason := retirementEvidenceSafe(evidence, candidate, true); !allowed {
+		return false, reason
+	}
+	return true, "safe-to-retire"
+}
+
+// retirementEvidenceSafe holds the identity, replication, quorum, writer-stop
+// and retained-volume checks shared by retirement and lost-member
+// replacement. Drain is retirement-only: a lost member cannot be drained.
+func retirementEvidenceSafe(evidence RetirementEvidence, candidate MemberObservation, requireDrain bool) (bool, string) {
 	if !evidenceMatchesCandidate(evidence, candidate) {
 		return false, "retirement-evidence-identity-mismatch"
 	}
@@ -1062,7 +1072,7 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if !evidence.QuorumSafe {
 		return false, "quorum-safety-unverified"
 	}
-	if !evidence.HostDrained {
+	if requireDrain && !evidence.HostDrained {
 		return false, "host-drain-unverified"
 	}
 	if !evidence.WriterStopped || len(evidence.WriterStopProof) == 0 {
@@ -1071,7 +1081,7 @@ func CanRetire(intent Intent, candidate MemberObservation, survivors []MemberObs
 	if !evidence.VolumeRetained {
 		return false, "retained-volume-decision-unverified"
 	}
-	return true, "safe-to-retire"
+	return true, "evidence-safe"
 }
 
 // CanBeginRetirement is the pre-drain gate. It permits cordon/drain only after

@@ -1,8 +1,8 @@
-// Package membership supervises the regional controller cluster after
+// Package clusterhealth supervises the regional controller cluster after
 // startup. It reads broker route and JetStream metadata views, classifies the
 // cluster's health against the signed broker set, and reports structured
 // status. It never mutates cluster membership.
-package membership
+package clusterhealth
 
 import (
 	"slices"

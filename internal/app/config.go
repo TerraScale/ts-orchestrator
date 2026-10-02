@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -73,6 +74,8 @@ type ControllerConfig struct {
 	// hosts can move to a newer qualified image independently.
 	ManagedHostImageReceiptFile    string `json:"managed_host_image_receipt_file,omitempty"`
 	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
+	// Membership enables controller slot supervision; nil keeps it off.
+	Membership *membership.Config `json:"membership,omitempty"`
 }
 
 type WorkloadProfile struct {
