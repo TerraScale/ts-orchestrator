@@ -182,7 +182,10 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 		return nil
 	}
 	policy := f.policy
-	client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
+	// Set only the retry policy: replacing the whole configuration would drop
+	// a circuit breaker the SDK installed from OCI_SDK_DEFAULT_CIRCUITBREAKER_ENABLED
+	// or its global setting.
+	client.Configuration.RetryPolicy = &policy
 }
 
 // PinHost replaces a client's endpoint with an exact canonical endpoint. It is

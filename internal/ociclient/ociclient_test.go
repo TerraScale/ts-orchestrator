@@ -212,3 +212,47 @@ func TestConfiguredClientSharesLimiterAndRetriesThrottling(t *testing.T) {
 		t.Logf("limiter error: %v", err)
 	}
 }
+
+// TestTransportFailuresRetryReadsOnly drives a real SDK client against a server
+// that drops the connection before any response. The SDK then reports no raw
+// response, so the method must be recovered from the transport error.
+func TestTransportFailuresRetryReadsOnly(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			connection, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				_ = connection.Close()
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"ocid1.instance.oc1.sa-saopaulo-1.x","lifecycleState":"RUNNING"}`)
+	}))
+	defer server.Close()
+	factory, err := New(testProvider(t), Options{Region: "sa-saopaulo-1",
+		Limits: map[Service]Limit{ServiceCompute: {PerSecond: 1000, Burst: 10}},
+		Retry:  RetryOptions{BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute, err := factory.Compute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	PinHost(&compute.BaseClient, server.URL)
+	compute.HTTPClient = server.Client()
+	if _, err := compute.GetInstance(t.Context(), core.GetInstanceRequest{InstanceId: new("ocid1.instance.oc1.sa-saopaulo-1.x")}); err != nil {
+		t.Fatalf("read was not retried after dropped connections: %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("read attempts = %d, want 3", calls.Load())
+	}
+
+	calls.Store(0)
+	_, err = compute.UpdateInstance(t.Context(), core.UpdateInstanceRequest{InstanceId: new("ocid1.instance.oc1.sa-saopaulo-1.x"),
+		UpdateInstanceDetails: core.UpdateInstanceDetails{DisplayName: new("x")}})
+	if err == nil || calls.Load() != 1 {
+		t.Fatalf("PUT was replayed after a dropped connection: calls=%d err=%v", calls.Load(), err)
+	}
+}

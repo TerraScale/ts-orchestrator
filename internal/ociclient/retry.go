@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -117,14 +118,31 @@ func shouldRetry(response common.OCIOperationResponse, replayable func(*http.Req
 }
 
 func responseStatus(response common.OCIOperationResponse) (int, *http.Request) {
-	if response.Response == nil {
-		return 0, nil
+	var raw *http.Response
+	if response.Response != nil {
+		raw = response.Response.HTTPResponse()
 	}
-	raw := response.Response.HTTPResponse()
-	if raw == nil {
-		return 0, nil
+	if raw != nil {
+		return raw.StatusCode, raw.Request
 	}
-	return raw.StatusCode, raw.Request
+	return 0, transportRequest(response.Error)
+}
+
+// transportRequest recovers the method of an attempt that failed before any
+// HTTP response existed. The SDK then leaves the raw response nil, but
+// net/http reports the method in the *url.Error it returns. The synthetic
+// request carries only the method, so a POST is never treated as carrying a
+// retry token and stays non-replayable.
+func transportRequest(err error) *http.Request {
+	var urlErr *url.Error
+	if !errors.As(err, &urlErr) {
+		return nil
+	}
+	method := strings.ToUpper(strings.TrimSpace(urlErr.Op))
+	if method == "" {
+		return nil
+	}
+	return &http.Request{Method: method, Header: http.Header{}}
 }
 
 // replayable reports whether repeating request cannot duplicate an effect.
