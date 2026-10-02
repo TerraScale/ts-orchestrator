@@ -97,6 +97,8 @@ type Service struct {
 	operations jetstream.KeyValue
 	consumer   jetstream.Consumer
 	config     Config
+	// plannerRefusals bounds an intent the planner keeps refusing.
+	plannerRefusals plannerRefusalCounter
 }
 
 // Receipt is a durable admission outcome. "accepted" means each planned host

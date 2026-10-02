@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
@@ -295,6 +296,35 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 	}
 }
 
+// plannerRefusalCounter counts planner refusals per intent observed by this
+// worker. An entry ends with the intent's held receipt; the map is bounded so
+// abandoned intents cannot grow it without limit.
+type plannerRefusalCounter struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+const maxTrackedPlannerRefusals = 4096
+
+func (c *plannerRefusalCounter) note(key string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.counts == nil {
+		c.counts = map[string]int{}
+	}
+	if _, tracked := c.counts[key]; !tracked && len(c.counts) >= maxTrackedPlannerRefusals {
+		clear(c.counts)
+	}
+	c.counts[key]++
+	return c.counts[key]
+}
+
+func (c *plannerRefusalCounter) forget(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.counts, key)
+}
+
 func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, processErr error) {
 	return s.processDelivery(ctx, wire, 0)
 }
@@ -388,10 +418,22 @@ func (s *Service) processDelivery(ctx context.Context, wire []byte, delivered ui
 			if limit <= 0 {
 				limit = DefaultMaxPlannerAttempts
 			}
-			if delivered >= uint64(limit) && plannerRefusal(planErr) && ctx.Err() == nil {
-				class, _ := deliveryFailureClass(planErr)
-				return s.recordIntentReceipt(ctx, wire, intent, actor, "held",
-					fmt.Sprintf("placement planner refused the intent %d times (%s); reconcile with a new intent", delivered, class))
+			if plannerRefusal(planErr) && ctx.Err() == nil {
+				// The broker delivery count also includes leadership naks,
+				// lost acks and failed writes, so the bound also counts the
+				// refusals this worker observed itself. A leader change
+				// restarts that count, which only delays the hold.
+				key := intent.OperationID + "\x00" + fingerprint
+				refusals := s.plannerRefusals.note(key)
+				if delivered >= uint64(limit) && refusals >= limit {
+					class, _ := deliveryFailureClass(planErr)
+					terminal, err := s.recordIntentReceipt(ctx, wire, intent, actor, "held",
+						fmt.Sprintf("placement planner refused the intent %d times (%s); reconcile with a new intent", refusals, class))
+					if terminal {
+						s.plannerRefusals.forget(key)
+					}
+					return terminal, err
+				}
 			}
 			return false, stageDeliveryError("planner", planErr)
 		}

@@ -95,6 +95,10 @@ func TestTerraBaseSyncKeepsPinOnPersistentTransientFailureThenEscalates(t *testi
 	if blocked.Candidate != pinned.Candidate || !strings.Contains(blocked.Reason, "transient failures persisted since") {
 		t.Fatalf("persistent transient failure did not escalate: %+v", blocked)
 	}
+	// After review removes the stop marker, the escalation window restarts.
+	if _, err := os.Stat(filepath.Join(state, cdTransientFile)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a stale transient record survived escalation: %v", err)
+	}
 }
 
 func TestTerraBaseSyncBlocksTerminalFailuresImmediately(t *testing.T) {

@@ -280,6 +280,14 @@ func syncTerraBaseWithPolicy(ctx context.Context, statePath, checkout string, ru
 		}
 		blocked.Candidate, blocked.Reason = candidate, reason
 		_, persistErr := state.ensureJSON(cdBlockedFile, blocked)
+		if persistErr == nil {
+			// The stop marker carries the reason. Once a reviewer removes it,
+			// a later transient failure starts a fresh window instead of
+			// blocking again at once on this stale first failure.
+			if removeErr := os.Remove(filepath.Join(statePath, cdTransientFile)); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				persistErr = removeErr
+			}
+		}
 		return errors.Join(err, persistErr)
 	}
 	if err := os.Remove(filepath.Join(statePath, cdTransientFile)); err != nil && !errors.Is(err, os.ErrNotExist) {

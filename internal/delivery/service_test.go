@@ -833,6 +833,16 @@ func TestPlannerRefusedIntentIsHeldAfterBoundedDeliveries(t *testing.T) {
 	if terminal, err := transient.processDelivery(ctx, mustJSON(other), 50); terminal || err == nil {
 		t.Fatalf("a transport failure counted toward the planner bound: %t %v", terminal, err)
 	}
+
+	// Redeliveries caused by leadership naks or transport errors raise the
+	// broker delivery count; a first planner refusal after them is not held.
+	inflated, ctx := testService(t, &testWriter{})
+	late := testIntent(t, inflated, ctx)
+	inflated.config.MaxPlannerAttempts = 3
+	inflated.config.Planner = diagnosticPlanner{err: fmt.Errorf("no profile: %w", placement.ErrInvalidWorkload)}
+	if terminal, err := inflated.processDelivery(ctx, mustJSON(late), 40); terminal || err == nil {
+		t.Fatalf("a first refusal after inflated redeliveries was held: %t %v", terminal, err)
+	}
 }
 
 func TestDeliveryRunSurvivesLostAckAfterDurableResult(t *testing.T) {
