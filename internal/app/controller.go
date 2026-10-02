@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/nats-io/nats.go"
@@ -227,6 +228,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	var materialService *managedmaterial.PreparationService
 	var backupRuntime *backupOperationRuntime
 	var materialAdmission placementMaterialAdmission
+	var ociReconcile *ociresource.Runner
 	managedRuntimeVerifier := managedRuntimeTargetVerifier(func(ctx context.Context, desired host.Desired,
 		registration host.Registration,
 	) (bool, error) {
@@ -265,7 +267,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
+			launchMaterial.HostMetadata(), newManagedImageVerifier,
+			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
@@ -311,6 +314,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		if err := startVolumeBackups(ctx, cfg, managed, control, placementStore); err != nil {
 			return fmt.Errorf("start volume backup policy: %w", err)
+		}
+		if reconcile := cfg.Controller.OciReconcile; reconcile != nil && reconcile.Enabled {
+			ociReconcile, _, err = retryControllerOpen(ctx, "open OCI resource reconcile state", fullClusterReady, false,
+				func(attempt context.Context) (*ociresource.Runner, error) {
+					return newOCIReconcileRunner(attempt, *reconcile, managed.region, runtime.JetStream(),
+						cfg.NATS.Replicas, control, fleet)
+				}, nil)
+			if err != nil {
+				return err
+			}
 		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
@@ -540,7 +553,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
-	workerErrors := make(chan error, 6)
+	workerErrors := make(chan error, 7)
 	var workers sync.WaitGroup
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
@@ -552,6 +565,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	}
 	if terminalRuntime != nil {
 		workers.Go(func() { workerErrors <- terminalRuntime.Run(runCtx) })
+	}
+	if ociReconcile != nil {
+		workers.Go(func() { workerErrors <- ociReconcile.Run(runCtx) })
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })

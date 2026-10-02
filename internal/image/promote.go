@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const repository = "TerraScale/ts-orchestrator"
@@ -523,7 +525,7 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		p.step(fmt.Sprintf("dry run: would import %s as %s", image, display))
 	} else {
 		importRecord := filepath.Join(o.Out, "oci-import.json")
-		if e = imageimport.Run(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", "sa-saopaulo-1", "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out); e != nil {
+		if e = imageimport.Run(ctx, []string{"--qcow2", image, "--sha256", p.manifest.Image.SHA256, "--region", catalog.OCIRegion(catalog.Bootstrap), "--compartment-id", o.CompartmentID, "--namespace", o.Namespace, "--bucket", o.Bucket, "--display-name", display, "--out", importRecord}, out); e != nil {
 			return e
 		}
 		var imported map[string]any

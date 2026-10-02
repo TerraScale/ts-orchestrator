@@ -21,6 +21,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -426,7 +428,7 @@ func validateManagedMemberBinding(binding ManagedMemberBinding) error {
 }
 
 func validateManagedOCIBinding(binding ManagedOCIBinding, failureDomain string) error {
-	if binding.Region != "GRU" && binding.Region != "SFO" && binding.Region != "FRA" {
+	if !catalog.IsCell(binding.Region) {
 		return errors.New("managed OCI region is invalid")
 	}
 	const instancePrefix = "ocid1.instance."

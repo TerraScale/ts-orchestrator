@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -138,7 +140,7 @@ type TerminalIntent struct {
 func (intent TerminalIntent) Validate() error {
 	if !natsToken.MatchString(intent.Cell) || !natsToken.MatchString(intent.DatabaseID) ||
 		!natsToken.MatchString(intent.PartitionID) || !natsToken.MatchString(intent.Owner) ||
-		(intent.Region != "GRU" && intent.Region != "SFO" && intent.Region != "FRA") ||
+		!catalog.IsCell(intent.Region) ||
 		!strings.HasPrefix(intent.CompartmentID, "ocid1.compartment.") ||
 		intent.FleetGeneration == 0 || intent.PlacementGeneration == 0 ||
 		!validTerminalDigest(intent.PlacementPayloadDigest) || !natsToken.MatchString(intent.OperationID) ||

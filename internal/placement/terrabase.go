@@ -41,7 +41,7 @@ const (
 
 var (
 	ErrInvalidIntent = errors.New("invalid TerraBase placement intent")
-	regionsInOrder   = [...]oci.Region{oci.RegionGRU, oci.RegionSFO, oci.RegionFRA}
+	regionsInOrder   = oci.Regions()
 )
 
 type Intent struct {
@@ -613,7 +613,7 @@ func DecodeCommittedIntent(payload []byte) (Intent, error) {
 func canonicalRegions(regions []oci.Region) bool {
 	previous := -1
 	for _, region := range regions {
-		index := slices.Index(regionsInOrder[:], region)
+		index := slices.Index(regionsInOrder, region)
 		if index < 0 || index <= previous {
 			return false
 		}
@@ -709,7 +709,7 @@ func elasticMember(region oci.Region) string {
 }
 
 func knownRegion(region oci.Region) bool {
-	return slices.Contains(regionsInOrder[:], region)
+	return slices.Contains(regionsInOrder, region)
 }
 
 func validBoundedToken(value string, maxLength int) bool {

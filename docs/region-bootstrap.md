@@ -87,6 +87,14 @@ B/C and manages the ARM workload hosts and TerraBase deployment.
    commands below use `--oci-profile DEFAULT`; configure that SDK profile with
    the same identity and target region. The helper passes the plan's region to
    regional OCI commands and records ready subscriptions and live inventory.
+   The preview, inventory, inspect-foundation, `import-image`, and
+   `public-api` commands now reach OCI through the Go SDK inside `ts-orch`,
+   reading the same `~/.oci/config` `DEFAULT` profile; the Python `oci` CLI is
+   no longer required for them. `TS_OCI_BACKEND=auto` (default) serves every
+   supported command in-binary and falls back to the CLI only for an
+   unsupported one, `sdk` never runs the CLI, and `cli` restores the previous
+   CLI behavior. `import-image` accepts a repeatable `--region` and imports
+   the same verified QCOW2 into each catalog region in parallel.
 3. Before creating the foundation, capture and review current inventory and a
    cost admission:
 

@@ -14,10 +14,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -97,11 +96,11 @@ func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (oci.
 	if err != nil {
 		return nil, err
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	factory, err := ociclient.InstancePrincipal(ociRegion)
 	if err != nil {
 		return nil, fmt.Errorf("create regional image readback principal: %w", err)
 	}
-	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	compute, err := factory.Compute()
 	if err != nil {
 		return nil, fmt.Errorf("create regional image readback client: %w", err)
 	}

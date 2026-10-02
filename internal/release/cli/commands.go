@@ -31,6 +31,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -106,7 +108,7 @@ func (c command) publish(args []string) error {
 	if err := c.ctx.Err(); err != nil {
 		return err
 	}
-	ociRegion := map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[*region]
+	ociRegion := catalog.OCIRegion(*region)
 	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
 	if err != nil {
 		return fmt.Errorf("create OCI instance-principal provider: %w", err)
@@ -1158,7 +1160,7 @@ func validOCIImageIDForRegion(value, region string) bool {
 }
 
 func oracleRegion(region string) string {
-	return map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region]
+	return catalog.OCIRegion(region)
 }
 
 func validRegion(value string) bool {

@@ -13,6 +13,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -397,7 +399,7 @@ func (historical HistoricalImage) ExpiresAt() time.Time   { return historical.pr
 func ValidEnvironment(value string) bool { return value == "production" || value == "canary" }
 
 // ValidRegion reports whether value is a supported logical region code.
-func ValidRegion(value string) bool { return value == "GRU" || value == "SFO" || value == "FRA" }
+func ValidRegion(value string) bool { return catalog.IsCell(value) }
 
 // ValidOCIImageIDForRegion checks both the image OCID form and logical-region
 // mapping used by signed release receipts.
@@ -533,7 +535,7 @@ func matchImageExpectation(receipt ImageReceipt, expected ImageExpectation) erro
 }
 
 func oracleRegion(region string) string {
-	return map[string]string{"GRU": "sa-saopaulo-1", "SFO": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[region]
+	return catalog.OCIRegion(region)
 }
 
 func validKernelRelease(value string) bool {

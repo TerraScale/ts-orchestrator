@@ -9,8 +9,7 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -22,6 +21,8 @@ type sdkProvider struct {
 	compute      core.ComputeClient
 	storage      core.BlockstorageClient
 	network      core.VirtualNetworkClient
+	// verified is the optional Observe verification cache; nil disables it.
+	verified *verificationCache
 }
 
 func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkProvider, error) {
@@ -29,30 +30,34 @@ func newSDKProvider(config RegionConfig, hostMetadata map[string]string) (*sdkPr
 	if err != nil {
 		return nil, err
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	// The shared factory gives the fleet the process-wide per-service token
+	// buckets and the 429/5xx retry policy that never replays an unsafe write.
+	factory, err := ociclient.InstancePrincipal(ociRegion)
 	if err != nil {
-		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
+		return nil, err
 	}
-	compute, err := core.NewComputeClientWithConfigurationProvider(provider)
+	compute, err := factory.Compute()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI Compute client: %w", err)
+		return nil, err
 	}
-	storage, err := core.NewBlockstorageClientWithConfigurationProvider(provider)
+	storage, err := factory.Blockstorage()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI Block Volume client: %w", err)
+		return nil, err
 	}
-	network, err := core.NewVirtualNetworkClientWithConfigurationProvider(provider)
+	network, err := factory.Network()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI network client: %w", err)
+		return nil, err
 	}
 	// Pin both service clients to the configured canonical endpoint. RegionConfig
 	// validation rejects realm aliases, ports, custom domains, and cross-region URLs.
-	compute.Host = strings.TrimSuffix(config.Endpoint, "/")
-	storage.Host = strings.TrimSuffix(config.Endpoint, "/")
-	network.Host = strings.TrimSuffix(config.Endpoint, "/")
+	ociclient.PinHost(&compute.BaseClient, config.Endpoint)
+	ociclient.PinHost(&storage.BaseClient, config.Endpoint)
+	ociclient.PinHost(&network.BaseClient, config.Endpoint)
 	// Every OCI call of the managed fleet passes through these three
 	// dispatchers, so wrapping them measures calls, errors and latency by
-	// templated operation without touching signing or retry behavior.
+	// templated operation without touching signing, rate limiting or retry
+	// behavior (the shared factory installs those on the interceptor and
+	// retry policy, which run around the dispatcher).
 	compute.HTTPClient = instrument(compute.HTTPClient, "compute")
 	storage.HTTPClient = instrument(storage.HTTPClient, "blockstorage")
 	network.HTTPClient = instrument(network.HTTPClient, "network")
@@ -93,10 +98,18 @@ func (provider *sdkProvider) GetInstance(ctx context.Context, id string) (CloudI
 	}
 	instance := cloudInstance(response.Instance, stringValue(response.Etag))
 	if instance.LifecycleState != "TERMINATED" && instance.LifecycleState != "TERMINATING" {
+		if privateIP, ok := provider.verified.lookup(ctx, instance.ID, instance.ETag); ok &&
+			instance.CompartmentID == provider.config.CompartmentID &&
+			instance.AvailabilityDomain == provider.config.AvailabilityDomain {
+			instance.PrivateIP = privateIP
+			return instance, nil
+		}
 		privateIP, err := provider.verifyInstanceStorageAndNetwork(ctx, instance)
 		if err != nil {
+			provider.verified.forget(instance.ID)
 			return CloudInstance{}, err
 		}
+		provider.verified.store(instance.ID, instance.ETag, privateIP)
 		instance.PrivateIP = privateIP
 	}
 	return instance, nil

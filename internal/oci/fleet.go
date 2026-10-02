@@ -191,7 +191,7 @@ func (f *fleet) Observe(ctx context.Context) ([]Instance, error) {
 			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
 			continue
 		}
-		cloud, identity, err := f.reobserveInstance(ctx, listed.ID)
+		cloud, identity, err := f.reobserveInstance(observeOnly(ctx), listed.ID)
 		if err != nil {
 			if errors.Is(err, ErrForeignResource) {
 				slog.Warn("withholding OCI instance without a verified regional identity", "instance_id", listed.ID, "region", f.config.Region)

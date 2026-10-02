@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (
@@ -82,9 +84,7 @@ func (target LiveS3Target) Validate() error {
 				return errors.New("native OCI root bucket is invalid")
 			}
 		}
-		switch target.Region {
-		case "sa-saopaulo-1", "us-sanjose-1", "eu-frankfurt-1":
-		default:
+		if !catalog.IsOCIRegion(target.Region) {
 			return errors.New("native OCI root region is unsupported")
 		}
 		if target.Endpoint != "https://"+namespace+".compat.objectstorage."+target.Region+".oci.customer-oci.com" {

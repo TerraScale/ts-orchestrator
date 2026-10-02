@@ -5,11 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
-	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -105,15 +103,15 @@ func NewInstancePrincipalConsoleHistoryProvider(config RegionConfig, intent Regi
 	if err != nil {
 		return nil, err
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(region))
+	factory, err := ociclient.InstancePrincipal(region)
 	if err != nil {
-		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
+		return nil, err
 	}
-	client, err := core.NewComputeClientWithConfigurationProvider(provider)
+	client, err := factory.Compute()
 	if err != nil {
-		return nil, fmt.Errorf("create OCI Compute client: %w", err)
+		return nil, err
 	}
-	client.Host = strings.TrimSuffix(config.Endpoint, "/")
+	ociclient.PinHost(&client.BaseClient, config.Endpoint)
 	return NewConsoleHistoryProvider(config, intent, journal, client)
 }
 
