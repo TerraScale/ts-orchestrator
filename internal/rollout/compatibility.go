@@ -1,7 +1,3 @@
-// Package rollout holds the pure decisions of a staged release rollout:
-// release compatibility, known-bad candidates, soak gates and the
-// transient/terminal classification that decides whether a driver may retry.
-// Callers own transport, signing and durable state.
 package rollout
 
 import (

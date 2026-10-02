@@ -25,6 +25,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/memberstatus"
 	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
+	selfupdatecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 )
 
 const usage = `Usage: ts-orch <command> [flags]
@@ -39,6 +40,7 @@ Runtime:
   install-controller-config  Install signed controller configuration
   netbird-enroll         Enroll the local NetBird client
   identity-new           Generate a host identity
+  selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
   operator               Manage workloads through the regional controller
@@ -71,6 +73,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return bootstrapcli.Run(ctx, args[1:], output)
 	case "release":
 		return releasecli.Run(ctx, args[1:], output)
+	case "selfupdate":
+		return selfupdatecli.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "image", "netbird":

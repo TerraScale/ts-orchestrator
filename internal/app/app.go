@@ -203,6 +203,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		slog.Warn("systemd readiness notification failed", "error", err)
 	}
 	defer func() { _ = notifier.Stopping() }()
+	emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, key, hostUnit, output)
 	return hostRunResult(ctx, agent.Run(ctx))
 }
 

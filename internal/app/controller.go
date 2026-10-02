@@ -267,7 +267,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), newManagedImageVerifier,
+			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller),
 			oci.InstancePrincipalFleetFactory(time.Duration(cfg.Controller.OciObserveVerifyCacheSeconds)*time.Second))
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
@@ -602,6 +602,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	// client is no longer usable, so WatchdogSec= restarts a wedged
 	// controller instead of leaving a silent Raft peer.
 	go notifier.RunWatchdog(runCtx, runtime.Ready)
+	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
 	case <-ctx.Done():
 		stop()

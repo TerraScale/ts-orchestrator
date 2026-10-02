@@ -515,3 +515,52 @@ func TestPromotionFailedBuildRemovesSourceWorktree(t *testing.T) {
 	_, r := promotionBuild(t, true, promoteSource, false, true)
 	contains(t, r["error"].(map[string]any)["message"].(string), "build failed")
 }
+func (f *promotionFixture) countCalls(log, needle string) int {
+	count := 0
+	for _, line := range f.lines(log) {
+		if strings.Contains(line, needle) {
+			count++
+		}
+	}
+	return count
+}
+func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
+	f := newPromotion(t)
+	successful(t, f.promote(nil, nil, f.importArgs()...))
+	large := []string{" terrascale-gru-arm64.qcow2 ", " base-image.qcow2 ", " terrascale-orchestrator-linux-arm64 "}
+	for _, asset := range large {
+		equal(t, f.countCalls("fj-calls.log", asset), 1)
+	}
+	equal(t, f.countCalls("oci-calls.log", " image import from-object "), 1)
+	r := f.promote(nil, nil, f.realArgs()...)
+	equal(t, r.Code, 2)
+	contains(t, r.Stderr, "or pass --resume")
+
+	r = f.promote(nil, nil, append(f.realArgs(), "--resume")...)
+	successful(t, r)
+	for _, asset := range large {
+		equal(t, f.countCalls("fj-calls.log", asset), 1)
+	}
+	equal(t, f.countCalls("oci-calls.log", " image import from-object "), 1)
+	contains(t, r.Stdout, "reusing completed OCI import")
+	contains(t, r.Stdout, "reusing verified terrascale-gru-arm64.qcow2")
+	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "verify-binary", "image-candidate", "sign-image", "verify-image"})
+	receipt := f.receipt()
+	equal(t, receipt["resumed"], true)
+	equal(t, receipt["outcome"], "promotion complete")
+	equal(t, receipt["oci_import"].(map[string]any)["image_id"], importedOCID)
+}
+func TestPromotionResumeRefetchesChangedAssetsAndRefusesOtherImages(t *testing.T) {
+	f := newPromotion(t)
+	successful(t, f.promote(nil, nil, f.importArgs()...))
+	write(t, filepath.Join(f.out, "base-image.qcow2"), []byte("corrupted"), 0600)
+	successful(t, f.promote(nil, nil, append(f.realArgs(), "--resume")...))
+	equal(t, f.countCalls("fj-calls.log", " base-image.qcow2 "), 2)
+	equal(t, f.countCalls("fj-calls.log", " terrascale-gru-arm64.qcow2 "), 1)
+
+	state := filepath.Join(f.out, "promotion-state.json")
+	write(t, state, []byte(`{"image_release":"image-`+strings.Repeat("1", 40)+`-run-1-attempt-1","schema":"terrascale.image.promotion-state.v1"}`), 0600)
+	r := f.promote(nil, nil, append(f.realArgs(), "--resume")...)
+	equal(t, r.Code, 1)
+	contains(t, r.Stderr, "belongs to a different promotion")
+}

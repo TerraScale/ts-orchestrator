@@ -3,11 +3,8 @@ package rollout
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"time"
 )
-
-var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // KnownBad durably records a candidate that failed on a seat. A known-bad
 // digest is never a prepare target again, neither as a new rollout nor as
@@ -22,14 +19,11 @@ type KnownBad struct {
 
 // Validate checks the record's identity fields.
 func (k KnownBad) Validate() error {
-	if !digestPattern.MatchString(k.Digest) || k.SeatID == "" || k.Reason == "" || k.RecordedAt.IsZero() {
+	if !digestRE.MatchString(k.Digest) || k.SeatID == "" || k.Reason == "" || k.RecordedAt.IsZero() {
 		return errors.New("known-bad record is incomplete")
 	}
 	return nil
 }
-
-// ErrKnownBad reports a prepare target that is recorded known bad.
-var ErrKnownBad = errors.New("artifact is recorded known bad")
 
 // KnownBadSet answers membership for one deployment.
 type KnownBadSet map[string]KnownBad

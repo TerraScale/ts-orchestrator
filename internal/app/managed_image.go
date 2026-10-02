@@ -61,6 +61,80 @@ func openManagedControllerFleet(ctx context.Context, region oci.RegionConfig, in
 	return newFleet(region, intent, journal, fencer, nil, nil, verifier, hostMetadata)
 }
 
+// managedImageVerifierFor selects the managed-host image qualification
+// source. By default the image must be the controller's own accepted boot
+// image. When both host image files are configured, the host image is
+// qualified independently from its own root-delegated image receipt, so
+// hosts can move to a newer qualified image without a controller re-install.
+func managedImageVerifierFor(controller ControllerConfig) func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+	receiptFile, delegationFile := controller.ManagedHostImageReceiptFile, controller.ManagedHostImageDelegationFile
+	if receiptFile == "" && delegationFile == "" {
+		return newManagedImageVerifier
+	}
+	return func(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
+		if receiptFile == "" || delegationFile == "" {
+			return nil, errors.New("managed host image receipt and delegation files are required together")
+		}
+		receiptWire, err := readBoundedConfigFile(receiptFile)
+		if err != nil {
+			return nil, fmt.Errorf("read managed host image receipt: %w", err)
+		}
+		delegationWire, err := readBoundedConfigFile(delegationFile)
+		if err != nil {
+			return nil, fmt.Errorf("read managed host image delegation: %w", err)
+		}
+		baked, err := bootstrapstart.LoadBakedInputs()
+		if err != nil {
+			return nil, fmt.Errorf("load baked image trust roots: %w", err)
+		}
+		marker, err := bootstrapstart.NewMarkerStore().Read()
+		if err != nil {
+			return nil, fmt.Errorf("read accepted image install: %w", err)
+		}
+		if marker.DeploymentID != baked.Identity.DeploymentID || marker.Cell != string(baked.Identity.Cell) {
+			return nil, errors.New("accepted install differs from baked root scope")
+		}
+		proof, err := independentManagedImageProof(region, baked.Identity.Cell, baked.Identity.Environment,
+			baked.Roots, receiptWire, delegationWire, time.Now().Round(0).UTC())
+		if err != nil {
+			return nil, err
+		}
+		if proof.images, err = newManagedImageReadback(region); err != nil {
+			return nil, err
+		}
+		return proof, nil
+	}
+}
+
+// independentManagedImageProof qualifies the configured host image from its
+// own receipt. The receipt must be currently valid under the baked roots for
+// the cell's environment, exact image OCID, region and shape architecture;
+// VerifyImageQualified re-checks it and the OCI readback on every use.
+func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, environment string, roots trust.Keyring,
+	receiptWire, delegationWire []byte, now time.Time,
+) (*managedImageVerifier, error) {
+	if region.Region != cell {
+		return nil, errors.New("managed image region differs from baked cell")
+	}
+	architecture, err := imageArchitectureForShape(region.Shape)
+	if err != nil {
+		return nil, err
+	}
+	image, err := release.VerifyImageCurrent(receiptWire, delegationWire, roots, release.ImageExpectation{
+		Environment: environment, LogicalRegion: string(region.Region), OCIImageOCID: region.ImageID, Architecture: architecture,
+	}, now)
+	if err != nil {
+		return nil, fmt.Errorf("verify independent managed host image receipt: %w", err)
+	}
+	if !image.IsVerified() {
+		return nil, errors.New("managed host image proof is absent")
+	}
+	return &managedImageVerifier{
+		region: region, environment: environment, architecture: architecture, roots: roots,
+		receiptWire: receiptWire, delegationWire: delegationWire, now: time.Now,
+	}, nil
+}
+
 // The accepted slot ledger is the source of the release image proof. The
 // marker alone carries only digests and never grants a new cloud operation.
 func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
@@ -92,6 +166,13 @@ func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (oci.
 	if err != nil {
 		return nil, err
 	}
+	if proof.images, err = newManagedImageReadback(region); err != nil {
+		return nil, err
+	}
+	return proof, nil
+}
+
+func newManagedImageReadback(region oci.RegionConfig) (managedImageReadback, error) {
 	ociRegion, err := region.Region.OCIRegion()
 	if err != nil {
 		return nil, err
@@ -109,8 +190,7 @@ func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (oci.
 	if err != nil {
 		return nil, fmt.Errorf("configure image readback transport: %w", err)
 	}
-	proof.images = &compute
-	return proof, nil
+	return &compute, nil
 }
 
 func acceptedManagedImageProof(ctx context.Context, region oci.RegionConfig, baked bootstrapstart.BakedInputs,

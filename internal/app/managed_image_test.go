@@ -195,3 +195,50 @@ func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedMan
 		now: func() time.Time { return now },
 	}, reader, now
 }
+
+func TestIndependentManagedImageProofRequiresOwnCurrentReceipt(t *testing.T) {
+	fixture, reader, now := managedImageVerifierFixture(t)
+	region := fixture.region
+	proof, err := independentManagedImageProof(region, oci.RegionGRU, "production", fixture.roots,
+		fixture.receiptWire, fixture.delegationWire, now)
+	if err != nil {
+		t.Fatalf("independently qualified host image refused: %v", err)
+	}
+	proof.images, proof.now = reader, func() time.Time { return now }
+	if err := proof.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil {
+		t.Fatalf("independent proof does not pass the fleet gate: %v", err)
+	}
+	other := region
+	other.ImageID = "ocid1.image.oc1.sa-saopaulo-1.NEWER"
+	for name, call := range map[string]func() (*managedImageVerifier, error){
+		"other image": func() (*managedImageVerifier, error) {
+			return independentManagedImageProof(other, oci.RegionGRU, "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
+		},
+		"other cell": func() (*managedImageVerifier, error) {
+			return independentManagedImageProof(region, oci.Region("FRA"), "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
+		},
+		"other environment": func() (*managedImageVerifier, error) {
+			return independentManagedImageProof(region, oci.RegionGRU, "canary", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
+		},
+		"expired": func() (*managedImageVerifier, error) {
+			return independentManagedImageProof(region, oci.RegionGRU, "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now.Add(2*time.Hour))
+		},
+		"untrusted root": func() (*managedImageVerifier, error) {
+			return independentManagedImageProof(region, oci.RegionGRU, "production", trust.Keyring{}, fixture.receiptWire, fixture.delegationWire, now)
+		},
+	} {
+		if _, err := call(); err == nil {
+			t.Errorf("%s qualified the host image", name)
+		}
+	}
+}
+
+func TestManagedImageVerifierForDefaultsToAcceptedBootImage(t *testing.T) {
+	if reflect.ValueOf(managedImageVerifierFor(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
+		t.Fatal("unconfigured controller does not pin hosts to its accepted boot image")
+	}
+	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"})
+	if _, err := half(t.Context(), oci.RegionConfig{}); err == nil {
+		t.Fatal("half-configured independent host image accepted")
+	}
+}

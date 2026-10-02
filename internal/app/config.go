@@ -64,6 +64,15 @@ type ControllerConfig struct {
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
+	// SelfUpdateProofFile, when set, makes a ready controller sign a version
+	// proof for a pending self-update activation with its response key.
+	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
+	// ManagedHostImageReceiptFile and ManagedHostImageDelegationFile, when
+	// both set, qualify the managed-host image from its own root-delegated
+	// image receipt instead of the controller's accepted boot image, so
+	// hosts can move to a newer qualified image independently.
+	ManagedHostImageReceiptFile    string `json:"managed_host_image_receipt_file,omitempty"`
+	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
 }
 
 type WorkloadProfile struct {
@@ -114,6 +123,9 @@ type HostConfig struct {
 	// filesystem to its resized OCI volume. Off by default: ext4 growth needs
 	// CAP_SYS_RESOURCE added to the volume-init unit by the operator.
 	ManagedVolumeOnlineGrow bool `json:"managed_volume_online_grow,omitzero"`
+	// SelfUpdateProofFile, when set, makes a started host agent sign a
+	// version proof for a pending self-update activation with its identity key.
+	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
