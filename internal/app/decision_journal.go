@@ -93,6 +93,11 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		slog.Warn("region links unavailable", observability.ComponentKey, "regionview", "error", err)
 		return
 	}
+	if cluster != nil {
+		// The sampler, the insight engine and the region view share one
+		// scatter-gather per few seconds instead of one each.
+		cluster = &sharedCluster{source: cluster, cache: observability.Cache[observability.ClusterSnapshot]{TTL: 3 * time.Second}}
+	}
 	history := observability.NewHistory(observability.HistoryConfig{})
 	runtime.registry.Register(observability.HistoryMetrics)
 	go runHistorySampler(ctx, observed, runtime.member, history, observability.ClusterCollect(cluster, collector))
@@ -351,3 +356,19 @@ func (log *placementHoldLog) Holds(now time.Time) []insights.Hold {
 }
 
 var _ insights.HoldProvider = (*placementHoldLog)(nil)
+
+// sharedCluster memoizes a cell-wide snapshot without metrics for a few
+// seconds. Requests for metrics bypass it.
+type sharedCluster struct {
+	source observability.ClusterSource
+	cache  observability.Cache[observability.ClusterSnapshot]
+}
+
+func (shared *sharedCluster) Cluster(ctx context.Context, includeMetrics bool) (observability.ClusterSnapshot, error) {
+	if includeMetrics {
+		return shared.source.Cluster(ctx, true)
+	}
+	return shared.cache.Get(ctx, func(ctx context.Context) (observability.ClusterSnapshot, error) {
+		return shared.source.Cluster(ctx, false)
+	})
+}
