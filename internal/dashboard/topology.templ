@@ -1,0 +1,23 @@
+package dashboard
+
+// topologyBody is the force graph of regions, controllers, hosts and
+// TerraBase seats with NATS routes and leaf connections.
+templ topologyBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>Topology</h1>
+			<span class="legend">
+				<span><span class="dot s-ok"></span>ready / serving</span>
+				<span><span class="dot s-run"></span>converging</span>
+				<span><span class="dot s-warn"></span>draining / degraded</span>
+				<span><span class="dot s-bad"></span>missing / not ready</span>
+				<span><span class="dot s-idle"></span>unknown</span>
+			</span>
+		</div>
+		@notes(current)
+		<article>
+			<p class="muted"><small>Regions, their controllers (NATS routes between them), hosts (leaf connections to the JetStream meta leader) and TerraBase seats. Drag to rearrange, scroll to zoom, click a node for details. Other regions show the members their summary reports.</small></p>
+			<ts-topology data-spec={ current.topologyJSON() } role="img" aria-label="Topology graph of regions, controllers, hosts and seats"></ts-topology>
+		</article>
+	</div>
+}

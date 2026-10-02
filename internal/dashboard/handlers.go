@@ -6,11 +6,13 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/a-h/templ"
 	"github.com/starfederation/datastar-go/datastar"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -19,7 +21,7 @@ const eventBatch = 64
 
 func (dashboard *Dashboard) pageHandler(page page) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		current := dashboard.load(request.Context(), page, parseEventFilter(request.URL.Query()))
+		current := dashboard.load(request.Context(), page, request.URL.Query())
 		render(writer, request, layout(current))
 	})
 }
@@ -64,26 +66,38 @@ func (dashboard *Dashboard) streamHandler(page page) http.Handler {
 			return
 		}
 		defer dashboard.releaseStream()
-		filter := parseEventFilter(request.URL.Query())
+		query := request.URL.Query()
 		sse := datastar.NewSSE(writer, request)
 		if page.slug == "events" && dashboard.options.Events != nil {
-			dashboard.streamEvents(request.Context(), sse, page, filter)
+			dashboard.streamEvents(request.Context(), sse, page, parseEventFilter(query))
 			return
 		}
-		dashboard.streamContent(request.Context(), sse, page, filter)
+		dashboard.streamContent(request.Context(), sse, page, query)
 	})
 }
 
+// streamContent re-renders the page content and the live parts of the page
+// chrome (region switcher, attention badge) every tick, and raises a toast
+// as soon as the insight engine opens or escalates an insight.
 func (dashboard *Dashboard) streamContent(ctx context.Context, sse *datastar.ServerSentEventGenerator, page page,
-	filter eventFilter,
+	query url.Values,
 ) {
 	ticker := time.NewTicker(dashboard.options.Interval)
 	defer ticker.Stop()
 	var last uint64
+	var changes <-chan insights.Change
 	for {
-		current := dashboard.load(ctx, page, filter)
+		if changes == nil {
+			if journal := dashboard.journal.Load(); journal != nil && journal.Insights != nil {
+				changes = journal.Insights.Subscribe(ctx, 16)
+			}
+		}
+		current := dashboard.load(ctx, page, query)
 		var body bytes.Buffer
 		if err := page.body(current).Render(ctx, &body); err != nil {
+			return
+		}
+		if err := chrome(current).Render(ctx, &body); err != nil {
 			return
 		}
 		digest := fnv.New64a()
@@ -94,10 +108,29 @@ func (dashboard *Dashboard) streamContent(ctx context.Context, sse *datastar.Ser
 				return
 			}
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
+		for waiting := true; waiting; {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				waiting = false
+			case change, open := <-changes:
+				if !open {
+					changes, waiting = nil, false
+					continue
+				}
+				if change.Type == insights.ChangeResolved {
+					continue
+				}
+				var toastHTML bytes.Buffer
+				if err := insightToast(current.State, change).Render(ctx, &toastHTML); err != nil {
+					return
+				}
+				if err := sse.PatchElements(toastHTML.String(), datastar.WithSelectorID("toasts"),
+					datastar.WithModeAppend()); err != nil {
+					return
+				}
+			}
 		}
 	}
 }

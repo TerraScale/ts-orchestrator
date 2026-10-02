@@ -1,0 +1,154 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+
+// insightsBody is the ranked needs-attention list across regions. Every
+// insight says why it fired, shows its evidence against the threshold,
+// links to the entity and suggests the next step.
+templ insightsBody(current view) {
+	<div id="content">
+		<div class="page-head">
+			<h1>Needs attention</h1>
+			<span>
+				<button type="button" class="outline secondary" data-notify-toggle title="Opt in to a browser notification when a new insight opens while this tab is in the background">Notify me</button>
+			</span>
+		</div>
+		@notes(current)
+		if current.Journal == nil {
+			@journalMissing("The insights panel")
+		}
+		<form method="get" action="/insights" class="filters">
+			@stateFields(current.State)
+			<label>
+				Severity
+				<select name="severity">
+					<option value="">any</option>
+					for _, severity := range severityNames {
+						<option value={ severity } selected?={ current.State.param("severity") == severity }>{ severity }</option>
+					}
+				</select>
+			</label>
+			<label>
+				Region
+				<select name="region">
+					<option value="">all regions</option>
+					for _, region := range current.insightRegions() {
+						<option value={ region } selected?={ current.State.param("region") == region }>{ upper(region) }</option>
+					}
+				</select>
+			</label>
+			<button type="submit" class="secondary">Filter</button>
+		</form>
+		<div class="cols-2">
+			<div>
+				if list := current.filteredInsights(); len(list) == 0 {
+					<article>
+						<p class="empty">Nothing needs attention with these filters. Every rule is quiet.</p>
+					</article>
+				} else {
+					for _, insight := range list {
+						@insightCard(current, insight)
+					}
+				}
+			</div>
+			<div>
+				<article class="summary">
+					<h2>What happened</h2>
+					@summaries(current)
+				</article>
+				<article>
+					<h2>Recent changes <small>{ current.State.Range.Key }</small></h2>
+					if changes := current.insightChanges(); len(changes) == 0 {
+						<p class="empty">No insight opened or resolved in this range.</p>
+					} else {
+						<ul class="mini-list">
+							for _, change := range changes {
+								<li>
+									@statusPill(changeStatus(change), string(change.Type))
+									<span class="grow" title={ change.Insight.Why }>{ change.Insight.Title }</span>
+									<small class="muted">
+										@ago(change.Time)
+									</small>
+								</li>
+							}
+						</ul>
+					}
+				</article>
+				if current.Evaluation != nil && len(current.Evaluation.Unavailable) > 0 {
+					<article>
+						<h2>Rules without input</h2>
+						<p class="muted">These inputs could not be read on the last evaluation, so their rules stayed silent: { joinWords(current.Evaluation.Unavailable) }.</p>
+					</article>
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ insightCard(current view, insight insights.Insight) {
+	<article
+		id={ "insight-" + insight.Key }
+		class={ "insight", "edge", sClass(severityStatus(insight.Severity)) }
+		if current.State.param("id") == insight.Key {
+			aria-current="true"
+		}
+	>
+		<header>
+			@statusPill(severityStatus(insight.Severity), string(insight.Severity))
+			<span class="tag">{ upper(insight.Region) }</span>
+			<h3>{ insight.Title }</h3>
+			<small class="muted">
+				open for
+				<ts-time datetime={ rfc3339(insight.FirstSeen) }>{ formatTime(insight.FirstSeen) }</ts-time>
+			</small>
+		</header>
+		<p class="why">{ insight.Why }</p>
+		if len(insight.Evidence) > 0 {
+			<div class="evidence">
+				for _, evidence := range insight.Evidence {
+					<div class="ev">
+						<small class="muted">{ evidence.Label }</small>
+						<br/>
+						<strong>{ evidenceValue(evidence) }</strong>
+						if evidence.Threshold != nil {
+							<small class="muted">threshold { evidenceThreshold(evidence) }</small>
+						}
+					</div>
+				}
+			</div>
+			for _, evidence := range insight.Evidence {
+				if spec, ok := current.evidenceChart(insight, evidence); ok {
+					@chart("short", spec)
+				}
+			}
+		}
+		<div class="actions">
+			if insight.Entity.ID != "" {
+				if insight.Entity.Href != "" {
+					<a href={ safe(current.State.adopt(insight.Entity.Href, current.foreign(insight.Region))) } class="tag">{ insight.Entity.Kind } { insight.Entity.ID } →</a>
+				} else {
+					<span class="tag">{ insight.Entity.Kind } { insight.Entity.ID }</span>
+				}
+			}
+			for _, action := range insight.Actions {
+				if action.Command != "" {
+					<span class="cmd" title={ action.Label }>
+						<code>{ action.Command }</code>
+						<button type="button" class="outline secondary" data-copy={ action.Command }>Copy</button>
+					</span>
+				} else if action.Href != "" {
+					<a href={ safe(current.State.adopt(action.Href, current.foreign(insight.Region))) }>{ action.Label } →</a>
+				} else {
+					<span class="muted">{ action.Label }</span>
+				}
+			}
+		</div>
+	</article>
+}
+
+// stateFields carries the shared state through a GET filter form.
+templ stateFields(state uiState) {
+	for _, field := range state.fields() {
+		<input type="hidden" name={ field[0] } value={ field[1] }/>
+	}
+}

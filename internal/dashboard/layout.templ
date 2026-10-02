@@ -1,8 +1,10 @@
 package dashboard
 
-// themeToggle flips Pico's light and dark palettes and remembers the choice
-// in this browser; without a stored choice Pico follows the system setting.
-const themeToggle = "document.documentElement.dataset.theme = (document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); localStorage.setItem('ts-orch-theme', document.documentElement.dataset.theme)"
+import (
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+)
 
 const themeRestore = "localStorage.getItem('ts-orch-theme') && (document.documentElement.dataset.theme = localStorage.getItem('ts-orch-theme'))"
 
@@ -16,6 +18,8 @@ templ shell(title string) {
 			<title>{ title } · TerraScale orchestrator</title>
 			<link rel="stylesheet" href={ assetURL("pico.min.css") }/>
 			<link rel="stylesheet" href={ assetURL("dashboard.css") }/>
+			<script defer src={ assetURL("echarts.min.js") }></script>
+			<script type="module" src={ assetURL("app.js") }></script>
 			<script type="module" src={ assetURL("datastar.js") }></script>
 		</head>
 		<body data-init={ themeRestore }>
@@ -24,48 +28,172 @@ templ shell(title string) {
 	</html>
 }
 
-// layout renders a full page. The initial response carries the same content
-// the stream patches later, so every page is readable without JavaScript.
+// layout renders a full page: the sidebar, the top bar with the region
+// switcher, time range, live toggle and attention badge, and the page
+// content. The initial response carries the same content the stream patches
+// later, so every page is readable without JavaScript.
 templ layout(current view) {
 	@shell(current.Page.title) {
-		<header class="container-fluid">
-			<nav>
-				<ul>
-					<li><strong>ts-orch</strong></li>
-					<li><small class="muted">cell { current.cell() } · member { current.memberName() }</small></li>
-				</ul>
-				<ul>
-					for _, entry := range pages {
-						<li>
-							if entry.slug == current.Page.slug {
-								<a href={ templ.SafeURL(entry.href()) } aria-current="page">{ entry.title }</a>
-							} else {
-								<a href={ templ.SafeURL(entry.href()) }>{ entry.title }</a>
+		<div class="app">
+			<aside class="sidebar">
+				<div class="brand">
+					<span class="brand-mark" aria-hidden="true">ts</span>
+					<span>
+						TerraScale
+						<small>orchestrator</small>
+					</span>
+				</div>
+				<nav aria-label="Pages">
+					for _, group := range navGroups {
+						<h6>{ group }</h6>
+						<ul>
+							for _, entry := range pagesIn(group) {
+								<li>
+									<a
+										href={ safe(current.State.link(entry.href())) }
+										if entry.slug == current.Page.slug {
+											aria-current="page"
+										}
+									>
+										{ entry.title }
+										if entry.slug == "insights" && current.attention().Total() > 0 {
+											<span class={ "dot", sClass(countsStatus(current.attention())) }></span>
+										}
+									</a>
+								</li>
 							}
-						</li>
+						</ul>
 					}
-					<li>
-						<button type="button" class="outline secondary" data-on:click={ themeToggle } aria-label="Toggle theme">◐</button>
-					</li>
+				</nav>
+				<div class="who">
+					cell <strong>{ upper(current.cell()) }</strong>
+					<br/>
+					member { current.memberName() }
+				</div>
+			</aside>
+			<div class="shell">
+				<header class="topbar">
+					@regionSwitcher(current)
+					<span class="spacer"></span>
+					<nav class="segmented" aria-label="Time range">
+						for _, choice := range timeRanges {
+							<a
+								href={ safe(current.State.keep(current.Page.href(), "range", choice.Key)) }
+								if choice.Key == current.State.Range.Key {
+									aria-current="true"
+								}
+							>{ choice.Key }</a>
+						}
+					</nav>
+					<nav class="segmented" aria-label="Live updates">
+						if current.State.Live {
+							<a href={ safe(current.State.keep(current.Page.href(), "live", "0")) } aria-current="true" title="Live updates are on; click to pause"><span class="dot s-ok s-run"></span>Live</a>
+						} else {
+							<a href={ safe(current.State.keep(current.Page.href(), "live", "")) } title="Live updates are paused; click to resume"><span class="dot s-idle"></span>Paused</a>
+						}
+					</nav>
+					@attentionBadge(current)
+					<button type="button" class="outline secondary" data-palette-open title="Command palette (Ctrl+K or /)">Search <span class="kbd">⌘K</span></button>
+					<button type="button" class="outline secondary" data-theme-toggle aria-label="Toggle dark or light theme" title="Toggle dark or light theme">◐</button>
 					if current.SignOut {
-						<li>
-							<form method="post" action="/logout"><button type="submit" class="outline secondary">Sign out</button></form>
-						</li>
+						<form method="post" action="/logout"><button type="submit" class="outline secondary">Sign out</button></form>
 					}
-				</ul>
-			</nav>
-		</header>
-		<main class="container-fluid" data-init={ current.streamAction() }>
-			@current.Page.body(current)
-		</main>
-		<footer class="container-fluid"><small class="muted">Read-only view. Live updates every few seconds while this tab is open.</small></footer>
+				</header>
+				<main
+					class="content"
+					if current.State.Live {
+						data-init={ current.streamAction() }
+					}
+				>
+					@current.Page.body(current)
+				</main>
+				<footer class="foot">
+					Read-only view of the orchestrator's own providers.
+					if current.State.Live {
+						Live updates every few seconds while this tab is open.
+					} else {
+						Live updates are paused.
+					}
+				</footer>
+			</div>
+		</div>
+		<div id="toasts" aria-live="polite"></div>
+		<ts-palette data-items={ current.paletteJSON() }></ts-palette>
 	}
+}
+
+// chrome is the part of the top bar a page stream keeps current.
+templ chrome(current view) {
+	@regionSwitcher(current)
+	@attentionBadge(current)
+}
+
+templ regionSwitcher(current view) {
+	<nav id="region-switcher" class="segmented" aria-label="Region">
+		<a
+			href={ safe(current.State.link("/", "r", "")) }
+			if current.Page.slug == "" {
+				aria-current="true"
+			}
+		>All regions</a>
+		for _, region := range current.switcher() {
+			<a
+				href={ safe(current.switchLink(region.ID)) }
+				if current.selectedRegion(region.ID) {
+					aria-current="true"
+				}
+				title={ upper(region.ID) + " " + regionName(region.ID) }
+			>
+				<span class={ "dot", sClass(region.Status) }></span>
+				{ upper(region.ID) }
+				if region.Local {
+					<small class="muted">·here</small>
+				}
+			</a>
+		}
+	</nav>
+}
+
+templ attentionBadge(current view) {
+	<span id="attention-badge">
+		<a href={ safe(current.State.link("/insights")) } class={ "badge", sClass(countsStatus(current.attention())) } title={ current.attentionTitle() }>
+			if current.attention().Total() == 0 {
+				All clear
+			} else {
+				{ itoa(current.attention().Total()) } need attention
+			}
+		</a>
+	</span>
+}
+
+// insightToast is appended to #toasts when an insight opens or escalates.
+templ insightToast(state uiState, change insights.Change) {
+	<div
+		class={ "toast", sClass(severityStatus(change.Insight.Severity)) }
+		role="status"
+		data-key={ change.Insight.Key }
+		data-title={ string(change.Insight.Severity) + ": " + change.Insight.Title }
+		data-body={ change.Insight.Why }
+		data-href={ state.link("/insights", "id", change.Insight.Key) }
+	>
+		<strong>
+			if change.Type == insights.ChangeEscalated {
+				Escalated:
+			} else {
+				New { string(change.Insight.Severity) }:
+			}
+			{ change.Insight.Title }
+		</strong>
+		<span class="muted">{ upper(change.Insight.Region) } · { short(change.Insight.Why, 140) }</span>
+		<br/>
+		<a href={ safe(state.link("/insights", "id", change.Insight.Key)) }>Open insight</a>
+	</div>
 }
 
 // notes renders the view's missing-data notes and readiness banner.
 templ notes(current view) {
 	if !current.Ready {
-		<p class="warn" role="status">
+		<p class="note warn" role="status">
 			This member is not ready:
 			for _, check := range current.Checks {
 				if !check.OK {
@@ -75,12 +203,20 @@ templ notes(current view) {
 		</p>
 	}
 	for _, note := range current.Notes {
-		<p class="muted" role="status">{ note }</p>
+		<p class="note" role="status">{ note }</p>
+	}
+	if len(current.Unavailable) > 0 {
+		<p class="note warn" role="status">Unavailable right now: { joinWords(current.Unavailable) }.</p>
 	}
 }
 
+// journalMissing explains that the journal providers are not attached.
+templ journalMissing(what string) {
+	<p class="empty">{ what } appears once this controller's decision journal, metric history and insight engine are running. Hosts and members without a private observability listener do not run them.</p>
+}
+
 templ unavailable(message string) {
-	<p class="muted"><em>{ message }</em></p>
+	<p class="empty">{ message }</p>
 }
 
 templ ratioBar(value float64) {
@@ -88,6 +224,30 @@ templ ratioBar(value float64) {
 		<progress class={ ratioClass(value) } value={ progressValue(value) } max="1000"></progress>
 		<small>{ percent(value) }</small>
 	</span>
+}
+
+// ago renders a relative time with the absolute time on hover. Without
+// JavaScript the absolute time shows.
+templ ago(value time.Time) {
+	if value.IsZero() {
+		<span class="muted">-</span>
+	} else {
+		<ts-time datetime={ rfc3339(value) } title={ formatTime(value) }>{ formatTime(value) }</ts-time>
+	}
+}
+
+templ chart(class string, spec chartSpec) {
+	<ts-chart class={ class } data-spec={ spec.JSON() } role="img" aria-label={ chartLabel(spec) }></ts-chart>
+}
+
+templ sparkline(values string, status string) {
+	if values != "" {
+		<ts-sparkline data-values={ values } data-status={ status } aria-hidden="true"></ts-sparkline>
+	}
+}
+
+templ statusPill(token, label string) {
+	<span class={ "pill", sClass(token) }>{ label }</span>
 }
 
 templ login(failed bool, next string) {
