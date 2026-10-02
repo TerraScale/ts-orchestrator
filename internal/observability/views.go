@@ -1,0 +1,250 @@
+package observability
+
+import "time"
+
+// SnapshotVersion is the wire version of MemberSnapshot. Readers accept
+// unknown fields so a rolling update can add fields without a version bump.
+const SnapshotVersion = 1
+
+// MemberSnapshot is one member's complete read-only view. It is the payload a
+// controller returns on the cell's observability subject and the root model a
+// dashboard renders for one member. Optional sections are nil when the member
+// does not run that subsystem (a host has no authority or placement view).
+type MemberSnapshot struct {
+	Version      int            `json:"version"`
+	Cell         string         `json:"cell"`
+	Member       string         `json:"member"`
+	Role         string         `json:"role"`
+	BuildVersion string         `json:"build_version,omitempty"`
+	StartedAt    time.Time      `json:"started_at"`
+	ObservedAt   time.Time      `json:"observed_at"`
+	Ready        bool           `json:"ready"`
+	Checks       []CheckResult  `json:"checks,omitempty"`
+	Authority    *AuthorityView `json:"authority,omitempty"`
+	NATS         *NATSView      `json:"nats,omitempty"`
+	Placement    *PlacementView `json:"placement,omitempty"`
+	Delivery     *DeliveryView  `json:"delivery,omitempty"`
+	OCI          *OCIView       `json:"oci,omitempty"`
+	System       *SystemView    `json:"system,omitempty"`
+	// Errors names sections that failed to collect, by section name. The
+	// values are short classes, never raw upstream error text.
+	Errors map[string]string `json:"errors,omitempty"`
+	// Metrics is this member's Prometheus text exposition when requested.
+	Metrics          string `json:"metrics,omitempty"`
+	MetricsTruncated bool   `json:"metrics_truncated,omitzero"`
+}
+
+// CheckResult is one readiness check outcome.
+type CheckResult struct {
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// AuthorityView is the regional lease as observed by this member.
+type AuthorityView struct {
+	Leader     bool      `json:"leader"`
+	Ready      bool      `json:"ready"`
+	CanMutate  bool      `json:"can_mutate"`
+	OwnerID    string    `json:"owner_id,omitempty"`
+	Epoch      uint64    `json:"epoch"`
+	Revision   uint64    `json:"revision"`
+	ExpiresAt  time.Time `json:"expires_at,omitzero"`
+	ObservedAt time.Time `json:"observed_at,omitzero"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
+// NATSView is the embedded broker and JetStream health of one member.
+type NATSView struct {
+	ServerName      string         `json:"server_name"`
+	Connections     int            `json:"connections"`
+	Routes          int            `json:"routes"`
+	ClusterPeers    int            `json:"cluster_peers"`
+	SlowConsumers   int64          `json:"slow_consumers"`
+	InMsgs          int64          `json:"in_msgs"`
+	OutMsgs         int64          `json:"out_msgs"`
+	InBytes         int64          `json:"in_bytes"`
+	OutBytes        int64          `json:"out_bytes"`
+	MetaLeader      string         `json:"meta_leader,omitempty"`
+	IsMetaLeader    bool           `json:"is_meta_leader"`
+	MetaClusterSize int            `json:"meta_cluster_size"`
+	MetaPeers       []PeerView     `json:"meta_peers,omitempty"`
+	StoreUsedBytes  uint64         `json:"store_used_bytes"`
+	StoreLimitBytes int64          `json:"store_limit_bytes"`
+	Streams         []StreamView   `json:"streams,omitempty"`
+	Consumers       []ConsumerView `json:"consumers,omitempty"`
+}
+
+// PeerView is one JetStream metadata peer as seen by this member.
+type PeerView struct {
+	Name    string        `json:"name"`
+	Current bool          `json:"current"`
+	Offline bool          `json:"offline"`
+	Lag     uint64        `json:"lag"`
+	Active  time.Duration `json:"active"`
+}
+
+// StreamView is one JetStream stream hosted by this member.
+type StreamView struct {
+	Name     string `json:"name"`
+	Messages uint64 `json:"messages"`
+	Bytes    uint64 `json:"bytes"`
+	Replicas int    `json:"replicas"`
+	Leader   string `json:"leader,omitempty"`
+	// MaxReplicaLag is the largest operation lag of any replica.
+	MaxReplicaLag uint64 `json:"max_replica_lag"`
+	OfflinePeers  int    `json:"offline_peers"`
+}
+
+// ConsumerView is one JetStream consumer hosted by this member.
+type ConsumerView struct {
+	Stream         string `json:"stream"`
+	Name           string `json:"name"`
+	NumPending     uint64 `json:"num_pending"`
+	NumAckPending  int    `json:"num_ack_pending"`
+	NumRedelivered int    `json:"num_redelivered"`
+	NumWaiting     int    `json:"num_waiting"`
+}
+
+// PlacementView summarizes managed TerraBase placement durable state.
+type PlacementView struct {
+	Databases []DatabaseView `json:"databases,omitempty"`
+	// Truncated reports that the database list hit the view bound.
+	Truncated bool `json:"truncated,omitzero"`
+	// StageCounts aggregates member stages across every listed partition.
+	StageCounts map[string]int `json:"stage_counts,omitempty"`
+}
+
+// DatabaseView is one database partition's roster progress.
+type DatabaseView struct {
+	DatabaseID   string         `json:"database_id"`
+	PartitionID  string         `json:"partition_id"`
+	Generation   uint64         `json:"generation"`
+	Terminal     bool           `json:"terminal,omitzero"`
+	DesiredSeats int            `json:"desired_seats"`
+	Serving      int            `json:"serving"`
+	Stages       map[string]int `json:"stages,omitempty"`
+	Members      []MemberView   `json:"members,omitempty"`
+	// Rollout is present while any seat carries a managed runtime target.
+	Rollout *RolloutView `json:"rollout,omitempty"`
+}
+
+// MemberView is one seat's durable placement stage.
+type MemberView struct {
+	SeatID        string    `json:"seat_id"`
+	Stage         string    `json:"stage"`
+	HostNode      string    `json:"host_node,omitempty"`
+	FailureDomain string    `json:"failure_domain,omitempty"`
+	UpdatePhase   string    `json:"update_phase,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at,omitzero"`
+}
+
+// RolloutView is a managed runtime update's per-seat progress.
+type RolloutView struct {
+	OperationID    string         `json:"operation_id"`
+	ArtifactDigest string         `json:"artifact_digest,omitempty"`
+	Seats          int            `json:"seats"`
+	Phases         map[string]int `json:"phases"`
+	// Completed counts seats whose phase is terminal for the update.
+	Completed int `json:"completed"`
+}
+
+// Progress returns the fraction of seats that completed the rollout.
+func (rollout RolloutView) Progress() float64 {
+	if rollout.Seats == 0 {
+		return 0
+	}
+	return float64(rollout.Completed) / float64(rollout.Seats)
+}
+
+// DeliveryView counts durable delivery intent processing on this member.
+type DeliveryView struct {
+	Acknowledged     uint64    `json:"acknowledged"`
+	Deferred         uint64    `json:"deferred"`
+	TransportRetries uint64    `json:"transport_retries"`
+	LastAckAt        time.Time `json:"last_ack_at,omitzero"`
+}
+
+// OCIView is per-operation OCI API usage since this process started.
+type OCIView struct {
+	Operations []OCIOperationView `json:"operations,omitempty"`
+}
+
+// OCIOperationView counts calls of one templated OCI API operation.
+type OCIOperationView struct {
+	Service       string  `json:"service"`
+	Operation     string  `json:"operation"`
+	Calls         uint64  `json:"calls"`
+	Errors        uint64  `json:"errors"`
+	Throttled     uint64  `json:"throttled"`
+	TotalSeconds  float64 `json:"total_seconds"`
+	MaxSeconds    float64 `json:"max_seconds"`
+	LastStatus    int     `json:"last_status,omitzero"`
+	LastErrorCode int     `json:"last_error_code,omitzero"`
+}
+
+// SystemView is this machine's CPU, memory, pressure and filesystem state.
+type SystemView struct {
+	CPUCount        int              `json:"cpu_count"`
+	CPUSeconds      CPUSeconds       `json:"cpu_seconds"`
+	Load1           float64          `json:"load1"`
+	Load5           float64          `json:"load5"`
+	Load15          float64          `json:"load15"`
+	MemTotalBytes   uint64           `json:"mem_total_bytes"`
+	MemAvailBytes   uint64           `json:"mem_available_bytes"`
+	SwapTotalBytes  uint64           `json:"swap_total_bytes"`
+	SwapFreeBytes   uint64           `json:"swap_free_bytes"`
+	Pressure        map[string]PSI   `json:"pressure,omitempty"`
+	Filesystems     []FilesystemView `json:"filesystems,omitempty"`
+	UptimeSeconds   float64          `json:"uptime_seconds"`
+	ProcessRSSBytes uint64           `json:"process_rss_bytes"`
+}
+
+// CPUSeconds is cumulative CPU time across all CPUs by mode.
+type CPUSeconds struct {
+	User    float64 `json:"user"`
+	Nice    float64 `json:"nice"`
+	System  float64 `json:"system"`
+	Idle    float64 `json:"idle"`
+	IOWait  float64 `json:"iowait"`
+	IRQ     float64 `json:"irq"`
+	SoftIRQ float64 `json:"softirq"`
+	Steal   float64 `json:"steal"`
+}
+
+// Busy returns non-idle CPU seconds.
+func (cpu CPUSeconds) Busy() float64 {
+	return cpu.User + cpu.Nice + cpu.System + cpu.IRQ + cpu.SoftIRQ + cpu.Steal
+}
+
+// PSI is one /proc/pressure resource line pair.
+type PSI struct {
+	SomeAvg10  float64 `json:"some_avg10"`
+	SomeAvg60  float64 `json:"some_avg60"`
+	SomeTotal  uint64  `json:"some_total_us"`
+	FullAvg10  float64 `json:"full_avg10"`
+	FullAvg60  float64 `json:"full_avg60"`
+	FullTotal  uint64  `json:"full_total_us"`
+	HasFullRow bool    `json:"has_full,omitzero"`
+}
+
+// FilesystemView is one statfs observation of a configured mount role.
+type FilesystemView struct {
+	Role       string `json:"role"`
+	Path       string `json:"path"`
+	SizeBytes  uint64 `json:"size_bytes"`
+	AvailBytes uint64 `json:"avail_bytes"`
+	FreeBytes  uint64 `json:"free_bytes"`
+	Files      uint64 `json:"files"`
+	FilesFree  uint64 `json:"files_free"`
+}
+
+// ClusterSnapshot is the scatter-gathered view of every controller in a cell.
+type ClusterSnapshot struct {
+	Cell       string           `json:"cell"`
+	ObservedAt time.Time        `json:"observed_at"`
+	Expected   []string         `json:"expected,omitempty"`
+	Members    []MemberSnapshot `json:"members"`
+	// Missing lists expected members that did not answer in time.
+	Missing []string `json:"missing,omitempty"`
+}
