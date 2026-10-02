@@ -21,6 +21,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -88,6 +89,9 @@ func waitForFounderAndCluster(ctx context.Context, waitCluster,
 }
 
 func runController(ctx context.Context, cfg Config, output io.Writer) error {
+	// Take the systemd notification socket before any child process starts.
+	notifier := sdnotify.FromEnvironment()
+	defer func() { _ = notifier.Stopping() }()
 	clockProbe := controllerBrokerClockProbe()
 	clockCheck := controllerClockCheck(clockProbe)
 	if err := admitControllerBootstrap(ctx, cfg, clockCheck); err != nil {
@@ -541,6 +545,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return ctx.Err()
 	}
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
+	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
+		log.Printf("systemd readiness notification failed: %v", err)
+	}
+	// Watchdog keepalives stop when the embedded broker or its in-process
+	// client is no longer usable, so WatchdogSec= restarts a wedged
+	// controller instead of leaving a silent Raft peer.
+	go notifier.RunWatchdog(runCtx, runtime.Ready)
 	select {
 	case <-ctx.Done():
 		stop()

@@ -4,9 +4,18 @@ Wants=network-online.target
 Requires=terrascale-orchestrator-host-setup.service
 After=network-online.target terrascale-orchestrator-host-setup.service
 ConditionPathExists=/etc/terrascale-orchestrator/host.json
+# A crash-looping host runtime becomes visibly failed. The window tolerates
+# about an hour of controller outage at the capped restart backoff, and the
+# host-setup timer starts it again afterwards.
+StartLimitIntervalSec=1h
+StartLimitBurst=20
 
 [Service]
-Type=simple
+# READY=1 once the host is connected to its regional cell. No WatchdogSec=:
+# restarting this process stops every supervised TerraBase member.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=3min
 # Runs as root by default: User=root with NoNewPrivileges=yes would make
 # systemd drop CAP_SETUID, which the native workload helper needs.
 SupplementaryGroups=
@@ -24,6 +33,8 @@ OOMScoreAdjust=-1000
 ManagedOOMPreference=omit
 Restart=on-failure
 RestartSec=5s
+RestartSteps=6
+RestartMaxDelaySec=5min
 TimeoutStopSec=90s
 KillSignal=SIGTERM
 KillMode=control-group

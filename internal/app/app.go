@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
 )
 
 func Run(ctx context.Context, args []string, output io.Writer) error {
@@ -97,6 +99,7 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
 func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
+	notifier := sdnotify.FromEnvironment()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
 	}
@@ -177,6 +180,13 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		return err
 	}
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
+	// The host connected to its regional cell. It sends no watchdog
+	// keepalives: a restart of this process stops every supervised member,
+	// so it must never follow from a transient controller outage.
+	if err := notifier.Ready("host " + cfg.Host.Node + " connected to cell " + cfg.NATS.Cell); err != nil {
+		slog.Warn("systemd readiness notification failed", "error", err)
+	}
+	defer func() { _ = notifier.Stopping() }()
 	return hostRunResult(ctx, agent.Run(ctx))
 }
 

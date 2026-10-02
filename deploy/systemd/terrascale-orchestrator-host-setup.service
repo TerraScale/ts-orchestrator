@@ -12,7 +12,8 @@ ExecStart=/usr/local/bin/terrascale-orchestrator host-setup --public-config /etc
 # host runtime stops every TerraBase member it supervises, and both seats of a
 # pair renew on the same schedule. The running agent re-reads host.json on each
 # NATS reconnect and presents renewed credentials without a restart.
-ExecStartPost=/usr/bin/systemctl --no-block start terrascale-orchestrator-host.service
+# A start refused by the runtime's start limit must not fail enrollment.
+ExecStartPost=-/usr/bin/systemctl --no-block start terrascale-orchestrator-host.service
 Restart=on-failure
 RestartSec=10s
 TimeoutStartSec=90s
