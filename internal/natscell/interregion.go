@@ -36,6 +36,10 @@ type InterRegion struct {
 	AccountJWTFile string       `json:"account_jwt_file"`
 	Listen         *LeafListen  `json:"listen,omitempty"`
 	Remotes        []LeafRemote `json:"remotes,omitempty"`
+	// GlobalHome is the region that owns TS_GLOBAL_CONTROL. When set, the
+	// contract carries that stream's mirror subjects and nothing else of
+	// JetStream. It must be this cell or a roster peer.
+	GlobalHome string `json:"global_home,omitempty"`
 }
 
 // LeafListen accepts leafnodes from child regions in the leaf topology. TLS is
@@ -83,6 +87,9 @@ func (ir *InterRegion) validate(cfg Config) error {
 		}
 		seen[peer] = true
 	}
+	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && !slices.Contains(ir.Peers, ir.GlobalHome) {
+		return errors.New("interregion global home must be this region or a roster peer")
+	}
 	if ir.Listen == nil && len(ir.Remotes) == 0 {
 		return errors.New("interregion needs a leaf listener or at least one remote")
 	}
@@ -112,27 +119,75 @@ func (ir *InterRegion) validate(cfg Config) error {
 
 // InterRegionContract is the complete subject contract between a region's
 // cell account and its interregion account. Peers must exclude Cell.
+// GlobalHome, when set, adds the minimal JetStream subjects that let every
+// other region mirror the home region's TS_GLOBAL_CONTROL stream read-only:
+// consumer creation for that one stream, its flow control, and one
+// per-region delivery prefix. No other JetStream API crosses a link.
 type InterRegionContract struct {
-	Cell  string
-	Peers []string
+	Cell       string
+	Peers      []string
+	GlobalHome string
 }
 
-func (c InterRegionContract) streamSubjects(cell string) []string {
-	return []string{protocol.RegionHealthSubject(cell)}
+// contractFlow is one subject that crosses between the two accounts. The cell
+// side uses cellSubject; the interregion side uses linkSubject, which differs
+// only for the home region's JetStream API, remapped under a link prefix so
+// peers never address the raw JetStream API namespace.
+type contractFlow struct {
+	kind        jwt.ExportType
+	cellSubject string
+	linkSubject string
 }
 
-func (c InterRegionContract) serviceSubjects(cell string) []string {
-	return []string{protocol.Regional(cell, "query", ">")}
+func sameFlow(kind jwt.ExportType, subject string) contractFlow {
+	return contractFlow{kind: kind, cellSubject: subject, linkSubject: subject}
+}
+
+// outbound flows are exported by the cell account and imported by the
+// interregion account: what this region offers to its peers.
+func (c InterRegionContract) outbound() []contractFlow {
+	flows := []contractFlow{
+		sameFlow(jwt.Stream, protocol.RegionHealthSubject(c.Cell)),
+		sameFlow(jwt.Service, protocol.Regional(c.Cell, "query", ">")),
+	}
+	if c.GlobalHome == c.Cell {
+		create := protocol.JSConsumerCreateSubject(protocol.JSLocalAPIPrefix, protocol.GlobalControlStream)
+		linked := protocol.JSConsumerCreateSubject(protocol.InterRegionJSAPIPrefix(c.Cell), protocol.GlobalControlStream)
+		flows = append(flows,
+			contractFlow{kind: jwt.Service, cellSubject: create, linkSubject: linked},
+			contractFlow{kind: jwt.Service, cellSubject: create + ".>", linkSubject: linked + ".>"},
+			sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream)))
+		for _, peer := range c.Peers {
+			flows = append(flows, sameFlow(jwt.Stream, protocol.InterRegionGlobalDeliverPrefix(peer)+".>"))
+		}
+	}
+	return flows
+}
+
+// inbound flows are exported by the interregion account and imported by the
+// cell account: what this region takes from its peers.
+func (c InterRegionContract) inbound() []contractFlow {
+	var flows []contractFlow
+	for _, peer := range c.Peers {
+		flows = append(flows,
+			sameFlow(jwt.Stream, protocol.RegionHealthSubject(peer)),
+			sameFlow(jwt.Service, protocol.Regional(peer, "query", ">")))
+	}
+	if c.GlobalHome != "" && c.GlobalHome != c.Cell {
+		create := protocol.JSConsumerCreateSubject(protocol.InterRegionJSAPIPrefix(c.GlobalHome), protocol.GlobalControlStream)
+		flows = append(flows,
+			sameFlow(jwt.Service, create), sameFlow(jwt.Service, create+".>"),
+			sameFlow(jwt.Service, protocol.JSFlowControlSubject(protocol.GlobalControlStream)),
+			sameFlow(jwt.Stream, protocol.InterRegionGlobalDeliverPrefix(c.Cell)+".>"))
+	}
+	return flows
 }
 
 // CellExports is what the cell account offers to its interregion account.
 func (c InterRegionContract) CellExports() jwt.Exports {
 	var exports jwt.Exports
-	for _, subject := range c.streamSubjects(c.Cell) {
-		exports.Add(&jwt.Export{Name: "interregion-stream", Subject: jwt.Subject(subject), Type: jwt.Stream})
-	}
-	for _, subject := range c.serviceSubjects(c.Cell) {
-		exports.Add(&jwt.Export{Name: "interregion-service", Subject: jwt.Subject(subject), Type: jwt.Service})
+	for _, flow := range c.outbound() {
+		exports.Add(&jwt.Export{Name: "interregion", Subject: jwt.Subject(flow.cellSubject), Type: flow.kind})
 	}
 	return exports
 }
@@ -140,13 +195,8 @@ func (c InterRegionContract) CellExports() jwt.Exports {
 // CellImports is what the cell account takes from its interregion account.
 func (c InterRegionContract) CellImports(interregionAccount string) jwt.Imports {
 	var imports jwt.Imports
-	for _, peer := range c.Peers {
-		for _, subject := range c.streamSubjects(peer) {
-			imports.Add(&jwt.Import{Name: "peer-stream", Account: interregionAccount, Subject: jwt.Subject(subject), Type: jwt.Stream})
-		}
-		for _, subject := range c.serviceSubjects(peer) {
-			imports.Add(&jwt.Import{Name: "peer-service", Account: interregionAccount, Subject: jwt.Subject(subject), Type: jwt.Service})
-		}
+	for _, flow := range c.inbound() {
+		imports.Add(&jwt.Import{Name: "interregion", Account: interregionAccount, Subject: jwt.Subject(flow.cellSubject), Type: flow.kind})
 	}
 	return imports
 }
@@ -155,13 +205,8 @@ func (c InterRegionContract) CellImports(interregionAccount string) jwt.Imports 
 // exactly the per-peer subjects carried in from leafnodes.
 func (c InterRegionContract) InterRegionExports() jwt.Exports {
 	var exports jwt.Exports
-	for _, peer := range c.Peers {
-		for _, subject := range c.streamSubjects(peer) {
-			exports.Add(&jwt.Export{Name: "peer-stream", Subject: jwt.Subject(subject), Type: jwt.Stream})
-		}
-		for _, subject := range c.serviceSubjects(peer) {
-			exports.Add(&jwt.Export{Name: "peer-service", Subject: jwt.Subject(subject), Type: jwt.Service})
-		}
+	for _, flow := range c.inbound() {
+		exports.Add(&jwt.Export{Name: "peer", Subject: jwt.Subject(flow.linkSubject), Type: flow.kind})
 	}
 	return exports
 }
@@ -170,11 +215,12 @@ func (c InterRegionContract) InterRegionExports() jwt.Exports {
 // account and therefore what peers can reach over a leafnode.
 func (c InterRegionContract) InterRegionImports(cellAccount string) jwt.Imports {
 	var imports jwt.Imports
-	for _, subject := range c.streamSubjects(c.Cell) {
-		imports.Add(&jwt.Import{Name: "cell-stream", Account: cellAccount, Subject: jwt.Subject(subject), Type: jwt.Stream})
-	}
-	for _, subject := range c.serviceSubjects(c.Cell) {
-		imports.Add(&jwt.Import{Name: "cell-service", Account: cellAccount, Subject: jwt.Subject(subject), Type: jwt.Service})
+	for _, flow := range c.outbound() {
+		imported := &jwt.Import{Name: "cell", Account: cellAccount, Subject: jwt.Subject(flow.cellSubject), Type: flow.kind}
+		if flow.linkSubject != flow.cellSubject {
+			imported.LocalSubject = jwt.RenamingSubject(flow.linkSubject)
+		}
+		imports.Add(imported)
 	}
 	return imports
 }
@@ -254,7 +300,7 @@ func sameImports(actual, expected jwt.Imports) bool {
 	for index := range expected {
 		left, right := actual[index], expected[index]
 		if left == nil || left.Subject != right.Subject || left.Type != right.Type || left.Account != right.Account ||
-			left.LocalSubject != "" || left.Token != "" || left.Share || left.AllowTrace {
+			left.LocalSubject != right.LocalSubject || left.Token != "" || left.Share || left.AllowTrace {
 			return false
 		}
 	}
@@ -288,7 +334,7 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 	if ir.Listen != nil {
 		links = len(ir.Peers)
 	}
-	contract := InterRegionContract{Cell: cfg.Cell, Peers: ir.Peers}
+	contract := InterRegionContract{Cell: cfg.Cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome}
 	if err := contract.verify(systemClaim, cellClaim, claim, links); err != nil {
 		return err
 	}

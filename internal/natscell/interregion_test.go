@@ -236,6 +236,47 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	}
 	requestCancel()
 
+	// The home region's global stream is mirrored read-only into the spoke
+	// through the contract's consumer-create, flow-control and delivery
+	// subjects only.
+	home, err := gruRuntime.JetStream().CreateStream(ctx, jetstream.StreamConfig{
+		Name: protocol.GlobalControlStream, Subjects: []string{protocol.GlobalStateStreamSubject()},
+		Storage: jetstream.FileStorage, DenyDelete: true, DenyPurge: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r1")); err != nil {
+		t.Fatal(err)
+	}
+	mirror, err := sfoRuntime.JetStream().CreateStream(ctx, jetstream.StreamConfig{
+		Name: protocol.GlobalControlStream, Storage: jetstream.FileStorage, DenyDelete: true, DenyPurge: true,
+		Mirror: &jetstream.StreamSource{Name: protocol.GlobalControlStream, External: &jetstream.ExternalStream{
+			APIPrefix: protocol.InterRegionJSAPIPrefix("gru"), DeliverPrefix: protocol.InterRegionGlobalDeliverPrefix("sfo"),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStreamMessages(ctx, t, mirror, 1)
+	if _, err := sfoRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("forged")); err == nil {
+		t.Fatal("spoke wrote into the read-only global mirror")
+	}
+	// The linked API prefix serves only consumer creation on the global
+	// stream; stream info, publishing and every other home stream stay local.
+	linked, err := jetstream.NewWithAPIPrefix(sfoRuntime.Conn(), protocol.InterRegionJSAPIPrefix("gru"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	probeCtx, probeCancel := context.WithTimeout(ctx, time.Second)
+	if _, err := linked.Stream(probeCtx, protocol.GlobalControlStream); err == nil {
+		t.Fatal("spoke read home stream info through the linked API prefix")
+	}
+	if _, err := linked.AccountInfo(probeCtx); err == nil {
+		t.Fatal("spoke reached the home account API through the linked prefix")
+	}
+	probeCancel()
+
 	// A leaf user of GRU's cell account is refused: the cell account allows
 	// no leafnode connections, so only the interregion account is linkable.
 	rogue := newTestRegion(t, filepath.Join(root, "fra"), "fra", HubAndSpoke("gru", []string{"sfo", "fra"}))
@@ -289,8 +330,18 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer healedSub.Unsubscribe()
+	if _, err := home.Info(ctx); err != nil {
+		t.Fatalf("home global stream during partition: %v", err)
+	}
+	if _, err := gruRuntime.JetStream().Publish(ctx, protocol.GlobalState("roster", "current"), []byte("r2")); err != nil {
+		t.Fatalf("home global write during partition: %v", err)
+	}
+	if _, err := mirror.GetLastMsgForSubject(ctx, protocol.GlobalState("roster", "current")); err != nil {
+		t.Fatalf("spoke cannot read its mirror during partition: %v", err)
+	}
 	proxy.Reopen(t)
 	awaitHealth(ctx, t, sfoRuntime.Conn(), healed, "after-heal")
+	waitStreamMessages(ctx, t, mirror, 2)
 }
 
 func awaitHealth(ctx context.Context, t *testing.T, publisher *nats.Conn, received chan *nats.Msg, marker string) {
@@ -341,6 +392,20 @@ func requestUntil(ctx context.Context, t *testing.T, conn *nats.Conn, subject st
 		}
 		if ctx.Err() != nil {
 			t.Fatalf("request %q never crossed: %v", subject, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func waitStreamMessages(ctx context.Context, t *testing.T, stream jetstream.Stream, want uint64) {
+	t.Helper()
+	for {
+		info, err := stream.Info(ctx)
+		if err == nil && info.State.Msgs == want {
+			return
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("mirror never reached %d messages: %+v, %v", want, info, err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -404,7 +469,7 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 	}
 	keys := newTestRegionKeys(t)
 	peers := topology.Peers(cell)
-	contract := InterRegionContract{Cell: cell, Peers: peers}
+	contract := InterRegionContract{Cell: cell, Peers: peers, GlobalHome: topology.Hub}
 	links := topology.Links(cell)
 	if len(topology.Children(cell)) != 0 {
 		links = len(peers)
@@ -449,6 +514,7 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 			BrokerIDs:           []string{"broker-a"},
 			InterRegion: &InterRegion{
 				Enabled: true, Peers: peers, AccountJWTFile: encode("interregion.jwt", interregion),
+				GlobalHome: topology.Hub,
 			},
 		},
 	}

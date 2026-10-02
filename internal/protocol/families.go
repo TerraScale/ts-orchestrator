@@ -20,7 +20,44 @@ const (
 	// TemplateSubject is the NATS JWT user-scope template for the
 	// authenticated user's public key.
 	TemplateSubject = "{{subject()}}"
+	// InterRegionRoot prefixes subjects that exist only to carry JetStream
+	// mirroring across an interregion leafnode.
+	InterRegionRoot = "ts.interregion.v1"
+	// GlobalControlStream is the home region's global state stream and the
+	// name of its read-only mirror in every other region.
+	GlobalControlStream = "TS_GLOBAL_CONTROL"
+	// JSLocalAPIPrefix is the account-local JetStream API prefix.
+	JSLocalAPIPrefix = "$JS.API"
 )
+
+// JSConsumerCreateSubject is the consumer-create API subject for one stream
+// under an API prefix; the extended form appends ".<consumer>[.<filter>]".
+func JSConsumerCreateSubject(apiPrefix, stream string) string {
+	return apiPrefix + ".CONSUMER.CREATE." + stream
+}
+
+// JSFlowControlSubject matches flow-control replies of consumers on stream.
+func JSFlowControlSubject(stream string) string { return "$JS.FC." + stream + ".>" }
+
+// InterRegionJSAPIPrefix is the external JetStream API prefix under which a
+// home region exposes its global stream to mirrors over a leafnode.
+func InterRegionJSAPIPrefix(home string) string {
+	token, err := RegionToken(home)
+	if err != nil || token == GlobalScope {
+		return ""
+	}
+	return InterRegionRoot + "." + token + ".jsapi"
+}
+
+// InterRegionGlobalDeliverPrefix is the delivery prefix of cell's mirror of
+// the global stream; the home region publishes mirror messages beneath it.
+func InterRegionGlobalDeliverPrefix(cell string) string {
+	token, err := RegionToken(cell)
+	if err != nil || token == GlobalScope {
+		return ""
+	}
+	return InterRegionRoot + "." + token + ".global"
+}
 
 // Well-known regional verbs below the regional root.
 const (
