@@ -1,0 +1,16 @@
+[Unit]
+Description=TerraScale self-update watchdog for %i
+# Opt-in; see docs/continuous-delivery.md. The instance is the unit name
+# without ".service", for example terrascale-orchestrator-controller.
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/terrascale-orchestrator/selfupdate-%i.env
+# Confirms a pending activation from the unit's fresh signed version proof,
+# or rolls the current link back after the deadline and restarts the unit.
+# This also covers a new release that hangs instead of crashing.
+ExecStart=/usr/local/bin/terrascale-orchestrator selfupdate watchdog --root /var/lib/terrascale-orchestrator --unit %i.service --proof-file ${TS_SELFUPDATE_PROOF_FILE} --proof-key-file ${TS_SELFUPDATE_PROOF_KEY_FILE} --restart
+UMask=0077
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes

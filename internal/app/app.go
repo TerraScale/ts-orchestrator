@@ -174,6 +174,7 @@ func runHost(ctx context.Context, cfg Config, output io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(output, "host %s ready in cell %s\n", cfg.Host.Node, cfg.NATS.Cell)
+	emitSelfUpdateProofWithKey(cfg.Host.SelfUpdateProofFile, key, hostUnit, output)
 	return hostRunResult(ctx, agent.Run(ctx))
 }
 

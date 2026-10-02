@@ -93,6 +93,9 @@ type HostConfig struct {
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
 	SessionTrace        bool     `json:"session_trace,omitzero"`
+	// SelfUpdateProofFile, when set, makes a started host agent sign a
+	// version proof for a pending self-update activation with its identity key.
+	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
 }
 
 func LoadConfig(path string) (Config, error) {
