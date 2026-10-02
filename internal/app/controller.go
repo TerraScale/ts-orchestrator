@@ -297,6 +297,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if err := startVolumeBackups(ctx, cfg, managed, control, placementStore); err != nil {
+			return fmt.Errorf("start volume backup policy: %w", err)
+		}
 		registrationVerifier, err = newManagedRegistrationVerifier(
 			cfg.NATS.Cell, managed.region.Region, managed.region.Owner, managed.region.Generation,
 			control, placementStore, fleet,
