@@ -1,7 +1,9 @@
 [Unit]
 Description=Join the TerraScale NetBird management network
-Wants=network-online.target netbird.service
-After=network-online.target netbird.service
+# Instance-principal federation, Vault and the manager's TLS need a synced
+# clock; the image bounds systemd-time-wait-sync with a drop-in.
+Wants=network-online.target netbird.service systemd-time-wait-sync.service
+After=network-online.target netbird.service systemd-time-wait-sync.service
 ConditionPathExists=/etc/terrascale-orchestrator/netbird.json
 StartLimitIntervalSec=0
 
@@ -10,7 +12,9 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/local/bin/terrascale-orchestrator netbird-enroll --config /etc/terrascale-orchestrator/netbird.json
 Restart=on-failure
-RestartSec=30s
+# Enrollment waits for the daemon socket and retries transient Vault errors
+# itself, so a unit restart is the rare fallback and need not idle long.
+RestartSec=5s
 TimeoutStartSec=180s
 UMask=0077
 UnsetEnvironment=OCI_GO_SDK_DEBUG OCI_METADATA_BASE_URL OCI_SDK_AUTH_CLIENT_REGION_URL OCI_DEFAULT_CERTS_PATH OCI_DEFAULT_CLIENT_CERTS_PATH OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH
