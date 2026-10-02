@@ -441,3 +441,42 @@ func TestStageFromArtifactStoreFetchesVerifiedObject(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLockSerializesRootSteps(t *testing.T) {
+	f := newFixture(t)
+	unlock, err := f.layout.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquired := make(chan func(), 1)
+	go func() {
+		second, err := f.layout.Lock()
+		if err != nil {
+			t.Error(err)
+			close(acquired)
+			return
+		}
+		acquired <- second
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("second lock acquired while the first is held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unlock()
+	select {
+	case second, ok := <-acquired:
+		if !ok {
+			t.Fatal("second lock failed")
+		}
+		second()
+	case <-time.After(5 * time.Second):
+		t.Fatal("second lock never acquired after release")
+	}
+	if err := os.Chmod(filepath.Join(f.layout.Root, lockFile), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.layout.Lock(); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("writable lock file accepted: %v", err)
+	}
+}

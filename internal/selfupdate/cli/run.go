@@ -154,6 +154,11 @@ func (c command) prepare(args []string) error {
 	if err != nil {
 		return err
 	}
+	unlock, err := layout.layout().Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	outcome, err := selfupdate.Prepare(layout.layout(), *unit, *baked, check, c.now())
 	if err != nil {
 		return err
@@ -179,7 +184,12 @@ func (c command) watchdog(args []string) error {
 	if err != nil {
 		return err
 	}
+	unlock, err := layout.layout().Lock()
+	if err != nil {
+		return err
+	}
 	outcome, activation, err := selfupdate.Watch(layout.layout(), *unit, check, c.now())
+	unlock()
 	if err != nil {
 		return err
 	}
@@ -229,6 +239,11 @@ func (c command) stage(args []string) error {
 	defer source.Close()
 	policy := selfupdate.ReceiptPolicy{Roots: roots, Environment: *environment, Cell: *cell,
 		Architecture: *architecture, AllowScopedAutoSign: *allowAuto}
+	unlock, err := layout.layout().Lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	digest, err := selfupdate.Stage(layout.layout(), source, receiptWire, delegationWire, policy, c.now().UTC())
 	if err != nil {
 		return err
@@ -247,7 +262,12 @@ func (c command) activate(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
+	unlock, err := layout.layout().Lock()
+	if err != nil {
+		return err
+	}
 	activation, err := selfupdate.Activate(layout.layout(), *digest, *unit, c.now(), *window)
+	unlock()
 	if err != nil {
 		return err
 	}

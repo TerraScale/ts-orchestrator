@@ -36,6 +36,7 @@ const (
 	receiptFile     = "receipt.json"
 	delegationFile  = "delegation.json"
 	bakedMarkerFile = "baked"
+	lockFile        = ".lock"
 	maxStateBytes   = 64 << 10
 )
 
@@ -254,4 +255,36 @@ func readBounded(path string, maximum int64) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s is too large", ErrInvalid, path)
 	}
 	return data, nil
+}
+
+// Lock serializes the root-run state changes on one node. The ExecStartPre
+// prepare step, the watchdog timer and an operator stage or activate can run
+// at the same moment; without it two rollbacks race on the current link's
+// temporary name and on removing the activation record. The lock is held
+// until the returned function is called.
+func (layout Layout) Lock() (func(), error) {
+	if err := layout.ensureDirs(); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(layout.Root, lockFile)
+	fd, err := syscall.Open(path, syscall.O_RDWR|syscall.O_CREAT|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	file := os.NewFile(uintptr(fd), path)
+	if err := layout.checkOwned(path, false); err != nil {
+		file.Close()
+		return nil, err
+	}
+	for {
+		err = syscall.Flock(fd, syscall.LOCK_EX)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	if err != nil {
+		file.Close()
+		return nil, &os.PathError{Op: "flock", Path: path, Err: err}
+	}
+	return func() { file.Close() }, nil
 }
