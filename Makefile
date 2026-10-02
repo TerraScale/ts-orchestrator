@@ -10,15 +10,20 @@ endif
 CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
+# Test tier (CONTRIBUTING.md): pr runs the fast tier with -short; full also
+# runs the integration tier and checks the fixturetest build.
+TS_TEST_TIER ?= full
+export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check test test-fast vet fixturetest-check race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
 
 verify: format-check vet race-test
 
 # CI runs the independent checks and the release build at once. The race
 # scheduler prints complete shard logs; stream them as each shard finishes.
 ci-verify:
-	$(MAKE) --jobs --keep-going --output-sync=none format-check vet race-test release-check
+	$(MAKE) --jobs --keep-going --output-sync=none format-check vet race-test release-check \
+		$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)
 
 format-check:
 	@unformatted="$$(find . -type f -name '*.go' -not -path './.git/*' -not -path './third_party/*' -print0 | xargs -0 $(GOFMT) -l)"; \
@@ -30,8 +35,18 @@ format-check:
 test:
 	$(GO) test ./...
 
+# The fast tier without the race detector, for local iteration.
+test-fast:
+	$(GO) test -short ./...
+
 vet:
 	$(GO) vet ./...
+
+# The fixturetest tag swaps in fixture observers that no default build
+# compiles; vet and test them so they cannot rot.
+fixturetest-check:
+	$(GO) vet -tags fixturetest ./...
+	$(GO) test -tags fixturetest ./tests/firecracker/production/fixturegen
 
 race-test:
 	GO="$(GO)" bash scripts/ci/racetest/race-test.sh

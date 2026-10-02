@@ -30,9 +30,10 @@ exactly one job in the qualifying run, so parallelism is inside it:
 `make ci-verify` runs gofmt, `go vet`, all native Go driver contracts, the sharded race
 tests (`scripts/ci/racetest/race-test.sh`) and the static release build at once. The
 job then retains both binaries and `qualification.json` (the completion
-marker) on `ci-<sha>-run-<id>`. On `main` its first step dispatches
-`image.yml` for the same revision, so the image job prepares its tools while
-the checks run and builds as soon as the release is retained.
+marker) on `ci-<sha>-run-<id>`. On `main` its last step dispatches
+`image.yml` for the same revision, so the image job never holds a builder
+slot while the checks run. Pull requests run the fast test tier (`-short`)
+and skip the admission client; pushes run every tier (CONTRIBUTING.md).
 
 ### 2. TerraBase CI (`terrabase/.forgejo/workflows/fast.yml`)
 
