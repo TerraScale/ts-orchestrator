@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -734,12 +735,11 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 }
 
 func inboxPrefix(cell, publicKey string) string {
-	return "ts.orch.v1." + cell + ".inbox." + publicKey
+	return protocol.InboxPrefix(cell, publicKey)
 }
 
 func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 	inbox := inboxPrefix(cell, user.PublicKey) + ".>"
-	root := "ts.orch.v1." + cell
 	permissions := &server.Permissions{Subscribe: &server.SubjectPermission{Allow: []string{inbox}}}
 	switch user.Role {
 	case "host":
@@ -747,18 +747,18 @@ func userPermissions(cell string, user NKeyGrant) (*server.Permissions, error) {
 			return nil, errors.New("host NATS user needs a valid node identity")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".agent." + user.PublicKey + ".observation.*",
+			protocol.AgentObservation(cell, user.PublicKey, "*"),
 		}}
 	case "controller":
 		if user.Node != "" {
 			return nil, errors.New("controller NATS user must not carry a host node")
 		}
 		permissions.Publish = &server.SubjectPermission{Allow: []string{
-			root + ".>", "ts.control." + cell + ".>", "$JS.API.>", "$KV.>", "$O.>",
+			protocol.Regional(cell, ">"), protocol.Control(cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
 			"$JS.ACK.TS_DELIVERY_INTENTS.TS_DELIVERY_WORKER.>",
 		}}
 		permissions.Subscribe.Allow = append(permissions.Subscribe.Allow,
-			root+".agent.*.observation.*", root+".delivery.artifact.admit", root+".host.register", root+".placement.apply", root+".managed-update.prepare", root+".backup.operation", root+".broker.claim.apply", root+".terminal.>")
+			ControllerSubscriptions(cell)...)
 	case "operator":
 		if user.Node != "" {
 			return nil, errors.New("operator NATS user must not carry a host node")

@@ -15,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
 
@@ -24,7 +25,7 @@ const brokerTicketRequestMaxBytes = 4096
 // published into that stream receives a JetStream PubAck before the broker's
 // signed ticket or fence acknowledgement.
 func brokerRPCSubject(cell, operation, recipient string) string {
-	return "ts.broker." + cell + "." + operation + "." + recipient
+	return protocol.Broker(cell, operation, recipient)
 }
 
 var ErrBrokerFencePending = errors.New("regional broker claim fence is pending")

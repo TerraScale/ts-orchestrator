@@ -11,6 +11,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -115,7 +116,7 @@ type operation struct {
 	Receipt     *Receipt       `json:"receipt,omitempty"`
 }
 
-func IntentSubject(cell string) string { return "ts.orch.v1." + cell + ".delivery.intent" }
+func IntentSubject(cell string) string { return protocol.DeliveryIntentSubject(cell) }
 
 // ConnectClient binds existing regional resources without managing topology.
 // Operator and CI identities should use this path with only their specific

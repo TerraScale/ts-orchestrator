@@ -58,7 +58,7 @@ type backupOperationRuntime struct {
 	responseKey ed25519.PrivateKey
 }
 
-func backupOperationSubject(cell string) string { return "ts.orch.v1." + cell + ".backup.operation" }
+func backupOperationSubject(cell string) string { return protocol.BackupOperationSubject(cell) }
 
 func operatorBackupOperation(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	action, databaseID, partitionID, operationID, historyCursor string, output io.Writer,

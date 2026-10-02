@@ -10,11 +10,13 @@ import (
 	"strings"
 	"time"
 	"uuid"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
 	controlStreamName    = "TS_CONTROL_LOG"
-	controlSubjectRoot   = "ts.control"
+	controlSubjectRoot   = protocol.ControlRoot
 	defaultLeaseDuration = 15 * time.Second
 	defaultRenewInterval = 3 * time.Second
 	defaultReplicas      = 3

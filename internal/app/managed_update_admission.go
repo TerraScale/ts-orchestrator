@@ -23,7 +23,7 @@ import (
 const managedUpdateRequestMaxBytes = protocol.MaxPayloadBytes + 4096
 
 func managedUpdatePrepareSubject(cell string) string {
-	return "ts.orch.v1." + cell + ".managed-update.prepare"
+	return protocol.ManagedUpdatePrepareSubject(cell)
 }
 
 type managedUpdatePrepareResponse struct {

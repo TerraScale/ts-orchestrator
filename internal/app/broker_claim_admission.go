@@ -24,7 +24,7 @@ import (
 const maxBrokerClaimWireBytes = 72 << 10
 
 func brokerClaimApplySubject(cell string) string {
-	return "ts.orch.v1." + cell + ".broker.claim.apply"
+	return protocol.BrokerClaimApplySubject(cell)
 }
 
 type brokerClaimApply struct {

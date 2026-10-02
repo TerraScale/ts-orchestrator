@@ -19,7 +19,7 @@ import (
 const maxRegistrationBytes = 64 << 10
 const maxRegistrationWireBytes = maxRegistrationBytes + 4096
 
-func hostRegistrationSubject(cell string) string { return "ts.orch.v1." + cell + ".host.register" }
+func hostRegistrationSubject(cell string) string { return protocol.HostRegisterSubject(cell) }
 
 func hostRegistrationID(r host.Registration) string {
 	return fmt.Sprintf("host-register.%s.%d", r.Node, r.Generation)
