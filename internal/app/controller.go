@@ -250,7 +250,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
 		fleet, err = openManagedControllerFleet(ctx, managed.region, managed.intent, journal, control,
-			launchMaterial.HostMetadata(), newManagedImageVerifier, oci.NewInstancePrincipalFleetWithImageVerifier)
+			launchMaterial.HostMetadata(), managedImageVerifierFor(cfg.Controller), oci.NewInstancePrincipalFleetWithImageVerifier)
 		if err != nil {
 			return fmt.Errorf("start region-bound OCI fleet: %w", err)
 		}
@@ -541,6 +541,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		return ctx.Err()
 	}
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
+	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
 	case <-ctx.Done():
 		stop()

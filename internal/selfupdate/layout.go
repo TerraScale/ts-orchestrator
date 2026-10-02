@@ -93,7 +93,13 @@ func (layout Layout) ensureDirs() error {
 		return err
 	}
 	for _, path := range []string{layout.Root, layout.releasesPath()} {
-		if err := os.Mkdir(path, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
+		// The units run with UMask=0077; set the mode explicitly so the
+		// unprivileged controller can traverse to its binary.
+		if err := os.Mkdir(path, 0o755); err == nil {
+			if err := os.Chmod(path, 0o755); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, os.ErrExist) {
 			return err
 		}
 		if err := layout.checkOwned(path, true); err != nil {

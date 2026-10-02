@@ -38,6 +38,15 @@ type ControllerConfig struct {
 	PlacementConfig             string                     `json:"placement_config,omitempty"`
 	TrustedSigners              []TrustedSignerConfig      `json:"trusted_signers,omitempty"`
 	Workloads                   map[string]WorkloadProfile `json:"workloads,omitempty"`
+	// SelfUpdateProofFile, when set, makes a ready controller sign a version
+	// proof for a pending self-update activation with its response key.
+	SelfUpdateProofFile string `json:"self_update_proof_file,omitempty"`
+	// ManagedHostImageReceiptFile and ManagedHostImageDelegationFile, when
+	// both set, qualify the managed-host image from its own root-delegated
+	// image receipt instead of the controller's accepted boot image, so
+	// hosts can move to a newer qualified image independently.
+	ManagedHostImageReceiptFile    string `json:"managed_host_image_receipt_file,omitempty"`
+	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
 }
 
 type WorkloadProfile struct {

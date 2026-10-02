@@ -198,6 +198,13 @@ func TestSeedStageActivateConfirm(t *testing.T) {
 	if err != nil || baked != digestOf([]byte("baked orchestrator")) {
 		t.Fatalf("seeded current = %q %v", baked, err)
 	}
+	// The unprivileged controller must traverse to its binary even when the
+	// installing unit runs with UMask=0077.
+	for _, path := range []string{f.layout.Root, f.layout.releasesPath(), f.layout.ReleaseDir(baked)} {
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o755 {
+			t.Fatalf("%s mode = %v %v", path, info, err)
+		}
+	}
 	if _, err := os.Stat(filepath.Join(f.layout.ReleaseDir(baked), bakedMarkerFile)); err != nil {
 		t.Fatalf("baked release lacks its marker: %v", err)
 	}
