@@ -75,13 +75,17 @@ func (c command) run(args []string) error {
 		return c.verifyImage(args[1:])
 	case "publish":
 		return c.publish(args[1:])
+	case "sign-update-delegation":
+		return c.signUpdateDelegation(args[1:])
+	case "sign-binary-update":
+		return c.signBinaryUpdate(args[1:])
 	default:
 		return usageError()
 	}
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish> [flags]")
+	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update> [flags]")
 }
 
 func (c command) publish(args []string) error {
