@@ -352,7 +352,11 @@ Nothing in this change starts it; the pieces are:
   leader's clock; the signed `observed_at` only bounds replay (a proof is
   fresh when it arrived within 60 s and was observed within 60 s plus the
   verified one-minute skew). A full collector
-  reclaims units whose proofs expired before it refuses a new one. A proof
+  reclaims units whose proofs expired before it refuses a new one. Within
+  one incarnation proofs only move forward; a new incarnation whose clock
+  reads earlier replaces the newest one after that one was quiet for two
+  proof intervals, and an incarnation a newer one superseded is refused
+  for as long as any proof it signed can still verify. A proof
   on the target
   feeds `healthy`; a new incarnation on another release after the
   step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the

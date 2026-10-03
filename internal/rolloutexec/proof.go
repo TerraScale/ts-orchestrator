@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -36,6 +37,11 @@ const (
 	// delayed proof of a superseded process never displaces it.
 	incarnationQuiet = 2 * DefaultProofInterval
 	maxProofUnits    = 4 * rollout.MaxUnits
+	// maxRetired bounds the superseded incarnations kept per unit.
+	maxRetired = 8
+	// retiredFor is how long a superseded incarnation stays refused: no
+	// proof it signed can still verify after that.
+	retiredFor = HealthLifetime + healthClockSkew
 )
 
 var (
@@ -163,6 +169,15 @@ type Collector struct {
 
 	mu     sync.Mutex
 	latest map[string]HealthProof
+	// retired lists, per unit, incarnations a newer one superseded and
+	// when each may be forgotten; their proofs are refused until then.
+	retired map[string][]retiredIncarnation
+}
+
+type retiredIncarnation struct {
+	processID  int64
+	startNonce string
+	until      time.Time
 }
 
 // NewCollector returns a collector for cell. now defaults to time.Now.
@@ -170,7 +185,8 @@ func NewCollector(cell string, keys KeyResolver, now func() time.Time) *Collecto
 	if now == nil {
 		now = time.Now
 	}
-	return &Collector{cell: cell, keys: keys, now: now, latest: map[string]HealthProof{}}
+	return &Collector{cell: cell, keys: keys, now: now, latest: map[string]HealthProof{},
+		retired: map[string][]retiredIncarnation{}}
 }
 
 // Observe verifies one proof received on subject and records it. A proof
@@ -196,9 +212,19 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	if err != nil {
 		return err
 	}
-	proof.ReceivedAt = c.now().UTC()
+	now := c.now().UTC()
+	proof.ReceivedAt = now
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// A superseded process never becomes current again: a delayed or
+	// replayed proof of it is refused while any proof it signed verifies.
+	retired := slices.DeleteFunc(c.retired[unit], func(r retiredIncarnation) bool { return !now.Before(r.until) })
+	c.retired[unit] = retired
+	if slices.ContainsFunc(retired, func(r retiredIncarnation) bool {
+		return r.processID == proof.ProcessID && r.startNonce == proof.StartNonce
+	}) {
+		return nil
+	}
 	previous, exists := c.latest[unit]
 	// Within one incarnation proofs only move forward. Another
 	// incarnation whose clock reads earlier (a clock stepped back across a
@@ -210,15 +236,22 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	if !exists && len(c.latest) >= maxProofUnits {
 		// An expired proof completes nothing: reclaim the units that
 		// stopped proving (removed or replaced) before refusing a new one.
-		now := c.now()
 		for id, held := range c.latest {
-			if now.Sub(held.ObservedAt) > HealthLifetime {
+			if now.Sub(held.ReceivedAt) > retiredFor {
 				delete(c.latest, id)
+				delete(c.retired, id)
 			}
 		}
 		if len(c.latest) >= maxProofUnits {
 			return fmt.Errorf("%w: too many proof units", ErrInvalid)
 		}
+	}
+	if exists && !proof.sameIncarnation(previous) {
+		if len(retired) >= maxRetired {
+			retired = slices.Delete(retired, 0, len(retired)-maxRetired+1)
+		}
+		c.retired[unit] = append(retired, retiredIncarnation{processID: previous.ProcessID,
+			startNonce: previous.StartNonce, until: now.Add(retiredFor)})
 	}
 	c.latest[unit] = proof
 	return nil
