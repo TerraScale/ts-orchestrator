@@ -78,8 +78,8 @@ type SnapshotSampler struct {
 	// one sample would read as a burst.
 	ociPresent map[string]bool
 	roles      map[string]string
-	stages   map[string]bool
-	seeded   bool
+	stages     map[string]bool
+	seeded     bool
 }
 
 type ociCounters struct{ calls, errors, throttled, seconds float64 }
