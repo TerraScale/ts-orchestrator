@@ -116,6 +116,13 @@ type controllerObservation struct {
 	holds *placementHoldLog
 	// autoscalers is the workload reconciler, when autoscaling is enabled.
 	autoscalers *workload.Reconciler
+	// linkedPeers are the interregion peers whose observability services
+	// the cell account imports, so the local connection reaches them.
+	linkedPeers []string
+	// rollouts and budgets are the rollout store and the region planner's
+	// budgets, when their feature flags enable them.
+	rollouts insights.RolloutProvider
+	budgets  insights.BudgetProvider
 }
 
 // attachController registers controller metrics, readiness checks and the

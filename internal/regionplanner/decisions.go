@@ -56,7 +56,7 @@ func (budgets Budgets) Budgets(ctx context.Context) ([]insights.Budget, error) {
 	if err != nil {
 		return nil, err
 	}
-	fleet := regionlifecycle.FleetOf(records, "")
+	fleet := regionlifecycle.FleetOf(records, "", budgets.Policy.Home)
 	var out []insights.Budget
 	if budgets.Policy.MaxRegions > 0 {
 		out = append(out, insights.Budget{Name: "regions", Used: float64(fleet.Regions),

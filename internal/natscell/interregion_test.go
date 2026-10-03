@@ -297,7 +297,7 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	defer proxy.Close()
 	sfo.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
 		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()},
-		CredentialsFile: gru.leafCredentials(t, "sfo-leaf.creds"), PeerAccount: gru.interregionID, TLS: leafTLS,
+		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}}
 
 	gruRuntime, err := Start(ctx, gru.cfg)
@@ -426,12 +426,13 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 	assertPeerCannotSteerHomeDelivery(ctx, t, sfoRuntime.Conn(), home, gruCommands)
 	assertRawLeafPeerIsDenyByDefault(ctx, t, gru, gruRuntime.Conn(), sfoRuntime.Conn(), home, proxy.Addr(), leafTLS, gruCommands)
 
-	// A leaf user of GRU's cell account is refused: the cell account allows
-	// no leafnode connections, so only the interregion account is linkable.
+	// A leaf user claiming GRU's cell account (signed by a real child key) is
+	// refused: the cell account allows no leafnode connections and knows no
+	// such signer, so only the interregion account is linkable.
 	rogue := newTestRegion(t, filepath.Join(root, "fra"), "fra", HubAndSpoke("gru", []string{"sfo", "fra"}))
 	rogue.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{
 		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()},
-		CredentialsFile: gru.leafCredentialsFor(t, "rogue-leaf.creds", gru.cell, gru.cellID), PeerAccount: gru.cellID, TLS: leafTLS,
+		CredentialsFile: gru.leafCredentialsFor(t, "rogue-leaf.creds", gru.childKey(t, "fra"), gru.cellID), PeerAccount: gru.cellID, TLS: leafTLS,
 	}}
 	rogueRuntime, err := Start(ctx, rogue.cfg)
 	if err != nil {
@@ -575,6 +576,24 @@ type testRegionKeys struct {
 	operator, system, cell, interregion nkeys.KeyPair
 	operatorID, systemID, cellID        string
 	interregionID                       string
+	// children holds each child region's scoped signing key of the
+	// interregion account, created on first use.
+	children map[string]nkeys.KeyPair
+	t        *testing.T
+}
+
+// childKey returns child's scoped signing key, creating it once.
+func (keys testRegionKeys) childKey(t *testing.T, child string) nkeys.KeyPair {
+	t.Helper()
+	if key, ok := keys.children[child]; ok {
+		return key
+	}
+	key, err := nkeys.CreateAccount()
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys.children[child] = key
+	return key
 }
 
 func newTestRegionKeys(t *testing.T) testRegionKeys {
@@ -593,17 +612,23 @@ func newTestRegionKeys(t *testing.T) testRegionKeys {
 	keys.systemID, _ = keys.system.PublicKey()
 	keys.cellID, _ = keys.cell.PublicKey()
 	keys.interregionID, _ = keys.interregion.PublicKey()
+	keys.children = map[string]nkeys.KeyPair{}
+	keys.t = t
 	return keys
 }
 
 func (keys testRegionKeys) claims(contract InterRegionContract, links int) (*jwt.AccountClaims, *jwt.AccountClaims, *jwt.AccountClaims) {
+	childKeys := map[string]string{}
+	for child := range contract.Subtrees {
+		childKeys[child], _ = keys.childKey(keys.t, child).PublicKey()
+	}
 	system := jwt.NewAccountClaims(keys.systemID)
 	system.Limits.LeafNodeConn = 0
 	cell := jwt.NewAccountClaims(keys.cellID)
 	cell.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 64 << 20, DiskStorage: 256 << 20, Streams: 20, Consumer: 20}
 	contract.ApplyCell(cell, keys.interregionID)
 	interregion := jwt.NewAccountClaims(keys.interregionID)
-	contract.ApplyInterRegion(interregion, keys.cellID, links)
+	contract.ApplyInterRegion(interregion, keys.cellID, links, childKeys)
 	return system, cell, interregion
 }
 
@@ -619,11 +644,9 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 	}
 	keys := newTestRegionKeys(t)
 	peers := topology.Peers(cell)
-	contract := InterRegionContract{Cell: cell, Peers: peers, GlobalHome: topology.Hub}
+	subtrees := topology.Subtrees(cell)
+	contract := InterRegionContract{Cell: cell, Peers: peers, GlobalHome: topology.Hub, Subtrees: subtrees}
 	links := topology.Links(cell)
-	if len(topology.Children(cell)) != 0 {
-		links = len(peers)
-	}
 	system, cellClaim, interregion := keys.claims(contract, links)
 	operator := jwt.NewOperatorClaims(keys.operatorID)
 	operator.SystemAccount = keys.systemID
@@ -664,33 +687,45 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 			BrokerIDs:           []string{"broker-a"},
 			InterRegion: &InterRegion{
 				Enabled: true, Peers: peers, AccountJWTFile: encode("interregion.jwt", interregion),
-				GlobalHome: topology.Hub,
+				GlobalHome: topology.Hub, Subtrees: subtrees,
 			},
 		},
 	}
 	return &testRegion{testRegionKeys: keys, cfg: cfg}
 }
 
-// leafCredentials issues a leafnode-only user of this region's interregion
-// account for a child region; it is signed under this region's operator.
+// leafCredentials issues a user of this region's interregion account signed
+// by the account identity key rather than a child's scoped key. The hub gives
+// it the account's deny-all defaults.
 func (region *testRegion) leafCredentials(t *testing.T, name string) string {
 	t.Helper()
-	return region.leafCredentialsFor(t, name, region.interregion, region.interregionID)
+	return region.leafCredentialsWith(t, name, region.interregion, region.interregionID, func(claim *jwt.UserClaims) {
+		claim.NatsLimits = jwt.NatsLimits{Subs: jwt.NoLimit, Data: jwt.NoLimit, Payload: jwt.NoLimit}
+		claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
+	})
 }
 
-// leafCredentialsWith issues a leafnode-only user after mutate adjusts its
-// claims, so tests can prove permission-carrying leaf users are refused.
-func (region *testRegion) leafCredentialsWith(t *testing.T, name string, account nkeys.KeyPair, accountID string,
+// childLeafCredentials issues a leafnode-only user for child through child's
+// scoped signing key, so the hub applies child's leaf permissions to it.
+func (region *testRegion) childLeafCredentials(t *testing.T, name, child string) string {
+	t.Helper()
+	return region.leafCredentialsFor(t, name, region.childKey(t, child), region.interregionID)
+}
+
+// leafCredentialsWith issues a user of accountID signed by signer, without
+// permissions or limits (as a scoped signing key requires), after mutate
+// adjusts its claims, so tests can prove permission-carrying users are refused.
+func (region *testRegion) leafCredentialsWith(t *testing.T, name string, signer nkeys.KeyPair, accountID string,
 	mutate func(*jwt.UserClaims),
 ) string {
 	t.Helper()
 	user, _ := nkeys.CreateUser()
 	userID, _ := user.PublicKey()
 	claim := jwt.NewUserClaims(userID)
+	claim.UserPermissionLimits = jwt.UserPermissionLimits{}
 	claim.IssuerAccount = accountID
-	claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
 	mutate(claim)
-	raw, err := claim.Encode(account)
+	raw, err := claim.Encode(signer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,29 +741,11 @@ func (region *testRegion) leafCredentialsWith(t *testing.T, name string, account
 	return path
 }
 
-// leafCredentialsFor issues a leafnode-only user of any account in this
-// region, so tests can prove the server refuses non-interregion leaf users.
-func (region *testRegion) leafCredentialsFor(t *testing.T, name string, account nkeys.KeyPair, accountID string) string {
+// leafCredentialsFor issues a user of accountID signed by signer, so tests
+// can prove the server refuses leaf users of other accounts or signers.
+func (region *testRegion) leafCredentialsFor(t *testing.T, name string, signer nkeys.KeyPair, accountID string) string {
 	t.Helper()
-	user, _ := nkeys.CreateUser()
-	userID, _ := user.PublicKey()
-	claim := jwt.NewUserClaims(userID)
-	claim.IssuerAccount = accountID
-	claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
-	raw, err := claim.Encode(account)
-	if err != nil {
-		t.Fatal(err)
-	}
-	seed, _ := user.Seed()
-	creds, err := jwt.FormatUserConfig(raw, seed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, creds, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return region.leafCredentialsWith(t, name, signer, accountID, func(*jwt.UserClaims) {})
 }
 
 // tcpProxy models the private DRG/RPC path so the test can partition and heal

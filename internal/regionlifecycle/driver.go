@@ -11,7 +11,9 @@ import (
 // Effector performs and observes one step's effect. Execute must be
 // idempotent for intent.CreateKey: it is the OCI opc-retry-token and the
 // freeform ownership tag of anything the step creates. Observe finds the
-// effect by that tag and must never create anything.
+// effect by that tag and must never create anything. intent.Epoch is the
+// global leader epoch under which the driver claimed the effect; the driver
+// guards it against the lease immediately before calling Execute.
 type Effector interface {
 	Execute(ctx context.Context, record Record, intent StepIntent) (StepResult, error)
 	Observe(ctx context.Context, record Record, intent StepIntent) (Observation, error)
@@ -20,6 +22,13 @@ type Effector interface {
 // Driver advances one region by at most one step per call, under the global
 // leader's epoch. It journals the intent before the effect and reconciles a
 // pending intent by observation before any retry.
+//
+// Every Execute is fenced twice: the record carrying the intent stamped with
+// the caller's epoch is first written by a compare-and-set under that epoch
+// (so of two leaders racing on the same record only one can claim the
+// effect), and the lease is guarded again immediately before the effect. A
+// recovered intent is re-claimed through Machine.ClaimStep, which re-checks
+// approval expiry and admission freshness exactly as a fresh step does.
 type Driver struct {
 	Machine  Machine
 	Store    *Store
@@ -40,6 +49,25 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 	record, revision, err := d.Store.Get(ctx, cell)
 	if err != nil {
 		return Record{}, err
+	}
+	if epoch == 0 || record.Pending != nil && record.Pending.Epoch > epoch {
+		return record, ErrStaleEpoch
+	}
+	if record.Phase == RetireApproved && record.Pending != nil {
+		// A failed bring-up left an intent behind: settle it by observation
+		// before any teardown step begins.
+		observation, err := d.Effector.Observe(ctx, record, *record.Pending)
+		if err != nil {
+			return record, err
+		}
+		next, err := d.Machine.ReconcileRetirePending(record, observation, d.now())
+		if err != nil {
+			return d.hold(ctx, epoch, record, revision, "observation does not match the pending intent", err)
+		}
+		if _, err := d.Store.Update(ctx, epoch, record, next, revision); err != nil {
+			return record, err
+		}
+		return next, nil
 	}
 	if _, running := stepRunning(record.Phase); running && record.Pending != nil {
 		// A previous leader may have crashed after the effect. Observe first;
@@ -63,7 +91,17 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 			}
 			return next, nil
 		}
-		return d.execute(ctx, epoch, record, revision, *record.Pending)
+		// Re-claim the intent under this epoch with the guards re-checked;
+		// an expired approval or stale admission parks the step unexecuted.
+		claimed, intent, err := d.Machine.ClaimStep(record, epoch, d.now())
+		if err != nil {
+			return record, err
+		}
+		claimedRevision, err := d.Store.Update(ctx, epoch, record, claimed, revision)
+		if err != nil {
+			return record, err
+		}
+		return d.execute(ctx, epoch, claimed, claimedRevision, intent)
 	}
 	if _, waiting := stepFrom(record.Phase); !waiting {
 		return record, nil
@@ -74,6 +112,8 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 		// the admission loop instead of holding.
 		return record, err
 	}
+	intent.Epoch = epoch
+	next.Pending.Epoch = epoch
 	nextRevision, err := d.Store.Update(ctx, epoch, record, next, revision)
 	if err != nil {
 		return record, err
@@ -82,6 +122,11 @@ func (d Driver) Advance(ctx context.Context, epoch uint64, cell string) (Record,
 }
 
 func (d Driver) execute(ctx context.Context, epoch uint64, record Record, revision uint64, intent StepIntent) (Record, error) {
+	// The claim above is durable; re-prove the lease right before the
+	// external effect so a leader fenced in between never runs it.
+	if err := d.Store.Guard(ctx, epoch); err != nil {
+		return record, err
+	}
 	result, err := d.Effector.Execute(ctx, record, intent)
 	if err != nil {
 		return d.hold(ctx, epoch, record, revision, "step effect failed", err)

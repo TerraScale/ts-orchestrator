@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -23,6 +24,7 @@ var (
 	ErrUseRetire         = errors.New("the seed controller may exist; remove the region through retirement")
 	ErrStepMismatch      = errors.New("step result does not match the recorded intent")
 	ErrNotIdle           = errors.New("region is not idle long enough to retire")
+	ErrStaleEpoch        = errors.New("region step intent was journaled by a newer global leader")
 )
 
 const (
@@ -99,6 +101,12 @@ type StepIntent struct {
 	Step       Step      `json:"step"`
 	CreateKey  string    `json:"create_key"`
 	RecordedAt time.Time `json:"recorded_at"`
+	// Epoch is the global leader epoch that last journaled (or re-journaled)
+	// the intent before running its effect. A leader with an older epoch
+	// never runs it.
+	Epoch uint64 `json:"epoch,omitempty"`
+	// Attempt counts how often a recovered intent was claimed for re-execution.
+	Attempt uint32 `json:"attempt,omitempty"`
 }
 
 // StepResult is the observed outcome of a step.
@@ -148,9 +156,12 @@ type Record struct {
 	Hold               *Hold              `json:"hold,omitempty"`
 	// RollbackFrom is the phase a cancel left; rollback removes what the
 	// completed steps created, in reverse.
-	RollbackFrom Phase     `json:"rollback_from,omitempty"`
-	Outcome      string    `json:"outcome,omitempty"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	RollbackFrom Phase `json:"rollback_from,omitempty"`
+	// RetireFrom is the bring-up phase a failed, partially launched region
+	// left for retirement (see ProposeFailedRetire); empty for an Active one.
+	RetireFrom Phase     `json:"retire_from,omitempty"`
+	Outcome    string    `json:"outcome,omitempty"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Policy holds the guard parameters. Approvers maps an approval actor to its
@@ -184,13 +195,35 @@ type Fleet struct {
 	CommittedMonthlyCents uint64
 }
 
-// FleetOf summarizes every record except cell's for the admission guards.
-// Committed spend counts each slot-holding region's admitted estimate, or its
-// proposal estimate before admission.
-func FleetOf(records []Record, cell string) Fleet {
+// Home is the global home region. It was bootstrapped by hand and has no
+// lifecycle record, but it occupies a region slot and spends like any other.
+type Home struct {
+	Cell         string
+	MonthlyCents uint64
+}
+
+// Validate requires a regional cell and a cost; a zero Home is invalid
+// because the guards would silently undercount the fleet.
+func (h Home) Validate() error {
+	if !cellToken.MatchString(h.Cell) || h.Cell == protocol.GlobalScope || h.MonthlyCents == 0 {
+		return errors.New("region guards need the home region's cell and monthly cost")
+	}
+	return nil
+}
+
+// FleetOf summarizes the home region and every record except cell's for the
+// admission guards. Committed spend counts each slot-holding region's
+// admitted estimate, or its proposal estimate before admission. Sums saturate
+// at the maximum instead of wrapping, so an absurd estimate can only make the
+// fleet look more expensive.
+func FleetOf(records []Record, cell string, home Home) Fleet {
 	var fleet Fleet
+	homeCounted := false
 	for _, record := range records {
-		if record.Cell == cell || !record.Phase.OccupiesSlot() {
+		if record.Cell == home.Cell && record.OccupiesSlot() {
+			homeCounted = true
+		}
+		if record.Cell == cell || !record.OccupiesSlot() {
 			continue
 		}
 		fleet.Regions++
@@ -198,9 +231,37 @@ func FleetOf(records []Record, cell string) Fleet {
 		if record.Admission != nil {
 			cents = record.Admission.EstimatedMonthlyCents
 		}
-		fleet.CommittedMonthlyCents += cents
+		fleet.CommittedMonthlyCents = SaturatingAdd(fleet.CommittedMonthlyCents, cents)
+	}
+	if home.Cell != "" && home.Cell != cell && !homeCounted {
+		fleet.Regions++
+		fleet.CommittedMonthlyCents = SaturatingAdd(fleet.CommittedMonthlyCents, home.MonthlyCents)
 	}
 	return fleet
+}
+
+// SaturatingAdd adds two cent amounts, clamping at the maximum.
+func SaturatingAdd(left, right uint64) uint64 {
+	if left > math.MaxUint64-right {
+		return math.MaxUint64
+	}
+	return left + right
+}
+
+// FitsCeiling reports whether committed plus estimate stays within ceiling,
+// without overflowing.
+func FitsCeiling(committed, estimate, ceiling uint64) bool {
+	return committed <= ceiling && estimate <= ceiling-committed
+}
+
+// OccupiesSlot reports whether the record counts toward the region maximum
+// and committed spend. A Held record keeps the slot status of the phase it
+// was held in, so holding an unapproved proposal does not take a slot.
+func (record Record) OccupiesSlot() bool {
+	if record.Phase == Held && record.Hold != nil {
+		return record.Hold.Phase.OccupiesSlot()
+	}
+	return record.Phase.OccupiesSlot()
 }
 
 // Machine applies transitions. It has no I/O; Store persists its results.
@@ -299,9 +360,12 @@ func (m Machine) Admit(record Record, admission CostAdmission, fleet Fleet, now 
 }
 
 // Readmit refreshes the cost admission of an in-flight region; spending steps
-// need an admission younger than AdmissionTTL when they begin.
+// need an admission younger than AdmissionTTL when they begin and whenever a
+// recovered intent is re-executed, so a running phase can be readmitted too.
 func (m Machine) Readmit(record Record, admission CostAdmission, fleet Fleet, now time.Time) (Record, error) {
-	if _, ok := stepFrom(record.Phase); !ok || record.Phase.Terminal() || isRetire(record.Phase) {
+	_, waiting := stepFrom(record.Phase)
+	_, running := stepRunning(record.Phase)
+	if !waiting && !running || record.Phase.Terminal() || isRetire(record.Phase) {
 		return Record{}, ErrInvalidTransition
 	}
 	if err := m.requireApproval(record, now); err != nil {
@@ -329,8 +393,7 @@ func (m Machine) admit(record Record, admission CostAdmission, fleet Fleet, now 
 		return err
 	}
 	if admission.EstimatedMonthlyCents > payload.MaxMonthlyCents ||
-		fleet.CommittedMonthlyCents+admission.EstimatedMonthlyCents > m.Policy.MonthlyCeilingCents ||
-		fleet.CommittedMonthlyCents > m.Policy.MonthlyCeilingCents {
+		!FitsCeiling(fleet.CommittedMonthlyCents, admission.EstimatedMonthlyCents, m.Policy.MonthlyCeilingCents) {
 		return ErrBudgetCeiling
 	}
 	return nil
@@ -344,20 +407,56 @@ func (m Machine) BeginStep(record Record, now time.Time) (Record, StepIntent, er
 	if !ok || record.Pending != nil {
 		return Record{}, StepIntent{}, ErrInvalidTransition
 	}
-	if def.retire {
-		if err := m.requireRetireApproval(record, now); err != nil {
-			return Record{}, StepIntent{}, err
-		}
-	} else {
-		if err := m.requireApproval(record, now); err != nil {
-			return Record{}, StepIntent{}, err
-		}
-		if def.spends && (record.Admission == nil || !now.Before(record.Admission.AdmittedAt.Add(m.Policy.AdmissionTTL))) {
-			return Record{}, StepIntent{}, ErrAdmissionStale
-		}
+	if err := m.stepGuards(record, def, now); err != nil {
+		return Record{}, StepIntent{}, err
 	}
 	intent := StepIntent{Step: def.step, CreateKey: CreateKey(record.Cell, record.Proposal.ID, def.step), RecordedAt: now.UTC()}
 	next := record.advance(def.running, now)
+	next.Pending = &intent
+	return next, intent, nil
+}
+
+// stepGuards are the checks every effect needs when it starts or restarts:
+// an unexpired approval of the right kind and, for spending steps, a cost
+// admission younger than AdmissionTTL.
+func (m Machine) stepGuards(record Record, def stepDef, now time.Time) error {
+	if def.retire {
+		return m.requireRetireApproval(record, now)
+	}
+	if err := m.requireApproval(record, now); err != nil {
+		return err
+	}
+	if def.spends && (record.Admission == nil || record.Admission.AdmittedAt.After(now.Add(m.Policy.ClockSkew)) ||
+		!now.Before(record.Admission.AdmittedAt.Add(m.Policy.AdmissionTTL))) {
+		return ErrAdmissionStale
+	}
+	return nil
+}
+
+// ClaimStep re-journals the pending intent of a running step before its
+// effect is re-executed under epoch, for example after a crash left the
+// intent journaled but its effect absent. It re-checks the approval and
+// admission guards exactly as BeginStep does, refuses an intent that a newer
+// leader journaled, and returns the next generation with the intent stamped
+// with epoch. The caller must persist the record (a compare-and-set under
+// epoch) before running the effect, so two leaders never both run it.
+func (m Machine) ClaimStep(record Record, epoch uint64, now time.Time) (Record, StepIntent, error) {
+	def, ok := stepRunning(record.Phase)
+	if !ok || record.Pending == nil || record.Pending.Step != def.step {
+		return Record{}, StepIntent{}, ErrInvalidTransition
+	}
+	if epoch == 0 || record.Pending.Epoch > epoch {
+		return Record{}, StepIntent{}, ErrStaleEpoch
+	}
+	if err := m.stepGuards(record, def, now); err != nil {
+		return Record{}, StepIntent{}, err
+	}
+	intent := *record.Pending
+	intent.Epoch = epoch
+	if intent.Attempt < math.MaxUint32 {
+		intent.Attempt++
+	}
+	next := record.advance(record.Phase, now)
 	next.Pending = &intent
 	return next, intent, nil
 }
@@ -426,6 +525,90 @@ func (m Machine) Resume(record Record, observation *Observation, now time.Time) 
 	return restored.advance(restored.Phase, now), nil
 }
 
+// RenewApproval replaces the expansion approval of an in-flight bring-up
+// with a fresh signed one for the same proposal, keeping the phase and any
+// pending intent. Without it, an approval that expires mid-bring-up would
+// leave every later step stuck on ErrApprovalRequired.
+func (m Machine) RenewApproval(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
+	phase := record.Phase
+	if phase == Held && record.Hold != nil {
+		phase = record.Hold.Phase
+	}
+	if _, forward := forwardOrder[phase]; !forward || phase == Proposed || phase == Active || record.Approval == nil {
+		return Record{}, ErrInvalidTransition
+	}
+	if err := m.verifyApproval(record, approval, ApproveExpansionKind, now); err != nil {
+		return Record{}, err
+	}
+	next := record.advance(record.Phase, now)
+	next.Approval = &approval
+	return next, nil
+}
+
+// RenewRetireApproval replaces the retirement approval of an in-flight
+// retirement, keeping the phase and any pending intent.
+func (m Machine) RenewRetireApproval(record Record, approval protocol.Envelope, now time.Time) (Record, error) {
+	phase := record.Phase
+	if phase == Held && record.Hold != nil {
+		phase = record.Hold.Phase
+	}
+	if !isRetire(phase) || phase == RetireProposed || record.RetireApproval == nil {
+		return Record{}, ErrInvalidTransition
+	}
+	if err := m.verifyApproval(record, approval, ApproveRetirementKind, now); err != nil {
+		return Record{}, err
+	}
+	next := record.advance(record.Phase, now)
+	next.RetireApproval = &approval
+	return next, nil
+}
+
+// ProposeFailedRetire starts retirement of a region whose bring-up failed
+// after the seed launch, when cancel can no longer roll it back. The region
+// may own a seed controller and billable resources, so it takes the same
+// signed retirement path as an Active region; no idle evidence is needed
+// because it never served. A pending intent is kept and reconciled by
+// observation (ReconcileRetirePending) before any teardown step begins.
+func (m Machine) ProposeFailedRetire(record Record, reason, evidenceDigest string, now time.Time) (Record, error) {
+	phase := record.Phase
+	if phase == Held && record.Hold != nil {
+		phase = record.Hold.Phase
+	}
+	if _, forward := forwardOrder[phase]; !forward || phase == Active || !seedMayExist(phase) {
+		return Record{}, ErrInvalidTransition
+	}
+	if !digestToken.MatchString(evidenceDigest) {
+		return Record{}, errors.New("failed-region retirement needs SHA-256 hex evidence")
+	}
+	next := record.advance(RetireProposed, now)
+	next.Hold = nil
+	next.RetireFrom = phase
+	next.Outcome = "bring-up failed: " + boundReason(reason)
+	return next, nil
+}
+
+// ReconcileRetirePending settles the pending bring-up intent of a failed
+// region before its teardown, from an observation of that intent: a found
+// effect is recorded as completed (teardown must remove it), a missing one
+// is dropped. The phase stays RetireApproved.
+func (m Machine) ReconcileRetirePending(record Record, observation Observation, now time.Time) (Record, error) {
+	if record.Phase != RetireApproved || record.Pending == nil {
+		return Record{}, ErrInvalidTransition
+	}
+	if observation.Step != record.Pending.Step || observation.CreateKey != record.Pending.CreateKey ||
+		!digestToken.MatchString(observation.EvidenceDigest) {
+		return Record{}, ErrStepMismatch
+	}
+	next := record.advance(record.Phase, now)
+	next.Pending = nil
+	if observation.Found {
+		next.Completed = append(slices.Clone(record.Completed), StepResult{Step: observation.Step,
+			CreateKey: observation.CreateKey, ResourceID: observation.ResourceID,
+			EvidenceDigest: observation.EvidenceDigest, RecordedAt: now.UTC()})
+	}
+	return next, nil
+}
+
 // Cancel stops a bring-up. Before the seed launch it rolls back; afterwards
 // the region must go through the retire path.
 func (m Machine) Cancel(record Record, reason string, now time.Time) (Record, error) {
@@ -443,6 +626,7 @@ func (m Machine) Cancel(record Record, reason string, now time.Time) (Record, er
 	case phase.Terminal() || phase == RollingBack || isRetire(phase):
 		return Record{}, ErrInvalidTransition
 	case seedMayExist(phase):
+		// ProposeFailedRetire is the removal path from here on.
 		return Record{}, ErrUseRetire
 	}
 	next := record.advance(RollingBack, now)
@@ -609,6 +793,12 @@ func (record Record) Validate() error {
 	}
 	if record.Pending != nil && record.Pending.CreateKey != CreateKey(record.Cell, record.Proposal.ID, record.Pending.Step) {
 		return errors.New("region lifecycle pending intent has a foreign create key")
+	}
+	if record.RetireFrom != "" {
+		if _, forward := forwardOrder[record.RetireFrom]; !forward || !seedMayExist(record.RetireFrom) ||
+			record.RetireFrom == Active {
+			return errors.New("region lifecycle retire-from phase is invalid")
+		}
 	}
 	return nil
 }

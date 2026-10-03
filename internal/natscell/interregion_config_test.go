@@ -35,10 +35,12 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 			mutate(&bad)
 			ir.Remotes = []LeafRemote{bad}
 			ir.GlobalHome = "sfo"
+			ir.Listen, ir.Subtrees = nil, nil
 		}
 	}
 	dialing := *region.cfg.Embedded.InterRegion
 	dialing.Remotes, dialing.GlobalHome = []LeafRemote{remote}, "sfo"
+	dialing.Listen, dialing.Subtrees = nil, nil
 	if err := dialing.validate(region.cfg); err != nil {
 		t.Fatalf("valid remote of a non-home region rejected: %v", err)
 	}
@@ -49,7 +51,16 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 		"self peer":               func(ir *InterRegion, _ *Config) { ir.Peers = []string{"gru"} },
 		"global peer":             func(ir *InterRegion, _ *Config) { ir.Peers = []string{"global"} },
 		"repeated peer":           func(ir *InterRegion, _ *Config) { ir.Peers = []string{"sfo", "sfo"} },
-		"no links":                func(ir *InterRegion, _ *Config) { ir.Listen = nil },
+		"no links":                func(ir *InterRegion, _ *Config) { ir.Listen, ir.Subtrees = nil, nil },
+		"listener sans subtrees":  func(ir *InterRegion, _ *Config) { ir.Subtrees = nil },
+		"subtrees sans listener":  func(ir *InterRegion, _ *Config) { ir.Listen = nil },
+		"subtree lacks its child": func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"fra"}} },
+		"subtree names the home":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"gru", "sfo"}} },
+		"subtree outside roster":  func(ir *InterRegion, _ *Config) { ir.Subtrees = map[string][]string{"sfo": {"iad", "sfo"}} },
+		"region in two subtrees": func(ir *InterRegion, _ *Config) {
+			ir.Peers = []string{"fra", "sfo"}
+			ir.Subtrees = map[string][]string{"sfo": {"fra", "sfo"}, "fra": {"fra"}}
+		},
 		"listener sans mTLS":      func(ir *InterRegion, _ *Config) { ir.Listen.TLS = TLSFiles{} },
 		"remote not a peer":       withRemote(func(r *LeafRemote) { r.Peer = "fra" }),
 		"remote plain URL":        withRemote(func(r *LeafRemote) { r.URLs = []string{"nats://10.0.0.1:7422"} }),
@@ -81,9 +92,13 @@ func TestLeafCredentialsMustBeLeafOnlyPeerUsers(t *testing.T) {
 
 	root := t.TempDir()
 	region := newTestRegion(t, root, "gru", HubAndSpoke("gru", []string{"sfo"}))
-	leaf := region.leafCredentials(t, "leaf.creds")
+	leaf := region.childLeafCredentials(t, "leaf.creds", "sfo")
 	if err := validateLeafCredentials(leaf, region.interregionID); err != nil {
 		t.Fatal(err)
+	}
+	// A user signed by the account identity key gets the deny-all defaults.
+	if err := validateLeafCredentials(region.leafCredentials(t, "identity.creds"), region.interregionID); err == nil {
+		t.Fatal("identity-key leaf user accepted instead of a scoped child user")
 	}
 	if err := validateLeafCredentials(leaf, region.cellID); err == nil {
 		t.Fatal("leaf credentials accepted for an unpinned account")
@@ -92,15 +107,19 @@ func TestLeafCredentialsMustBeLeafOnlyPeerUsers(t *testing.T) {
 	if err := validateLeafCredentials(standard, region.interregionID); err == nil {
 		t.Fatal("non-leaf user accepted as leaf credentials")
 	}
-	// A leaf user with permissions of its own would override the peer
-	// account's deny-by-default contract permissions.
+	// A scoped user with permissions or limits of its own is refused by the
+	// peer server, so the dialing side refuses it up front.
 	for name, mutate := range map[string]func(*jwt.UserClaims){
 		"publish allow":   func(claim *jwt.UserClaims) { claim.Pub.Allow.Add(">") },
 		"subscribe allow": func(claim *jwt.UserClaims) { claim.Sub.Allow.Add(">") },
 		"publish deny":    func(claim *jwt.UserClaims) { claim.Pub.Deny.Add("x") },
 		"responses":       func(claim *jwt.UserClaims) { claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1} },
+		"connection list": func(claim *jwt.UserClaims) {
+			claim.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeStandard}
+		},
+		"bearer": func(claim *jwt.UserClaims) { claim.BearerToken = true },
 	} {
-		path := region.leafCredentialsWith(t, name+".creds", region.interregion, region.interregionID, mutate)
+		path := region.leafCredentialsWith(t, name+".creds", region.childKey(t, "sfo"), region.interregionID, mutate)
 		if err := validateLeafCredentials(path, region.interregionID); err == nil {
 			t.Errorf("%s: leaf credentials overriding the contract defaults accepted", name)
 		}

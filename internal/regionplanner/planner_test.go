@@ -34,7 +34,7 @@ func testPolicy() Policy {
 			"fra": {Cell: "fra", OCIRegion: "eu-frankfurt-1", EstimatedMonthlyCents: 9_500},
 		},
 		Window: 24 * time.Hour, CapacityThreshold: 3, LatencyThresholdMillis: 150, LatencySamples: 2,
-		MaxRegions: 3, MonthlyCeilingCents: 20_000,
+		MaxRegions: 3, MonthlyCeilingCents: 20_000, Home: regionlifecycle.Home{Cell: "gru", MonthlyCents: 9_000},
 	}
 }
 
@@ -149,6 +149,7 @@ func TestPlannerIgnoresNoiseAndRespectsGuards(t *testing.T) {
 		"no window":         func(p *Policy) { p.Window = 0 },
 		"no ceiling":        func(p *Policy) { p.MonthlyCeilingCents = 0 },
 		"no latency sample": func(p *Policy) { p.LatencySamples = 0 },
+		"no home region":    func(p *Policy) { p.Home = regionlifecycle.Home{} },
 	} {
 		policy := testPolicy()
 		mutate(&policy)

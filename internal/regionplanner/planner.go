@@ -70,6 +70,9 @@ type Policy struct {
 	LatencySamples         int
 	MaxRegions             int
 	MonthlyCeilingCents    uint64
+	// Home is the global home region. It has no lifecycle record but takes
+	// a region slot and spends against the ceiling, and is never proposed.
+	Home regionlifecycle.Home
 }
 
 var (
@@ -83,6 +86,9 @@ func (p Policy) validate() error {
 	if len(p.Catalog) == 0 || p.Window <= 0 || p.CapacityThreshold < 1 || p.LatencyThresholdMillis == 0 ||
 		p.LatencySamples < 1 || p.MaxRegions < 1 || p.MonthlyCeilingCents == 0 {
 		return errors.New("region planner policy is incomplete")
+	}
+	if err := p.Home.Validate(); err != nil {
+		return err
 	}
 	for cell, entry := range p.Catalog {
 		if cell != entry.Cell || !cellToken.MatchString(cell) || entry.OCIRegion == "" || entry.EstimatedMonthlyCents == 0 {
@@ -173,15 +179,15 @@ func (p Planner) Plan(signals []Signal, records []regionlifecycle.Record, now ti
 		}
 	}
 
-	fleet := regionlifecycle.FleetOf(records, "")
+	fleet := regionlifecycle.FleetOf(records, "", p.Policy.Home)
 	var proposals []regionlifecycle.Proposal
 	for _, cell := range slices.Sorted(maps.Keys(candidates)) {
-		if blocked(records, cell, since) {
+		if cell == p.Policy.Home.Cell || blocked(records, cell, since) {
 			continue
 		}
 		entry := p.Policy.Catalog[cell]
-		if fleet.Regions+1 > p.Policy.MaxRegions ||
-			fleet.CommittedMonthlyCents+entry.EstimatedMonthlyCents > p.Policy.MonthlyCeilingCents {
+		if fleet.Regions >= p.Policy.MaxRegions ||
+			!regionlifecycle.FitsCeiling(fleet.CommittedMonthlyCents, entry.EstimatedMonthlyCents, p.Policy.MonthlyCeilingCents) {
 			continue
 		}
 		proposal := p.proposal(entry, candidates[cell], now)
@@ -191,7 +197,7 @@ func (p Planner) Plan(signals []Signal, records []regionlifecycle.Record, now ti
 		proposals = append(proposals, proposal)
 		// Count this round's proposals so one plan cannot overshoot.
 		fleet.Regions++
-		fleet.CommittedMonthlyCents += entry.EstimatedMonthlyCents
+		fleet.CommittedMonthlyCents = regionlifecycle.SaturatingAdd(fleet.CommittedMonthlyCents, entry.EstimatedMonthlyCents)
 	}
 	return proposals, nil
 }

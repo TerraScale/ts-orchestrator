@@ -20,6 +20,8 @@ type Kind string
 const (
 	KindRoster    Kind = "roster"
 	KindDirectory Kind = "directory"
+	// KindTerm is the global writer's term barrier (see Writer).
+	KindTerm Kind = "term"
 )
 
 // RosterKey is the single key of the region roster record.

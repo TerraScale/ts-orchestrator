@@ -83,8 +83,14 @@ func (r *accountResolver) Store(name, raw string) error {
 	return nil
 }
 
-func (*accountResolver) IsReadOnly() bool           { return false }
-func (*accountResolver) IsTrackingUpdate() bool     { return false }
+func (*accountResolver) IsReadOnly() bool { return false }
+
+// IsTrackingUpdate reports true so the server never subscribes to
+// $SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE. That handler installs a pushed claim
+// without calling Store, so a routed or client-sent operator-signed claim
+// would skip the interregion contract check. Every broker instead applies its
+// own validated claim from the durable claim store (Runtime.ApplyCellClaim).
+func (*accountResolver) IsTrackingUpdate() bool     { return true }
 func (*accountResolver) Start(*server.Server) error { return nil }
 func (*accountResolver) Reload() error              { return nil }
 func (*accountResolver) Close()                     {}

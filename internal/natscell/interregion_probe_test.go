@@ -116,7 +116,7 @@ func assertRawLeafPeerIsDenyByDefault(ctx context.Context, t *testing.T, gru *te
 	home jetstream.Stream, addr string, leafTLS TLSFiles, gruCommands <-chan *nats.Msg,
 ) {
 	t.Helper()
-	creds := gru.leafCredentials(t, "raw-leaf.creds")
+	creds := gru.childLeafCredentials(t, "raw-leaf.creds", "sfo")
 
 	// A forged record on SFO's mirror feed must never reach SFO: deny-by-
 	// default stops one peer from relaying onto another peer's subjects.
@@ -297,11 +297,13 @@ func (l *rawLeaf) awaitClose(t *testing.T) string {
 func (l *rawLeaf) close() { _ = l.conn.Close() }
 
 // assertForwardResetFailsMirrorClosed: the reset verb of a mirror consumer is
-// a contract subject every child of the hub may send, and NATS accepts a
-// reset to any sequence, including one ahead of what the mirror stored. The
-// mirror then skips those home records for good. Leaf permissions cannot tell
-// one child from another, so the mirror reader must notice the gap and fail
-// closed instead of serving a record that a skipped one may have superseded.
+// a contract subject its own region's leaf users may send (a sibling's scoped
+// leaf users may not; see TestSiblingLeafCannotInterceptAnotherChild), and
+// NATS accepts a reset to any sequence, including one ahead of what the
+// mirror stored. The mirror then skips those home records for good. A
+// compromised or buggy SFO leaf credential can still do that, so the mirror
+// reader must notice the gap and fail closed instead of serving a record that
+// a skipped one may have superseded.
 func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru *testRegion, gruJS jetstream.JetStream,
 	mirror jetstream.Stream, reader *globalcontrol.Reader, addr string, leafTLS TLSFiles,
 ) {
@@ -314,7 +316,7 @@ func assertForwardResetFailsMirrorClosed(ctx context.Context, t *testing.T, gru 
 		t.Fatal(err)
 	}
 	stored := info.State.LastSeq
-	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.leafCredentials(t, "sibling-leaf.creds"))
+	leaf := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "compromised-leaf.creds", "sfo"))
 	defer leaf.close()
 	reset := protocol.JSConsumerResetSubject(protocol.InterRegionJSAPIPrefix("gru"), protocol.GlobalControlStream,
 		protocol.GlobalMirrorConsumer("sfo"))

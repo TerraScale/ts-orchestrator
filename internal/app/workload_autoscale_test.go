@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostpool"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -36,7 +36,7 @@ func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 			Replicas: workload.ReplicaBounds{Max: 1}}}},
 		"resource mismatch": {Services: []workload.ServiceSpec{{Role: "api", Environment: "prod", Kind: workload.KindStateless,
 			Replicas: workload.ReplicaBounds{Max: 1}, Resources: placement.Resources{CPU: 9, MemoryBytes: 1, DiskBytes: 1}}}},
-		"invalid pool": {NodePools: []capacity.NodePool{{Name: "general"}}},
+		"invalid pool": {NodePools: []hostpool.NodePool{{Name: "general"}}},
 		"terrabase role": {Services: []workload.ServiceSpec{{Role: "terrabase", Environment: "prod",
 			Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Max: 1}}}},
 	}

@@ -562,13 +562,23 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 		}
 		defer brokerSub.Unsubscribe()
 	}
+	// Optional rollout and region planner providers, behind their flags.
+	rollouts, err := startRollouts(runCtx, cfg, runtime.JetStream(), control, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start rollout store: %w", err)
+	}
+	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds, fullClusterReady)
+	if err != nil {
+		return fmt.Errorf("start region planner: %w", err)
+	}
 	var brokerIDs []string
 	if cfg.NATS.Embedded != nil {
 		brokerIDs = cfg.NATS.Embedded.BrokerIDs
 	}
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: brokerIDs, authority: control, placements: placementStore, managed: managed != nil,
-		holds: placementHolds, autoscalers: workloadReconciler},
+		holds: placementHolds, autoscalers: workloadReconciler, linkedPeers: globalMirrorPeers(cfg.NATS),
+		rollouts: rollouts, budgets: budgets},
 		[]observability.FilesystemRole{{Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}

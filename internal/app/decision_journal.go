@@ -99,6 +99,15 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		slog.Warn("region links unavailable", observability.ComponentKey, "regionview", "error", err)
 		return
 	}
+	// Interregion peers are reachable through the cell connection: the
+	// contract imports exactly their region summary and decision query
+	// services over the leafnodes, so they are linked rather than shown as
+	// not_linked.
+	for _, peer := range observed.linkedPeers {
+		if err := links.Link(peer, conn); err != nil {
+			slog.Warn("region link unavailable", observability.ComponentKey, "regionview", "region", peer, "error", err)
+		}
+	}
 	if cluster != nil {
 		// The sampler, the insight engine and the region view share one
 		// scatter-gather per few seconds instead of one each.
@@ -121,6 +130,12 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if observed.autoscalers != nil {
 		insightConfig.Autoscalers = workloadAutoscalers{reconciler: observed.autoscalers}
 	}
+	if observed.rollouts != nil {
+		insightConfig.Rollouts = observed.rollouts
+	}
+	if observed.budgets != nil {
+		insightConfig.Budgets = observed.budgets
+	}
 	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()
@@ -141,7 +156,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		// until a controller runs their slices; the pages say so.
 		runtime.dashboard.SetJournal(dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes})
+			Regions: providers.Regions, Volumes: volumes, Rollouts: observed.rollouts})
 	}
 }
 

@@ -1,9 +1,9 @@
-// Package capacity scales generic host pools. A pure planner decides how many
+// Package hostpool scales generic host pools. A pure planner decides how many
 // pool hosts to launch for workloads that placement could not fit and which
 // idle pool hosts to reclaim after a cooldown; a Scaler applies those plans
 // through a Provisioner on the regional authority leader. Hosts dedicated to a
 // TerraBase member are never pool members and never receive generic work.
-package capacity
+package hostpool
 
 import (
 	"cmp"
