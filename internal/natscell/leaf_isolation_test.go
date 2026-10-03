@@ -108,6 +108,7 @@ func TestSiblingLeafCannotInterceptAnotherChild(t *testing.T) {
 	if reply := requestUntil(ctx, t, gruRuntime.Conn(), protocol.Regional("sfo", "query", "status")); string(reply.Data) != "sfo-ok" {
 		t.Fatalf("baseline query = %q", reply.Data)
 	}
+	assertObservabilityCrossesNarrowly(ctx, t, gruRuntime, sfoRuntime)
 
 	sibling := dialRawLeaf(ctx, t, addr, leafTLS, gru.childLeafCredentials(t, "fra-leaf.creds", "fra"))
 	defer sibling.close()

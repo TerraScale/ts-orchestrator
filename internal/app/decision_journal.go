@@ -94,6 +94,15 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		slog.Warn("region links unavailable", observability.ComponentKey, "regionview", "error", err)
 		return
 	}
+	// Interregion peers are reachable through the cell connection: the
+	// contract imports exactly their region summary and decision query
+	// services over the leafnodes, so they are linked rather than shown as
+	// not_linked.
+	for _, peer := range observed.linkedPeers {
+		if err := links.Link(peer, conn); err != nil {
+			slog.Warn("region link unavailable", observability.ComponentKey, "regionview", "region", peer, "error", err)
+		}
+	}
 	if cluster != nil {
 		// The sampler, the insight engine and the region view share one
 		// scatter-gather per few seconds instead of one each.

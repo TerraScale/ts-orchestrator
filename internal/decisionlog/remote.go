@@ -18,7 +18,7 @@ import (
 const (
 	// QueryLeaf is the observability subject leaf a region answers
 	// decision queries on: ts.orch.v1.<region>.obs.decisions.
-	QueryLeaf = "decisions"
+	QueryLeaf = protocol.ObservabilityDecisionsLeaf
 	// wireVersion is the request/reply version of remote queries.
 	wireVersion          = 1
 	maxQueryRequestBytes = 8 << 10
@@ -38,6 +38,56 @@ type remoteReply struct {
 	Chain   *Chain  `json:"chain,omitempty"`
 	// Error is a fixed class: not_found, invalid or unavailable.
 	Error string `json:"error,omitempty"`
+}
+
+const (
+	maxRemoteFilterValues = 32
+	maxRemoteFilterBytes  = 256
+)
+
+// valid bounds every filter of a remote request: list lengths, string sizes
+// and printable ASCII, so a peer cannot make the journal scan with absurd
+// filters.
+func (request remoteRequest) valid() bool {
+	text := func(value string) bool {
+		if len(value) > maxRemoteFilterBytes {
+			return false
+		}
+		for _, character := range value {
+			if character < ' ' || character > '~' {
+				return false
+			}
+		}
+		return true
+	}
+	query := request.Query
+	if len(query.Regions) > maxRemoteFilterValues || len(query.Kinds) > maxRemoteFilterValues ||
+		len(query.Actors) > maxRemoteFilterValues || len(query.Statuses) > maxRemoteFilterValues ||
+		query.Limit < 0 || !text(request.ChainID) || !text(query.SubjectKind) || !text(query.SubjectID) ||
+		!text(query.Subject) || !text(query.ParentID) {
+		return false
+	}
+	for _, value := range query.Regions {
+		if !text(value) {
+			return false
+		}
+	}
+	for _, value := range query.Actors {
+		if !text(value) {
+			return false
+		}
+	}
+	for _, value := range query.Kinds {
+		if !text(string(value)) {
+			return false
+		}
+	}
+	for _, value := range query.Statuses {
+		if !text(string(value)) {
+			return false
+		}
+	}
+	return true
 }
 
 // ServeQueries answers decision queries for cell from source until ctx ends.
@@ -74,8 +124,11 @@ func ServeQueries(ctx context.Context, conn *nats.Conn, cell string, source Sour
 
 func answer(ctx context.Context, region string, source Source, data []byte) remoteReply {
 	reply := remoteReply{Version: wireVersion, Region: region}
+	// Peer regions reach this subject over the interregion contract, so the
+	// request is decoded strictly and bounded before anything reads it.
 	var request remoteRequest
-	if err := json.Unmarshal(data, &request); err != nil || request.Version != wireVersion {
+	if err := protocol.DecodeStrict(data, &request, maxQueryRequestBytes); err != nil ||
+		request.Version != wireVersion || !request.valid() {
 		reply.Error = "invalid"
 		return reply
 	}

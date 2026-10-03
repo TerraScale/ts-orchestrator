@@ -206,6 +206,18 @@ func globalMirrorFlows(home, peer string) []contractFlow {
 	}
 }
 
+// observabilityFlows are cell's read-only telemetry services: exact
+// request/reply subjects (region summary, decision query), never a wildcard
+// over the observability leaves, so member snapshots and the raw journal
+// stream stay regional. Their responders validate every request strictly.
+func observabilityFlows(cell string) []contractFlow {
+	var flows []contractFlow
+	for _, leaf := range protocol.InterRegionObservabilityLeaves() {
+		flows = append(flows, sameFlow(jwt.Service, protocol.InterRegionObservabilitySubject(cell, leaf)))
+	}
+	return flows
+}
+
 // outbound flows are exported by the cell account and imported by the
 // interregion account: what this region offers to its peers.
 func (c InterRegionContract) outbound() []contractFlow {
@@ -213,6 +225,7 @@ func (c InterRegionContract) outbound() []contractFlow {
 		sameFlow(jwt.Stream, protocol.RegionHealthSubject(c.Cell)),
 		sameFlow(jwt.Service, protocol.Regional(c.Cell, "query", ">")),
 	}
+	flows = append(flows, observabilityFlows(c.Cell)...)
 	if c.GlobalHome == c.Cell {
 		for _, peer := range c.Peers {
 			flows = append(flows, globalMirrorFlows(c.Cell, peer)...)
@@ -229,6 +242,7 @@ func (c InterRegionContract) inbound() []contractFlow {
 		flows = append(flows,
 			sameFlow(jwt.Stream, protocol.RegionHealthSubject(peer)),
 			sameFlow(jwt.Service, protocol.Regional(peer, "query", ">")))
+		flows = append(flows, observabilityFlows(peer)...)
 	}
 	if c.GlobalHome != "" && c.GlobalHome != c.Cell {
 		// A mirror addresses the home region only by the link subjects.
@@ -299,11 +313,17 @@ func (c InterRegionContract) leafPermissionsFor(inSubtree func(string) bool) jwt
 	for _, region := range append([]string{c.Cell}, c.Peers...) {
 		permissions.Sub.Allow.Add(protocol.RegionHealthSubject(region))
 		permissions.Pub.Allow.Add(protocol.Regional(region, "query", ">"))
+		for _, flow := range observabilityFlows(region) {
+			permissions.Pub.Allow.Add(flow.linkSubject)
+		}
 		if region == c.Cell || region == c.GlobalHome || !inSubtree(region) {
 			continue
 		}
 		permissions.Pub.Allow.Add(protocol.RegionHealthSubject(region))
 		permissions.Sub.Allow.Add(protocol.Regional(region, "query", ">"))
+		for _, flow := range observabilityFlows(region) {
+			permissions.Sub.Allow.Add(flow.linkSubject)
+		}
 		if c.GlobalHome == "" {
 			continue
 		}

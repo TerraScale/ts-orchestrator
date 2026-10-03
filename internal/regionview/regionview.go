@@ -34,7 +34,7 @@ import (
 const (
 	// SummaryLeaf is the observability subject leaf a region answers its
 	// summary on.
-	SummaryLeaf    = "region"
+	SummaryLeaf    = protocol.ObservabilityRegionLeaf
 	summaryVersion = 1
 	// DefaultLatestDecisions is how many decisions a summary carries.
 	DefaultLatestDecisions = 5
@@ -539,7 +539,9 @@ func Serve(ctx context.Context, conn *nats.Conn, cell string, provider *Provider
 		return nil, err
 	}
 	subscription, err := conn.QueueSubscribe(subject, "regionview", func(message *nats.Msg) {
-		if message.Reply == "" || len(message.Data) > maxRequestBytes {
+		// Peer regions reach this subject over the interregion contract, so
+		// only the exact versioned summary request is answered.
+		if message.Reply == "" || !validSummaryRequest(message.Data) {
 			return
 		}
 		answerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -555,6 +557,17 @@ func Serve(ctx context.Context, conn *nats.Conn, cell string, provider *Provider
 	}
 	context.AfterFunc(ctx, func() { _ = subscription.Unsubscribe() })
 	return subscription, nil
+}
+
+// summaryRequest is the only request body the summary responder accepts.
+type summaryRequest struct {
+	Version int `json:"version"`
+}
+
+func validSummaryRequest(data []byte) bool {
+	var request summaryRequest
+	return len(data) <= maxRequestBytes && protocol.DecodeStrict(data, &request, maxRequestBytes) == nil &&
+		request.Version == summaryVersion
 }
 
 var (

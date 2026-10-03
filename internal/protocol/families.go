@@ -184,6 +184,25 @@ func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionH
 // telemetry leaf (ObservabilitySubject) of one regional cell.
 func ObservabilityGrant(cell string) string { return Regional(cell, "obs", ">") }
 
+// Observability leaves a region answers for other regions. They are the only
+// telemetry the interregion contract carries, as exact request/reply
+// services: the region summary and the decision journal query. Member
+// snapshots and the raw journal stream stay regional.
+const (
+	ObservabilityRegionLeaf    = "region"
+	ObservabilityDecisionsLeaf = "decisions"
+)
+
+// InterRegionObservabilityLeaves lists the observability leaves exported to
+// peer regions, in contract order.
+func InterRegionObservabilityLeaves() []string {
+	return []string{ObservabilityRegionLeaf, ObservabilityDecisionsLeaf}
+}
+
+// InterRegionObservabilitySubject is the exact subject of one exported
+// observability leaf of cell, for example ts.orch.v1.gru.obs.region.
+func InterRegionObservabilitySubject(cell, leaf string) string { return Regional(cell, "obs", leaf) }
+
 // InboxPrefix is a user's private reply inbox prefix without the trailing ">".
 func InboxPrefix(cell, userKey string) string { return Regional(cell, "inbox", userKey) }
 
