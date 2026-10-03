@@ -197,6 +197,17 @@ func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 	}
 }
 
+func TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName(t *testing.T) {
+	f := newFakeManager(t)
+	f.seedLegacy(t)
+	f.setupKeys = append(f.setupKeys, map[string]any{"id": "sk0", "name": "gru-ts-orch-servers",
+		"type": "reusable", "state": "revoked", "valid": false, "revoked": true, "auto_groups": f.setupKeys[0]["auto_groups"]})
+	report, err := Sync(t.Context(), f.api(t), GRU(), false)
+	if err != nil || len(report.Warnings) != 0 {
+		t.Fatalf("warnings %v error %v", report.Warnings, err)
+	}
+}
+
 func TestPruneDeletesReplacedRevisionsAndRestoresSlotNames(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)

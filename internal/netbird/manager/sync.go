@@ -680,14 +680,16 @@ func (p *plan) verifySetupKey(ctx context.Context, api *API, d Desired) error {
 	if err := api.do(ctx, "GET", "/setup-keys", nil, &keys); err != nil {
 		return err
 	}
+	// A rotation leaves the superseded key revoked under the same name; only
+	// unrevoked keys can enroll servers.
 	var found []apiSetupKey
 	for _, key := range keys {
-		if key.Name == d.SetupKeyName {
+		if key.Name == d.SetupKeyName && !key.Revoked {
 			found = append(found, key)
 		}
 	}
 	if len(found) != 1 {
-		p.warn("expected one setup key named %s, found %d", d.SetupKeyName, len(found))
+		p.warn("expected one unrevoked setup key named %s, found %d", d.SetupKeyName, len(found))
 		return nil
 	}
 	key := found[0]
