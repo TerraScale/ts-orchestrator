@@ -31,9 +31,9 @@ type releaseView struct {
 	Started time.Time
 	First   time.Time
 	Last    time.Time
-	Status string
-	Label  string
-	Lanes  []releaseLane
+	Status  string
+	Label   string
+	Lanes   []releaseLane
 	// Reason is the rollback or hold reason, when there is one.
 	Reason string
 	// Partial reports that the decision history behind the release is
