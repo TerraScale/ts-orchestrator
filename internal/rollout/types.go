@@ -138,9 +138,9 @@ type UnitProgress struct {
 	// LastHealthyAt is the newest counted healthy observation. The soak
 	// completes only when the observations themselves span the window.
 	LastHealthyAt time.Time `json:"last_healthy_at,omitzero"`
-	ProcessID      int64     `json:"process_id,omitzero"`
-	StartNonce     string    `json:"start_nonce,omitempty"`
-	Attempts       int       `json:"attempts,omitzero"`
+	ProcessID     int64     `json:"process_id,omitzero"`
+	StartNonce    string    `json:"start_nonce,omitempty"`
+	Attempts      int       `json:"attempts,omitzero"`
 }
 
 // Policy is the rollout policy pinned into the record by digest. Durations
