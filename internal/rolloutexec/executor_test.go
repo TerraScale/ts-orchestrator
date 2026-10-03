@@ -628,3 +628,34 @@ func TestExecutorRollsBackWhenAPromotedUnitRegresses(t *testing.T) {
 		t.Fatal("the host rollout started after a promoted controller regressed")
 	}
 }
+
+// A successor leader that never saw a unit's accepted step still detects
+// the unit coming back on the wrong binary, well before the proof deadline.
+func TestExecutorSuccessorDetectsAWrongBinaryAfterFailover(t *testing.T) {
+	h := newHarness(t)
+	h.fleet.slowRestart["ctl-b"] = true
+	h.run(20, func() bool { return h.phase("rel1-controllers") == rollout.PhaseCanarySoak })
+	// A new leader with no memory of the step takes over.
+	h.fence.epoch.Store(8)
+	h.executor = &Executor{Cell: "gru", Store: h.store, Fencer: h.fence, Driver: h.fleet, Proofs: h.fleet,
+		Gate: h.gate, Status: h.status, Now: h.clock.Now,
+		Program: func(context.Context) (Program, error) { return h.program, nil }}
+	for range 2 {
+		h.clock.Advance(5 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The watchdog restarts the unit on its old release.
+	h.fleet.mu.Lock()
+	h.fleet.restart("ctl-b")
+	h.fleet.mu.Unlock()
+	start := h.clock.Now()
+	h.run(5, func() bool {
+		phase := h.phase("rel1-controllers")
+		return phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack
+	})
+	if waited := h.clock.Now().Sub(start); waited >= 600*time.Second {
+		t.Fatalf("detected only after %v", waited)
+	}
+}

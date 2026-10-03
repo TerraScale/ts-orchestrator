@@ -360,6 +360,15 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 
 func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *rollout.Event {
 	proof, ok := e.Proofs.Latest(action.Unit)
+	key := stepKey(record.RolloutID, action.Unit, StepPrepare)
+	if _, remembered := e.issued[key]; !remembered && ok {
+		// A successor leader, which never saw the step, takes the first
+		// incarnation it sees as the baseline: a later incarnation on
+		// another release is the unit coming back on the wrong binary.
+		// When that first incarnation already is one, the proof deadline
+		// still rolls the rollout back.
+		e.issued[key] = &issue{at: e.now(), before: proof, known: true, accepted: true}
+	}
 	// Only a fresh proof completes anything: a cached one cannot supply a
 	// soak report for a unit that has since stopped serving.
 	if !ok || proof.ObservedAt.Before(record.PhaseStartedAt) || !e.fresh(proof) {
@@ -376,7 +385,7 @@ func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *ro
 	// the unit came back on the wrong binary (for example the watchdog
 	// rolled it back). The old process's proofs, sent before it restarted,
 	// are ignored by the incarnation check.
-	step, known := e.issued[stepKey(record.RolloutID, action.Unit, StepPrepare)]
+	step, known := e.issued[key]
 	if known && step.known && !proof.sameIncarnation(step.before) && proof.ObservedAt.After(step.at) {
 		return &rollout.Event{Kind: rollout.EventUnhealthy, Unit: action.Unit, At: e.now(),
 			Reason: fmt.Sprintf("unit %s restarted serving %s instead of the target", action.Unit, short(proof.BinarySHA256))}
