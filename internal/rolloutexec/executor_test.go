@@ -36,11 +36,17 @@ type fakeFleet struct {
 	refuseRollback bool
 	// retryRollbacks answers this many rollback steps with retry first.
 	retryRollbacks int
-	nextPID        int64
+	// failSteps fails this many steps to a unit as undelivered.
+	failSteps map[string]int
+	// slowRestart units accept a forward step but keep proving the old
+	// incarnation until the test restarts them.
+	slowRestart map[string]bool
+	nextPID     int64
 }
 
 func newFleet(c *clock, digest string, units ...string) *fakeFleet {
-	fleet := &fakeFleet{clock: c, units: map[string]*fakeUnit{}, wrongBinary: map[string]bool{}, nextPID: 100}
+	fleet := &fakeFleet{clock: c, units: map[string]*fakeUnit{}, wrongBinary: map[string]bool{},
+		failSteps: map[string]int{}, slowRestart: map[string]bool{}, nextPID: 100}
 	for _, unit := range units {
 		fleet.units[unit] = &fakeUnit{digest: digest}
 		fleet.restart(unit)
@@ -69,9 +75,15 @@ func (f *fakeFleet) Step(_ context.Context, step Step) (StepReply, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.steps = append(f.steps, string(step.Action)+":"+step.Unit)
+	if f.failSteps[step.Unit] > 0 {
+		f.failSteps[step.Unit]--
+		return StepReply{}, errors.New("no responders")
+	}
 	reply := StepReply{OperationID: step.OperationID, Unit: step.Unit}
 	u := f.units[step.Unit]
 	switch {
+	case step.Action == StepPrepare && f.slowRestart[step.Unit]:
+		reply.Outcome = OutcomeActivated
 	case step.Action == StepRollback && f.refuseRollback:
 		reply.Outcome, reply.Reason = OutcomeRefused, "release is known bad on this node"
 	case step.Action == StepRollback && f.retryRollbacks > 0:
@@ -556,5 +568,39 @@ func TestExecutorStopsAProgramWhoseCompletedStepNoLongerMatches(t *testing.T) {
 	}
 	if _, exists := h.load("rel1-hosts"); exists {
 		t.Fatal("the hosts started on a target the controllers never ran")
+	}
+}
+
+// A unit that restarted on its old release before the forward step that
+// finally reached it was accepted did not restart onto the wrong binary:
+// only an incarnation newer than the accepted attempt speaks for the step.
+func TestExecutorJudgesTheStepByTheAttemptThatWasAccepted(t *testing.T) {
+	h := newHarness(t)
+	h.fleet.failSteps["ctl-b"] = 1
+	h.run(10, func() bool { return slices.Contains(h.fleet.stepLog(), "prepare:ctl-b") })
+	// An unrelated restart on the old release, before the retry.
+	h.fleet.mu.Lock()
+	h.fleet.restart("ctl-b")
+	h.fleet.slowRestart["ctl-b"] = true
+	h.fleet.mu.Unlock()
+	h.clock.Advance(20 * time.Second)
+	for range 3 {
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		h.clock.Advance(5 * time.Second)
+	}
+	if phase := h.phase("rel1-controllers"); phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack {
+		t.Fatalf("a restart before the accepted step rolled the rollout back: %v", h.fleet.stepLog())
+	}
+	// The unit now restarts onto the target and the rollout moves on.
+	h.fleet.mu.Lock()
+	h.fleet.slowRestart["ctl-b"] = false
+	h.fleet.units["ctl-b"].digest = toDigest
+	h.fleet.restart("ctl-b")
+	h.fleet.mu.Unlock()
+	h.run(40, func() bool { return h.phase("rel1-controllers") == rollout.PhaseComplete })
+	if slices.Contains(h.fleet.stepLog(), "rollback:ctl-b") {
+		t.Fatalf("steps = %v", h.fleet.stepLog())
 	}
 }

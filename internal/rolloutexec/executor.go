@@ -315,6 +315,14 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 		return nil, err
 	}
 	step := e.track(stepKey(record.RolloutID, action.Unit, StepPrepare), action.Unit)
+	if !step.accepted {
+		// Each attempt until one is accepted re-reads the unit's
+		// incarnation: a restart between an undelivered attempt and the
+		// accepted one was not caused by the step and must not count as
+		// the unit coming back on the wrong binary.
+		step.before, step.known = e.Proofs.Latest(action.Unit)
+		step.at = e.now()
+	}
 	reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
 		OperationID: action.OperationID, Action: StepPrepare, Digest: action.Digest, Epoch: record.AuthorityEpoch,
 		ProofWindow: time.Duration(record.Policy.ProofDeadlineSeconds) * time.Second,
