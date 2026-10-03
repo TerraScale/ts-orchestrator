@@ -16,6 +16,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
@@ -248,6 +249,17 @@ func (f *Factory) NetworkLoadBalancer() (networkloadbalancer.NetworkLoadBalancer
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceNLB)
+	return client, nil
+}
+
+// Identity returns a rate-limited IAM client.
+func (f *Factory) Identity() (identity.IdentityClient, error) {
+	client, err := identity.NewIdentityClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI identity client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceIdentity)
 	return client, nil
 }
 
