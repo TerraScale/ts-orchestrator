@@ -53,19 +53,50 @@ and release it like any other change.
 | Command | Effect |
 | --- | --- |
 | `ts-orch netbird sync [--apply] [--pat-file FILE]` | Compares the manager with the desired state and prints the plan; `--apply` reconciles it |
-| `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Lists GRU server peers offline longer than the threshold; `--apply` deletes them |
+| `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | Plans peer hygiene for `gru-servers`: deletes disconnected peers that hold a live slot's IP or name, deletes unmatched peers offline longer than the threshold (default `24h`, minimum `1h`), and renames each slot's live peer to its slot name; `--apply` performs it |
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 
 Without `--apply` the commands only read. Keep the PAT in a root-owned `0600`
-file, never on the command line. TODO(TS-407 code): default PAT source when
-`--pat-file` is absent, and the `--offline-for` default.
+file, never on the command line: `--pat-file` (a regular `0600` file, symlinks
+refused) or the `NB_PAT` environment variable. `--management-url` overrides
+`https://netbird.terrascale.tech` (plain HTTP only on loopback, for tests).
+`inventory` prints allowlisted JSON and never setup-key values. Objects are
+matched by name; a `renamed_from` list renames legacy objects in place, keeping
+their IDs, members and setup-key auto-groups. Groups, policies, networks and
+zones are never deleted; the `gru.ts.internal` zone is fully owned, so stray
+records in it are removed. The server setup key is only checked, never
+changed. `sync` refuses before any change when the subnet differs, an
+unexpected router exists, or a name is ambiguous.
 
 The cell's leader controller reconciles automatically when an admin PAT
 secret is configured: it runs `sync --apply` and prunes replaced servers' peers
-on a loop. TODO(TS-407 code): the controller configuration field holding the
-admin PAT's OCI Vault secret OCID, the loop interval, and the IAM statement
-letting the controller dynamic group read that secret. Without the secret the
-controller leaves NetBird alone and operators run the commands by hand.
+on a loop. Every controller runs the loop but only the authority lease holder
+(`CanMutate`) acts: first pass about 30 s after start, then every 5 min ±20%,
+backing off from 30 s to 30 min after failures. NetBird errors are logged and
+never block the controller. The PAT's OCI Vault secret OCID is the optional
+`admin_pat_secret_id` field of `netbird.json`; the controller reads the current
+secret version every cycle, so rotating the secret needs no restart. When the
+field is absent the controller logs `NetBird manager reconciliation disabled`
+once and operators run the commands by hand. Only controllers may read the
+secret, through a separate policy (the oci-region live check expects the
+existing NetBird policy's statements verbatim):
+
+```text
+Allow dynamic-group terrascale-orchestrator to read secret-bundles in compartment id <secret_compartment_id> where target.secret.id = '<admin PAT secret OCID>'
+```
+
+If the secret lives in the control compartment, the existing broad
+`read secret-bundles` grant already covers it. Enable it:
+
+1. Store the `ts-orchestrator` service user's PAT (below) as an OCI Vault
+   secret and add the policy.
+2. Run `ts-orch netbird sync`, review, then `sync --apply`; a second `sync`
+   must print no changes. Do the same with `prune-peers`.
+3. Set `admin_pat_secret_id` in `deploy/image/inputs/netbird-gru.json`, update
+   its SHA-256 pin in `deploy/image/image-inputs.json`, and roll the image.
+4. Controller logs show `NetBird manager reconciliation enabled on the cell
+   authority holder`, then `NetBird <step> applied: …` for each change,
+   `NetBird <step> warning: …`, or `NetBird management failed, retrying in …`.
 
 Peers join groups only through setup keys and user auto-groups;
 reconciliation never sets group membership.
@@ -77,7 +108,6 @@ reconciliation never sets group membership.
 | `operators` | Operator devices | User auto-group, or a one-off setup key |
 | `ts-ops-gateway` | ts-ops only | One-off gateway setup key |
 | `gru-servers` | GRU controllers and managed hosts | Reusable server setup key |
-| `gru-cell-resources` | Network resource `gru-cell-private-subnet` only | The network-resource API requires a group; no policy targets it. TODO(TS-407 code): confirm sync manages it |
 
 Network `gru-cell` ("TerraScale GRU private cell") holds resource
 `gru-cell-private-subnet` (`10.251.0.0/25`) and one router: peer `ts-ops`,
@@ -154,8 +184,22 @@ because Caddy routes by Host; over NetBird, pin the name to ts-ops' NetBird IP
 
 Servers enroll under slot names `gru-controller-a`..`c` and
 `gru-member-1`..`2`, taken from the `peer_names` map in `netbird.json`
-(private IP → name). TODO(TS-407 code): exact `peer_names` example and the
-fallback for a private IP without an entry. A new GRU revision's peer would
+(private IP → name), read from the primary VNIC's private IPv4 in OCI
+instance metadata:
+
+```json
+"peer_names": {
+  "10.251.0.11": "gru-controller-a",
+  "10.251.0.12": "gru-controller-b",
+  "10.251.0.13": "gru-controller-c",
+  "10.251.0.21": "gru-member-1",
+  "10.251.0.22": "gru-member-2"
+}
+```
+
+A server whose address has no entry registers under its OS hostname. The name
+applies at first registration; NetBird keeps a peer's name afterwards, and
+`prune-peers` renames a live peer back to its slot name. A new GRU revision's peer would
 otherwise get a `-x-y` suffix while the replaced revision's peer still holds
 the name, so replaced revisions' offline peers are pruned: automatically by
 the leader controller, or with `ts-orch netbird prune-peers --apply`.
@@ -236,7 +280,7 @@ bytes in base64 (`openssl rand -base64 32`): `NETBIRD_DATASTORE_ENCRYPTION_KEY`,
 | --- | --- | --- |
 | Owner login `mariogk@terrascale.tech` | OpenBao `/infra/netbird/owner` (`NETBIRD_OWNER_EMAIL`, `NETBIRD_OWNER_PASSWORD`) | Dashboard only; automation never uses a human login |
 | Operator automation PAT | OpenBao `/infra/netbird/automation` (`NETBIRD_AUTOMATION_USER_ID`, `_PAT`, `_PAT_ID`, `_PAT_EXPIRES`) | Operator API calls and `ts-orch netbird` by hand |
-| Controller admin PAT | OCI Vault secret, TODO(TS-407 code): OCID, config field, least-privilege role | Leader controller reconciliation |
+| Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). OCI Vault secret referenced by `admin_pat_secret_id` | Leader controller reconciliation |
 | Server setup key | OpenBao `/infra/netbird/servers-gru`, mirrored to OCI Vault `ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta` | Server enrollment through instance principals |
 
 ### PATs
