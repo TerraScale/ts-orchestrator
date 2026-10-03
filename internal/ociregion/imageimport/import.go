@@ -591,6 +591,6 @@ func (i Importer) importVerified(ctx context.Context, o Options, logf func(strin
 		billable = *available.BillableSizeGB
 	}
 	return map[string]any{"schema": "terrascale.oci.image-import.v1", "image_id": id, "display_name": o.DisplayName,
-		"qcow2_sha256": o.SHA256, "object": o.Namespace + "/" + o.Bucket + "/" + objectName,
+		"qcow2_sha256": o.SHA256, "compartment_id": o.Compartment, "object": o.Namespace + "/" + o.Bucket + "/" + objectName,
 		"billable_size_gb": billable, "capability_schema_id": schema.ID, "shapes": names}, nil
 }

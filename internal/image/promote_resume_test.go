@@ -55,3 +55,31 @@ func TestReuseReleaseToolRequiresRecordedDigestAndCleanSource(t *testing.T) {
 		t.Fatal("changed tool bytes reused")
 	}
 }
+
+func TestReusableImportRequiresTheSameTarget(t *testing.T) {
+	const digest = "1111111111111111111111111111111111111111111111111111111111111111"
+	record := func() map[string]any {
+		return map[string]any{"schema": "terrascale.oci.image-import.v1", "image_id": "ocid1.image.a",
+			"qcow2_sha256": digest, "compartment_id": "ocid1.compartment.a", "display_name": "image-a",
+			"object": "ns/bucket-a/image.qcow2"}
+	}
+	if !reusableImport(record(), digest, "ocid1.compartment.a", "ns", "bucket-a", "image-a") {
+		t.Fatal("the matching import was not reused")
+	}
+	for name, mutate := range map[string]func(map[string]any){
+		"other image":       func(r map[string]any) { r["qcow2_sha256"] = "2" },
+		"other compartment": func(r map[string]any) { r["compartment_id"] = "ocid1.compartment.b" },
+		"no compartment":    func(r map[string]any) { delete(r, "compartment_id") },
+		"other bucket":      func(r map[string]any) { r["object"] = "ns/bucket-b/image.qcow2" },
+		"bucket prefix":     func(r map[string]any) { r["object"] = "ns/bucket-a2/image.qcow2" },
+		"other name":        func(r map[string]any) { r["display_name"] = "image-b" },
+		"no image":          func(r map[string]any) { r["image_id"] = "" },
+		"other schema":      func(r map[string]any) { r["schema"] = "x" },
+	} {
+		candidate := record()
+		mutate(candidate)
+		if reusableImport(candidate, digest, "ocid1.compartment.a", "ns", "bucket-a", "image-a") {
+			t.Fatalf("%s: a different import was reused", name)
+		}
+	}
+}
