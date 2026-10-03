@@ -269,7 +269,8 @@ func (world *World) Reachability(context.Context) []insights.RegionReach {
 func (world *World) Options() dashboard.Options {
 	journal := dashboard.Journal{Decisions: world.store, Live: world.store, History: world.local.history,
 		Insights:  world.local.engine,
-		Summaries: insights.Summarizer{Decisions: world.store, Insights: world.local.engine, Scope: "all regions"},
+		Summaries: insights.Summarizer{Decisions: world.store, Insights: world.local.engine, Scope: "all regions",
+			AttentionScope: "GRU"},
 		Regions:   world, Versions: world, Rollouts: rollouts{region: "gru"}, Volumes: world,
 		Qualification: qualifications{}, Inventory: inventory{}}
 	return dashboard.Options{Health: world.health, Events: world.events, Snapshots: world.local,

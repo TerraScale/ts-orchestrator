@@ -126,8 +126,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	}
 	federation := decisionlog.Federation{Local: journal, Links: links}
 	providers := journalProviders{Decisions: federation, Live: journal, History: history, Insights: engine,
-		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions"},
-		Regions:    regions}
+		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions",
+			AttentionScope: strings.ToUpper(runtime.cell)},
+		Regions: regions}
 	runtime.providers.Store(&providers)
 	mountJournalAPI(runtime.server, providers)
 	if runtime.dashboard != nil {

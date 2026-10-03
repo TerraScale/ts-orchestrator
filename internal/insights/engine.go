@@ -18,7 +18,8 @@ const (
 	// changeCapacity bounds the change history kept for summaries.
 	changeCapacity = 2048
 	// decisionWindow is how far back rules and summaries read decisions.
-	decisionWindow = 24 * time.Hour
+	// decisionWindow is the repeated-hold rule's window.
+	decisionWindow = time.Hour
 	maxDecisions   = decisionlog.MaxQueryLimit
 )
 
@@ -113,8 +114,10 @@ type Source interface {
 
 // Engine evaluates rules and tracks open insights.
 type Engine struct {
-	config Config
-	rules  []Rule
+	// droppedThrough is the time of the newest change dropped for capacity.
+	droppedThrough time.Time
+	config         Config
+	rules          []Rule
 
 	mu          sync.Mutex
 	conditions  map[string]time.Time
@@ -182,12 +185,16 @@ func (engine *Engine) gather(ctx context.Context, now time.Time) (*Inputs, []str
 		}
 	}
 	if config.Decisions != nil {
+		// Only the repeated-hold rule reads decisions: ask for exactly the
+		// holds in its window, and treat an incomplete answer as no input
+		// rather than as fewer holds.
 		result, err := config.Decisions.Query(ctx, decisionlog.Query{Regions: []string{config.Region},
-			Since: now.Add(-decisionWindow), Limit: maxDecisions})
-		if err == nil {
-			inputs.Decisions = result.Decisions
-		} else {
+			Kinds: []decisionlog.Kind{decisionlog.KindHeld}, Since: now.Add(-decisionWindow), Limit: maxDecisions})
+		switch {
+		case err != nil || result.Truncated || result.Partial:
 			fail("decisions")
+		default:
+			inputs.Decisions = result.Decisions
 		}
 	}
 	check := func(name string, err error) {
@@ -226,7 +233,54 @@ func (engine *Engine) gather(ctx context.Context, now time.Time) (*Inputs, []str
 	if config.Holds != nil {
 		inputs.Holds = config.Holds.Holds(now)
 	}
+	if inputs.Cluster != nil {
+		sections := map[string]bool{}
+		for _, member := range inputs.Cluster.Members {
+			for section := range member.Errors {
+				sections[section] = true
+			}
+		}
+		for _, section := range slices.Sorted(maps.Keys(sections)) {
+			fail("section " + section)
+		}
+	}
 	return inputs, unavailable
+}
+
+// ruleInputs names the inputs each rule reads beyond history: when one is
+// unavailable, the rule's open insights and condition timers are kept
+// rather than resolved, since a missing observation is not a recovery.
+var ruleInputs = map[string][]string{
+	"quorum_at_risk":       {"cluster", "snapshot"},
+	"no_leader":            {"cluster", "snapshot", "section authority"},
+	"member_not_ready":     {"cluster", "snapshot"},
+	"jetstream_replicas":   {"cluster", "snapshot", "section nats"},
+	"consumer_backlog":     {"cluster", "snapshot", "section nats"},
+	"mixed_versions":       {"cluster", "snapshot"},
+	"rollout_stalled":      {"cluster", "snapshot", "section placement"},
+	"rollout_deadline":     {"rollouts"},
+	"member_held":          {"cluster", "snapshot", "section placement", "decisions"},
+	"volume_stuck":         {"cluster", "snapshot", "section placement", "volumes"},
+	"disk_time_to_full":    {"cluster", "snapshot", "section system"},
+	"memory_pressure":      {"cluster", "snapshot", "section system"},
+	"oci_errors":           {"cluster", "snapshot", "section oci"},
+	"certificate_expiring": {"certificates"},
+	"netbird_peer":         {"netbird"},
+	"autoscaler_at_max":    {"autoscalers"},
+	"budget_ceiling":       {"budgets"},
+}
+
+// blindRules lists the rules that lacked an input on this pass.
+func blindRules(unavailable []string) map[string]bool {
+	blind := map[string]bool{}
+	for rule, inputs := range ruleInputs {
+		for _, input := range inputs {
+			if slices.Contains(unavailable, input) {
+				blind[rule] = true
+			}
+		}
+	}
+	return blind
 }
 
 // Evaluate runs every rule once, updates open insights and notifies
@@ -259,9 +313,14 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 			found[insight.Key] = insight
 		}
 	}
-	for key := range engine.conditions {
-		if _, touched := inputs.touched[key]; !touched {
-			delete(engine.conditions, key)
+	blind := blindRules(unavailable)
+	// Untouched condition timers are reset only when every input was read:
+	// a rule that could not look keeps its duration-gated timers.
+	if len(blind) == 0 {
+		for key := range engine.conditions {
+			if _, touched := inputs.touched[key]; !touched {
+				delete(engine.conditions, key)
+			}
 		}
 	}
 	var changes []Change
@@ -283,6 +342,11 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 	}
 	for _, key := range slices.Sorted(maps.Keys(engine.open)) {
 		if _, still := found[key]; !still {
+			if blind[engine.open[key].Rule] {
+				// Not observed this pass: keep it open until a successful
+				// observation clears it.
+				continue
+			}
 			resolved := engine.open[key]
 			resolved.LastSeen = now
 			changes = append(changes, Change{Type: ChangeResolved, Time: now, Insight: resolved})
@@ -302,6 +366,7 @@ func (engine *Engine) Evaluate(ctx context.Context) Evaluation {
 		}
 	}
 	if overflow := len(engine.changes) - changeCapacity; overflow > 0 {
+		engine.droppedThrough = engine.changes[overflow-1].Time
 		engine.changes = slices.Delete(engine.changes, 0, overflow)
 	}
 	return engine.current
@@ -314,6 +379,14 @@ func (engine *Engine) Current() Evaluation {
 	current := engine.current
 	current.Insights = slices.Clone(current.Insights)
 	return current
+}
+
+// ChangesComplete reports whether every transition at or after since is
+// still held: the engine keeps only the newest changeCapacity.
+func (engine *Engine) ChangesComplete(since time.Time) bool {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	return engine.droppedThrough.IsZero() || engine.droppedThrough.Before(since)
 }
 
 // Changes returns transitions at or after since, oldest first.

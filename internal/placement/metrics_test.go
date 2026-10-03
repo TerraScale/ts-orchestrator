@@ -41,7 +41,8 @@ func TestSummarizeCountsStagesAndRolloutProgress(t *testing.T) {
 		t.Fatalf("database = %+v", database)
 	}
 	rollout := database.Rollout
-	if rollout == nil || rollout.OperationID != "update-2" || rollout.Seats != 3 || rollout.Completed != 1 ||
+	// The latest operation targets a and b; c finished an older one.
+	if rollout == nil || rollout.OperationID != "update-2" || rollout.Seats != 2 || rollout.Completed != 1 ||
 		rollout.Phases["prepared"] != 1 || rollout.Phases["canary-serving"] != 1 {
 		t.Fatalf("rollout = %+v", rollout)
 	}
