@@ -525,3 +525,53 @@ func TestOperationIDIsStableAndDistinct(t *testing.T) {
 		}
 	}
 }
+
+func TestHealthBeforeTheWaveStartedIsStaleWhilePreparing(t *testing.T) {
+	policy := testPolicy()
+	policy.CanaryUnits = 2
+	record := newRecord(t, seats(), policy)
+	at := testStart.Add(time.Minute)
+	record = apply(t, record, Event{Kind: EventStart, At: at})
+	record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
+	if len(record.Waves[0]) != 2 {
+		t.Fatalf("canary wave = %v, want two units", record.Waves[0])
+	}
+	first := record.Waves[0][0]
+	record = apply(t, record, Event{Kind: EventPrepared, Unit: first, At: at})
+	if !record.Phase.preparing() {
+		t.Fatalf("phase = %s, want the wave still preparing", record.Phase)
+	}
+	replayed := health(testStart, 100)
+	if _, err := Apply(record, Event{Kind: EventHealthy, Unit: first, Health: replayed, At: at.Add(time.Second)}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a report from before the wave started was accepted: %v", err)
+	}
+	fresh := apply(t, record, Event{Kind: EventHealthy, Unit: first, Health: health(at.Add(time.Second), 100), At: at.Add(time.Second)})
+	if fresh.Units[first].HealthyReports != 1 {
+		t.Fatalf("fresh report not counted: %+v", fresh.Units[first])
+	}
+}
+
+func TestValidateRejectsContradictoryAndMalformedRecords(t *testing.T) {
+	record := newRecord(t, controllers(), testPolicy())
+	at := testStart.Add(time.Minute)
+	record = apply(t, record, Event{Kind: EventStart, At: at})
+	record = apply(t, record, Event{Kind: EventPreflightPassed, At: at})
+	soak := record.Clone()
+	soak.Phase = PhaseCanarySoak
+	if err := soak.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a soak phase with preparing units validated: %v", err)
+	}
+	rolling := record.Clone()
+	rolling.Phase = PhaseRollingBack
+	if err := rolling.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("rolling back with no rollback order validated: %v", err)
+	}
+	malformed := record.Clone()
+	malformed.KnownBad = []string{"not-a-digest"}
+	if err := malformed.Validate(); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("a malformed known-bad digest validated: %v", err)
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("an Apply-produced record does not validate: %v", err)
+	}
+}
