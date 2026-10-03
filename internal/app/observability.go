@@ -82,7 +82,12 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	server, err := observability.NewServer(settings, observability.ServerDeps{Registry: runtime.registry,
 		Health: runtime.health, Events: runtime.events})
 	if err != nil {
-		return nil, err
+		// An unusable bearer token file (missing, shared or malformed) fails
+		// closed for the listener only: nothing is served, and the role
+		// keeps running exactly as when the port cannot be bound.
+		slog.Warn("observability listener unusable; continuing without it",
+			observability.ComponentKey, "observability", "error", err)
+		return runtime, nil
 	}
 	var board *dashboard.Dashboard
 	if settings.Dashboard {
@@ -92,15 +97,30 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 			SignOut: settings.BearerTokenFile != "", RequireLiteralHost: settings.BearerTokenFile == ""})
 		board.Mount(server)
 	}
-	if _, err := server.Start(ctx, settings); err != nil {
+	serveErrors, err := server.Start(ctx, settings)
+	if err != nil {
 		slog.Warn("observability listener unavailable; continuing without it",
 			observability.ComponentKey, "observability", "address", settings.Address(), "error", err)
 		return runtime, nil
 	}
+	go watchObservabilityListener(serveErrors)
 	runtime.server, runtime.dashboard = server, board
 	slog.Info("observability listener ready", observability.ComponentKey, "observability",
 		"address", server.Addr().String(), "dashboard", board != nil)
 	return runtime, nil
+}
+
+// watchObservabilityListener logs a listener that stops serving after it
+// bound, so an operator can tell a dead scrape target from a dead member.
+// The channel yields one terminal result; a clean shutdown yields nil.
+func watchObservabilityListener(serveErrors <-chan error) {
+	if serveErrors == nil {
+		return
+	}
+	if err, ok := <-serveErrors; ok && err != nil {
+		slog.Warn("observability listener stopped serving",
+			observability.ComponentKey, "observability", "error", err)
+	}
 }
 
 // controllerObservation is what a controller exposes once its regional
@@ -180,13 +200,22 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		runtime.attachJournal(ctx, observed, collector, nil)
 		return nil
 	}
+	// Cell-wide aggregation is telemetry too: a subscription the broker
+	// refuses (for example credentials without the obs grant) leaves this
+	// member's own view in place instead of stopping the controller.
 	if _, err := observability.ServeSnapshots(ctx, observed.nats.Conn(), runtime.cell, collector); err != nil {
-		return err
+		slog.Warn("cell-wide observability unavailable; serving the local view only",
+			observability.ComponentKey, "observability", "error", err)
+		runtime.attachJournal(ctx, observed, collector, nil)
+		return nil
 	}
 	aggregator, err := observability.NewAggregator(observed.nats.Conn(), runtime.cell, observed.brokerIDs,
 		observability.DefaultAggregationTimeout)
 	if err != nil {
-		return err
+		slog.Warn("cell-wide observability unavailable; serving the local view only",
+			observability.ComponentKey, "observability", "error", err)
+		runtime.attachJournal(ctx, observed, collector, nil)
+		return nil
 	}
 	if runtime.server != nil {
 		runtime.server.HandleCluster(aggregator)

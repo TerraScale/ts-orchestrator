@@ -28,6 +28,9 @@ func parseProcStat(data []byte) (CPUSeconds, int, error) {
 	found := false
 	cpus := 0
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// The intr line holds one counter per IRQ and can exceed the default
+	// 64 KiB token limit on large hosts; the whole file is already in memory.
+	scanner.Buffer(make([]byte, 0, 64*1024), len(data)+1)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) == 0 || !strings.HasPrefix(fields[0], "cpu") {

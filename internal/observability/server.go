@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,6 +39,13 @@ type Server struct {
 	// header. It is set only by HandleLogin, so a listener without the
 	// dashboard keeps accepting the bearer header alone.
 	loginMounted atomic.Bool
+	// snapshots and cluster hold the current JSON view sources. Their routes
+	// are mounted once; a later HandleSnapshots or HandleCluster replaces the
+	// source instead of registering the pattern again, which would panic.
+	snapshots    atomic.Pointer[SnapshotSource]
+	cluster      atomic.Pointer[ClusterSource]
+	snapshotOnce sync.Once
+	clusterOnce  sync.Once
 }
 
 // NewServer validates config, reads the bearer token and builds the routes.
@@ -79,28 +87,38 @@ func NewServer(config Config, deps ServerDeps) (*Server, error) {
 }
 
 // HandleSnapshots mounts GET /v1/snapshot once a runtime finished wiring
-// its providers. A listener started earlier serves health meanwhile.
+// its providers. A listener started earlier serves health meanwhile. Calling
+// it again replaces the source rather than mounting the route twice.
 func (server *Server) HandleSnapshots(source SnapshotSource) {
-	server.Handle("GET /v1/snapshot", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		snapshot, err := source.Snapshot(request.Context(), request.URL.Query().Get("metrics") == "1")
-		if err != nil {
-			writePlain(writer, http.StatusServiceUnavailable, "snapshot unavailable\n")
-			return
-		}
-		writeJSON(writer, snapshot)
-	}))
+	server.snapshots.Store(&source)
+	server.snapshotOnce.Do(func() {
+		server.Handle("GET /v1/snapshot", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			snapshot, err := (*server.snapshots.Load()).Snapshot(request.Context(),
+				request.URL.Query().Get("metrics") == "1")
+			if err != nil {
+				writePlain(writer, http.StatusServiceUnavailable, "snapshot unavailable\n")
+				return
+			}
+			writeJSON(writer, snapshot)
+		}))
+	})
 }
 
-// HandleCluster mounts GET /v1/cluster for a cell-wide aggregator.
+// HandleCluster mounts GET /v1/cluster for a cell-wide aggregator. Calling it
+// again replaces the aggregator.
 func (server *Server) HandleCluster(source ClusterSource) {
-	server.Handle("GET /v1/cluster", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		snapshot, err := source.Cluster(request.Context(), request.URL.Query().Get("metrics") == "1")
-		if err != nil {
-			writePlain(writer, http.StatusServiceUnavailable, "cluster snapshot unavailable\n")
-			return
-		}
-		writeJSON(writer, snapshot)
-	}))
+	server.cluster.Store(&source)
+	server.clusterOnce.Do(func() {
+		server.Handle("GET /v1/cluster", http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+			snapshot, err := (*server.cluster.Load()).Cluster(request.Context(),
+				request.URL.Query().Get("metrics") == "1")
+			if err != nil {
+				writePlain(writer, http.StatusServiceUnavailable, "cluster snapshot unavailable\n")
+				return
+			}
+			writeJSON(writer, snapshot)
+		}))
+	})
 }
 
 // Handle mounts an authenticated read-only route. With a configured bearer

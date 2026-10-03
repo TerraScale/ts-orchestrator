@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultEventCapacity bounds the in-memory event ring.
@@ -51,6 +52,18 @@ func NewEventBus(capacity int) *EventBus {
 	return &EventBus{ring: make([]Event, capacity), subscribers: map[*eventSubscriber]struct{}{}}
 }
 
+// initLocked gives a zero-value EventBus the default ring and subscriber set,
+// so a bus that was declared rather than built with NewEventBus cannot divide
+// by zero on the log path. bus.mu must be held.
+func (bus *EventBus) initLocked() {
+	if len(bus.ring) == 0 {
+		bus.ring = make([]Event, DefaultEventCapacity)
+	}
+	if bus.subscribers == nil {
+		bus.subscribers = map[*eventSubscriber]struct{}{}
+	}
+}
+
 // Publish stores an event, assigning its sequence and a missing timestamp,
 // and offers it to every subscriber. It returns the stored event.
 func (bus *EventBus) Publish(event Event) Event {
@@ -61,6 +74,7 @@ func (bus *EventBus) Publish(event Event) Event {
 		event.Time = time.Now().UTC()
 	}
 	bus.mu.Lock()
+	bus.initLocked()
 	bus.sequence++
 	event.Sequence = bus.sequence
 	index := (bus.start + bus.size) % len(bus.ring)
@@ -123,6 +137,7 @@ func (bus *EventBus) Subscribe(ctx context.Context, buffer int) <-chan Event {
 		return subscriber.events
 	}
 	bus.mu.Lock()
+	bus.initLocked()
 	bus.subscribers[subscriber] = struct{}{}
 	bus.mu.Unlock()
 	context.AfterFunc(ctx, func() {
@@ -171,7 +186,10 @@ func eventFromRecord(record slog.Record, scoped []slog.Attr, groups []string) Ev
 	return event
 }
 
-const maxEventAttrs = 32
+const (
+	maxEventAttrs     = 32
+	maxEventAttrBytes = 512
+)
 
 func flattenAttr(attrs map[string]string, prefix string, attr slog.Attr) {
 	attr.Value = attr.Value.Resolve()
@@ -189,8 +207,14 @@ func flattenAttr(attrs map[string]string, prefix string, attr slog.Attr) {
 		return
 	}
 	value := attr.Value.String()
-	if len(value) > 512 {
-		value = value[:512] + "..."
+	if len(value) > maxEventAttrBytes {
+		// Cut on a rune boundary so a long non-ASCII value never carries a
+		// split UTF-8 sequence into the event.
+		cut := maxEventAttrBytes
+		for cut > 0 && !utf8.RuneStart(value[cut]) {
+			cut--
+		}
+		value = value[:cut] + "..."
 	}
 	attrs[prefix+attr.Key] = value
 }

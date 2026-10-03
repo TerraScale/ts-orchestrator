@@ -73,6 +73,8 @@ type NATSView struct {
 	StoreLimitBytes int64          `json:"store_limit_bytes"`
 	Streams         []StreamView   `json:"streams,omitempty"`
 	Consumers       []ConsumerView `json:"consumers,omitempty"`
+	// Truncated reports that the stream or consumer list hit its bound.
+	Truncated bool `json:"truncated,omitzero"`
 }
 
 // PeerView is one JetStream metadata peer as seen by this member.

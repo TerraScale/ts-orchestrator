@@ -80,6 +80,13 @@ and above, and records carrying `"event", true`, are also published into a
 2048-entry in-memory ring (`observability.EventBus`) that the dashboard lists
 and streams. Feature slices tag records with `"component", "<slice>"`.
 
+The event bus does not depend on `log_level`: an INFO record tagged as an
+event, or a WARN record under `log_level: error`, still reaches the bus even
+though the log output omits it. An event identical to one published in the
+last five minutes (same level, component, message and attributes) is kept off
+the bus, so a loop that logs the same warning every tick cannot push every
+other event out of the ring; every such record is still written to the log.
+
 ## Cell-wide aggregation
 
 With `cluster_aggregation`, each controller subscribes to

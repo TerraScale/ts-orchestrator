@@ -33,6 +33,7 @@ func WriteNATSMetrics(w io.Writer, view NATSView) {
 	WriteCounter(w, MetricPrefix+"nats_out_bytes_total", float64(view.OutBytes))
 	WriteGauge(w, MetricPrefix+"js_meta_leader", Bool(view.IsMetaLeader))
 	WriteGauge(w, MetricPrefix+"js_meta_cluster_size", float64(view.MetaClusterSize))
+	WriteGauge(w, MetricPrefix+"nats_view_truncated", Bool(view.Truncated))
 	offline := 0
 	for _, peer := range view.MetaPeers {
 		if peer.Offline {
@@ -73,6 +74,10 @@ func WritePlacementMetrics(w io.Writer, view PlacementView) {
 		WriteGauge(w, Series(MetricPrefix+"terrabase_members", "stage", stage), float64(view.StageCounts[stage]))
 	}
 	WriteGauge(w, MetricPrefix+"terrabase_partitions", float64(len(view.Databases)))
+	// The partition count and per-database series are bounded; say so on
+	// /metrics rather than only in the JSON snapshot.
+	WriteGauge(w, MetricPrefix+"terrabase_view_truncated",
+		Bool(view.Truncated || len(view.Databases) > maxLabeledDatabases))
 	for index, database := range view.Databases {
 		if index >= maxLabeledDatabases {
 			break

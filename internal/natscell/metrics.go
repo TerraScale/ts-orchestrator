@@ -10,9 +10,14 @@ import (
 	"github.com/nats-io/nats-server/v2/server"
 )
 
-// maxObservedStreams bounds the per-stream and per-consumer views; the
-// regional control plane owns a small fixed set of streams.
-const maxObservedStreams = 128
+// maxObservedStreams and maxObservedConsumers bound the per-stream and
+// per-consumer views; the regional control plane owns a small fixed set of
+// streams. A view cut at either bound sets NATSView.Truncated, so a missing
+// row is never read as an absent stream or consumer.
+const (
+	maxObservedStreams   = 128
+	maxObservedConsumers = 128
+)
 
 // Observe reads embedded broker and JetStream health in process through the
 // server monitoring API. It deliberately does not enable the NATS HTTP
@@ -64,16 +69,22 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 		}
 		for _, stream := range account.Streams {
 			if len(view.Streams) >= maxObservedStreams {
+				view.Truncated = true
 				break
 			}
 			view.Streams = append(view.Streams, streamView(stream))
 			for _, consumer := range stream.Consumer {
-				if consumer != nil && len(view.Consumers) < maxObservedStreams {
-					view.Consumers = append(view.Consumers, observability.ConsumerView{
-						Stream: consumer.Stream, Name: consumer.Name, NumPending: consumer.NumPending,
-						NumAckPending: consumer.NumAckPending, NumRedelivered: consumer.NumRedelivered,
-						NumWaiting: consumer.NumWaiting})
+				if consumer == nil {
+					continue
 				}
+				if len(view.Consumers) >= maxObservedConsumers {
+					view.Truncated = true
+					break
+				}
+				view.Consumers = append(view.Consumers, observability.ConsumerView{
+					Stream: consumer.Stream, Name: consumer.Name, NumPending: consumer.NumPending,
+					NumAckPending: consumer.NumAckPending, NumRedelivered: consumer.NumRedelivered,
+					NumWaiting: consumer.NumWaiting})
 			}
 		}
 	}
