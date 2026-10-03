@@ -365,7 +365,9 @@ Nothing in this change starts it; the pieces are:
     first writes a restore intent (`restore-<unit>.json`), then marks the
     rejected release known bad, records a restart obligation, moves the
     link and removes the intent. `selfupdate.Watch` (the watchdog and the
-    unit's prepare step) finishes an interrupted restore from the intent.
+    unit's prepare step), `Activate` and `Restore` all finish an
+    interrupted restore from its intent before they change anything, so
+    its recovery never overwrites a newer selection.
     It creates no pending activation, so a failed
     restart or missing proof can never let the watchdog return the node to
     the rejected release. A pending activation of the rejected release is

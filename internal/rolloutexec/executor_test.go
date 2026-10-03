@@ -34,6 +34,8 @@ type fakeFleet struct {
 	// wrongBinary units restart on their old release (a watchdog rollback).
 	wrongBinary    map[string]bool
 	refuseRollback bool
+	// retryRollbacks answers this many rollback steps with retry first.
+	retryRollbacks int
 	nextPID        int64
 }
 
@@ -72,6 +74,9 @@ func (f *fakeFleet) Step(_ context.Context, step Step) (StepReply, error) {
 	switch {
 	case step.Action == StepRollback && f.refuseRollback:
 		reply.Outcome, reply.Reason = OutcomeRefused, "release is known bad on this node"
+	case step.Action == StepRollback && f.retryRollbacks > 0:
+		f.retryRollbacks--
+		reply.Outcome, reply.Reason = OutcomeRetry, "unit restart failed"
 	case u.digest == step.Digest:
 		reply.Outcome = OutcomeCurrent
 	default:
@@ -509,4 +514,28 @@ func TestExecutorDoesNotPromoteAWaveAroundAUnitThatStoppedReporting(t *testing.T
 	if !slices.Contains(h.status.heldUnits(), "soak") {
 		t.Fatal("the soak hold was not reported")
 	}
+}
+
+// rollback-serving needs a proof observed after the accepted rollback
+// attempt, not one cached from before it, even when an earlier attempt
+// failed.
+func TestExecutorNeedsAProofAfterTheAcceptedRollback(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.retryRollbacks = 1
+	h.run(10, func() bool {
+		return slices.Contains(h.fleet.stepLog(), "rollback:ctl-b")
+	})
+	h.clock.Advance(20 * time.Second)
+	if err := h.executor.Tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if steps := h.fleet.stepLog(); len(steps) != 3 || steps[2] != "rollback:ctl-b" {
+		t.Fatalf("steps = %v, want the retried rollback accepted", steps)
+	}
+	if phase := h.phase("rel1-controllers"); phase != rollout.PhaseRollingBack {
+		t.Fatalf("rollback completed on a proof from before its accepted attempt: %s", phase)
+	}
+	h.run(3, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
 }

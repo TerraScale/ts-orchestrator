@@ -37,10 +37,8 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	// A rollout restore interrupted before its link moved is finished
 	// first, so neither the watchdog's restart nor the unit's start ever
 	// runs the release the restore rejected.
-	if unitRE.MatchString(unit) {
-		if err := layout.finishRestore(unit); err != nil {
-			return OutcomeIdle, Activation{}, fmt.Errorf("finish interrupted restore: %w", err)
-		}
+	if err := layout.finishRestores(); err != nil {
+		return OutcomeIdle, Activation{}, fmt.Errorf("finish interrupted restore: %w", err)
 	}
 	activation, pending, err := layout.Pending()
 	if errors.Is(err, errUnreadableActivation) {

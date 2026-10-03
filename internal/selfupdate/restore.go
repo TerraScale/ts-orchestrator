@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -45,6 +46,9 @@ func (layout Layout) restoreIntentPath(unit string) string {
 func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 	if !digestRE.MatchString(digest) || !digestRE.MatchString(rejected) || digest == rejected || !unitRE.MatchString(unit) {
 		return false, fmt.Errorf("%w: restore target", ErrInvalid)
+	}
+	if err := layout.finishRestores(); err != nil {
+		return false, err
 	}
 	if knownBad, err := layout.KnownBad(); err != nil {
 		return false, err
@@ -103,6 +107,41 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 		Attrs:   map[string]string{"version": digest, "rejected": rejected},
 	})
 	return true, nil
+}
+
+// finishRestores completes every interrupted restore on this node before
+// anything else changes the release selection: Activate, Restore and Watch
+// call it first, so a recovered restore can never overwrite a newer
+// selection. An intent next to a pending activation cannot be produced by
+// these paths; it is refused rather than guessed at. The caller holds Lock.
+func (layout Layout) finishRestores() error {
+	entries, err := os.ReadDir(layout.Root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		unit, ok := strings.CutPrefix(name, restoreIntentPrefix)
+		if !ok {
+			continue
+		}
+		unit, ok = strings.CutSuffix(unit, ".json")
+		if !ok || !unitRE.MatchString(unit) {
+			return fmt.Errorf("%w: restore intent %q", ErrUnsafe, name)
+		}
+		if _, pending, err := layout.Pending(); err != nil {
+			return err
+		} else if pending {
+			return fmt.Errorf("%w: restore intent of %s next to a pending activation", ErrUnsafe, unit)
+		}
+		if err := layout.finishRestore(unit); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finishRestore completes a restore of unit whose intent is recorded: the

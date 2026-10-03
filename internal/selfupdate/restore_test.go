@@ -69,6 +69,46 @@ func TestRestoreIsNotProofGatedAndAnInterruptedOneIsFinishedByWatch(t *testing.T
 	}
 }
 
+// An interrupted restore is finished before a later activation changes the
+// selection, so its recovery can never overwrite that activation or leave
+// it with the rejected release as its predecessor.
+func TestActivateFinishesAnInterruptedRestoreFirst(t *testing.T) {
+	f := newFixture(t)
+	baked, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected := f.stage([]byte("rejected orchestrator"))
+	next := f.stage([]byte("next orchestrator"))
+	if err := f.layout.flipCurrent(rejected); err != nil {
+		t.Fatal(err)
+	}
+	intent, err := protocol.EncodeJSON(restoreIntent{Schema: restoreIntentSchema, Unit: testUnit, Target: baked, Rejected: rejected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(f.layout.restoreIntentPath(testUnit), intent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	activation, err := Activate(f.layout, next, testUnit, f.now, MinProofWindow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activation.Previous != baked {
+		t.Fatalf("activation predecessor = %s, want the restored release %s", activation.Previous, baked)
+	}
+	if bad, err := f.layout.KnownBad(); err != nil || !bad[rejected] {
+		t.Fatalf("the finished restore did not mark the rejected release: %v %v", bad, err)
+	}
+	// A watchdog run now finds no intent to replay over the activation.
+	if outcome, _, err := Watch(f.layout, testUnit, ProofCheck{}, f.now); err != nil || outcome != OutcomePending {
+		t.Fatalf("watch = %s %v", outcome, err)
+	}
+	if current, err := f.layout.Current(); err != nil || current != next {
+		t.Fatalf("current = %s %v, want the activated release", current, err)
+	}
+}
+
 func TestAdmitEpochIsDurableAndMonotonic(t *testing.T) {
 	f := newFixture(t)
 	if epoch, err := f.layout.AcceptedEpoch(); err != nil || epoch != 0 {

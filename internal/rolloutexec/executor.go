@@ -405,6 +405,10 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 		}
 		e.release(record, action.Unit)
 		step.accepted = true
+		// Only a proof observed after the accepted attempt returned speaks
+		// for the process it left running; a proof cached from an earlier,
+		// failed attempt does not.
+		step.at = e.now()
 		recordStep(record, action.Unit, StepRollback, reply.Outcome)
 	}
 	proof, ok := e.Proofs.Latest(action.Unit)
