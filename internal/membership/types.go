@@ -1,6 +1,7 @@
 package membership
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"time"
@@ -145,4 +146,8 @@ type Action struct {
 	PriorInstanceOCID string
 	Retirement        Evidence
 	Reason            string
+	// Fence is the authority guard of the term that decided the action. A
+	// Replacer checks it immediately before every durable or OCI mutation.
+	// Decide leaves it nil; the reconciler sets it when executing.
+	Fence func(context.Context) error `json:"-"`
 }

@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"golang.org/x/sys/unix"
@@ -26,6 +28,16 @@ const EvidenceFileSuffix = ".retirement"
 type FileEvidence struct {
 	Dir   string
 	Slots []string
+	// Logger, when set, reports a present file that was ignored, so an
+	// operator does not see only "awaiting root-signed retirement evidence".
+	// Each distinct ignored file is reported once.
+	Logger   *slog.Logger
+	reported *sync.Map
+}
+
+// NewFileEvidence returns a FileEvidence that logs each ignored file once.
+func NewFileEvidence(dir string, slots []string, logger *slog.Logger) FileEvidence {
+	return FileEvidence{Dir: dir, Slots: slots, Logger: logger, reported: new(sync.Map)}
 }
 
 func (source FileEvidence) Evidence(ctx context.Context) (map[string]Evidence, error) {
@@ -47,6 +59,15 @@ func (source FileEvidence) Evidence(ctx context.Context) (map[string]Evidence, e
 		decoded, err := bootstrap.DecodeSlotRetirementCandidate(wire)
 		if err != nil || decoded.Slot != slot {
 			// A malformed or misplaced file is ignored rather than trusted.
+			sum := sha256.Sum256(wire)
+			if _, seen := source.loadOrStoreReported(slot, sum); source.Logger != nil && !seen {
+				reason := "envelope names another slot"
+				if err != nil {
+					reason = err.Error()
+				}
+				source.Logger.Warn("retirement evidence file ignored", "slot", slot,
+					"file", slot+EvidenceFileSuffix, "reason", reason)
+			}
 			continue
 		}
 		sum := sha256.Sum256(wire)
@@ -82,4 +103,11 @@ func readEvidenceFile(path string) ([]byte, error) {
 		return nil, errors.New("retirement evidence changed while reading")
 	}
 	return wire, nil
+}
+
+func (source FileEvidence) loadOrStoreReported(slot string, sum [sha256.Size]byte) (any, bool) {
+	if source.reported == nil {
+		return nil, false
+	}
+	return source.reported.LoadOrStore(slot+"/"+hex.EncodeToString(sum[:]), struct{}{})
 }

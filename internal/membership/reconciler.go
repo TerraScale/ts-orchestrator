@@ -94,7 +94,7 @@ type Reconciler struct {
 	epoch    uint64
 	statuses []SlotStatus
 	// requested remembers, per term, the slot attempts already requested.
-	requested map[string]uint64
+	requested map[string]retirementRequestMark
 }
 
 func New(config Config, topology Topology, deps Dependencies) (*Reconciler, error) {
@@ -115,7 +115,7 @@ func New(config Config, topology Topology, deps Dependencies) (*Reconciler, erro
 		deps.Logger = slog.Default()
 	}
 	return &Reconciler{config: config, topology: topology, deps: deps,
-		state: State{Slots: make(map[string]SlotStatus)}, requested: make(map[string]uint64)}, nil
+		state: State{Slots: make(map[string]SlotStatus)}, requested: make(map[string]retirementRequestMark)}, nil
 }
 
 // Run evaluates membership until ctx ends. Errors in one pass are logged and
@@ -153,7 +153,7 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	if r.epoch != snapshot.Epoch {
 		// A new term starts every grace period from its own observations.
 		r.state, r.epoch = State{Slots: make(map[string]SlotStatus)}, snapshot.Epoch
-		r.requested = make(map[string]uint64)
+		r.requested = make(map[string]retirementRequestMark)
 	}
 	previous := r.state.clone()
 	r.mu.Unlock()
@@ -170,7 +170,20 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	return nil
 }
 
-// requestRetirements asks for evidence once per lost slot attempt and term.
+// RetirementRequestRefresh re-renders a still-unanswered retirement request.
+// The signer refuses a request whose observation is older than its 24-hour
+// bound, so an operator who waits must find a fresh request in place.
+const RetirementRequestRefresh = 12 * time.Hour
+
+// retirementRequestMark is the slot attempt a request was rendered for and
+// the observation time it bound.
+type retirementRequestMark struct {
+	attempt uint64
+	at      time.Time
+}
+
+// requestRetirements asks for evidence once per lost slot attempt and term,
+// and again whenever the previous request is RetirementRequestRefresh old.
 // Decide only waits for evidence after OCI reported the instance TERMINATED.
 func (r *Reconciler) requestRetirements(ctx context.Context, epoch uint64, next State, observation Observation) {
 	if r.deps.Requests == nil {
@@ -183,7 +196,8 @@ func (r *Reconciler) requestRetirements(ctx context.Context, epoch uint64, next 
 			continue
 		}
 		r.mu.Lock()
-		done := r.requested[slot] == status.Attempt
+		mark := r.requested[slot]
+		done := mark.attempt == status.Attempt && observation.At.Sub(mark.at) < RetirementRequestRefresh
 		r.mu.Unlock()
 		if done {
 			continue
@@ -198,7 +212,7 @@ func (r *Reconciler) requestRetirements(ctx context.Context, epoch uint64, next 
 		r.deps.Logger.Info("controller slot retirement evidence requested", "slot", slot,
 			"attempt", status.Attempt, "instance", status.InstanceOCID)
 		r.mu.Lock()
-		r.requested[slot] = status.Attempt
+		r.requested[slot] = retirementRequestMark{attempt: status.Attempt, at: observation.At}
 		r.mu.Unlock()
 	}
 }
@@ -260,7 +274,13 @@ func (r *Reconciler) execute(ctx context.Context, epoch uint64, action Action, s
 	}
 	r.deps.Logger.Info("replacing controller slot", "slot", action.Slot, "previous_attempt", action.PreviousAttempt,
 		"prior_instance", action.PriorInstanceOCID, "reason", action.Reason, "epoch", epoch)
-	if err := r.deps.Replacer.Replace(ctx, action); err != nil {
+	// The term's fence extends through the whole replacement: the context
+	// ends as soon as this controller stops holding the epoch, and the
+	// replacer rechecks the guard right before each mutation.
+	fencedCtx, stopFence := r.termContext(ctx, epoch)
+	defer stopFence()
+	action.Fence = func(fenceCtx context.Context) error { return r.deps.Leadership.Guard(fenceCtx, epoch) }
+	if err := r.deps.Replacer.Replace(fencedCtx, action); err != nil {
 		if errors.Is(err, ErrReplacerUnavailable) {
 			return unavailable()
 		}
@@ -269,6 +289,32 @@ func (r *Reconciler) execute(ctx context.Context, epoch uint64, action Action, s
 	status.LastFailure, status.LastError = timeZero, ""
 	r.recordReplacement(ctx, epoch, action)
 	return status
+}
+
+// termFencePoll is how often a running replacement rechecks that this
+// controller still holds the term that decided it.
+var termFencePoll = time.Second
+
+// termContext ends when ctx ends or when this controller no longer holds
+// epoch with mutation rights.
+func (r *Reconciler) termContext(ctx context.Context, epoch uint64) (context.Context, context.CancelFunc) {
+	termCtx, cancel := context.WithCancelCause(ctx)
+	go func() {
+		ticker := time.NewTicker(termFencePoll)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-termCtx.Done():
+				return
+			case <-ticker.C:
+				if snapshot := r.deps.Leadership.Current(); !snapshot.CanMutate() || snapshot.Epoch != epoch {
+					cancel(errors.New("controller authority term ended during slot replacement"))
+					return
+				}
+			}
+		}
+	}()
+	return termCtx, func() { cancel(context.Canceled) }
 }
 
 // recordReplacement journals a replacement the founder accepted. Replace is
@@ -328,5 +374,5 @@ func (r *Reconciler) reset(epoch uint64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.state, r.epoch, r.statuses = State{Slots: make(map[string]SlotStatus)}, epoch, nil
-	r.requested = make(map[string]uint64)
+	r.requested = make(map[string]retirementRequestMark)
 }

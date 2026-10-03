@@ -1497,9 +1497,9 @@ func (fake *founderFakeOCI) rowForInstance(id string) (bootstrap.FounderPeerRow,
 }
 
 // founderFakeAttempt returns the replacement attempt marker ("a2") from a
-// founder retry token; attempt one carries no marker.
+// replacement retry token; attempt one carries no marker.
 func founderFakeAttempt(slot, token string) string {
-	rest, ok := strings.CutPrefix(token, "founder-"+slot+"-")
+	rest, ok := strings.CutPrefix(token, "replace-"+slot+"-")
 	if !ok {
 		return ""
 	}

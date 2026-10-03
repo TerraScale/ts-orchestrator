@@ -233,6 +233,21 @@ type founderCaller struct {
 	placement  func(context.Context) (bootstrap.ControllerPlacement, error)
 	now        func() time.Time
 	openLedger func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error)
+	// fence, when set, is checked immediately before every slot advance,
+	// reservation and OCI launch (controller slot replacement passes its
+	// authority guard). Initial founding has none.
+	fence func(context.Context) error
+}
+
+// checkFence runs the caller fence, if any, right before a mutation.
+func (caller founderCaller) checkFence(ctx context.Context) error {
+	if caller.fence == nil {
+		return nil
+	}
+	if err := caller.fence(ctx); err != nil {
+		return fmt.Errorf("%w: caller fence: %w", ErrFounderRuntime, err)
+	}
+	return nil
 }
 
 func runFounderPeers(ctx context.Context, reader *CurrentFounderAuthorityReader, roots trust.Keyring,
@@ -330,6 +345,11 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 func (caller founderCaller) peerRefresh(slot string) FounderPeerRefresh {
 	return func(ctx context.Context) (bootstrap.VerifiedFounderPeer, time.Time, time.Time, error) {
 		snapshot, err := caller.fresh(ctx, slot)
+		if err == nil {
+			// The OCI adapter refreshes right before its effect; the
+			// caller fence is rechecked at that same point.
+			err = caller.checkFence(ctx)
+		}
 		return snapshot.peer, snapshot.now, snapshot.selected.SelectionExpiresAt, err
 	}
 }
@@ -348,6 +368,9 @@ func (caller founderCaller) runPeer(ctx context.Context, slot string) error {
 		// a reservation pins the plan and peer-row digests, so a corrected,
 		// re-signed plan could not recover a slot reserved under this one.
 		if err := caller.checkAntiAffinity(ctx, snapshot.selected.Plan.Plan()); err != nil {
+			return err
+		}
+		if err := caller.checkFence(ctx); err != nil {
 			return err
 		}
 		if err := caller.reservePeer(ctx, snapshot, slot); err != nil {
@@ -463,6 +486,9 @@ func (caller founderCaller) retryLaunch(ctx context.Context, attempt FounderOCIA
 	var last error
 	for range 3 {
 		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if err := caller.checkFence(ctx); err != nil {
 			return "", err
 		}
 		instanceID, err := caller.adapter.Launch(ctx, attempt, caller.peerRefresh(slot))

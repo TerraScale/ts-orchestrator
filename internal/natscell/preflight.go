@@ -62,6 +62,13 @@ func ValidateProductionCredentials(cfg Config) error {
 	if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, cfg.Cell, cfg.Instance); err != nil {
 		return err
 	}
+	// The optional membership user is checked at admission, not first at
+	// shutdown when it is needed for the metadata step-down.
+	if e.MembershipCredentialsFile != "" {
+		if err := ValidateMembershipCredentials(e.MembershipCredentialsFile, cfg.Cell, system.Subject); err != nil {
+			return err
+		}
+	}
 	for label, files := range map[string]TLSFiles{"client": cfg.TLS, "listener": e.TLS, "route": e.RouteTLS} {
 		if err := validateCurrentTLSFiles(files, label); err != nil {
 			return fmt.Errorf("%s TLS material: %w", label, err)
