@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -194,5 +195,29 @@ func TestCoveringTierNeedsABucketAtOrBeforeStart(t *testing.T) {
 	current := &series{tiers: map[string]*tier{TierRaw: newTier(0, time.Minute, time.Second), Tier1m: minute, Tier5m: five}}
 	if got := current.coveringTier(Tier1m, start); got != Tier5m {
 		t.Fatalf("covering tier = %s, want the 5m tier holding the start", got)
+	}
+}
+
+// A counter that resets and recovers inside one rollup bucket keeps all its
+// growth: increases are accumulated per raw sample before downsampling.
+func TestCounterResetInsideABucketKeepsItsGrowth(t *testing.T) {
+	t.Parallel()
+	history := NewHistory(HistoryConfig{})
+	base := time.Now().Truncate(time.Minute).Add(-10 * time.Minute)
+	samples := []struct {
+		offset time.Duration
+		value  float64
+	}{{0, 100}, {time.Minute + 10*time.Second, 150}, {time.Minute + 20*time.Second, 0}, {time.Minute + 30*time.Second, 200}}
+	for _, sample := range samples {
+		history.Append(base.Add(sample.offset), []Sample{{Metric: "c", Value: sample.value, Counter: true}})
+	}
+	result := history.Range(HistoryQuery{Metric: "c", Start: base.Add(-time.Minute), End: base.Add(2 * time.Minute),
+		Tier: Tier1m, Rate: true})
+	if len(result.Series) != 1 || len(result.Series[0].Points) != 1 {
+		t.Fatalf("rate = %+v", result)
+	}
+	// 100 -> 150 (+50), reset to 0 (+0), -> 200 (+200): 250 over 90 s.
+	if got, want := result.Series[0].Points[0].Value, 250.0/90; math.Abs(got-want) > 1e-9 {
+		t.Fatalf("rate = %v, want %v", got, want)
 	}
 }

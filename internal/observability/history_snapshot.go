@@ -106,6 +106,7 @@ func (history *History) Import(data []byte) error {
 		}
 		current := history.newSeries(restored.Metric, labels, restored.Counter)
 		current.last = restored.Last
+		latest := int64(0)
 		for name, buckets := range restored.Tiers {
 			t, ok := current.tiers[name]
 			if !ok || name == TierRaw {
@@ -121,6 +122,12 @@ func (history *History) Import(data []byte) error {
 					continue
 				}
 				t.push(b)
+			}
+			// The newest restored counter value is the baseline of the
+			// next sample's increase.
+			if len(buckets) > 0 && buckets[len(buckets)-1].lastAt() >= latest {
+				latest = buckets[len(buckets)-1].lastAt()
+				current.lastValue, current.sampled = buckets[len(buckets)-1].Last, true
 			}
 		}
 		history.series[key] = current
