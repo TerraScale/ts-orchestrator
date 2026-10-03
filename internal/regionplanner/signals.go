@@ -50,8 +50,53 @@ func (sources Sources) Signals(ctx context.Context, since time.Time) ([]Signal, 
 	return all, errors.Join(errs...)
 }
 
-// maxPeerHolds bounds one peer's placement holds read per planning round.
-const maxPeerHolds = 256
+// maxPeerHolds bounds one page of a peer's placement holds, and
+// maxPeerHoldPages the pages read per peer and planning round. Holds of
+// other kinds (managed updates, artifacts) share the query, so a truncated
+// page is followed by older pages until the window is covered or the budget
+// is spent; at most maxPeerHolds*maxPeerHoldPages holds are read.
+const (
+	maxPeerHolds     = 256
+	maxPeerHoldPages = 8
+)
+
+// peerHoldPages reads one peer's placement holds in the window, newest
+// first, paging back through truncated results. A failed page ends the read
+// with what was gathered.
+func peerHoldPages(ctx context.Context, source decisionlog.Source, peer string, since, now time.Time,
+) []decisionlog.Decision {
+	var decisions []decisionlog.Decision
+	seen := map[string]bool{}
+	until := now.Add(time.Second)
+	for range maxPeerHoldPages {
+		result, err := source.Query(ctx, decisionlog.Query{Regions: []string{peer},
+			Kinds: []decisionlog.Kind{decisionlog.KindHeld}, Actors: []string{"placement"}, Since: since, Until: until,
+			Limit: maxPeerHolds})
+		if err != nil {
+			break
+		}
+		oldest := until
+		added := 0
+		for _, decision := range result.Decisions {
+			if decision.Time.Before(oldest) {
+				oldest = decision.Time
+			}
+			if seen[decision.ID] {
+				continue
+			}
+			seen[decision.ID] = true
+			decisions = append(decisions, decision)
+			added++
+		}
+		if !result.Truncated || added == 0 || !oldest.After(since) {
+			break
+		}
+		// Until is exclusive: step just past the oldest so holds sharing
+		// its timestamp are read again and deduplicated, not skipped.
+		until = oldest.Add(time.Nanosecond)
+	}
+	return decisions
+}
 
 // PeerHolds reads other regions' capacity and limit placement holds from
 // their decision journals over the interregion observability contract
@@ -87,12 +132,7 @@ func (holds PeerHolds) Signals(ctx context.Context, since time.Time) ([]Signal, 
 	var signals []Signal
 	for _, peer := range slices.Sorted(slices.Values(holds.Peers)) {
 		peer = strings.ToLower(peer)
-		result, err := source.Query(ctx, decisionlog.Query{Regions: []string{peer}, Kinds: []decisionlog.Kind{decisionlog.KindHeld},
-			Actors: []string{"placement"}, Since: since, Until: now.Add(time.Second), Limit: maxPeerHolds})
-		if err != nil {
-			continue
-		}
-		for _, decision := range result.Decisions {
+		for _, decision := range peerHoldPages(ctx, source, peer, since, now) {
 			if decision.Region != peer || decision.Actor.Slice != "placement" || decision.Kind != decisionlog.KindHeld ||
 				decision.Time.Before(since) || decision.Time.After(now) {
 				continue

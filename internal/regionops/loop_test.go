@@ -211,6 +211,14 @@ func TestLoopAdmitsSubscribesAndWaitsOnTheGlobalLeader(t *testing.T) {
 	// With a foundation effector the stale admission is refreshed first.
 	foundation := &countingEffector{}
 	loop.Effectors[regionlifecycle.StepFoundation] = foundation
+	// A refused readmission blocks the step even though the older admission
+	// is still fresh: the new price exceeds the approval's cap.
+	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 11_000}}
+	if report := loop.Tick(ctx); len(report.Readmitted)+len(report.Advanced) != 0 || foundation.executed != 0 ||
+		!slices.Equal(report.Waiting, []string{"sfo"}) {
+		t.Fatalf("refused readmission tick = %+v, executed %d", report, foundation.executed)
+	}
+	loop.Admissions = PriceList{MonthlyCents: map[string]uint64{"sfo": 9_000}}
 	report = loop.Tick(ctx)
 	if !slices.Equal(report.Readmitted, []string{"sfo"}) || !slices.Equal(report.Advanced, []string{"sfo"}) ||
 		foundation.executed != 1 {

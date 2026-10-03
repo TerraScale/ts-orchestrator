@@ -165,8 +165,11 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 			continue
 		}
 		if loop.Admissions != nil {
-			if err := loop.admit(ctx, epoch, record.Cell, records, &report); err != nil {
+			blocked, err := loop.admit(ctx, epoch, record.Cell, records, &report)
+			if err != nil {
 				report.Errors = append(report.Errors, fmt.Errorf("admit region %s: %w", record.Cell, err))
+			}
+			if blocked {
 				continue
 			}
 		}
@@ -181,13 +184,15 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 
 // admit admits an Approved region, or refreshes the admission of an
 // in-flight one whose next step spends and whose admission is missing or
-// within the last third of its TTL, so the step never races its expiry.
+// within the last third of its TTL, so the step never races its expiry. It
+// reports blocked when an admission was due but not stored (refused or
+// failed): the region must not run a step this tick.
 func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRecords []regionlifecycle.Record,
 	report *Report,
-) error {
+) (blocked bool, err error) {
 	record, revision, err := loop.Store.Get(ctx, cell)
 	if err != nil {
-		return err
+		return true, err
 	}
 	now := loop.now()
 	ttl := loop.Machine.Policy.AdmissionTTL
@@ -199,18 +204,18 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 		// one that waits for an effector would only churn the journal.
 		step, ok := regionlifecycle.NextStep(record)
 		if !ok || !step.Spends() || step.Retire() || !loop.Effectors.Has(step) {
-			return nil
+			return false, nil
 		}
 		if record.Admission != nil && now.Before(record.Admission.AdmittedAt.Add(ttl-ttl/3)) {
-			return nil
+			return false, nil
 		}
 		readmit = true
 	default:
-		return nil
+		return false, nil
 	}
 	admission, err := loop.Admissions.Estimate(ctx, record, now)
 	if err != nil {
-		return err
+		return true, err
 	}
 	fleet := regionlifecycle.FleetOf(fleetRecords, cell, loop.Home)
 	var next regionlifecycle.Record
@@ -220,16 +225,19 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 		next, err = loop.Machine.Admit(record, admission, fleet, now)
 	}
 	if errors.Is(err, regionlifecycle.ErrRegionLimit) || errors.Is(err, regionlifecycle.ErrBudgetCeiling) ||
-		errors.Is(err, regionlifecycle.ErrApprovalRequired) {
+		errors.Is(err, regionlifecycle.ErrApprovalRequired) || errors.Is(err, regionlifecycle.ErrAdmissionStale) {
 		loop.note(ctx, epoch, record, "admission refused: "+err.Error(), decisionlog.KindHeld, decisionlog.StatusPending)
 		report.Waiting = append(report.Waiting, cell)
-		return nil
+		// A refused readmission blocks this tick's step even while the older
+		// admission is still fresh: the driver only checks freshness, and
+		// the current fleet or price no longer fits.
+		return true, nil
 	}
 	if err != nil {
-		return err
+		return true, err
 	}
 	if _, err := loop.Store.Update(ctx, epoch, record, next, revision); err != nil {
-		return err
+		return true, err
 	}
 	// Later admissions in this tick see this one's admitted estimate.
 	for index := range fleetRecords {
@@ -244,7 +252,7 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 	}
 	recordAdmission(ctx, epoch, next, fleet, readmit)
 	loop.clearNote(cell)
-	return nil
+	return false, nil
 }
 
 // drive advances one region by at most one step, or resumes a held one whose

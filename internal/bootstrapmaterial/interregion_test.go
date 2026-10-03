@@ -123,6 +123,31 @@ func TestInterRegionConfigNeedsAPortExactlyWithChildren(t *testing.T) {
 	}
 }
 
+// TestWideTreeMaterialIsRefusedBeforeWriting pins the 64 KiB JWT limit: a
+// hub with 63 direct children needs a larger interregion account than the
+// server reads, so nothing is written, while a narrower tree still fits.
+func TestWideTreeMaterialIsRefusedBeforeWriting(t *testing.T) {
+	material, directory, cfg, now := interRegionFixture(t)
+	spokes := make([]string, 0, 63)
+	for index := range 63 {
+		spokes = append(spokes, "r"+strings.Repeat("x", index/26)+string(rune('a'+index%26)))
+	}
+	cfg.Topology = natscell.HubAndSpoke("gru", spokes)
+	if _, err := GenerateInterRegion(material, directory, cfg, now); err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("wide tree = %v", err)
+	}
+	if _, err := os.Lstat(directory); !os.IsNotExist(err) {
+		t.Fatalf("refused material left a directory: %v", err)
+	}
+	cfg.Topology = natscell.HubAndSpoke("gru", spokes[:8])
+	if _, err := GenerateInterRegion(material, directory, cfg, now); err != nil {
+		t.Fatalf("eight children = %v", err)
+	}
+	if _, err := LoadInterRegion(directory); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func receipt(t *testing.T, mutate func(map[string]any)) ([]byte, string) {
 	t.Helper()
 	document := map[string]any{

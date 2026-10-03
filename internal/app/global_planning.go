@@ -18,11 +18,13 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionops"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 )
 
 // RolloutsConfig opens the regional rollout store so the dashboard and the
@@ -161,7 +163,7 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	var subscriptions regionops.SubscriptionAPI
 	var tenancy string
 	if settings.Drive && settings.SubscribeRegions {
-		if subscriptions, tenancy, err = homeIdentity(cfg.NATS.Cell); err != nil {
+		if subscriptions, tenancy, err = homeIdentity(ctx, cfg.NATS.Cell); err != nil {
 			return nil, fmt.Errorf("region subscription effector: %w", err)
 		}
 	}
@@ -197,10 +199,12 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	return regionplanner.Budgets{Policy: policy, Records: store}, nil
 }
 
-// homeIdentity returns an identity client for the home region's instance
-// principal and its tenancy. Region subscriptions are managed in the
-// tenancy's home region, which is the global home.
-func homeIdentity(cell string) (regionops.SubscriptionAPI, string, error) {
+// homeIdentity returns an identity client for this controller's instance
+// principal, retargeted to the tenancy's OCI home region where region
+// subscriptions are managed, and the tenancy. The global-control home need
+// not be the tenancy's home region, so the tenancy is asked; a home region
+// outside the product catalog is refused rather than guessed at.
+func homeIdentity(ctx context.Context, cell string) (regionops.SubscriptionAPI, string, error) {
 	ociRegion, err := oci.Region(strings.ToUpper(cell)).OCIRegion()
 	if err != nil {
 		return nil, "", err
@@ -217,7 +221,32 @@ func homeIdentity(cell string) (regionops.SubscriptionAPI, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	lookup, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	response, err := client.GetTenancy(lookup, identity.GetTenancyRequest{TenancyId: &tenancy})
+	if err != nil {
+		return nil, "", fmt.Errorf("read the tenancy home region: %w", err)
+	}
+	home, err := tenancyHomeRegion(response.HomeRegionKey)
+	if err != nil {
+		return nil, "", err
+	}
+	client.SetRegion(home)
 	return client, tenancy, nil
+}
+
+// tenancyHomeRegion maps the tenancy's home region key to its catalog OCI
+// region.
+func tenancyHomeRegion(key *string) (string, error) {
+	if key == nil {
+		return "", errors.New("tenancy has no home region key")
+	}
+	for _, entry := range catalog.Entries() {
+		if strings.EqualFold(entry.OCIRegionKey, *key) {
+			return entry.OCIRegion, nil
+		}
+	}
+	return "", fmt.Errorf("tenancy home region %q is not a catalog region", *key)
 }
 
 // plannerPeers lists the regions whose placement holds the planner reads:

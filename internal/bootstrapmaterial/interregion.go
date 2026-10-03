@@ -152,6 +152,15 @@ func GenerateInterRegion(materialDirectory, directory string, cfg InterRegionCon
 			clear(body)
 		}
 	}()
+	// The server reads a signed JWT of at most 64 KiB; a wide tree's
+	// interregion account (one child template per child, each naming every
+	// region) can exceed it, and such material must never be written.
+	for name, body := range files {
+		if len(body) > maxInterRegionFile {
+			return InterRegionRecord{}, fmt.Errorf("%w: %s is %d bytes, over the %d byte limit; split the tree so this region has fewer children",
+				ErrMaterial, name, len(body), maxInterRegionFile)
+		}
+	}
 	record.MaterialSHA256 = materialDigest
 	for _, name := range slices.Sorted(func(yield func(string) bool) {
 		for name := range files {

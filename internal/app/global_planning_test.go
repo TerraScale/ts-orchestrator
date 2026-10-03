@@ -26,6 +26,22 @@ func testPlannerConfig() *RegionPlannerConfig {
 // encoding for configuration parsing).
 const testApproverKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
+func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
+	t.Parallel()
+	for key, want := range map[string]string{"GRU": "sa-saopaulo-1", "sjc": "us-sanjose-1", "FRA": "eu-frankfurt-1"} {
+		if got, err := tenancyHomeRegion(&key); err != nil || got != want {
+			t.Errorf("%s = %q, %v", key, got, err)
+		}
+	}
+	unknown := "IAD"
+	if _, err := tenancyHomeRegion(&unknown); err == nil {
+		t.Error("a home region outside the catalog was accepted")
+	}
+	if _, err := tenancyHomeRegion(nil); err == nil {
+		t.Error("a tenancy without a home region key was accepted")
+	}
+}
+
 func TestRegionPlannerApproversEnableAdmitAndDrive(t *testing.T) {
 	t.Parallel()
 	config := testPlannerConfig()
