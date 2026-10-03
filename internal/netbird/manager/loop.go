@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
@@ -106,18 +107,17 @@ func (l Loop) cycle(parent context.Context, warned map[string]bool) (err error) 
 		return err
 	}
 	defer api.Close()
-	report, err := Sync(ctx, api, l.Desired, true)
+	report, syncErr := Sync(ctx, api, l.Desired, true)
 	l.log("sync", report, warned)
-	if err != nil {
-		return err
-	}
-	// Leadership may have moved during sync.
+	// Peer hygiene only needs the servers group, so a sync refusal (for
+	// example a routing-peer mismatch) must not freeze it. Leadership may
+	// have moved during sync.
 	if !l.Leader() {
-		return nil
+		return syncErr
 	}
-	report, err = Prune(ctx, api, l.Desired, PruneOptions{OfflineFor: l.OfflineFor}, true)
+	report, pruneErr := Prune(ctx, api, l.Desired, PruneOptions{OfflineFor: l.OfflineFor}, true)
 	l.log("peer hygiene", report, warned)
-	return err
+	return errors.Join(syncErr, pruneErr)
 }
 
 // log reports every applied change and each distinct warning once.

@@ -43,6 +43,9 @@ esac
 systemctl disable --now netbird-backup.timer 2>/dev/null || true
 if command -v netbird >/dev/null; then
   netbird down 2>/dev/null || true
+  # install-routing-peer.sh enables the unit; disable it so no wants link
+  # survives.
+  systemctl disable --now netbird.service 2>/dev/null || true
   netbird service stop 2>/dev/null || true
   netbird service uninstall 2>/dev/null || true
   apt-mark unhold netbird >/dev/null

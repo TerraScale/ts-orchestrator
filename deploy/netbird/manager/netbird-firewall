@@ -13,6 +13,8 @@ ipt() { iptables -w 5 "$@"; }
 
 case "${2:-manager}" in
   manager)
+    # Must match quadlets/netbird.network Subnet=; install.sh asserts it once
+    # the Quadlet has created the network.
     RULE=(FORWARD -d 10.89.77.0/24 -p udp --dport 3478 -m conntrack --ctstate DNAT
       -m comment --comment netbird-stun -j ACCEPT)
     ;;

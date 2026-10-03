@@ -72,21 +72,29 @@ fail() {
 # Saved client state: the peer's WireGuard identity in /var/lib/netbird.
 has_client_state() { compgen -G '/var/lib/netbird/*.json' >/dev/null; }
 peer_status() { netbird status 2>/dev/null || true; }
-# Like internal/netbird/enroll.go, only an explicit authentication state
-# warrants a setup key; LoginFailed is also reported for network errors.
+# The daemon's state from `netbird status --json`, compared exactly like
+# internal/netbird/enroll.go (the human-readable output is not a contract).
+daemon_status() {
+  netbird status --json 2>/dev/null \
+    | python3 -c 'import json, sys; print(json.load(sys.stdin).get("daemonStatus", ""))' 2>/dev/null || true
+}
+management_connected() {
+  netbird status --json 2>/dev/null \
+    | python3 -c 'import json, sys; sys.exit(0 if json.load(sys.stdin).get("management", {}).get("connected") is True else 1)' 2>/dev/null
+}
+# Only an explicit authentication state warrants a setup key; LoginFailed is
+# also reported for network errors.
 needs_login() {
-  local status
-  status=$(peer_status)
-  [[ "$status" == *NeedsLogin* || "$status" == *SessionExpired* ]]
+  case "$(daemon_status)" in NeedsLogin | SessionExpired) return 0 ;; *) return 1 ;; esac
 }
 # An enrolled peer keeps its identity in /var/lib/netbird and needs no key;
 # a daemon that is down, logged out, or whose session expired counts as not
 # enrolled for this preflight.
 enrolled=0
-if has_client_state && command -v netbird >/dev/null \
-  && status=$(netbird status 2>/dev/null) \
-  && [[ "$status" != *NeedsLogin* && "$status" != *LoginFailed* && "$status" != *SessionExpired* ]]; then
-  enrolled=1
+if has_client_state && command -v netbird >/dev/null; then
+  case "$(daemon_status)" in
+    Idle | Connecting | Connected) enrolled=1 ;;
+  esac
 fi
 if [[ -n "$key_file" ]]; then
   [[ -f "$key_file" && ! -L "$key_file" && "$(stat -c '%U %a' "$key_file")" == 'root 600' ]] \
@@ -166,7 +174,7 @@ if has_client_state; then
   keyless=0
   netbird up "${up_args[@]}" || keyless=$?
   if ! needs_login; then
-    [[ "$keyless" -eq 0 || "$(peer_status)" == *"Management: Connected"* ]] \
+    [[ "$keyless" -eq 0 ]] || management_connected \
       || fail "netbird up could not reconnect the saved identity; the setup key was not used"
     netbird status
     exit 0

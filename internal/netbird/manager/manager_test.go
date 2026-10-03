@@ -597,3 +597,26 @@ func TestLoopSkipsFollowersAndSurvivesFailuresAndPanics(t *testing.T) {
 		t.Fatal("loop cycle did not reconcile after recovering")
 	}
 }
+
+func TestLoopPrunesEvenWhenSyncRefuses(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	now := time.Now()
+	// A routing-peer reinstall enrolled before the old peer was removed: two
+	// ts-ops peers in the gateway group make sync refuse the existing network.
+	f.addPeer("ts-ops", "10.250.10.155", true, now, ids.gateway)
+	stale := f.addPeer("gru-controller-b", "10.251.0.12", false, now.Add(-2*time.Hour), ids.servers)
+	f.addPeer("gru-controller-b", "10.251.0.12", true, now, ids.servers)
+	loop := Loop{
+		Leader:        func() bool { return true },
+		Token:         func(context.Context) ([]byte, error) { return []byte(testPAT), nil },
+		ManagementURL: f.server.URL, Desired: GRU(),
+	}.withDefaults()
+	err := loop.cycle(t.Context(), map[string]bool{})
+	if err == nil || !strings.Contains(err.Error(), "refusing NetBird network sync") {
+		t.Fatalf("sync refusal was not reported: %v", err)
+	}
+	if f.peer(stale) != nil {
+		t.Fatal("a sync refusal stopped peer hygiene")
+	}
+}

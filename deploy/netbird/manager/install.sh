@@ -100,5 +100,9 @@ systemctl enable --now netbird-firewall.service
 # into multi-user.target.wants from their [Install] WantedBy= (on ts-ops:
 # is-enabled=generated, /run/systemd/generator/multi-user.target.wants).
 systemctl start netbird-server.service netbird-dashboard.service
+# netbird-firewall's STUN rule hardcodes the bridge subnet; it must match the
+# network the Quadlet created.
+bridge=$(podman network inspect netbird --format '{{ (index .Subnets 0).Subnet }}')
+[[ "$bridge" == 10.89.77.0/24 ]] || fail "netbird bridge subnet $bridge does not match netbird-firewall's 10.89.77.0/24"
 systemctl enable --now netbird-backup.timer
 echo "netbird manager installed; next: setup-owner.sh, then caddy validate + reload"
