@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -58,7 +60,12 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	targetErr := layout.VerifyRelease(activation.Target)
 	if targetErr == nil && len(proof.PublicKey) == ed25519.PublicKeySize {
 		if wire, err := readProof(proof.File); err == nil {
-			if _, err := VerifyVersionProof(wire, proof.PublicKey, activation, now); err == nil {
+			if verified, err := VerifyVersionProof(wire, proof.PublicKey, activation, now); err == nil && !processRunning(verified.ProcessID) {
+				// A proof only confirms while the process that signed it
+				// still runs: one that crashed right after proving must not
+				// confirm the activation at the next check.
+				slog.Warn("self-update version proof process is gone", "activation", activation.ActivationID, "pid", verified.ProcessID)
+			} else if err == nil {
 				if err := os.Remove(layout.activationPath()); err != nil {
 					return OutcomePending, activation, err
 				}
@@ -79,6 +86,15 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	}
 	recordResolution(activation, OutcomeRolledBack)
 	return OutcomeRolledBack, activation, nil
+}
+
+// processRunning reports whether pid names a live process. Tests replace it.
+var processRunning = func(pid int64) bool {
+	if pid <= 0 || pid > math.MaxInt32 {
+		return false
+	}
+	err := syscall.Kill(int(pid), 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // OrphanedActivationGrace is how long past its deadline an activation of a
@@ -150,7 +166,12 @@ func Prepare(layout Layout, unit, bakedBinary string, proof ProofCheck, now time
 	if _, err := Seed(layout, bakedBinary); err != nil {
 		return OutcomeIdle, fmt.Errorf("seed baked release: %w", err)
 	}
-	outcome, _, err := Watch(layout, unit, proof, now)
+	// Prepare runs while the unit (re)starts, so the process behind any
+	// existing proof is gone: a proof never confirms across a restart. The
+	// new process proves itself again for the watchdog; prepare only
+	// resolves expired, unwatched or unreadable activations; its proof
+	// argument is accepted for the drop-in's flags and not used to confirm.
+	outcome, _, err := Watch(layout, unit, ProofCheck{}, now)
 	if err != nil {
 		return outcome, err
 	}

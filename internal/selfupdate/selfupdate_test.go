@@ -178,7 +178,7 @@ func (f *fixture) stage(data []byte) string {
 func (f *fixture) proof(activation Activation, at time.Time) ProofCheck {
 	f.t.Helper()
 	wire, err := SignVersionProof(VersionProof{Schema: ProofSchema, ActivationID: activation.ActivationID, Unit: activation.Unit,
-		BinarySHA256: activation.Target, ProcessID: 42, ObservedAt: at}, f.nodePrivate, at)
+		BinarySHA256: activation.Target, ProcessID: int64(os.Getpid()), ObservedAt: at}, f.nodePrivate, at)
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -617,5 +617,32 @@ func TestPruneReleasesKeepsReferencedBakedAndRecentReleases(t *testing.T) {
 		if err := f.layout.VerifyRelease(digest); err != nil {
 			t.Fatalf("kept release %s does not verify: %v", digest, err)
 		}
+	}
+}
+
+func TestProofOfAGoneProcessNeverConfirms(t *testing.T) {
+	f := newFixture(t)
+	if _, err := Seed(f.layout, f.baked); err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("crash after proof build"))
+	activation, err := Activate(f.layout, target, testUnit, f.now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := f.proof(activation, f.now.Add(time.Second))
+	running := processRunning
+	t.Cleanup(func() { processRunning = running })
+	processRunning = func(int64) bool { return false }
+	if outcome, _, err := Watch(f.layout, testUnit, check, f.now.Add(2*time.Second)); err != nil || outcome != OutcomePending {
+		t.Fatalf("watch with a dead prover = %s %v", outcome, err)
+	}
+	processRunning = running
+	// Prepare runs as the unit restarts and never confirms from a proof.
+	if outcome, err := Prepare(f.layout, testUnit, f.baked, check, f.now.Add(2*time.Second)); err != nil || outcome != OutcomePending {
+		t.Fatalf("prepare with a proof = %s %v", outcome, err)
+	}
+	if outcome, _, err := Watch(f.layout, testUnit, check, f.now.Add(3*time.Second)); err != nil || outcome != OutcomeConfirmed {
+		t.Fatalf("watch with a live prover = %s %v", outcome, err)
 	}
 }

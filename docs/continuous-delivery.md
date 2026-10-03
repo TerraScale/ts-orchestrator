@@ -213,6 +213,9 @@ executable on a running node with an A/B layout:
    digest in `known-bad.json` first, restores `previous`, and restarts the
    unit. A known-bad digest can never be staged or activated again on that
    node. Crash loops and hangs both end in rollback at the deadline.
+   A proof confirms only while the process that signed it still runs, and
+   `prepare` never confirms from a proof: it runs while the unit restarts,
+   so the new process must prove itself again to the watchdog.
    A retried `activate` passes the same known-bad and byte checks as a fresh
    one and is refused after the deadline. An activation for a unit no
    watchdog matches is rolled back by any unit's watchdog five minutes after
