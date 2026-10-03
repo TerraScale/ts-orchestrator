@@ -275,7 +275,7 @@ func refound(ctx context.Context, target membership.RecoveryTarget, accepted boo
 	fmt.Fprintf(out, "survivor backup %s verified (%d files)\nretiring %s attempt %d instance %s (signed observation %s)\n",
 		backup, files, evidence.Slot, evidence.PreviousAttempt, evidence.PriorInstanceOCID,
 		evidence.ObservedAt.Format("2006-01-02T15:04:05Z"))
-	if err := membership.Confirm(recoveryInput, out,
+	if err := membership.Confirm(ctx, recoveryInput, out,
 		"this launches a new OCI instance for the slot at its old private IP. The retired instance must be TERMINATED.",
 		"re-found "+target.Cell+"/"+slot); err != nil {
 		return err

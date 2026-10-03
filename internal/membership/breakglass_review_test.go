@@ -57,10 +57,10 @@ func TestBrokerRunningRequiresAnAcceptingListener(t *testing.T) {
 }
 
 func TestConfirmRequiresANewline(t *testing.T) {
-	if err := Confirm(strings.NewReader("re-found gru/b"), new(bytes.Buffer), "w", "re-found gru/b"); err == nil {
+	if err := Confirm(context.Background(), strings.NewReader("re-found gru/b"), new(bytes.Buffer), "w", "re-found gru/b"); err == nil {
 		t.Fatal("confirmation without a newline was accepted")
 	}
-	if err := Confirm(strings.NewReader("re-found gru/b\n"), new(bytes.Buffer), "w", "re-found gru/b"); err != nil {
+	if err := Confirm(context.Background(), strings.NewReader("re-found gru/b\n"), new(bytes.Buffer), "w", "re-found gru/b"); err != nil {
 		t.Fatal(err)
 	}
 }
