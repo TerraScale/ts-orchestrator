@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
@@ -18,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
 	netbirdclient "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	netbirdmanager "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
@@ -46,7 +48,7 @@ Operator tooling:
   release                Prepare, sign, verify, and publish release receipts
   oci-region             Plan and deploy regional OCI resources
   image                  Validate inputs, build, inspect, and promote images
-  netbird                Fetch, verify, and install the NetBird client
+  netbird                Install the NetBird client; sync, prune-peers, inventory the manager
   qualification          Run source-backed operational qualification
   source-digest          Compute the versioned TerraBase source-tree digest
   runtime-priority       Qualify runtime resources and run bounded pressure
@@ -74,6 +76,9 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	case "oci-region":
 		return runOCIRegion(ctx, args[1:], commandio.NewWriter(output))
 	case "image", "netbird":
+		if args[0] == "netbird" && len(args) > 1 && slices.Contains(netbirdmanager.Commands, args[1]) {
+			return netbirdmanager.Run(ctx, args[1:], commandio.NewWriter(output))
+		}
 		root, err := os.Getwd()
 		if err != nil {
 			return err

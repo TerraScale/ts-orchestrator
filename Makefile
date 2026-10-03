@@ -11,7 +11,7 @@ CONFIG ?= config.json
 APP := ./cmd/terrascale-orchestrator
 BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 
-.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check test vet race-test terrabase-walkthrough-process netbird-podman-test build build-linux release-linux release-check image run host check clean
 
 verify: format-check vet race-test
 
@@ -43,6 +43,12 @@ terrabase-walkthrough-process:
 	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
+
+# Sync and prune a disposable NetBird 0.80 manager and real client peers in
+# rootless Podman (pulls the netbird-server and netbird images). Nested Podman
+# in a CI job container also needs TS_NESTED_PODMAN=1.
+netbird-podman-test:
+	TS_NETBIRD_PODMAN=1 $(GO) test ./internal/netbird/manager -run '^TestPodmanManagerSyncAndPrune$$' -count=1 -v -timeout 15m
 
 build:
 	mkdir -p dist

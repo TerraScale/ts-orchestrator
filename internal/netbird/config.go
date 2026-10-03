@@ -18,10 +18,12 @@ const (
 	DefaultRegion        = "sa-saopaulo-1"
 	managerHostname      = "netbird.terrascale.tech"
 	maxConfigBytes       = 16 << 10
+	maxPeerNames         = 64
 )
 
 var regionPattern = regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9][0-9]*$`)
 var secretSuffixPattern = regexp.MustCompile(`^[a-z0-9]+(?:\.[a-z0-9]+)*$`)
+var peerNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 
 // Config is public image configuration. The setup key stays in OCI Vault.
 type Config struct {
@@ -29,10 +31,63 @@ type Config struct {
 	ManagementIP     string `json:"management_ip,omitempty"`
 	Region           string `json:"region"`
 	SetupKeySecretID string `json:"setup_key_secret_id"`
+	// PeerNames maps a cell slot's fixed primary private IPv4 address to its
+	// stable NetBird peer name. A server whose address is unmapped registers
+	// under its OS hostname.
+	PeerNames map[string]string `json:"peer_names,omitempty"`
+	// AdminPATSecretID optionally names the OCI Vault secret holding the
+	// NetBird admin PAT. Only the cell's leading controller reads it, to
+	// reconcile the manager; absent, controllers leave the manager alone.
+	AdminPATSecretID string `json:"admin_pat_secret_id,omitempty"`
+}
+
+// PublicConfigPath is where images install the public NetBird configuration.
+const PublicConfigPath = "/etc/terrascale-orchestrator/netbird.json"
+
+// ValidSecretID reports whether id names an OCI Vault secret in region.
+func ValidSecretID(region, id string) bool {
+	prefix := "ocid1.vaultsecret.oc1." + region + "."
+	return regionPattern.MatchString(region) && len(id) <= 255 && strings.HasPrefix(id, prefix) &&
+		secretSuffixPattern.MatchString(strings.TrimPrefix(id, prefix))
+}
+
+// ValidatePeerNames requires canonical private IPv4 keys and unique lowercase
+// DNS labels of at most 63 characters.
+func ValidatePeerNames(names map[string]string) error {
+	if len(names) > maxPeerNames {
+		return errors.New("NetBird peer_names has too many entries")
+	}
+	seen := make(map[string]bool, len(names))
+	for address, name := range names {
+		ip, err := netip.ParseAddr(address)
+		if err != nil || !ip.Is4() || !ip.IsPrivate() || ip.String() != address {
+			return errors.New("NetBird peer_names keys must be canonical private IPv4 addresses")
+		}
+		if !peerNamePattern.MatchString(name) || seen[name] {
+			return errors.New("NetBird peer_names values must be unique lowercase DNS labels of at most 63 characters")
+		}
+		seen[name] = true
+	}
+	return nil
 }
 
 // LoadConfig rejects unknown fields, symlinks and writable public config.
 func LoadConfig(path string) (Config, error) {
+	return loadConfig(path, false)
+}
+
+// LoadControllerConfig reads the public configuration from an unprivileged
+// controller. The file must still be a regular file owned by root or the
+// caller without group or other write access. A missing file reports
+// os.ErrNotExist so callers can leave NetBird management off.
+func LoadControllerConfig(path string) (Config, error) {
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return Config{}, os.ErrNotExist
+	}
+	return loadConfig(path, true)
+}
+
+func loadConfig(path string, rootOwned bool) (Config, error) {
 	if path == "" || !strings.HasPrefix(path, "/") {
 		return Config{}, errors.New("netbird-enroll requires an absolute --config path")
 	}
@@ -43,7 +98,7 @@ func LoadConfig(path string) (Config, error) {
 	file := os.NewFile(uintptr(fd), path)
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !ownedRegular(info, 0o022) || info.Size() > maxConfigBytes {
+	if err != nil || !(ownedRegular(info, 0o022) || rootOwned && rootOwnedRegular(info, 0o022)) || info.Size() > maxConfigBytes {
 		return Config{}, errors.New("NetBird configuration must be a root-owned regular file without group or other write access")
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
@@ -76,10 +131,14 @@ func (cfg Config) normalized() (Config, error) {
 		}
 		cfg.ManagementIP = ip.String()
 	}
-	prefix := "ocid1.vaultsecret.oc1." + cfg.Region + "."
-	if !regionPattern.MatchString(cfg.Region) || len(cfg.SetupKeySecretID) > 255 ||
-		!strings.HasPrefix(cfg.SetupKeySecretID, prefix) || !secretSuffixPattern.MatchString(strings.TrimPrefix(cfg.SetupKeySecretID, prefix)) {
+	if !ValidSecretID(cfg.Region, cfg.SetupKeySecretID) {
 		return Config{}, errors.New("NetBird setup_key_secret_id must identify an OCI Vault secret in the configured region")
+	}
+	if cfg.AdminPATSecretID != "" && !ValidSecretID(cfg.Region, cfg.AdminPATSecretID) {
+		return Config{}, errors.New("NetBird admin_pat_secret_id must identify an OCI Vault secret in the configured region")
+	}
+	if err := ValidatePeerNames(cfg.PeerNames); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }
@@ -92,6 +151,14 @@ func normalizeManagerURL(value string) (string, error) {
 		return "", errors.New("NetBird management_url must be https://netbird.terrascale.tech")
 	}
 	return DefaultManagementURL, nil
+}
+
+func rootOwnedRegular(info os.FileInfo, forbidden os.FileMode) bool {
+	if info == nil || !info.Mode().IsRegular() || info.Mode().Perm()&forbidden != 0 {
+		return false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Uid == 0
 }
 
 func ownedRegular(info os.FileInfo, forbidden os.FileMode) bool {

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 const MaxBinaryBytes = 128 << 20
@@ -94,10 +95,12 @@ func ValidatePin(p Pin) error {
 }
 
 type Config struct {
-	ManagementURL    string `json:"management_url"`
-	ManagementIP     string `json:"management_ip,omitempty"`
-	Region           string `json:"region"`
-	SetupKeySecretID string `json:"setup_key_secret_id"`
+	ManagementURL    string            `json:"management_url"`
+	ManagementIP     string            `json:"management_ip,omitempty"`
+	Region           string            `json:"region"`
+	SetupKeySecretID string            `json:"setup_key_secret_id"`
+	PeerNames        map[string]string `json:"peer_names,omitempty"`
+	AdminPATSecretID string            `json:"admin_pat_secret_id,omitempty"`
 }
 
 func ValidateConfig(path string) (Config, error) {
@@ -118,7 +121,7 @@ func ValidateConfig(path string) (Config, error) {
 	if e = json.Unmarshal(b, &fields); e != nil {
 		return c, e
 	}
-	if len(fields) < 3 || len(fields) > 4 || fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
+	if len(fields) < 3 || len(fields) > 6 || fields["management_url"] == nil || fields["region"] == nil || fields["setup_key_secret_id"] == nil {
 		return c, errors.New("NetBird enrollment configuration has unexpected or missing fields")
 	}
 	if e = json.Unmarshal(b, &c, json.RejectUnknownMembers(true)); e != nil {
@@ -131,15 +134,20 @@ func ValidateConfig(path string) (Config, error) {
 	if !regexp.MustCompile(`^[a-z]{2}-[a-z]+-[1-9][0-9]*$`).MatchString(c.Region) {
 		return c, errors.New("NetBird region must be an OCI region name")
 	}
-	prefix := "ocid1.vaultsecret.oc1." + c.Region + "."
-	if len(c.SetupKeySecretID) > 255 || !strings.HasPrefix(c.SetupKeySecretID, prefix) || !regexp.MustCompile(`^[a-z0-9]+(?:\.[a-z0-9]+)*$`).MatchString(strings.TrimPrefix(c.SetupKeySecretID, prefix)) {
+	if !netbird.ValidSecretID(c.Region, c.SetupKeySecretID) {
 		return c, errors.New("NetBird setup_key_secret_id must identify an OCI Vault secret in the configured region")
+	}
+	if _, ok := fields["admin_pat_secret_id"]; ok && !netbird.ValidSecretID(c.Region, c.AdminPATSecretID) {
+		return c, errors.New("NetBird admin_pat_secret_id must identify an OCI Vault secret in the configured region")
 	}
 	if _, ok := fields["management_ip"]; ok {
 		ip, e := netip.ParseAddr(c.ManagementIP)
 		if e != nil || !ip.IsPrivate() || ip.Is4In6() || ip.Zone() != "" {
 			return c, errors.New("NetBird management_ip must be a private IPv4 or IPv6 address")
 		}
+	}
+	if e = netbird.ValidatePeerNames(c.PeerNames); e != nil {
+		return c, e
 	}
 	return c, nil
 }
@@ -626,11 +634,11 @@ func Run(ctx context.Context, root string, args []string, stdout, stderr io.Writ
 		}
 	}()
 	if len(args) == 1 && (args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
-		fmt.Fprintln(stdout, "usage: ts-orch netbird client fetch|verify-binary|check-config; ts-orch netbird install [flags]")
+		fmt.Fprintln(stdout, "usage: ts-orch netbird client fetch|verify-binary|check-config; ts-orch netbird install [flags]; ts-orch netbird sync|prune-peers|inventory [flags]")
 		return 0
 	}
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: ts-orch netbird client|install")
+		fmt.Fprintln(stderr, "usage: ts-orch netbird client|install|sync|prune-peers|inventory")
 		return 2
 	}
 	name := args[0]

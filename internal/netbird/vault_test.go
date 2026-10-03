@@ -136,3 +136,23 @@ func TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess(t *testing
 		})
 	}
 }
+
+func TestVaultReadsOnlyWellFormedAdminPAT(t *testing.T) {
+	id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"
+	const pat = "nbp_abcdefghijklmnopqrstuvwxyzABCD012345"
+	for value, ok := range map[string]bool{
+		pat + "\n": true, "nbp_short": false, testSetupKey: false,
+		"nbp_abcdefghijklmnopqrstuvwxyzABCD01234-": false,
+	} {
+		client := fakeBundleClient(func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+			return setupKeyBundle(id, value), nil
+		})
+		token, err := readCurrentSecret(t.Context(), id, "admin PAT", client, validAdminPAT)
+		if ok != (err == nil) || ok && string(token) != pat {
+			t.Fatalf("PAT shape of length %d: ok=%v error=%v", len(value), ok, err)
+		}
+		if err != nil && strings.Contains(err.Error(), value) {
+			t.Fatal("PAT read error leaked secret content")
+		}
+	}
+}
