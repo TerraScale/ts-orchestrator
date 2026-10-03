@@ -176,6 +176,63 @@ func (forged seedAuthorityAsLeader) Current() authority.Snapshot {
 
 func (seedAuthorityAsLeader) Guard(context.Context, uint64) error { return nil }
 
+type followerLeadership struct{}
+
+func (followerLeadership) Current() authority.Snapshot         { return authority.Snapshot{} }
+func (followerLeadership) Guard(context.Context, uint64) error { return authority.ErrNotLeader }
+
+type noPeers struct{}
+
+func (noPeers) Meta(context.Context) (membership.Meta, error) { return membership.Meta{}, nil }
+
+// A seed service that cannot subscribe stops the membership supervisor at
+// once, so the controller's worker supervision sees the failure instead of
+// it waiting, buffered, until shutdown.
+func TestControllerMembershipSurfacesASeedServiceFailureAtOnce(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "seed-fail", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	topology := membership.Topology{Cell: "gru", Slots: []string{"controller-a", "controller-b", "controller-c"},
+		SeedSlot: "controller-a", SelfSlot: "controller-a"}
+	founder := &serializedReplacer{inner: &seedFounderRecorder{done: make(chan struct{})}}
+	server, err := membership.NewSeedServer(ctx, topology, membership.SeedServerDependencies{
+		Leases: seedLeaseRefuser{}, Instances: seedInstances{}, Replacer: founder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSlotOCI{}
+	reconciler, err := membership.New(membership.Config{Enabled: true, Replace: true, RouteToSeed: true}, topology,
+		membership.Dependencies{Leadership: followerLeadership{}, Peers: noPeers{}, Ledger: fake, Instances: fake,
+			Evidence: fake, Replacer: founder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An invalid subject makes Subscribe fail synchronously.
+	supervisor := &controllerMembership{reconciler: reconciler,
+		seed: &seedReplacementService{conn: broker.Conn(), subject: "", server: server}}
+	done := make(chan error, 1)
+	go func() { done <- supervisor.Run(ctx) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "serve controller slot replacement requests") {
+			t.Fatalf("supervisor stopped with %v, want the seed subscription failure", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a seed subscription failure did not stop the membership supervisor")
+	}
+}
+
+type seedLeaseRefuser struct{}
+
+func (seedLeaseRefuser) VerifyLeaseHolder(context.Context, uint64, string, string) error {
+	return authority.ErrFenced
+}
+
 func TestControllerCredentialsGrantTheSeedReplacementSubscription(t *testing.T) {
 	if !strings.HasSuffix(protocol.MembershipReplaceSubject("gru"), ".membership.replace") {
 		t.Fatal("membership replace subject changed")

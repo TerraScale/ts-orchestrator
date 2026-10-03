@@ -111,6 +111,11 @@ func (status Status) PeerCurrent(serverName string, notBefore time.Time) error {
 		return fmt.Errorf("%s is offline", serverName)
 	case slices.ContainsFunc(status.Lagging, func(peer LaggingPeer) bool { return peer.Name == serverName }):
 		return fmt.Errorf("%s is still catching up", serverName)
+	case !slices.Contains(status.CaughtUp, serverName):
+		// Not lagging is not caught up: a lag within the alert threshold,
+		// or a follower's view of another follower, proves nothing.
+		return fmt.Errorf("%s has not been reported current with zero lag by the metadata leader in this controller's view",
+			serverName)
 	}
 	return nil
 }

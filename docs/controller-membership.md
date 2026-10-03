@@ -62,16 +62,25 @@ instance that may still run.
 
 ## Break-glass refound: one slot at a time
 
-`ts-orch cluster recover-quorum refound` now refuses in two cases:
+`ts-orch cluster recover-quorum refound` now refuses in three cases:
 
+- another `refound` is running on the host (it holds the non-blocking
+  `refound-pending.json.lock` flock from admission through the wait);
 - another slot has an incomplete re-founded attempt in the ledger;
 - the slot it re-founded before has not reported current.
 
 It records the slot it relaunches in
 `/var/lib/terrascale-orchestrator-controller/membership/refound-pending.json`.
 After the launch, it waits (up to 30 minutes) until the running survivor's
-cluster view shows that slot online and caught up. If the wait times out,
-the record stays, so rerun `refound` for the same slot to keep waiting.
+cluster view shows that slot online and caught up. "Caught up" needs
+positive evidence: the metadata leader reports the peer current with zero
+lag (or, from a follower's view, the peer is the leader it heard from
+recently), in a view observed after the relaunch began, because the
+successor reuses the lost instance's server name. Merely not being listed
+as lagging is not enough. If the survivor is a follower and the re-founded
+slot is another follower, the survivor cannot vouch for it and the wait
+times out. If the wait times out, the record stays, so rerun `refound` for
+the same slot to keep waiting.
 
 A production controller writes its cluster view every health tick to
 `/var/lib/terrascale-orchestrator-controller/membership/cluster-health.json`

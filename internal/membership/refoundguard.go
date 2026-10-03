@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
@@ -80,7 +81,7 @@ func (guard RefoundGuard) Admit(cell, slot string, ledger map[string]LedgerSlot)
 		// A record of another cell is stale; the same slot may be retried.
 		return nil
 	}
-	if err := guard.current(pending.ServerName); err != nil {
+	if err := guard.current(pending); err != nil {
 		return fmt.Errorf("slot %s re-founded at %s is not current yet (%v); re-found one slot at a time",
 			pending.Slot, pending.StartedAt.Format(time.RFC3339), err)
 	}
@@ -104,16 +105,18 @@ func (guard RefoundGuard) Clear() error {
 	return nil
 }
 
-// WaitCurrent polls the controller's cluster health until serverName is an
-// online, caught-up metadata peer, then clears the pending record. On
-// timeout the record stays, so no other slot is re-founded meanwhile.
-func (guard RefoundGuard) WaitCurrent(ctx context.Context, serverName string, poll, timeout time.Duration,
+// WaitCurrent polls the controller's cluster health until the pending
+// slot's server is an online, caught-up metadata peer in a view observed
+// after the relaunch began, then clears the pending record. On timeout the
+// record stays, so no other slot is re-founded meanwhile.
+func (guard RefoundGuard) WaitCurrent(ctx context.Context, pending RefoundPending, poll, timeout time.Duration,
 	out io.Writer,
 ) error {
+	serverName := pending.ServerName
 	deadline := guard.now().Add(timeout)
 	last := ""
 	for {
-		err := guard.current(serverName)
+		err := guard.current(pending)
 		if err == nil {
 			return guard.Clear()
 		}
@@ -133,12 +136,45 @@ func (guard RefoundGuard) WaitCurrent(ctx context.Context, serverName string, po
 	}
 }
 
-func (guard RefoundGuard) current(serverName string) error {
+// current judges the pending slot from a cluster view that is both fresh and
+// observed after the relaunch began: the successor reuses the lost
+// instance's server name, so an earlier view says nothing about it.
+func (guard RefoundGuard) current(pending RefoundPending) error {
 	status, err := clusterhealth.ReadStatusFile(guard.HealthPath)
 	if err != nil {
 		return fmt.Errorf("read the controller's cluster health %s: %w", guard.HealthPath, err)
 	}
-	return status.PeerCurrent(serverName, guard.now().Add(-RefoundHealthFreshness))
+	notBefore := guard.now().Add(-RefoundHealthFreshness)
+	if pending.StartedAt.After(notBefore) {
+		notBefore = pending.StartedAt
+	}
+	return status.PeerCurrent(pending.ServerName, notBefore)
+}
+
+// Lock takes the host-wide refound lock without waiting and holds it until
+// release is called, so two refound commands can never interleave
+// admission, relaunch and the wait for currency (each would otherwise pass
+// Admit on the same old ledger and launch two empty replacements).
+func (guard RefoundGuard) Lock() (release func(), err error) {
+	path := guard.PendingPath + ".lock"
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open the refound lock %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		file.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New("another break-glass refound is running on this host; re-found one slot at a time")
+		}
+		return nil, fmt.Errorf("lock %s: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		file.Close()
+	}, nil
 }
 
 func (guard RefoundGuard) readPending() (RefoundPending, error) {

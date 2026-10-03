@@ -75,8 +75,22 @@ func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {
 	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "last observed") {
 		t.Fatalf("second slot on stale health: %v", err)
 	}
+	// Online and not lagging is not caught up without positive evidence.
 	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
 		Online: []string{"gru-controller-a", "gru-controller-b"}, Missing: []string{"gru-controller-c"}})
+	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "zero lag") {
+		t.Fatalf("second slot without positive catch-up evidence: %v", err)
+	}
+	// A fresh view observed before b's relaunch began says nothing about
+	// the successor that reuses its server name.
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now.Add(-time.Second), MetaLeader: "gru-controller-a",
+		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}})
+	if err := guard.Admit("gru", "controller-c", ledger); err == nil || !strings.Contains(err.Error(), "last observed") {
+		t.Fatalf("second slot on a view from before the relaunch: %v", err)
+	}
+	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
+		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"},
+		Missing: []string{"gru-controller-c"}})
 	if err := guard.Admit("gru", "controller-c", ledger); err != nil {
 		t.Fatalf("second slot after b is current: %v", err)
 	}
@@ -88,14 +102,15 @@ func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {
 func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 	now := time.Now().UTC()
 	guard := testRefoundGuard(t, &now)
-	if err := guard.Begin(RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-controller-b",
-		Attempt: 2, StartedAt: now}); err != nil {
+	pending := RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-controller-b",
+		Attempt: 2, StartedAt: now}
+	if err := guard.Begin(pending); err != nil {
 		t.Fatal(err)
 	}
 	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
 		Online: []string{"gru-controller-a"}, Missing: []string{"gru-controller-b"}})
 	var out bytes.Buffer
-	if err := guard.WaitCurrent(t.Context(), "gru-controller-b", time.Millisecond, 0, &out); err == nil ||
+	if err := guard.WaitCurrent(t.Context(), pending, time.Millisecond, 0, &out); err == nil ||
 		!strings.Contains(err.Error(), "has not joined") {
 		t.Fatalf("timed-out wait = %v", err)
 	}
@@ -104,11 +119,11 @@ func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		done <- guard.WaitCurrent(context.Background(), "gru-controller-b", time.Millisecond, time.Hour, &out)
+		done <- guard.WaitCurrent(context.Background(), pending, time.Millisecond, time.Hour, &out)
 	}()
 	time.Sleep(20 * time.Millisecond)
 	writeHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}})
+		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}})
 	select {
 	case err := <-done:
 		if err != nil {
@@ -137,4 +152,24 @@ func TestRefoundGuardFailsClosedOnAMalformedRecord(t *testing.T) {
 	if err := guard.Admit("gru", "controller-c", completeLedger()); err == nil {
 		t.Fatal("a malformed pending record admitted a refound")
 	}
+}
+
+// Two refound commands never interleave: the host lock refuses the second
+// until the first releases it.
+func TestRefoundGuardLockAdmitsOneRefoundAtATime(t *testing.T) {
+	now := time.Now().UTC()
+	guard := testRefoundGuard(t, &now)
+	release, err := guard.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.Lock(); err == nil || !strings.Contains(err.Error(), "another break-glass refound") {
+		t.Fatalf("second lock while held = %v", err)
+	}
+	release()
+	reacquired, err := guard.Lock()
+	if err != nil {
+		t.Fatalf("lock after release: %v", err)
+	}
+	reacquired()
 }

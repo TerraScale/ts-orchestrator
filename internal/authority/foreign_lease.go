@@ -25,6 +25,15 @@ func (r *Runtime) VerifyLeaseHolder(ctx context.Context, epoch uint64, candidate
 	}
 	readCtx, cancel := context.WithTimeout(ctx, authorityAPITimeout)
 	defer cancel()
+	// The same control-stream check as the leader's own Guard: a stream whose
+	// configuration drifted (replicas, retention, limits) fails closed.
+	info, err := r.stream.Info(readCtx)
+	if err != nil {
+		return stageFailure("foreign_lease_stream_info", err)
+	}
+	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
+		return stageFailure("foreign_lease_stream_config", err)
+	}
 	entry, err := r.stream.GetLastMsgForSubject(readCtx, r.leaseSub)
 	if err != nil {
 		return stageFailure("foreign_lease_msg_get", err)

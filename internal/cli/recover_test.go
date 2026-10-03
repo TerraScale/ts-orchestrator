@@ -94,9 +94,11 @@ func stubRefoundGuard(t *testing.T, root string) membership.RefoundGuard {
 	refoundGuard = membership.RefoundGuard{PendingPath: filepath.Join(root, "state", "refound-pending.json"),
 		HealthPath: filepath.Join(root, "state", "cluster-health.json")}
 	refoundPoll, refoundWait = time.Millisecond, time.Second
+	// The survivor (metadata leader) reports b current with zero lag in a
+	// view observed after the relaunch begins.
 	if err := clusterhealth.WriteStatusFile(refoundGuard.HealthPath, clusterhealth.Status{
-		ObservedAt: time.Now().UTC(), MetaLeader: "gru-controller-a",
-		Online: []string{"gru-controller-a", "gru-controller-b"}}); err != nil {
+		ObservedAt: time.Now().UTC().Add(30 * time.Second), MetaLeader: "gru-controller-a",
+		Online: []string{"gru-controller-a", "gru-controller-b"}, CaughtUp: []string{"gru-controller-b"}}); err != nil {
 		t.Fatal(err)
 	}
 	return refoundGuard

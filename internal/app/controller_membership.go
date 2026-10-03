@@ -277,15 +277,22 @@ type controllerMembership struct {
 	seed       *seedReplacementService
 }
 
-// Run runs the reconciler and the seed server until ctx ends.
+// Run runs the reconciler and the seed server until ctx ends. Either one
+// returning early (the seed failing to subscribe, say) stops the other, and
+// both are joined before Run returns, so the controller's worker supervision
+// sees the failure at once instead of only at shutdown.
 func (m *controllerMembership) Run(ctx context.Context) error {
 	if m.seed == nil {
 		return m.reconciler.Run(ctx)
 	}
-	errs := make(chan error, 1)
-	go func() { errs <- m.seed.Run(ctx) }()
-	err := m.reconciler.Run(ctx)
-	return errors.Join(err, <-errs)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, 2)
+	go func() { errs <- m.seed.Run(runCtx) }()
+	go func() { errs <- m.reconciler.Run(runCtx) }()
+	first := <-errs
+	cancel()
+	return errors.Join(first, <-errs)
 }
 
 // startControllerMembership builds the reconciler for a production controller
