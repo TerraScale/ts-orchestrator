@@ -33,7 +33,11 @@ func TestServerRemountsJSONViewsWithoutPanicking(t *testing.T) {
 	server.HandleCluster(fixedCluster("second"))
 	get := func(path string, into any) {
 		recorder := httptest.NewRecorder()
-		server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		// A tokenless listener only answers IP-literal or localhost Hosts;
+		// httptest's default example.com would draw 421.
+		request := httptest.NewRequest(http.MethodGet, path, nil)
+		request.Host = "127.0.0.1:9464"
+		server.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s = %d", path, recorder.Code)
 		}
