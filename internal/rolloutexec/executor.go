@@ -386,7 +386,7 @@ func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *ro
 	// rolled it back). The old process's proofs, sent before it restarted,
 	// are ignored by the incarnation check.
 	step, known := e.issued[key]
-	if known && step.known && !proof.sameIncarnation(step.before) && proof.ObservedAt.After(step.at) {
+	if known && step.known && !proof.sameIncarnation(step.before) && proof.arrivedAfter(step.at) {
 		return &rollout.Event{Kind: rollout.EventUnhealthy, Unit: action.Unit, At: e.now(),
 			Reason: fmt.Sprintf("unit %s restarted serving %s instead of the target", action.Unit, short(proof.BinarySHA256))}
 	}
@@ -442,7 +442,7 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 		recordStep(record, action.Unit, StepRollback, reply.Outcome)
 	}
 	proof, ok := e.Proofs.Latest(action.Unit)
-	if ok && proof.BinarySHA256 == record.FromDigest && proof.ObservedAt.After(step.at) && e.fresh(proof) {
+	if ok && proof.BinarySHA256 == record.FromDigest && proof.arrivedAfter(step.at) && e.fresh(proof) {
 		return &rollout.Event{Kind: rollout.EventRollbackServing, Unit: action.Unit, At: e.now()}, nil
 	}
 	return nil, nil

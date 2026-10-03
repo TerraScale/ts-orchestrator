@@ -40,7 +40,7 @@ func TestCollectorKeepsOnlyVerifiedNewestProofsOnTheirOwnSubject(t *testing.T) {
 	if err := collector.Observe(subject, sign(testProof("ctl-a", toDigest, now), key)); err != nil {
 		t.Fatal(err)
 	}
-	if proof, ok := collector.Latest("ctl-a"); !ok || proof.BinarySHA256 != toDigest {
+	if proof, ok := collector.Latest("ctl-a"); !ok || proof.BinarySHA256 != toDigest || !proof.ReceivedAt.Equal(now) {
 		t.Fatalf("latest = %+v %v", proof, ok)
 	}
 	for name, attempt := range map[string]func() error{

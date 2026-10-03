@@ -53,6 +53,10 @@ type HealthProof struct {
 	ProcessID    int64     `json:"process_id"`
 	StartNonce   string    `json:"start_nonce"`
 	ObservedAt   time.Time `json:"observed_at"`
+	// ReceivedAt is when the collector accepted the proof, on the leader's
+	// own clock. It is never signed or sent; it orders a proof against the
+	// leader's steps without trusting the unit's clock.
+	ReceivedAt time.Time `json:"-"`
 }
 
 func (proof HealthProof) validate() error {
@@ -68,6 +72,16 @@ func (proof HealthProof) validate() error {
 func (proof HealthProof) Health() rollout.Health {
 	return rollout.Health{Digest: proof.BinarySHA256, ProcessID: proof.ProcessID, StartNonce: proof.StartNonce,
 		ObservedAt: proof.ObservedAt}
+}
+
+// arrivedAfter reports whether the proof reached the leader after at, a
+// leader-clock time. A source that does not record receipt falls back to
+// the unit's own observation time.
+func (proof HealthProof) arrivedAfter(at time.Time) bool {
+	if !proof.ReceivedAt.IsZero() {
+		return proof.ReceivedAt.After(at)
+	}
+	return proof.ObservedAt.After(at)
 }
 
 func (proof HealthProof) sameIncarnation(other HealthProof) bool {
@@ -168,6 +182,7 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 	if err != nil {
 		return err
 	}
+	proof.ReceivedAt = c.now().UTC()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	previous, exists := c.latest[unit]

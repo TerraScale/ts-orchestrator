@@ -22,6 +22,8 @@ type fakeUnit struct {
 	down   bool
 	// age makes the unit's newest proof this old.
 	age time.Duration
+	// behind sets the unit's clock this far behind the leader's.
+	behind time.Duration
 }
 
 // fakeFleet simulates unit agents and their health proofs. Proofs are
@@ -68,7 +70,7 @@ func (f *fakeFleet) Latest(unit string) (HealthProof, bool) {
 		return HealthProof{}, false
 	}
 	return HealthProof{Schema: HealthSchema, Cell: "gru", Unit: unit, BinarySHA256: u.digest, ProcessID: u.pid,
-		StartNonce: u.nonce, ObservedAt: f.clock.Now().Add(-u.age)}, true
+		StartNonce: u.nonce, ObservedAt: f.clock.Now().Add(-u.age - u.behind), ReceivedAt: f.clock.Now().Add(-u.age)}, true
 }
 
 func (f *fakeFleet) Step(_ context.Context, step Step) (StepReply, error) {
@@ -657,5 +659,24 @@ func TestExecutorSuccessorDetectsAWrongBinaryAfterFailover(t *testing.T) {
 	})
 	if waited := h.clock.Now().Sub(start); waited >= 600*time.Second {
 		t.Fatalf("detected only after %v", waited)
+	}
+}
+
+// A unit whose clock runs behind the leader's, within the verified skew,
+// still completes a rollback shorter than that skew: proofs are ordered
+// against the step by when the leader received them.
+func TestExecutorRollbackToleratesAUnitClockBehindTheLeader(t *testing.T) {
+	h := newHarness(t)
+	for i := range h.program {
+		h.program[i].Policy.RollbackDeadlineSeconds = 30
+	}
+	h.fleet.wrongBinary["ctl-b"] = true
+	h.fleet.units["ctl-b"].behind = 45 * time.Second
+	h.run(10, func() bool {
+		phase := h.phase("rel1-controllers")
+		return phase == rollout.PhaseRolledBack || phase == rollout.PhaseFrozen
+	})
+	if phase := h.phase("rel1-controllers"); phase != rollout.PhaseRolledBack {
+		t.Fatalf("phase = %s; steps %v", phase, h.fleet.stepLog())
 	}
 }
