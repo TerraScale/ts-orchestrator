@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // FSStat is the subset of statfs(2) the collector needs, in bytes and inodes.
@@ -81,29 +80,35 @@ func (collector Collector) Collect(ctx context.Context) ([]VolumeUsage, error) {
 	return usages, errors.Join(failures...)
 }
 
-// JetStreamReservation reports the unused part of the JetStream max-store
-// limit: space the embedded server may still claim on its StoreDir.
-func JetStreamReservation(js jetstream.JetStream, maxStoreBytes int64) func(context.Context) (uint64, error) {
+// StoreUsage reports how many bytes the embedded JetStream server stores on
+// this node. It must be node-local: an account's usage also counts the
+// replicas other nodes store.
+type StoreUsage func(context.Context) (uint64, error)
+
+// JetStreamReservation reports the unused part of this node's JetStream
+// max-store limit: space the embedded server may still claim on its
+// StoreDir. The limit is per node, so it is compared with node-local usage.
+func JetStreamReservation(used StoreUsage, maxStoreBytes int64) func(context.Context) (uint64, error) {
 	return func(ctx context.Context) (uint64, error) {
-		if js == nil || maxStoreBytes <= 0 {
-			return 0, errors.New("JetStream reservation requires a live context and a positive store limit")
+		if used == nil || maxStoreBytes <= 0 {
+			return 0, errors.New("JetStream reservation requires a node-local usage source and a positive store limit")
 		}
-		info, err := js.AccountInfo(ctx)
+		stored, err := used(ctx)
 		if err != nil {
-			return 0, fmt.Errorf("read JetStream account usage: %w", err)
+			return 0, fmt.Errorf("read JetStream node usage: %w", err)
 		}
 		limit := uint64(maxStoreBytes)
-		return limit - min(limit, info.Store), nil
+		return limit - min(limit, stored), nil
 	}
 }
 
 // ControllerTargets measures a controller node: its boot root and the
 // embedded JetStream StoreDir, whose unused max-store reservation counts as
 // promised space.
-func ControllerTargets(storeDir string, js jetstream.JetStream, maxStoreBytes int64) []Target {
+func ControllerTargets(storeDir string, used StoreUsage, maxStoreBytes int64) []Target {
 	return []Target{
 		{Role: storage.RoleBoot, Path: "/"},
-		{Role: storage.RoleJetStream, Path: storeDir, Reserve: JetStreamReservation(js, maxStoreBytes)},
+		{Role: storage.RoleJetStream, Path: storeDir, Reserve: JetStreamReservation(used, maxStoreBytes)},
 	}
 }
 

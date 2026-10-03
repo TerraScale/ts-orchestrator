@@ -204,13 +204,28 @@ func TestUsageStorePublishesWithTTLAndFeedsSignals(t *testing.T) {
 	if signals, err := store.Signals(ctx); err != nil || len(signals) != 0 {
 		t.Fatalf("expired usage was returned: %+v, %v", signals, err)
 	}
+	// Reopening with a TTL the configuration validated against its interval
+	// reconciles the bucket instead of keeping the old TTL (#127 12053).
 	reopened, err := OpenUsageStore(ctx, runtime.JetStream(), 1, time.Hour, Policy{})
-	if err != nil || reopened.ttl != time.Minute {
-		t.Fatalf("reopen did not keep bucket TTL: %v ttl=%s", err, reopened.ttl)
+	if err != nil || reopened.ttl != time.Hour {
+		t.Fatalf("reopen did not reconcile the bucket TTL: %v %+v", err, reopened)
 	}
-	reserve := JetStreamReservation(runtime.JetStream(), 1<<30)
+	status, err := reopened.kv.Status(ctx)
+	if err != nil || status.TTL() != time.Hour {
+		t.Fatalf("bucket TTL after reopen = %v, %v", status, err)
+	}
+	reserve := JetStreamReservation(runtime.LocalStoreUsedBytes, 1<<30)
 	if reserved, err := reserve(ctx); err != nil || reserved == 0 || reserved > 1<<30 {
 		t.Fatalf("JetStream reservation = %d, %v", reserved, err)
+	}
+	// The reservation follows node-local usage, not an account's usage
+	// that also counts other nodes' replicas (#127 12052).
+	nodeLocal := JetStreamReservation(func(context.Context) (uint64, error) { return 10 << 30, nil }, 40<<30)
+	if reserved, err := nodeLocal(ctx); err != nil || reserved != 30<<30 {
+		t.Fatalf("node-local reservation = %d, %v", reserved, err)
+	}
+	if _, err := JetStreamReservation(nil, 1<<30)(ctx); err == nil {
+		t.Fatal("a reservation without a usage source was accepted")
 	}
 }
 

@@ -101,6 +101,26 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 	return view, nil
 }
 
+// LocalStoreUsedBytes reports the JetStream file storage this embedded
+// server uses on its own StoreDir. Unlike an account's usage, it excludes
+// the replicas other nodes store, so it matches the per-node max-store limit.
+func (r *Runtime) LocalStoreUsedBytes(ctx context.Context) (uint64, error) {
+	if r == nil || r.server == nil {
+		return 0, errors.New("embedded NATS server is not running")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	jsz, err := r.server.Jsz(&server.JSzOptions{})
+	if err != nil {
+		return 0, err
+	}
+	if jsz.Disabled {
+		return 0, ErrJetStreamDisabled
+	}
+	return jsz.Store, nil
+}
+
 func streamView(stream server.StreamDetail) observability.StreamView {
 	view := observability.StreamView{Name: stream.Name, Messages: stream.State.Msgs, Bytes: stream.State.Bytes, Replicas: 1}
 	configured := stream.Config != nil && stream.Config.Replicas > 0

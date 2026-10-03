@@ -41,7 +41,7 @@ func startControllerStorageCapacity(ctx context.Context, cfg Config, runtime *na
 	}
 	collector := capacity.Collector{
 		Cell: cfg.NATS.Cell, Node: cfg.NATS.Instance,
-		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.JetStream(), cfg.NATS.Embedded.StoreLimitBytes()),
+		Targets: capacity.ControllerTargets(cfg.NATS.Embedded.StoreDir, runtime.LocalStoreUsedBytes, cfg.NATS.Embedded.StoreLimitBytes()),
 	}
 	return ownedLoop(ctx, "controller storage capacity collector", func(ctx context.Context) error {
 		return capacity.Run(ctx, collector, store, settings.Policy, settings.Interval(), capacity.LogSignal)
