@@ -216,6 +216,18 @@ func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
 	return membershipLedger{baked: baked, accepted: accepted, anchor: anchor, observer: observer, ledger: ledger}, nil
 }
 
+// ControllerSlotLedger reads every anchored controller slot's historically
+// verified ledger HEAD for this admitted install. Break-glass refound uses it
+// to re-found one slot at a time.
+func ControllerSlotLedger(ctx context.Context) (map[string]membership.LedgerSlot, error) {
+	opened, err := openMembershipLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return ledgerMembershipSlots{ledger: opened.ledger, deploymentID: opened.accepted.DeploymentID,
+		cell: opened.accepted.Cell}.Slots(ctx, opened.anchor.Anchor().ControllerSlots)
+}
+
 // RenderBreakGlassRetirementRequest writes <slot>.retirement-request.json for
 // a lost peer slot while metadata quorum, and with it controller authority, is
 // lost, so no reconciler can render one. It re-checks the exact ledger-pinned

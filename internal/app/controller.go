@@ -18,6 +18,8 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -138,7 +140,14 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer runtime.Close()
 	healthCtx, stopHealth := context.WithCancel(ctx)
-	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
+	var healthReporter clusterhealth.Reporter
+	if !cfg.NATS.Lab {
+		// Local operator tools (break-glass refound) read the running
+		// controller's cluster view from its state directory.
+		healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
+			Logger: slog.Default().With("component", "membership")}
+	}
+	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, healthReporter)
 	defer waitHealth()
 	defer stopHealth()
 	// Every later startup step runs under the broker's lifetime: a broker
