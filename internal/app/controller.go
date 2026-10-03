@@ -371,7 +371,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 		if materialService != nil {
 			credentials := managedmaterial.CredentialService{Preparation: *materialService, Store: control}
-			materialProvider = admittedManagedMaterialProvider(*materialService, control, credentials,
+			materialProvider = admittedManagedMaterialProvider(*materialService, control, placementStore, credentials,
 				managedRuntimeVerifier)
 			credentialFloor = func(ctx context.Context, registration host.Registration) (uint64, error) {
 				if registration.ManagedPlacement == nil {
