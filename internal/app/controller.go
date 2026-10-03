@@ -592,7 +592,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("start rollout store: %w", err)
 	}
 	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
-		telemetry.decisionSource, fullClusterReady)
+		runtime.Conn(), fullClusterReady)
 	if err != nil {
 		return fmt.Errorf("start region planner: %w", err)
 	}

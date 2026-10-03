@@ -88,8 +88,15 @@ func peerHoldPages(ctx context.Context, source decisionlog.Source, peer string, 
 			decisions = append(decisions, decision)
 			added++
 		}
-		if !result.Truncated || added == 0 || !oldest.After(since) {
+		if !result.Truncated || !oldest.After(since) {
 			break
+		}
+		if added == 0 {
+			// A whole page shares the boundary timestamp: the query has no
+			// ID cursor, so skip past that instant to the older holds
+			// rather than stop.
+			until = oldest
+			continue
 		}
 		// Until is exclusive: step just past the oldest so holds sharing
 		// its timestamp are read again and deduplicated, not skipped.

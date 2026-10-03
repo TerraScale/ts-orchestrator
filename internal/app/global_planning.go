@@ -20,9 +20,11 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionops"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -147,7 +149,7 @@ func startRollouts(ctx context.Context, cfg Config, js jetstream.JetStream, cont
 // behind their own flags, admission and the lifecycle driver. It returns the
 // budget provider.
 func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream, global *globalControl,
-	holds *placementHoldLog, decisions func() decisionlog.Source, fullClusterReady func() bool,
+	holds *placementHoldLog, conn *nats.Conn, fullClusterReady func() bool,
 ) (insights.BudgetProvider, error) {
 	settings := cfg.Controller.RegionPlanner
 	if settings == nil || !settings.Enabled {
@@ -180,7 +182,13 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	}
 	sources := regionplanner.Sources{holdSignals{cell: cfg.NATS.Cell, holds: holds}}
 	if settings.PeerSignals {
-		sources = append(sources, regionplanner.PeerHolds{Decisions: decisions, Peers: plannerPeers(cfg)})
+		peers := plannerPeers(cfg)
+		federation, err := peerDecisions(cfg.NATS.Cell, conn, peers)
+		if err != nil {
+			return nil, fmt.Errorf("region planner peer signals: %w", err)
+		}
+		sources = append(sources, regionplanner.PeerHolds{
+			Decisions: func() decisionlog.Source { return federation }, Peers: peers})
 	}
 	machine := regionlifecycle.Machine{Policy: lifecyclePolicy}
 	runner := plannerRunner{source: sources, planner: regionplanner.Planner{Policy: policy},
@@ -259,17 +267,24 @@ func plannerPeers(cfg Config) []string {
 	return slices.Clone(cfg.NATS.Embedded.InterRegion.Peers)
 }
 
-// decisionSource returns the federated decision source once the controller
-// has attached it, or nil before.
-func (runtime *runtimeObservability) decisionSource() decisionlog.Source {
-	if runtime == nil {
-		return nil
+// peerDecisions is a decision federation over the interregion peers only,
+// built on the cell connection independently of the HTTP observability
+// listener: the contract imports each peer's decision query service, so
+// peer signals never depend on whether the dashboard runs.
+func peerDecisions(cell string, conn *nats.Conn, peers []string) (decisionlog.Source, error) {
+	if conn == nil || len(peers) == 0 {
+		return nil, errors.New("peer signals need the cell connection and interregion peers")
 	}
-	providers := runtime.providers.Load()
-	if providers == nil {
-		return nil
+	links, err := regionlink.New(cell, conn, peers, regionRequestTimeout)
+	if err != nil {
+		return nil, err
 	}
-	return providers.Decisions
+	for _, peer := range peers {
+		if err := links.Link(peer, conn); err != nil {
+			return nil, err
+		}
+	}
+	return decisionlog.Federation{Links: links}, nil
 }
 
 type plannerRunner struct {

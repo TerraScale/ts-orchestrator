@@ -165,7 +165,7 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 			continue
 		}
 		if loop.Admissions != nil {
-			blocked, err := loop.admit(ctx, epoch, record.Cell, records, &report)
+			blocked, err := loop.admit(ctx, epoch, record.Cell, records, &report, false)
 			if err != nil {
 				report.Errors = append(report.Errors, fmt.Errorf("admit region %s: %w", record.Cell, err))
 			}
@@ -174,7 +174,7 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 			}
 		}
 		if len(loop.Effectors) != 0 {
-			if err := loop.drive(ctx, epoch, record.Cell, &report); err != nil {
+			if err := loop.drive(ctx, epoch, record.Cell, records, &report); err != nil {
 				report.Errors = append(report.Errors, fmt.Errorf("advance region %s: %w", record.Cell, err))
 			}
 		}
@@ -187,8 +187,14 @@ func (loop *Loop) Tick(ctx context.Context) Report {
 // within the last third of its TTL, so the step never races its expiry. It
 // reports blocked when an admission was due but not stored (refused or
 // failed): the region must not run a step this tick.
+//
+// Only a step that starts new spending is readmitted up front. A journaled
+// (recovered) intent is reconciled by observation first, because recording
+// an effect that already exists is not subject to the budget; drive asks
+// for its readmission (recovered) only when the effect is confirmed absent
+// and the driver refused a stale admission.
 func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRecords []regionlifecycle.Record,
-	report *Report,
+	report *Report, recovered bool,
 ) (blocked bool, err error) {
 	record, revision, err := loop.Store.Get(ctx, cell)
 	if err != nil {
@@ -198,12 +204,13 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 	ttl := loop.Machine.Policy.AdmissionTTL
 	readmit := false
 	switch {
-	case record.Phase == regionlifecycle.Approved:
-	case record.Phase != regionlifecycle.Held && record.Phase != regionlifecycle.RollingBack:
+	case record.Phase == regionlifecycle.Approved && !recovered:
+	case record.Phase != regionlifecycle.Held && record.Phase != regionlifecycle.RollingBack &&
+		record.Phase != regionlifecycle.RetireProposed && record.Phase != regionlifecycle.RetireApproved:
 		// Only a step this loop can run needs a fresh admission; refreshing
 		// one that waits for an effector would only churn the journal.
 		step, ok := regionlifecycle.NextStep(record)
-		if !ok || !step.Spends() || step.Retire() || !loop.Effectors.Has(step) {
+		if !ok || !step.Spends() || step.Retire() || !loop.Effectors.Has(step) || (record.Pending != nil) != recovered {
 			return false, nil
 		}
 		if record.Admission != nil && now.Before(record.Admission.AdmittedAt.Add(ttl-ttl/3)) {
@@ -257,7 +264,9 @@ func (loop *Loop) admit(ctx context.Context, epoch uint64, cell string, fleetRec
 
 // drive advances one region by at most one step, or resumes a held one whose
 // pending effect an observation now finds.
-func (loop *Loop) drive(ctx context.Context, epoch uint64, cell string, report *Report) error {
+func (loop *Loop) drive(ctx context.Context, epoch uint64, cell string, fleetRecords []regionlifecycle.Record,
+	report *Report,
+) error {
 	record, revision, err := loop.Store.Get(ctx, cell)
 	if err != nil {
 		return err
@@ -275,8 +284,21 @@ func (loop *Loop) drive(ctx context.Context, epoch uint64, cell string, report *
 	if record.Phase == regionlifecycle.Held {
 		return loop.resume(ctx, epoch, record, revision, report)
 	}
-	next, err := (regionlifecycle.Driver{Machine: loop.Machine, Store: loop.Store, Effector: loop.Effectors,
-		Now: loop.Now}).Advance(ctx, epoch, cell)
+	driver := regionlifecycle.Driver{Machine: loop.Machine, Store: loop.Store, Effector: loop.Effectors, Now: loop.Now}
+	next, err := driver.Advance(ctx, epoch, cell)
+	if errors.Is(err, regionlifecycle.ErrAdmissionStale) && record.Pending != nil && loop.Admissions != nil &&
+		next.Generation == record.Generation {
+		// The recovered effect is confirmed absent and its admission is
+		// stale: readmit, then retry; a refusal leaves it unexecuted.
+		blocked, admitErr := loop.admit(ctx, epoch, cell, fleetRecords, report, true)
+		if admitErr != nil || blocked {
+			return admitErr
+		}
+		if record, _, err = loop.Store.Get(ctx, cell); err != nil {
+			return err
+		}
+		next, err = driver.Advance(ctx, epoch, cell)
+	}
 	if next.Generation != record.Generation && next.Generation != 0 {
 		recordStep(ctx, epoch, record, next, step, err)
 		report.Advanced = append(report.Advanced, cell)

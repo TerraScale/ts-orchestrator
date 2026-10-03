@@ -232,7 +232,11 @@ insights.
 Its signals are the home's own capacity and limit placement holds and, with
 `peer_signals` (off by default), every interregion peer's: the planner
 queries each peer's decision journal over the observability contract for
-placement `held` decisions and keeps only those about that peer. A peer's
+placement `held` decisions and keeps only those about that peer, paging
+back through truncated results (at most 8 pages of 256 per peer and round).
+The query federation runs on the cell connection, independent of the HTTP
+observability listener; `peer_signals` without interregion peers refuses
+to start. A peer's
 journal is another region's data; a forged hold can at most propose the
 peer's overflow region, which still needs a signed approval. Latency signals
 have no source yet: TerraBase member status carries no client latency.
@@ -245,10 +249,14 @@ have no source yet: TerraBase member status carries no client latency.
 1. runs the planner;
 2. with `admit`, admits an Approved region at its `region_monthly_cents`
    price under the region maximum, the ceiling and the approval's cap, and
-   readmits an in-flight region whose next spending step it can run once its
-   admission is in the last third of its TTL. The price is signed policy,
-   not a live quote; the admission is re-evaluated against the current
-   fleet each time;
+   readmits an in-flight region before it starts a new spending step once
+   its admission is in the last third of its TTL. A refused readmission
+   blocks that step even while the older admission is still fresh. A
+   journaled (recovered) spending intent is observed first: an existing
+   effect is recorded regardless of budget, and an absent one is re-run
+   only after a successful readmission. The price is signed policy, not a
+   live quote; the admission is re-evaluated against the current fleet each
+   time;
 3. with `drive`, calls `Driver.Advance` once per region whose next step has
    an effector, and resumes a Held region only when an observation finds
    its pending effect (an absent effect stays held for an operator).

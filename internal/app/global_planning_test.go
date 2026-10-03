@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlifecycle"
@@ -25,6 +26,24 @@ func testPlannerConfig() *RegionPlannerConfig {
 // testApproverKey is a base64 Ed25519 public key (32 zero bytes are a valid
 // encoding for configuration parsing).
 const testApproverKey = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+
+// TestPeerSignalsNeedOnlyTheCellConnection pins ts-reviewer 13224: peer
+// signals use a federation over the cell connection, not the HTTP
+// listener's providers, and fail loudly without peers or a connection.
+func TestPeerSignalsNeedOnlyTheCellConnection(t *testing.T) {
+	t.Parallel()
+	if _, err := peerDecisions("gru", nil, []string{"sfo"}); err == nil {
+		t.Error("peer decisions without a connection")
+	}
+	if _, err := peerDecisions("gru", &nats.Conn{}, nil); err == nil {
+		t.Error("peer decisions without peers")
+	}
+	source, err := peerDecisions("gru", &nats.Conn{}, []string{"sfo", "fra"})
+	federation, ok := source.(decisionlog.Federation)
+	if err != nil || !ok || federation.Local != nil || !slices.Equal(federation.Links.Regions(), []string{"gru", "fra", "sfo"}) {
+		t.Fatalf("federation = %+v, %v", source, err)
+	}
+}
 
 func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
 	t.Parallel()

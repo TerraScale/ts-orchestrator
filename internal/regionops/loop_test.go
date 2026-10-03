@@ -74,7 +74,7 @@ func (f *fakeIdentity) CreateRegionSubscription(_ context.Context, request ident
 	key := *request.RegionKey
 	f.creates = append(f.creates, key)
 	f.tokens = append(f.tokens, *request.OpcRetryToken)
-	name := map[string]string{"SJC": "us-sanjose-1"}[key]
+	name := map[string]string{"SJC": "us-sanjose-1", "FRA": "eu-frankfurt-1"}[key]
 	f.status[name] = identity.RegionSubscriptionStatusInProgress
 	return identity.CreateRegionSubscriptionResponse{RegionSubscription: identity.RegionSubscription{
 		RegionKey: &key, RegionName: &name, Status: identity.RegionSubscriptionStatusInProgress}}, nil

@@ -60,6 +60,19 @@ func TestPeerHoldsPageBackPastOtherHolds(t *testing.T) {
 	if len(journal.queries) < 3 || len(journal.queries) > maxPeerHoldPages {
 		t.Fatalf("pages = %d", len(journal.queries))
 	}
+
+	// ts-reviewer 13223: a full page of holds sharing one timestamp must not
+	// end the read before older capacity holds.
+	burst := now.Add(-time.Hour)
+	decisions = decisions[:3]
+	for index := range 300 {
+		decisions = append(decisions, hold("burst-"+time.Duration(index).String(), "sfo", "waiting for an artifact", burst))
+	}
+	journal = &fakeJournal{byRegion: map[string][]decisionlog.Decision{"sfo": decisions}}
+	source.Decisions = func() decisionlog.Source { return journal }
+	if signals, err := source.Signals(t.Context(), now.Add(-24*time.Hour)); err != nil || len(signals) != 3 {
+		t.Fatalf("signals behind a saturated timestamp = %d, %v (queries %d)", len(signals), err, len(journal.queries))
+	}
 }
 
 func (*fakeJournal) Chain(context.Context, string) (decisionlog.Chain, error) {
