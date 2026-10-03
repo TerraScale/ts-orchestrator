@@ -129,7 +129,10 @@ func (f *agentFixture) command(t *testing.T, action StepAction, digest string, e
 	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
 		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
 		Action: action, Digest: digest, Epoch: epoch, ProofWindowSeconds: 600, Receipt: []byte("signed receipt")}
-	if action == StepRollback {
+	// A rollback replaces the rejected target; a forward step replaces the
+	// predecessor (the other release when it targets the predecessor).
+	command.Replaces = f.from
+	if action == StepRollback || digest == f.from {
 		command.Replaces = f.to
 	}
 	wire, err := SignStepCommand(command, f.key, f.now, time.Time{})
@@ -216,7 +219,7 @@ func TestAgentRefusesUnverifiedAndStaleSteps(t *testing.T) {
 	}
 	other, _ := testKey(t)
 	wire, err := SignStepCommand(StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "r", Kind: rollout.KindController,
-		Unit: "ctl-b", OperationID: "ro-1", Action: StepPrepare, Digest: f.to, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})
+		Unit: "ctl-b", OperationID: "ro-1", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 9, ProofWindowSeconds: 60}, other, f.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,13 +337,13 @@ func TestNATSDriverReachesTheAgent(t *testing.T) {
 	driver := NATSDriver{Conn: conn, Cell: "gru", Key: f.key, Timeout: 5 * time.Second, Now: func() time.Time { return f.now }}
 	step := Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
 		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
-		Digest: f.to, Epoch: 7, ProofWindow: 10 * time.Minute}
+		Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: 10 * time.Minute}
 	reply, err := driver.Step(t.Context(), step)
 	if err != nil || reply.Outcome != OutcomeActivated {
 		t.Fatalf("step over NATS = %+v %v", reply, err)
 	}
 	if _, err := driver.Step(t.Context(), Step{RolloutID: "r", Kind: rollout.KindController, Unit: "ctl-z",
-		OperationID: "ro-2", Action: StepPrepare, Digest: f.to, Epoch: 7, ProofWindow: time.Minute}); err == nil {
+		OperationID: "ro-2", Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: time.Minute}); err == nil {
 		t.Fatal("a step to a unit without an agent succeeded")
 	}
 }
@@ -392,7 +395,7 @@ func TestNATSDriverSendsNothingAfterTheLeaseWasLost(t *testing.T) {
 	driver := NATSDriver{Conn: conn, Cell: "gru", Key: f.key, Timeout: 5 * time.Second, Now: func() time.Time { return f.now }}
 	_, err = driver.Step(t.Context(), Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
 		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
-		Digest: f.to, Epoch: 7, ProofWindow: 10 * time.Minute,
+		Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindow: 10 * time.Minute,
 		Fence: func(context.Context) error { return ErrLeaseLost }})
 	if !errors.Is(err, ErrLeaseLost) {
 		t.Fatalf("step after a lost lease = %v", err)
@@ -409,7 +412,7 @@ func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {
 	f := newAgentFixture(t)
 	command := StepCommand{Schema: StepSchema, Cell: "gru", RolloutID: "rel1-controllers", Kind: rollout.KindController,
 		Unit: "ctl-b", OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0),
-		Action: StepPrepare, Digest: f.to, Epoch: 7, ProofWindowSeconds: 600}
+		Action: StepPrepare, Digest: f.to, Replaces: f.from, Epoch: 7, ProofWindowSeconds: 600}
 	deadline := f.now.Add(30 * time.Second)
 	wire, err := SignStepCommand(command, f.key, f.now, deadline)
 	if err != nil {
@@ -427,5 +430,23 @@ func TestStepCommandsExpireWithTheirPhaseDeadline(t *testing.T) {
 	}
 	if _, err := SignStepCommand(command, f.key, f.now, f.now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("signing a step whose deadline passed = %v", err)
+	}
+}
+
+// A forward step only moves a unit off the rollout's predecessor: a still
+// valid step of an earlier rollout, replayed after a later update settled,
+// never switches the unit back.
+func TestAgentRefusesAReplayedStepOfAnEarlierRollout(t *testing.T) {
+	f := newAgentFixture(t)
+	later := stageTestRelease(t, f.agent.Layout, "release later", f.to)
+	pointCurrent(t, f.agent.Layout, later)
+	if reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {
+		t.Fatalf("replayed earlier step = %+v", reply)
+	}
+	if current, err := f.agent.Layout.Current(); err != nil || current != later || f.restarts.count() != 0 {
+		t.Fatalf("a replayed step moved the unit: current %s %v, restarts %d", current, err, f.restarts.count())
+	}
+	if _, pending, err := f.agent.Layout.Pending(); err != nil || pending {
+		t.Fatalf("a replayed step left an activation: %v %v", pending, err)
 	}
 }

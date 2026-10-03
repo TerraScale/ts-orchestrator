@@ -680,3 +680,45 @@ func TestExecutorRollbackToleratesAUnitClockBehindTheLeader(t *testing.T) {
 		t.Fatalf("phase = %s; steps %v", phase, h.fleet.stepLog())
 	}
 }
+
+// A unit an earlier wave promoted that stops proving holds every later
+// healthy report: the rollout never completes around it, and the soak
+// deadline rolls it back.
+func TestExecutorDoesNotCompleteAroundAPromotedUnitThatStoppedProving(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.run(40, func() bool {
+		record, exists := h.load("rel1-controllers")
+		return exists && record.Units["ctl-b"].State == rollout.UnitPromoted && record.Units["ctl-a"].State == rollout.UnitSoaking
+	})
+	h.fleet.mu.Lock()
+	h.fleet.units["ctl-b"].down = true
+	h.fleet.mu.Unlock()
+	h.run(60, func() bool {
+		phase := h.phase("rel1-controllers")
+		return phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack || phase == rollout.PhaseComplete
+	})
+	if phase := h.phase("rel1-controllers"); phase == rollout.PhaseComplete {
+		t.Fatalf("the rollout completed while promoted unit ctl-b had no proof; steps %v", h.fleet.stepLog())
+	}
+}
+
+// Every unit's clock runs behind the leader's within the verified skew,
+// with a proof deadline shorter than that skew: the rollout still
+// completes, because proofs are ordered by when the leader received them.
+func TestExecutorCompletesWithUnitClocksBehindTheLeader(t *testing.T) {
+	h := newHarness(t)
+	h.program = h.program[:1]
+	h.program[0].Policy.ProofDeadlineSeconds = 30
+	for _, unit := range h.fleet.units {
+		unit.behind = 45 * time.Second
+	}
+	h.run(60, func() bool {
+		phase := h.phase("rel1-controllers")
+		return phase == rollout.PhaseComplete || phase == rollout.PhaseRollingBack || phase == rollout.PhaseRolledBack
+	})
+	if phase := h.phase("rel1-controllers"); phase != rollout.PhaseComplete {
+		record, _ := h.load("rel1-controllers")
+		t.Fatalf("phase = %s (%s); steps %v", phase, record.Reason, h.fleet.stepLog())
+	}
+}

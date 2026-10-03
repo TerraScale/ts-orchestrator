@@ -205,7 +205,7 @@ func (a *Agent) activate(command StepCommand, window time.Duration) (StepOutcome
 	if err != nil {
 		return OutcomeRetry, "activation state is unreadable"
 	}
-	if exists && (pending.Target != digest || pending.Unit != a.SystemdUnit) {
+	if exists && (pending.Target != digest || pending.Unit != a.SystemdUnit || pending.Previous != command.Replaces) {
 		// The watchdog resolves the other activation by its deadline.
 		return OutcomeRetry, "another activation is pending"
 	}
@@ -214,6 +214,11 @@ func (a *Agent) activate(command StepCommand, window time.Duration) (StepOutcome
 			return OutcomeRetry, "current release is unreadable"
 		} else if current == digest {
 			return OutcomeCurrent, ""
+		} else if current != command.Replaces {
+			// A forward step only moves the unit off the rollout's
+			// predecessor: a replayed step of an earlier rollout never
+			// undoes the update that settled after it.
+			return OutcomeRefused, "the unit does not run the step's predecessor release"
 		}
 		// Owed before the link moves, so an interruption after it never
 		// leaves the old process running until the watchdog rejects a

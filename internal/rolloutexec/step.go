@@ -49,8 +49,10 @@ type Step struct {
 	OperationID string
 	Action      StepAction
 	Digest      string
-	// Replaces is the rejected release a rollback restores over; it is
-	// empty for a forward step.
+	// Replaces is the release the step moves the unit away from: the
+	// rollout's predecessor for a forward step, the rejected target for a
+	// rollback. An agent refuses a step whose Replaces the unit does not
+	// run, so a replayed forward step never undoes a later update.
 	Replaces string
 	Epoch    uint64
 	// ProofWindow is how long the unit's watchdog waits for the new
@@ -93,8 +95,7 @@ func (command StepCommand) validate() error {
 		!digestRE.MatchString(command.Digest) || command.Epoch == 0 || command.ProofWindowSeconds <= 0 ||
 		len(command.Receipt) > maxReleaseWire || len(command.Delegation) > maxReleaseWire ||
 		len(command.Delegation) > 0 && len(command.Receipt) == 0 ||
-		command.Action == StepPrepare && command.Replaces != "" ||
-		command.Action == StepRollback && (!digestRE.MatchString(command.Replaces) || command.Replaces == command.Digest) {
+		!digestRE.MatchString(command.Replaces) || command.Replaces == command.Digest {
 		return fmt.Errorf("%w: step command", ErrInvalid)
 	}
 	return nil

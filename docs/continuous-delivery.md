@@ -345,7 +345,13 @@ Nothing in this change starts it; the pieces are:
   after it reported is reported (and rolls the wave back) before any other
   unit's report is fed. A unit an earlier wave promoted whose fresh proof
   (newer than its last healthy report) serves another release rolls the
-  rollout back before a later wave moves or completes. A full collector
+  rollout back before a later wave moves or completes, and while a promoted
+  unit has no fresh proof on the target no healthy report completes a wave,
+  so the rollout never completes around it. Proofs are ordered against
+  phases, soak windows and steps by when the leader received them, on the
+  leader's clock; the signed `observed_at` only bounds replay (a proof is
+  fresh when it arrived within 60 s and was observed within 60 s plus the
+  verified one-minute skew). A full collector
   reclaims units whose proofs expired before it refuses a new one. A proof
   on the target
   feeds `healthy`; a new incarnation on another release after the
@@ -354,7 +360,8 @@ Nothing in this change starts it; the pieces are:
   share the regional response key, so one controller can sign for another;
   that is within the controller trust domain.
 - **Signed steps** (`ts.orch.v1.<cell>.rollout.step.<hash(unit)>`). The leader
-  signs `{rollout, unit, operation, action, digest, epoch, proof window}`
+  signs `{rollout, unit, operation, action, digest, replaces, epoch, proof
+  window}`
   plus the release receipt (trust domain
   `terrascale.orchestrator.rollout-step`, scope bound to operation, action
   and unit). The signature expires after 2 minutes or at the step's phase
@@ -370,7 +377,10 @@ Nothing in this change starts it; the pieces are:
   by `selfupdate` against the node's own release roots before any byte is
   kept), then:
   - a forward step activates the target with `selfupdate.Activate` (proof
-    gated, so the watchdog rolls an unproven target back); a retry of a
+    gated, so the watchdog rolls an unproven target back) only while the
+    unit runs the step's `replaces` release (the rollout's predecessor), so
+    a still-valid step of an earlier rollout replayed after a later update
+    settled is refused; a retry of a
     matching pending activation goes through `Activate` again, so an
     interrupted link flip is repaired;
   - a rollback restores the predecessor with `selfupdate.Restore`: it

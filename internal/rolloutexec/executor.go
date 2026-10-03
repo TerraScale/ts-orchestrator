@@ -290,7 +290,7 @@ func (e *Executor) preflight(ctx context.Context, record rollout.Record) *rollou
 	now := e.now()
 	for _, unit := range sortedUnits(record) {
 		proof, ok := e.Proofs.Latest(unit)
-		if !ok || now.Sub(proof.ObservedAt) > e.freshness() {
+		if !ok || !e.fresh(proof) {
 			e.hold(record, "", "unit "+unit+" has no fresh health proof")
 			return nil
 		}
@@ -329,7 +329,8 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 		step.at = e.now()
 	}
 	reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
-		OperationID: action.OperationID, Action: StepPrepare, Digest: action.Digest, Epoch: record.AuthorityEpoch,
+		OperationID: action.OperationID, Action: StepPrepare, Digest: action.Digest, Replaces: record.FromDigest,
+		Epoch:       record.AuthorityEpoch,
 		ProofWindow: time.Duration(record.Policy.ProofDeadlineSeconds) * time.Second,
 		Deadline:    action.Deadline,
 		Fence:       func(ctx context.Context) error { return e.fence(ctx, record) }})
@@ -371,12 +372,12 @@ func (e *Executor) awaitHealth(record rollout.Record, action rollout.Action) *ro
 	}
 	// Only a fresh proof completes anything: a cached one cannot supply a
 	// soak report for a unit that has since stopped serving.
-	if !ok || proof.ObservedAt.Before(record.PhaseStartedAt) || !e.fresh(proof) {
+	if !ok || proof.seen().Before(record.PhaseStartedAt) || !e.fresh(proof) {
 		return nil
 	}
 	if proof.BinarySHA256 == record.ToDigest {
 		progress := record.Units[action.Unit]
-		if progress.HealthyReports > 0 && !proof.ObservedAt.After(progress.LastHealthyAt) {
+		if progress.HealthyReports > 0 && !proof.seen().After(progress.LastHealthyAt) {
 			return nil
 		}
 		return &rollout.Event{Kind: rollout.EventHealthy, Unit: action.Unit, Health: proof.Health(), At: e.now()}
@@ -462,15 +463,19 @@ func (e *Executor) fence(ctx context.Context, record rollout.Record) error {
 // left the leader.
 var ErrLeaseLost = errors.New("authority lease lost before a rollout step")
 
-// waveLostProof names a soaking unit of the current wave that already
-// reported healthy but has no fresh proof on the target now.
+// waveLostProof names a unit that already proved the target, a soaking
+// unit of the current wave that reported healthy or a unit an earlier wave
+// promoted, but has no fresh proof on the target now. While one exists no
+// healthy report completes a wave, so neither a later wave nor the whole
+// rollout completes around a unit that stopped serving; the phase deadline
+// decides when that becomes a rollback.
 func (e *Executor) waveLostProof(record rollout.Record) string {
 	if record.WaveIndex < 0 || record.WaveIndex >= len(record.Waves) {
 		return ""
 	}
-	for _, id := range record.Waves[record.WaveIndex] {
+	for _, id := range sortedUnits(record) {
 		progress := record.Units[id]
-		if progress.State != rollout.UnitSoaking || progress.HealthyReports == 0 {
+		if progress.State != rollout.UnitPromoted && (progress.State != rollout.UnitSoaking || progress.HealthyReports == 0) {
 			continue
 		}
 		if proof, ok := e.Proofs.Latest(id); !ok || !e.fresh(proof) || proof.BinarySHA256 != record.ToDigest {
@@ -493,7 +498,7 @@ func (e *Executor) waveRestart(record rollout.Record) *rollout.Event {
 			continue
 		}
 		proof, ok := e.Proofs.Latest(id)
-		if ok && e.fresh(proof) && !proof.ObservedAt.Before(record.PhaseStartedAt) &&
+		if ok && e.fresh(proof) && !proof.seen().Before(record.PhaseStartedAt) &&
 			(proof.ProcessID != progress.ProcessID || proof.StartNonce != progress.StartNonce) {
 			return &rollout.Event{Kind: rollout.EventHealthy, Unit: id, Health: proof.Health(), At: e.now()}
 		}
@@ -515,7 +520,7 @@ func (e *Executor) promotedRegression(record rollout.Record) *rollout.Event {
 			continue
 		}
 		proof, ok := e.Proofs.Latest(id)
-		if ok && e.fresh(proof) && proof.ObservedAt.After(progress.LastHealthyAt) && proof.BinarySHA256 != record.ToDigest {
+		if ok && e.fresh(proof) && proof.seen().After(progress.LastHealthyAt) && proof.BinarySHA256 != record.ToDigest {
 			return &rollout.Event{Kind: rollout.EventUnhealthy, Unit: id, At: e.now(),
 				Reason: fmt.Sprintf("promoted unit %s now serves %s instead of the target", id, short(proof.BinarySHA256))}
 		}
@@ -534,8 +539,14 @@ func (e *Executor) expired(action rollout.Action) bool {
 	return !action.Deadline.IsZero() && !e.now().Before(action.Deadline)
 }
 
+// fresh requires the proof to have reached the leader within the
+// freshness limit, on the leader's clock, and its signed observation time
+// to be no older than that limit plus the verified clock skew, so neither
+// a unit clock behind the leader's nor a late delivery of an old proof
+// decides it.
 func (e *Executor) fresh(proof HealthProof) bool {
-	return e.now().Sub(proof.ObservedAt) <= e.freshness()
+	now := e.now()
+	return now.Sub(proof.seen()) <= e.freshness() && now.Sub(proof.ObservedAt) <= e.freshness()+healthClockSkew
 }
 
 func (e *Executor) page(record rollout.Record) {
@@ -566,10 +577,9 @@ func stepKey(rolloutID, unit string, action StepAction) string {
 // peersServing requires a fresh proof from every group peer, on either
 // side of the rollout, so a step never takes a second replica down.
 func (e *Executor) peersServing(record rollout.Record, peers []string) string {
-	now := e.now()
 	for _, peer := range peers {
 		proof, ok := e.Proofs.Latest(peer)
-		if !ok || now.Sub(proof.ObservedAt) > e.freshness() ||
+		if !ok || !e.fresh(proof) ||
 			proof.BinarySHA256 != record.FromDigest && proof.BinarySHA256 != record.ToDigest {
 			return "group peer " + peer + " is not serving"
 		}

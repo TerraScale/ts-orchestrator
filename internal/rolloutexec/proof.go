@@ -69,19 +69,28 @@ func (proof HealthProof) validate() error {
 }
 
 // Health converts the proof into the rollout core's health observation.
+// Its ObservedAt is the leader's receipt time (seen), so the core orders
+// the report against the leader-clock phase and soak times without
+// trusting the unit's clock; the signed ObservedAt only bounds replay.
 func (proof HealthProof) Health() rollout.Health {
 	return rollout.Health{Digest: proof.BinarySHA256, ProcessID: proof.ProcessID, StartNonce: proof.StartNonce,
-		ObservedAt: proof.ObservedAt}
+		ObservedAt: proof.seen()}
+}
+
+// seen is when the proof reached the leader, on the leader's clock. A
+// source that does not record receipt falls back to the unit's own
+// observation time.
+func (proof HealthProof) seen() time.Time {
+	if !proof.ReceivedAt.IsZero() {
+		return proof.ReceivedAt
+	}
+	return proof.ObservedAt
 }
 
 // arrivedAfter reports whether the proof reached the leader after at, a
-// leader-clock time. A source that does not record receipt falls back to
-// the unit's own observation time.
+// leader-clock time.
 func (proof HealthProof) arrivedAfter(at time.Time) bool {
-	if !proof.ReceivedAt.IsZero() {
-		return proof.ReceivedAt.After(at)
-	}
-	return proof.ObservedAt.After(at)
+	return proof.seen().After(at)
 }
 
 func (proof HealthProof) sameIncarnation(other HealthProof) bool {
