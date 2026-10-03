@@ -49,8 +49,10 @@ func (r *Runtime) stopServer() {
 
 // handOffLeadership steps down every replicated stream and consumer Raft
 // group this broker leads so a peer takes over now rather than after an
-// election timeout. It waits only while a group still names this broker as
-// leader, and returns immediately when this broker leads nothing.
+// election timeout. A step-down clears this broker's leadership at once,
+// before any successor is elected, so the wait follows the original groups
+// until each names a different, non-empty leader or the timeout passes. It
+// returns immediately when this broker leads nothing.
 func (r *Runtime) handOffLeadership(timeout time.Duration) {
 	led := r.ledGroups()
 	if len(led) == 0 {
@@ -64,12 +66,53 @@ func (r *Runtime) handOffLeadership(timeout time.Duration) {
 		}
 	}
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) && len(r.ledGroups()) != 0 {
+	for time.Now().Before(deadline) && !successorsElected(r.groupLeaders(), led, r.server.Name()) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
 
 type ledGroup struct{ account, stream, consumer string }
+
+// successorsElected reports whether every group in led now names a leader
+// other than self. A group that no longer exists needs no successor.
+func successorsElected(leaders map[ledGroup]string, led []ledGroup, self string) bool {
+	if leaders == nil {
+		return false
+	}
+	for _, group := range led {
+		if leader, ok := leaders[group]; ok && (leader == "" || leader == self) {
+			return false
+		}
+	}
+	return true
+}
+
+// groupLeaders maps every replicated stream and consumer group this broker
+// hosts to its current leader, empty while an election is running.
+func (r *Runtime) groupLeaders() map[ledGroup]string {
+	info, err := r.server.Jsz(&server.JSzOptions{Accounts: true, Streams: true, Consumer: true})
+	if err != nil || info == nil {
+		return nil
+	}
+	leaders := map[ledGroup]string{}
+	for _, account := range info.AccountDetails {
+		if account == nil {
+			continue
+		}
+		for _, stream := range account.Streams {
+			if stream.Cluster != nil {
+				leaders[ledGroup{account: account.Id, stream: stream.Name}] = stream.Cluster.Leader
+			}
+			for _, consumer := range stream.Consumer {
+				if consumer != nil && consumer.Cluster != nil {
+					leaders[ledGroup{account: account.Id, stream: stream.Name, consumer: consumer.Name}] =
+						consumer.Cluster.Leader
+				}
+			}
+		}
+	}
+	return leaders
+}
 
 // ledGroups lists groups led by this broker that have a current, online
 // follower. Other groups cannot hand off and are left to Shutdown.

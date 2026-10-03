@@ -31,6 +31,11 @@ type Observation struct {
 	Peers      []Peer
 }
 
+// StaleContact is the metadata leader's lost-contact bound: the vendored NATS
+// server stops reporting a peer current once it has not been heard from for
+// its lost-quorum interval (ten seconds).
+const StaleContact = 10 * time.Second
+
 // Phase is the coarse cluster state a readiness probe or alert can key on.
 type Phase string
 
@@ -176,13 +181,19 @@ func Evaluate(observation Observation, lagThreshold uint64, now time.Time) Statu
 // has not heard from the peer recently. A follower knows only whether it has
 // heard from the leader recently, and always reports other followers as not
 // current with zero lag, which carries no information about them.
+//
+// On the leader, NATS also clears Current once a peer has not been heard from
+// for its lost-quorum interval, independently of lag, and Offline can stay
+// false until the remote-server sweep. A peer whose last contact (Active) is
+// that stale is therefore out of contact even when its lag is within the
+// tolerated threshold.
 func peerLagging(observation Observation, peer Peer, lagThreshold uint64) bool {
 	if peer.Lag > lagThreshold {
 		return true
 	}
 	switch {
 	case observation.MetaLeader == observation.ServerName:
-		return !peer.Current && peer.Lag == 0
+		return !peer.Current && (peer.Lag == 0 || peer.Active > StaleContact)
 	case peer.Name == observation.MetaLeader:
 		return !peer.Current
 	default:

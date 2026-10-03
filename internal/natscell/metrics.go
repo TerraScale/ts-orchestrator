@@ -46,6 +46,9 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 	if err != nil {
 		return observability.NATSView{}, err
 	}
+	if jsz.Disabled {
+		return observability.NATSView{}, ErrJetStreamDisabled
+	}
 	view.StoreUsedBytes = jsz.Store
 	if jsz.Config.MaxStore > 0 {
 		view.StoreLimitBytes = jsz.Config.MaxStore

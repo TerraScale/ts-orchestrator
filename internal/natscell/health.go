@@ -19,6 +19,10 @@ type ClusterObservation struct {
 	MetaPeers     []MetaReplica
 }
 
+// ErrJetStreamDisabled reports a running embedded server whose JetStream is
+// not enabled, for example after a store failure shut JetStream down.
+var ErrJetStreamDisabled = errors.New("embedded JetStream is disabled")
+
 // ObserveCluster reads Routez and Jsz from the embedded server. It never
 // mutates cluster state and is safe to call from a periodic supervisor.
 func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
@@ -42,8 +46,14 @@ func (r *Runtime) ObserveCluster() (ClusterObservation, error) {
 	if err != nil {
 		return observation, err
 	}
+	if info.Disabled {
+		// JetStream was never enabled or was shut down after a store
+		// failure, which also clears JetStreamIsClustered while the NATS
+		// server keeps running. Never present that as a healthy group.
+		return observation, ErrJetStreamDisabled
+	}
 	if info.Meta == nil {
-		if !r.server.JetStreamIsClustered() {
+		if !r.server.JetStreamIsClustered() && len(r.brokerNames) <= 1 {
 			// A standalone broker is its own single-member metadata group.
 			observation.MetaLeader, observation.MetaSize, observation.MetaQuorum = r.serverName, 1, 1
 		}

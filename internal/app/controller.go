@@ -60,7 +60,7 @@ func controllerClockCheck(probe brokerauth.ClockProbe) func() error {
 	}
 }
 
-func runController(ctx context.Context, cfg Config, output io.Writer) error {
+func runController(ctx context.Context, cfg Config, output io.Writer) (err error) {
 	// Take the systemd notification socket before any child process starts.
 	notifier := sdnotify.FromEnvironment()
 	defer func() { _ = notifier.Stopping() }()
@@ -141,6 +141,18 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, nil)
 	defer waitHealth()
 	defer stopHealth()
+	// Every later startup step runs under the broker's lifetime: a broker
+	// that dies while an authority, delivery or placement open is retrying
+	// cancels that open, and the controller exits with
+	// ErrEmbeddedServerStopped so the service manager restarts it.
+	parentCtx := ctx
+	ctx, stopBrokerLifetime := brokerLifetimeContext(parentCtx, brokerStopped)
+	defer stopBrokerLifetime()
+	defer func() {
+		if brokerLifetimeEnded(parentCtx, ctx) {
+			err = natscell.ErrEmbeddedServerStopped
+		}
+	}()
 	defer stepDownMetaLeaderOnShutdown(runtime, cfg.NATS.Embedded.MembershipCredentialsFile)
 	fullClusterReady := func() bool { return runtime.FullClusterReady(cfg.NATS.Replicas) }
 	waitCluster := func(waitCtx context.Context) error {
@@ -646,7 +658,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	go notifier.RunWatchdog(runCtx, runtime.Ready)
 	emitSelfUpdateProof(cfg.Controller.SelfUpdateProofFile, cfg.Controller.ResponseKeyFile, controllerUnit, output)
 	select {
-	case <-ctx.Done():
+	case <-parentCtx.Done():
 		stop()
 		workers.Wait()
 		return nil
