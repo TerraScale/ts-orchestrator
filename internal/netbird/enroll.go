@@ -321,6 +321,11 @@ func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemo
 		} else {
 			var err error
 			if status, err = e.status(ctx); err != nil {
+				// A query cut short by cancellation reports the cancellation,
+				// not an unreachable daemon.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return daemonStatus{}, false, ctxErr
+				}
 				return daemonStatus{}, false, err
 			}
 		}

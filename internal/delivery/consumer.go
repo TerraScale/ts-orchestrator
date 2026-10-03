@@ -330,6 +330,9 @@ func (c *plannerRefusalCounter) forget(key string) {
 	delete(c.counts, key)
 }
 
+// process handles one delivery whose broker count is unknown, so it never
+// holds an intent. Run calls processDelivery with the broker's count; the
+// package tests use this entry point.
 func (s *Service) process(ctx context.Context, wire []byte) (terminal bool, processErr error) {
 	return s.processDelivery(ctx, wire, 0)
 }

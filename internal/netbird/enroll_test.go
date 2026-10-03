@@ -484,6 +484,18 @@ func TestCancellationPropagatesFromObserveAndAwaitDaemon(t *testing.T) {
 	if _, err := e.awaitDaemon(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("awaitDaemon = %v", err)
 	}
+
+	// A status query that cancellation cuts short inside observe reports
+	// the cancellation too, not an unreachable daemon.
+	e = testEnroller(t)
+	ctx, cancel = context.WithCancel(t.Context())
+	e.run = func(context.Context, string, ...string) ([]byte, error) {
+		cancel()
+		return nil, errors.New("signal: killed")
+	}
+	if _, _, err := e.observe(ctx, time.Minute, nil, func(daemonStatus) bool { return false }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("observe with a cancelled query = %v", err)
+	}
 }
 
 // The pinned client's effective configuration must keep every key the
