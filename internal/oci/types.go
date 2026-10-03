@@ -159,6 +159,12 @@ type Fleet interface {
 	Terminate(context.Context, string, string, WriterStopEvidence) error
 }
 
+// SelectiveObserver verifies only the managed instances a selector accepts by
+// instance ID or host node; see fleet.ObserveSelected.
+type SelectiveObserver interface {
+	ObserveSelected(ctx context.Context, selectInstance func(id, node string) bool) ([]Instance, error)
+}
+
 // TerminalExecutor is the region-bound, exact-resource teardown boundary.
 // Discovery and settlement perform reads only; reconciliation requires an
 // already accepted authority marker and a current lease for every effect.

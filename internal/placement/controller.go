@@ -193,7 +193,7 @@ func (controller *Controller) Tick(ctx context.Context) error {
 	if len(intents) > maxIntentCount {
 		return errors.New("placement intent list exceeds its safety bound")
 	}
-	instances, err := controller.fleet.Observe(ctx)
+	instances, err := controller.fleet.Observe(oci.WithCachedVerification(ctx))
 	if err != nil {
 		return fmt.Errorf("observe region-bound OCI fleet: %w", err)
 	}
