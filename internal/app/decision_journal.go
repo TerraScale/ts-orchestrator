@@ -125,6 +125,12 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if observed.autoscalers != nil {
 		insightConfig.Autoscalers = workloadAutoscalers{reconciler: observed.autoscalers}
 	}
+	if observed.rollouts != nil {
+		insightConfig.Rollouts = observed.rollouts
+	}
+	if observed.budgets != nil {
+		insightConfig.Budgets = observed.budgets
+	}
 	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()
@@ -144,7 +150,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 		// until a controller runs their slices; the pages say so.
 		runtime.dashboard.SetJournal(dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes})
+			Regions: providers.Regions, Volumes: volumes, Rollouts: observed.rollouts})
 	}
 }
 

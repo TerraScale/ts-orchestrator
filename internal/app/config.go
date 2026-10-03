@@ -80,6 +80,12 @@ type ControllerConfig struct {
 	// Global enables the global control plane; nil or disabled keeps every
 	// region standalone, exactly as before.
 	Global *GlobalControlConfig `json:"global,omitempty"`
+	// Rollouts opens the rollout store for the dashboard and insights; nil
+	// or disabled keeps it off.
+	Rollouts *RolloutsConfig `json:"rollouts,omitempty"`
+	// RegionPlanner runs the region planner in the global home; nil or
+	// disabled keeps it off.
+	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
 }
 
 type WorkloadProfile struct {
