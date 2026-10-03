@@ -85,6 +85,12 @@ func VerifyVersionProof(wire []byte, publicKey ed25519.PublicKey, activation Act
 		envelope.IssuedAt.Before(activation.ActivatedAt.Truncate(time.Second)) || proof.ObservedAt.Before(activation.ActivatedAt) {
 		return VersionProof{}, fmt.Errorf("%w: version proof is not fresh for this activation", ErrInvalid)
 	}
+	// A process that became ready only after its proof window must not be
+	// confirmed by a late check. A check after the deadline still accepts a
+	// proof produced in time.
+	if envelope.IssuedAt.After(activation.Deadline) || proof.ObservedAt.After(activation.Deadline) {
+		return VersionProof{}, fmt.Errorf("%w: version proof was produced after the activation deadline", ErrInvalid)
+	}
 	return proof, nil
 }
 
