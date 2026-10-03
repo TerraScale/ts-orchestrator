@@ -6,6 +6,9 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -459,5 +462,138 @@ func TestPinnedClientDebugConfigFixtureSatisfiesServerSettings(t *testing.T) {
 	applied, err := e.settingsApplied(t.Context(), DefaultManagementURL)
 	if err != nil || !applied {
 		t.Fatalf("pinned client fixture rejected: applied=%t error=%v", applied, err)
+	}
+}
+
+func TestFirstRegistrationUsesStableSlotPeerName(t *testing.T) {
+	for name, tc := range map[string]struct {
+		ip, want string
+	}{
+		"mapped controller": {"10.251.0.12", "gru-controller-b"},
+		"mapped member":     {"10.251.0.21", "gru-member-1"},
+		"unmapped server":   {"10.251.0.40", "ts-gru-server-1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := testEnroller(t)
+			e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.MustParseAddr(tc.ip), nil }
+			e.readKey = func(context.Context, Config) ([]byte, error) { return []byte(testSetupKey), nil }
+			cfg := testConfig()
+			cfg.PeerNames = map[string]string{"10.251.0.12": "gru-controller-b", "10.251.0.21": "gru-member-1"}
+			var registered string
+			e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+				switch args[0] {
+				case "debug":
+					return []byte(appliedConfigJSON), nil
+				case "up":
+					registered = args[slices.Index(args, "--hostname")+1]
+					return nil, nil
+				}
+				if registered != "" {
+					return statusJSON("Connected", DefaultManagementURL, true), nil
+				}
+				return statusJSON("NeedsLogin", DefaultManagementURL, false), nil
+			}
+			if err := e.enroll(t.Context(), cfg); err != nil {
+				t.Fatal(err)
+			}
+			if registered != tc.want {
+				t.Fatalf("registered as %q, want %q", registered, tc.want)
+			}
+		})
+	}
+}
+
+func TestPeerNameMetadataFailureDoesNotConsumeSetupKey(t *testing.T) {
+	e := testEnroller(t)
+	e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.Addr{}, errors.New("metadata unavailable") }
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] != "status" {
+			t.Fatalf("unexpected command %v", args)
+		}
+		return statusJSON("NeedsLogin", DefaultManagementURL, false), nil
+	}
+	cfg := testConfig()
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	if err := e.enroll(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "primary private IPv4") {
+		t.Fatalf("enrollment without the slot address registered a peer: %v", err)
+	}
+}
+
+func TestConnectedServerDoesNotReadPeerNameMetadata(t *testing.T) {
+	e := testEnroller(t)
+	e.primaryIP = func(context.Context) (netip.Addr, error) {
+		t.Fatal("connected server read instance metadata")
+		return netip.Addr{}, nil
+	}
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "debug" {
+			return []byte(appliedConfigJSON), nil
+		}
+		return statusJSON("Connected", DefaultManagementURL, true), nil
+	}
+	cfg := testConfig()
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	if err := e.enroll(t.Context(), cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrimaryPrivateIPReadsFirstOCIVNIC(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+		want   string
+	}{
+		"primary first": {http.StatusOK, `[{"vnicId":"ocid1.vnic.oc1..a","privateIp":"10.251.0.13","nicIndex":0},{"privateIp":"10.251.0.99"}]`, "10.251.0.13"},
+		"no vnics":      {http.StatusOK, `[]`, ""},
+		"public ip":     {http.StatusOK, `[{"privateIp":"8.8.8.8"}]`, ""},
+		"ipv6":          {http.StatusOK, `[{"privateIp":"fd00::1"}]`, ""},
+		"invalid json":  {http.StatusOK, `{"privateIp":"10.251.0.13"}`, ""},
+		"not found":     {http.StatusNotFound, `[{"privateIp":"10.251.0.13"}]`, ""},
+		"oversized":     {http.StatusOK, `[{"privateIp":"10.251.0.13","pad":"` + strings.Repeat("x", maxVNICBytes) + `"}]`, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/opc/v2/vnics/" || r.Header.Get("Authorization") != "Bearer Oracle" {
+					t.Errorf("unexpected IMDS request %s %q", r.URL.Path, r.Header.Get("Authorization"))
+				}
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+			client := &http.Client{Transport: &http.Transport{DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, network, server.Listener.Addr().String())
+			}}}
+			ip, err := primaryPrivateIP(t.Context(), client)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("accepted IMDS response as %s", ip)
+				}
+				return
+			}
+			if err != nil || ip.String() != tc.want {
+				t.Fatalf("primary IP = %s, %v; want %s", ip, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestPeerNameMetadataFailureKeepsConnectedIdentityUp(t *testing.T) {
+	e := testEnroller(t)
+	e.primaryIP = func(context.Context) (netip.Addr, error) { return netip.Addr{}, errors.New("metadata unavailable") }
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		switch args[0] {
+		case "debug":
+			return []byte(strings.Replace(appliedConfigJSON, `"disableDns":true`, `"disableDns":false`, 1)), nil
+		case "status":
+			return statusJSON("Connected", DefaultManagementURL, true), nil
+		}
+		t.Fatalf("unexpected command %v", args)
+		return nil, nil
+	}
+	cfg := testConfig()
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a"}
+	if err := e.enroll(t.Context(), cfg); err == nil {
+		t.Fatal("re-applied settings without the slot peer name")
 	}
 }

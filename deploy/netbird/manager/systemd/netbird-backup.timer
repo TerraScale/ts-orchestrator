@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly NetBird server store snapshot
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 America/Sao_Paulo
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

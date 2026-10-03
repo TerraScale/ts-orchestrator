@@ -51,8 +51,12 @@ func (packet VerifiedPacket) SimulatorConfig(slot string) (production.Config, er
 	if err != nil {
 		return production.Config{}, err
 	}
+	address, err := packet.PrivateAddress(slot)
+	if err != nil {
+		return production.Config{}, err
+	}
 	config := production.Config{Region: "sa-saopaulo-1", InstanceID: instance,
-		DescriptorSlot: slot, TenancyID: string(tenancy), LeafCertificate: certificate,
+		DescriptorSlot: slot, PrimaryPrivateIP: address, TenancyID: string(tenancy), LeafCertificate: certificate,
 		LeafPrivateKey: key, Intermediate: intermediate, Reads: reads, Missing: missing}
 	if _, err := production.NewSimulator(config); err != nil {
 		return production.Config{}, fmt.Errorf("validate %s simulator: %w", slot, err)

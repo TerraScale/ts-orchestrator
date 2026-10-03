@@ -1,0 +1,112 @@
+#!/usr/bin/python3
+"""Snapshot every NetBird server SQLite store with the online backup API.
+
+Writes /var/srv/appdata/netbird/backups/<UTC stamp>/ atomically and keeps the
+newest seven snapshots. Forgejo's restic pipeline does not include this data.
+"""
+
+import datetime
+import fcntl
+import os
+import pathlib
+import shutil
+import sqlite3
+import sys
+
+DATA = pathlib.Path('/var/srv/appdata/netbird/data')
+BACKUPS = pathlib.Path('/var/srv/appdata/netbird/backups')
+KEEP = 7
+
+
+def snapshot(data: pathlib.Path, backups: pathlib.Path, keep: int, now: datetime.datetime) -> pathlib.Path:
+    # The timer's oneshot unit serializes scheduled runs; the lock also
+    # serializes manual runs, which would otherwise share a partial path.
+    backups.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock = os.open(backups / '.lock', os.O_CREAT | os.O_WRONLY | os.O_CLOEXEC, 0o600)
+    try:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise SystemExit('another netbird-backup run is active') from None
+        return _snapshot(data, backups, keep, now)
+    finally:
+        os.close(lock)
+
+
+def _snapshot(data: pathlib.Path, backups: pathlib.Path, keep: int, now: datetime.datetime) -> pathlib.Path:
+    stores = sorted(path for path in data.glob('*.db') if path.is_file() and not path.is_symlink())
+    if not stores:
+        raise SystemExit(f'no NetBird SQLite stores in {data}')
+    stamp = now.strftime('%Y%m%dT%H%M%SZ')
+    partial = backups / f'.{stamp}.partial'
+    final = backups / stamp
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(mode=0o700, parents=True)
+    for store in stores:
+        source = sqlite3.connect(f'file:{store}?mode=ro', uri=True)
+        target = sqlite3.connect(partial / store.name)
+        try:
+            source.backup(target)
+            if target.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                raise SystemExit(f'snapshot of {store.name} failed its integrity check')
+        finally:
+            target.close()
+            source.close()
+        os.chmod(partial / store.name, 0o600)
+    if final.exists():
+        # A rerun within the same second replaces that second's snapshot;
+        # the old one moves aside first so final is never missing a store.
+        replaced = backups / f'.{stamp}.replaced'
+        shutil.rmtree(replaced, ignore_errors=True)
+        final.rename(replaced)
+        partial.rename(final)
+        shutil.rmtree(replaced)
+    else:
+        partial.rename(final)
+    # Interrupted earlier runs leave hidden work directories behind.
+    for stale in backups.iterdir():
+        if stale.name.startswith('.') and stale.name.endswith(('.partial', '.replaced')) and stale.is_dir():
+            shutil.rmtree(stale)
+    snapshots = sorted(path for path in backups.iterdir() if path.is_dir() and not path.name.startswith('.'))
+    for old in snapshots[:-keep]:
+        shutil.rmtree(old)
+    return final
+
+
+def self_check() -> None:
+    import tempfile
+    with tempfile.TemporaryDirectory() as directory:
+        root = pathlib.Path(directory)
+        data, backups = root / 'data', root / 'backups'
+        data.mkdir()
+        with sqlite3.connect(data / 'store.db') as connection:
+            connection.execute('CREATE TABLE peers (id TEXT)')
+            connection.execute("INSERT INTO peers VALUES ('routing-peer')")
+        base = datetime.datetime(2026, 9, 28, tzinfo=datetime.timezone.utc)
+        # An interrupted earlier run left a partial snapshot behind.
+        leftover = backups / '.20260927T000000Z.partial'
+        leftover.mkdir(parents=True)
+        (leftover / 'store.db').write_bytes(b'truncated')
+        for day in range(KEEP + 2):
+            final = snapshot(data, backups, KEEP, base + datetime.timedelta(days=day))
+        assert not leftover.exists(), 'stale partial snapshot was not pruned'
+        # A rerun within the same second replaces that second's snapshot.
+        with sqlite3.connect(data / 'store.db') as connection:
+            connection.execute("INSERT INTO peers VALUES ('server-peer')")
+        again = snapshot(data, backups, KEEP, base + datetime.timedelta(days=KEEP + 1))
+        assert again == final
+        assert sorted(path.name for path in backups.iterdir() if path.name.startswith('.')) == ['.lock']
+        assert len([path for path in backups.iterdir() if path.is_dir()]) == KEEP
+        with sqlite3.connect(final / 'store.db') as connection:
+            peers = {row[0] for row in connection.execute('SELECT id FROM peers')}
+            assert peers == {'routing-peer', 'server-peer'}, peers
+    print('netbird-backup self-check ok')
+
+
+if __name__ == '__main__':
+    if sys.argv[1:] == ['--self-check']:
+        self_check()
+    elif sys.argv[1:]:
+        raise SystemExit('usage: netbird-backup [--self-check]')
+    else:
+        print(snapshot(DATA, BACKUPS, KEEP, datetime.datetime.now(datetime.timezone.utc)))

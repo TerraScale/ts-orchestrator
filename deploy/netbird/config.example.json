@@ -2,5 +2,13 @@
   "management_url": "https://netbird.terrascale.tech",
   "management_ip": "10.250.10.155",
   "region": "sa-saopaulo-1",
-  "setup_key_secret_id": "REQUIRED_SECRET_OCID"
+  "setup_key_secret_id": "REQUIRED_SECRET_OCID",
+  "admin_pat_secret_id": "OPTIONAL_ADMIN_PAT_SECRET_OCID",
+  "peer_names": {
+    "10.251.0.11": "gru-controller-a",
+    "10.251.0.12": "gru-controller-b",
+    "10.251.0.13": "gru-controller-c",
+    "10.251.0.21": "gru-member-1",
+    "10.251.0.22": "gru-member-2"
+  }
 }

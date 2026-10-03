@@ -32,15 +32,57 @@ func validSetupKey(key []byte) bool {
 }
 
 func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
+	return readOCISecret(ctx, cfg.Region, cfg.SetupKeySecretID, "setup-key", setupKeyMaxBytes, validSetupKey)
+}
+
+// setupKeyMaxBytes bounds the encoded setup-key bundle read from OCI Vault.
+const setupKeyMaxBytes = 128
+
+// Admin PAT bounds. NetBird issues "nbp_" + a 30-character secret + a
+// 6-character base62 checksum (40 bytes); longer future tokens are accepted
+// up to maxAdminPATBytes.
+const (
+	minAdminPATBytes = 40
+	maxAdminPATBytes = 256
+)
+
+// validAdminPAT is the single NetBird personal access token shape check: the
+// "nbp_" prefix followed by a bounded base62 body.
+func validAdminPAT(token []byte) bool {
+	if len(token) < minAdminPATBytes || len(token) > maxAdminPATBytes || !bytes.HasPrefix(token, []byte("nbp_")) {
+		return false
+	}
+	for _, c := range token[4:] {
+		if !('a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidAdminPAT reports whether token has NetBird's PAT shape. The manager
+// client and the OCI Vault reader share this predicate.
+func ValidAdminPAT(token []byte) bool { return validAdminPAT(token) }
+
+// ReadAdminPAT reads the current NetBird admin PAT version from OCI Vault with
+// the instance principal. The caller must clear the returned bytes.
+func ReadAdminPAT(ctx context.Context, cfg Config) ([]byte, error) {
+	if cfg.AdminPATSecretID == "" {
+		return nil, errors.New("NetBird admin_pat_secret_id is not configured")
+	}
+	return readOCISecret(ctx, cfg.Region, cfg.AdminPATSecretID, "admin PAT", maxAdminPATBytes, validAdminPAT)
+}
+
+func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes int, valid func([]byte) bool) ([]byte, error) {
 	for _, name := range []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI_SDK_AUTH_CLIENT_REGION_URL", "OCI_DEFAULT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH"} {
 		if _, overridden := os.LookupEnv(name); overridden {
-			return nil, errors.New("NetBird enrollment does not permit OCI debug logging, endpoint or TLS overrides")
+			return nil, errors.New("NetBird OCI Vault access does not permit OCI debug logging, endpoint or TLS overrides")
 		}
 	}
 	if ctx.Err() != nil {
-		return nil, errors.New("NetBird enrollment was canceled")
+		return nil, errors.New("NetBird OCI Vault read was canceled")
 	}
-	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(cfg.Region), boundedInstancePrincipalDispatcher)
+	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(region), boundedInstancePrincipalDispatcher)
 	if err != nil {
 		return nil, errors.New("cannot create OCI instance-principal credentials for NetBird")
 	}
@@ -48,14 +90,14 @@ func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("cannot create OCI Secrets client for NetBird")
 	}
-	client.SetRegion(cfg.Region)
+	client.SetRegion(region)
 	httpClient, err := bootstrap.NewInstancePrincipalSDKHTTPClient()
 	if err != nil {
 		return nil, errors.New("cannot bound OCI Secrets client transport")
 	}
 	httpClient.Transport = responseLimitTransport{transport: httpClient.Transport, limit: 16 << 10}
 	client.HTTPClient = httpClient
-	return readCurrentSetupKey(ctx, cfg.SetupKeySecretID, client)
+	return readCurrentSecret(ctx, secretID, label, maxBytes, client, valid)
 }
 
 // vaultBackoff bounds retries of a transient Vault failure. A first boot races
@@ -64,6 +106,12 @@ func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
 var vaultBackoff = []time.Duration{100 * time.Millisecond, 400 * time.Millisecond, time.Second}
 
 func readCurrentSetupKey(ctx context.Context, secretID string, client bundleClient) ([]byte, error) {
+	return readCurrentSecret(ctx, secretID, "setup-key", setupKeyMaxBytes, client, validSetupKey)
+}
+
+// readCurrentSecret reads the CURRENT bundle version; maxBytes is the decoded
+// per-secret budget, gated on its base64 encoded length before decoding.
+func readCurrentSecret(ctx context.Context, secretID, label string, maxBytes int, client bundleClient, valid func([]byte) bool) ([]byte, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	// The SDK retry policy stays off: the loop below shares one deadline and
@@ -88,28 +136,29 @@ func readCurrentSetupKey(ctx context.Context, secretID string, client bundleClie
 		}
 	}
 	if err != nil || response.SecretId == nil || *response.SecretId != secretID || response.VersionNumber == nil || *response.VersionNumber < 1 {
-		return nil, errors.New("OCI Vault setup-key read failed")
+		return nil, errors.New("OCI Vault " + label + " read failed")
 	}
+	invalid := errors.New("OCI Vault " + label + " content is invalid")
 	content, ok := response.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
 	if !ok {
 		pointer, pointerOK := response.SecretBundleContent.(*secrets.Base64SecretBundleContentDetails)
 		if !pointerOK || pointer == nil {
-			return nil, errors.New("OCI Vault setup-key content is invalid")
+			return nil, invalid
 		}
 		content = *pointer
 	}
-	if content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(128) {
-		return nil, errors.New("OCI Vault setup-key content is invalid")
+	if content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(maxBytes) {
+		return nil, invalid
 	}
 	decoded, err := base64.StdEncoding.Strict().DecodeString(*content.Content)
 	if err != nil {
 		clear(decoded)
-		return nil, errors.New("OCI Vault setup-key content is invalid")
+		return nil, invalid
 	}
 	defer clear(decoded)
 	key := bytes.TrimSpace(decoded)
-	if !validSetupKey(key) {
-		return nil, errors.New("OCI Vault setup-key content is invalid")
+	if !valid(key) {
+		return nil, invalid
 	}
 	return bytes.Clone(key), nil
 }

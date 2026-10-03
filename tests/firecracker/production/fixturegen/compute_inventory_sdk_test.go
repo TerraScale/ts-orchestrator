@@ -45,6 +45,9 @@ func assertPacketComputeSDK(t *testing.T, packet VerifiedPacket, slot string,
 	if err != nil {
 		t.Fatal(err)
 	}
+	if config.PrimaryPrivateIP != vnic.PrimaryPrivateIP {
+		t.Fatalf("%s simulator VNIC address = %q, want %q", slot, config.PrimaryPrivateIP, vnic.PrimaryPrivateIP)
+	}
 	simulator, err := production.NewSimulator(config)
 	if err != nil {
 		t.Fatalf("%s simulator rejected packet routes: %v", slot, err)

@@ -349,3 +349,71 @@ func TestNetbirdCancelledFetchPreservesExistingClient(t *testing.T) {
 	equal(t, read(t, f.output), []byte("existing client"))
 	absent(t, f.cache)
 }
+
+func TestNetbirdPublicConfigRejectsInvalidPeerNames(t *testing.T) {
+	for name, names := range map[string]map[string]string{
+		"public address": {"8.8.8.8": "gru-controller-a"},
+		"invalid label":  {"10.251.0.11": "GRU_controller_a"},
+		"duplicate name": {"10.251.0.11": "gru-controller-a", "10.251.0.12": "gru-controller-a"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.json")
+			config := validNetbirdConfig()
+			config["peer_names"] = names
+			write(t, path, jsonBytes(t, config), 0600)
+			if _, err := client.ValidateConfig(path); err == nil || !strings.Contains(err.Error(), "peer_names") {
+				t.Fatalf("accepted invalid peer names: %v", err)
+			}
+		})
+	}
+}
+
+func TestGRUNetbirdInputNamesEveryCellSlotStably(t *testing.T) {
+	config, err := client.ValidateConfig(filepath.Join(deployRoot(t), "deploy/image/inputs/netbird-gru.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var plan struct {
+		Hosts []struct {
+			Slot      string `json:"slot"`
+			PrivateIP string `json:"private_ip"`
+		} `json:"hosts"`
+	}
+	if err := json.Unmarshal(read(t, filepath.Join(deployRoot(t), "deploy/oci-region/plan.json")), &plan); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"controller-a": "gru-controller-a", "controller-b": "gru-controller-b",
+		"controller-c": "gru-controller-c", "member-a": "gru-member-1", "member-b": "gru-member-2"}
+	if len(plan.Hosts) != len(want) || len(config.PeerNames) != len(want) {
+		t.Fatalf("plan slots %d and peer names %d differ from %d", len(plan.Hosts), len(config.PeerNames), len(want))
+	}
+	for _, host := range plan.Hosts {
+		if got := config.PeerNames[host.PrivateIP]; got != want[host.Slot] {
+			t.Errorf("slot %s at %s is named %q, want %q", host.Slot, host.PrivateIP, got, want[host.Slot])
+		}
+	}
+}
+
+func TestNetbirdPublicConfigAdminPATSecretMustBeInRegion(t *testing.T) {
+	// An empty or null ID means absent, matching netbird.Config.
+	for _, tc := range []struct {
+		id   any
+		ok   bool
+		want string
+	}{
+		{"ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat", true, "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"},
+		{"ocid1.vaultsecret.oc1.us-ashburn-1.adminpat", false, ""},
+		{"not-an-ocid", false, ""},
+		{"", true, ""},
+		{nil, true, ""},
+	} {
+		path := filepath.Join(t.TempDir(), "config.json")
+		config := validNetbirdConfig()
+		config["admin_pat_secret_id"] = tc.id
+		write(t, path, jsonBytes(t, config), 0600)
+		parsed, err := client.ValidateConfig(path)
+		if tc.ok != (err == nil) || tc.ok && parsed.AdminPATSecretID != tc.want {
+			t.Fatalf("admin PAT secret %v: %+v %v", tc.id, parsed, err)
+		}
+	}
+}

@@ -1,0 +1,8 @@
+[Unit]
+Description=Snapshot the NetBird server store (ts-ops)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/homelab/netbird/netbird-backup
+Nice=10
+IOSchedulingClass=idle

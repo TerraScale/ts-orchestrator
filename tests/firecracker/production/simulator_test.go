@@ -78,9 +78,10 @@ func testSimulator(t *testing.T) (*Simulator, *rsa.PrivateKey) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(leafKey)})
 	simulator, err := NewSimulator(Config{
 		Region: "sa-saopaulo-1", InstanceID: testInstance, DescriptorSlot: "controller-a", TenancyID: testTenancy,
-		LeafCertificate: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
-		LeafPrivateKey:  keyPEM,
-		Intermediate:    pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}),
+		PrimaryPrivateIP: "10.44.0.11",
+		LeafCertificate:  pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER}),
+		LeafPrivateKey:   keyPEM,
+		Intermediate:     pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: rootDER}),
 		Reads: []ReadResponse{{
 			Host: "iaas.sa-saopaulo-1.oraclecloud.com", RequestURI: testURI,
 			Body: []byte(`{"id":"` + testInstance + `"}`), ContentType: "application/json",
@@ -314,6 +315,7 @@ func TestSimulatorPinsIMDSAndRejectsUnlistedRoutes(t *testing.T) {
 		{"/opc/v2/identity/cert.pem", string(simulator.config.LeafCertificate)},
 		{"/opc/v2/identity/key.pem", string(simulator.config.LeafPrivateKey)},
 		{"/opc/v2/identity/intermediate.pem", string(simulator.config.Intermediate)},
+		{"/opc/v2/vnics/", `[{"privateIp":"10.44.0.11"}]`},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "http://"+imdsHost+test.path, nil)
 		request.Header.Set("Authorization", "Bearer Oracle")
@@ -323,13 +325,24 @@ func TestSimulatorPinsIMDSAndRejectsUnlistedRoutes(t *testing.T) {
 			t.Fatalf("IMDS %s = %d %q", test.path, response.Code, response.Body.String())
 		}
 	}
-	for _, uri := range []string{"/opc/v2/instance/other", "/opc/v2/instance/id?other=1"} {
+	for _, record := range simulator.Requests() {
+		if !record.Listed || record.Status != http.StatusOK || record.Host != imdsHost {
+			t.Fatalf("pinned IMDS request was not audited as listed: %#v", record)
+		}
+	}
+	if records := simulator.Requests(); records[len(records)-1].RequestURI != "/opc/v2/vnics/" {
+		t.Fatalf("VNIC IMDS audit URI = %q", records[len(records)-1].RequestURI)
+	}
+	for _, uri := range []string{"/opc/v2/instance/other", "/opc/v2/instance/id?other=1", "/opc/v2/vnics", "/opc/v2/vnics/x"} {
 		request := httptest.NewRequest(http.MethodGet, "http://"+imdsHost+uri, nil)
 		request.Header.Set("Authorization", "Bearer Oracle")
 		response := httptest.NewRecorder()
 		simulator.ServeHTTP(response, request)
 		if response.Code != http.StatusMisdirectedRequest {
 			t.Fatalf("unlisted IMDS %s = %d", uri, response.Code)
+		}
+		if records := simulator.Requests(); records[len(records)-1].Listed {
+			t.Fatalf("unlisted IMDS %s was audited as listed", uri)
 		}
 	}
 	response := httptest.NewRecorder()
@@ -544,5 +557,16 @@ func TestSimulatorRedactsUnlistedQuery(t *testing.T) {
 	if got.Listed || got.Status != http.StatusForbidden || got.RequestURI != "[unlisted]" ||
 		got.RouteSHA256 == "" {
 		t.Fatalf("unlisted path/query audit = %#v", got)
+	}
+}
+
+func TestSimulatorRequiresPrimaryPrivateIP(t *testing.T) {
+	simulator, _ := testSimulator(t)
+	for _, address := range []string{"", "8.8.8.8", "fd00::1", "10.44.0.011", "10.44.0.11 "} {
+		config := simulator.config
+		config.PrimaryPrivateIP = address
+		if _, err := NewSimulator(config); err == nil {
+			t.Fatalf("simulator accepted primary private IP %q", address)
+		}
 	}
 }
