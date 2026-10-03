@@ -84,7 +84,15 @@ func TestPromotionCommand(t *testing.T) {
 			fail("fake " + args[0] + " rejected its inputs")
 		}
 		if j := slices.Index(args, "--out"); j >= 0 {
-			if err := os.WriteFile(args[j+1], []byte(`{"fake":"`+args[0]+`"}`+"\n"), 0600); err != nil {
+			// Like the real release tool, never overwrite an output.
+			file, err := os.OpenFile(args[j+1], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err != nil {
+				fail("create output without overwrite: " + err.Error())
+			}
+			if _, err := file.WriteString(`{"fake":"` + args[0] + `"}` + "\n"); err != nil {
+				fail(err.Error())
+			}
+			if err := file.Close(); err != nil {
 				fail(err.Error())
 			}
 		}

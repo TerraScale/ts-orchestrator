@@ -97,6 +97,11 @@ func BuildReleaseTool(ctx context.Context, root, work, source, prebuilt string, 
 			result = errors.New("invalid image source revision")
 			return
 		}
+		// go build runs inside the source worktree: a relative -o would
+		// land in (and be removed with) that worktree.
+		if work, result = filepath.Abs(work); result != nil {
+			return
+		}
 		checkout := filepath.Join(work, "source")
 		if _, result = run(ctx, "", nil, "git", "-C", root, "fetch", "--quiet", "origin", "main"); result != nil {
 			return
@@ -410,7 +415,63 @@ func (p *promotion) checkResumeState(imageSHA256 string) error {
 	if e != nil {
 		return e
 	}
-	return os.WriteFile(path, b, 0644)
+	return writeCheckpoint(path, b)
+}
+
+// writeCheckpoint publishes a resume checkpoint through a synced temporary
+// file and an atomic rename, so an interruption leaves either the previous
+// or the new checkpoint and never a truncated one. An identical checkpoint
+// is not rewritten.
+func writeCheckpoint(path string, b []byte) error {
+	if existing, e := os.ReadFile(path); e == nil && string(existing) == string(b) {
+		return nil
+	}
+	temporary, e := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-")
+	if e != nil {
+		return e
+	}
+	defer os.Remove(temporary.Name())
+	if _, e = temporary.Write(b); e == nil {
+		e = temporary.Sync()
+	}
+	if e == nil {
+		e = temporary.Chmod(0644)
+	}
+	if closeErr := temporary.Close(); e == nil {
+		e = closeErr
+	}
+	if e != nil {
+		return e
+	}
+	if e = os.Rename(temporary.Name(), path); e != nil {
+		return e
+	}
+	dir, e := os.Open(filepath.Dir(path))
+	if e != nil {
+		return e
+	}
+	defer dir.Close()
+	return dir.Sync()
+}
+
+// freshOutput makes path available to a generating release command, which
+// never overwrites its --out. On --resume an output an earlier run left
+// behind is moved aside (kept for audit) and regenerated from the verified
+// inputs; without --resume --out is new, so an existing file is an error.
+func (p *promotion) freshOutput(path string) error {
+	s, e := os.Lstat(path)
+	if os.IsNotExist(e) {
+		return nil
+	}
+	if e != nil {
+		return e
+	}
+	if !p.o.Resume || !s.Mode().IsRegular() {
+		return fmt.Errorf("promotion output already exists: %s", path)
+	}
+	aside := fmt.Sprintf("%s.superseded-%d", path, time.Now().UnixNano())
+	p.step("regenerating " + filepath.Base(path) + "; the earlier one is kept as " + filepath.Base(aside))
+	return os.Rename(path, aside)
 }
 
 // reuseReleaseTool returns the signer recorded by an earlier run of a resumed
@@ -529,6 +590,13 @@ func (p *promotion) finish(outcome string) error {
 	return nil
 }
 func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer) error {
+	// The release tool is built with its working directory in a source
+	// worktree, so every path derived from --out must be absolute.
+	absoluteOut, e := filepath.Abs(o.Out)
+	if e != nil {
+		return e
+	}
+	o.Out = absoluteOut
 	work, e := os.MkdirTemp("", "ts-promote-")
 	if e != nil {
 		return e
@@ -659,6 +727,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	if files.receipt == "" {
 		unsigned := filepath.Join(o.Out, "binary-candidate.json")
+		if e = p.freshOutput(unsigned); e != nil {
+			return e
+		}
 		if _, e = release(false, "binary-candidate", "--binary", files.binary, "--source-revision", p.manifest.SourceRevision, "--qualification", files.qualification, "--out", unsigned); e != nil {
 			return e
 		}
@@ -670,6 +741,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 			return p.finish("dry run stopped before the image candidate: the binary is not signed yet")
 		}
 		files.receipt = filepath.Join(o.Out, "binary.receipt.json")
+		if e = p.freshOutput(files.receipt); e != nil {
+			return e
+		}
 		args := []string{"sign-binary", "--candidate", unsigned, "--binary", files.binary, "--qualification", files.qualification, "--signing-key", o.SigningKey}
 		args = append(args, trust...)
 		args = append(args, "--out", files.receipt)
@@ -725,6 +799,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		p.step("imported image_ocid=" + imageOCID)
 	}
 	imageCandidate := filepath.Join(o.Out, "image-candidate.json")
+	if e = p.freshOutput(imageCandidate); e != nil {
+		return e
+	}
 	args = append([]string{"image-candidate", "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification}, trust...)
 	base := p.manifest.Inputs.Manifest.Base
 	args = append(args, "--image-file", image, "--base-image-ocid", base.OCIImageOCID, "--base-image-region", region, "--base-image-file", files.base, "--kernel-release", p.manifest.Kernel.Release, "--kernel-file", kernel, "--image-ocid", imageOCID, "--region", region, "--out", imageCandidate)
@@ -753,6 +830,9 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	trustRecord["image_delegation_sha256"] = digest
 	signed := filepath.Join(o.Out, "image-receipt.json")
+	if e = p.freshOutput(signed); e != nil {
+		return e
+	}
 	args = []string{"sign-image", "--candidate", imageCandidate, "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification, "--image-file", image, "--base-image-file", files.base, "--kernel-file", kernel, "--signing-key", o.SigningKey}
 	args = append(args, imageTrust...)
 	args = append(args, "--environment", o.Environment, "--out", signed)
