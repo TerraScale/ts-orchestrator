@@ -36,8 +36,8 @@ type VolumeProvider interface {
 
 // Volume is one block volume.
 type Volume struct {
-	ID    string `json:"id"`
-	Host  string `json:"host,omitempty"`
+	ID   string `json:"id"`
+	Host string `json:"host,omitempty"`
 	// State is attached, available, attaching or detaching.
 	State string `json:"state"`
 	// Detail optionally names the provider's own finer state, for example
