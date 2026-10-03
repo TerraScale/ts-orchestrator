@@ -99,10 +99,13 @@ func (guard RefoundGuard) Begin(pending RefoundPending) error {
 
 // Clear removes the pending record.
 func (guard RefoundGuard) Clear() error {
-	if err := os.Remove(guard.PendingPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(guard.PendingPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return err
 	}
-	return nil
+	return syncDir(filepath.Dir(guard.PendingPath))
 }
 
 // WaitCurrent polls the controller's cluster health until the pending
@@ -198,8 +201,13 @@ func (guard RefoundGuard) readPending() (RefoundPending, error) {
 
 func writeOwnerOnly(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		if err := syncDir(filepath.Dir(dir)); err != nil {
+			return err
+		}
 	}
 	temporary, err := os.CreateTemp(dir, ".refound-*")
 	if err != nil {
@@ -221,5 +229,19 @@ func writeOwnerOnly(path string, data []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporary.Name(), path)
+	if err := os.Rename(temporary.Name(), path); err != nil {
+		return err
+	}
+	// The record gates the next slot after a crash, so its directory entry
+	// must be durable before the caller launches anything.
+	return syncDir(dir)
+}
+
+func syncDir(dir string) error {
+	handle, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	return handle.Sync()
 }
