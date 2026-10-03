@@ -539,3 +539,22 @@ func TestExecutorNeedsAProofAfterTheAcceptedRollback(t *testing.T) {
 	}
 	h.run(3, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
 }
+
+// A completed program step only counts for the spec it was planned from:
+// the same ID retargeted stops the program instead of starting the hosts.
+func TestExecutorStopsAProgramWhoseCompletedStepNoLongerMatches(t *testing.T) {
+	h := newHarness(t)
+	h.run(200, func() bool { return h.phase("rel1-controllers") == rollout.PhaseComplete })
+	for index := range h.program {
+		h.program[index].ToDigest = strings.Repeat("d", 64)
+	}
+	for range 3 {
+		h.clock.Advance(20 * time.Second)
+		if err := h.executor.Tick(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, exists := h.load("rel1-hosts"); exists {
+		t.Fatal("the hosts started on a target the controllers never ran")
+	}
+}

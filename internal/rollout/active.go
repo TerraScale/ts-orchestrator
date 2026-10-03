@@ -53,3 +53,13 @@ func (s *Store) Settle(ctx context.Context, record Record, epoch uint64) error {
 	}
 	return s.syncCell(ctx, withEpoch(record, epoch))
 }
+
+// Matches reports whether record is the rollout spec describes: the same
+// digests, kind, waves and policy. A program uses it before it treats an
+// earlier record as its completed prerequisite.
+func (record Record) Matches(spec Spec) error {
+	if record.RolloutID != spec.RolloutID || record.Cell != spec.Cell {
+		return fmt.Errorf("%w: rollout ID is bound to a different rollout", ErrConflict)
+	}
+	return sameRollout(record, spec)
+}

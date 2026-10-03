@@ -79,7 +79,7 @@ func (a *Agent) now() time.Time {
 
 // Handle verifies and applies one step and returns the reply.
 func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
-	command, err := VerifyStepCommand(wire, a.Cell, a.Unit, a.Leaders, a.now())
+	command, expires, err := VerifyStepCommand(wire, a.Cell, a.Unit, a.Leaders, a.now())
 	if err != nil {
 		return StepReply{Unit: a.Unit, Outcome: OutcomeRefused, Reason: "step command did not verify"}
 	}
@@ -88,7 +88,10 @@ func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
 	defer a.mu.Unlock()
 	window := max(selfupdate.MinProofWindow, min(selfupdate.MaxProofWindow,
 		time.Duration(command.ProofWindowSeconds)*time.Second))
-	reply.Outcome, reply.Reason = a.apply(ctx, command, window)
+	// Nothing, staging included, outlives the signed command.
+	stepCtx, cancel := context.WithDeadline(ctx, expires)
+	defer cancel()
+	reply.Outcome, reply.Reason = a.apply(stepCtx, command, expires, window)
 	return reply
 }
 
@@ -97,7 +100,7 @@ func (a *Agent) Handle(ctx context.Context, wire []byte) StepReply {
 // restarted. The restart obligation is recorded before the release changes
 // and cleared only by the unit's next start, so any interruption leaves the
 // watchdog (and a retry by a new agent) a restart to finish.
-func (a *Agent) apply(ctx context.Context, command StepCommand, window time.Duration) (StepOutcome, string) {
+func (a *Agent) apply(ctx context.Context, command StepCommand, expires time.Time, window time.Duration) (StepOutcome, string) {
 	if outcome, reason := a.locked(func() (StepOutcome, string) { return a.admit(command) }); outcome != "" {
 		return outcome, reason
 	}
@@ -105,6 +108,12 @@ func (a *Agent) apply(ctx context.Context, command StepCommand, window time.Dura
 		return outcome, reason
 	}
 	outcome, reason := a.locked(func() (StepOutcome, string) {
+		// Re-checked under the lock, immediately before the selection
+		// changes: waiting for the lock or a staging download must not
+		// let an expired command act.
+		if !a.now().Before(expires) {
+			return OutcomeRetry, "step command expired before it could be applied"
+		}
 		if outcome, reason := a.admit(command); outcome != "" {
 			return outcome, reason
 		}

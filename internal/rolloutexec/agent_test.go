@@ -88,10 +88,15 @@ type fetchFake struct {
 	content string
 	keep    string
 	calls   int
+	// slow runs during the fetch, for example to let the step expire.
+	slow func()
 }
 
 func (f *fetchFake) Fetch(_ context.Context, layout selfupdate.Layout, receipt, _ []byte) (string, error) {
 	f.calls++
+	if f.slow != nil {
+		f.slow()
+	}
 	if string(receipt) != "signed receipt" {
 		return "", errors.New("receipt does not verify")
 	}
@@ -337,5 +342,62 @@ func TestNATSDriverReachesTheAgent(t *testing.T) {
 	if _, err := driver.Step(t.Context(), Step{RolloutID: "r", Kind: rollout.KindController, Unit: "ctl-z",
 		OperationID: "ro-2", Action: StepPrepare, Digest: f.to, Epoch: 7, ProofWindow: time.Minute}); err == nil {
 		t.Fatal("a step to a unit without an agent succeeded")
+	}
+}
+
+// A step that expires while it waits for its release to be staged changes
+// nothing; the executor sends a freshly signed one.
+func TestAgentDoesNotApplyAStepThatExpiredWhileStaging(t *testing.T) {
+	f := newAgentFixture(t)
+	pointCurrent(t, f.agent.Layout, f.to)
+	if err := os.RemoveAll(f.agent.Layout.ReleaseDir(f.from)); err != nil {
+		t.Fatal(err)
+	}
+	f.agent.Fetch = &fetchFake{t: t, content: "release from", keep: f.to, slow: func() {
+		f.agent.Now = func() time.Time { return f.now.Add(StepLifetime) }
+	}}
+	if reply := f.agent.Handle(t.Context(), f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeRetry {
+		t.Fatalf("step that expired while staging = %+v", reply)
+	}
+	if current, err := f.agent.Layout.Current(); err != nil || current != f.to || f.restarts.count() != 0 {
+		t.Fatalf("an expired step changed the unit: current %s %v, restarts %d", current, err, f.restarts.count())
+	}
+}
+
+// A rollback of a unit that never left the predecessor still makes the
+// node refuse the rejected release, without restarting the unit.
+func TestAgentRollbackOfAnUnmovedUnitRefusesTheRejectedRelease(t *testing.T) {
+	f := newAgentFixture(t)
+	if reply := f.agent.Handle(t.Context(), f.command(t, StepRollback, f.from, 7)); reply.Outcome != OutcomeCurrent {
+		t.Fatalf("rollback of an unmoved unit = %+v", reply)
+	}
+	if reply := f.agent.Handle(t.Context(), f.command(t, StepPrepare, f.to, 7)); reply.Outcome != OutcomeRefused {
+		t.Fatalf("a same-epoch prepare of the rejected release = %+v", reply)
+	}
+	if f.restarts.count() != 0 {
+		t.Fatalf("restarts = %d", f.restarts.count())
+	}
+}
+
+// The driver re-checks the lease after its own preparation: a step whose
+// lease was lost meanwhile never reaches the agent.
+func TestNATSDriverSendsNothingAfterTheLeaseWasLost(t *testing.T) {
+	f := newAgentFixture(t)
+	conn, _ := testNATS(t)
+	sub, err := f.agent.Serve(t.Context(), conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sub.Unsubscribe()
+	driver := NATSDriver{Conn: conn, Cell: "gru", Key: f.key, Timeout: 5 * time.Second, Now: func() time.Time { return f.now }}
+	_, err = driver.Step(t.Context(), Step{RolloutID: "rel1-controllers", Kind: rollout.KindController, Unit: "ctl-b",
+		OperationID: rollout.OperationID("rel1-controllers", "ctl-b", rollout.PhaseCanary, 0), Action: StepPrepare,
+		Digest: f.to, Epoch: 7, ProofWindow: 10 * time.Minute,
+		Fence: func(context.Context) error { return ErrLeaseLost }})
+	if !errors.Is(err, ErrLeaseLost) {
+		t.Fatalf("step after a lost lease = %v", err)
+	}
+	if _, pending, err := f.agent.Layout.Pending(); err != nil || pending || f.restarts.count() != 0 {
+		t.Fatalf("a fenced step reached the agent: pending %v %v, restarts %d", pending, err, f.restarts.count())
 	}
 }

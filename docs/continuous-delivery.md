@@ -330,7 +330,10 @@ Nothing in this change starts it; the pieces are:
   deadlines before it derives any step, and a step whose deadline passed
   while its gates ran is not sent. Immediately before a step leaves the
   leader, the executor calls the authority `Guard` for the record's epoch,
-  so a lease lost during the tick never moves a unit.
+  and the driver checks it again after its receipt lookup and signing,
+  immediately before the step is sent, so a lease lost during the tick
+  never moves a unit. A program step counts as done only if its completed
+  record matches the step's spec (`Record.Matches`).
 - **Signed health proofs** (`ts.orch.v1.<cell>.rollout.proof.<hash(unit)>`).
   A running unit signs `{cell, unit, binary digest, pid, start nonce,
   observed_at}` (trust domain `terrascale.orchestrator.rollout-health`, 2
@@ -351,7 +354,10 @@ Nothing in this change starts it; the pieces are:
   plus the release receipt (trust domain
   `terrascale.orchestrator.rollout-step`, 2 minute lifetime, scope bound to
   operation, action and unit). The agent verifies it against the controller
-  keys, records the step's authority epoch durably in the release root
+  keys, refuses to act once the signed command has expired (staging is
+  bounded by that expiry and the expiry is re-checked under the release
+  lock before the selection changes), records the step's authority epoch
+  durably in the release root
   (`authority-epoch`) and refuses a step from an older epoch, even after
   the agent restarted,
   restages a pruned release through its `Fetcher` (the receipt is verified
@@ -368,7 +374,9 @@ Nothing in this change starts it; the pieces are:
     unit's prepare step), `Activate` and `Restore` all finish an
     interrupted restore from its intent before they change anything, so
     its recovery never overwrites a newer selection.
-    It creates no pending activation, so a failed
+    A rollback of a unit that never left the predecessor changes nothing but
+    still marks the rejected release known bad on the node. It creates no
+    pending activation, so a failed
     restart or missing proof can never let the watchdog return the node to
     the rejected release. A pending activation of the rejected release is
     rolled back exactly as the watchdog would.

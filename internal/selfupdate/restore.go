@@ -78,7 +78,10 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 	}
 	switch current {
 	case digest:
-		return false, nil
+		// The unit never left digest, but the rollout rejected the other
+		// release: this node must refuse it from now on too. Nothing
+		// changed the selection, so no restart is owed.
+		return false, layout.markKnownBad(rejected)
 	case rejected:
 	default:
 		return false, fmt.Errorf("%w: the current release is neither the restore target nor the rejected release", ErrInvalid)

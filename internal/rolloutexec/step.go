@@ -56,6 +56,10 @@ type Step struct {
 	// ProofWindow is how long the unit's watchdog waits for the new
 	// process's version proof before it rolls the activation back.
 	ProofWindow time.Duration
+	// Fence, when set, re-checks the leader's authority lease; a driver
+	// calls it after its own preparation (receipt lookup, signing) and
+	// immediately before the step leaves, and sends nothing if it fails.
+	Fence func(context.Context) error
 }
 
 // StepCommand is the leader-signed wire form of a Step. Receipt and
@@ -115,32 +119,33 @@ func SignStepCommand(command StepCommand, key ed25519.PrivateKey, now time.Time)
 }
 
 // VerifyStepCommand accepts a current command for exactly this cell and
-// unit, signed by one of the controller keys.
-func VerifyStepCommand(wire []byte, cell, unit string, keys trust.Keyring, now time.Time) (StepCommand, error) {
+// unit, signed by one of the controller keys. It also returns when the
+// signature expires: the agent must not act on the command after that.
+func VerifyStepCommand(wire []byte, cell, unit string, keys trust.Keyring, now time.Time) (StepCommand, time.Time, error) {
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
-		return StepCommand{}, err
+		return StepCommand{}, time.Time{}, err
 	}
 	scope := envelope.Scope
 	if scope.Domain != StepDomain || scope.Cell != cell || scope.Slot != unit || scope.Environment != stepEnvironment ||
 		scope.Role != string(StepPrepare) && scope.Role != string(StepRollback) {
-		return StepCommand{}, trust.ErrScopeMismatch
+		return StepCommand{}, time.Time{}, trust.ErrScopeMismatch
 	}
 	payload, err := trust.VerifyCurrent(envelope, scope, keys, now, trust.Policy{MaxLifetime: StepLifetime, ClockSkew: stepClockSkew})
 	if err != nil {
-		return StepCommand{}, err
+		return StepCommand{}, time.Time{}, err
 	}
 	var command StepCommand
 	if err := protocol.DecodeStrict(payload, &command, trust.MaxPayloadBytes); err != nil {
-		return StepCommand{}, err
+		return StepCommand{}, time.Time{}, err
 	}
 	if err := command.validate(); err != nil {
-		return StepCommand{}, err
+		return StepCommand{}, time.Time{}, err
 	}
 	if stepScope(command) != scope {
-		return StepCommand{}, trust.ErrScopeMismatch
+		return StepCommand{}, time.Time{}, trust.ErrScopeMismatch
 	}
-	return command, nil
+	return command, envelope.ExpiresAt, nil
 }
 
 // StepOutcome is an agent's answer to one step.
@@ -207,11 +212,18 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 	if d.Now != nil {
 		now = d.Now
 	}
+	timeout := d.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	// The receipt lookup, signing and the request share one deadline.
+	requestCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	command := StepCommand{Schema: StepSchema, Cell: d.Cell, RolloutID: step.RolloutID, Kind: step.Kind, Unit: step.Unit,
 		OperationID: step.OperationID, Action: step.Action, Digest: step.Digest, Replaces: step.Replaces, Epoch: step.Epoch,
 		ProofWindowSeconds: int64(step.ProofWindow / time.Second)}
 	if d.Releases != nil {
-		receipt, delegation, err := d.Releases.Receipt(ctx, step.Digest)
+		receipt, delegation, err := d.Releases.Receipt(requestCtx, step.Digest)
 		if err != nil {
 			return StepReply{}, fmt.Errorf("read release receipt: %w", err)
 		}
@@ -221,12 +233,13 @@ func (d NATSDriver) Step(ctx context.Context, step Step) (StepReply, error) {
 	if err != nil {
 		return StepReply{}, err
 	}
-	timeout := d.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
+	// The lease is re-checked after the lookup and signing, immediately
+	// before the step leaves: a leader that lost it meanwhile sends nothing.
+	if step.Fence != nil {
+		if err := step.Fence(requestCtx); err != nil {
+			return StepReply{}, err
+		}
 	}
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	msg, err := d.Conn.RequestWithContext(requestCtx, protocol.RolloutStepSubject(d.Cell, step.Unit), wire)
 	if err != nil {
 		return StepReply{}, err

@@ -317,8 +317,11 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 	step := e.track(stepKey(record.RolloutID, action.Unit, StepPrepare), action.Unit)
 	reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
 		OperationID: action.OperationID, Action: StepPrepare, Digest: action.Digest, Epoch: record.AuthorityEpoch,
-		ProofWindow: time.Duration(record.Policy.ProofDeadlineSeconds) * time.Second})
+		ProofWindow: time.Duration(record.Policy.ProofDeadlineSeconds) * time.Second,
+		Fence:       func(ctx context.Context) error { return e.fence(ctx, record) }})
 	switch {
+	case errors.Is(err, ErrLeaseLost):
+		return nil, err
 	case err != nil:
 		slog.Warn("rollout step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 			"unit", action.Unit, "error", err)
@@ -388,8 +391,11 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 		step = e.track(key, action.Unit)
 		reply, err := e.Driver.Step(ctx, Step{RolloutID: record.RolloutID, Kind: record.Kind, Unit: action.Unit,
 			OperationID: action.OperationID, Action: StepRollback, Digest: action.Digest, Replaces: record.ToDigest,
-			Epoch: record.AuthorityEpoch, ProofWindow: time.Duration(record.Policy.RollbackDeadlineSeconds) * time.Second})
+			Epoch: record.AuthorityEpoch, ProofWindow: time.Duration(record.Policy.RollbackDeadlineSeconds) * time.Second,
+			Fence: func(ctx context.Context) error { return e.fence(ctx, record) }})
 		switch {
+		case errors.Is(err, ErrLeaseLost):
+			return nil, err
 		case err != nil:
 			slog.Warn("rollout rollback step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 				"unit", action.Unit, "error", err)
@@ -423,10 +429,14 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 // still move a unit. Store.Commit fences the record, not this effect.
 func (e *Executor) fence(ctx context.Context, record rollout.Record) error {
 	if err := e.Fencer.Guard(ctx, record.AuthorityEpoch); err != nil {
-		return fmt.Errorf("authority lease lost before a rollout step: %w", err)
+		return fmt.Errorf("%w: %w", ErrLeaseLost, err)
 	}
 	return nil
 }
+
+// ErrLeaseLost stops a tick whose authority lease was lost before a step
+// left the leader.
+var ErrLeaseLost = errors.New("authority lease lost before a rollout step")
 
 // waveLostProof names a soaking unit of the current wave that already
 // reported healthy but has no fresh proof on the target now.
@@ -547,6 +557,12 @@ func (e *Executor) startNext(ctx context.Context, epoch uint64) error {
 			return nil
 		}
 		if err != nil {
+			return e.halt(spec.RolloutID, err.Error())
+		}
+		// A completed record only satisfies the program step it was
+		// planned from: the same ID with another target, kind, waves or
+		// policy stops the program instead of skipping ahead.
+		if err := existing.Matches(spec); err != nil {
 			return e.halt(spec.RolloutID, err.Error())
 		}
 		if existing.Phase != rollout.PhaseComplete {
