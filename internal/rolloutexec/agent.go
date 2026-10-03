@@ -224,8 +224,9 @@ func (a *Agent) activate(command StepCommand, window time.Duration) (StepOutcome
 	}
 	if _, err := selfupdate.Activate(a.Layout, digest, a.SystemdUnit, a.now(), window); err != nil {
 		if !exists {
-			// Nothing to restart unless the activation record was written.
-			if _, recorded, _ := a.Layout.Pending(); !recorded {
+			// Nothing to restart unless the activation record was written;
+			// an unreadable activation state keeps the obligation.
+			if _, recorded, pendingErr := a.Layout.Pending(); pendingErr == nil && !recorded {
 				_ = a.Layout.ClearRestartPending(a.SystemdUnit)
 			}
 		}
