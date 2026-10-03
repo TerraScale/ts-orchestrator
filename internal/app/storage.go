@@ -86,29 +86,16 @@ func startVolumeBackups(ctx context.Context, cfg Config, managed *managedControl
 // volume; the listing then reports backup.ErrPartialVolumes, which keeps the
 // runner from treating the skipped partition's volumes as orphaned.
 func placementVolumeIDs(ctx context.Context, store placement.Store) ([]string, error) {
-	intents, err := store.ListIntents(ctx)
+	members, skipped, err := placedVolumeMembers(ctx, store, true)
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[string]bool)
-	var volumes []string
-	var skipped []error
-	for _, intent := range intents {
-		members, err := store.ListMembers(ctx, intent.DatabaseID, intent.PartitionID)
-		if err != nil {
-			slog.Warn("volume backup listing skipped an unreadable partition",
-				"database", intent.DatabaseID, "partition", intent.PartitionID, "error", err)
-			skipped = append(skipped, fmt.Errorf("partition %s/%s: %w", intent.DatabaseID, intent.PartitionID, err))
-			continue
-		}
-		for _, member := range members {
-			if id := member.State.VolumeID; id != "" && member.State.Stage != placement.StageRemoved && !seen[id] {
-				seen[id] = true
-				volumes = append(volumes, id)
-			}
-		}
+	volumes := make([]string, 0, len(members))
+	for _, member := range members {
+		volumes = append(volumes, member.VolumeID)
 	}
 	if len(skipped) > 0 {
+		slog.Warn("volume backup listing skipped unreadable partitions", "error", errors.Join(skipped...))
 		return volumes, fmt.Errorf("%w: %w", backup.ErrPartialVolumes, errors.Join(skipped...))
 	}
 	return volumes, nil
