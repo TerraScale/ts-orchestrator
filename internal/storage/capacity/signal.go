@@ -187,12 +187,34 @@ func Worst(signals []Signal) (Signal, bool) {
 // NodeHeadroomBytes returns the measured free boot-volume bytes of node after
 // reservations, the value placement should use instead of a configured disk
 // capacity. ok is false when no current boot measurement exists.
+//
+// Reservations are aggregated across the node's records: a reservation made
+// on another mount (the JetStream max-store reserve on its StoreDir) counts
+// against the boot headroom when that mount is the boot filesystem. The two
+// records describe the same filesystem when they report identical byte and
+// inode totals; a coincidental match only under-reports headroom, which is
+// the safe direction.
 func NodeHeadroomBytes(signals []Signal, node string) (uint64, bool) {
+	var boot VolumeUsage
+	found := false
 	for _, signal := range signals {
-		usage := signal.Usage
-		if usage.Node == node && usage.Role == storage.RoleBoot {
-			return usage.AvailBytes - min(usage.AvailBytes, usage.ReservedBytes), true
+		if usage := signal.Usage; usage.Node == node && usage.Role == storage.RoleBoot {
+			boot, found = usage, true
+			break
 		}
 	}
-	return 0, false
+	if !found {
+		return 0, false
+	}
+	reserved := boot.ReservedBytes
+	for _, signal := range signals {
+		usage := signal.Usage
+		if usage.Node != node || usage.Role == storage.RoleBoot || usage.ReservedBytes == 0 {
+			continue
+		}
+		if usage.TotalBytes == boot.TotalBytes && usage.InodesTotal == boot.InodesTotal {
+			reserved += usage.ReservedBytes
+		}
+	}
+	return boot.AvailBytes - min(boot.AvailBytes, reserved), true
 }

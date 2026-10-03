@@ -21,11 +21,13 @@ import (
 var (
 	// ErrVolumeStuck reports a volume whose lifecycle phase exceeded its deadline.
 	ErrVolumeStuck = errors.New("retained volume lifecycle phase exceeded its deadline")
+	// ErrVolumeHeld reports a fail-closed hold that only an operator can
+	// clear (a foreign or unknown attachment); retrying cannot resolve it,
+	// unlike the deadline stall ErrVolumeStuck reports.
+	ErrVolumeHeld = errors.New("retained volume is held for an operator")
 	// ErrWriterNotFenced reports that the previous writer has not been proven
 	// stopped, so the volume must not be attached anywhere else.
 	ErrWriterNotFenced = errors.New("retained volume writer is not proven fenced")
-	// ErrCapacityExceeded reports a mount above its refuse-writes threshold.
-	ErrCapacityExceeded = errors.New("storage capacity exceeds the refusal threshold")
 	// ErrDisabled reports a storage feature that is off in configuration.
 	ErrDisabled = errors.New("storage feature is disabled in configuration")
 )
@@ -49,13 +51,6 @@ func (role VolumeRole) Valid() bool {
 	}
 }
 
-// MemberRef identifies the TerraBase member that owns a retained volume.
-type MemberRef struct {
-	DatabaseID  string `json:"database_id"`
-	PartitionID string `json:"partition_id"`
-	MemberID    string `json:"member_id"`
-}
-
 // Supported managed filesystems. Both are accepted as signed pins.
 const (
 	FileSystemExt4 = "ext4"
@@ -67,11 +62,9 @@ func ValidFileSystem(fsType string) bool {
 	return fsType == FileSystemExt4 || fsType == FileSystemXFS
 }
 
-// Defaults applied when the matching Config field is zero.
+// Telemetry defaults applied when the matching Config field is zero. Phase
+// deadlines default through lifecycle.DefaultDeadlines, not here.
 const (
-	DefaultAttachDeadline  = 10 * time.Minute
-	DefaultDetachDeadline  = 10 * time.Minute
-	DefaultResizeDeadline  = 30 * time.Minute
 	DefaultUsageTTL        = 2 * time.Minute
 	DefaultCollectInterval = 30 * time.Second
 )

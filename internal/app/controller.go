@@ -228,7 +228,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := startControllerStorageCapacity(ctx, cfg, runtime); err != nil {
+	if err := startControllerStorageCapacity(ctx, cfg, runtime, fullClusterReady); err != nil {
 		return fmt.Errorf("start storage capacity collector: %w", err)
 	}
 	var managedController *placement.Controller

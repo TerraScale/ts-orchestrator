@@ -146,6 +146,7 @@ type fakeProvider struct {
 	creates int
 	deletes []string
 	onGet   func(*oci.CloudVolumeBackup)
+	gone    map[string]bool
 }
 
 func newFakeProvider(backups ...oci.CloudVolumeBackup) *fakeProvider {
@@ -176,6 +177,18 @@ func (p *fakeProvider) ListVolumeBackups(_ context.Context, volumeID string) ([]
 		}
 	}
 	return found, nil
+}
+
+func (p *fakeProvider) ListCompartmentVolumeBackups(context.Context) ([]oci.CloudVolumeBackup, error) {
+	var found []oci.CloudVolumeBackup
+	for _, backup := range p.backups {
+		found = append(found, backup)
+	}
+	return found, nil
+}
+
+func (p *fakeProvider) VolumeGone(_ context.Context, volumeID string) (bool, error) {
+	return p.gone[volumeID], nil
 }
 
 func (p *fakeProvider) GetVolumeBackup(_ context.Context, id string) (oci.CloudVolumeBackup, error) {
@@ -251,5 +264,46 @@ func TestRunnerRefusesFollowersFencedAndDisabled(t *testing.T) {
 	}
 	if provider.creates != 0 {
 		t.Fatalf("refused runs created %d backups", provider.creates)
+	}
+}
+
+func orphan(id, volumeID string, age time.Duration) oci.CloudVolumeBackup {
+	return oci.CloudVolumeBackup{ID: id, VolumeID: volumeID, LifecycleState: "AVAILABLE", Type: TypeFull,
+		CreatedAt: now.Add(-age), FreeformTags: scope.Tags(volumeID, "k-"+id), ETag: "etag-" + id}
+}
+
+func TestRunnerPrunesOrphanedBackupsOfRemovedVolumesAfterRetention(t *testing.T) {
+	const removed, retained = "ocid1.volume.removed", "ocid1.volume.retained"
+	foreign := orphan("foreign", removed, 90*24*time.Hour)
+	foreign.FreeformTags = nil
+	provider := newFakeProvider(
+		owned("live", "AVAILABLE", TypeFull, time.Hour),
+		orphan("old", removed, 40*24*time.Hour),
+		orphan("young", removed, 10*24*time.Hour),
+		orphan("still-there", retained, 90*24*time.Hour),
+		foreign,
+	)
+	provider.gone = map[string]bool{removed: true}
+	fencer := &fakeFencer{snapshot: leader()}
+	if _, err := runner(provider, fencer, Policy{Enabled: true}).RunOnce(t.Context()); err != nil || len(provider.deletes) != 0 {
+		t.Fatalf("orphans pruned without Prune: deletes=%v err=%v", provider.deletes, err)
+	}
+	report, err := runner(provider, fencer, Policy{Enabled: true, Prune: true}).RunOnce(t.Context())
+	if err != nil || fmt.Sprint(provider.deletes) != "[old]" || fmt.Sprint(report.Deleted) != "[old]" {
+		t.Fatalf("orphan prune deletes=%v report=%+v err=%v; want only the expired owned backup of the removed volume", provider.deletes, report, err)
+	}
+}
+
+func TestRunnerProtectsListedVolumesButSkipsOrphansOnPartialListing(t *testing.T) {
+	const removed = "ocid1.volume.removed"
+	provider := newFakeProvider(orphan("old", removed, 400*24*time.Hour))
+	provider.gone = map[string]bool{removed: true}
+	partial := runner(provider, &fakeFencer{snapshot: leader()}, Policy{Enabled: true, Prune: true})
+	partial.Volumes = func(context.Context) ([]string, error) {
+		return []string{volume}, fmt.Errorf("%w: partition unreadable", ErrPartialVolumes)
+	}
+	report, err := partial.RunOnce(t.Context())
+	if !errors.Is(err, ErrPartialVolumes) || len(report.Created) != 1 || len(provider.deletes) != 0 {
+		t.Fatalf("partial listing: report=%+v deletes=%v err=%v", report, provider.deletes, err)
 	}
 }

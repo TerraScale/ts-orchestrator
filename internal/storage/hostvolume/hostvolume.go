@@ -11,7 +11,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -22,7 +24,9 @@ import (
 // carries. The workload executes its binary from the managed runtime root and
 // only stores data, replication state and a claim file on the volume, so it
 // never needs set-id, device nodes or exec there.
-var HardenedOptions = []string{"nosuid", "nodev", "noexec"}
+// noatime is required too: MountFlags and HardenRemount set it, so a legacy
+// mount without it is upgraded instead of drifting from fresh mounts.
+var HardenedOptions = []string{"nosuid", "nodev", "noexec", "noatime"}
 
 // OptionsHardened reports whether a mountinfo per-mount option field (for
 // example "rw,nosuid,nodev,noexec,noatime") carries every hardened option.
@@ -123,6 +127,25 @@ func Ext4ResizeBlocks(deviceBytes, blockSize uint64) (uint64, error) {
 		return 0, errors.New("managed block device is smaller than one filesystem block")
 	}
 	return deviceBytes / blockSize, nil
+}
+
+// GrowSlack is the minimum unused device space that triggers an online grow:
+// half of OCI's 1 GiB volume resize granularity, so any real resize clears
+// it whatever the filesystem's metadata overhead.
+const GrowSlack = 512 << 20
+
+// SysfsDeviceBytes reads the size of block device major:minor from the
+// sysfs tree rooted at sysRoot. sysfs reports 512-byte sectors.
+func SysfsDeviceBytes(sysRoot string, major, minor uint32) (uint64, error) {
+	data, err := os.ReadFile(filepath.Join(sysRoot, "dev", "block", fmt.Sprintf("%d:%d", major, minor), "size"))
+	if err != nil {
+		return 0, fmt.Errorf("read managed block device size: %w", err)
+	}
+	sectors, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil || sectors == 0 || sectors > math.MaxUint64/512 {
+		return 0, errors.New("managed block device size is invalid")
+	}
+	return sectors * 512, nil
 }
 
 // GrowNeeded reports whether a filesystem of fsBlocks*blockSize bytes can grow

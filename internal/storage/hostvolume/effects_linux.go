@@ -33,13 +33,12 @@ func HardenRemount(target string) error {
 	return nil
 }
 
-// DeviceBytes returns the kernel's current size of the open block device.
-func DeviceBytes(fd int) (uint64, error) {
-	var size uint64
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), unix.BLKGETSIZE64, uintptr(unsafe.Pointer(&size))); errno != 0 {
-		return 0, fmt.Errorf("read managed block device size: %w", errno)
-	}
-	return size, nil
+// DeviceBytes returns the kernel's current size of the block device rdev.
+// The initializer pins its device through an O_PATH descriptor, which
+// ioctl(2) rejects, so the size is read from the same sysfs node Rescan
+// writes to.
+func DeviceBytes(rdev uint64) (uint64, error) {
+	return SysfsDeviceBytes("/sys", unix.Major(rdev), unix.Minor(rdev))
 }
 
 // Rescan asks the SCSI layer to re-read the capacity of the device rdev after
@@ -65,14 +64,14 @@ func Rescan(rdev uint64) error {
 // mountPath to the device size. It is idempotent and never shrinks. The
 // caller must already have verified that mountPath is the exclusive mount of
 // the pinned device.
-func Grow(ctx context.Context, cfg GrowConfig, mountPath string, deviceFD int, rdev uint64, fsType string) (bool, error) {
+func Grow(ctx context.Context, cfg GrowConfig, mountPath string, rdev uint64, fsType string) (bool, error) {
 	if !cfg.Enabled {
 		return false, nil
 	}
 	if err := Rescan(rdev); err != nil {
 		return false, err
 	}
-	deviceBytes, err := DeviceBytes(deviceFD)
+	deviceBytes, err := DeviceBytes(rdev)
 	if err != nil {
 		return false, err
 	}
@@ -81,37 +80,49 @@ func Grow(ctx context.Context, cfg GrowConfig, mountPath string, deviceFD int, r
 		return false, fmt.Errorf("inspect managed filesystem: %w", err)
 	}
 	blockSize := uint64(stat.Bsize)
-	// statfs reports blocks net of metadata overhead, so the comparison is a
-	// conservative trigger: a full block group of slack (128 MiB at 4 KiB
-	// blocks) is required before any resize is attempted.
-	if !GrowNeeded(deviceBytes, stat.Blocks, blockSize, 128<<20+deviceBytes/50) {
+	// statfs reports blocks net of metadata overhead, so slack is never
+	// exact. GrowSlack is half the OCI resize granularity: every real resize
+	// clears it, and an attempt on a filesystem that already spans its device
+	// is a no-op for both ext4 and xfs, so the gate only saves needless work.
+	if !GrowNeeded(deviceBytes, stat.Blocks, blockSize, GrowSlack) {
 		return false, nil
 	}
+	if err := growFilesystem(ctx, mountPath, deviceBytes, blockSize, fsType); err != nil {
+		return false, err
+	}
+	var after unix.Statfs_t
+	if err := unix.Statfs(mountPath, &after); err != nil {
+		return false, fmt.Errorf("inspect grown managed filesystem: %w", err)
+	}
+	return after.Blocks > stat.Blocks, nil
+}
+
+func growFilesystem(ctx context.Context, mountPath string, deviceBytes, blockSize uint64, fsType string) error {
 	switch fsType {
 	case storage.FileSystemExt4:
 		blocks, err := Ext4ResizeBlocks(deviceBytes, blockSize)
 		if err != nil {
-			return false, err
+			return err
 		}
 		directory, err := unix.Open(mountPath, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
-			return false, err
+			return err
 		}
 		defer unix.Close(directory)
 		if _, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(directory), ext4IocResizeFS, uintptr(unsafe.Pointer(&blocks))); errno != 0 {
-			return false, fmt.Errorf("grow managed ext4 filesystem: %w", errno)
+			return fmt.Errorf("grow managed ext4 filesystem: %w", errno)
 		}
-		return true, nil
+		return nil
 	case storage.FileSystemXFS:
 		output, err := exec.CommandContext(ctx, "/usr/sbin/xfs_growfs", "-d", mountPath).CombinedOutput()
 		if err != nil {
 			if len(output) > 512 {
 				output = output[:512]
 			}
-			return false, fmt.Errorf("grow managed xfs filesystem: %w: %s", err, output)
+			return fmt.Errorf("grow managed xfs filesystem: %w: %s", err, output)
 		}
-		return true, nil
+		return nil
 	default:
-		return false, fmt.Errorf("managed filesystem type %q cannot grow", fsType)
+		return fmt.Errorf("managed filesystem type %q cannot grow", fsType)
 	}
 }

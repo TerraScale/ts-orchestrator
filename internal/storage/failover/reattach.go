@@ -207,23 +207,29 @@ func (reattacher Reattacher) Step(ctx context.Context, request Request) (Step, e
 		now = reattacher.Now
 	}
 	proof, proofErr := ProveFenced(ctx, reattacher.Instances, request.OldInstanceID, now())
+	fenced := proofErr == nil
+	if !fenced {
+		// Nothing past the fence proof is decided while it is missing, so
+		// the attachment listing is not read for this step.
+		return Decide(request, false, nil, false), proofErr
+	}
 	attachments, err := reattacher.Volumes.VolumeAttachments(ctx, request.VolumeID)
 	if err != nil {
 		return Step{}, err
 	}
 	mounted := false
-	step := Decide(request, proofErr == nil, attachments, false)
+	step := Decide(request, fenced, attachments, false)
 	if step.Kind == StepGrantMount {
 		if mounted, err = reattacher.Permits.HasMountExisting(ctx, request, step.Attachment); err != nil {
 			return Step{}, err
 		}
-		step = Decide(request, true, attachments, mounted)
+		step = Decide(request, fenced, attachments, mounted)
 	}
 	switch step.Kind {
 	case StepProveFence:
 		return step, proofErr
 	case StepHold:
-		return step, fmt.Errorf("%w: %s", storage.ErrVolumeStuck, step.Reason)
+		return step, fmt.Errorf("%w: %s", storage.ErrVolumeHeld, step.Reason)
 	case StepWaitDetached, StepWaitAttached, StepDone:
 		return step, nil
 	}

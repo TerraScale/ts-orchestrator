@@ -21,7 +21,8 @@ before it completes the volume layout. TerraBase runs from the managed runtime
 root, not from the volume. The volume holds only `data/`, `replication/` and
 the claim file, so it needs no exec, set-id or device nodes. A mount made by
 an older initializer is bind-remounted with the hardened flags the next time
-the initializer touches it. This is best effort and failures are logged.
+the initializer touches it, including a mount that has the three security
+flags but lacks `noatime`. This is best effort and failures are logged.
 
 A signed `xfs` pin is formatted with `mkfs.xfs -m uuid=<pin>`, which needs
 `xfsprogs` on the host image.
@@ -33,10 +34,10 @@ Every feature below is off by default.
 | Setting | Effect | Prerequisite |
 |---|---|---|
 | placement `auto_grow_volumes` | Grows a retained volume created under a smaller resource profile through the journaled `Fleet.ResizeRetainedVolume` (grow-only). | None. |
-| host `managed_volume_online_grow` | The volume initializer rescans the device and grows the mounted filesystem: `EXT4_IOC_RESIZE_FS` for ext4, `xfs_growfs` for xfs. | ext4 growth needs `CAP_SYS_RESOURCE` in the `terrascale-orchestrator-host-volume-init.service` bounding set (operator drop-in). The default unit does not grant it. |
-| controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used. Pressure is logged, and critical pressure is logged as an error. | None. |
+| host `managed_volume_online_grow` | The volume initializer rescans the device and grows the mounted filesystem: `EXT4_IOC_RESIZE_FS` for ext4, `xfs_growfs` for xfs. The device size is read from sysfs (`/sys/dev/block/<maj>:<min>/size`), because the pinned device descriptor is `O_PATH`. A grow is attempted when the device exceeds the filesystem's statfs size by at least 512 MiB, half of OCI's 1 GiB resize step, so every real resize triggers it. | ext4 growth needs `CAP_SYS_RESOURCE` in the `terrascale-orchestrator-host-volume-init.service` bounding set (operator drop-in). The default unit does not grant it. |
+| controller `storage_capacity.enabled` | Each controller publishes its boot root and JetStream StoreDir usage. The unused JetStream max-store reservation counts as used, and it is also subtracted from the node's boot headroom when the StoreDir is on the boot filesystem. Pressure is logged, and critical pressure is logged as an error. | None. |
 | controller `volume_backup.enabled` | The leader keeps crash-consistent OCI volume backups of placed members' retained volumes: every `interval_hours`, with a FULL backup every `full_every` and INCREMENTAL backups otherwise. | The controller dynamic group needs `manage volume-backups` in the compartment. |
-| controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. | `volume_backup.enabled`. |
+| controller `volume_backup.prune` | Deletes owned AVAILABLE backups beyond `retain`. Before each delete it re-reads the backup's tags, source volume and state, and deletes with If-Match on the ETag. Owned backups of a volume that has left placement and no longer exists in OCI (404 or TERMINATED) are deleted once they are older than `orphan_retention_days` (default 30). Orphan retention runs only when every placement partition was readable on that pass. | `volume_backup.enabled`. |
 | `failover.Config.Enabled` | Reattach core only. It is not wired yet. | Follow-up OCI fleet support (see below). |
 
 ## Resize and ownership
