@@ -88,6 +88,16 @@ leader record no autoscale or TerraBase load history, and a demoted leader,
 or one whose re-acquired lease the reconciler has not adopted yet, stops
 presenting its last results.
 
+The warm-up establishes that a series has been reported without a 5 minute
+break for the window; it does not establish how densely. A `window_seconds`
+shorter than the hosts' `load_telemetry_seconds` (or a short publication
+outage) leaves only the latest one or two samples in the window. Choose
+windows of several host intervals and set the signal's `min_samples`
+accordingly, remembering that it counts the samples of all replicas
+together (for example `window_seconds: 120` with 15s hosts and
+`min_samples` of 4 per minimum replica), so a sparse window reads as
+unavailable and holds.
+
 ## Trust decision
 
 With `host_telemetry` on, an authenticated host's self-reported load can
