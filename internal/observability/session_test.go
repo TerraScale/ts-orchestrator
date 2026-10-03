@@ -107,11 +107,20 @@ func TestLoginExchangesTokenForSessionCookie(t *testing.T) {
 	}
 
 	logout := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	logout.AddCookie(cookie)
 	recorder = httptest.NewRecorder()
 	server.ServeHTTP(recorder, logout)
 	if recorder.Code != http.StatusSeeOther || len(recorder.Result().Cookies()) != 1 ||
 		recorder.Result().Cookies()[0].MaxAge >= 0 {
 		t.Fatalf("logout = %d %+v", recorder.Code, recorder.Result().Cookies())
+	}
+	// A copy of the signed-out cookie no longer authenticates.
+	copied := httptest.NewRequest(http.MethodGet, "/", nil)
+	copied.AddCookie(cookie)
+	recorder = httptest.NewRecorder()
+	server.ServeHTTP(recorder, copied)
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("a signed-out session still authenticates: %d", recorder.Code)
 	}
 }
 
@@ -144,12 +153,13 @@ func TestSessionCookieIsBoundToProcessKeyAndLifetime(t *testing.T) {
 	}
 	// A correctly signed payload claiming a longer lifetime is refused.
 	manager.now = func() time.Time { return now }
-	payload := sessionVersion + "." + strconv.FormatInt(now.Add(2*SessionTTL).Unix(), 10)
+	payload := sessionVersion + "." + strconv.FormatInt(now.Add(2*SessionTTL).Unix(), 10) + "." + base64URL(make([]byte, 16))
 	forged := payload + "." + base64URL(manager.mac(payload))
 	if manager.valid(forged) {
 		t.Fatal("an over-long session was accepted")
 	}
-	for _, value := range []string{"", "v1", "v1.1", "v2.1.AA", "v1.+1.AA", "v1.01." + strings.Repeat("A", 43)} {
+	for _, value := range []string{"", "v1", "v1.1", "v2.1.AA", "v1.+1.AA", "v1.01." + strings.Repeat("A", 43),
+		"v2.1.AA.AA", value + ".x"} {
 		if manager.valid(value) {
 			t.Fatalf("malformed session %q accepted", value)
 		}
@@ -196,3 +206,37 @@ func TestLocalRedirectPath(t *testing.T) {
 }
 
 func base64URL(data []byte) string { return base64.RawURLEncoding.EncodeToString(data) }
+
+func TestSignOutRevokesEveryCopyOfTheSession(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_800_000_000, 0)
+	manager, err := newSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.now = func() time.Time { return now }
+	first, _ := manager.issue()
+	second, _ := manager.issue()
+	if first == second {
+		t.Fatal("two logins in the same second share a session")
+	}
+	manager.revoke(first)
+	if manager.valid(first) || !manager.valid(second) {
+		t.Fatal("revoking one session did not end exactly that session")
+	}
+	// Expired revocations are forgotten, and a flood rotates the key.
+	manager.now = func() time.Time { return now.Add(SessionTTL + time.Second) }
+	third, _ := manager.issue()
+	manager.revoke(third)
+	if len(manager.revoked) != 1 {
+		t.Fatalf("revoked = %d, want the expired entry pruned", len(manager.revoked))
+	}
+	fourth, _ := manager.issue()
+	for range maxRevoked {
+		value, _ := manager.issue()
+		manager.revoke(value)
+	}
+	if manager.valid(fourth) {
+		t.Fatal("past the revocation bound the key did not rotate")
+	}
+}

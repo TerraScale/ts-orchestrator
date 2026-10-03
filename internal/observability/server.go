@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,7 +37,7 @@ type Server struct {
 	// loginMounted enables session cookies as an alternative to the bearer
 	// header. It is set only by HandleLogin, so a listener without the
 	// dashboard keeps accepting the bearer header alone.
-	loginMounted bool
+	loginMounted atomic.Bool
 }
 
 // NewServer validates config, reads the bearer token and builds the routes.
@@ -132,8 +133,8 @@ func (server *Server) ServeHTTP(writer http.ResponseWriter, request *http.Reques
 func (server *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if server.token != nil && !bearerMatches(request.Header.Get("Authorization"), server.token) &&
-			(!server.loginMounted || !server.sessions.authenticated(request)) {
-			if server.loginMounted && wantsLoginPage(request) {
+			(!server.loginMounted.Load() || !server.sessions.authenticated(request)) {
+			if server.loginMounted.Load() && wantsLoginPage(request) {
 				http.Redirect(writer, request, "/login?next="+url.QueryEscape(LocalRedirectPath(request.URL.RequestURI())),
 					http.StatusSeeOther)
 				return
