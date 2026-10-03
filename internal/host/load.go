@@ -30,7 +30,10 @@ const (
 	terraBaseLoadTTL = 2 * time.Minute
 )
 
-var errLoadDisabled = errors.New("host load telemetry is not enabled on this controller")
+var (
+	errLoadDisabled  = errors.New("host load telemetry is not enabled on this controller")
+	errLoadThrottled = errors.New("host load report discarded inside the controller's minimum interval")
+)
 
 // LoadSink receives one authenticated host load report whose roles were
 // filtered to the roles the host currently runs. Origin comes from the
@@ -168,7 +171,7 @@ func (a *Agent) publishLoad(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
+		if err := loadOutcome(err, ack); err != nil {
 			if !failing {
 				slog.Info("host load telemetry not accepted; backing off", "error_class", loadErrorClass(err))
 			}
@@ -190,10 +193,22 @@ func nextLoadWait(wait, interval time.Duration) time.Duration {
 	return max(min(wait*2, maxLoadBackoff), interval)
 }
 
+// loadOutcome treats a reply whose sample the controller discarded (it
+// arrived inside the controller's minimum interval) as a rejection that
+// backs off, not as a success.
+func loadOutcome(err error, ack loadAck) error {
+	if err == nil && !ack.Accepted {
+		return errLoadThrottled
+	}
+	return err
+}
+
 func loadErrorClass(err error) string {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
+	case errors.Is(err, errLoadThrottled):
+		return "throttled"
 	case strings.Contains(err.Error(), errLoadDisabled.Error()):
 		return "disabled"
 	default:

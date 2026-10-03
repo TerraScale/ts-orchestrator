@@ -113,6 +113,19 @@ func TestTerraBaseLoadExpires(t *testing.T) {
 	}
 }
 
+// A discarded (throttled) sample is a rejection that backs off.
+func TestLoadOutcomeTreatsDiscardedSampleAsRejection(t *testing.T) {
+	if err := loadOutcome(nil, loadAck{Accepted: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadOutcome(nil, loadAck{}); err != errLoadThrottled || loadErrorClass(err) != "throttled" {
+		t.Fatalf("discarded sample outcome = %v", err)
+	}
+	if err := loadOutcome(errLoadDisabled, loadAck{}); err != errLoadDisabled {
+		t.Fatalf("request error replaced: %v", err)
+	}
+}
+
 // Backoff doubles up to its cap but never publishes more often than the
 // configured interval.
 func TestLoadBackoffNeverShortensTheInterval(t *testing.T) {

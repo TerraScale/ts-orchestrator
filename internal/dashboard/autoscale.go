@@ -35,6 +35,10 @@ func (current view) autoscaledServices() []autoscaledService {
 		}
 		replicaChart := current.lineChart("line", "count", lines, "No replica history yet.")
 		replicaChart.Min = float(0)
+		// One axis is enough: the signed config accepts only the
+		// utilization signals (cpu_util, mem_util, disk_util, all fractions)
+		// for reconciled services (app.validateAutoscaleConfig). Split this
+		// chart by unit before admitting count or byte signals.
 		signals := current.historyRange(observability.HistAutoscaleSignal, labels, "signal", false)
 		for _, target := range current.historyRange(observability.HistAutoscaleSignalTarget, labels, "signal", false) {
 			target.Name, target.Dashed, target.Status = target.Name+" target", true, "idle"
