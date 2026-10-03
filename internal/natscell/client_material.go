@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
 
@@ -61,6 +62,20 @@ func (s *clientMaterialSource) validate(material ClientMaterial) error {
 		if err != nil {
 			return err
 		}
+		// A partly written file can keep its seed block intact while its JWT
+		// is corrupt: reject it here so the startup files are used instead
+		// of failing every handshake.
+		token, err := nkeys.ParseDecoratedJWT(data)
+		if err == nil {
+			var claims *jwt.UserClaims
+			if claims, err = jwt.DecodeUserClaims(token); err == nil && claims.Subject != s.user {
+				err = errors.New("JWT names a different NATS user")
+			}
+		}
+		if err != nil {
+			clear(data)
+			return fmt.Errorf("reloaded credentials JWT: %w", err)
+		}
 		pair, err := nkeys.ParseDecoratedUserNKey(data)
 		clear(data)
 		if err != nil {
@@ -94,7 +109,11 @@ func (s *clientMaterialSource) tlsConfig() (*tls.Config, error) {
 	config, err := loadTLS(material.TLS, false)
 	if err != nil && material != s.static {
 		s.note("reloaded NATS TLS material is unusable; using startup certificate", err)
-		return loadTLS(s.static.TLS, false)
+		config, fallbackErr := loadTLS(s.static.TLS, false)
+		if fallbackErr != nil {
+			return nil, fmt.Errorf("NATS client TLS (reloaded material: %v): %w", err, fallbackErr)
+		}
+		return config, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("NATS client TLS: %w", err)

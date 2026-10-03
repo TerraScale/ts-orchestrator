@@ -244,10 +244,13 @@ func (e enroller) awaitDaemon(ctx context.Context) (daemonStatus, error) {
 		}
 		select {
 		case <-waitCtx.Done():
+			if err := ctx.Err(); err != nil {
+				return daemonStatus{}, err
+			}
 			return daemonStatus{}, errDaemonUnreachable
 		case <-time.After(delay):
 		}
-		delay = min(2*delay, maxPoll/2)
+		delay = min(2*delay, maxPoll)
 	}
 }
 
@@ -304,7 +307,8 @@ func (e enroller) waitReady(ctx context.Context, manager string, first *daemonSt
 }
 
 // observe polls daemon status with exponential backoff from e.poll to maxPoll
-// until done holds or limit elapses, and returns the last observation. Each
+// until done holds or limit elapses, and returns the last observation; a
+// cancelled ctx returns its error, the elapsed limit does not. Each
 // poll forks the NetBird CLI once, so the backoff keeps a slow connect cheap
 // while a fast one is seen within e.poll.
 func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemonStatus, done func(daemonStatus) bool) (daemonStatus, bool, error) {
@@ -317,6 +321,11 @@ func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemo
 		} else {
 			var err error
 			if status, err = e.status(ctx); err != nil {
+				// A query cut short by cancellation reports the cancellation,
+				// not an unreachable daemon.
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return daemonStatus{}, false, ctxErr
+				}
 				return daemonStatus{}, false, err
 			}
 		}
@@ -329,7 +338,9 @@ func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemo
 		}
 		select {
 		case <-ctx.Done():
-			return status, false, nil
+			// Cancellation is not the limit elapsing: report its cause so
+			// callers do not keep acting on a stale observation.
+			return status, false, ctx.Err()
 		case <-time.After(min(delay, remaining)):
 		}
 		delay = min(2*delay, maxPoll)

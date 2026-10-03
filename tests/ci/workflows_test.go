@@ -3,6 +3,7 @@ package ci_test
 import (
 	"bytes"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -266,6 +267,8 @@ esac
 		code                          int
 	}{
 		{"pass", "terrabase-walkthrough terrabase-successor", "pass", "qualification suite terrabase-successor passed", 0},
+		// A multi-line repository variable keeps every line's suites.
+		{"multi_line", "terrabase-walkthrough\nterrabase-successor\nnative-validator", "pass", "qualification suite native-validator passed", 0},
 		{"skip", "terrabase-walkthrough", "skip", "skipped a test; its fixture is incomplete", 1},
 		{"no_test", "native-validator", "none", "ran no test", 1},
 		{"fail", "rendered-sfo-enrollment", "fail", "qualification suite rendered-sfo-enrollment failed", 1},
@@ -287,11 +290,45 @@ esac
 				}
 				return
 			}
-			for _, line := range strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n") {
-				if !strings.HasPrefix(line, "qualification test -count=1 -v ") {
+			lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n")
+			if len(lines) != len(strings.Fields(tc.suites)) {
+				t.Fatalf("ran %d suites for %q", len(lines), tc.suites)
+			}
+			for _, line := range lines {
+				if !strings.HasPrefix(line, "qualification test -count=1 -v -timeout=") {
 					t.Fatalf("suite did not run as a fresh qualification-tier test: %q", line)
+				}
+				var seconds int
+				if _, err := fmt.Sscanf(strings.Fields(line)[4], "-timeout=%ds", &seconds); err != nil || seconds <= 0 || seconds > 2400 {
+					t.Fatalf("suite timeout is not drawn from the shared budget: %q", line)
 				}
 			}
 		})
+	}
+}
+
+// Every suite draws its -timeout from one shared budget, so qualification
+// cannot outgrow the image job's timeout; a spent budget fails the gate.
+func TestQualifyImageSharesOneBudget(t *testing.T) {
+	root := t.TempDir()
+	goTool := filepath.Join(root, "go")
+	script.Write(t, goTool, []byte(`#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MOCK_RECORD"
+sleep 2
+printf -- '=== RUN   TestX\n--- PASS: TestX (0.00s)\nPASS\n'
+`), 0o755)
+	record := filepath.Join(root, "record")
+	env := map[string]string{"GO": goTool, "MOCK_RECORD": record, "TS_QUALIFICATION_SUITES": "terrabase-walkthrough terrabase-successor",
+		"TS_QUALIFICATION_BUDGET_SECONDS": "1"}
+	result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh")
+	if result.Code != 1 || !strings.Contains(result.Stderr, "qualification suite terrabase-successor did not run: the 1s qualification budget is spent") {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", result.Code, result.Stdout, result.Stderr)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(script.Read(t, record))), "\n"); len(lines) != 1 || !strings.Contains(lines[0], "-timeout=1s") {
+		t.Fatalf("recorded runs: %q", lines)
+	}
+	env["TS_QUALIFICATION_BUDGET_SECONDS"] = "0"
+	if result := script.Run(t, script.Root(t), env, "bash", "scripts/ci/qualify-image.sh"); result.Code != 2 || !strings.Contains(result.Stderr, "must be a positive number") {
+		t.Fatalf("exit=%d stderr=%s", result.Code, result.Stderr)
 	}
 }

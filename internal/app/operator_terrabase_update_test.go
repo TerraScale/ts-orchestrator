@@ -128,8 +128,13 @@ func TestTerraBaseUpdateRollsReleasesSeatBySeatAndRollsBackAHeldCandidate(t *tes
 		!strings.Contains(err.Error(), "not compatible") || len(fake.prepares) != 4 {
 		t.Fatalf("an incompatible persistent format was certified: %v %v", steps, err)
 	}
-	if steps, err := update(writeDeployTestRelease(t, cell.root, "no-compat-7")); err == nil ||
-		!errors.Is(err, staged.ErrNoCompatibilityData) || len(fake.prepares) != 4 {
+	noCompat := writeDeployTestRelease(t, cell.root, "no-compat-7")
+	noCompatDigest, _, err := digestReleaseBinary(noCompat.Binary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steps, err := update(noCompat); err == nil || !errors.Is(err, staged.ErrNoCompatibilityData) ||
+		!strings.Contains(err.Error(), noCompatDigest) || strings.Contains(err.Error(), r2) || len(fake.prepares) != 4 {
 		t.Fatalf("a release without compatibility data was certified: %v %v", steps, err)
 	}
 
@@ -245,7 +250,8 @@ func startFakeRolloutController(t *testing.T, cell *deployTestCellServices, inte
 		if err != nil {
 			t.Fatal(err)
 		}
-		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pins: placement.ManagedUpdateSeat{
+		// Every seat has a live host report, as a real host publishes.
+		fake.seats = append(fake.seats, &fakeRolloutSeat{serving: true, pid: 100, pins: placement.ManagedUpdateSeat{
 			SeatID: row.SeatID, Region: row.Region, MemberID: row.MemberID, Incarnation: row.Incarnation,
 			TLSLeafSHA256: row.TLSLeafSHA256, RuntimeManifestDigest: digest, HostNode: "host-" + row.SeatID,
 			HostGeneration: 1, HostAttempt: 1, OCIInstanceID: "ocid1.instance.oc1..fake-" + row.SeatID,
@@ -405,7 +411,8 @@ func (fake *fakeRolloutController) status(wire []byte) ([]byte, error) {
 			member.Update = &update
 		}
 		if seat.pid != 0 {
-			member.Host = &placementHostStatus{ProcessPID: seat.pid}
+			member.Host = &placementHostStatus{ProcessPID: seat.pid, SessionCurrent: true, ReportState: "running",
+				ServingProof: seat.serving}
 		}
 		report.Serving = report.Serving && seat.serving
 		report.Members = append(report.Members, member)

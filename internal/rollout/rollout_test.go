@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,80 @@ func TestBackoffIsBoundedAndCapped(t *testing.T) {
 	if _, ok := (Backoff{}).Delay(1); ok {
 		t.Fatal("zero backoff allowed a retry")
 	}
+	// Uncapped growth saturates instead of overflowing into a negative
+	// delay that would collapse the schedule into immediate retries.
+	uncapped := Backoff{Initial: time.Nanosecond, Attempts: 200}
+	previous := time.Duration(0)
+	for attempt := 1; attempt <= 200; attempt++ {
+		delay, ok := uncapped.Delay(attempt)
+		if !ok || delay < previous || delay <= 0 {
+			t.Fatalf("attempt %d delay = %v (previous %v, ok %t)", attempt, delay, previous, ok)
+		}
+		previous = delay
+	}
+	if previous != math.MaxInt64 {
+		t.Fatalf("uncapped delay saturated at %v", previous)
+	}
+}
+
+func TestSoakTreatsUnknownProcessAndReportGapsAsUnknown(t *testing.T) {
+	start := time.Unix(1_800_000_000, 0)
+	digest := strings.Repeat("c", 64)
+	sample := func(offset time.Duration, pid int) SoakSample {
+		return SoakSample{At: start.Add(offset), ArtifactDigest: digest, OperationID: "u-1",
+			Phase: "canary-serving", Serving: true, ProcessPID: pid}
+	}
+	gap := func(offset time.Duration) SoakSample {
+		s := sample(offset, 0)
+		s.Gap = true
+		return s
+	}
+	newSoak := func() *Soak { return &Soak{Window: time.Minute, Digest: digest, Promoted: "canary-serving"} }
+
+	// A first sample without a PID does not disable restart detection.
+	soak := newSoak()
+	for _, s := range []SoakSample{sample(0, 0), sample(10*time.Second, 77)} {
+		if _, err := soak.Observe(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := soak.Observe(sample(20*time.Second, 78)); !errors.Is(err, ErrSoakFailed) || Classify(err) != ClassTerminal {
+		t.Fatalf("restart after a PID-less first sample = %v", err)
+	}
+
+	// A transient PID-less sample or report gap is not a restart, and the
+	// window only completes on a reported sample.
+	soak = newSoak()
+	for _, s := range []SoakSample{sample(0, 77), sample(20*time.Second, 0), gap(40 * time.Second), gap(time.Minute)} {
+		if done, err := soak.Observe(s); done || err != nil {
+			t.Fatalf("sample at %s: %t %v", s.At.Sub(start), done, err)
+		}
+	}
+	if done, err := soak.Observe(sample(70*time.Second, 77)); !done || err != nil {
+		t.Fatalf("soak after a gap = %t %v", done, err)
+	}
+
+	// A gap does not hide the controller-owned fields.
+	soak = newSoak()
+	if _, err := soak.Observe(sample(0, 77)); err != nil {
+		t.Fatal(err)
+	}
+	held := gap(10 * time.Second)
+	held.Phase = "held"
+	if _, err := soak.Observe(held); !errors.Is(err, ErrSoakFailed) {
+		t.Fatalf("held seat during a gap = %v", err)
+	}
+
+	// A gap longer than the window is transient, not a known-bad verdict.
+	soak = newSoak()
+	for _, s := range []SoakSample{sample(0, 77), gap(30 * time.Second)} {
+		if _, err := soak.Observe(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := soak.Observe(gap(2 * time.Minute)); err == nil || errors.Is(err, ErrSoakFailed) || !IsTransient(err) {
+		t.Fatalf("long report gap = %v, want a transient error", err)
+	}
 }
 
 func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
@@ -158,6 +233,12 @@ func TestSoakRequiresAStableServingProcessForTheWholeWindow(t *testing.T) {
 	disabled := &Soak{Digest: strings.Repeat("c", 64), Promoted: "canary-serving"}
 	if done, err := disabled.Observe(healthy(0, 1)); !done || err != nil {
 		t.Fatalf("zero soak window did not pass on a healthy sample: %t %v", done, err)
+	}
+	gap := healthy(0, 0)
+	gap.Gap = true
+	disabled = &Soak{Digest: strings.Repeat("c", 64), Promoted: "canary-serving"}
+	if done, err := disabled.Observe(gap); !done || err != nil {
+		t.Fatalf("zero soak window waited for a host report: %t %v", done, err)
 	}
 }
 

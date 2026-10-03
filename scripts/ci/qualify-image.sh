@@ -32,11 +32,20 @@
 # than skip it, and a suite also fails if any selected test reports SKIP, so
 # this gate cannot pass vacuously. The Firecracker suites run through
 # `ts-orch qualification firecracker ...` on a KVM host, not here.
+#
+# All suites share one budget, TS_QUALIFICATION_BUDGET_SECONDS (default 2400,
+# 40 minutes); each suite's -timeout is what remains of it. image.yml's job
+# timeout reserves exactly this budget on top of the gate's wait and the
+# build, so slow suites fail here instead of the runner killing the build.
 set -euo pipefail
 
 # GO may be a command with arguments, such as "mise exec -- go".
 read -r -a go <<< "${GO:-go}"
-read -r -a suites <<< "${TS_QUALIFICATION_SUITES:-}"
+# A multi-line repository variable must not silently drop every suite after
+# its first line: read the whole value (read -d '' returns 1 at EOF).
+read -r -d '' -a suites <<< "${TS_QUALIFICATION_SUITES:-}" || true
+budget=${TS_QUALIFICATION_BUDGET_SECONDS:-2400}
+[[ $budget =~ ^[1-9][0-9]*$ ]] || { echo "TS_QUALIFICATION_BUDGET_SECONDS must be a positive number of seconds: $budget" >&2; exit 2; }
 ((${#suites[@]})) || { echo 'TS_QUALIFICATION_SUITES names no qualification suite' >&2; exit 2; }
 declare -A packages=(
 	[terrabase-walkthrough]=./internal/app
@@ -58,9 +67,16 @@ export TS_TEST_TIER=qualification
 logs=$(mktemp -d "${TMPDIR:-/tmp}/qualify-image.XXXXXXXX")
 trap 'rm -rf -- "$logs"' EXIT
 failed=0
+deadline=$((SECONDS + budget))
 for suite in "${suites[@]}"; do
+	remaining=$((deadline - SECONDS))
+	if ((remaining <= 0)); then
+		echo "qualification suite $suite did not run: the ${budget}s qualification budget is spent" >&2
+		failed=1
+		continue
+	fi
 	status=0
-	"${go[@]}" test -count=1 -v -timeout=30m -run "${tests[$suite]}" "${packages[$suite]}" > "$logs/$suite.log" 2>&1 || status=$?
+	"${go[@]}" test -count=1 -v -timeout="${remaining}s" -run "${tests[$suite]}" "${packages[$suite]}" > "$logs/$suite.log" 2>&1 || status=$?
 	cat "$logs/$suite.log"
 	if ((status != 0)); then
 		echo "qualification suite $suite failed" >&2

@@ -34,6 +34,19 @@ var cellName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // service manager restarts the whole controller instead of waiting forever.
 var ErrEmbeddedServerStopped = errors.New("embedded regional NATS server has stopped")
 
+// ErrUnavailable matches a Start failure to reach the regional brokers or
+// their JetStream API, which a retry can resolve. Configuration, credential
+// and TLS material errors never match it: retrying cannot fix them.
+var ErrUnavailable = errors.New("regional NATS is unavailable")
+
+// unavailable keeps its cause's message and chain and also matches
+// ErrUnavailable.
+type unavailable struct{ error }
+
+func (u unavailable) Unwrap() error { return u.error }
+
+func (unavailable) Is(target error) bool { return target == ErrUnavailable }
+
 // DefaultStoreMaxBytes bounds the embedded JetStream file store when the
 // operator does not specify a per-node limit.
 const DefaultStoreMaxBytes int64 = 8 << 30
@@ -382,14 +395,14 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	connected := make(chan struct{})
-	var connectErr error
+	var connectErr, forwardErr error
 	go func() {
 		connectURL := cfg.URL
 		if !cfg.Lab && cfg.Embedded == nil {
 			if len(cfg.OperatorForward) != 0 {
-				selected, _, forwardErr := operatorForwarding(cfg)
+				var selected string
+				selected, _, forwardErr = operatorForwarding(cfg)
 				if forwardErr != nil {
-					connectErr = forwardErr
 					close(connected)
 					return
 				}
@@ -405,11 +418,22 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		// nats.Connect has a bounded timeout of its own; wait for the goroutine
 		// before cleaning up to avoid a late client after server shutdown.
 		<-connected
-		return nil, connectCtx.Err()
+		if forwardErr != nil {
+			return nil, forwardErr
+		}
+		return nil, unavailable{connectCtx.Err()}
 	case <-connected:
 	}
+	if forwardErr != nil {
+		return nil, forwardErr
+	}
 	if connectErr != nil {
-		return nil, fmt.Errorf("connect regional NATS: %w", connectErr)
+		err := fmt.Errorf("connect regional NATS: %w", connectErr)
+		if errors.Is(connectErr, nats.ErrAuthorization) {
+			// The brokers answered and refused these credentials.
+			return nil, err
+		}
+		return nil, unavailable{err}
 	}
 	if cfg.Embedded != nil && !cfg.Lab {
 		systemCfg := cfg
@@ -446,7 +470,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		infoCtx, infoCancel := context.WithTimeout(ctx, 10*time.Second)
 		defer infoCancel()
 		if _, err := r.js.AccountInfo(infoCtx); err != nil {
-			return nil, fmt.Errorf("regional JetStream unavailable: %w", err)
+			return nil, unavailable{fmt.Errorf("regional JetStream unavailable: %w", err)}
 		}
 	}
 	return r, nil
@@ -709,7 +733,12 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 		connectTimeout = 3 * time.Second
 	}
 	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout)}
+	// Renewal applies to every authentication mode: an NKey-seed client has
+	// no JWT to reload but must still present a renewed certificate.
 	var materials *clientMaterialSource
+	if cfg.ReloadClientMaterial != nil {
+		materials = newClientMaterialSource(cfg, "")
+	}
 	if cfg.CredentialsFile != "" {
 		data, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
 		if err != nil {
@@ -726,7 +755,11 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return nil, err
 		}
 		options = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))
-		source := newClientMaterialSource(cfg, public)
+		source := materials
+		if source == nil {
+			source = newClientMaterialSource(cfg, public)
+		}
+		source.user = public
 		// The JWT and its signature come from one resolved file per handshake.
 		var handshake ClientMaterial
 		options = append(options, nats.UserJWT(func() (string, error) {
@@ -744,7 +777,6 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			}
 			return signNKeyFile(path, nonce)
 		}))
-		materials = source
 	}
 	if cfg.NKeySeedFile != "" {
 		data, err := readPrivateFile(cfg.NKeySeedFile, 4096)
@@ -772,10 +804,25 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 			return nil, err
 		}
 		if cfg.Lab {
+			if materials != nil {
+				// nats.Secure keeps one tls.Config for the connection's life;
+				// resolve the client certificate per handshake instead, so a
+				// renewed certificate is presented on reconnect here too.
+				tlsConfig = tlsConfig.Clone()
+				startup := tlsConfig.Certificates[0]
+				tlsConfig.Certificates = nil
+				tlsConfig.GetClientCertificate = func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+					current, err := materials.tlsConfig()
+					if err != nil || len(current.Certificates) == 0 {
+						return &startup, nil
+					}
+					return &current.Certificates[0], nil
+				}
+			}
 			options = append(options, nats.Secure(tlsConfig))
 		} else {
 			dialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}
-			if materials != nil && cfg.ReloadClientMaterial != nil {
+			if materials != nil {
 				dialer.reload = materials.tlsConfig
 			}
 			if len(cfg.OperatorForward) != 0 {

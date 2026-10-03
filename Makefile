@@ -15,7 +15,7 @@ BUILD_FLAGS := -trimpath -buildvcs=true -ldflags="-s -w"
 TS_TEST_TIER ?= full
 export TS_TEST_TIER
 
-.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process netbird-backup-check netbird-podman-test build build-linux release-linux release-check image run host check clean
+.PHONY: verify ci-verify format-check generate generate-check test test-fast dashboard-preview vet fixturetest-check race-test terrabase-walkthrough-process netbird-backup-check netbird-podman-test shellcheck build build-linux release-linux release-check image run host check clean
 
 verify: format-check generate-check vet race-test netbird-backup-check
 
@@ -79,6 +79,11 @@ terrabase-walkthrough-process:
 	@test -n "$(TERRABASE_SERVER)" || { echo 'usage: make terrabase-walkthrough-process TERRABASE_SERVER=<tb-server>' >&2; exit 2; }
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
+
+# Lint the tracked shell scripts (needs shellcheck >= 0.11 on PATH). It joins
+# ci-verify once the builder image ships shellcheck.
+shellcheck:
+	git ls-files -z -- 'scripts/*.sh' 'deploy/*.sh' deploy/netbird/manager/netbird-firewall | xargs -0 shellcheck -S warning
 
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:

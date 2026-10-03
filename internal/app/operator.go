@@ -120,13 +120,13 @@ func runOperator(ctx context.Context, args []string, output io.Writer) error {
 	}
 	runtime, err := natscell.Start(ctx, connection)
 	if err != nil {
-		return staged.Transient(err)
+		return classifyConnectError(err)
 	}
 	defer runtime.Close()
 	readyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := runtime.WaitForCluster(readyCtx, cfg.NATS.Replicas); err != nil {
-		return staged.Transient(err)
+		return classifyControllerError(err)
 	}
 	switch operation {
 	case "terrabase-deploy":

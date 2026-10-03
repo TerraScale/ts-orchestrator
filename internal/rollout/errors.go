@@ -3,6 +3,7 @@ package rollout
 import (
 	"context"
 	"errors"
+	"math"
 	"time"
 )
 
@@ -76,7 +77,13 @@ func (b Backoff) Delay(attempt int) (time.Duration, bool) {
 	}
 	delay := b.Initial
 	for range attempt - 1 {
-		delay *= 2
+		// Without a cap the doubling would overflow into a negative delay;
+		// saturate instead so a long schedule never collapses to no wait.
+		if delay > math.MaxInt64/2 {
+			delay = math.MaxInt64
+		} else {
+			delay *= 2
+		}
 		if b.Max > 0 && delay >= b.Max {
 			return b.Max, true
 		}

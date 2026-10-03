@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
 )
@@ -47,10 +48,8 @@ rest - 5
 ./internal/app TestAuthenticatedOperatorToHostDeliveryWithControllerLoss 32/1 idle
 ./internal/app TestThree 20
 ./internal/app TestOne 12
-./internal/app TestRemoved 9
 ./internal/app Test* 1
 ./internal/bootstrapstart TestStart 30
-./internal/other TestNotSharded 7
 ./tests/deploy TestOfflineReadbackMismatchDiscardsCandidate 300/60 solo
 ./tests/deploy * 10
 `
@@ -352,10 +351,33 @@ func TestRaceScheduler(t *testing.T) {
 			t.Fatalf("starts %v, want prefix %v", starts, want)
 		}
 		requireText(t, r.Stdout, "race queue deploy-"+solo+" pool=cpu estimate=300s")
-		requireText(t, r.Stderr, "race durations: ./internal/app TestRemoved matches no listed test")
-		forbidText(t, r.Stderr, "TestNotSharded")
-		forbidText(t, r.Stderr, "TestThree")
+		forbidText(t, r.Stderr, "race durations:")
 	})
+	// A stale literal estimate, a shadowed duplicate and an entry for a
+	// package that is not sharded all fail the run before any shard starts.
+	for name, tc := range map[string]struct{ extra, message string }{
+		"stale_test":      {"./internal/app TestRemoved 9\n", "race durations: ./internal/app TestRemoved matches no listed test"},
+		"shadowed":        {"./internal/app TestOne 4\n", "race durations: ./internal/app TestOne matches no listed test"},
+		"not_sharded":     {"./internal/other TestNotSharded 7\n", "race durations: ./internal/other is not a sharded package"},
+		"package_renamed": {"./internal/apps TestOne 7\n", "race durations: ./internal/apps is not a sharded package"},
+	} {
+		t.Run("durations_"+name, func(t *testing.T) {
+			t.Parallel()
+			f := newScheduler(t)
+			path := filepath.Join(t.TempDir(), "race-durations.txt")
+			// The extra line follows every fixture line, so the earlier
+			// TestOne entry shadows the duplicate.
+			script.Write(t, path, []byte(fixtureDurations+tc.extra), 0o644)
+			r := f.run(t, map[string]string{"TS_RACE_DURATIONS": path})
+			if r.Code != 1 {
+				t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
+			}
+			requireText(t, r.Stderr, tc.message)
+			if _, err := os.Stat(f.record); !os.IsNotExist(err) {
+				t.Fatal("shards ran despite stale estimates")
+			}
+		})
+	}
 	t.Run("pr", func(t *testing.T) {
 		t.Parallel()
 		f := newScheduler(t)
@@ -400,10 +422,13 @@ func TestRaceScheduler(t *testing.T) {
 		f := newScheduler(t)
 		committed := filepath.Join(t.TempDir(), "race-durations.txt")
 		script.Write(t, committed, committedDurations, 0o644)
+		// The fixture module lacks the real tests, so the committed named
+		// estimates are stale here and fail the run after the plan prints.
 		r := f.run(t, map[string]string{"TS_RACE_DURATIONS": committed})
-		if r.Code != 0 {
+		if r.Code != 1 || !strings.Contains(r.Stderr, "matches no listed test") {
 			t.Fatalf("exit %d: %s %s", r.Code, r.Stdout, r.Stderr)
 		}
+		forbidText(t, r.Stderr, "is not a sharded package")
 		for _, lab := range schedulerLabs {
 			requireText(t, r.Stdout, "race queue app-"+lab+" pool=idle ")
 		}
@@ -427,7 +452,8 @@ func TestRaceScheduler(t *testing.T) {
 			}
 		})
 	}
-	for name, durations := range map[string]string{"malformed": "./internal/app TestOne soon\n", "unknown_pool": "./internal/app TestOne 3 gpu\n", "missing": ""} {
+	for name, durations := range map[string]string{"malformed": "./internal/app TestOne soon\n", "unknown_pool": "./internal/app TestOne 3 gpu\n", "missing": "",
+		"octal": "./internal/app TestOne 08\n", "octal_short": "./internal/app TestOne 8/010\n"} {
 		t.Run("durations_"+name, func(t *testing.T) {
 			t.Parallel()
 			f := newScheduler(t)
@@ -457,5 +483,55 @@ func forbidText(t *testing.T, text, fragment string) {
 	t.Helper()
 	if strings.Contains(text, fragment) {
 		t.Errorf("unexpected %q", fragment)
+	}
+}
+
+// A signal to the scheduler alone must not orphan a shard's go test and
+// test binary: cleanup stops each shard's whole process group.
+func TestRaceSchedulerCleanupStopsShardProcessTrees(t *testing.T) {
+	tools := t.TempDir()
+	scheduler := filepath.Join(tools, "race-test.sh")
+	script.Write(t, scheduler, raceScript, 0o755)
+	durations := filepath.Join(tools, "race-durations.txt")
+	script.Write(t, durations, []byte("rest - 1\n"), 0o644)
+	child := filepath.Join(tools, "child.pid")
+	// go test forks the test binary; the fake forks a long sleep the same way.
+	goTool := filepath.Join(tools, "go")
+	script.Write(t, goTool, []byte(`#!/usr/bin/env bash
+case "$1 $2" in
+	"list -m") echo example.test/cleanup ;;
+	"list ./...") echo example.test/cleanup/other ;;
+	*) sleep 300 & echo $! > "$CHILD_PID"; wait ;;
+esac
+`), 0o755)
+	cmd := exec.Command("bash", scheduler)
+	cmd.Dir = tools
+	cmd.Env = append(os.Environ(), "GO="+goTool, "CHILD_PID="+child, "TS_RACE_DURATIONS="+durations, "TS_TEST_TIER=full")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	for deadline := time.Now().Add(30 * time.Second); ; time.Sleep(20 * time.Millisecond) {
+		if data, err := os.ReadFile(child); err == nil && strings.HasSuffix(string(data), "\n") {
+			if _, err := fmt.Sscanf(string(data), "%d", &pid); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			cmd.Process.Kill()
+			cmd.Wait()
+			t.Fatal("the shard never started")
+		}
+	}
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	cmd.Wait()
+	for deadline := time.Now().Add(10 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("shard child %d outlived the scheduler", pid)
+		}
 	}
 }

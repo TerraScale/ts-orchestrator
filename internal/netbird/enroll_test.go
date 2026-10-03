@@ -437,6 +437,67 @@ func TestObserveBacksOffExponentiallyWithinLimit(t *testing.T) {
 	}
 }
 
+// A cancelled context must surface as cancellation, not as the poll limit
+// elapsing or an unreachable daemon, so callers stop instead of acting on a
+// stale observation.
+func TestCancellationPropagatesFromObserveAndAwaitDaemon(t *testing.T) {
+	e := testEnroller(t)
+	e.poll = 5 * time.Millisecond
+	ctx, cancel := context.WithCancel(t.Context())
+	queries := 0
+	e.run = func(context.Context, string, ...string) ([]byte, error) {
+		if queries++; queries == 2 {
+			cancel()
+		}
+		return statusJSON("Connecting", DefaultManagementURL, false), nil
+	}
+	status, done, err := e.observe(ctx, time.Minute, nil, func(daemonStatus) bool { return false })
+	if !errors.Is(err, context.Canceled) || done || status.DaemonStatus != "Connecting" {
+		t.Fatalf("observe = %v %t %v", status, done, err)
+	}
+
+	// The boot reconnect settle path must stop on cancellation too.
+	e = testEnroller(t)
+	ctx, cancel = context.WithCancel(t.Context())
+	var commands []string
+	e.run = func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		commands = append(commands, args[0])
+		if len(commands) == 2 {
+			cancel()
+		}
+		return statusJSON("Connecting", DefaultManagementURL, false), nil
+	}
+	if err := e.enroll(ctx, testConfig()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("enroll = %v", err)
+	}
+	if slices.Contains(commands, "up") || slices.Contains(commands, "down") {
+		t.Fatalf("cancelled enrollment kept running commands: %v", commands)
+	}
+
+	// An unreachable daemon under a cancelled context reports cancellation.
+	e = testEnroller(t)
+	ctx, cancel = context.WithCancel(t.Context())
+	e.run = func(context.Context, string, ...string) ([]byte, error) {
+		cancel()
+		return nil, errors.New("connection refused")
+	}
+	if _, err := e.awaitDaemon(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("awaitDaemon = %v", err)
+	}
+
+	// A status query that cancellation cuts short inside observe reports
+	// the cancellation too, not an unreachable daemon.
+	e = testEnroller(t)
+	ctx, cancel = context.WithCancel(t.Context())
+	e.run = func(context.Context, string, ...string) ([]byte, error) {
+		cancel()
+		return nil, errors.New("signal: killed")
+	}
+	if _, _, err := e.observe(ctx, time.Minute, nil, func(daemonStatus) bool { return false }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("observe with a cancelled query = %v", err)
+	}
+}
+
 // The pinned client's effective configuration must keep every key the
 // settings check reads. Bumping NetBird fails here until the fixture is
 // refreshed from the new release's `netbird debug config`.

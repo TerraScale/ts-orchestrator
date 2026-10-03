@@ -527,6 +527,11 @@ reached a loopback-only HTTP tool through `-L`; a peer outside `operators` had
 no route; after a `systemctl restart netbird` from a session the daemon
 reconnected with its saved identity. Production enrollment proof is in
 [`manager/enrollment-verification.json`](manager/enrollment-verification.json).
+That record attests the enrollment config before `peer_names`
+(`verified_enrollment_config_sha256` `ada24468…`). The shipped
+`deploy/image/inputs/netbird-gru.json` (`3534acc1…`) adds stable slot peer
+names and is not yet covered: refresh the record after its first verified
+rollout.
 
 ## Verify
 

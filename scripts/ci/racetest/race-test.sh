@@ -19,6 +19,10 @@
 # listed test runs once, and any failure fails CI. Vet runs separately over
 # the whole module in make verify/ci-verify.
 set -euo pipefail
+# wait -n -p needs bash 5.1; older shells would fail mid-suite with an
+# unbound variable instead of this message.
+((BASH_VERSINFO[0] > 5 || BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1)) \
+	|| { echo "race-test.sh needs bash >= 5.1 (wait -n -p), not $BASH_VERSION" >&2; exit 2; }
 
 # GO may be a command with arguments, such as "mise exec -- go".
 read -r -a go <<< "${GO:-go}"
@@ -32,6 +36,13 @@ durations=${TS_RACE_DURATIONS:-$(dirname -- "$(realpath -- "$0")")/race-duration
 # The image contract suite drives the offline builder through hundreds of
 # command fakes per test; unsharded it serialised most of the CI job.
 sharded_packages=(./internal/app ./internal/bootstrapstart ./tests/deploy)
+configured_packages=("${sharded_packages[@]}")
+# Shard, listing and log names use the package's last element.
+declare -A seen_base=()
+for package in "${sharded_packages[@]}"; do
+	[[ -z ${seen_base[${package##*/}]:-} ]] || { echo "sharded packages share the name ${package##*/}: $package" >&2; exit 2; }
+	seen_base[${package##*/}]=1
+done
 [[ $shards =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_SHARDS must be a positive integer' >&2; exit 2; }
 [[ $jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_JOBS must be a positive integer' >&2; exit 2; }
 [[ $idle_jobs =~ ^[1-9][0-9]*$ ]] || { echo 'TS_RACE_IDLE_JOBS must be a positive integer' >&2; exit 2; }
@@ -60,11 +71,12 @@ line_number=0
 while IFS= read -r line || [[ -n $line ]]; do
 	line_number=$((line_number + 1))
 	line=${line%%#*}
-	package= test= cost= pool= extra=
+	package='' test='' cost='' pool='' extra=''
 	read -r package test cost pool extra <<< "$line" || true
 	[[ -n $package ]] || continue
 	pool=${pool:-cpu}
-	[[ -n $test && $cost =~ ^[0-9]+(/[0-9]+)?$ && $pool =~ ^(cpu|solo|idle)$ && -z $extra ]] || {
+	# No leading zeros: arithmetic would read them as octal.
+	[[ -n $test && $cost =~ ^(0|[1-9][0-9]*)(/(0|[1-9][0-9]*))?$ && $pool =~ ^(cpu|solo|idle)$ && -z $extra ]] || {
 		echo "$durations:$line_number: want <package> <test> <seconds>[/<short seconds>] [cpu|solo|idle]" >&2
 		exit 2
 	}
@@ -99,9 +111,16 @@ declare -A active=() active_pool=()
 running_cpu=0
 running_idle=0
 failed=0
+# Invoked through the EXIT trap.
+# shellcheck disable=SC2329
 cleanup() {
+	local pid
 	if ((${#active[@]})); then
-		kill "${!active[@]}" 2>/dev/null || true
+		# Each shard leads its own process group (see start), so this also
+		# stops its go test and test binary children, not just the subshell.
+		for pid in "${!active[@]}"; do
+			kill -- "-$pid" 2>/dev/null || true
+		done
 		wait || true
 	fi
 	rm -rf -- "$logs"
@@ -127,6 +146,9 @@ start() {
 	local name=$1 pool=$2
 	shift 2
 	printf 'race start %s pool=%s\n' "$name" "$pool"
+	# Job control gives the shard its own process group, so cleanup can stop
+	# the whole tree after an abnormal exit.
+	set -m
 	(
 		started=$SECONDS
 		status=0
@@ -134,6 +156,7 @@ start() {
 		printf 'race %s elapsed=%ss\n' "$name" "$((SECONDS - started))"
 		exit "$status"
 	) > "$logs/$name.log" 2>&1 &
+	set +m
 	active[$!]=$name
 	active_pool[$!]=$pool
 	if [[ $pool == idle ]]; then running_idle=$((running_idle + 1)); else running_cpu=$((running_cpu + 1)); fi
@@ -208,22 +231,37 @@ for package in "${sharded_packages[@]}"; do
 	done
 	[[ $covered == "${#tests[@]}" ]] || { echo "shards of $package cover $covered of ${#tests[@]} tests" >&2; exit 1; }
 done
-# A named estimate that matches no listed test has gone stale.
-for i in "${!entry_package[@]}"; do
-	[[ -z ${matched[$i]:-} && ${entry_test[i]} != *[*?[]* ]] || continue
-	for package in "${sharded_packages[@]}"; do
-		if [[ ${entry_package[i]} == "$package" ]]; then
-			printf 'race durations: %s %s matches no listed test\n' "$package" "${entry_test[i]}" >&2
-		fi
-	done
-done
-
 mapfile -t queue < <(LC_ALL=C sort -t "$tab" -k1,1nr -k2,2 "$logs/queue")
 printf 'race plan tier=%s cpu_jobs=%s idle_jobs=%s shards=%s\n' "$tier" "$jobs" "$idle_jobs" "${#queue[@]}"
 for entry in "${queue[@]}"; do
 	IFS="$tab" read -r cost name pool _ _ <<< "$entry"
 	printf 'race queue %s pool=%s estimate=%ss\n' "$name" "$pool" "$cost"
 done
+# Estimates must stay live like every other input: an entry naming no
+# sharded package can never apply, and a named test that matches no listed
+# test (renamed, removed, or shadowed by an earlier line) has gone stale.
+stale=0
+for i in "${!entry_package[@]}"; do
+	[[ -z ${matched[$i]:-} ]] || continue
+	configured=0
+	for package in "${configured_packages[@]}"; do
+		[[ ${entry_package[i]} != "$package" ]] || configured=1
+	done
+	if ((!configured)); then
+		printf 'race durations: %s is not a sharded package\n' "${entry_package[i]}" >&2
+		stale=1
+		continue
+	fi
+	in_module=0
+	for package in "${sharded_packages[@]}"; do
+		[[ ${entry_package[i]} != "$package" ]] || in_module=1
+	done
+	if ((in_module)) && [[ ${entry_test[i]} != *[*?[]* ]]; then
+		printf 'race durations: %s %s matches no listed test\n' "${entry_package[i]}" "${entry_test[i]}" >&2
+		stale=1
+	fi
+done
+((!stale)) || exit 1
 # Start the longest queued shard that has a free slot in its pool; a full
 # CPU pool never holds back an idle lab, nor the other way round.
 while ((${#queue[@]})); do

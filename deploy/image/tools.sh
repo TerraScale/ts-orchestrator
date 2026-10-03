@@ -62,7 +62,8 @@ if ! nix build --no-link "${substituters[@]}" "${paths[@]}"; then
 	fi
 fi
 echo "image tools ready nixpkgs=$nixpkgs_revision seconds=$((SECONDS - started))"
-export TS_IMAGE_TOOLS_ID="nixpkgs=$nixpkgs_revision lock_sha256=$(sha256sum -- "$lock" | cut -d ' ' -f 1)"
+lock_sha256=$(sha256sum -- "$lock" | cut -d ' ' -f 1)
+export TS_IMAGE_TOOLS_ID="nixpkgs=$nixpkgs_revision lock_sha256=$lock_sha256"
 tool_path=
 for path in "${paths[@]}"; do tool_path+="$path/bin:"; done
 PATH="$tool_path$PATH" exec "$@"
