@@ -110,6 +110,7 @@ chain's status).
 | Provider | Implementation | Wired |
 | --- | --- | --- |
 | `insights.AutoscalerProvider` | `app.workloadAutoscalers` over `workload.Reconciler.Last` | when `controller.autoscale.enabled` |
+| Metric history (autoscale and TerraBase load charts) | `app.withAutoscaleSamples` over `workload.Reconciler.Last` and `hostload.Aggregator.Nodes` | on the authority leader; signals need `controller.autoscale.host_telemetry` (see [autoscale-telemetry.md](autoscale-telemetry.md)) |
 | `insights.VolumeProvider` (also the dashboard storage page) | `app.placementVolumes` over the placement member states | on managed controllers |
 | `insights.RolloutProvider` | `rollout.Store.Rollouts` | available; no controller opens the rollout store yet |
 | `insights.BudgetProvider` | `regionplanner.Budgets` | available; the planner is not scheduled yet |
