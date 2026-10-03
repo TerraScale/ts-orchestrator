@@ -68,8 +68,8 @@ type InterRegionRecord struct {
 	Config        InterRegionConfig `json:"config"`
 	// MaterialSHA256 binds this material to the controller material it was
 	// issued from (the digest of that material's metadata).
-	MaterialSHA256 string `json:"materialSha256"`
-	OperatorNKey   string `json:"operatorNkey"`
+	MaterialSHA256 string    `json:"materialSha256"`
+	OperatorNKey   string    `json:"operatorNkey"`
 	IssuedAt       time.Time `json:"issuedAt"`
 	ExpiresAt      time.Time `json:"expiresAt"`
 	// InterRegionAccountNKey is what each child pins as its remote's
@@ -492,4 +492,3 @@ func (record InterRegionRecord) file(name string) (File, bool) {
 	}
 	return File{}, false
 }
-
