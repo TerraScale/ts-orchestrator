@@ -291,6 +291,70 @@ batch-soak → … → complete`, or `rolling-back → rolled-back`, `frozen` an
 Executors derive their next step from `NextActions`, whose operation IDs are
 deterministic per rollout, unit, phase and attempt.
 
+When the rollout store is enabled (`controller.rollouts.enabled`), managed
+TerraBase update admission also refuses a candidate the cell's known-bad list
+names (`placement.Config.KnownBad`). An unreadable list, or a store that has
+not opened yet, refuses the update: admission fails closed. With the store
+disabled nothing changes; the operator's `known-bad/` directory still applies.
+
+### Rollout executor (library, not yet started by the controller)
+
+`internal/rolloutexec` drives the state machine on the authority leader.
+Nothing in this change starts it; the pieces are:
+
+- **Executor.** Each tick, the leader loads the cell's active rollout, adopts
+  it under its own epoch after a leader change (`Store.Adopt`), performs the
+  record's `NextActions`, and commits the events it observed through the
+  fenced store. A follower does nothing and forgets its leader-local memory.
+  A `Program` lists rollouts in order; the next one starts only after the
+  previous one completed, so `SelfUpdateProgram` runs the controllers (one per
+  wave, the seed last) and then the hosts. A rollout that ends any other way
+  stops the program.
+- **Host grouping.** `HostUnits` puts hosts that share a TerraBase partition,
+  directly or through other hosts, in one group, so a wave never takes two
+  seats of a partition.
+- **Gates.** Before preflight and every step the executor requires a fresh
+  health proof from every group peer (on either side of the rollout) and
+  checks its `Gate`. `ClusterGate` holds a step while the JetStream metadata
+  group has no leader, an expected broker is offline, a controller restart
+  would drop the metadata group below quorum, or a replicated stream is
+  leaderless or lagging on this broker (`natscell.LaggingStreams`). A held
+  step only waits; the phase deadline decides when waiting becomes a
+  rollback.
+- **Signed health proofs** (`ts.orch.v1.<cell>.rollout.proof.<hash(unit)>`).
+  A running unit signs `{cell, unit, binary digest, pid, start nonce,
+  observed_at}` (trust domain `terrascale.orchestrator.rollout-health`, 2
+  minute lifetime) while it is healthy. The collector accepts a proof only
+  on its own unit's subject and from the unit's resolved keys. A proof on the
+  target feeds `healthy`; a new incarnation on another release after the
+  step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
+  predecessor after a rollback step feeds `rollback-serving`. Controllers
+  share the regional response key, so one controller can sign for another;
+  that is within the controller trust domain.
+- **Signed steps** (`ts.orch.v1.<cell>.rollout.step.<hash(unit)>`). The leader
+  signs `{rollout, unit, operation, action, digest, epoch, proof window}`
+  plus the release receipt (trust domain
+  `terrascale.orchestrator.rollout-step`, 2 minute lifetime, scope bound to
+  operation, action and unit). The agent verifies it against the controller
+  keys, refuses a step from an older epoch than one it already applied,
+  restages a pruned release through its `Fetcher` (the receipt is verified
+  by `selfupdate` against the node's own release roots before any byte is
+  kept), activates it with `selfupdate.Activate` and restarts the unit. It
+  is idempotent per operation: a retried step answers `pending` or
+  `current`. The reply is unsigned and only says whether to wait; completion
+  is proven by health proofs.
+- **Status** (`ts.orch.v1.<cell>.rollout.status`). Read-only JSON with the
+  phase, waves, per-unit state, newest proof digest and current holds.
+- **Journal.** Phase changes are journaled by the store; the executor adds
+  gate holds, hold releases and every accepted step, chained under the
+  release admission.
+
+Remaining before it can run in a cell: a root step agent with NATS
+credentials limited to its step subject (the controller runs unprivileged
+and cannot write the release root), host steps and proofs over the host
+session with the chunked artifact path, and a signed operator request that
+supplies the program.
+
 ### Resumable image promotion
 
 `ts-orch image promote --resume` continues in an existing `--out` directory
