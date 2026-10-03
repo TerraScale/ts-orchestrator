@@ -347,6 +347,21 @@ func TestPruneLeavesAmbiguousSlotsAlone(t *testing.T) {
 	}
 }
 
+func TestPruneReportsDNSLabelHeldOutsideTheServersGroup(t *testing.T) {
+	f := newFakeManager(t)
+	ids := f.seedLegacy(t)
+	now := time.Now()
+	f.addPeer("gru-controller-b", "203.0.113.9", true, now, ids.operators)
+	live := f.addPeer("ip-10-251-0-12", "10.251.0.12", true, now, ids.servers)
+	_, err := Prune(t.Context(), f.api(t), GRU(), PruneOptions{Now: now}, true)
+	if err == nil || !strings.Contains(err.Error(), "another peer holds the DNS label gru-controller-b") {
+		t.Fatalf("prune error = %v", err)
+	}
+	if f.peer(live).Name != "gru-controller-b" {
+		t.Fatalf("live peer: %+v", f.peer(live).apiPeer)
+	}
+}
+
 func TestPruneLeavesSlotWhoseNameIsHeldByAnotherConnectedPeerAlone(t *testing.T) {
 	f := newFakeManager(t)
 	ids := f.seedLegacy(t)
@@ -381,8 +396,12 @@ func TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles(t *
 				d.Slots[i].IP = "203.0.113." + strings.TrimPrefix(d.Slots[i].IP, "10.251.0.")
 			}
 		},
-		"alias to an unknown role": func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
-		"alias to an empty role":   func(d *Desired) { d.RoleAliases["nats"] = "" },
+		"alias to an unknown role":           func(d *Desired) { d.RoleAliases["nats"] = "controllers" },
+		"alias to an empty role":             func(d *Desired) { d.RoleAliases["nats"] = "" },
+		"policy source by former group name": func(d *Desired) { d.Policies[0].Sources = []string{"gateway"} },
+		"servers group by former name":       func(d *Desired) { d.ServersGroup = "ts-orch-servers" },
+		"DNS disabled group by former name":  func(d *Desired) { d.DNSDisabledGroups = []string{"ts-orch-servers"} },
+		"former name repeats a current name": func(d *Desired) { d.Groups[0].RenamedFrom = []string{d.Groups[1].Name} },
 	} {
 		d := GRU()
 		mutate(&d)
@@ -551,6 +570,10 @@ func TestCLIReadsPATSafelyAndPrintsNoSecrets(t *testing.T) {
 	}
 	if err := Run(t.Context(), []string{"prune-peers", "--offline-for", "5m"}, &out); err == nil {
 		t.Fatal("accepted a too-short offline threshold")
+	}
+	if err := Run(t.Context(), []string{"frobnicate", "--management-url", f.server.URL}, &out); err == nil ||
+		!strings.Contains(err.Error(), `unknown netbird command "frobnicate"`) {
+		t.Fatalf("unknown command error = %v", err)
 	}
 }
 

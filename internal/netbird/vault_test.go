@@ -164,12 +164,15 @@ func TestVaultReadsOnlyWellFormedAdminPAT(t *testing.T) {
 	for value, ok := range map[string]bool{
 		pat + "\n": true, "nbp_short": false, testSetupKey: false,
 		"nbp_abcdefghijklmnopqrstuvwxyzABCD01234-": false,
+		"nbp_" + strings.Repeat("Z", 196):          true,
+		"nbp_" + strings.Repeat("Z", 252):          true,
+		"nbp_" + strings.Repeat("Z", 253):          false,
 	} {
 		client := fakeBundleClient(func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
 			return setupKeyBundle(id, value), nil
 		})
-		token, err := readCurrentSecret(t.Context(), id, "admin PAT", client, validAdminPAT)
-		if ok != (err == nil) || ok && string(token) != pat {
+		token, err := readCurrentSecret(t.Context(), id, "admin PAT", maxAdminPATBytes, client, validAdminPAT)
+		if ok != (err == nil) || ok && string(token) != strings.TrimSpace(value) {
 			t.Fatalf("PAT shape of length %d: ok=%v error=%v", len(value), ok, err)
 		}
 		if err != nil && strings.Contains(err.Error(), value) {

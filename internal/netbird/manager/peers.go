@@ -168,6 +168,11 @@ func Prune(ctx context.Context, api *API, d Desired, options PruneOptions, apply
 			if out.Name != name {
 				return errors.New("manager did not rename the peer")
 			}
+			// Another peer holding the label would leave a suffixed label
+			// and replan this rename every cycle: surface it instead.
+			if !cleanLabel(out, name) {
+				return fmt.Errorf("peer %s got DNS label %s: another peer holds the DNS label %s", name, out.DNSLabel, name)
+			}
 			return nil
 		})
 	}

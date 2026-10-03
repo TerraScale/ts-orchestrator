@@ -86,10 +86,12 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		report, err := Sync(ctx, api, GRU(), *apply)
 		writeReport(stdout, report, *apply, err)
 		return err
-	default:
+	case "prune-peers":
 		report, err := Prune(ctx, api, GRU(), PruneOptions{OfflineFor: *offlineFor}, *apply)
 		writeReport(stdout, report, *apply, err)
 		return err
+	default:
+		return fmt.Errorf("unknown netbird command %q", command)
 	}
 }
 

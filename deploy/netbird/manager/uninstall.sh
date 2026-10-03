@@ -48,8 +48,10 @@ if command -v netbird >/dev/null; then
   systemctl disable --now netbird.service 2>/dev/null || true
   netbird service stop 2>/dev/null || true
   netbird service uninstall 2>/dev/null || true
-  apt-mark unhold netbird >/dev/null
-  DEBIAN_FRONTEND=noninteractive apt-get purge -y netbird
+  if dpkg-query -W netbird >/dev/null 2>&1; then
+    apt-mark unhold netbird >/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y netbird
+  fi
 fi
 # The routing peer's client identity; the manager's store lives in $DATA.
 rm -rf /var/lib/netbird

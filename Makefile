@@ -44,13 +44,13 @@ terrabase-walkthrough-process:
 	systemd-run --user --scope --quiet -p MemoryMax=10G env TS_TERRABASE_SERVER="$(abspath $(TERRABASE_SERVER))" \
 		$(GO) test ./internal/app -run '^TestTerraBaseWalkthroughAgainstRealMembers$$' -count=1 -v
 
-# Sync and prune a disposable NetBird 0.80 manager and real client peers in
-# rootless Podman (pulls the netbird-server and netbird images). Nested Podman
-# in a CI job container also needs TS_NESTED_PODMAN=1.
 # The ts-ops NetBird store backup script carries its own self-check.
 netbird-backup-check:
 	python3 deploy/netbird/manager/netbird-backup --self-check
 
+# Sync and prune a disposable NetBird 0.80 manager and real client peers in
+# rootless Podman (pulls the netbird-server and netbird images). Nested Podman
+# in a CI job container also needs TS_NESTED_PODMAN=1.
 netbird-podman-test:
 	TS_NETBIRD_PODMAN=1 $(GO) test ./internal/netbird/manager -run '^TestPodmanManagerSyncAndPrune$$' -count=1 -v -timeout 15m
 

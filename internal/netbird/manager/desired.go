@@ -182,14 +182,17 @@ func (d Desired) Records() []Record {
 // Validate checks internal consistency: referenced groups exist, slots are
 // unique private addresses inside the cell subnet, names are unique.
 func (d Desired) Validate() error {
-	groups := map[string]bool{}
+	// Names must be unique across current and former names, but references
+	// resolve only against current names: a former name is renamed away.
+	seenGroup, groups := map[string]bool{}, map[string]bool{}
 	for _, group := range d.Groups {
 		for _, name := range append([]string{group.Name}, group.RenamedFrom...) {
-			if name == "" || groups[name] {
+			if name == "" || seenGroup[name] {
 				return fmt.Errorf("desired NetBird group name %q is empty or repeated", name)
 			}
-			groups[name] = true
+			seenGroup[name] = true
 		}
+		groups[group.Name] = true
 	}
 	known := func(names ...string) error {
 		for _, name := range names {

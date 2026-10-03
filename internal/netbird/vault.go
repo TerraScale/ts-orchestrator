@@ -31,8 +31,11 @@ func validSetupKey(key []byte) bool {
 }
 
 func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
-	return readOCISecret(ctx, cfg.Region, cfg.SetupKeySecretID, "setup-key", validSetupKey)
+	return readOCISecret(ctx, cfg.Region, cfg.SetupKeySecretID, "setup-key", setupKeyMaxBytes, validSetupKey)
 }
+
+// setupKeyMaxBytes bounds the encoded setup-key bundle read from OCI Vault.
+const setupKeyMaxBytes = 128
 
 // Admin PAT bounds. NetBird issues "nbp_" + a 30-character secret + a
 // 6-character base62 checksum (40 bytes); longer future tokens are accepted
@@ -66,10 +69,10 @@ func ReadAdminPAT(ctx context.Context, cfg Config) ([]byte, error) {
 	if cfg.AdminPATSecretID == "" {
 		return nil, errors.New("NetBird admin_pat_secret_id is not configured")
 	}
-	return readOCISecret(ctx, cfg.Region, cfg.AdminPATSecretID, "admin PAT", validAdminPAT)
+	return readOCISecret(ctx, cfg.Region, cfg.AdminPATSecretID, "admin PAT", maxAdminPATBytes, validAdminPAT)
 }
 
-func readOCISecret(ctx context.Context, region, secretID, label string, valid func([]byte) bool) ([]byte, error) {
+func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes int, valid func([]byte) bool) ([]byte, error) {
 	for _, name := range []string{"OCI_GO_SDK_DEBUG", "OCI_METADATA_BASE_URL", "OCI_SDK_AUTH_CLIENT_REGION_URL", "OCI_DEFAULT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PATH", "OCI_DEFAULT_CLIENT_CERTS_PRIVATE_KEY_PATH"} {
 		if _, overridden := os.LookupEnv(name); overridden {
 			return nil, errors.New("NetBird OCI Vault access does not permit OCI debug logging, endpoint or TLS overrides")
@@ -93,14 +96,16 @@ func readOCISecret(ctx context.Context, region, secretID, label string, valid fu
 	}
 	httpClient.Transport = responseLimitTransport{transport: httpClient.Transport, limit: 16 << 10}
 	client.HTTPClient = httpClient
-	return readCurrentSecret(ctx, secretID, label, client, valid)
+	return readCurrentSecret(ctx, secretID, label, maxBytes, client, valid)
 }
 
 func readCurrentSetupKey(ctx context.Context, secretID string, client bundleClient) ([]byte, error) {
-	return readCurrentSecret(ctx, secretID, "setup-key", client, validSetupKey)
+	return readCurrentSecret(ctx, secretID, "setup-key", setupKeyMaxBytes, client, validSetupKey)
 }
 
-func readCurrentSecret(ctx context.Context, secretID, label string, client bundleClient, valid func([]byte) bool) ([]byte, error) {
+// readCurrentSecret reads the CURRENT bundle version; maxBytes is the decoded
+// per-secret budget, gated on its base64 encoded length before decoding.
+func readCurrentSecret(ctx context.Context, secretID, label string, maxBytes int, client bundleClient, valid func([]byte) bool) ([]byte, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	retry := common.NoRetryPolicy()
@@ -120,7 +125,7 @@ func readCurrentSecret(ctx context.Context, secretID, label string, client bundl
 		}
 		content = *pointer
 	}
-	if content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(128) {
+	if content.Content == nil || len(*content.Content) > base64.StdEncoding.EncodedLen(maxBytes) {
 		return nil, invalid
 	}
 	decoded, err := base64.StdEncoding.Strict().DecodeString(*content.Content)

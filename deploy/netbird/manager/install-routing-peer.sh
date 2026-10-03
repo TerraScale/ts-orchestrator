@@ -71,7 +71,6 @@ fail() {
 [[ "$(hostname -s)" == ts-ops ]] || fail "refusing to run outside ts-ops"
 # Saved client state: the peer's WireGuard identity in /var/lib/netbird.
 has_client_state() { compgen -G '/var/lib/netbird/*.json' >/dev/null; }
-peer_status() { netbird status 2>/dev/null || true; }
 # The daemon's state from `netbird status --json`, compared exactly like
 # internal/netbird/enroll.go (the human-readable output is not a contract).
 daemon_status() {

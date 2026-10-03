@@ -53,23 +53,20 @@ fail() {
   || fail "$CONFIG must be materialized by OpenBao (target forgejo-oci-netbird) as root:root 0600"
 grep -q '{{' "$CONFIG" && fail "$CONFIG still contains template placeholders"
 
-# The ports must be free or already held by this stack. Any listener on the
-# port counts, whatever address it binds. A container runtime process may hold
-# a port only for a netbird-server or netbird-dashboard container: another
-# container publishing it fails the preflight.
+# The ports must be free or already held by this stack. Any non-runtime
+# listener on the port fails, whatever address it binds. Rootful Podman
+# publishes through netavark DNAT with no listening socket, so the publishing
+# containers are checked separately and unconditionally: only netbird-server
+# and netbird-dashboard may publish these ports.
+published=$(podman ps --format '{{.Names}} {{.Ports}}')
 for spec in tcp:18080 tcp:18081 udp:3478; do
   IFS=: read -r proto port <<<"$spec"
   listeners=$(ss -Hlnp --"$proto" "sport = :$port" || true)
-  [[ -n "$listeners" ]] || continue
   holder=$(grep -v -E 'netbird|conmon|podman|netavark|aardvark|rootlessport' <<<"$listeners" || true)
   [[ -z "$holder" ]] || fail "$proto port $port is already in use: $holder"
-  # Runtime-held: the publishing container must be ours.
-  others=$(podman ps --format '{{.Names}} {{.Ports}}' \
-    | grep -E "[:]$port->[0-9]+/$proto" | awk '{ print $1 }' \
+  others=$(grep -E "[:]$port->[0-9]+/$proto" <<<"$published" | awk '{ print $1 }' \
     | grep -v -x -E 'netbird-server|netbird-dashboard' || true)
   [[ -z "$others" ]] || fail "$proto port $port is published by another container: $others"
-  podman ps --format '{{.Names}} {{.Ports}}' | grep -q -E "^(netbird-server|netbird-dashboard) .*[:]$port->[0-9]+/$proto" \
-    || fail "$proto port $port is held by the container runtime but not by netbird-server or netbird-dashboard"
 done
 
 if [[ "$dry_run" -eq 1 ]]; then
@@ -95,14 +92,16 @@ fi
 
 systemctl daemon-reload
 systemctl enable --now netbird-firewall.service
+# Create the bridge first: netbird-firewall's STUN rule hardcodes its subnet,
+# so drift fails before any service is up. Quadlet generates
+# netbird-network.service from netbird.network.
+systemctl start netbird-network.service
+bridge=$(podman network inspect netbird --format '{{ (index .Subnets 0).Subnet }}')
+[[ "$bridge" == 10.89.77.0/24 ]] || fail "netbird bridge subnet $bridge does not match netbird-firewall's 10.89.77.0/24"
 # No `enable`: these are Quadlet-generated units. systemctl enable refuses
 # them ("Unit ... is transient or generated"); the Quadlet generator links them
 # into multi-user.target.wants from their [Install] WantedBy= (on ts-ops:
 # is-enabled=generated, /run/systemd/generator/multi-user.target.wants).
 systemctl start netbird-server.service netbird-dashboard.service
-# netbird-firewall's STUN rule hardcodes the bridge subnet; it must match the
-# network the Quadlet created.
-bridge=$(podman network inspect netbird --format '{{ (index .Subnets 0).Subnet }}')
-[[ "$bridge" == 10.89.77.0/24 ]] || fail "netbird bridge subnet $bridge does not match netbird-firewall's 10.89.77.0/24"
 systemctl enable --now netbird-backup.timer
 echo "netbird manager installed; next: setup-owner.sh, then caddy validate + reload"
