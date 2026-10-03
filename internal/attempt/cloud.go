@@ -150,10 +150,11 @@ func (c *sdkCloud) PolicyStatements(ctx context.Context, policyID string) ([]str
 }
 
 func (c *sdkCloud) ReplacePolicyStatements(ctx context.Context, policyID, etag string, statements []string) error {
-	request := identity.UpdatePolicyRequest{PolicyId: &policyID, UpdatePolicyDetails: identity.UpdatePolicyDetails{Statements: statements}}
-	if etag != "" {
-		request.IfMatch = &etag
+	if etag == "" {
+		return errors.New("refusing an OCI policy update without an If-Match ETag")
 	}
+	request := identity.UpdatePolicyRequest{PolicyId: &policyID, IfMatch: &etag,
+		UpdatePolicyDetails: identity.UpdatePolicyDetails{Statements: statements}}
 	if _, err := c.identity.UpdatePolicy(ctx, request); err != nil {
 		return fmt.Errorf("update OCI policy: %w", err)
 	}

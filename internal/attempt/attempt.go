@@ -429,6 +429,12 @@ func (a *Attempt) controllerObjectGrants(plan Object) {
 	if a.err != nil || slices.Equal(statements, expected) {
 		return
 	}
+	// The replacement is conditional on the version just read; without an
+	// ETag it would silently overwrite a concurrent policy change.
+	if etag == "" {
+		a.fail(fmt.Errorf("OCI policy %s read returned no ETag; refusing an unconditional update", policyID))
+		return
+	}
 	want, e := json.Marshal(expected)
 	a.fail(e)
 	path := a.Path("controller-policy-statements.json")

@@ -128,6 +128,23 @@ func TestControllerObjectGrantsReplaceOnlyDifferingStatements(t *testing.T) {
 	}
 }
 
+func TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate(t *testing.T) {
+	a := smallAttempt(t)
+	a.Sleep = func(context.Context, time.Duration) error { return nil }
+	ids := Object{"controller_policy": "ocid1.policy.oc1..p", "controller_dynamic_group": "ocid1.dynamicgroup.oc1..g",
+		"control_compartment": "ocid1.compartment.oc1..c", "key": "ocid1.key.oc1.sa-saopaulo-1.k", "vault": "ocid1.vault.oc1.sa-saopaulo-1.v"}
+	plan := Object{"region": Region, "foundation_buckets": Object{"ledger": "ledger", "head": "head", "backup": "backup", "material": "material"}, "resource_ids": ids}
+	cloud := &policyCloud{statements: []string{"stale"}}
+	a.Cloud = cloud
+	a.controllerObjectGrants(plan)
+	if a.Err() == nil || !strings.Contains(a.Err().Error(), "ETag") || len(cloud.updated) != 0 {
+		t.Fatal("updated the policy without an ETag", a.Err(), cloud.updated)
+	}
+	if err := (&sdkCloud{}).ReplacePolicyStatements(t.Context(), "ocid1.policy.oc1..p", "", []string{"x"}); err == nil {
+		t.Fatal("SDK cloud accepted an update without If-Match")
+	}
+}
+
 func TestContinuityMarkerReadRetriesThenWritesExactBytes(t *testing.T) {
 	a := smallAttempt(t)
 	a.Out, a.ErrOut = io.Discard, io.Discard
