@@ -83,7 +83,7 @@ func replacementMemberState(intent Intent, seat Seat, state MemberState) (Member
 	next.HostNode, next.InstanceID, next.InstanceETag = "", "", ""
 	next.AttachmentID, next.AttachmentDevice, next.AttachmentETag = "", "", ""
 	next.HostGeneration, next.DesiredGeneration = 0, 0
-	next.HostLostAt = time.Time{}
+	next.HostLostAt, next.AttachRequestedAt = time.Time{}, time.Time{}
 	next.OperationID = memberOperationID(intent, seat.MemberID, next.HostAttempt, "replace")
 	return next, nil
 }

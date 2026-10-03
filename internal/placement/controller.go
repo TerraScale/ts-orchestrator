@@ -530,6 +530,10 @@ func (controller *Controller) advanceMember(
 	case StagePreparedAttach:
 		instance, exists := instances[state.InstanceID]
 		if !exists {
+			// An instance with an ATTACHING volume is withheld from
+			// observation; a requested attach still runs against its
+			// deadline.
+			controller.holdStalledAttachRequest(seat.MemberID, state)
 			return false, nil
 		}
 		if err := controller.validateObservedInstance(instance, state, seat); err != nil {
@@ -556,6 +560,16 @@ func (controller *Controller) advanceMember(
 			}
 		}
 		if attachment == nil {
+			if state.AttachRequestedAt.IsZero() {
+				// Record when the attach starts, durably, so its deadline
+				// survives restarts and settle-wait failures.
+				state.AttachRequestedAt = controller.currentTime().UTC()
+				revision, err := controller.persist(ctx, epoch, versioned.Revision, state)
+				if err != nil {
+					return false, err
+				}
+				versioned.Revision = revision
+			}
 			if err := controller.guard(ctx, epoch); err != nil {
 				return false, err
 			}
@@ -565,12 +579,14 @@ func (controller *Controller) advanceMember(
 				IdempotencyKey: memberOperationID(intent, seat.MemberID, state.HostAttempt, "attach-volume"),
 			})
 			if err != nil {
+				controller.holdStalledAttachRequest(seat.MemberID, state)
 				return false, fmt.Errorf("attach retained member volume %s/%s: %w", intent.DatabaseID, seat.MemberID, err)
 			}
 			attachment = &attached
 		}
 		state.AttachmentID = attachment.ID
 		if attachment.State == "ATTACHED" {
+			state.AttachRequestedAt = time.Time{}
 			state.Stage = StageAwaitingRuntimeContract
 			state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 		} else if attachment.State == "ATTACHING" {
@@ -606,6 +622,7 @@ func (controller *Controller) advanceMember(
 				if err := controller.verifyPinnedImage(ctx); err != nil {
 					return false, err
 				}
+				state.AttachRequestedAt = time.Time{}
 				state.Stage = StageAwaitingRuntimeContract
 				state.OperationID = memberOperationID(intent, seat.MemberID, state.HostAttempt, "runtime-hold")
 				_, err := controller.persist(ctx, epoch, versioned.Revision, state)
@@ -1050,14 +1067,28 @@ func (controller *Controller) growVolume(ctx context.Context, epoch uint64, inte
 // remediation is reported, never executed here: every force detach or host
 // replacement needs its own fencing proof in the storage slice.
 func (controller *Controller) holdStuckAttachment(memberID, attachmentID string, state MemberState) {
-	phase := lifecycle.State{Phase: lifecycle.Attaching, Since: state.UpdatedAt}
+	since := state.UpdatedAt
+	if !state.AttachRequestedAt.IsZero() {
+		since = state.AttachRequestedAt
+	}
+	phase := lifecycle.State{Phase: lifecycle.Attaching, Since: since}
 	stuck, expired := lifecycle.Check(phase, controller.currentTime(), controller.config.VolumeDeadlines)
 	if !expired {
 		return
 	}
 	controller.hold(fmt.Sprintf("member %s retained volume attachment %s is stuck ATTACHING since %s (%s); remediation %s is required",
-		memberID, attachmentID, state.UpdatedAt.UTC().Format(time.RFC3339), stuck.Reason,
+		memberID, attachmentID, since.UTC().Format(time.RFC3339), stuck.Reason,
 		lifecycle.Remediate(stuck, controller.config.VolumeDeadlines)))
+}
+
+// holdStalledAttachRequest reports a requested attach that has not been
+// observed ATTACHED within the attach deadline, while the attachment itself
+// is not observable (its instance is withheld or the settle wait failed).
+func (controller *Controller) holdStalledAttachRequest(memberID string, state MemberState) {
+	if state.AttachRequestedAt.IsZero() {
+		return
+	}
+	controller.holdStuckAttachment(memberID, "(not yet observable)", state)
 }
 
 func (controller *Controller) hold(reason string) {
