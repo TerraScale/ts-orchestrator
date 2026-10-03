@@ -2,6 +2,7 @@ package decisionlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -168,6 +169,15 @@ func TestFederationAcrossRegions(t *testing.T) {
 	chain, err := federation.Chain(ctx, remoteID)
 	if err != nil || chain.Root.ID != remoteID {
 		t.Fatalf("remote chain = %+v err=%v", chain, err)
+	}
+	// MIA is linked but does not answer: a miss is not proof of absence.
+	if _, err := federation.Chain(ctx, "missing"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("chain with an unreachable region = %v, want ErrUnavailable", err)
+	}
+	// A configured region that is not linked was not searched either.
+	linked, _ := federation.Query(ctx, Query{Regions: []string{"gru", "fra"}})
+	if !linked.Partial {
+		t.Fatal("an unlinked configured region left the result complete")
 	}
 }
 

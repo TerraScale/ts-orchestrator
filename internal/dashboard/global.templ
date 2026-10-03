@@ -131,7 +131,11 @@ templ regionCard(current view, summary regionview.Summary) {
 		<dl class="kv">
 			<dt>Quorum</dt>
 			<dd class={ boolStatus(summary.Quorum.Healthy) }>
-				{ itoa(summary.Quorum.Answering) } / { itoa(summary.Quorum.Expected) } answering, { itoa(summary.Quorum.Ready) } ready
+				if summary.Quorum.Unobserved {
+					not observed: the cell-wide view failed, { itoa(summary.Quorum.Answering) } member answered
+				} else {
+					{ itoa(summary.Quorum.Answering) } / { itoa(summary.Quorum.Expected) } answering, { itoa(summary.Quorum.Ready) } ready
+				}
 				if len(summary.Quorum.Missing) > 0 {
 					· missing { joinWords(summary.Quorum.Missing) }
 				}

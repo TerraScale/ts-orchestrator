@@ -39,7 +39,7 @@ func (current view) globalKPIs() []kpi {
 		if summary.Reach == decisionlog.RegionOK {
 			observed++
 		}
-		if summary.Reach == decisionlog.RegionOK || summary.Local {
+		if (summary.Reach == decisionlog.RegionOK || summary.Local) && !summary.Quorum.Unobserved {
 			quorumRegions++
 		}
 		if summary.Health.Status == regionview.StatusHealthy {
@@ -115,8 +115,9 @@ func (current view) globalKPIs() []kpi {
 	if len(regions) > 0 || current.placement() != nil {
 		if len(regions) == 0 {
 			placement := current.placement()
-			databases = len(placement.Databases)
+			ids := map[string]bool{}
 			for _, database := range placement.Databases {
+				ids[database.DatabaseID] = true
 				serving += database.Serving
 				desired += database.DesiredSeats
 				// The same in-flight condition regionview counts.
@@ -124,6 +125,7 @@ func (current view) globalKPIs() []kpi {
 					rollouts++
 				}
 			}
+			databases = len(ids)
 		}
 		tiles = append(tiles, kpi{Label: "TerraBase instances", Value: itoa(databases),
 			Sub: itoa(serving) + " / " + itoa(desired) + " seats serving", Status: boolStatus(serving >= desired),

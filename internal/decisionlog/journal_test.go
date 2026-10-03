@@ -3,6 +3,7 @@ package decisionlog
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -348,9 +349,15 @@ func TestNormalizeBoundsRecord(t *testing.T) {
 		decision.Attrs[fmt.Sprint("k", index)] = long
 	}
 	normalized := decision.Normalize(time.Now())
-	if len(normalized.Signals) != maxSignals || len(normalized.Related) != maxRelated ||
-		len(normalized.Alternatives) != maxAlternatives || len(normalized.Attrs) != maxAttrs {
+	if len(normalized.Signals) > maxSignals || len(normalized.Related) > maxRelated ||
+		len(normalized.Alternatives) > maxAlternatives || len(normalized.Attrs) > maxAttrs {
 		t.Fatalf("bounds not applied")
+	}
+	// The per-field bounds alone exceed the record budget here: optional
+	// evidence is shed until the encoded record fits, so its durable copy
+	// is never refused.
+	if data, _ := json.Marshal(normalized); len(data) > MaxRecordBytes || len(normalized.Signals) == 0 {
+		t.Fatalf("encoded record = %d bytes with %d signals", len(data), len(normalized.Signals))
 	}
 	if len(normalized.Summary) > maxSummaryBytes || !strings.HasPrefix(long, normalized.Summary) {
 		t.Fatalf("summary not clipped on a rune boundary")

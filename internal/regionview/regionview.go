@@ -75,6 +75,9 @@ type Quorum struct {
 	Healthy   bool `json:"healthy"`
 	// Missing lists expected controllers that did not answer.
 	Missing []string `json:"missing,omitempty"`
+	// Unobserved reports that the cell-wide view failed and only this
+	// member answered: the controller roster and quorum are unknown.
+	Unobserved bool `json:"unobserved,omitempty"`
 }
 
 // Leaders names the regional authority owner and the JetStream meta leader.
@@ -203,13 +206,20 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 			cluster = &snapshot
 		}
 	}
+	unobserved := false
 	if cluster == nil && provider.Snapshot != nil {
 		if snapshot, err := provider.Snapshot.Snapshot(ctx, false); err == nil {
 			cluster = &observability.ClusterSnapshot{Cell: snapshot.Cell, Members: []observability.MemberSnapshot{snapshot}}
+			// Without a cluster source this member is the whole cell; with
+			// one that failed, the rest of the roster is unknown.
+			unobserved = provider.Cluster != nil
 		}
 	}
 	if cluster != nil {
 		fillFromCluster(&summary, *cluster)
+		if unobserved {
+			summary.Quorum = Quorum{Answering: summary.Quorum.Answering, Ready: summary.Quorum.Ready, Unobserved: true}
+		}
 	}
 	if provider.History != nil {
 		var sum float64
@@ -230,7 +240,14 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 	}
 	var open []insights.Insight
 	if provider.Insights != nil {
-		open = provider.Insights.Current().Insights
+		// The engine also raises insights about other regions (one that
+		// does not answer); they belong to the global view, not this
+		// region's counts and score.
+		for _, insight := range provider.Insights.Current().Insights {
+			if insight.Region == "" || strings.EqualFold(insight.Region, region) {
+				open = append(open, insight)
+			}
+		}
 		summary.Counts = insights.Count(open)
 		summary.Insights = open[:min(len(open), cmp.Or(provider.TopInsights, DefaultTopInsights))]
 	}
@@ -269,11 +286,18 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 		if member.BuildVersion != "" {
 			versions[member.BuildVersion] = append(versions[member.BuildVersion], member.Member)
 		}
-		if authority := member.Authority; authority != nil && authority.Epoch >= summary.Leaders.Epoch {
+		// The owner is the newest valid lease any member observes, whatever
+		// the member order; the holder's own report wins a tie. A member
+		// that observes no ready lease (control-log failures keep its own
+		// candidate as OwnerID) is no evidence of a leader.
+		if authority := member.Authority; authority != nil && authority.Ready && authority.Epoch > 0 &&
+			(authority.Leader || authority.OwnerID != "") {
+			owner := authority.OwnerID
 			if authority.Leader {
-				summary.Leaders.Authority, summary.Leaders.Epoch = member.Member, authority.Epoch
-			} else if summary.Leaders.Authority == "" && authority.OwnerID != "" {
-				summary.Leaders.Authority, summary.Leaders.Epoch = authority.OwnerID, authority.Epoch
+				owner = member.Member
+			}
+			if authority.Epoch > summary.Leaders.Epoch || authority.Epoch == summary.Leaders.Epoch && authority.Leader {
+				summary.Leaders.Authority, summary.Leaders.Epoch = owner, authority.Epoch
 			}
 		}
 		if nats := member.NATS; nats != nil {
@@ -307,7 +331,12 @@ func fillFromCluster(summary *Summary, cluster observability.ClusterSnapshot) {
 	}
 	slices.SortFunc(summary.Members, func(left, right Member) int { return strings.Compare(left.Name, right.Name) })
 	if placement != nil {
-		summary.TerraBase.Databases = len(placement.Databases)
+		// Placement lists one entry per database partition.
+		databases := map[string]bool{}
+		for _, database := range placement.Databases {
+			databases[database.DatabaseID] = true
+		}
+		summary.TerraBase.Databases = len(databases)
 		hosts := map[string]*Host{}
 		for _, database := range placement.Databases {
 			for _, seat := range database.Members {
@@ -356,6 +385,9 @@ func score(summary Summary, observed bool, open []insights.Insight) Health {
 		reasons = append(reasons, reason)
 	}
 	quorum := summary.Quorum
+	if quorum.Unobserved {
+		penalize(30, "controller quorum not observed (the cell-wide view failed)")
+	}
 	if missing := quorum.Expected - quorum.Answering; missing > 0 {
 		if !quorum.Healthy {
 			penalize(60, fmt.Sprintf("controller quorum lost (%d of %d answering)", quorum.Answering, quorum.Expected))

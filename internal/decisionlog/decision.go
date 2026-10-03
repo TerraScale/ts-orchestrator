@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
@@ -233,6 +234,43 @@ func (decision Decision) Normalize(now time.Time) Decision {
 			attrs[clip(key, 64)] = clip(decision.Attrs[key], maxTextBytes)
 		}
 		decision.Attrs = attrs
+	}
+	return fit(decision)
+}
+
+// fit sheds optional evidence until the encoded record is within
+// MaxRecordBytes, so the durable copy is never refused for its size: the
+// per-field bounds alone allow more than that once JSON escaping is
+// counted. Attributes go first, then alternatives, related IDs and signals
+// (newest listed last, dropped first), then the free text is shortened.
+func fit(decision Decision) Decision {
+	size := func() int {
+		data, err := json.Marshal(decision)
+		if err != nil {
+			return 0
+		}
+		return len(data)
+	}
+	for size() > MaxRecordBytes {
+		switch {
+		case len(decision.Attrs) > 0:
+			keys := slices.Sorted(maps.Keys(decision.Attrs))
+			delete(decision.Attrs, keys[len(keys)-1])
+		case len(decision.Alternatives) > 0:
+			decision.Alternatives = decision.Alternatives[:len(decision.Alternatives)-1]
+		case len(decision.Related) > 0:
+			decision.Related = decision.Related[:len(decision.Related)-1]
+		case len(decision.Signals) > 0:
+			decision.Signals = decision.Signals[:len(decision.Signals)-1]
+		case len(decision.Outcome) > 0:
+			decision.Outcome = ""
+		case len(decision.Reason) > maxTextBytes/4:
+			decision.Reason = clip(decision.Reason, len(decision.Reason)/2)
+		case len(decision.Summary) > maxTextBytes/4:
+			decision.Summary = clip(decision.Summary, len(decision.Summary)/2)
+		default:
+			return decision
+		}
 	}
 	return decision
 }
