@@ -40,7 +40,14 @@ type Config struct {
 	Enabled bool `json:"enabled,omitzero"`
 	// Replace lets the leader act on a lost slot. Without it the reconciler
 	// only reports what it would do.
-	Replace               bool   `json:"replace,omitzero"`
+	Replace bool `json:"replace,omitzero"`
+	// RouteToSeed lets a non-seed authority leader ask the seed, over an
+	// epoch-fenced NATS request, to execute a replacement it decided, and
+	// makes the seed serve those requests. Off, only a seed that leads can
+	// replace (the behavior before seed routing existed). It needs Replace
+	// and controller credentials that grant the membership.replace
+	// subscription.
+	RouteToSeed           bool   `json:"route_to_seed,omitzero"`
 	IntervalSeconds       int    `json:"interval_seconds,omitzero"`
 	OfflineGraceSeconds   int    `json:"offline_grace_seconds,omitzero"`
 	RetryBackoffSeconds   int    `json:"retry_backoff_seconds,omitzero"`
@@ -62,6 +69,9 @@ func (c Config) Validate() error {
 	}
 	if c.Replace && !c.Enabled {
 		return errors.New("membership replace requires enabled")
+	}
+	if c.RouteToSeed && !c.Replace {
+		return errors.New("membership route_to_seed requires replace")
 	}
 	if c.RetirementEvidenceDir != "" && c.RetirementEvidenceDir[0] != '/' {
 		return errors.New("membership retirement_evidence_dir must be absolute")
