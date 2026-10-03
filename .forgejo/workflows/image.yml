@@ -38,7 +38,9 @@ jobs:
     if: ${{ forgejo.ref == 'refs/heads/main' }}
     name: build/qualified-gru-arm64-image
     runs-on: terrascale-builder
-    timeout-minutes: 165
+    # 100 minutes for the gate's wait (6000s), 40 for the qualification
+    # budget (scripts/ci/qualify-image.sh) and 65 for the build and release.
+    timeout-minutes: 205
     env:
       SOURCE_SHA: ${{ inputs.source_revision }}
       SOURCE_CI_RUN_ID: ${{ inputs.source_ci_run_id }}
