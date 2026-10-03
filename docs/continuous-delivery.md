@@ -322,7 +322,7 @@ Nothing in this change starts it; the pieces are:
   For a controller step it also holds while a stream on the restarting
   broker would lose its quorum without it (an R1 or R2 stream there; every
   stream counts when `ClusterGate.ServerOf` cannot name the unit's
-  broker). Stream state comes from each stream's leader
+  broker). Preflight restarts no broker and skips this per-broker check. Stream state comes from each stream's leader
   through `STREAM.INFO`, which also reports a replica still catching up
   from an out-of-band snapshot, so remote-led streams are judged as
   strictly as local ones. A held step only waits; the phase deadline
@@ -343,7 +343,11 @@ Nothing in this change starts it; the pieces are:
   unit of the current wave that already reported has no fresh proof, no
   healthy report can complete the wave around it, and a unit that restarted
   after it reported is reported (and rolls the wave back) before any other
-  unit's report is fed. A proof on the target
+  unit's report is fed. A unit an earlier wave promoted whose fresh proof
+  (newer than its last healthy report) serves another release rolls the
+  rollout back before a later wave moves or completes. A full collector
+  reclaims units whose proofs expired before it refuses a new one. A proof
+  on the target
   feeds `healthy`; a new incarnation on another release after the
   step feeds `unhealthy` (the watchdog rolled the unit back); a proof on the
   predecessor after a rollback step feeds `rollback-serving`. Controllers

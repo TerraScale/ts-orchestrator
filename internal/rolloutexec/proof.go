@@ -175,7 +175,17 @@ func (c *Collector) Observe(subject string, wire []byte) error {
 		return nil
 	}
 	if !exists && len(c.latest) >= maxProofUnits {
-		return fmt.Errorf("%w: too many proof units", ErrInvalid)
+		// An expired proof completes nothing: reclaim the units that
+		// stopped proving (removed or replaced) before refusing a new one.
+		now := c.now()
+		for id, held := range c.latest {
+			if now.Sub(held.ObservedAt) > HealthLifetime {
+				delete(c.latest, id)
+			}
+		}
+		if len(c.latest) >= maxProofUnits {
+			return fmt.Errorf("%w: too many proof units", ErrInvalid)
+		}
 	}
 	c.latest[unit] = proof
 	return nil

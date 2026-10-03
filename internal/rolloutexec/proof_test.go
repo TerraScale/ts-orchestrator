@@ -3,6 +3,7 @@ package rolloutexec
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -112,5 +113,40 @@ func TestPublisherProofsReachTheCollector(t *testing.T) {
 	cancel()
 	if err := <-done; !errors.Is(err, context.Canceled) {
 		t.Fatalf("publisher stopped with %v", err)
+	}
+}
+
+// A full collector reclaims units whose proofs expired, so a replacement
+// unit is admitted once the removed ones stopped proving.
+func TestCollectorReclaimsExpiredUnitsWhenFull(t *testing.T) {
+	key, keys := testKey(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	collector := NewCollector("gru", func(string) (trust.Keyring, error) { return keys, nil },
+		func() time.Time { return now })
+	observe := func(unit string) error {
+		t.Helper()
+		wire, err := SignHealthProof(testProof(unit, toDigest, now), key, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return collector.Observe(protocol.RolloutProofSubject("gru", unit), wire)
+	}
+	for i := range maxProofUnits {
+		if err := observe(fmt.Sprintf("old-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := observe("new-0"); err == nil {
+		t.Fatal("a full collector of live units admitted another unit")
+	}
+	now = now.Add(HealthLifetime + time.Second)
+	if err := observe("new-0"); err != nil {
+		t.Fatalf("replacement unit after expiry = %v", err)
+	}
+	if _, ok := collector.Latest("new-0"); !ok {
+		t.Fatal("replacement unit has no proof")
+	}
+	if _, ok := collector.Latest("old-0"); ok {
+		t.Fatal("an expired unit was kept")
 	}
 }

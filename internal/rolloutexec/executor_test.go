@@ -604,3 +604,27 @@ func TestExecutorJudgesTheStepByTheAttemptThatWasAccepted(t *testing.T) {
 		t.Fatalf("steps = %v", h.fleet.stepLog())
 	}
 }
+
+// A canary promoted by an earlier wave that later proves the old release
+// rolls the rollout back: later waves never complete around it, so the
+// host rollout never starts.
+func TestExecutorRollsBackWhenAPromotedUnitRegresses(t *testing.T) {
+	h := newHarness(t)
+	h.run(40, func() bool {
+		record, exists := h.load("rel1-controllers")
+		return exists && record.Units["ctl-b"].State == rollout.UnitPromoted
+	})
+	h.fleet.mu.Lock()
+	h.fleet.units["ctl-b"].digest = fromDigest
+	h.fleet.restart("ctl-b")
+	h.fleet.mu.Unlock()
+	h.clock.Advance(5 * time.Second)
+	h.run(10, func() bool { return h.phase("rel1-controllers") == rollout.PhaseRolledBack })
+	record, _ := h.load("rel1-controllers")
+	if !strings.Contains(record.Reason, "promoted unit ctl-b") {
+		t.Fatalf("reason = %q", record.Reason)
+	}
+	if _, exists := h.load("rel1-hosts"); exists {
+		t.Fatal("the host rollout started after a promoted controller regressed")
+	}
+}

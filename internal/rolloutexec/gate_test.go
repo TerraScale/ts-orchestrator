@@ -91,6 +91,11 @@ func TestClusterGateHoldsAControllerWhoseStreamsLackRedundancy(t *testing.T) {
 	if err := gate.Check(t.Context(), rollout.Record{Kind: rollout.KindHost}, "h1"); err != nil {
 		t.Fatalf("a host step was held by stream redundancy: %v", err)
 	}
+	// Preflight restarts no broker: a controller subset whose brokers host
+	// no R1 or R2 stream must not be held before its first step.
+	if err := gate.Check(t.Context(), controllers, ""); err != nil {
+		t.Fatalf("preflight was held by stream redundancy: %v", err)
+	}
 	gate.Cluster = fakeCluster{observation: healthyCluster(), streams: []natscell.StreamState{r3("TS_ROLLOUTS")}}
 	gate.ServerOf = nil
 	if err := gate.Check(t.Context(), controllers, "ctl-a"); err != nil {

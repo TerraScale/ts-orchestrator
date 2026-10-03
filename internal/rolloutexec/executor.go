@@ -244,6 +244,11 @@ func (e *Executor) act(ctx context.Context, record rollout.Record) ([]rollout.Ev
 	if restart := e.waveRestart(record); restart != nil {
 		return []rollout.Event{*restart}, nil
 	}
+	// A unit an earlier wave promoted that now proves another release
+	// rolls the rollout back before any later wave moves or completes.
+	if regressed := e.promotedRegression(record); regressed != nil {
+		return []rollout.Event{*regressed}, nil
+	}
 	for _, action := range rollout.NextActions(record) {
 		var event *rollout.Event
 		var err error
@@ -470,8 +475,7 @@ func (e *Executor) waveLostProof(record rollout.Record) string {
 // wave whose fresh proof comes from a new incarnation; the transition core
 // rolls the rollout back on it.
 func (e *Executor) waveRestart(record rollout.Record) *rollout.Event {
-	if !(record.Phase == rollout.PhaseCanary || record.Phase == rollout.PhaseCanarySoak ||
-		record.Phase == rollout.PhaseBatch || record.Phase == rollout.PhaseBatchSoak) {
+	if !forwardPhase(record.Phase) {
 		return nil
 	}
 	for _, id := range record.Waves[record.WaveIndex] {
@@ -486,6 +490,33 @@ func (e *Executor) waveRestart(record rollout.Record) *rollout.Event {
 		}
 	}
 	return nil
+}
+
+// promotedRegression reports an unhealthy event for a unit that an earlier
+// wave promoted but whose fresh proof, newer than its last healthy report,
+// serves another release than the target. A unit without a fresh proof is
+// judged by the peer checks of the steps around it instead.
+func (e *Executor) promotedRegression(record rollout.Record) *rollout.Event {
+	if !forwardPhase(record.Phase) {
+		return nil
+	}
+	for _, id := range sortedUnits(record) {
+		progress := record.Units[id]
+		if progress.State != rollout.UnitPromoted {
+			continue
+		}
+		proof, ok := e.Proofs.Latest(id)
+		if ok && e.fresh(proof) && proof.ObservedAt.After(progress.LastHealthyAt) && proof.BinarySHA256 != record.ToDigest {
+			return &rollout.Event{Kind: rollout.EventUnhealthy, Unit: id, At: e.now(),
+				Reason: fmt.Sprintf("promoted unit %s now serves %s instead of the target", id, short(proof.BinarySHA256))}
+		}
+	}
+	return nil
+}
+
+func forwardPhase(phase rollout.Phase) bool {
+	return phase == rollout.PhaseCanary || phase == rollout.PhaseCanarySoak ||
+		phase == rollout.PhaseBatch || phase == rollout.PhaseBatchSoak
 }
 
 // expired reports a step whose phase deadline passed while its gates ran;

@@ -33,7 +33,8 @@ type ClusterObserver interface {
 // leader and only current, online replicas as its leader reports them. For
 // a controller step it also holds while a stream on the restarting broker
 // would lose its quorum without it: an R1 or R2 stream there, or on any
-// broker when ServerOf cannot name the unit's broker.
+// broker when ServerOf cannot name the unit's broker. Preflight, which
+// restarts no broker, skips that per-broker check.
 type ClusterGate struct {
 	Cluster ClusterObserver
 	// ServerOf names the broker a controller unit runs; nil or unknown
@@ -83,7 +84,9 @@ func (g ClusterGate) Check(ctx context.Context, record rollout.Record, unit stri
 		}
 		replicas := len(stream.Peers)
 		hosted := !known || slices.Contains(stream.Peers, server)
-		if record.Kind == rollout.KindController && hosted && replicas-1 < replicas/2+1 {
+		// Preflight (no unit) restarts nothing: whether a stream survives
+		// a restart is judged per controller step, against its broker.
+		if record.Kind == rollout.KindController && unit != "" && hosted && replicas-1 < replicas/2+1 {
 			fragile = append(fragile, stream.Name)
 		}
 	}
