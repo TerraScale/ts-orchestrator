@@ -188,7 +188,8 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 	}
 	now := r.config.Now()
 	r.mu.Lock()
-	if r.epoch != snapshot.Epoch {
+	newTerm := r.epoch != snapshot.Epoch
+	if newTerm {
 		r.epoch = snapshot.Epoch
 		// A new term re-derives goals from the observed replica count.
 		clear(r.goal)
@@ -197,6 +198,12 @@ func (r *Reconciler) Tick(ctx context.Context) error {
 		}
 	}
 	r.mu.Unlock()
+	if source, resettable := r.config.Signals.(interface{ Reset() }); newTerm && resettable {
+		// Signals kept from an earlier term (for example by a leader that
+		// returns after a short failover) are not this term's observation:
+		// the new term must see a fresh window before it scales.
+		source.Reset()
+	}
 	hosts, err := r.config.Hosts.ListHosts(ctx)
 	if err != nil {
 		return err

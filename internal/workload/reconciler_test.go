@@ -328,6 +328,36 @@ func TestReconcilerAutoscalesFromSignals(t *testing.T) {
 	}
 }
 
+type resettableSignals struct {
+	autoscale.Source
+	resets int
+}
+
+func (s *resettableSignals) Reset() { s.resets++ }
+
+// Every new authority term resets a resettable signal source once, so a
+// returning leader never scales on samples from its earlier term.
+func TestReconcilerNewTermResetsSignalSource(t *testing.T) {
+	cell := threeHostCell()
+	cell.seed("node-a", "api", testDigest, 4)
+	cell.runAll()
+	signals := &resettableSignals{Source: autoscale.NewWindowStore(time.Hour, 100)}
+	fencer := &fakeFencer{leader: true, epoch: 1}
+	reconciler := newTestReconciler(t, cell, fencer, statelessSpec(1, 4), func(c *Config) { c.Signals = signals })
+	for range 2 {
+		if err := reconciler.Tick(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fencer.epoch = 2
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if signals.resets != 2 {
+		t.Fatalf("resets = %d, want one per term", signals.resets)
+	}
+}
+
 func TestReconcilerAuthorityChangeResetsHistory(t *testing.T) {
 	cell := threeHostCell()
 	cell.seed("node-a", "api", testDigest, 4)

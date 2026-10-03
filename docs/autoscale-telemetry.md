@@ -24,7 +24,7 @@ self-healing still work.
 - **Host:** CPU utilization (diff of `/proc/stat`), memory utilization
   (`MemAvailable`), and disk utilization of the fullest of the state, install
   and managed-runtime filesystems (statfs). Fractions in `[0,1]`.
-- **Per role (cgroup v2):** CPU cores used (diff of `cpu.stat usage_usec`)
+- **Per role (cgroup v2):** CPU cores used (diff of `cpu.stat usage_usec`; a recreated group restarts the baseline)
   and the working set (`memory.current` minus `inactive_file`), read from the
   native runner's role groups. The first sample of a role, and the first
   after its group vanished, only sets the CPU baseline.
@@ -72,11 +72,14 @@ for the stateless services the reconciler owns; the TerraBase signals feed
 the dashboard until TerraBase seats are reconciled.
 
 Only the authority leader serves host requests, so only its aggregator
-fills. The aggregator returns no samples until reports have arrived without
-a break for the whole signal window (less one 5s report interval), so a new
-leader, a first enablement, or a leader returning after more than 5 minutes
-without reports holds with `no-signal-data` instead of scaling on the first
-report of a single replica. The reconciler's history reset on every epoch
+fills. The reconciler resets the aggregator on every authority term
+change, so a leader returning after a short failover never scales on its
+earlier term's samples. Per service and signal, the aggregator returns no
+samples until they have arrived without a break for the whole signal window
+(less one 5s report interval), and none once the latest is older than 5
+minutes, so a new term, a first enablement, a newly reporting service or a
+cell whose hosts went silent holds with `no-signal-data` instead of scaling
+on a partial or stale window. The reconciler's history reset on every term
 change applies the cooldowns from the start of the term on top. Host load
 intervals should therefore stay below 5 minutes. Members that are not the
 leader record no autoscale or TerraBase load history, and a demoted leader

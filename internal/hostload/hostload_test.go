@@ -116,6 +116,21 @@ func TestSamplerDiffsCgroupAndHostCounters(t *testing.T) {
 	if restarted := sampler.Sample(nil); len(restarted.Roles) != 0 {
 		t.Fatalf("restarted role reported CPU before a new baseline: %+v", restarted.Roles)
 	}
+	now = now.Add(10 * time.Second)
+	writeFile(t, filepath.Join(root, "api", "cpu.stat"), "usage_usec 5000010\n")
+	if steady := sampler.Sample(nil); len(steady.Roles) != 1 || *steady.Roles[0].CPUCores != 0.5 {
+		t.Fatalf("steady role CPU: %+v", steady.Roles)
+	}
+	// A group recreated between two samples (never seen missing) whose new
+	// counter already exceeds the old one also restarts the baseline.
+	if err := os.Rename(filepath.Join(root, "api"), filepath.Join(root, "api-old")); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "api", "cpu.stat"), "usage_usec 6000000\n")
+	now = now.Add(10 * time.Second)
+	if recreated := sampler.Sample(nil); len(recreated.Roles) != 0 {
+		t.Fatalf("recreated group diffed against its predecessor: %+v", recreated.Roles)
+	}
 }
 
 func TestAggregatorNormalizesByRequestAndThrottles(t *testing.T) {
@@ -284,10 +299,38 @@ func TestAggregatorWarmUpRestartsAfterAGap(t *testing.T) {
 	if got := read(); got.Samples != 12 || math.Abs(got.Value-0.4) > 1e-9 {
 		t.Fatalf("warm read = %+v", got)
 	}
+	// Another service that starts reporting is not warmed by this one.
+	other := target
+	other.Role = "worker"
+	aggregator.config.Requests["worker"] = Request{CPUCores: 1, MemoryBytes: 1}
+	now = now.Add(5 * time.Second)
+	if err := aggregator.Record(Origin{Cell: "gru", Environment: "prod", Node: "pool-2"},
+		Report{SchemaVersion: 1, Roles: []RoleUsage{{Role: "worker", CPUCores: ptr(0.9)}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := aggregator.Read(t.Context(), other, signal, now); got.Samples != 0 {
+		t.Fatalf("a newly reporting service read before its own window: %+v", got)
+	}
+	// Silence longer than StaleAfter ends the run even before a new report.
 	now = now.Add(DefaultStaleAfter + time.Second)
+	if got := read(); got.Samples != 0 {
+		t.Fatalf("read after the hosts went silent: %+v", got)
+	}
 	record()
 	if got := read(); got.Samples != 0 {
 		t.Fatalf("read right after a gap: %+v", got)
+	}
+	// A reset (new authority term) forgets everything.
+	for range 13 {
+		now = now.Add(5 * time.Second)
+		record()
+	}
+	if got := read(); got.Samples == 0 {
+		t.Fatal("not warm after a full window")
+	}
+	aggregator.Reset()
+	if got := read(); got.Samples != 0 || len(aggregator.Nodes()) != 0 {
+		t.Fatalf("read after reset: %+v", got)
 	}
 }
 

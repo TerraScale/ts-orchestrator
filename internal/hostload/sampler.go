@@ -31,6 +31,7 @@ type cpuPoint struct {
 	usage float64 // CPU seconds (host: busy seconds)
 	total float64 // host only: busy+idle seconds
 	at    time.Time
+	group os.FileInfo // role only: the cgroup directory the counter came from
 }
 
 // Sampler turns cumulative counters into per-interval usage. It keeps the
@@ -92,16 +93,20 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		usage := RoleUsage{Role: role}
 		if s.config.CgroupRoot != "" {
 			group := filepath.Join(s.config.CgroupRoot, role)
-			if seconds, ok := readCPUSeconds(group); ok {
+			if seconds, identity, ok := readGroupCPUSeconds(group); ok {
 				present[role] = struct{}{}
 				previous, seen := s.roles[role]
-				if elapsed := now.Sub(previous.at).Seconds(); seen && elapsed > 0 && seconds >= previous.usage {
+				// A group recreated between samples (a restart or rollout)
+				// has a new identity: its counter restarts the baseline even
+				// when it already exceeds the old group's counter.
+				sameGroup := seen && os.SameFile(previous.group, identity)
+				if elapsed := now.Sub(previous.at).Seconds(); sameGroup && elapsed > 0 && seconds >= previous.usage {
 					cores := (seconds - previous.usage) / elapsed
 					if finiteWithin(cores, MaxCPUCores) {
 						usage.CPUCores = &cores
 					}
 				}
-				s.roles[role] = cpuPoint{usage: seconds, at: now}
+				s.roles[role] = cpuPoint{usage: seconds, at: now, group: identity}
 			}
 			if memory, ok := readWorkingSet(group); ok && memory <= MaxMemoryBytes && (memTotal == 0 || memory <= memTotal) {
 				usage.MemoryBytes = &memory
@@ -130,6 +135,25 @@ func ratio(numerator, denominator float64) *float64 {
 		value = min(max(value, 0), 1)
 	}
 	return &value
+}
+
+// readGroupCPUSeconds reads a group's counter together with the group's
+// identity. The directory is stat'ed before and after the read, so a group
+// recreated in between never pairs the new counter with the old identity.
+func readGroupCPUSeconds(group string) (float64, os.FileInfo, bool) {
+	before, err := os.Stat(group)
+	if err != nil {
+		return 0, nil, false
+	}
+	seconds, ok := readCPUSeconds(group)
+	if !ok {
+		return 0, nil, false
+	}
+	after, err := os.Stat(group)
+	if err != nil || !os.SameFile(before, after) {
+		return 0, nil, false
+	}
+	return seconds, after, true
 }
 
 // readCPUSeconds reads usage_usec from a cgroup v2 cpu.stat.

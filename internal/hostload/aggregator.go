@@ -81,10 +81,27 @@ type Aggregator struct {
 
 	mu    sync.Mutex
 	nodes map[string]*nodeState
-	// since starts the current unbroken run of accepted reports; last is
-	// the latest accepted report of any node. A gap longer than StaleAfter
-	// (for example while another member led) restarts the run.
-	since, last time.Time
+	runs  map[seriesKey]run
+}
+
+type seriesKey struct {
+	target autoscale.Target
+	signal autoscale.SignalName
+}
+
+// run is one series' current unbroken run of samples: since starts it, last
+// is its latest sample from any node. A gap longer than StaleAfter (for
+// example while another member led) ends the run; the next sample starts a
+// new one.
+type run struct{ since, last time.Time }
+
+// Reset forgets every report and sample, for example when the authority
+// term changes: a new term must observe a fresh window before scaling.
+func (a *Aggregator) Reset() {
+	a.mu.Lock()
+	clear(a.nodes)
+	clear(a.runs)
+	a.mu.Unlock()
 }
 
 func NewAggregator(config AggregatorConfig) *Aggregator {
@@ -98,7 +115,7 @@ func NewAggregator(config AggregatorConfig) *Aggregator {
 		config.Now = time.Now
 	}
 	config.Requests = maps.Clone(config.Requests)
-	return &Aggregator{config: config, nodes: make(map[string]*nodeState)}
+	return &Aggregator{config: config, nodes: make(map[string]*nodeState), runs: make(map[seriesKey]run)}
 }
 
 // nodePoints bounds one node's series: one accepted sample per MinInterval
@@ -112,17 +129,19 @@ func (a *Aggregator) nodePoints() int {
 // then reduced with the same aggregation, so every reporting replica counts
 // once whatever its report interval. Samples is the total sample count.
 //
-// Until reports have arrived without a break for the whole signal window,
-// the reading has no samples, so the autoscaler holds with no-signal-data:
-// a new leader, or a first enablement, never scales on the first report
-// of a single replica.
+// Until this series' samples have arrived without a break for the whole
+// signal window, and while its latest sample is older than StaleAfter, the
+// reading has no samples, so the autoscaler holds with no-signal-data: a
+// new leader, a first enablement, a newly reporting service or a cell whose
+// hosts went silent never scales on a partial or stale window.
 func (a *Aggregator) Read(ctx context.Context, target autoscale.Target, signal autoscale.Signal, now time.Time) (autoscale.Reading, error) {
 	reading := autoscale.Reading{Signal: signal.Name}
 	a.mu.Lock()
 	// Warm once the run started within one minimum report interval of the
 	// window's start, so a window is covered even if its first sample
 	// landed a moment after the window opened.
-	if a.since.IsZero() || now.Sub(a.since) < signal.Window()-a.config.MinInterval {
+	current, ok := a.runs[seriesKey{target: target, signal: signal.Name}]
+	if !ok || now.Sub(current.last) > a.config.StaleAfter || now.Sub(current.since) < signal.Window()-a.config.MinInterval {
 		a.mu.Unlock()
 		return reading, nil
 	}
@@ -174,16 +193,19 @@ func (a *Aggregator) Record(origin Origin, report Report) error {
 		a.nodes[origin.Node] = node
 	}
 	node.latest = NodeLoad{Origin: origin, At: now, Report: report}
-	if a.last.IsZero() || now.Sub(a.last) > a.config.StaleAfter {
-		a.since = now
-	}
-	a.last = now
 	// Recording under the aggregator lock keeps one node's samples in
 	// receive order and its store from being pruned mid-record.
 	for _, role := range report.Roles {
 		target := autoscale.Target{Cell: origin.Cell, Environment: origin.Environment, Role: role.Role}
 		for name, value := range roleSignals(role, report.Host, a.config.Requests[role.Role]) {
 			node.store.Record(target, name, autoscale.Sample{At: now, Value: value})
+			key := seriesKey{target: target, signal: name}
+			current := a.runs[key]
+			if current.last.IsZero() || now.Sub(current.last) > a.config.StaleAfter {
+				current.since = now
+			}
+			current.last = now
+			a.runs[key] = current
 		}
 	}
 	a.mu.Unlock()
@@ -248,6 +270,11 @@ func (a *Aggregator) pruneLocked(now time.Time, retention time.Duration) {
 	for name, node := range a.nodes {
 		if now.Sub(node.latest.At) > retention {
 			delete(a.nodes, name)
+		}
+	}
+	for key, current := range a.runs {
+		if now.Sub(current.last) > nodeRetention {
+			delete(a.runs, key)
 		}
 	}
 }
