@@ -137,6 +137,27 @@ func TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess(t *testing
 	}
 }
 
+func TestAdminPATShapeIsSharedAndBounded(t *testing.T) {
+	const pat = "nbp_abcdefghijklmnopqrstuvwxyzABCD012345"
+	for value, ok := range map[string]bool{
+		pat:                               true,
+		"nbp_" + strings.Repeat("a", 252): true,
+		"nbp_" + strings.Repeat("a", 253): false,
+		pat[:39]:                          false,
+		"nbx_" + pat[4:]:                  false,
+		"NBP_" + pat[4:]:                  false,
+		strings.Repeat("a", 40):           false,
+		pat[:39] + " ":                    false,
+		pat[:39] + "\x00":                 false,
+		pat[:39] + "é":                    false,
+		"Token " + pat:                    false,
+	} {
+		if ValidAdminPAT([]byte(value)) != ok {
+			t.Fatalf("ValidAdminPAT(len %d) != %v", len(value), ok)
+		}
+	}
+}
+
 func TestVaultReadsOnlyWellFormedAdminPAT(t *testing.T) {
 	id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"
 	const pat = "nbp_abcdefghijklmnopqrstuvwxyzABCD012345"

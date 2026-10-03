@@ -14,6 +14,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 const (
@@ -59,7 +61,7 @@ func NewAPI(managementURL, token string) (*API, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !validToken(token) {
+	if !netbird.ValidAdminPAT([]byte(token)) {
 		return nil, errors.New("NetBird admin PAT has an invalid shape")
 	}
 	dialer := &net.Dialer{Timeout: 10 * time.Second}
@@ -72,18 +74,6 @@ func NewAPI(managementURL, token string) (*API, error) {
 		Transport: transport, Timeout: requestTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
-}
-
-func validToken(token string) bool {
-	if len(token) < 20 || len(token) > 256 {
-		return false
-	}
-	for _, c := range []byte(token) {
-		if c <= ' ' || c >= 0x7f {
-			return false
-		}
-	}
-	return true
 }
 
 // Close releases idle connections.
@@ -120,10 +110,13 @@ func (api *API) do(ctx context.Context, method, path string, in, out any) error 
 	}
 	response, err := api.http.Do(request)
 	if err != nil {
+		// A *url.Error carries only the method, the URL (validated origin
+		// without userinfo plus an API path) and the transport cause; the
+		// Authorization header never appears in it.
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return fmt.Errorf("NetBird API %s %s: %w", method, path, ctx.Err())
 		}
-		return fmt.Errorf("NetBird API %s %s: request failed", method, path)
+		return fmt.Errorf("NetBird API %s %s: %w", method, path, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {

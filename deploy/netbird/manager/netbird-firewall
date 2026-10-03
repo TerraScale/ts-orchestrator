@@ -7,6 +7,10 @@
 #   routing-peer  WireGuard to the routing peer's wt0 listener
 set -euo pipefail
 
+# Wait up to 5s for the xtables lock instead of failing when Podman/netavark
+# or another unit holds it.
+ipt() { iptables -w 5 "$@"; }
+
 case "${2:-manager}" in
   manager)
     RULE=(FORWARD -d 10.89.77.0/24 -p udp --dport 3478 -m conntrack --ctstate DNAT
@@ -23,11 +27,11 @@ esac
 
 case "${1:-}" in
   add)
-    iptables -C "${RULE[@]}" 2>/dev/null || iptables -I "${RULE[0]}" 1 "${RULE[@]:1}"
+    ipt -C "${RULE[@]}" 2>/dev/null || ipt -I "${RULE[0]}" 1 "${RULE[@]:1}"
     ;;
   remove)
-    while iptables -C "${RULE[@]}" 2>/dev/null; do
-      iptables -D "${RULE[@]}"
+    while ipt -C "${RULE[@]}" 2>/dev/null; do
+      ipt -D "${RULE[@]}"
     done
     ;;
   *)

@@ -77,8 +77,9 @@ removes owned processes, mounts, links and nft tables on every exit and writes
 report records per-slot NTP requests and replies and saves counters from only
 its owned firewall tables before deleting them.
 
-`simulator.go` has no OCI client or upstream proxy. It permits exactly six
-fixed IMDS GETs, a signed `POST /v1/x509` on the pinned GRU Auth host, and
+`simulator.go` has no OCI client or upstream proxy. It permits exactly seven
+fixed IMDS GETs (including `/opc/v2/vnics/`, which returns the slot's signed
+primary private IP for NetBird peer naming and is optional in the audit), a signed `POST /v1/x509` on the pinned GRU Auth host, and
 fixture-listed exact Compute or Object Storage GETs on the pinned GRU hosts.
 An expected missing object gets a 404 only after service-signature
 verification. Unlisted routes and all OCI writes fail and enter the audit.

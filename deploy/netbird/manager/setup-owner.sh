@@ -32,4 +32,15 @@ setup_required=$(python3 -c 'import json, sys; print(str(json.load(sys.stdin).ge
   echo "setup-owner.sh: instance is already set up: $status" >&2
   exit 1
 }
+# The response holds the owner's PAT: if stdout is a regular file, make it
+# owner-only before writing, whatever umask the caller used. /proc/$$ names
+# this shell's stdout (a subshell's /proc/self would be a pipe); [[ -f ]]
+# follows the link and is false for a pipe, terminal, or unreadable entry.
+stdout_fd=/proc/$$/fd/1
+if [[ -f "$stdout_fd" ]]; then
+  chmod 0600 "$stdout_fd" 2>/dev/null || {
+    echo "setup-owner.sh: cannot restrict the response file to mode 0600" >&2
+    exit 1
+  }
+fi
 curl -fsS -X POST "$API/setup" -H 'Content-Type: application/json' --data-binary @-

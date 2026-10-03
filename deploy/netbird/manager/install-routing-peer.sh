@@ -29,7 +29,9 @@ client routes stay off, the NetBird SSH server stays disabled, and the public
 address is pinned so peers connect directly. First enrollment needs
 --setup-key-file naming the one-off setup key, root-owned mode 0600; delete it
 afterwards. Re-runs on an enrolled peer (client state in /var/lib/netbird and
-`netbird status` logged in) omit the key and keep the peer's identity.
+`netbird status` logged in) omit the key and keep the peer's identity. With
+saved client state the peer always logs in without the key first and uses a
+given key only if NetBird then reports NeedsLogin or SessionExpired.
 USAGE
 }
 
@@ -67,11 +69,23 @@ fail() {
 
 [[ $EUID -eq 0 ]] || fail "run as root"
 [[ "$(hostname -s)" == ts-ops ]] || fail "refusing to run outside ts-ops"
+# Saved client state: the peer's WireGuard identity in /var/lib/netbird.
+has_client_state() { compgen -G '/var/lib/netbird/*.json' >/dev/null; }
+peer_status() { netbird status 2>/dev/null || true; }
+# Like internal/netbird/enroll.go, only an explicit authentication state
+# warrants a setup key; LoginFailed is also reported for network errors.
+needs_login() {
+  local status
+  status=$(peer_status)
+  [[ "$status" == *NeedsLogin* || "$status" == *SessionExpired* ]]
+}
 # An enrolled peer keeps its identity in /var/lib/netbird and needs no key;
-# a daemon that is down or logged out counts as not enrolled.
+# a daemon that is down, logged out, or whose session expired counts as not
+# enrolled for this preflight.
 enrolled=0
-if compgen -G '/var/lib/netbird/*.json' >/dev/null && command -v netbird >/dev/null \
-  && peer_status=$(netbird status 2>/dev/null) && [[ "$peer_status" != *NeedsLogin* && "$peer_status" != *LoginFailed* ]]; then
+if has_client_state && command -v netbird >/dev/null \
+  && status=$(netbird status 2>/dev/null) \
+  && [[ "$status" != *NeedsLogin* && "$status" != *LoginFailed* && "$status" != *SessionExpired* ]]; then
   enrolled=1
 fi
 if [[ -n "$key_file" ]]; then
@@ -137,13 +151,29 @@ else
   systemctl start netbird.service
 fi
 
-up_args=(--management-url https://netbird.terrascale.tech)
-[[ -z "$key_file" ]] || up_args+=(--setup-key-file "$key_file")
-netbird up \
-  "${up_args[@]}" \
-  --hostname ts-ops \
-  --disable-dns \
-  --disable-client-routes \
-  --allow-server-ssh=false \
+up_args=(
+  --management-url https://netbird.terrascale.tech
+  --hostname ts-ops
+  --disable-dns
+  --disable-client-routes
+  --allow-server-ssh=false
   --external-ip-map "$PUBLIC_IP/$PRIVATE_IP"
+)
+# Log in with a saved identity first; the setup key is only for a peer
+# without one or whose login NetBird reports as needed (NeedsLogin or
+# SessionExpired). A network failure must not consume the key.
+if has_client_state; then
+  keyless=0
+  netbird up "${up_args[@]}" || keyless=$?
+  if ! needs_login; then
+    [[ "$keyless" -eq 0 || "$(peer_status)" == *"Management: Connected"* ]] \
+      || fail "netbird up could not reconnect the saved identity; the setup key was not used"
+    netbird status
+    exit 0
+  fi
+  [[ -n "$key_file" ]] || fail "the saved NetBird identity needs a login: rerun with --setup-key-file"
+  echo "install-routing-peer.sh: saved identity needs a login; enrolling with the setup key" >&2
+fi
+[[ -n "$key_file" ]] || fail "ts-ops has no NetBird identity: first enrollment needs --setup-key-file"
+netbird up "${up_args[@]}" --setup-key-file "$key_file"
 netbird status

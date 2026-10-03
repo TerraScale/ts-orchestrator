@@ -84,16 +84,18 @@ func Run(ctx context.Context, args []string, stdout io.Writer) error {
 		return json.MarshalWrite(stdout, inventory, jsontext.WithIndent("  "))
 	case "sync":
 		report, err := Sync(ctx, api, GRU(), *apply)
-		writeReport(stdout, report, *apply)
+		writeReport(stdout, report, *apply, err)
 		return err
 	default:
 		report, err := Prune(ctx, api, GRU(), PruneOptions{OfflineFor: *offlineFor}, *apply)
-		writeReport(stdout, report, *apply)
+		writeReport(stdout, report, *apply, err)
 		return err
 	}
 }
 
-func writeReport(out io.Writer, report Report, applied bool) {
+// writeReport prints the changes a run planned or applied, including a
+// partial report from a failed run, and a summary only when the run succeeded.
+func writeReport(out io.Writer, report Report, applied bool, runErr error) {
 	prefix := "plan: "
 	if applied {
 		prefix = "applied: "
@@ -105,6 +107,7 @@ func writeReport(out io.Writer, report Report, applied bool) {
 		fmt.Fprintln(out, "warning: "+warning)
 	}
 	switch {
+	case runErr != nil:
 	case len(report.Changes) == 0:
 		fmt.Fprintln(out, "no changes")
 	case !applied:

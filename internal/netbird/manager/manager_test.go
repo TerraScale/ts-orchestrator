@@ -5,14 +5,17 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -183,6 +186,73 @@ func TestSyncRefusesUnexpectedNetworkShapeWithoutChanges(t *testing.T) {
 				t.Fatalf("refused sync mutated the manager: %v", f.mutations)
 			}
 		})
+	}
+}
+
+func TestSyncBootstrapsFreshAccountBeforeTheRouterJoinsTheGateway(t *testing.T) {
+	f := newFakeManager(t)
+	tsOps := f.addPeer("ts-ops", "10.250.10.155", true, time.Now())
+	api := f.api(t)
+	d := GRU()
+
+	text := func(report Report) string {
+		var lines []string
+		for _, change := range report.Changes {
+			lines = append(lines, change.String())
+		}
+		return strings.Join(lines, "\n")
+	}
+	plan, err := Sync(t.Context(), api, d, false)
+	if err != nil {
+		t.Fatalf("fresh account dry run refused: %v", err)
+	}
+	planned := text(plan)
+	for _, want := range []string{"create group operators", "create group ts-ops-gateway", "create group gru-servers",
+		"create policy operators-to-gru-servers-ssh", "create policy operators-to-ts-ops-ping"} {
+		if !strings.Contains(planned, want) {
+			t.Errorf("plan lacks %q:\n%s", want, planned)
+		}
+	}
+	if strings.Contains(planned, "network") || strings.Contains(planned, "operators-to-gru-cell-ops-ports") {
+		t.Fatalf("deferred network objects were planned:\n%s", planned)
+	}
+	warnings := strings.Join(plan.Warnings, "\n")
+	if !strings.Contains(warnings, "network gru-cell deferred: add peer ts-ops to group ts-ops-gateway") ||
+		!strings.Contains(warnings, "policy operators-to-gru-cell-ops-ports deferred") {
+		t.Fatalf("warnings %v", plan.Warnings)
+	}
+
+	if _, err := Sync(t.Context(), api, d, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.groups) != 3 || len(f.networks) != 0 || len(f.policies) != len(d.Policies)-1 {
+		t.Fatalf("first sync: groups %d networks %d policies %d", len(f.groups), len(f.networks), len(f.policies))
+	}
+
+	gateway := f.groupByName("ts-ops-gateway")
+	gateway.Peers = append(gateway.Peers, groupMinimum{ID: tsOps, Name: "ts-ops"})
+	report, err := Sync(t.Context(), api, d, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := text(report)
+	for _, want := range []string{"create network gru-cell", "create network resource gru-cell-private-subnet",
+		"create network router gru-cell/ts-ops", "create policy operators-to-gru-cell-ops-ports"} {
+		if !strings.Contains(applied, want) {
+			t.Errorf("second sync lacks %q:\n%s", want, applied)
+		}
+	}
+	if strings.Contains(strings.Join(report.Warnings, "\n"), "deferred") {
+		t.Fatalf("second sync still deferred: %v", report.Warnings)
+	}
+	if len(f.networks) != 1 || len(f.networks[0].resources) != 1 || len(f.networks[0].routers) != 1 ||
+		f.networks[0].routers[0].Peer != tsOps || len(f.policies) != len(d.Policies) {
+		t.Fatalf("network %+v policies %d", f.networks, len(f.policies))
+	}
+	f.mutations = nil
+	again, err := Sync(t.Context(), api, d, true)
+	if err != nil || len(again.Changes) != 0 || len(f.mutations) != 0 {
+		t.Fatalf("third sync was not a no-op: %v %v %v", again.Changes, f.mutations, err)
 	}
 }
 
@@ -362,6 +432,74 @@ func TestAPIRefusesRedirectsAndHidesBodies(t *testing.T) {
 		if _, err := NewAPI(url, testPAT); err != nil {
 			t.Errorf("refused %s: %v", url, err)
 		}
+	}
+}
+
+func TestAPIWrapsTransportErrorsWithoutTheToken(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	closed := "http://" + listener.Addr().String()
+	listener.Close()
+	api, err := NewAPI(closed, testPAT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer api.Close()
+	leaks := func(err error) bool {
+		text := err.Error()
+		return strings.Contains(text, testPAT) || strings.Contains(text, testPAT[4:]) ||
+			strings.Contains(text, "Authorization") || strings.Contains(text, "Token ")
+	}
+	err = api.do(t.Context(), "GET", "/groups", nil, nil)
+	var transport *url.Error
+	if !errors.As(err, &transport) || !errors.Is(err, syscall.ECONNREFUSED) || leaks(err) ||
+		!strings.Contains(err.Error(), "NetBird API GET /groups") || strings.Contains(transport.URL, testPAT) {
+		t.Fatalf("transport error: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	err = api.do(ctx, "POST", "/groups", groupRequest{Name: "x"}, nil)
+	if !errors.Is(err, context.Canceled) || leaks(err) {
+		t.Fatalf("canceled error: %v", err)
+	}
+	for _, token := range []string{strings.Repeat("a", 40), "nbp_short", testPAT + "!", "Token " + testPAT} {
+		if _, err := NewAPI("http://127.0.0.1:1", token); err == nil || strings.Contains(err.Error(), token) {
+			t.Fatalf("NewAPI accepted or echoed a malformed PAT: %v", err)
+		}
+	}
+}
+
+func TestCLIReportOmitsSummaryWhenTheRunFailed(t *testing.T) {
+	f := newFakeManager(t)
+	f.seedLegacy(t)
+	f.failStatus = http.StatusInternalServerError
+	t.Setenv("NB_PAT", testPAT)
+	var out bytes.Buffer
+	for _, command := range [][]string{{"sync"}, {"sync", "--apply"}, {"prune-peers", "--apply"}} {
+		out.Reset()
+		err := Run(t.Context(), append(command, "--management-url", f.server.URL), &out)
+		if err == nil || strings.Contains(out.String(), "no changes") {
+			t.Fatalf("%v on a failing manager: %q %v", command, out.String(), err)
+		}
+	}
+
+	partial := Report{Changes: []Change{{"create", "group", "operators", ""}}, Warnings: []string{"w"}}
+	out.Reset()
+	writeReport(&out, partial, true, errors.New("boom"))
+	if out.String() != "applied: create group operators\nwarning: w\n" {
+		t.Fatalf("partial report: %q", out.String())
+	}
+	out.Reset()
+	writeReport(&out, Report{}, true, errors.New("boom"))
+	if out.String() != "" {
+		t.Fatalf("failed empty report: %q", out.String())
+	}
+	out.Reset()
+	writeReport(&out, Report{}, true, nil)
+	if out.String() != "no changes\n" {
+		t.Fatalf("empty report: %q", out.String())
 	}
 }
 

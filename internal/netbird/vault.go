@@ -34,10 +34,18 @@ func readOCISetupKey(ctx context.Context, cfg Config) ([]byte, error) {
 	return readOCISecret(ctx, cfg.Region, cfg.SetupKeySecretID, "setup-key", validSetupKey)
 }
 
-// validAdminPAT accepts NetBird personal access tokens: "nbp_" followed by a
-// 30-character secret and a 6-character checksum.
+// Admin PAT bounds. NetBird issues "nbp_" + a 30-character secret + a
+// 6-character base62 checksum (40 bytes); longer future tokens are accepted
+// up to maxAdminPATBytes.
+const (
+	minAdminPATBytes = 40
+	maxAdminPATBytes = 256
+)
+
+// validAdminPAT is the single NetBird personal access token shape check: the
+// "nbp_" prefix followed by a bounded base62 body.
 func validAdminPAT(token []byte) bool {
-	if len(token) != 40 || !bytes.HasPrefix(token, []byte("nbp_")) {
+	if len(token) < minAdminPATBytes || len(token) > maxAdminPATBytes || !bytes.HasPrefix(token, []byte("nbp_")) {
 		return false
 	}
 	for _, c := range token[4:] {
@@ -48,7 +56,8 @@ func validAdminPAT(token []byte) bool {
 	return true
 }
 
-// ValidAdminPAT reports whether token has NetBird's PAT shape.
+// ValidAdminPAT reports whether token has NetBird's PAT shape. The manager
+// client and the OCI Vault reader share this predicate.
 func ValidAdminPAT(token []byte) bool { return validAdminPAT(token) }
 
 // ReadAdminPAT reads the current NetBird admin PAT version from OCI Vault with

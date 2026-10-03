@@ -71,6 +71,10 @@ type plan struct {
 	steps    []step
 	warnings []string
 	refs     refs
+	// networkDeferred is set on a fresh account whose router peer has not
+	// joined the gateway group yet: the network, its resource and router and
+	// the policies targeting the resource wait for a later sync.
+	networkDeferred bool
 }
 
 func (p *plan) add(change Change, apply func(context.Context, *refs) error) {
@@ -212,20 +216,6 @@ func hasGroup(groups []groupMinimum, id string) bool {
 
 func (p *plan) planNetwork(ctx context.Context, api *API, d Desired, peers []apiPeer) error {
 	spec := d.Network
-	// The router peer must already be in the gateway group.
-	gateway := p.refs.groups[spec.RouterGroup]
-	var routers []apiPeer
-	for _, peer := range peers {
-		if peer.Name == spec.RouterPeer && hasGroup(peer.Groups, gateway) {
-			routers = append(routers, peer)
-		}
-	}
-	if len(routers) != 1 {
-		return fmt.Errorf("refusing NetBird network sync: expected exactly one peer named %s in group %s, found %d",
-			spec.RouterPeer, spec.RouterGroup, len(routers))
-	}
-	p.refs.routerPeer = routers[0].ID
-
 	var networks []apiNetwork
 	if err := api.do(ctx, "GET", "/networks", nil, &networks); err != nil {
 		return err
@@ -234,6 +224,27 @@ func (p *plan) planNetwork(ctx context.Context, api *API, d Desired, peers []api
 	if err != nil {
 		return err
 	}
+	// The router peer must already be in the gateway group.
+	gateway := p.refs.groups[spec.RouterGroup]
+	var routers []apiPeer
+	for _, peer := range peers {
+		if peer.Name == spec.RouterPeer && hasGroup(peer.Groups, gateway) {
+			routers = append(routers, peer)
+		}
+	}
+	if len(routers) == 0 && network == nil {
+		// Fresh account: the gateway group may only be planned. Create the
+		// groups and other policies now; an operator adds the router peer to
+		// the group and the next sync creates the network.
+		p.networkDeferred = true
+		p.warn("network %s deferred: add peer %s to group %s, then sync again", spec.Name, spec.RouterPeer, spec.RouterGroup)
+		return nil
+	}
+	if len(routers) != 1 {
+		return fmt.Errorf("refusing NetBird network sync: expected exactly one peer named %s in group %s, found %d",
+			spec.RouterPeer, spec.RouterGroup, len(routers))
+	}
+	p.refs.routerPeer = routers[0].ID
 	var resources []apiResource
 	var routerRows []apiRouter
 	if network == nil {
@@ -373,6 +384,10 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 		current, err := matchName(policies, func(p apiPolicy) string { return p.Name }, spec.Name, spec.RenamedFrom, "policy")
 		if err != nil {
 			return err
+		}
+		if spec.DestinationResource != "" && p.networkDeferred {
+			p.warn("policy %s deferred until network resource %s exists", spec.Name, spec.DestinationResource)
+			continue
 		}
 		build := func(r *refs, current *apiPolicy) (policyRequest, error) {
 			rule := ruleRequest{Name: spec.Name, Description: spec.Description, Enabled: true, Action: "accept",

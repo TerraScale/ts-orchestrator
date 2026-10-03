@@ -42,8 +42,25 @@ func productionAuditFixture() Object {
 	}
 	return Object{"unknownSources": 0, "slots": slots}
 }
+func TestProductionAuditAcceptsNetBirdVNICRead(t *testing.T) {
+	audit := productionAuditFixture()
+	slots := object(audit["slots"])
+	for _, slot := range ProductionSlots {
+		entry := object(slots[slot])
+		requests := slices.Clone(array(entry["requests"]))
+		for _, p := range OptionalIMDSPaths {
+			requests = append(requests, Object{"method": "GET", "host": "169.254.169.254", "requestUri": p, "status": 200, "listed": true})
+		}
+		entry["requests"] = requests
+	}
+	counts, e := CheckProductionAudit(audit)
+	if e != nil {
+		t.Fatal(e)
+	}
+	requireEqual(t, counts, map[string]int{"controller-a": 12, "controller-b": 12, "seed-a": 12})
+}
 func TestProductionAudit(t *testing.T) {
-	for _, tc := range []string{"valid", "write", "bad_status", "duplicate_metadata_compute", "unknown_source", "empty_slot", "overflow"} {
+	for _, tc := range []string{"valid", "write", "bad_status", "duplicate_metadata_compute", "unknown_imds", "unknown_source", "empty_slot", "overflow"} {
 		t.Run(tc, func(t *testing.T) {
 			audit := productionAuditFixture()
 			slots := object(audit["slots"])
@@ -63,6 +80,8 @@ func TestProductionAudit(t *testing.T) {
 						r["requestUri"] = "/compute/1"
 					}
 				}
+			case "unknown_imds":
+				object(slots["seed-a"])["requests"] = append(requests, Object{"method": "GET", "host": "169.254.169.254", "requestUri": "/opc/v2/instance/", "status": 200, "listed": true})
 			case "unknown_source":
 				audit["unknownSources"] = 1
 			case "empty_slot":

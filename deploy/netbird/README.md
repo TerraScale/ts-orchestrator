@@ -66,7 +66,11 @@ their IDs, members and setup-key auto-groups. Groups, policies, networks and
 zones are never deleted; the `gru.ts.internal` zone is fully owned, so stray
 records in it are removed. The server setup key is only checked, never
 changed. `sync` refuses before any change when the subnet differs, an
-unexpected router exists, or a name is ambiguous.
+unexpected router exists, or a name is ambiguous. On a fresh account, before
+the `ts-ops` peer is in `ts-ops-gateway`, it creates the groups and other
+policies and defers the network, its resource and router and the policy
+targeting the resource with a warning; the next sync after the routing peer
+joins creates them. An existing network without its router peer is refused.
 
 The cell's leader controller reconciles automatically when an admin PAT
 secret is configured: it runs `sync --apply` and prunes replaced servers' peers
@@ -398,7 +402,10 @@ The script verifies the NetBird apt key fingerprint, installs and holds
 `netbird=0.79.0`, enables IPv4 forwarding, and opens UDP 51820 with
 `netbird-peer-firewall.service`. DNS, client routes and its SSH server stay
 off. The peer reaches its manager through the public name (OCI hairpins this
-VM's public IP). The routing peer's nftables table owns the
+VM's public IP). Re-runs with saved client state log in without the key and
+use it only if NetBird reports NeedsLogin or SessionExpired. Run
+`ts-orch netbird sync --apply` again to create the deferred GRU network. The
+routing peer's nftables table owns the
 `netbird-acl-forward-filter` chain; never add a stock iptables FORWARD accept
 ahead of it, which would bypass the access policies.
 
