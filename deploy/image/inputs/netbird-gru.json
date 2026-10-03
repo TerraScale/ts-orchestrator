@@ -2,5 +2,12 @@
   "management_url": "https://netbird.terrascale.tech",
   "management_ip": "10.250.10.155",
   "region": "sa-saopaulo-1",
-  "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta"
+  "setup_key_secret_id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.amaaaaaappuhpdqah36eekkgznp466jwk24f4zcoxpjtjvznlqs4z6zsrdta",
+  "peer_names": {
+    "10.251.0.11": "gru-controller-a",
+    "10.251.0.12": "gru-controller-b",
+    "10.251.0.13": "gru-controller-c",
+    "10.251.0.21": "gru-member-1",
+    "10.251.0.22": "gru-member-2"
+  }
 }

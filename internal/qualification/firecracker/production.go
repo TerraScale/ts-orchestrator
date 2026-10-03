@@ -26,6 +26,11 @@ import (
 var ProductionSlots = []string{"controller-a", "controller-b", "seed-a"}
 var ProductionAddresses = map[string]string{"controller-a": "10.44.0.11", "controller-b": "10.44.0.12", "seed-a": "10.44.0.10"}
 var IMDSPaths = []string{"/opc/v2/instance/id", "/opc/v2/instance/metadata/terrascale-bootstrap", "/opc/v2/instance/region", "/opc/v2/identity/cert.pem", "/opc/v2/identity/key.pem", "/opc/v2/identity/intermediate.pem"}
+
+// OptionalIMDSPaths are answered by the simulator but not required in every
+// run: NetBird enrollment reads the primary VNIC only when its daemon reports
+// that a login is needed, which the isolated qualification does not force.
+var OptionalIMDSPaths = []string{"/opc/v2/vnics/"}
 var ProductionUnits = []string{"systemd-networkd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-controller.service", "ssh.service"}
 
 func RequirePinnedFile(path, expected string) (string, error) {
@@ -287,7 +292,11 @@ func CheckProductionAudit(audit Object) (map[string]int, error) {
 			}
 			switch host {
 			case "169.254.169.254":
-				imds[str(r["requestUri"])] = true
+				uri := str(r["requestUri"])
+				if !slices.Contains(IMDSPaths, uri) && !slices.Contains(OptionalIMDSPaths, uri) {
+					return nil, fmt.Errorf("%s made an unexpected IMDS request: %v", slot, r)
+				}
+				imds[uri] = true
 			case "auth.sa-saopaulo-1.oraclecloud.com":
 				auth++
 			case "iaas.sa-saopaulo-1.oraclecloud.com":

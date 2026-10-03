@@ -1,0 +1,11 @@
+[Unit]
+Description=NetBird bridge network (ts-ops)
+
+[Network]
+NetworkName=netbird
+Subnet=10.89.77.0/24
+Gateway=10.89.77.1
+# The host's persistent iptables INPUT chain rejects everything but TCP 22,
+# 2022, 80 and 443, including aardvark-dns on the gateway. Containers resolve
+# through the VCN resolver instead; their egress is forwarded, not INPUT.
+DisableDNS=true

@@ -5,9 +5,9 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"net/netip"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -54,6 +54,7 @@ type enroller struct {
 	run         commandRunner
 	readKey     keyReader
 	hostname    func() (string, error)
+	primaryIP   func(context.Context) (netip.Addr, error)
 	hostsPath   string
 	runtimePath string
 	poll        time.Duration
@@ -66,7 +67,7 @@ func Enroll(ctx context.Context, cfg Config) error {
 		return errors.New("netbird-enroll must run as root")
 	}
 	return (enroller{
-		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname,
+		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname, primaryIP: readPrimaryPrivateIP,
 		hostsPath: "/etc/hosts", runtimePath: "/run/terrascale-netbird", poll: time.Second,
 	}).enroll(ctx, cfg)
 }
@@ -94,6 +95,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 		return err
 	}
 	managerMatches := current.managerMatches(cfg.ManagementURL)
+	reapply := false
 	if managerMatches && current.DaemonStatus == "Connected" {
 		applied, err := e.settingsApplied(ctx, cfg.ManagementURL)
 		if err != nil {
@@ -102,20 +104,23 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 		if applied && current.ready(cfg.ManagementURL) {
 			return nil
 		}
-		if !applied {
-			// NetBird's up command returns early while already connected. Bring
-			// the saved identity down once to apply the server settings.
-			if _, err := e.command(ctx, "down"); err != nil {
-				return errors.New("cannot apply TerraScale NetBird server settings")
-			}
+		reapply = !applied
+	}
+	// NetBird names a peer only when it first registers; later logins with the
+	// saved identity keep the manager's name. Resolve it before any down.
+	name, err := e.peerName(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	if reapply {
+		// NetBird's up command returns early while already connected. Bring
+		// the saved identity down once to apply the server settings.
+		if _, err := e.command(ctx, "down"); err != nil {
+			return errors.New("cannot apply TerraScale NetBird server settings")
 		}
 	}
-	hostname, err := e.hostname()
-	if err != nil || hostname == "" || len(hostname) > 253 || strings.ContainsAny(hostname, "\x00\r\n\t ") {
-		return errors.New("cannot determine a valid server hostname for NetBird")
-	}
 	args := append([]string{"up", "--config", netbirdConfig, "--management-url", cfg.ManagementURL,
-		"--hostname", hostname, "--no-browser"}, upSettings()...)
+		"--hostname", name, "--no-browser"}, upSettings()...)
 	if managerMatches && !current.needsLogin() {
 		// Login with the saved WireGuard identity first. A network outage must
 		// not consume a new setup key or replace an existing registration.

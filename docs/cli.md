@@ -67,6 +67,18 @@ exact source revision and tree, module hashes, clean build metadata, and
 retained build/test command and log hashes. A historical bootstrap tool cannot
 be paired with an operator qualified from a newer source revision.
 
+## NetBird configuration
+
+`ts-orch netbird` also reconciles the NetBird manager with the desired state
+embedded in the binary; see [NetBird](../deploy/netbird/README.md#desired-state-and-reconciliation).
+Without `--apply` these commands only read.
+
+| Command | Effect |
+| --- | --- |
+| `ts-orch netbird sync [--apply] [--pat-file FILE]` | Plan, or with `--apply` reconcile, groups, policies, network, DNS and settings |
+| `ts-orch netbird prune-peers [--apply] [--offline-for DURATION]` | List, or with `--apply` delete, offline GRU server peers of replaced revisions |
+| `ts-orch netbird inventory` | Print the manager's groups, policies, networks, DNS and peers |
+
 ## Feature boundaries
 
 Prefer `ts-orch` for new operational features. Implement them as Go commands

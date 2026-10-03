@@ -2,8 +2,10 @@ package netbird
 
 import (
 	"encoding/json/v2"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +81,51 @@ func TestLoadConfigRejectsUnknownDuplicatesSymlinksAndWritableConfig(t *testing.
 	}
 	if _, err := LoadConfig(path); err == nil {
 		t.Fatal("accepted writable config")
+	}
+}
+
+func TestPeerNamesRequirePrivateIPv4KeysAndUniqueDNSLabels(t *testing.T) {
+	cfg := testConfig()
+	cfg.PeerNames = map[string]string{"10.251.0.11": "gru-controller-a", "10.251.0.21": "gru-member-1", "10.251.0.22": strings.Repeat("m", 63)}
+	if _, err := cfg.normalized(); err != nil {
+		t.Fatal(err)
+	}
+	for name, names := range map[string]map[string]string{
+		"public address":      {"8.8.8.8": "gru-controller-a"},
+		"ipv6 address":        {"fd00::1": "gru-controller-a"},
+		"noncanonical":        {"010.251.0.11": "gru-controller-a"},
+		"cidr":                {"10.251.0.0/24": "gru-controller-a"},
+		"uppercase":           {"10.251.0.11": "GRU-controller-a"},
+		"dotted":              {"10.251.0.11": "gru.controller-a"},
+		"leading hyphen":      {"10.251.0.11": "-gru-controller-a"},
+		"trailing hyphen":     {"10.251.0.11": "gru-controller-a-"},
+		"empty":               {"10.251.0.11": ""},
+		"too long":            {"10.251.0.11": strings.Repeat("m", 64)},
+		"newline":             {"10.251.0.11": "gru\ncontroller"},
+		"duplicate peer name": {"10.251.0.11": "gru-controller-a", "10.251.0.12": "gru-controller-a"},
+	} {
+		cfg := testConfig()
+		cfg.PeerNames = names
+		if _, err := cfg.normalized(); err == nil {
+			t.Errorf("accepted %s peer names %v", name, names)
+		}
+	}
+}
+
+func TestConfigAcceptsOptionalAdminPATSecretInRegion(t *testing.T) {
+	cfg := testConfig()
+	cfg.AdminPATSecretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"
+	if _, err := cfg.normalized(); err != nil {
+		t.Fatal(err)
+	}
+	cfg.AdminPATSecretID = "ocid1.vaultsecret.oc1.us-ashburn-1.adminpat"
+	if _, err := cfg.normalized(); err == nil || !strings.Contains(err.Error(), "admin_pat_secret_id") {
+		t.Fatalf("accepted out-of-region admin PAT secret: %v", err)
+	}
+}
+
+func TestControllerConfigReportsMissingFile(t *testing.T) {
+	if _, err := LoadControllerConfig(filepath.Join(t.TempDir(), "netbird.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing config error = %v", err)
 	}
 }

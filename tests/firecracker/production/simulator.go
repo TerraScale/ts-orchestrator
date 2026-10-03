@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"slices"
@@ -36,6 +37,14 @@ const (
 	maxRouteBody        = 4 << 20
 	maxTotalBodies      = 32 << 20
 )
+
+// imdsPaths are the exact IMDSv2 GETs the simulator answers.
+var imdsPaths = []string{
+	"/opc/v2/instance/id", "/opc/v2/instance/metadata/terrascale-bootstrap",
+	"/opc/v2/instance/region", "/opc/v2/identity/cert.pem",
+	"/opc/v2/identity/key.pem", "/opc/v2/identity/intermediate.pem",
+	"/opc/v2/vnics/",
+}
 
 var signatureRE = regexp.MustCompile(`^Signature version="1",headers="([a-z0-9() -]+)",keyId="([^"]+)",algorithm="rsa-sha256",signature="([A-Za-z0-9+/=]+)"$`)
 
@@ -59,15 +68,18 @@ type MissingRead struct {
 
 // Config is fixture material; no value is read from guest-supplied metadata.
 type Config struct {
-	Region          string
-	InstanceID      string
-	DescriptorSlot  string
-	TenancyID       string
-	LeafCertificate []byte
-	LeafPrivateKey  []byte
-	Intermediate    []byte
-	Reads           []ReadResponse
-	Missing         []MissingRead
+	Region         string
+	InstanceID     string
+	DescriptorSlot string
+	// PrimaryPrivateIP is the slot's fixed primary VNIC address, served by
+	// IMDS /opc/v2/vnics/ for NetBird peer naming.
+	PrimaryPrivateIP string
+	TenancyID        string
+	LeafCertificate  []byte
+	LeafPrivateKey   []byte
+	Intermediate     []byte
+	Reads            []ReadResponse
+	Missing          []MissingRead
 }
 
 type RequestRecord struct {
@@ -111,6 +123,10 @@ func NewSimulator(config Config) (*Simulator, error) {
 	if config.Region != "sa-saopaulo-1" || config.InstanceID == "" || config.DescriptorSlot == "" ||
 		!strings.HasPrefix(config.TenancyID, "ocid1.tenancy.") {
 		return nil, errors.New("simulator requires the pinned GRU fixture identity")
+	}
+	if address, err := netip.ParseAddr(config.PrimaryPrivateIP); err != nil || !address.Is4() ||
+		!address.IsPrivate() || address.String() != config.PrimaryPrivateIP {
+		return nil, errors.New("simulator requires the slot's primary private IPv4 address")
 	}
 	config.LeafCertificate = bytes.Clone(config.LeafCertificate)
 	config.LeafPrivateKey = bytes.Clone(config.LeafPrivateKey)
@@ -324,11 +340,7 @@ func (simulator *Simulator) auditRecord(request *http.Request) RequestRecord {
 	_, found := simulator.reads[key]
 	_, missing := simulator.missing[key]
 	listed := request.Method == http.MethodGet && (found || missing ||
-		request.Host == imdsHost && slices.Contains([]string{
-			"/opc/v2/instance/id", "/opc/v2/instance/metadata/terrascale-bootstrap",
-			"/opc/v2/instance/region", "/opc/v2/identity/cert.pem",
-			"/opc/v2/identity/key.pem", "/opc/v2/identity/intermediate.pem",
-		}, uri)) || request.Method == http.MethodPost && request.Host == simulator.authHost && uri == "/v1/x509"
+		request.Host == imdsHost && slices.Contains(imdsPaths, uri)) || request.Method == http.MethodPost && request.Host == simulator.authHost && uri == "/v1/x509"
 	digest := sha256.Sum256([]byte(request.Method + "\n" + request.Host + "\n" + uri))
 	method := request.Method
 	host := request.Host
@@ -378,6 +390,10 @@ func (simulator *Simulator) serve(writer http.ResponseWriter, request *http.Requ
 			body = simulator.config.LeafPrivateKey
 		case "/opc/v2/identity/intermediate.pem":
 			body = simulator.config.Intermediate
+		case "/opc/v2/vnics/":
+			// OCI lists the primary VNIC first; NetBird enrollment reads only
+			// its privateIp.
+			body = []byte(fmt.Sprintf(`[{"privateIp":%q}]`, simulator.config.PrimaryPrivateIP))
 		default:
 			return reject(writer, http.StatusMisdirectedRequest)
 		}

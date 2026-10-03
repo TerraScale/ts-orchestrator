@@ -1,0 +1,13 @@
+[Unit]
+Description=NetBird routing-peer host firewall rule (ts-ops)
+After=netfilter-persistent.service
+Wants=netfilter-persistent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/homelab/netbird/netbird-firewall add routing-peer
+ExecStop=/usr/local/libexec/homelab/netbird/netbird-firewall remove routing-peer
+
+[Install]
+WantedBy=multi-user.target

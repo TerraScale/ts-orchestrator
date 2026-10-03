@@ -144,13 +144,16 @@ The NetBird routing peer on the ts-ops host (`10.250.10.155`), reached from the
 cell through one local peering gateway pair and source-NATed to that address.
 The cell admits it only on TCP 22 (every server), 4222 (controllers), and 9465
 (members), never on 8443. The private subnet keeps no internet route, NAT, or
-public IP. The OCI Bastion remains the break-glass operator path.
+public IP. The OCI Bastion remains the break-glass operator path. NetBird's
+manager, routing peer and configuration (groups, policies, DNS) are owned by
+ts-orchestrator; see `deploy/netbird/README.md`.
 
 **Operator SSH**
 
 Two independent SSH paths into every controller and managed host. NetBird SSH
-listens on the server's NetBird address and requires the operator's NetBird
-identity-provider login and a manager policy. OpenSSH listens on the private
+listens on the server's NetBird address (`gru-controller-a.nb.ts.internal`)
+and requires the operator's NetBird identity-provider login and the
+`operators-to-gru-servers-ssh` policy. OpenSSH listens on the private
 IP and accepts the owner's Ed25519 key, which controller A receives in OCI
 `ssh_authorized_keys` launch metadata and forwards to every server it launches.
 

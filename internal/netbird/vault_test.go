@@ -136,3 +136,47 @@ func TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess(t *testing
 		})
 	}
 }
+
+func TestAdminPATShapeIsSharedAndBounded(t *testing.T) {
+	const pat = "nbp_abcdefghijklmnopqrstuvwxyzABCD012345"
+	for value, ok := range map[string]bool{
+		pat:                               true,
+		"nbp_" + strings.Repeat("a", 252): true,
+		"nbp_" + strings.Repeat("a", 253): false,
+		pat[:39]:                          false,
+		"nbx_" + pat[4:]:                  false,
+		"NBP_" + pat[4:]:                  false,
+		strings.Repeat("a", 40):           false,
+		pat[:39] + " ":                    false,
+		pat[:39] + "\x00":                 false,
+		pat[:39] + "é":                    false,
+		"Token " + pat:                    false,
+	} {
+		if ValidAdminPAT([]byte(value)) != ok {
+			t.Fatalf("ValidAdminPAT(len %d) != %v", len(value), ok)
+		}
+	}
+}
+
+func TestVaultReadsOnlyWellFormedAdminPAT(t *testing.T) {
+	id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.adminpat"
+	const pat = "nbp_abcdefghijklmnopqrstuvwxyzABCD012345"
+	for value, ok := range map[string]bool{
+		pat + "\n": true, "nbp_short": false, testSetupKey: false,
+		"nbp_abcdefghijklmnopqrstuvwxyzABCD01234-": false,
+		"nbp_" + strings.Repeat("Z", 196):          true,
+		"nbp_" + strings.Repeat("Z", 252):          true,
+		"nbp_" + strings.Repeat("Z", 253):          false,
+	} {
+		client := fakeBundleClient(func(context.Context, secrets.GetSecretBundleRequest) (secrets.GetSecretBundleResponse, error) {
+			return setupKeyBundle(id, value), nil
+		})
+		token, err := readCurrentSecret(t.Context(), id, "admin PAT", maxAdminPATBytes, client, validAdminPAT)
+		if ok != (err == nil) || ok && string(token) != strings.TrimSpace(value) {
+			t.Fatalf("PAT shape of length %d: ok=%v error=%v", len(value), ok, err)
+		}
+		if err != nil && strings.Contains(err.Error(), value) {
+			t.Fatal("PAT read error leaked secret content")
+		}
+	}
+}

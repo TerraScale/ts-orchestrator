@@ -1,0 +1,190 @@
+{
+  "schema": "terrascale.netbird.enrollment-verification.v1",
+  "verified_at": "2026-09-30T18:33:26.819932+00:00",
+  "published_source_revision": "cb8314f20be39dbe4c71674750bbdb4d93b1487b",
+  "tested_enrollment_source_matches_published_revision": true,
+  "tested_enrollment_binary_sha256": "6e7a114f5f237a512263d7b91ab569fea95b3af36388bca5c7f46fa5c36dea07",
+  "netbird_version": "0.79.0",
+  "management_url": "https://netbird.terrascale.tech",
+  "management_private_ip": "10.250.10.155",
+  "tests": {
+    "first_boot": {
+      "boot_id": "eaddb7e6-6672-4635-8f02-27fdda3374a8",
+      "boot_id_changed": false,
+      "client_version": "0.79.0",
+      "daemon_status": "Connected",
+      "daemon_version": "0.79.0",
+      "fqdn": "ts-netbird-enrollment-smoke-20260930.netbird.selfhosted",
+      "hostname": "ts-netbird-enrollment-smoke-20260930",
+      "hosts_mapping": {
+        "address": "10.250.10.155",
+        "hostname": "netbird.terrascale.tech"
+      },
+      "identity_same": true,
+      "identity_state_root_only": true,
+      "management_connected": true,
+      "manager_matches": true,
+      "netbird_ip": "100.123.175.203/16",
+      "phase": "first-boot-connected",
+      "public_identity_sha256": "3ce07c8f993ea1905f5fd08f47c88c4600bfb84c293c66adf88f852cc1b08530",
+      "relay_available": 1,
+      "relay_total": 1,
+      "relay_transports": [
+        "ws"
+      ],
+      "safe_configuration": {
+        "disableAutoConnect": false,
+        "disableClientRoutes": true,
+        "disableDns": true,
+        "disableServerRoutes": true,
+        "serverSSHAllowed": false
+      },
+      "signal_connected": true,
+      "transient_setup_key_absent": true
+    },
+    "reboot": {
+      "boot_id": "bdcae9ce-47af-4d7f-b00b-322f9e64646a",
+      "boot_id_changed": true,
+      "client_version": "0.79.0",
+      "daemon_status": "Connected",
+      "daemon_version": "0.79.0",
+      "fqdn": "ts-netbird-enrollment-smoke-20260930.netbird.selfhosted",
+      "hostname": "ts-netbird-enrollment-smoke-20260930",
+      "hosts_mapping": {
+        "address": "10.250.10.155",
+        "hostname": "netbird.terrascale.tech"
+      },
+      "identity_same": true,
+      "identity_state_root_only": true,
+      "management_connected": true,
+      "manager_matches": true,
+      "netbird_ip": "100.123.175.203/16",
+      "phase": "reboot-connected",
+      "public_identity_sha256": "3ce07c8f993ea1905f5fd08f47c88c4600bfb84c293c66adf88f852cc1b08530",
+      "relay_available": 1,
+      "relay_total": 1,
+      "relay_transports": [
+        "ws"
+      ],
+      "safe_configuration": {
+        "disableAutoConnect": false,
+        "disableClientRoutes": true,
+        "disableDns": true,
+        "disableServerRoutes": true,
+        "serverSSHAllowed": false
+      },
+      "signal_connected": true,
+      "transient_setup_key_absent": true
+    },
+    "operator_gateway": {
+      "route_device": "wt0",
+      "source_ip": "100.123.207.66",
+      "checks": [
+        {
+          "address": "10.251.0.11",
+          "port": 22,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.13
+        },
+        {
+          "address": "10.251.0.11",
+          "port": 4222,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.0
+        },
+        {
+          "address": "10.251.0.12",
+          "port": 4222,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.0
+        },
+        {
+          "address": "10.251.0.13",
+          "port": 4222,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.0
+        },
+        {
+          "address": "10.251.0.21",
+          "port": 9465,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.0
+        },
+        {
+          "address": "10.251.0.22",
+          "port": 9465,
+          "connected": true,
+          "expected": true,
+          "elapsed_seconds": 0.0
+        },
+        {
+          "address": "10.251.0.11",
+          "port": 6222,
+          "connected": false,
+          "expected": false,
+          "elapsed_seconds": 5.01
+        },
+        {
+          "address": "10.251.0.11",
+          "port": 8443,
+          "connected": false,
+          "expected": false,
+          "elapsed_seconds": 5.01
+        }
+      ],
+      "test_container_removed": true,
+      "test_peer_removed": true,
+      "test_key_revoked": true,
+      "temporary_key_files_removed": true
+    }
+  },
+  "test_cleanup": {
+    "instance": "TERMINATED",
+    "boot_volume": "TERMINATED",
+    "manager_peer_removed": true,
+    "temporary_artifact_route_removed": true,
+    "temporary_setup_key_file_removed": true
+  },
+  "live_gateway": {
+    "hostname": "ts-forgejo-server",
+    "ip": "100.123.189.31",
+    "connected": true
+  },
+  "live_controller": {
+    "hostname": "ts-preview-gru-20260930-r20-controller-a",
+    "ip": "100.123.120.61",
+    "connected": true,
+    "additive_install_preserved_running_orchestrator": true
+  },
+  "remaining_server_rollout": {
+    "controllers": 2,
+    "managed_hosts": 2,
+    "delivery": "User assigned the NetBird-enabled image rollout to Claude as part of separate GRU work"
+  },
+  "backup": {
+    "snapshot": "20260930T183302Z",
+    "integrity_check": {
+      "events.db": "ok",
+      "geonames_20260911.db": "ok",
+      "idp.db": "ok",
+      "store.db": "ok"
+    }
+  },
+  "rollout_image": {
+    "release_tag": "image-cb8314f20be39dbe4c71674750bbdb4d93b1487b-run-12081-attempt-1",
+    "source_revision": "cb8314f20be39dbe4c71674750bbdb4d93b1487b",
+    "builder_run_number": 801,
+    "builder_run_id": 12081,
+    "image_sha256": "d8c30f9b9e705dec3646b7516db5556430a47d85402be73f389ed0337015aaa3",
+    "qualification_sha256": "ed60f39a9eb1f959b3db540f41725fcc648b03c97b600b8927971f13b9a02e7f",
+    "verified_netbird_binary_sha256": "7a562fb95a43eba5fe17ff08e0047ea39a9ccce1411f25f7a59d4e470f851817",
+    "verified_enrollment_config_sha256": "ada244681c8bbebda26a3a8ffbb8972668e3e2a79a0dda351e6af0c0d480dd96",
+    "requires_oci_import_and_signing": true,
+    "builder_final_status": "success"
+  }
+}
